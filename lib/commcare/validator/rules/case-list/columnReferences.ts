@@ -1,6 +1,7 @@
 /**
- * Rule: every non-calculated column on `caseListConfig.columns` carries
- * a `field` that resolves to a property the module's case type admits
+ * Rule: every runtime-active non-calculated column on
+ * `caseListConfig.columns` carries a `field` that resolves to a property the
+ * module's case type admits
  * — declared on `ct.properties[]`, written by a form field via
  * `case_property_on === mod.caseType`, or part of CommCare's standard
  * set (`case_name`, `date_opened`, …).
@@ -11,7 +12,9 @@
  * reference check skips them and leaves their property resolution to
  * the per-operand walk inside `calculatedColumnTypeCheck`. Every other
  * column kind exposes the same `field: string` slot, and every runtime
- * renderer reads the case property by that name.
+ * renderer reads the case property by that name. Fully off-screen, unsorted
+ * legacy definitions are recovery state rather than runtime input, so the rule
+ * ignores them until an author shows or sorts by them again.
  *
  * Property resolution routes through the shared `propertyExists`
  * helper, which reads the memoized `ValidationContext` augmented case-
@@ -19,7 +22,13 @@
  * case-list-config rule by construction.
  */
 
-import type { BlueprintDoc, Column, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Column,
+	caseListColumnHasRuntimeRole,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 import { propertyExists } from "./shared";
 
@@ -36,6 +45,7 @@ export function columnReferences(
 
 	for (let index = 0; index < config.columns.length; index++) {
 		const col = config.columns[index];
+		if (!caseListColumnHasRuntimeRole(col)) continue;
 		// Calculated columns have no `field` — their property references
 		// live inside the `expression` AST and the per-operand type
 		// checker (`calculatedColumnTypeCheck`) walks them through the

@@ -35,6 +35,8 @@ import type {
 	XPathExpression,
 } from "@/lib/domain";
 import {
+	authorableCaseProperties,
+	canonicalCasePropertyName,
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldSchema,
@@ -197,7 +199,9 @@ export function applyDefaults<E extends object = object>(
 
 	if (result.case_property_on && caseTypes) {
 		const ct = caseTypes.find((c) => c.name === result.case_property_on);
-		const prop = ct?.properties.find((p) => p.name === result.id);
+		const prop = authorableCaseProperties(ct?.properties ?? []).find(
+			(p) => p.name === canonicalCasePropertyName(result.id ?? ""),
+		);
 		if (prop) {
 			// Seed the kind first — every other default depends on knowing it.
 			result.kind ??= prop.data_type ?? "text";

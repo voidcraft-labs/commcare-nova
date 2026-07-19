@@ -37,6 +37,11 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import {
+	substituteUnansweredSearchInputsInExpression,
+	substituteUnansweredSearchInputsInPredicate,
+} from "@/lib/domain/predicate";
+import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { validateCaseType } from "./identifierValidation";
 import {
@@ -44,7 +49,10 @@ import {
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "./predicate";
-import { emitNodesetFilter } from "./suite/case-list/nodesetFilter";
+import {
+	emitExcludedOwnerNodesetFilter,
+	emitNodesetFilter,
+} from "./suite/case-list/nodesetFilter";
 import type { FormActions, HqFormLink } from "./types";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -179,18 +187,24 @@ const SESSION_REF = "instance('commcaresession')/session/data";
  * (`deriveSessionDatums`) and the `caseListOnly` browse entry's
  * `case_id` datum (`deriveCaseListEntryDefinition`). Keeping it in one
  * place stops the two from drifting on the `[@case_type][@status]`
- * predicate order or the filter-append rule.
+ * predicate order or the availability-filter append rule.
  *
- * Filter precedence (case-type / status first, user filter last)
+ * Filter precedence (case-type / status first, list rule then owner exclusion)
  * matches CCHQ's canonical builder at
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
  */
 function caseLoadingNodeset(
 	caseType: string,
 	caseListFilter: Predicate | undefined,
+	excludedOwnerIds: ValueExpression | undefined,
+	relationContext: RelationEvaluationScopeContext = {},
 ): string {
-	const filterFragment = emitNodesetFilter(caseListFilter);
-	return `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}`;
+	const filterFragment = emitNodesetFilter(caseListFilter, relationContext);
+	const ownerFragment = emitExcludedOwnerNodesetFilter(
+		excludedOwnerIds,
+		relationContext,
+	);
+	return `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}${ownerFragment}`;
 }
 
 /**
@@ -209,22 +223,24 @@ function caseLoadingNodeset(
  * `.ccz` emission has no equivalent post-pass, so this walks every
  * XPath surface the entry's body reaches:
  *
- *   - the case-list `filter` predicate (lives inside the case-loading
- *     datum's nodeset);
+ *   - the case-list `filter` predicate and owner-exclusion expression (both
+ *     live inside the case-loading datum's nodeset);
  *   - the `searchButtonDisplayCondition` predicate (lowers to the
  *     `<action relevant>` on the case-list detail's search-action
  *     element, evaluated in this entry's context);
- *   - every calc-column expression on `m{N}_case_short` /
- *     `m{N}_case_long`.
+ *   - each calculated expression actually emitted on Results/Details (or
+ *     retained as an off-screen Results sort carrier).
  *
- * Accumulation ORDER is observable on the wire — predicate instances
- * (filter, then display condition) before calc-column instances. The
+ * Accumulation ORDER is observable on the wire — list-filter instances,
+ * owner-expression instances, then display-condition instances before
+ * calc-column instances. The
  * caller seeds `casedb` from the datum first so the final order is
  * casedb → predicate instances → calc-column instances, matching the
  * form-entry shape byte-for-byte.
  */
 function accumulateCaseLoadingInstances(
 	caseListFilter: Predicate | undefined,
+	excludedOwnerIds: ValueExpression | undefined,
 	searchButtonDisplayCondition: Predicate | undefined,
 	caseListColumnExpressions: readonly ValueExpression[] | undefined,
 	instances: EntryInstance[],
@@ -236,13 +252,39 @@ function accumulateCaseLoadingInstances(
 	// search-button display condition (on the detail's `<action relevant>`,
 	// evaluated against the enclosing entry's instances). The Term-kind →
 	// instance-id mapping is fixed in `instanceSourceFor`.
-	const predicatesContributing: Predicate[] = [];
-	if (caseListFilter !== undefined) predicatesContributing.push(caseListFilter);
-	if (searchButtonDisplayCondition !== undefined) {
-		predicatesContributing.push(searchButtonDisplayCondition);
+	//
+	// The filter and owner-exclusion slots collect from the SAME
+	// unanswered-Search substitution `nodesetFilter.ts` emits from, so a
+	// Search-input ref never declares `search-input:results` on an entry
+	// that would leave the instance unloaded (a declared-but-unloaded
+	// instance is itself a runtime throw in Core's `XPathPathExpr.evalRaw`
+	// the moment anything references it).
+	if (caseListFilter !== undefined) {
+		const unanswered =
+			substituteUnansweredSearchInputsInPredicate(caseListFilter);
+		for (const id of collectPredicateInstances(unanswered)) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id) });
+		}
 	}
-	for (const predicate of predicatesContributing) {
-		for (const id of collectPredicateInstances(predicate)) {
+
+	// Owner exclusion is a scalar expression embedded in the same datum
+	// nodeset as the always-on filter. It can reach session or relation
+	// instances, so collect its dependencies before detail-level
+	// display/calculated expressions in wire order.
+	if (excludedOwnerIds !== undefined) {
+		const unanswered =
+			substituteUnansweredSearchInputsInExpression(excludedOwnerIds);
+		for (const id of collectExpressionInstances(unanswered)) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id) });
+		}
+	}
+
+	if (searchButtonDisplayCondition !== undefined) {
+		for (const id of collectPredicateInstances(searchButtonDisplayCondition)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });
@@ -308,6 +350,8 @@ export function deriveSessionDatums(
 	caseType?: string,
 	caseListFilter?: Predicate,
 	actions?: FormActions,
+	excludedOwnerIds?: ValueExpression,
+	relationContext: RelationEvaluationScopeContext = {},
 ): SessionDatum[] {
 	const datums: SessionDatum[] = [];
 
@@ -317,7 +361,12 @@ export function deriveSessionDatums(
 			id: "case_id",
 			instanceId: "casedb",
 			instanceSrc: "jr://instance/casedb",
-			nodeset: caseLoadingNodeset(caseType, caseListFilter),
+			nodeset: caseLoadingNodeset(
+				caseType,
+				caseListFilter,
+				excludedOwnerIds,
+				relationContext,
+			),
 			value: "./@case_id",
 			detailSelect: `m${moduleIndex}_case_short`,
 		});
@@ -541,6 +590,10 @@ export function deriveFormLinkStack(
  * form types — `deriveSessionDatums` ignores it for registration /
  * survey forms because they emit no case-loading datum at all.
  *
+ * `excludedOwnerIds` is the module's owner-availability expression. It
+ * narrows every case-loading nodeset independently of whether the module has
+ * an effective remote Search action.
+ *
  * `searchButtonDisplayCondition` is the module's
  * `caseSearchConfig.searchButtonDisplayCondition` predicate. It
  * lowers to the `<action relevant>` attribute on the case-list
@@ -549,8 +602,8 @@ export function deriveFormLinkStack(
  * needs an `<instance>` declaration here alongside the filter's
  * instances.
  *
- * `caseListColumnExpressions` carries every calc-column expression
- * the module's case-list short / long detail emits. CCHQ's runtime
+ * `caseListColumnExpressions` carries each calculated expression
+ * the module's case-list short / long detail actually emits. CCHQ's runtime
  * resolves a detail's `instance(...)` references against the
  * enclosing entry's declarations (the entry's `<datum
  * detail-select="m{N}_case_short" ... >` ties the two together);
@@ -572,6 +625,8 @@ export function deriveEntryDefinition(
 	searchButtonDisplayCondition?: Predicate,
 	caseListColumnExpressions?: readonly ValueExpression[],
 	actions?: FormActions,
+	excludedOwnerIds?: ValueExpression,
+	relationContext: RelationEvaluationScopeContext = {},
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -582,6 +637,8 @@ export function deriveEntryDefinition(
 		caseType,
 		caseListFilter,
 		actions,
+		excludedOwnerIds,
+		relationContext,
 	);
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
@@ -599,13 +656,14 @@ export function deriveEntryDefinition(
 	}
 
 	// Accumulate the `<instance>` declarations the entry's body reaches —
-	// the case-list filter, the search-button display condition, and every
-	// calc-column expression. Shared with the `caseListOnly` browse entry
+	// the case-list filter, the search-button display condition, and each
+	// runtime-relevant calc-column expression. Shared with the `caseListOnly` browse entry
 	// so the two case-loading shapes can't drift on which instances they
 	// declare. Runs after the datum's `casedb` seed above so the final
 	// order is casedb → predicate instances → calc-column instances.
 	accumulateCaseLoadingInstances(
 		caseListFilter,
+		excludedOwnerIds,
 		searchButtonDisplayCondition,
 		caseListColumnExpressions,
 		instances,
@@ -665,12 +723,10 @@ export function deriveEntryDefinition(
  * `id_strings.case_list_command` (`m{N}-case-list`) /
  * `id_strings.case_list_locale` (`case_lists.m{N}`).
  *
- * The datum carries BOTH `detail-select` (`m{N}_case_short`, the list
- * screen) AND `detail-confirm` (`m{N}_case_long`, the detail screen) —
- * unlike the form entry's case-loading datum, which only selects. A
- * pure browse entry has no follow-on form, so the confirm screen IS the
- * destination; without `detail-confirm` the user could pick a case but
- * never see its detail.
+ * The datum always carries `detail-select` (`m{N}_case_short`, Results).
+ * `detail-confirm` (`m{N}_case_long`, Details) is conditional: it appears
+ * only when the author put information on Details, so a pure browse entry
+ * never sends the worker to an empty confirmation screen.
  *
  * `formXmlns` is omitted so `buildEntryElement` skips the `<form>`
  * child. The instance accumulation mirrors `deriveEntryDefinition`
@@ -694,6 +750,9 @@ export function deriveCaseListEntryDefinition(
 	caseListFilter?: Predicate,
 	searchButtonDisplayCondition?: Predicate,
 	caseListColumnExpressions?: readonly ValueExpression[],
+	hasDetailScreen = true,
+	excludedOwnerIds?: ValueExpression,
+	relationContext: RelationEvaluationScopeContext = {},
 ): EntryDefinition {
 	// The browse datum: loads a case from the list into both the list
 	// (detail-select) and detail (detail-confirm) screens. Shares the
@@ -703,10 +762,17 @@ export function deriveCaseListEntryDefinition(
 		id: "case_id",
 		instanceId: "casedb",
 		instanceSrc: "jr://instance/casedb",
-		nodeset: caseLoadingNodeset(caseType, caseListFilter),
+		nodeset: caseLoadingNodeset(
+			caseType,
+			caseListFilter,
+			excludedOwnerIds,
+			relationContext,
+		),
 		value: "./@case_id",
 		detailSelect: `m${moduleIndex}_case_short`,
-		detailConfirm: `m${moduleIndex}_case_long`,
+		...(hasDetailScreen && {
+			detailConfirm: `m${moduleIndex}_case_long`,
+		}),
 	};
 
 	// Seed `casedb` from the datum, then accumulate every body-reachable
@@ -720,6 +786,7 @@ export function deriveCaseListEntryDefinition(
 	}
 	accumulateCaseLoadingInstances(
 		caseListFilter,
+		excludedOwnerIds,
 		searchButtonDisplayCondition,
 		caseListColumnExpressions,
 		instances,

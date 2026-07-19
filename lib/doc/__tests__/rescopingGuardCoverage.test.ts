@@ -762,7 +762,7 @@ const GUARD_COVERAGE = {
 	},
 	moveColumn: {
 		neverGates:
-			"reorders a case-list column (order-key only) — no rule reads column position",
+			"reorders a case-list column (generic or one-surface order key only) — no rule reads column position",
 		build: () => {
 			const doc = richDoc();
 			const col = patientsColumn(doc);
@@ -774,6 +774,7 @@ const GUARD_COVERAGE = {
 						moduleUuid: asUuid("mod-patients"),
 						uuid: col.uuid,
 						order: "V",
+						surfaceOrderPatch: { surface: "list", order: "V" },
 					},
 				],
 			};

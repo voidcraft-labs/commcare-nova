@@ -34,8 +34,8 @@ describe("ArithCard — inline errors", () => {
 			/>,
 		);
 		// The type checker rejects the text-typed left operand. The
-		// message names the operator and the offending side.
-		expect(container.textContent).toMatch(/numeric operands/i);
+		// editor turns that into a direct next action.
+		expect(container.textContent).toMatch(/Choose a number/i);
 	});
 
 	it("renders the numeric-required error EXACTLY ONCE per offending operand", () => {
@@ -55,12 +55,11 @@ describe("ArithCard — inline errors", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// Filter to error rows that contain the operator-side message
-		// — `numeric operands` appears only in the type checker's
-		// arith-side rejection. One render = one DOM row carrying it.
+		// Filter to error rows that contain the friendly operator-side
+		// action. One render = one DOM row carrying it.
 		const errorRows = Array.from(
 			container.querySelectorAll<HTMLElement>(".text-nova-rose"),
-		).filter((el) => /numeric operands/i.test(el.textContent ?? ""));
+		).filter((el) => /Choose a number/i.test(el.textContent ?? ""));
 		expect(errorRows.length).toBe(1);
 	});
 
@@ -74,6 +73,6 @@ describe("ArithCard — inline errors", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).not.toMatch(/numeric operands/i);
+		expect(container.textContent).not.toMatch(/Choose a number/i);
 	});
 });

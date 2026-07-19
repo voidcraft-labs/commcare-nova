@@ -16,9 +16,9 @@
 // dropdowns.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import {
 	useCallback,
 	useEffect,
@@ -27,6 +27,17 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import { FieldError } from "@/components/shadcn/field";
+import { Input } from "@/components/shadcn/input";
 import {
 	type CaseProperty,
 	type CaseType,
@@ -40,12 +51,6 @@ import {
 	type ResolvedType,
 	timeLiteral,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_BASE,
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import { usePredicateEditContext } from "../editorContext";
 import { rebuildLiteralPreservingDataType } from "../literalRebuild";
 
@@ -166,8 +171,8 @@ export function LiteralValueInput({
 
 	if (propertyName === undefined && accepts === undefined) {
 		return (
-			<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-				Select a property first
+			<div className="rounded-md border border-dashed border-white/[0.06] px-3 py-2 text-[13px] text-nova-text-muted">
+				Choose case information first
 			</div>
 		);
 	}
@@ -270,11 +275,11 @@ export function LiteralValueInput({
 }
 
 const INPUT_BASE_CLS =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 transition-colors";
+	"h-auto min-h-11 w-full rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted md:text-sm dark:bg-nova-deep/50";
 const INPUT_VALID_CLS =
-	"border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30";
+	"border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30";
 const INPUT_INVALID_CLS =
-	"border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30";
+	"border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30";
 
 function inputCls(invalid: boolean): string {
 	return `${INPUT_BASE_CLS} ${invalid ? INPUT_INVALID_CLS : INPUT_VALID_CLS}`;
@@ -305,18 +310,22 @@ function TextInput({
 	ariaLabel,
 }: ScalarInputProps & { readonly nonEmpty?: boolean }) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const requiredErrorId = useId();
 	const initial = typeof value?.value === "string" ? value.value : "";
 	const [draft, setDraft] = useState(initial);
+	const [showRequiredError, setShowRequiredError] = useState(false);
 	useEffect(() => {
 		if (initial !== draft && document.activeElement !== inputRef.current) {
 			setDraft(initial);
+			setShowRequiredError(false);
 		}
 	}, [initial, draft]);
 	// Commit gating + qualifier preservation:
 	//   - The no-op `draft === initial` short-circuit keeps a focus
 	//     pulse on an untouched input from re-emitting the AST.
-	//   - A `nonEmpty` slot reverts an emptied draft to the prior
-	//     value rather than committing `literal("")`.
+	//   - A `nonEmpty` slot preserves an emptied draft and explains
+	//     how to correct it rather than mysteriously restoring the
+	//     prior value or committing `literal("")`.
 	//   - On a real edit, `rebuildLiteralPreservingDataType` carries
 	//     the source's `data_type` qualifier through. A literal
 	//     declared `data_type: "date"` (or any other qualifier) at a
@@ -326,32 +335,44 @@ function TextInput({
 	//     emits a bare `literal(draft)` — there's no qualifier to
 	//     preserve.
 	const commit = useCallback(() => {
-		if (draft === initial) return;
 		if (nonEmpty && draft === "") {
-			setDraft(initial);
+			setShowRequiredError(true);
 			return;
 		}
+		setShowRequiredError(false);
+		if (draft === initial) return;
 		onChange(
 			value === undefined
 				? literal(draft)
 				: rebuildLiteralPreservingDataType(value, draft),
 		);
 	}, [draft, initial, nonEmpty, onChange, value]);
+	const effectiveInvalid = invalid || showRequiredError;
 
 	return (
-		<input
-			ref={inputRef}
-			type="text"
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			placeholder="Enter text"
-			aria-label={ariaLabel}
-			aria-invalid={invalid || undefined}
-			className={inputCls(invalid)}
-		/>
+		<div>
+			<Input
+				ref={inputRef}
+				type="text"
+				value={draft}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (showRequiredError && next !== "") {
+						setShowRequiredError(false);
+					}
+				}}
+				onBlur={commit}
+				autoComplete="off"
+				data-1p-ignore
+				placeholder="Enter text"
+				aria-label={ariaLabel}
+				aria-invalid={effectiveInvalid || undefined}
+				aria-describedby={showRequiredError ? requiredErrorId : undefined}
+				className={inputCls(effectiveInvalid)}
+			/>
+			{showRequiredError ? <RequiredValueError id={requiredErrorId} /> : null}
+		</div>
 	);
 }
 
@@ -360,12 +381,12 @@ interface NumericInputProps extends ScalarInputProps {
 }
 
 /**
- * Numeric literal input — int or decimal. Native `<input
- * type="number">` constrains keyboard / paste to numeric values
- * and surfaces the platform's spinner controls. Commits on blur;
- * empty input clears the value (commits a `literal(null)` so the
- * type checker treats the slot as the absent-or-null compatibility
- * case).
+ * Numeric literal input — int or decimal. Integers retain the native
+ * number control; decimals use a text control with `inputMode="decimal"`
+ * so an incomplete or malformed draft remains visible for correction
+ * instead of being sanitized away by the browser. Commits on blur.
+ * A decimal may be intentionally cleared to `literal(null)`; every
+ * other invalid draft stays local with a friendly correction.
  */
 function NumericInput({
 	value,
@@ -375,51 +396,106 @@ function NumericInput({
 	integerOnly,
 }: NumericInputProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const numberErrorId = useId();
 	const initial = typeof value?.value === "number" ? String(value.value) : "";
 	const [draft, setDraft] = useState(initial);
+	const [showNumberError, setShowNumberError] = useState(false);
 	useEffect(() => {
 		if (initial !== draft && document.activeElement !== inputRef.current) {
 			setDraft(initial);
+			setShowNumberError(false);
 		}
 	}, [initial, draft]);
 	// Commit gating + qualifier preservation: same shape as
-	// `TextInput`'s commit. Empty-input emits a `literal(null)`
-	// preserving the source's qualifier (the type checker treats
-	// null as universally compatible); a real numeric edit emits
-	// the parsed number through the qualifier-preserving rebuilder.
+	// `TextInput`'s commit. Decimal empty-input emits a `literal(null)`
+	// preserving the source's qualifier (the type checker treats null
+	// as universally compatible). Every non-empty draft must parse as a
+	// finite number; integers additionally require a whole number before
+	// the qualifier-preserving rebuild runs.
 	const commit = useCallback(() => {
-		if (draft === initial) return;
 		const next = (nextValue: string | number | boolean | null) =>
 			value === undefined
 				? literal(nextValue)
 				: rebuildLiteralPreservingDataType(value, nextValue);
-		if (draft.trim() === "") {
-			onChange(next(null));
+		if (integerOnly) {
+			const parsed = finiteInteger(draft);
+			if (parsed === undefined) {
+				setShowNumberError(true);
+				return;
+			}
+			setShowNumberError(false);
+			if (draft === initial) return;
+			onChange(next(parsed));
 			return;
 		}
-		const parsed = integerOnly
-			? Number.parseInt(draft, 10)
-			: Number.parseFloat(draft);
-		if (Number.isNaN(parsed)) return;
+		if (draft.trim() === "") {
+			setShowNumberError(false);
+			if (draft !== initial) onChange(next(null));
+			return;
+		}
+		const parsed = finiteNumber(draft);
+		if (parsed === undefined) {
+			setShowNumberError(true);
+			return;
+		}
+		setShowNumberError(false);
+		if (draft === initial) return;
 		onChange(next(parsed));
 	}, [draft, initial, integerOnly, onChange, value]);
+	const effectiveInvalid = invalid || showNumberError;
 
 	return (
-		<input
-			ref={inputRef}
-			type="number"
-			step={integerOnly ? 1 : "any"}
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			placeholder={integerOnly ? "0" : "0.0"}
-			aria-label={ariaLabel}
-			aria-invalid={invalid || undefined}
-			className={`${inputCls(invalid)} font-mono`}
-		/>
+		<div>
+			<Input
+				ref={inputRef}
+				type={integerOnly ? "number" : "text"}
+				inputMode={integerOnly ? undefined : "decimal"}
+				step={integerOnly ? 1 : undefined}
+				value={draft}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (
+						showNumberError &&
+						(integerOnly
+							? finiteInteger(next) !== undefined
+							: next.trim() === "" || finiteNumber(next) !== undefined)
+					) {
+						setShowNumberError(false);
+					}
+				}}
+				onBlur={commit}
+				autoComplete="off"
+				data-1p-ignore
+				aria-label={ariaLabel}
+				aria-invalid={effectiveInvalid || undefined}
+				aria-describedby={showNumberError ? numberErrorId : undefined}
+				className={inputCls(effectiveInvalid)}
+			/>
+			{showNumberError ? (
+				<FieldError
+					id={numberErrorId}
+					className="mt-2 text-[13px] leading-5 text-nova-rose"
+				>
+					{integerOnly ? "Enter a whole number" : "Enter a number"}
+				</FieldError>
+			) : null}
+		</div>
 	);
+}
+
+function finiteInteger(draft: string): number | undefined {
+	if (draft.trim() === "") return undefined;
+	const parsed = Number(draft);
+	return Number.isFinite(parsed) && Number.isInteger(parsed)
+		? parsed
+		: undefined;
+}
+
+function finiteNumber(draft: string): number | undefined {
+	if (draft.trim() === "") return undefined;
+	const parsed = Number(draft);
+	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 interface DateInputProps {
@@ -439,11 +515,9 @@ interface DateInputProps {
  * than blur — picker commits are atomic events, not in-flight
  * edits.
  *
- * A `nonEmpty` slot (a `fuzzy-date` match value) ignores a cleared
- * value: the input is controlled by `value={initial}`, so dropping the
- * commit snaps the native picker back to the prior value — the same
- * revert the text widget does, so an empty `dateLiteral("")` can't be
- * authored where the empty string is a soundness state.
+ * A required `nonEmpty` slot keeps a cleared picker visible with a
+ * correction rather than snapping back to the prior value. Optional
+ * temporal values retain their existing empty-string commit semantics.
  */
 function DateInput({
 	value,
@@ -453,23 +527,62 @@ function DateInput({
 	invalid,
 	ariaLabel,
 }: DateInputProps) {
+	const inputRef = useRef<HTMLInputElement>(null);
+	const requiredErrorId = useId();
 	const initial = typeof value?.value === "string" ? value.value : "";
+	const [draft, setDraft] = useState(initial);
+	const [showRequiredError, setShowRequiredError] = useState(false);
 	const inputType =
 		kind === "date" ? "date" : kind === "time" ? "time" : "datetime-local";
+	useEffect(() => {
+		if (initial !== draft && document.activeElement !== inputRef.current) {
+			setDraft(initial);
+			setShowRequiredError(false);
+		}
+	}, [draft, initial]);
+	const effectiveInvalid = invalid || showRequiredError;
 	return (
-		<input
-			type={inputType}
-			value={initial}
-			onChange={(e) => {
-				if (nonEmpty && e.target.value === "") return;
-				onChange(e.target.value);
-			}}
-			autoComplete="off"
-			data-1p-ignore
-			aria-label={ariaLabel}
-			aria-invalid={invalid || undefined}
-			className={`${inputCls(invalid)} font-mono`}
-		/>
+		<div>
+			<Input
+				ref={inputRef}
+				type={inputType}
+				value={draft}
+				required={nonEmpty}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (
+						!event.currentTarget.validity.valid ||
+						(nonEmpty && next === "")
+					) {
+						setShowRequiredError(true);
+						return;
+					}
+					setShowRequiredError(false);
+					onChange(next);
+				}}
+				onBlur={() => {
+					if (!inputRef.current?.validity.valid || (nonEmpty && draft === "")) {
+						setShowRequiredError(true);
+					}
+				}}
+				autoComplete="off"
+				data-1p-ignore
+				aria-label={ariaLabel}
+				aria-invalid={effectiveInvalid || undefined}
+				aria-describedby={showRequiredError ? requiredErrorId : undefined}
+				className={inputCls(effectiveInvalid)}
+			/>
+			{showRequiredError ? <RequiredValueError id={requiredErrorId} /> : null}
+		</div>
+	);
+}
+
+function RequiredValueError({ id }: { readonly id: string }) {
+	return (
+		<FieldError id={id} className="mt-2 text-[13px] leading-5 text-nova-rose">
+			Enter a value
+		</FieldError>
 	);
 }
 
@@ -488,12 +601,14 @@ function NullOnlyLiteral({ value }: { readonly value: Literal | undefined }) {
 	// is the accessible name; a label on a non-interactive div isn't
 	// supported by its role.
 	return (
-		<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30">
-			<span className="font-mono text-nova-text-muted">
-				{nonNull ? String(value.value) : "null"}
-			</span>
-			<span className="text-[11px] text-nova-text-muted">
-				No typed value fits a place here — compare to a property instead.
+		<div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30 px-3 py-2 text-[13px]">
+			{nonNull && (
+				<span className="text-nova-text-secondary">{String(value.value)}</span>
+			)}
+			<span className="text-[13px] leading-relaxed text-nova-text-muted">
+				{nonNull
+					? "This saved value can't be used as a place. Choose other case information"
+					: "Compare this place with other case information"}
 			</span>
 		</div>
 	);
@@ -523,17 +638,28 @@ function SelectOptionInput({
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const current = typeof value?.value === "string" ? value.value : undefined;
+	const ambiguousLabels = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const option of options) {
+			counts.set(option.label, (counts.get(option.label) ?? 0) + 1);
+		}
+		return new Set(
+			[...counts.entries()]
+				.filter(([, count]) => count > 1)
+				.map(([label]) => label),
+		);
+	}, [options]);
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm text-nova-text whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
 		invalid
-			? "border-nova-rose/40 hover:border-nova-rose/60"
-			: "border-white/[0.06] hover:border-nova-violet/30",
+			? "border-nova-rose/40 not-disabled:hover:border-nova-rose/60"
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
 	].join(" ");
 
 	if (options.length === 0) {
 		return (
-			<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-				This property has no declared options
+			<div className="rounded-lg border border-dashed border-white/[0.06] px-3 py-2.5 text-[13px] text-nova-text-muted">
+				No choices have been added for this information
 			</div>
 		);
 	}
@@ -544,60 +670,49 @@ function SelectOptionInput({
 		"Pick a value";
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
 				id={triggerId}
 				aria-label={`${ariaLabel}: ${display}`}
-				className={triggerClass}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
+					/>
+				}
 			>
 				<span
-					className={`truncate ${
+					className={`min-w-0 flex-1 break-words text-left ${
 						current ? "text-nova-violet-bright" : "text-nova-text-muted"
 					}`}
 				>
 					{display}
 				</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
 					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 					style={{ minWidth: "var(--anchor-width)", maxHeight: 280 }}
 				>
-					<Menu.Popup className={`${MENU_POPUP_CLS} max-h-72 overflow-y-auto`}>
-						{options.map((opt, i) => {
+					<DropdownMenuPopup className="max-h-72 min-w-0 overflow-y-auto">
+						{options.map((opt) => {
 							const isActive = opt.value === current;
-							const last = options.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
+							const labelIsAmbiguous = ambiguousLabels.has(opt.label);
 							return (
-								<Menu.Item
+								<DropdownMenuItem
 									key={opt.value}
 									onClick={() => {
 										// Qualifier-preserving rebuild on selection.
@@ -611,23 +726,21 @@ function SelectOptionInput({
 												: rebuildLiteralPreservingDataType(value, opt.value),
 										);
 									}}
-									className={`${corners} ${
-										isActive
-											? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-											: MENU_ITEM_CLS
+									className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
 									}`}
 								>
 									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{opt.label}</div>
-										{opt.label !== opt.value && (
+										<div className="break-words">{opt.label}</div>
+										{labelIsAmbiguous && (
 											<div
-												className={`text-[10px] font-mono truncate ${
+												className={`break-words text-xs ${
 													isActive
 														? "text-nova-violet-bright"
 														: "text-nova-text-muted"
 												}`}
 											>
-												{opt.value}
+												Saved as {opt.value}
 											</div>
 										)}
 									</span>
@@ -639,12 +752,12 @@ function SelectOptionInput({
 											className="text-nova-violet-bright"
 										/>
 									)}
-								</Menu.Item>
+								</DropdownMenuItem>
 							);
 						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }

@@ -19,11 +19,19 @@
 import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
+import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import Link from "next/link";
 import { ExportPanel } from "@/components/builder/ExportPanel";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { ImpersonationBanner } from "@/components/ui/ImpersonationBanner";
@@ -33,6 +41,7 @@ import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { shortcutLabel } from "@/lib/platform";
 import { useUndoRedo } from "@/lib/routing/builderActions";
 import { useBuilderIsReady, useCanEdit } from "@/lib/session/hooks";
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
 interface BuilderHeaderProps {
 	/** Whether CommCare HQ credentials are configured. */
@@ -56,6 +65,13 @@ export function BuilderHeader({
 	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
 	const canEdit = useCanEdit();
+	const compactHeight = useIsBreakpoint("max", 360, "height");
+	const compactHeader = useIsBreakpoint("max", 1100);
+	/* Five-peer presence plus the compact document actions overlap the centered
+	 * Preview control until the canvas is comfortably wider than 533px. Keep
+	 * the two-row composition through 560px so visible controls never compete
+	 * for the same hit-test area at the breakpoint seam. */
+	const ultraCompactHeader = useIsBreakpoint("max", 560);
 
 	/* Undo/redo from doc temporal. Availability folds into stable
 	 * booleans so the header only re-renders when it actually flips. */
@@ -66,62 +82,142 @@ export function BuilderHeader({
 	const showToolbar = isReady && hasData;
 
 	return (
-		<header className="grid grid-cols-[1fr_auto_1fr] items-center px-4 h-14 border-b border-nova-border shrink-0 bg-nova-void">
-			<div className="flex items-center gap-4 min-w-0">
+		<header
+			data-header-layout={ultraCompactHeader ? "ultra-compact" : "standard"}
+			className={
+				ultraCompactHeader
+					? "grid shrink-0 grid-cols-[44px_1fr_44px] grid-rows-[60px_auto] items-center border-b border-nova-border bg-nova-void px-2"
+					: `grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-nova-border bg-nova-void px-4 ${
+							compactHeight ? "h-[60px]" : "h-14"
+						}`
+			}
+		>
+			<div
+				className={
+					ultraCompactHeader
+						? "col-start-1 row-start-1 flex min-w-0 items-center"
+						: "flex min-w-0 items-center gap-4"
+				}
+			>
 				<Link
 					href="/"
-					className="rounded-lg focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
+					aria-label="Back to applications"
+					className={`${ultraCompactHeader ? "justify-center" : "-ml-2 px-2"} inline-flex min-h-11 min-w-11 items-center rounded-lg focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none`}
 				>
-					<Logo size="sm" />
+					<Logo size="sm" markOnly={ultraCompactHeader} />
 				</Link>
-				{impersonating && (
+				{impersonating && !ultraCompactHeader && (
 					<ImpersonationBanner
 						userName={impersonating.userName}
 						userEmail={impersonating.userEmail}
 					/>
 				)}
 			</div>
-			<div className="justify-self-center">
+			<div
+				className={
+					ultraCompactHeader
+						? "col-start-2 row-start-1 justify-self-center"
+						: "justify-self-center"
+				}
+			>
 				{showToolbar && <PreviewToggle onSetPreviewing={onSetPreviewing} />}
 			</div>
-			<div className="flex items-center gap-1 justify-self-end">
+			<div
+				data-header-document-actions
+				className={
+					ultraCompactHeader
+						? showToolbar
+							? "col-span-3 row-start-2 flex min-h-12 min-w-0 items-center justify-center gap-1 border-t border-nova-border"
+							: "hidden"
+						: "flex min-w-0 items-center gap-1 justify-self-end"
+				}
+			>
 				{showToolbar && (
 					<>
 						{/* Who-else-is-here avatars — first in the cluster with their own
 						 *  divider (the Google-Docs arrangement: people, then actions).
 						 *  Shown for editors AND viewers (a viewer still sees who's
 						 *  editing); renders nothing in a solo session. */}
-						<PresenceRoster />
+						<PresenceRoster compact={compactHeader} />
 						{/* Edit affordances — hidden for a view-only member. Preview +
 						 *  Export stay (a viewer may preview and download the app);
 						 *  HQ upload inside Export stays gated server-side. */}
 						{canEdit ? (
 							<>
-								<SaveIndicator />
-								<SimpleTooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
-									<button
-										type="button"
-										onClick={undo}
-										disabled={!canUndo}
-										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:not-disabled:hover:text-nova-text enabled:not-disabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
-										aria-label="Undo"
-									>
-										<Icon icon={tablerArrowBackUp} width="18" height="18" />
-									</button>
-								</SimpleTooltip>
-								<SimpleTooltip
-									content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
-								>
-									<button
-										type="button"
-										onClick={redo}
-										disabled={!canRedo}
-										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:not-disabled:hover:text-nova-text enabled:not-disabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
-										aria-label="Redo"
-									>
-										<Icon icon={tablerArrowForwardUp} width="18" height="18" />
-									</button>
-								</SimpleTooltip>
+								<SaveIndicator compact={compactHeader} />
+								{compactHeader ? (
+									<DropdownMenu>
+										<SimpleTooltip content="Edit history" side="bottom">
+											<DropdownMenuTrigger
+												aria-label="Edit history"
+												className="flex size-11 items-center justify-center rounded-lg text-nova-text-muted outline-none transition-colors hover:bg-white/5 hover:text-nova-text focus-visible:ring-3 focus-visible:ring-ring/50"
+											>
+												<Icon
+													icon={tablerDotsVertical}
+													width="18"
+													height="18"
+												/>
+											</DropdownMenuTrigger>
+										</SimpleTooltip>
+										<DropdownMenuContent align="end" sideOffset={6}>
+											<DropdownMenuItem onClick={undo} disabled={!canUndo}>
+												<Icon icon={tablerArrowBackUp} width="18" height="18" />
+												<span className="flex-1">Undo</span>
+												<span className="text-xs text-nova-text-muted">
+													{shortcutLabel("mod", "Z")}
+												</span>
+											</DropdownMenuItem>
+											<DropdownMenuItem onClick={redo} disabled={!canRedo}>
+												<Icon
+													icon={tablerArrowForwardUp}
+													width="18"
+													height="18"
+												/>
+												<span className="flex-1">Redo</span>
+												<span className="text-xs text-nova-text-muted">
+													{shortcutLabel("mod", "shift", "Z")}
+												</span>
+											</DropdownMenuItem>
+										</DropdownMenuContent>
+									</DropdownMenu>
+								) : (
+									<>
+										<SimpleTooltip
+											content={`Undo (${shortcutLabel("mod", "Z")})`}
+										>
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon-lg"
+												onClick={undo}
+												disabled={!canUndo}
+												className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
+												aria-label="Undo"
+											>
+												<Icon icon={tablerArrowBackUp} width="18" height="18" />
+											</Button>
+										</SimpleTooltip>
+										<SimpleTooltip
+											content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
+										>
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon-lg"
+												onClick={redo}
+												disabled={!canRedo}
+												className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
+												aria-label="Redo"
+											>
+												<Icon
+													icon={tablerArrowForwardUp}
+													width="18"
+													height="18"
+												/>
+											</Button>
+										</SimpleTooltip>
+									</>
+								)}
 							</>
 						) : (
 							/* ml-[13px] mirrors the icon buttons' glyph inset so the
@@ -137,10 +233,25 @@ export function BuilderHeader({
 						/>
 					</>
 				)}
-				<div className="ml-1">
+				{!ultraCompactHeader && (
+					<div className="ml-1">
+						<AccountMenu />
+					</div>
+				)}
+			</div>
+			{ultraCompactHeader && (
+				<div className="col-start-3 row-start-1 justify-self-end">
 					<AccountMenu />
 				</div>
-			</div>
+			)}
+			{ultraCompactHeader && impersonating && (
+				<div className="col-span-3 row-start-3 min-w-0 border-t border-nova-border py-2">
+					<ImpersonationBanner
+						userName={impersonating.userName}
+						userEmail={impersonating.userEmail}
+					/>
+				</div>
+			)}
 		</header>
 	);
 }

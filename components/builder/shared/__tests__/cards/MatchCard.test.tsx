@@ -21,7 +21,7 @@
 // would silently drop from display while still flipping the parent's
 // save gate.
 
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { literal, match, prop } from "@/lib/domain/predicate";
@@ -36,7 +36,21 @@ const PATIENT: CaseType = {
 };
 
 describe("MatchCard — inline value-slot errors", () => {
-	it("surfaces an Unknown property failure on the value slot", () => {
+	it("labels its subject as case information", () => {
+		render(
+			<PredicateCardEditor
+				value={match(prop("patient", "name"), literal("Alice"), "fuzzy")}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+		expect(
+			screen.getByRole("button", { name: "Case information: Case name" }),
+		).toBeDefined();
+	});
+
+	it("surfaces a friendly property action on the value slot", () => {
 		// The value carries a `prop` term referencing a property that
 		// doesn't exist on the case type. The type checker emits the
 		// resolution error at `[..., "value", "term"]`. The card's
@@ -58,7 +72,7 @@ describe("MatchCard — inline value-slot errors", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Unknown property/i);
+		expect(container.textContent).toMatch(/Choose available case information/i);
 	});
 
 	it("surfaces operator-level mode-mismatch errors at the value slot", () => {
@@ -76,7 +90,7 @@ describe("MatchCard — inline value-slot errors", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/empty string/i);
+		expect(container.textContent).toMatch(/Enter a value to match/i);
 	});
 
 	it("renders no error rows for a well-typed match", () => {

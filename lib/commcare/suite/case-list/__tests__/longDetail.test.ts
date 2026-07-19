@@ -136,7 +136,7 @@ describe("emitLongDetail — empty cases", () => {
 	it("emits a title-only detail when the module has no case type", () => {
 		const mod = makeModule({
 			caseListConfig: makeConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const out = emitLongDetail({
@@ -173,7 +173,7 @@ describe("emitLongDetail — per-kind goldens", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const out = emitLongDetail({
@@ -188,13 +188,13 @@ describe("emitLongDetail — per-kind goldens", () => {
 			`<detail id="m0_case_long">` +
 				`<title><text><locale id="cchq.case"/></text></title>` +
 				`<field>` +
-				`<header><text><locale id="m0.case_long.case_name_1.header"/></text></header>` +
-				`<template><text><xpath function="name"/></text></template>` +
+				`<header><text><locale id="m0.case_long.case_full_name_1.header"/></text></header>` +
+				`<template><text><xpath function="full_name"/></text></template>` +
 				`</field>` +
 				`</detail>`,
 		);
 		expect(out.strings).toEqual({
-			"m0.case_long.case_name_1.header": "Name",
+			"m0.case_long.case_full_name_1.header": "Name",
 		});
 	});
 
@@ -320,7 +320,7 @@ describe("emitLongDetail — long-detail divergences from short", () => {
 
 describe("emitLongDetail — visibility filter", () => {
 	it("hides columns with visibleInDetail: false from the field list", () => {
-		const visible = plainColumn(COL(1), "name", "Name");
+		const visible = plainColumn(COL(1), "full_name", "Name");
 		const hidden = plainColumn(COL(2), "external_id", "External ID", {
 			visibleInDetail: false,
 		});
@@ -333,15 +333,15 @@ describe("emitLongDetail — visibility filter", () => {
 			moduleIndex: 0,
 			doc: buildDoc({ module: mod }),
 		});
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		expect(out.xml).not.toContain('<xpath function="external_id"/>');
 		expect(out.strings).toEqual({
-			"m0.case_long.case_name_1.header": "Name",
+			"m0.case_long.case_full_name_1.header": "Name",
 		});
 	});
 
 	it("renders columns with visibleInDetail: true (or absent) — absent ≡ visible", () => {
-		const explicit = plainColumn(COL(1), "name", "Name", {
+		const explicit = plainColumn(COL(1), "full_name", "Name", {
 			visibleInDetail: true,
 		});
 		const implicit = plainColumn(COL(2), "phone", "Phone");
@@ -354,18 +354,18 @@ describe("emitLongDetail — visibility filter", () => {
 			moduleIndex: 0,
 			doc: buildDoc({ module: mod }),
 		});
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		expect(out.xml).toContain('<xpath function="phone"/>');
 	});
 
 	it("keeps hidden columns at their source-array position so subsequent locale ids don't shift", () => {
 		// `external_id` at source index 0 carries `visibleInDetail: false`
-		// — its locale-id slot stays unused. `name` at source index
+		// — its locale-id slot stays unused. `full_name` at source index
 		// 1 lands at `_2`, NOT `_1`.
 		const hidden = plainColumn(COL(1), "external_id", "External ID", {
 			visibleInDetail: false,
 		});
-		const visible = plainColumn(COL(2), "name", "Name");
+		const visible = plainColumn(COL(2), "full_name", "Name");
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeConfig({ columns: [hidden, visible] }),
@@ -376,7 +376,7 @@ describe("emitLongDetail — visibility filter", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		expect(out.strings).toEqual({
-			"m0.case_long.case_name_2.header": "Name",
+			"m0.case_long.case_full_name_2.header": "Name",
 		});
 		expect(out.strings).not.toHaveProperty(
 			"m0.case_long.case_external_id_1.header",
@@ -384,10 +384,10 @@ describe("emitLongDetail — visibility filter", () => {
 	});
 
 	it("filters by visibleInDetail independently of visibleInList", () => {
-		// `name` is visible-in-list but hidden from detail; `phone`
+		// `full_name` is visible-in-list but hidden from detail; `phone`
 		// is hidden from list but visible in detail. Long detail
 		// renders only `phone`.
-		const listOnly = plainColumn(COL(1), "name", "Name", {
+		const listOnly = plainColumn(COL(1), "full_name", "Name", {
 			visibleInDetail: false,
 		});
 		const detailOnly = plainColumn(COL(2), "phone", "Phone", {
@@ -403,14 +403,14 @@ describe("emitLongDetail — visibility filter", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		expect(out.xml).toContain('<xpath function="phone"/>');
-		expect(out.xml).not.toContain('<xpath function="name"/>');
+		expect(out.xml).not.toContain('<xpath function="full_name"/>');
 	});
 });
 
 describe("emitLongDetail — multi-kind integration", () => {
 	it("emits a populated detail with every kind + a calc + a sort directive (suppressed)", () => {
 		const columns: Column[] = [
-			plainColumn(COL(1), "name", "Name", {
+			plainColumn(COL(1), "full_name", "Name", {
 				sort: { direction: "asc", priority: 0 },
 			}),
 			dateColumn(COL(2), "birthdate", "Birthdate", "%d/%m/%y"),
@@ -429,7 +429,7 @@ describe("emitLongDetail — multi-kind integration", () => {
 				idMappingEntry("S", "South"),
 			]),
 			intervalColumn(COL(6), "last_visit", "Late", 4, "weeks", "flag", "!"),
-			calculatedColumn(COL(7), "My Calc", term(prop("patient", "name"))),
+			calculatedColumn(COL(7), "My Calc", term(prop("patient", "full_name"))),
 		];
 		const mod = makeModule({
 			caseType: "patient",
@@ -441,7 +441,7 @@ describe("emitLongDetail — multi-kind integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", data_type: "text" },
+						{ name: "full_name", data_type: "text" },
 						{ name: "birthdate", data_type: "date" },
 						{ name: "last_visit", data_type: "date" },
 						{ name: "phone", data_type: "text" },
@@ -457,7 +457,7 @@ describe("emitLongDetail — multi-kind integration", () => {
 		expect(out.xml).toContain('<locale id="cchq.case"/>');
 
 		// Plain field.
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		// Date field. XPath single-quote literals round-trip as
 		// `&apos;` inside the double-quoted attribute value.
 		expect(out.xml).toContain(
@@ -491,7 +491,7 @@ describe("emitLongDetail — multi-kind integration", () => {
 		// (none filtered by `visibleInDetail`) so source-array
 		// positions 1..7 map directly to locale-id suffixes.
 		expect(out.strings).toEqual({
-			"m0.case_long.case_name_1.header": "Name",
+			"m0.case_long.case_full_name_1.header": "Name",
 			"m0.case_long.case_birthdate_2.header": "Birthdate",
 			"m0.case_long.case_last_visit_3.header": "Weeks since visit",
 			"m0.case_long.case_phone_4.header": "Phone",
@@ -505,7 +505,7 @@ describe("emitLongDetail — multi-kind integration", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const out = emitLongDetail({
@@ -514,9 +514,11 @@ describe("emitLongDetail — multi-kind integration", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		expect(out.xml).toContain('<detail id="m5_case_long">');
-		expect(out.xml).toContain('locale id="m5.case_long.case_name_1.header"');
+		expect(out.xml).toContain(
+			'locale id="m5.case_long.case_full_name_1.header"',
+		);
 		expect(out.strings).toEqual({
-			"m5.case_long.case_name_1.header": "Name",
+			"m5.case_long.case_full_name_1.header": "Name",
 		});
 	});
 });

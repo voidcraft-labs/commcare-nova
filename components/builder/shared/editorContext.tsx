@@ -18,20 +18,30 @@
 // `WithCurrentCaseType` helper handles the rebind.
 
 "use client";
-import { createContext, type ReactNode, useContext, useMemo } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useMemo,
+	useRef,
+} from "react";
 import type { CaseType } from "@/lib/domain";
 import {
+	type CheckError,
 	checkExpression,
 	type ResolvedType,
-	type SearchInputDecl,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { presentCheckErrorForEditor } from "./checkErrorPresentation";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
+import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 /**
- * Per-path error list. Mirrors `CheckError.message` from the type
- * checker; the path itself is the lookup key, not part of the
+ * Per-path user-facing diagnostic list. Raw `CheckError.message`
+ * stays at the checker boundary for agents, logs, and developer
+ * diagnostics; the path itself is the lookup key, not part of the
  * stored entry.
  */
 export type EditorPathErrors = readonly string[];
@@ -42,6 +52,15 @@ export type EditorPathErrors = readonly string[];
  * directly. Keeps the serialization format private.
  */
 type ValidityIndex = ReadonlyMap<string, EditorPathErrors>;
+
+export type ExpressionChangeAdmission =
+	| { readonly admitted: true }
+	| { readonly admitted: false; readonly reason: string };
+
+export type AdmitExpressionChange = (
+	path: EditorPath,
+	next: ValueExpression,
+) => ExpressionChangeAdmission;
 
 interface PredicateEditContextValue {
 	/** Blueprint case-type definitions. Drives property dropdowns. */
@@ -56,7 +75,7 @@ interface PredicateEditContextValue {
 	 */
 	readonly currentCaseType: string;
 	/** Declared search inputs in scope at the editor's mount site. */
-	readonly knownInputs: readonly SearchInputDecl[];
+	readonly knownInputs: readonly EditorSearchInputDecl[];
 	/**
 	 * Errors keyed by serialized path. Cards look up their own path
 	 * via `useEditorErrorsAt` to render inline diagnostics; the
@@ -64,6 +83,18 @@ interface PredicateEditContextValue {
 	 * affordance (via `onValidityChange`).
 	 */
 	readonly validityIndex: ValidityIndex;
+	/**
+	 * Optional whole-rule admission oracle for a value replacement. Slot
+	 * constraints prove type correctness; some execution surfaces impose an
+	 * additional rule-level contract that cannot be inferred from one slot in
+	 * isolation. The callback receives the exact editor path and proposed value
+	 * so menus can disable a guaranteed rejection before it reaches onChange.
+	 */
+	readonly admitExpressionChange: AdmitExpressionChange | undefined;
+	/** The current primary control for each expression slot. Unlike component
+	 * refs, this registry survives a value-kind replacement that remounts the
+	 * picker at the same editor path. */
+	readonly expressionFocusTargets: Map<string, HTMLElement>;
 }
 
 const PredicateEditContext = createContext<PredicateEditContextValue | null>(
@@ -73,8 +104,9 @@ const PredicateEditContext = createContext<PredicateEditContextValue | null>(
 interface PredicateEditProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
-	readonly knownInputs: readonly SearchInputDecl[];
+	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly validityIndex: ValidityIndex;
+	readonly admitExpressionChange?: AdmitExpressionChange | undefined;
 	readonly children: ReactNode;
 }
 
@@ -89,16 +121,96 @@ export function PredicateEditProvider({
 	currentCaseType,
 	knownInputs,
 	validityIndex,
+	admitExpressionChange,
 	children,
 }: PredicateEditProviderProps) {
+	const expressionFocusTargets = useRef(new Map<string, HTMLElement>()).current;
 	const value = useMemo<PredicateEditContextValue>(
-		() => ({ caseTypes, currentCaseType, knownInputs, validityIndex }),
-		[caseTypes, currentCaseType, knownInputs, validityIndex],
+		() => ({
+			caseTypes,
+			currentCaseType,
+			knownInputs,
+			validityIndex,
+			admitExpressionChange,
+			expressionFocusTargets,
+		}),
+		[
+			caseTypes,
+			currentCaseType,
+			knownInputs,
+			validityIndex,
+			admitExpressionChange,
+			expressionFocusTargets,
+		],
 	);
 	return (
 		<PredicateEditContext.Provider value={value}>
 			{children}
 		</PredicateEditContext.Provider>
+	);
+}
+
+/** Register and resolve the primary control for one expression slot. Cleanup
+ * removes only the element owned by this mount, so an old kind unmounting
+ * cannot erase the new kind's control when both share the same path. */
+export function useExpressionFocusTarget(path: EditorPath): {
+	readonly register: (target: HTMLElement | null) => void;
+	readonly resolve: () => HTMLElement | null;
+	readonly focusAfterReplacement: (fallback?: HTMLElement | null) => void;
+} {
+	const { expressionFocusTargets } = usePredicateEditContext();
+	const key = serializePath(path);
+	const ownedTargetRef = useRef<HTMLElement | null>(null);
+	const register = useCallback(
+		(target: HTMLElement | null) => {
+			const ownedTarget = ownedTargetRef.current;
+			if (target === null) {
+				if (
+					ownedTarget !== null &&
+					expressionFocusTargets.get(key) === ownedTarget
+				) {
+					expressionFocusTargets.delete(key);
+				}
+				ownedTargetRef.current = null;
+				return;
+			}
+			ownedTargetRef.current = target;
+			expressionFocusTargets.set(key, target);
+		},
+		[expressionFocusTargets, key],
+	);
+	const resolve = useCallback(() => {
+		const target = expressionFocusTargets.get(key);
+		if (target?.isConnected === true) return target;
+		if (target !== undefined) expressionFocusTargets.delete(key);
+		return null;
+	}, [expressionFocusTargets, key]);
+	const focusAfterReplacement = useCallback(
+		(fallback: HTMLElement | null = null) => {
+			// A term/calculation replacement unmounts the control that opened its
+			// confirmation. Base UI therefore has no surviving trigger to restore
+			// focus to. Wait for React to register the equivalent control at the
+			// same editor path, then run after the dialog's own close-focus task.
+			// This is intentionally the narrow exception to `finalFocus`; ordinary
+			// closes keep using the primitive's built-in focus restoration.
+			queueMicrotask(() => {
+				queueMicrotask(() => {
+					const target = expressionFocusTargets.get(key);
+					if (target?.isConnected === true) {
+						target.focus({ preventScroll: true });
+						return;
+					}
+					if (fallback?.isConnected === true) {
+						fallback.focus({ preventScroll: true });
+					}
+				});
+			});
+		},
+		[expressionFocusTargets, key],
+	);
+	return useMemo(
+		() => ({ register, resolve, focusAfterReplacement }),
+		[register, resolve, focusAfterReplacement],
 	);
 }
 
@@ -156,7 +268,7 @@ export function usePredicateEditContext(): PredicateEditContextValue {
  * the bridge that makes the editor's "valid choices" provably a
  * function of the type checker. A card calls this on its SUBJECT
  * (e.g. a comparison's left operand) to derive the type constraint it
- * hands its dependent slots (`comparisonObjectConstraint(subjectType)`),
+ * hands its dependent slots (`comparisonObjectConstraint(kind, subjectType)`),
  * so the offered set is exactly what `checkExpression` would accept.
  *
  * Runs the pure checker with a throwaway error sink — only the resolved
@@ -260,12 +372,13 @@ export function useEditorErrorsBelow(path: EditorPath): EditorPathErrors {
  * per slot.
  */
 export function buildValidityIndex(
-	errors: readonly { path: readonly (string | number)[]; message: string }[],
+	errors: readonly CheckError[],
 ): ValidityIndex {
 	const map = new Map<string, string[]>();
 	const seen = new Map<string, Set<string>>();
 	for (const error of errors) {
 		const key = serializePath(error.path);
+		const message = presentCheckErrorForEditor(error);
 		let list = map.get(key);
 		let dedup = seen.get(key);
 		if (list === undefined || dedup === undefined) {
@@ -274,9 +387,9 @@ export function buildValidityIndex(
 			map.set(key, list);
 			seen.set(key, dedup);
 		}
-		if (dedup.has(error.message)) continue;
-		dedup.add(error.message);
-		list.push(error.message);
+		if (dedup.has(message)) continue;
+		dedup.add(message);
+		list.push(message);
 	}
 	return map;
 }

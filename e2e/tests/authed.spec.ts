@@ -26,7 +26,22 @@ interface SeedManifest {
 	olderThreadId: string;
 	olderThreadUserText: string;
 	olderThreadAssistantText: string;
+	caseWorkspace: {
+		routes: {
+			search: string;
+			results: string;
+			details: string;
+		};
+	};
 }
+
+type SecondaryHeaderName =
+	| "breadcrumb"
+	| "structure"
+	| "structure-rail"
+	| "chat"
+	| "chat-rail"
+	| "inspector";
 
 async function bottomGap(page: Page): Promise<number> {
 	return page
@@ -34,6 +49,64 @@ async function bottomGap(page: Page): Promise<number> {
 		.evaluate((el) =>
 			Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop),
 		);
+}
+
+async function expectSecondaryHeadersAligned(
+	page: Page,
+	names: readonly SecondaryHeaderName[],
+): Promise<void> {
+	const bands = names.map((name) =>
+		page.locator(`[data-builder-secondary-header="${name}"]`),
+	);
+	for (const band of bands) {
+		await expect(band).toBeInViewport({ ratio: 0.9 });
+	}
+
+	// Sidebar transitions briefly produce intermediate geometry. Poll the real
+	// rendered boxes so this catches a stable mismatch without racing animation.
+	await expect
+		.poll(async () => {
+			const boxes = await Promise.all(bands.map((band) => band.boundingBox()));
+			if (boxes.some((box) => box === null)) return Number.POSITIVE_INFINITY;
+			const presentBoxes = boxes.filter((box) => box !== null);
+			const heights = presentBoxes.map((box) => box.height);
+			const bottoms = presentBoxes.map((box) => box.y + box.height);
+			return Math.max(
+				...heights.map((height) => Math.abs(height - 64)),
+				Math.max(...bottoms) - Math.min(...bottoms),
+			);
+		})
+		.toBeLessThanOrEqual(1);
+}
+
+async function expectCaseDataClearance(page: Page): Promise<void> {
+	const header = page.locator('[data-builder-secondary-header="breadcrumb"]');
+	const caseData = page.getByRole("button", { name: /^Case data for / });
+	await expect(caseData).toBeInViewport({ ratio: 0.9 });
+
+	const geometry = async () => {
+		const [headerBox, buttonBox] = await Promise.all([
+			header.boundingBox(),
+			caseData.boundingBox(),
+		]);
+		if (headerBox === null || buttonBox === null) {
+			return { smallestGap: 0, asymmetry: Number.POSITIVE_INFINITY };
+		}
+		const topGap = buttonBox.y - headerBox.y;
+		const bottomGap =
+			headerBox.y + headerBox.height - (buttonBox.y + buttonBox.height);
+		return {
+			smallestGap: Math.min(topGap, bottomGap),
+			asymmetry: Math.abs(topGap - bottomGap),
+		};
+	};
+
+	await expect
+		.poll(async () => (await geometry()).smallestGap)
+		.toBeGreaterThanOrEqual(8);
+	await expect
+		.poll(async () => (await geometry()).asymmetry)
+		.toBeLessThanOrEqual(1);
 }
 
 // Loaded in beforeAll, NOT at module scope: Playwright imports every spec to
@@ -84,6 +157,861 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("button", { name: "Sign in with Google" }),
 		).toHaveCount(0);
+	});
+
+	test("builder secondary headers stay aligned through sidebar and inspector states", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.results);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await test.step("wide editor keeps every open header aligned", async () => {
+			await expectSecondaryHeadersAligned(page, [
+				"structure",
+				"breadcrumb",
+				"chat",
+			]);
+			await expectCaseDataClearance(page);
+		});
+
+		await test.step("compact editor preserves the open-sidebar header contract", async () => {
+			await page.setViewportSize({ width: 1024, height: 768 });
+			await expectSecondaryHeadersAligned(page, [
+				"structure",
+				"breadcrumb",
+				"chat",
+			]);
+			await expectCaseDataClearance(page);
+		});
+
+		await test.step("collapsed rails use the same header band", async () => {
+			await page
+				.getByRole("button", { name: "Collapse structure sidebar" })
+				.click();
+			await page.getByRole("button", { name: "Collapse chat sidebar" }).click();
+			await expect(
+				page.getByRole("button", { name: "Expand structure sidebar" }),
+			).toBeInViewport({ ratio: 0.9 });
+			await expect(
+				page.getByRole("button", { name: "Expand chat sidebar" }),
+			).toBeInViewport({ ratio: 0.9 });
+			await expectSecondaryHeadersAligned(page, [
+				"structure-rail",
+				"breadcrumb",
+				"chat-rail",
+			]);
+			await expectCaseDataClearance(page);
+		});
+
+		await test.step("field inspector joins the shared header band", async () => {
+			await page
+				.getByRole("button", { name: "Expand structure sidebar" })
+				.click();
+			await page
+				.getByRole("region", { name: "Information shown" })
+				.getByRole("button", { name: "Patient ID", exact: true })
+				.click();
+			await expect(
+				page.getByRole("button", { name: "Close properties", exact: true }),
+			).toBeInViewport({ ratio: 0.9 });
+			await expectSecondaryHeadersAligned(page, [
+				"structure",
+				"breadcrumb",
+				"inspector",
+			]);
+			await expectCaseDataClearance(page);
+		});
+	});
+
+	test("case workspace composes result filters, owns its scrolling, and keeps searchable menus interactive", async ({
+		page,
+	}) => {
+		test.setTimeout(180_000);
+		await page.goto(seed.caseWorkspace.routes.search);
+		await expect(
+			page.getByRole("heading", { name: "Search", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		const searchFields = page.getByRole("heading", {
+			name: "Search fields",
+			level: 2,
+		});
+		await expect(searchFields).toBeVisible();
+		await expect(
+			page.getByRole("heading", { name: "Cases available", level: 2 }),
+		).toHaveCount(0);
+
+		await page.goto(seed.caseWorkspace.routes.results);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Collapse structure sidebar" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Collapse chat sidebar" }),
+		).toBeVisible();
+
+		// Results reads in the worker-facing order: what each row says, which
+		// cases may appear, then how the matching rows are ordered.
+		await expect(page.locator("[data-case-list-layout] h2")).toHaveText([
+			"Information shown",
+			"Cases available",
+			"Default order",
+		]);
+
+		const casesAvailable = page.locator(
+			'section[aria-labelledby="results-availability-heading"]',
+		);
+		const addCondition = casesAvailable.getByRole("button", {
+			name: "Add condition",
+		});
+		const conditionVerbs = casesAvailable.getByRole("button", {
+			name: "Condition is",
+		});
+
+		// Reproduce the old rejection path: a case-name search input already
+		// exists, then an always-on rule also targets Case name. This valid
+		// intersection must commit without a duplicate-property gate error.
+		await addCondition.click();
+		await page
+			.getByRole("menuitem", { name: /^Compare case information/ })
+			.click();
+		await expect(conditionVerbs).toHaveCount(1);
+		await casesAvailable
+			.getByRole("button", { name: /^Case information: / })
+			.click();
+		await page.getByRole("menuitem", { name: /^Case name\b/i }).click();
+		await expect(
+			casesAvailable.getByRole("button", {
+				name: "Case information: Case name",
+			}),
+		).toBeVisible();
+		await expect(page.getByText(/filters on .* in both/i)).toHaveCount(0);
+
+		// Adding another condition stays on the canvas and exposes composition
+		// directly. Both peers remain visible while switching the root between
+		// requiring every condition and allowing any condition.
+		await addCondition.click();
+		await page
+			.getByRole("menuitem", { name: /^Compare case information/ })
+			.click();
+		await expect(conditionVerbs).toHaveCount(2);
+		await expect(conditionVerbs.nth(0)).toBeVisible();
+		await expect(conditionVerbs.nth(1)).toBeVisible();
+		await expect(
+			casesAvailable.getByRole("button", { name: "Delete condition" }),
+		).toHaveCount(2);
+		await expect(
+			page.getByRole("button", { name: "Close properties", exact: true }),
+		).toHaveCount(0);
+
+		const allMatch = casesAvailable.getByRole("button", {
+			name: "All conditions must match",
+		});
+		await allMatch.click();
+		const anyMatchItem = page.getByRole("menuitemradio", {
+			name: "Any condition can match",
+		});
+		await anyMatchItem.hover();
+		const [connectorItemRadius, connectorItemBackground] =
+			await anyMatchItem.evaluate((element) => {
+				const style = getComputedStyle(element);
+				return [
+					Number.parseFloat(style.borderTopLeftRadius),
+					style.backgroundColor,
+				] as const;
+			});
+		expect(connectorItemRadius).toBeGreaterThanOrEqual(8);
+		expect(connectorItemBackground).not.toBe("rgba(0, 0, 0, 0)");
+		await anyMatchItem.click();
+		const anyMatch = casesAvailable.getByRole("button", {
+			name: "Any condition can match",
+		});
+		await expect(anyMatch).toBeVisible();
+		await expect(conditionVerbs).toHaveCount(2);
+
+		// The full predicate AST stays usable without nesting cards until they
+		// become unreadably narrow. Each deeper group opens in the same roomy
+		// workbench, and Back restores the exact summaries authored above it.
+		const addAdvanced = casesAvailable.getByRole("button", {
+			name: "Add condition",
+		});
+		await addAdvanced.click();
+		await page
+			.getByRole("menuitem", { name: /Require every condition/ })
+			.click();
+		await expect(
+			casesAvailable.getByText("All conditions match", { exact: true }),
+		).toBeVisible();
+		await casesAvailable
+			.getByRole("button", {
+				name: /^Edit group where all conditions match/,
+			})
+			.last()
+			.click();
+		await expect(
+			casesAvailable.getByRole("navigation", { name: "Condition location" }),
+		).toBeVisible();
+		await expect(
+			casesAvailable.getByRole("heading", {
+				name: "Editing all conditions",
+				level: 3,
+			}),
+		).toBeVisible();
+
+		await addAdvanced.click();
+		await page.getByRole("menuitem", { name: /Require any condition/ }).click();
+		await casesAvailable
+			.getByRole("button", {
+				name: /^Edit group where any condition can match/,
+			})
+			.last()
+			.click();
+		await expect(
+			casesAvailable.getByRole("heading", {
+				name: "Editing any condition",
+				level: 3,
+			}),
+		).toBeVisible();
+
+		await addAdvanced.click();
+		await page.getByRole("menuitem", { name: /Exclude when/ }).click();
+		await casesAvailable
+			.getByRole("button", {
+				name: /^Edit condition that excludes cases/,
+			})
+			.last()
+			.click();
+		await expect(
+			casesAvailable.getByRole("heading", {
+				name: "Editing exclude cases when",
+				level: 3,
+			}),
+		).toBeVisible();
+
+		const backOneLevel = casesAvailable.getByRole("button", {
+			name: /^Back to /,
+		});
+		await backOneLevel.click();
+		await expect(
+			casesAvailable.getByRole("heading", {
+				name: "Editing any condition",
+				level: 3,
+			}),
+		).toBeVisible();
+		await expect(
+			casesAvailable.getByText("Exclude cases when", { exact: true }),
+		).toBeVisible();
+		await backOneLevel.click();
+		await expect(
+			casesAvailable.getByRole("heading", {
+				name: "Editing all conditions",
+				level: 3,
+			}),
+		).toBeVisible();
+		await expect(
+			casesAvailable.getByText("Any condition matches", { exact: true }),
+		).toBeVisible();
+		await backOneLevel.click();
+		await expect(
+			casesAvailable.getByRole("heading", {
+				name: "Editing cases available",
+				level: 3,
+			}),
+		).toBeVisible();
+		await expect(
+			casesAvailable.getByText("All conditions match", { exact: true }),
+		).toBeVisible();
+		await expect(anyMatch).toBeVisible();
+
+		// The destructive hover target stays inset inside its row instead of
+		// touching the rounded card edge. Its 44px target remains available even
+		// though only the quiet inner icon receives the rose hover treatment.
+		const removeCondition = casesAvailable
+			.getByRole("button", { name: "Delete condition" })
+			.first();
+		await removeCondition.hover();
+		await expect(
+			page.getByRole("tooltip", { name: "Delete condition" }),
+		).toBeVisible();
+		const conditionCard = removeCondition.locator(
+			"xpath=ancestor::*[@data-removal-card][1]",
+		);
+		const [removeBox, conditionCardBox] = await Promise.all([
+			removeCondition.boundingBox(),
+			conditionCard.boundingBox(),
+		]);
+		expect(removeBox).not.toBeNull();
+		expect(conditionCardBox).not.toBeNull();
+		if (removeBox === null || conditionCardBox === null) return;
+		expect(removeBox.width).toBeGreaterThanOrEqual(44);
+		expect(removeBox.height).toBeGreaterThanOrEqual(44);
+		expect(removeBox.x - conditionCardBox.x).toBeGreaterThanOrEqual(8);
+		expect(removeBox.y - conditionCardBox.y).toBeGreaterThanOrEqual(8);
+		expect(
+			conditionCardBox.x +
+				conditionCardBox.width -
+				(removeBox.x + removeBox.width),
+		).toBeGreaterThanOrEqual(8);
+
+		await page.setViewportSize({ width: 1280, height: 560 });
+
+		// The workspace tab strip is a fixed sibling of the active body. A short
+		// viewport therefore scrolls exactly one element: the tab's own body, not
+		// the tab strip, PreviewShell, or the page. Each tab remembers its offset.
+		const tabs = page.locator("[data-case-workspace-tabs]");
+		const resultsScrollBody = page.locator(
+			'[data-case-workspace-scroll-body="list"]',
+		);
+		const previewScrollContainer = page
+			.locator("[data-preview-scroll-container]")
+			.first();
+		const tabsBeforeScroll = await tabs.boundingBox();
+		expect(tabsBeforeScroll).not.toBeNull();
+		if (tabsBeforeScroll === null) return;
+		const resultsOffset = await resultsScrollBody.evaluate((element) => {
+			element.scrollTop = element.scrollHeight;
+			return element.scrollTop;
+		});
+		expect(resultsOffset).toBeGreaterThan(0);
+		await expect
+			.poll(async () => (await tabs.boundingBox())?.y ?? Number.NaN)
+			.toBeCloseTo(tabsBeforeScroll.y, 0);
+		await expect
+			.poll(() =>
+				previewScrollContainer.evaluate((element) => element.scrollTop),
+			)
+			.toBe(0);
+		expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+		await page.getByRole("button", { name: /^Search(?:,|$)/ }).click();
+		await expect(
+			page.getByRole("heading", { name: "Search", level: 1 }),
+		).toBeVisible();
+		const searchScrollBody = page.locator(
+			'[data-case-workspace-scroll-body="search"]',
+		);
+		const searchOffset = await searchScrollBody.evaluate((element) => {
+			element.scrollTop = element.scrollHeight;
+			return element.scrollTop;
+		});
+		expect(searchOffset).toBeGreaterThan(0);
+
+		await page.getByRole("button", { name: /^Results(?:,|$)/ }).click();
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible();
+		await expect
+			.poll(() => resultsScrollBody.evaluate((element) => element.scrollTop))
+			.toBeCloseTo(resultsOffset, 0);
+		await expect(anyMatch).toBeVisible();
+		await expect(conditionVerbs).toHaveCount(2);
+
+		await page.getByRole("button", { name: /^Search(?:,|$)/ }).click();
+		await expect(
+			page.getByRole("heading", { name: "Search", level: 1 }),
+		).toBeVisible();
+		await expect
+			.poll(() => searchScrollBody.evaluate((element) => element.scrollTop))
+			.toBeCloseTo(searchOffset, 0);
+		await page.getByRole("button", { name: /^Results(?:,|$)/ }).click();
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible();
+		await resultsScrollBody.evaluate((element) => {
+			element.scrollTop = 0;
+		});
+
+		await test.step("search conditions use one center workbench", async () => {
+			await page.setViewportSize({ width: 1280, height: 720 });
+			await page.getByRole("button", { name: /^Search(?:,|$)/ }).click();
+			await expect(
+				page.getByRole("heading", { name: "Search", level: 1 }),
+			).toBeVisible();
+
+			// A standard search field becomes a custom condition from its Match
+			// picker. The rail keeps the field's ordinary settings; the recursive
+			// condition itself opens full-width in the center, never in both places.
+			const patientNameRow = searchScrollBody
+				.getByText("Patient name", { exact: true })
+				.locator("xpath=ancestor::button[1]");
+			await patientNameRow.click();
+			await expect(
+				page.getByRole("button", { name: "Close properties", exact: true }),
+			).toBeVisible();
+			const customMatchPicker = page.getByRole("button", {
+				name: /Search field 1 match: Similar spelling/,
+			});
+			const inputConditionOrigin = await searchScrollBody.evaluate(
+				(element) => element.scrollTop,
+			);
+			await customMatchPicker.click();
+			await page
+				.getByRole("menuitemradio", { name: /Custom condition/ })
+				.click();
+			await expect(
+				page.getByRole("heading", {
+					name: "Match cases for Patient name",
+					level: 1,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", { name: "Close properties", exact: true }),
+			).toHaveCount(0);
+			await expect(
+				page.getByRole("button", { name: "Edit condition" }),
+			).toHaveCount(0);
+			await expect
+				.poll(() => searchScrollBody.evaluate((element) => element.scrollTop))
+				.toBe(0);
+
+			await page
+				.getByRole("button", { name: "Back to Search", exact: true })
+				.click();
+			await expect(
+				page.getByRole("button", { name: "Close properties", exact: true }),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: "Search field 1 match: Custom condition",
+				}),
+			).toBeVisible();
+			await expect
+				.poll(() => searchScrollBody.evaluate((element) => element.scrollTop))
+				.toBeCloseTo(inputConditionOrigin, 0);
+
+			// The Search button's condition follows the same ownership rule. Its
+			// inspector only names and summarizes the setting; Add/Edit both open
+			// the center workbench and Back restores the panel inspector.
+			await page
+				.getByRole("button", { name: "Close properties", exact: true })
+				.click();
+			await page.getByRole("button", { name: "Edit Search screen" }).click();
+			const inspector = page
+				.locator('[data-builder-secondary-header="inspector"]')
+				.locator("..");
+			await inspector.getByRole("button", { name: "More settings" }).click();
+			const panelConditionOrigin = await searchScrollBody.evaluate(
+				(element) => element.scrollTop,
+			);
+			await inspector.getByRole("button", { name: "Add condition" }).click();
+			await expect(
+				page.getByRole("heading", {
+					name: "When Search is available",
+					level: 1,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", { name: "Close properties", exact: true }),
+			).toHaveCount(0);
+			await page
+				.getByRole("button", { name: "Back to Search", exact: true })
+				.click();
+			await expect(
+				page.getByRole("button", { name: "Close properties", exact: true }),
+			).toBeVisible();
+			await expect(
+				inspector.getByRole("button", { name: "Edit condition" }),
+			).toBeVisible();
+			await expect
+				.poll(() => searchScrollBody.evaluate((element) => element.scrollTop))
+				.toBeCloseTo(panelConditionOrigin, 0);
+			await inspector.getByRole("button", { name: "Edit condition" }).click();
+			await expect(
+				page.getByRole("heading", {
+					name: "When Search is available",
+					level: 1,
+				}),
+			).toBeVisible();
+			await page
+				.getByRole("button", { name: "Back to Search", exact: true })
+				.click();
+			await page
+				.getByRole("button", { name: "Close properties", exact: true })
+				.click();
+		});
+
+		await page.getByRole("button", { name: /^Results(?:,|$)/ }).click();
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible();
+		await resultsScrollBody.evaluate((element) => {
+			element.scrollTop = 0;
+		});
+
+		const addInformation = page.getByRole("combobox", {
+			name: "Add information",
+		});
+		await addInformation.click();
+		const menu = page.getByRole("dialog", { name: "Add information" });
+		const informationSearch = menu.getByRole("combobox", {
+			name: "Search case information",
+		});
+		const menuPositioner = menu.locator("..");
+		await expect(menuPositioner).toHaveAttribute("data-side", "top");
+		await expect(
+			menu.getByRole("heading", { name: "Add information" }),
+		).toBeVisible();
+		const [openMenuBox, triggerBox] = await Promise.all([
+			menu.boundingBox(),
+			addInformation.boundingBox(),
+		]);
+		expect(openMenuBox).not.toBeNull();
+		expect(triggerBox).not.toBeNull();
+		if (openMenuBox === null || triggerBox === null) return;
+		expect(openMenuBox.y).toBeGreaterThanOrEqual(4);
+		expect(openMenuBox.y + openMenuBox.height).toBeLessThanOrEqual(
+			triggerBox.y - 4,
+		);
+		const choiceScrollRegion = menu.locator("[data-combobox-scroll-region]");
+		const choiceScrollMetrics = await choiceScrollRegion.evaluate((element) => {
+			element.scrollTop = element.scrollHeight;
+			const metrics = {
+				clientHeight: element.clientHeight,
+				scrollHeight: element.scrollHeight,
+				scrollTop: element.scrollTop,
+				pageScrollY: window.scrollY,
+			};
+			element.scrollTop = 0;
+			return metrics;
+		});
+		expect(choiceScrollMetrics.scrollHeight).toBeGreaterThan(
+			choiceScrollMetrics.clientHeight,
+		);
+		expect(choiceScrollMetrics.scrollTop).toBeGreaterThan(0);
+		expect(choiceScrollMetrics.pageScrollY).toBe(0);
+		await informationSearch.fill("phone");
+		await expect(
+			page.getByRole("option", {
+				name: /Phone number.*Text/,
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByRole("option", {
+				name: /Date of birth.*Date/,
+			}),
+		).toHaveCount(0);
+
+		const phoneItem = page.getByRole("option", {
+			name: /Phone number.*Text/,
+		});
+		await phoneItem.hover();
+		const [menuBox, phoneBox, phoneRadius] = await Promise.all([
+			menu.boundingBox(),
+			phoneItem.boundingBox(),
+			phoneItem.evaluate((element) =>
+				Number.parseFloat(getComputedStyle(element).borderTopLeftRadius),
+			),
+		]);
+		expect(menuBox).not.toBeNull();
+		expect(phoneBox).not.toBeNull();
+		if (menuBox === null || phoneBox === null) return;
+		await expect(menuPositioner).toHaveAttribute(
+			"data-side",
+			/^(?:top|bottom)$/,
+		);
+		expect(Math.abs(menuBox.x - openMenuBox.x)).toBeLessThanOrEqual(8);
+		expect(menuBox.y).toBeGreaterThanOrEqual(4);
+		expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(556);
+		expect(phoneBox.x - menuBox.x).toBeGreaterThanOrEqual(4);
+		expect(phoneRadius).toBeGreaterThanOrEqual(8);
+		await informationSearch.fill("nothing-can-match-this-property");
+		const emptyStatus = menu.getByRole("status");
+		await expect(emptyStatus).toBeVisible();
+		await expect(emptyStatus).toContainText("No matching information");
+		await expect(menu.getByText("Try a different search")).toBeVisible();
+		const [emptyMenuBox, emptyStateBox, emptyScrollMetrics] = await Promise.all(
+			[
+				menu.boundingBox(),
+				menu.locator('[data-slot="combobox-empty"]').boundingBox(),
+				menu.locator("[data-combobox-scroll-region]").evaluate((element) => ({
+					clientHeight: element.clientHeight,
+					scrollHeight: element.scrollHeight,
+				})),
+			],
+		);
+		expect(emptyMenuBox).not.toBeNull();
+		expect(emptyStateBox).not.toBeNull();
+		if (emptyMenuBox === null || emptyStateBox === null) return;
+		await expect(menuPositioner).toHaveAttribute(
+			"data-side",
+			/^(?:top|bottom)$/,
+		);
+		expect(emptyMenuBox.y).toBeGreaterThanOrEqual(4);
+		expect(emptyMenuBox.y + emptyMenuBox.height).toBeLessThanOrEqual(556);
+		expect(emptyStateBox.height).toBeGreaterThanOrEqual(96);
+		expect(emptyScrollMetrics.scrollHeight).toBeLessThanOrEqual(
+			emptyScrollMetrics.clientHeight + 1,
+		);
+		const clearSearch = menu.getByRole("button", { name: "Clear search" });
+		const clearSearchBox = await clearSearch.boundingBox();
+		expect(clearSearchBox).not.toBeNull();
+		if (clearSearchBox === null) return;
+		expect(clearSearchBox.height).toBeGreaterThanOrEqual(44);
+		await clearSearch.click();
+		await expect(informationSearch).toHaveValue("");
+		await expect(informationSearch).toBeFocused();
+		await expect(menu.getByText("Common information")).toBeVisible();
+		await informationSearch.press("Escape");
+		await expect(informationSearch).toHaveCount(0);
+		await expect(addInformation).toBeFocused();
+
+		// The same picker keeps its conventional below-trigger placement when
+		// there is enough room; the edge fix must not make every opening jump up.
+		await page.setViewportSize({ width: 1280, height: 1000 });
+		await addInformation.click();
+		await expect(informationSearch).toBeVisible();
+		await expect(menuPositioner).toHaveAttribute("data-side", "bottom");
+		const [roomyMenuBox, roomyTriggerBox] = await Promise.all([
+			menu.boundingBox(),
+			addInformation.boundingBox(),
+		]);
+		expect(roomyMenuBox).not.toBeNull();
+		expect(roomyTriggerBox).not.toBeNull();
+		if (roomyMenuBox === null || roomyTriggerBox === null) return;
+		expect(roomyMenuBox.y).toBeGreaterThanOrEqual(
+			roomyTriggerBox.y + roomyTriggerBox.height + 4,
+		);
+		expect(roomyMenuBox.y + roomyMenuBox.height).toBeLessThanOrEqual(996);
+		await informationSearch.press("Escape");
+		await expect(addInformation).toBeFocused();
+
+		await page.getByRole("button", { name: /^Case data for / }).click();
+		const caseData = page.getByRole("dialog", { name: "Case data" });
+		const caseDataDescription = caseData.getByText(
+			"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
+		);
+		await expect(caseDataDescription).toBeVisible();
+		const countValue = caseData.getByText("8", { exact: true });
+		await expect(countValue).toBeVisible();
+		await expect(caseData.getByText("cases", { exact: true })).toBeVisible();
+		const [titleSize, countSize, descriptionSize, popoverBox] =
+			await Promise.all([
+				caseData
+					.getByRole("heading", { name: "Case data" })
+					.evaluate((element) =>
+						Number.parseFloat(getComputedStyle(element).fontSize),
+					),
+				countValue.evaluate((element) =>
+					Number.parseFloat(getComputedStyle(element).fontSize),
+				),
+				caseDataDescription.evaluate((element) =>
+					Number.parseFloat(getComputedStyle(element).fontSize),
+				),
+				caseData.boundingBox(),
+			]);
+		expect(countSize).toBeGreaterThan(titleSize);
+		expect(titleSize).toBeGreaterThan(descriptionSize);
+		expect(popoverBox).not.toBeNull();
+		if (popoverBox === null) return;
+		const viewport = page.viewportSize();
+		expect(viewport).not.toBeNull();
+		if (viewport === null) return;
+		expect(popoverBox.x).toBeGreaterThanOrEqual(4);
+		expect(popoverBox.y).toBeGreaterThanOrEqual(4);
+		expect(popoverBox.x + popoverBox.width).toBeLessThanOrEqual(
+			viewport.width - 4,
+		);
+		expect(popoverBox.y + popoverBox.height).toBeLessThanOrEqual(
+			viewport.height - 4,
+		);
+
+		// Destructive confirmations use the shared AlertDialog contract.
+		// Long confirmation copy must stay inside both axes on a short viewport;
+		// the popup itself scrolls while its concise actions stay in one contained
+		// horizontal row.
+		await caseData.getByRole("button", { name: "Replace case data" }).click();
+		const replaceDialog = page.getByRole("alertdialog");
+		await expect(
+			replaceDialog.getByRole("heading", {
+				name: "Replace all 8 cases?",
+			}),
+		).toBeVisible();
+		const cancelReplace = replaceDialog.getByRole("button", {
+			name: "Cancel",
+		});
+		const replaceCases = replaceDialog.getByRole("button", {
+			name: "Replace",
+		});
+		const [roomyReplaceBox, roomyKeepBox, roomyReplaceActionBox] =
+			await Promise.all([
+				replaceDialog.boundingBox(),
+				cancelReplace.boundingBox(),
+				replaceCases.boundingBox(),
+			]);
+		expect(roomyReplaceBox).not.toBeNull();
+		expect(roomyKeepBox).not.toBeNull();
+		expect(roomyReplaceActionBox).not.toBeNull();
+		if (
+			roomyReplaceBox === null ||
+			roomyKeepBox === null ||
+			roomyReplaceActionBox === null
+		)
+			return;
+		for (const actionBox of [roomyKeepBox, roomyReplaceActionBox]) {
+			expect(actionBox.x).toBeGreaterThanOrEqual(roomyReplaceBox.x);
+			expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(
+				roomyReplaceBox.x + roomyReplaceBox.width,
+			);
+		}
+		expect(roomyKeepBox.y).toBeCloseTo(roomyReplaceActionBox.y, 0);
+		expect(roomyKeepBox.height).toBeCloseTo(roomyReplaceActionBox.height, 0);
+
+		await page.setViewportSize({ width: 640, height: 220 });
+		const replaceMetrics = await replaceDialog.evaluate((element) => ({
+			clientHeight: element.clientHeight,
+			scrollHeight: element.scrollHeight,
+		}));
+		const replaceBox = await replaceDialog.boundingBox();
+		expect(replaceBox).not.toBeNull();
+		if (replaceBox === null) return;
+		expect(replaceBox.x).toBeGreaterThanOrEqual(16);
+		expect(replaceBox.y).toBeGreaterThanOrEqual(16);
+		expect(replaceBox.x + replaceBox.width).toBeLessThanOrEqual(624);
+		expect(replaceBox.y + replaceBox.height).toBeLessThanOrEqual(204);
+		expect(replaceMetrics.scrollHeight).toBeGreaterThan(
+			replaceMetrics.clientHeight,
+		);
+
+		// The row can sit below the fold when the viewport is deliberately
+		// shorter than the confirmation copy. Scrolling one choice into view must
+		// reveal both choices on the same contained row, never a vertical stack.
+		await cancelReplace.scrollIntoViewIfNeeded();
+		const [keepBox, replaceActionBox] = await Promise.all([
+			cancelReplace.boundingBox(),
+			replaceCases.boundingBox(),
+		]);
+		expect(keepBox).not.toBeNull();
+		expect(replaceActionBox).not.toBeNull();
+		if (keepBox === null || replaceActionBox === null) return;
+		for (const actionBox of [keepBox, replaceActionBox]) {
+			expect(actionBox.x).toBeGreaterThanOrEqual(replaceBox.x);
+			expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(
+				replaceBox.x + replaceBox.width,
+			);
+			expect(actionBox.y).toBeGreaterThanOrEqual(replaceBox.y);
+			expect(actionBox.y + actionBox.height).toBeLessThanOrEqual(
+				replaceBox.y + replaceBox.height,
+			);
+		}
+		expect(keepBox.y).toBeCloseTo(replaceActionBox.y, 0);
+		expect(keepBox.height).toBeCloseTo(replaceActionBox.height, 0);
+		await cancelReplace.click();
+		await expect(replaceDialog).toHaveCount(0);
+		await page.setViewportSize({ width: 1280, height: 720 });
+
+		await test.step("preview explains why an otherwise populated list is empty", async () => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await expect(
+				page.getByRole("button", { name: "Back to edit", exact: true }),
+			).toBeVisible();
+			const authoredEmptyTitle = page.getByRole("heading", {
+				name: "Your availability settings hide every case",
+				level: 2,
+			});
+			await expect(authoredEmptyTitle).toBeVisible({ timeout: 20_000 });
+			const authoredEmpty = authoredEmptyTitle.locator("..");
+			const authoredEmptyDescription = authoredEmpty.getByText(
+				"To show cases, update Cases available in Results or create a matching case",
+			);
+			await expect(authoredEmptyDescription).toBeVisible();
+			await expect(page.getByText("No cases yet", { exact: true })).toHaveCount(
+				0,
+			);
+			await expect(
+				page.getByRole("button", { name: /sample cases/i }),
+			).toHaveCount(0);
+			const [emptyTitleStyle, emptyDescriptionStyle] = await Promise.all([
+				authoredEmptyTitle.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {
+						fontSize: Number.parseFloat(style.fontSize),
+						color: style.color,
+					};
+				}),
+				authoredEmptyDescription.evaluate((element) => {
+					const style = getComputedStyle(element);
+					return {
+						fontSize: Number.parseFloat(style.fontSize),
+						color: style.color,
+					};
+				}),
+			]);
+			expect(emptyTitleStyle.fontSize).toBeGreaterThan(
+				emptyDescriptionStyle.fontSize,
+			);
+			expect(emptyTitleStyle.color).not.toBe(emptyDescriptionStyle.color);
+
+			// A submitted search cannot mask the broader availability problem: no
+			// search can return a case while Results excludes every available case.
+			await page.getByRole("textbox", { name: "Patient name" }).fill("Nobody");
+			await page
+				.getByRole("button", { name: "Show patients", exact: true })
+				.click();
+			await expect(authoredEmptyTitle).toBeVisible({ timeout: 20_000 });
+			await expect(
+				page.getByRole("heading", {
+					name: "No cases match your search",
+					level: 2,
+				}),
+			).toHaveCount(0);
+
+			await page
+				.getByRole("button", { name: "Back to edit", exact: true })
+				.click();
+			await expect(
+				page.getByRole("heading", { name: "Results", level: 1 }),
+			).toBeVisible();
+		});
+
+		// Details used to bypass the chooser when it had no information to add
+		// back, silently picking the next system property. It must now wait for
+		// an explicit choice, then expose true deletion separately from Hide.
+		await page.goto(seed.caseWorkspace.routes.details);
+		await expect(
+			page.getByRole("heading", { name: "Details", level: 1 }),
+		).toBeVisible();
+		const detailsInformation = page.getByRole("region", {
+			name: "Information shown",
+		});
+		const detailsRows = detailsInformation.locator(
+			'[data-case-field-role="visible"]',
+		);
+		const originalDetailCount = await detailsRows.count();
+		const addDetailsInformation = page.getByRole("combobox", {
+			name: "Add information",
+		});
+		await addDetailsInformation.click();
+		await expect(page.getByText("More case information")).toBeVisible();
+		expect(await detailsRows.count()).toBe(originalDetailCount);
+		await page
+			.getByRole("option", { name: /Date opened.*Date and time/ })
+			.click();
+		await expect(
+			detailsInformation.getByRole("button", {
+				name: "Date opened",
+				exact: true,
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Delete information" }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Delete information" }).click();
+		const deletionDialog = page.getByRole("alertdialog");
+		await expect(
+			deletionDialog.getByText("Saved case data won’t change"),
+		).toBeVisible();
+		await deletionDialog.getByRole("button", { name: "Delete" }).click();
+		await expect(
+			detailsInformation.getByRole("button", {
+				name: "Date opened",
+				exact: true,
+			}),
+		).toHaveCount(0);
+		await expect(addDetailsInformation).toBeFocused();
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

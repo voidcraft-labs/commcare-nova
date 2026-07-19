@@ -47,24 +47,24 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		done: "Reordered columns",
 	},
 	addSearchInputs: {
-		doing: "Adding search inputs",
-		done: "Added search inputs",
+		doing: "Adding search fields",
+		done: "Added search fields",
 	},
 	updateSearchInput: {
-		doing: "Updating search input",
-		done: "Updated search input",
+		doing: "Updating search field",
+		done: "Updated search field",
 	},
 	removeSearchInput: {
-		doing: "Removing search input",
-		done: "Removed search input",
+		doing: "Removing search field",
+		done: "Removed search field",
 	},
 	reorderSearchInputs: {
-		doing: "Reordering search inputs",
-		done: "Reordered search inputs",
+		doing: "Reordering search fields",
+		done: "Reordered search fields",
 	},
 	setCaseListFilter: {
-		doing: "Setting the case-list filter",
-		done: "Set the case-list filter",
+		doing: "Updating available cases",
+		done: "Updated available cases",
 	},
 	setCaseSearchAdvanced: {
 		doing: "Updating advanced search",

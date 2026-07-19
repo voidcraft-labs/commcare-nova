@@ -20,6 +20,7 @@ import { type CaseType, type Column, columnSchema } from "@/lib/domain";
 import {
 	type ColumnEditContext,
 	columnCardSchemas,
+	resolveColumnPropertyDataType,
 } from "../columnEditorSchemas";
 
 const PATIENT: CaseType = {
@@ -58,6 +59,39 @@ describe("columnCardSchemas — defaultValue parses through schema", () => {
 			expect(() => columnSchema.parse(value)).not.toThrow();
 		});
 	}
+
+	it("seeds canonical names from a legacy alias catalog", () => {
+		const legacyCtx: ColumnEditContext = {
+			currentCaseType: "patient",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "name", label: "Patient", data_type: "text" },
+						{
+							name: "date-opened",
+							label: "Opened",
+							data_type: "datetime",
+						},
+						{ name: "case_name", label: "Case name", data_type: "text" },
+						{
+							name: "date_opened",
+							label: "Date opened",
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+		};
+
+		const plain = columnCardSchemas.plain.defaultValue(legacyCtx);
+		const date = columnCardSchemas.date.defaultValue(legacyCtx);
+		expect(plain.kind === "plain" ? plain.field : "").toBe("case_name");
+		expect(date.kind === "date" ? date.field : "").toBe("date_opened");
+		expect(resolveColumnPropertyDataType(legacyCtx, "date-opened")).toBe(
+			"datetime",
+		);
+	});
 });
 
 describe("columnCardSchemas — applicableForProperty", () => {

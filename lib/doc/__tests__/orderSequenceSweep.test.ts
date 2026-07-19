@@ -3,13 +3,16 @@
  *
  * The storage arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]` and the
  * `columns` / `searchInputs` / `options` arrays) are MEMBERSHIP sets — their
- * internal position is NOT the authoritative sequence. Display / wire / preview
- * / SA order is derived as `sort-by-(order, uuid)` (`bySortKey`). A consumer
- * that iterates one of those arrays AS A SEQUENCE must therefore sort it
- * through `bySortKey` (or the `ordered{Field,Form,Module}Uuids` helpers, or
- * `readOptions`/`sortedOrderKeys`, which sort internally), or a same-parent
- * reorder — which leaves the array untouched and only changes an entity's
- * `order` — would be invisible.
+ * internal position is NOT the authoritative sequence. Generic display / wire
+ * / preview / SA order is derived as `sort-by-(order, uuid)` (`bySortKey`);
+ * case-list Results and Details instead use `byListColumnOrder` and
+ * `byDetailColumnOrder`, each falling back to generic `order`. A consumer that
+ * iterates one of those arrays AS A SEQUENCE must therefore sort it through
+ * its matching comparator (or the `ordered{Field,Form,Module}Uuids`,
+ * `useFormIds`, `projectCaseWorkspaceColumns`, `readOptions`, or
+ * `sortedOrderKeys` helpers, which sort internally), or a same-parent reorder
+ * — which leaves the array untouched and only changes an entity's `order` —
+ * would be invisible.
  *
  * This guard fails if one of the enumerated sequence consumers loses its sort,
  * so a missed/regressed site fails the build rather than prod. A NEW emitter or
@@ -78,19 +81,34 @@ const SEQUENCE_CONSUMERS = [
 	"components/builder/case-list-config/canvas/SearchCanvas.tsx",
 	"components/builder/case-list-config/canvas/DetailCanvas.tsx",
 	"components/builder/case-list-config/CaseListConfigWorkspace.tsx",
+	"components/builder/case-list-config/SortPriorityStack.tsx",
+	"components/builder/case-list-config/workspaceProjection.ts",
+	"components/builder/appTree/ModuleCard.tsx",
 	// The close-condition value dropdown (a select field's option values).
 	"components/builder/detail/formSettings/CloseConditionSection.tsx",
 ] as const;
 
 const SORTS =
-	/bySortKey|ordered(?:Field|Form|Module)Uuids|readOptions|sortedOrderKeys/;
+	/by(?:SortKey|ListColumnOrder|DetailColumnOrder)|ordered(?:Field|Form|Module)Uuids|useFormIds|projectCaseWorkspaceColumns|readOptions|sortedOrderKeys/;
 
 describe("order-sequence sweep", () => {
 	it.each(
 		SEQUENCE_CONSUMERS,
-	)("%s derives its sequence through bySortKey, not array position", (relativePath) => {
+	)("%s derives its sequence through an order comparator/helper, not array position", (relativePath) => {
 		const source = readFileSync(join(process.cwd(), relativePath), "utf8");
 		expect(source).toMatch(SORTS);
+	});
+
+	it("keeps the case-workspace projection helper backed by both surface comparators", () => {
+		const source = readFileSync(
+			join(
+				process.cwd(),
+				"components/builder/case-list-config/workspaceProjection.ts",
+			),
+			"utf8",
+		);
+		expect(source).toMatch(/byListColumnOrder/);
+		expect(source).toMatch(/byDetailColumnOrder/);
 	});
 });
 

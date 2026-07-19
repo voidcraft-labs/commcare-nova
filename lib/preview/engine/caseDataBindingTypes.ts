@@ -27,9 +27,9 @@ import type {
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
 // import path for the binding's types. `CaseRowWithCalculated`
-// rides the same surface for the case-list live-preview path
-// (`loadCaseListPreviewAction`). `CalculatedValue`, `JsonValue`,
-// and `JsonObject` ride the same surface so client-bundle-bound
+// rides the same surface for the running case list and filter-count
+// preview paths. `CalculatedValue`, `JsonValue`, and `JsonObject`
+// ride the same surface so client-bundle-bound
 // consumers + the server-only helpers can type-import them from
 // this leaf without touching the case-store barrel — the barrel
 // value-exports `withOwnerContext`, which pulls the Postgres
@@ -43,58 +43,76 @@ export type {
 	JsonValue,
 };
 
+/** Why the effective query can return zero rows. Derived at the server query
+ * composition boundary after blank inputs and empty owner-id expressions have
+ * been removed, so the running app never guesses from client-side syntax. */
+export type CaseQueryConstraintSource =
+	| "unconstrained"
+	| "worker-search"
+	| "authored-rules";
+
+/** What the client can truthfully say about a settled query result. `unknown`
+ * exists only for the short rolling-deploy window where a new client receives
+ * the older Server Action response shape without constraint metadata. */
+export type CaseQueryConstraintContext = CaseQueryConstraintSource | "unknown";
+
 /**
- * Result of loading every case row for a case type. The `rows` arm
- * carries `CaseRowWithCalculated` so calc-arm columns surface their
+ * Result of loading case rows for a case type, optionally as a bounded window.
+ * The success arms carry the effective query's constraint source alongside
+ * their data so empty-state copy describes the query that actually reached the
+ * case store, not merely the presence of an authored expression or a raw
+ * submitted string. The `rows` arm carries `CaseRowWithCalculated` so calc-arm
+ * columns surface their
  * SQL-projected values on `row.calculated[uuid]` — `evaluateColumnValue`
  * reads the slot directly. Callers without a `caseListConfig` (raw-
  * row consumers) get an empty `calculated: {}` map per row.
  */
 export type LoadCasesResult =
-	| { kind: "rows"; rows: ReadonlyArray<CaseRowWithCalculated> }
-	| { kind: "empty" }
+	| {
+			kind: "rows";
+			rows: ReadonlyArray<CaseRowWithCalculated>;
+			/** Full population matching the authored + worker query. Present for
+			 * bounded running-list reads; optional during rolling deploys and for
+			 * legacy unpaged callers. */
+			totalCount?: number;
+			/** Effective bounded window returned by the server. The server may
+			 * clamp an offset past the final page after concurrent deletion. */
+			pageOffset?: number;
+			pageSize?: number;
+			/** Optional only for rolling-deploy compatibility with an older action. */
+			constraintSource?: CaseQueryConstraintSource;
+	  }
+	| {
+			kind: "empty";
+			/** When a worker Search and authored availability are both active,
+			 * this count isolates the authored-only population. Zero proves that
+			 * clearing Search cannot reveal a case; a positive value proves that
+			 * Search itself narrowed the authored population to zero. */
+			authoredMatchingCount?: number;
+			/** Optional only for rolling-deploy compatibility with an older action. */
+			constraintSource?: CaseQueryConstraintSource;
+	  }
+	/** A safe, deterministic Search-value rejection. Unlike `error`, retrying
+	 * unchanged input cannot help, so consumers show the cause beside Search
+	 * and never offer a transport-style retry button. */
+	| {
+			kind: "invalid-search";
+			message: string;
+			/** Whether the worker can repair a submitted prompt or the authored
+			 * Search/session expression itself needs an editor. */
+			repair: "inputs" | "settings";
+	  }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
 /**
- * Result of loading the case-list authoring-surface live preview.
- * Mirrors `LoadCasesResult` but the `rows` arm carries
- * `CaseRowWithCalculated` so per-row evaluated calculated columns
- * surface in the preview's table cells.
- *
- * `empty` and `error` arms keep the same shape as `LoadCasesResult`
- * so the client renderer dispatches uniformly across both paths.
- * The authoring surface treats `empty` as "no cases yet, hint to
- * generate sample data via the running-app view" — the live preview
- * does NOT expose the sample-data populate action itself; that
- * action lives only on the running-app authoring surface, so
- * duplicating it here would fork UX.
+ * Unfiltered case count for the builder-owned case-data manager. This is
+ * deliberately a separate action from `LoadCasesResult`: the manager needs
+ * the full population size, while list surfaces may be filtered, paginated,
+ * or carrying calculated projections.
  */
-export type LoadCaseListPreviewResult =
-	| { kind: "rows"; rows: ReadonlyArray<CaseRowWithCalculated> }
-	| { kind: "empty" }
-	| { kind: "missing-case-type"; caseType: string }
-	| { kind: "schema-not-synced"; caseType: string }
-	/**
-	 * The Server Action's input failed `caseListConfigSchema`
-	 * validation at the trust boundary. The action is the wire
-	 * boundary; an unparseable config arriving over the wire
-	 * indicates either a stale client or a malicious caller, and
-	 * the action surfaces a typed arm rather than letting the
-	 * downstream `compileExpression` invariant message leak through
-	 * the catchall `error` arm.
-	 */
-	| { kind: "invalid-config"; message: string }
-	/**
-	 * The Server Action's input failed `blueprintDocSchema`
-	 * validation. Same trust-boundary argument as `invalid-config`
-	 * — the action is the wire boundary and the blueprint AST
-	 * flows directly into the case-store's compiler stack via
-	 * `caseStore.query`. A separate arm (rather than reusing
-	 * `invalid-config`) keeps the structural cause discriminable
-	 * for the client surface.
-	 */
-	| { kind: "invalid-blueprint"; message: string }
+export type LoadCaseCountResult =
+	| { kind: "count"; count: number }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
@@ -105,8 +123,7 @@ export type LoadCaseListPreviewResult =
  * author sees both "what passes" and "how many pass" without
  * paying for a full row fetch.
  *
- * Shape mirrors `LoadCaseListPreviewResult` plus a `totalCount`
- * field on the `rows` arm — `totalCount` is the row population
+ * `totalCount` is the row population
  * matching the predicate (NOT the row sample's `rows.length`).
  * The renderer uses both numbers to surface "Showing N of M cases
  * that pass this filter".
@@ -120,9 +137,8 @@ export type LoadCaseListPreviewResult =
  * shape keeps the count value honest and lets the renderer decide
  * how to format the rows-empty case from the same arm.
  *
- * Missing / schema / trust-boundary arms have the same shape as
- * `LoadCaseListPreviewResult`. The `paused` arm is NOT part of
- * this shape because the Server Action never returns it — the
+ * The `paused` arm is NOT part of this shape because the Server Action
+ * never returns it — the
  * client component renders the paused state locally when its
  * `filterValid` prop is `false` and never fires the action.
  */
@@ -137,8 +153,7 @@ export type LoadFilterPreviewResult =
 	/**
 	 * The Server Action's input failed `caseListConfigSchema`
 	 * validation at the trust boundary. Same shape as
-	 * `LoadCaseListPreviewResult`'s `invalid-config` arm — the
-	 * action is the wire boundary; an unparseable config arriving
+	 * The action is the wire boundary; an unparseable config arriving
 	 * over the wire surfaces as a typed arm rather than letting
 	 * the downstream `compilePredicate` invariant message leak
 	 * through the catchall `error` arm.
@@ -154,8 +169,15 @@ export type LoadFilterPreviewResult =
 
 /**
  * Result of loading a single case by id (the case-loading form
- * path for followup / close). `missing` covers absent-id AND
- * cross-tenant — equivalent under the case-store contract.
+ * path for followup / close, and the URL-backed Details path).
+ * `missing` covers absent-id AND cross-tenant — equivalent under
+ * the case-store contract.
+ *
+ * The row always uses the case-store's projected shape. Raw form
+ * loads receive `calculated: {}`; Details can supply the live case-list
+ * configuration and catalog so calculated display values are projected
+ * for an off-page/deep-linked row without applying the Results filter,
+ * sort, or page window.
  *
  * `ancestors` is the bound case's parent chain, nearest-first
  * (parent, grandparent, …), walked server-side through the case
@@ -165,7 +187,11 @@ export type LoadFilterPreviewResult =
  * walk. Empty for a root case.
  */
 export type LoadCaseDataResult =
-	| { kind: "row"; row: CaseRow; ancestors: ReadonlyArray<CaseRow> }
+	| {
+			kind: "row";
+			row: CaseRowWithCalculated;
+			ancestors: ReadonlyArray<CaseRow>;
+	  }
 	| { kind: "missing" }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
@@ -213,8 +239,9 @@ export type PopulateSampleCasesResult =
  * - `followup` — `caseId` is the bound case the form updates;
  *   `patch.properties` is the JSONB delta. Children carry
  *   `parentCaseId` set to the bound caseId at derivation time.
- * - `close` — same shape as `followup`, plus a closure stamp on
- *   the bound case after the updates land.
+ * - `close` — same shape as `followup`, plus the bound case's atomic
+ *   lifecycle transition (`closed_on` + built-in `status = "closed"`)
+ *   after the updates land.
  * - `survey` — structural no-op; the form owns no case rows.
  *
  * `caseName` is a separate slot from `properties` because the

@@ -25,6 +25,7 @@ export { withProjectContext, withSchemaContext } from "./projectContext";
 // Cross-tenant case re-tenant — the case-store half of moving an app between
 // Projects. The db-injectable `*On` twin stays package-private (harness only).
 export { retenantAppCases } from "./retenant";
+export type { TermBindings, TermBindingValue } from "./sql/compileTerm";
 // JSONB value types — consumed by callers reading `CaseRow.properties`.
 export type {
 	JsonObject,

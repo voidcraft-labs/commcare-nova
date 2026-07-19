@@ -63,9 +63,17 @@ export function HomeScreen() {
 			)}
 			<div className="flex items-center gap-2">
 				{canEdit ? (
-					<EditableTitle value={appName} onSave={saveAppName} />
+					<EditableTitle
+						value={appName}
+						onSave={saveAppName}
+						ariaLabel="Application name"
+					/>
 				) : (
-					<EditableTitle value={appName} readOnly />
+					<EditableTitle
+						value={appName}
+						readOnly
+						ariaLabel="Application name"
+					/>
 				)}
 			</div>
 			<div className="grid gap-3">

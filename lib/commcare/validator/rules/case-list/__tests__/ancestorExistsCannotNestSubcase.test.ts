@@ -95,11 +95,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
-							exists(subcasePath("child")),
+							exists(subcasePath("child", "child")),
 						),
 						searchInputs: [],
 					},
@@ -115,8 +116,8 @@ describe("ancestorExistsCannotNestSubcase", () => {
 		// and point at a fix path.
 		expect(hits[0].message).toContain("ancestor case");
 		expect(hits[0].message).toContain("child case");
-		expect(hits[0].message).toContain("rejects");
-		expect(hits[0].message).toContain("siblings");
+		expect(hits[0].message).toContain("server cannot run");
+		expect(hits[0].message).toContain("separate top-level conditions");
 	});
 
 	it("fires when an ancestor exists wraps a missing subcase walk", () => {
@@ -129,11 +130,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
-							missing(subcasePath("child")),
+							missing(subcasePath("child", "child")),
 						),
 						searchInputs: [],
 					},
@@ -160,13 +162,14 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							and(
 								eq(prop("household", "case_name"), literal("A")),
-								not(exists(subcasePath("child"))),
+								not(exists(subcasePath("child", "child"))),
 							),
 						),
 						searchInputs: [],
@@ -190,11 +193,15 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
-							eq(prop("patient", "value", subcasePath("child")), literal("v")),
+							eq(
+								prop("patient", "value", subcasePath("child", "child")),
+								literal("v"),
+							),
 						),
 						searchInputs: [],
 					},
@@ -217,12 +224,13 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							eq(
-								prop("patient", "value", anyRelationPath("sibling")),
+								prop("patient", "value", anyRelationPath("sibling", "child")),
 								literal("v"),
 							),
 						),
@@ -235,6 +243,57 @@ describe("ancestorExistsCannotNestSubcase", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
+	});
+
+	it("fires when an outer either-direction walk's ancestor arm contains a child walk", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseSearchConfig: {},
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: exists(
+							anyRelationPath("parent", "household"),
+							exists(subcasePath("parent", "patient")),
+						),
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: caseTypesWithChain,
+		});
+		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain("ancestor case");
+		expect(hits[0].message).toContain("child case");
+	});
+
+	it("admits a nested child walk when the outer parent path is graph-proven child-only", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseSearchConfig: {},
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: exists(
+							anyRelationPath("parent", "child"),
+							exists(subcasePath("guardian_link", "household")),
+						),
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: caseTypesWithChain,
+		});
+		expect(runValidation(doc)).toEqual([]);
 	});
 
 	it("fires when a `subcase-count` sits inside the ancestor envelope's filter", () => {
@@ -250,11 +309,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
-							gt(count(subcasePath("child")), literal(0)),
+							gt(count(subcasePath("child", "child")), literal(0)),
 						),
 						searchInputs: [],
 					},
@@ -280,12 +340,13 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
 							exists(
-								subcasePath("child"),
+								subcasePath("child", "child"),
 								eq(prop("child", "value"), literal("v")),
 							),
 						),
@@ -308,9 +369,10 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						filter: exists(subcasePath("child")),
+						filter: exists(subcasePath("child", "child")),
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -331,11 +393,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: and(
 							exists(ancestorPath(relationStep("parent"))),
-							exists(subcasePath("child")),
+							exists(subcasePath("child", "child")),
 						),
 						searchInputs: [],
 					},
@@ -358,11 +421,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: exists(
 							ancestorPath(relationStep("parent")),
-							exists(ancestorPath(relationStep("host"))),
+							exists(ancestorPath(relationStep("host", "household"))),
 						),
 						searchInputs: [],
 					},
@@ -381,6 +445,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						searchInputs: [
@@ -391,7 +456,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 								"text",
 								exists(
 									ancestorPath(relationStep("parent")),
-									exists(subcasePath("child")),
+									exists(subcasePath("child", "child")),
 								),
 							),
 						],
@@ -403,7 +468,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("adv");
+		expect(hits[0].message).toContain("Adv");
 	});
 
 	it("ignores simple-arm searchInputs (no authored predicate to walk)", () => {
@@ -415,6 +480,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						searchInputs: [
@@ -444,10 +510,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: multiSelectAll(
-							prop("patient", "tags", subcasePath("child")),
+							prop("patient", "tags", subcasePath("child", "child")),
 							literal("a"),
 						),
 						searchInputs: [],
@@ -467,6 +534,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: matchAll(),
@@ -488,6 +556,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						searchInputs: [],
@@ -511,11 +580,12 @@ describe("ancestorExistsCannotNestSubcase", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: missing(
 							ancestorPath(relationStep("parent")),
-							exists(subcasePath("child")),
+							exists(subcasePath("child", "child")),
 						),
 						searchInputs: [],
 					},
@@ -526,5 +596,28 @@ describe("ancestorExistsCannotNestSubcase", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
+	});
+
+	it("does not apply the server-only restriction to an ordinary on-device case list", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: exists(
+							ancestorPath(relationStep("parent")),
+							exists(subcasePath("child", "child")),
+						),
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: caseTypesWithChain,
+		});
+		expect(runValidation(doc).some((error) => error.code === CODE)).toBe(false);
 	});
 });

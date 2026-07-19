@@ -17,8 +17,9 @@
 //     both surfaces; the wire-routing layer drops the same string into
 //     whichever slot the consumer needs.
 //   - `emitCsql(predicate)` produces the CSQL dialect evaluated by
-//     ElasticSearch on the CCHQ server. The emitter runs a property-
-//     via lift pre-pass first (`csqlHoist.ts::liftPropertyVias`), then
+//     ElasticSearch on the CCHQ server. The emitter runs the shared narrow
+//     predicate-subject lowering and then CSQL's relation-read grammar adapter,
+//     before it
 //     walks the lifted AST emitting a `concat(...)` wrapper. Non-
 //     grammar value expressions (`if`, `switch`, `arith`, `concat`,
 //     `coalesce`, `format-date`, ancestor / any-relation `count`, and
@@ -28,13 +29,6 @@
 //     `commcare-hq/docs/case_search_query_language.rst`. No sibling
 //     `<data>` slots are produced; the result is a single wrapper
 //     string the wire layer drops into `<data key="_xpath_query">`.
-//
-// `liftPropertyVias` IS re-exported because the case-list validator
-// needs to walk the post-lift AST without emitting — running the
-// full `emitCsql` pipeline to surface a structural-rejection error
-// would mean emitting wire the validator already plans to reject.
-// The lift is idempotent and side-effect-free; running it once for
-// validation and once for emission costs only the second walk.
 //
 // Lexical helpers (`quoteLiteral` / `quoteIdentifier` /
 // `formatNumeric`) flow out of `./stringQuoting` so any consumer that
@@ -51,11 +45,27 @@
 export { emitCaseListFilter } from "./caseListFilterEmitter";
 export type { CsqlEmissionResult } from "./csqlEmitter";
 export { emitCsql } from "./csqlEmitter";
-export { liftPropertyVias } from "./csqlHoist";
+export type {
+	CsqlRepresentabilityIssue,
+	CsqlRepresentabilityReason,
+} from "./csqlRepresentability";
+export {
+	checkCsqlRepresentability,
+	normalizeCsqlPredicate,
+} from "./csqlRepresentability";
+export {
+	type CsqlOnDeviceNodeVisitor,
+	walkCsqlOnDeviceNodes,
+} from "./csqlRuntimeWalk";
+export {
+	collectRuntimeGeopointInputNames,
+	isValidStaticGeopointCenter,
+} from "./geopoint";
 export {
 	collectExpressionInstances,
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "./instances";
+export { collectRuntimeCsqlStringInputNames } from "./runtimeCsqlQuoteSafety";
 export type { WireDialect } from "./stringQuoting";
 export { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";

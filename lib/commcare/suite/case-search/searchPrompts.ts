@@ -5,17 +5,19 @@
 // orchestrator splices the result between the `<query>`'s `<data>`
 // children and its closing tag.
 //
-// Simple and advanced arms emit the same `<prompt>` shape — the
-// distinction surfaces at search-execution time. Simple-arm slots
+// Simple and advanced arms share the same prompt metadata; advanced
+// arms additionally carry `exclude="true()"` because their authored
+// predicate owns the comparison. Simple-arm slots
 // `(property, mode, via)` inform CCHQ's runtime match; the prompt
 // itself just declares the input slot. Advanced-arm predicates
 // reference the input by name and AND-compose into `_xpath_query`
 // (orchestrated above; this module exposes `getAdvancedArmPredicates`
 // for that pull).
 //
-// When a simple-arm input rides on the `_xpath_query` route (the
-// gate at `simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`
-// decides), the prompt also emits `exclude="true()"`. CCHQ's runtime
+// When an input rides on the `_xpath_query` route, the prompt also
+// emits `exclude="true()"`. That includes every advanced arm and the
+// simple-arm shapes selected by
+// `simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`. CCHQ's runtime
 // otherwise auto-matches the typed value against a case property
 // named by the prompt key (verified against
 // `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
@@ -46,6 +48,7 @@ import type {
 	SimpleSearchInputDef,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import type { CaseListEmission } from "../case-list/types";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
@@ -62,6 +65,41 @@ import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 export interface SearchPromptsEmission {
 	readonly elements: readonly Element[];
 	readonly strings: Record<string, string>;
+}
+
+export const RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE =
+	"This search can't use both single and double quotation marks. Remove one kind and try again";
+
+/**
+ * One pre-submit prompt assertion derived from the exact emitted CSQL wrapper.
+ * The test can reference several search inputs because a computed runtime value
+ * may combine individually safe answers into one unrepresentable CSQL string.
+ * CommCare Core evaluates the assertion after populating the shared
+ * `search-input:results` instance, so the same test can be attached to every
+ * prompt involved in that effective query.
+ */
+export interface RuntimeCsqlPromptValidation {
+	readonly test: string;
+	readonly message: string;
+}
+
+/**
+ * Combine independently-derived runtime constraints into Core's single
+ * supported prompt-validation slot. Callers own the combined user-facing copy
+ * because a useful instruction is more concise than concatenating several
+ * standalone errors. Parentheses preserve each assertion's authored
+ * precedence before the shared `and` joins them.
+ */
+export function combineRuntimeCsqlPromptValidations(
+	validations: readonly RuntimeCsqlPromptValidation[],
+	combinedMessage: string,
+): RuntimeCsqlPromptValidation | undefined {
+	if (validations.length === 0) return undefined;
+	if (validations.length === 1) return validations[0];
+	return {
+		test: validations.map(({ test }) => `(${test})`).join(" and "),
+		message: combinedMessage,
+	};
 }
 
 // ── Per-input-type wire-attribute mapping ─────────────────────────
@@ -131,18 +169,20 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
  * empty input array yields an empty emission; the orchestrator
  * handles the no-prompt branch without a sentinel.
  *
- * Simple-arm inputs whose authored shape rides on the `_xpath_query`
- * route (per `simpleArmNeedsXPathQueryEmission`) emit
- * `exclude="true()"` so CCHQ's runtime suppresses the bogus
- * auto-match against the prompt key. The advanced arm never emits
- * the attribute — advanced-arm predicates author the entire
- * comparison and rely on the prompt slot binding the typed value at
- * `instance('search-input:results')/input/field[@name='<prompt key>']`,
- * not on any runtime auto-match.
+ * Every advanced input and every simple-arm input whose authored
+ * shape rides on `_xpath_query` emits `exclude="true()"`. CommCare
+ * Core still binds the prompt value into the search-input instance,
+ * but it does not also auto-submit the prompt key as a separate case-
+ * property filter.
  */
 export function buildSearchPrompts(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 	moduleId: string,
+	runtimeValidations: ReadonlyMap<
+		string,
+		RuntimeCsqlPromptValidation
+	> = new Map(),
+	relationContext: RelationEvaluationScopeContext = {},
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
@@ -153,9 +193,23 @@ export function buildSearchPrompts(
 		// the locale id itself.
 		const localeId = composeSearchPropertyLocaleId(moduleId, input.name);
 		strings[localeId] = input.label !== "" ? input.label : input.name;
+		const runtimeValidation = runtimeValidations.get(input.name);
+		const validationLocaleId = runtimeValidation
+			? composeRuntimeCsqlValidationLocaleId(moduleId, input.name)
+			: undefined;
+		if (validationLocaleId !== undefined && runtimeValidation !== undefined) {
+			strings[validationLocaleId] = runtimeValidation.message;
+		}
 
 		elements.push(
-			buildPromptElement(input, localeId, suppressAutoMatch(input)),
+			buildPromptElement(
+				input,
+				localeId,
+				searchInputSuppressesAutoMatch(input),
+				validationLocaleId,
+				runtimeValidation?.test,
+				relationContext,
+			),
 		);
 	}
 
@@ -171,8 +225,15 @@ export function buildSearchPrompts(
 export function emitSearchPrompts(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 	moduleId: string,
+	runtimeValidations?: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
+	relationContext: RelationEvaluationScopeContext = {},
 ): CaseListEmission {
-	const { elements, strings } = buildSearchPrompts(searchInputs, moduleId);
+	const { elements, strings } = buildSearchPrompts(
+		searchInputs,
+		moduleId,
+		runtimeValidations,
+		relationContext,
+	);
 	if (elements.length === 0) return { xml: "", strings };
 	return {
 		xml: elements.map((promptEl) => render(promptEl, RENDER_OPTS)).join("\n"),
@@ -190,14 +251,14 @@ export function emitSearchPrompts(
  * auto-match against the prompt key, silently dropping results when
  * `name !== property` or when the relation walk doesn't resolve.
  *
- * Advanced-arm inputs never carry the attribute — their predicate
- * authors the entire comparison; CCHQ's auto-match wouldn't fire
- * meaningfully against them either way, and emitting
- * `exclude="true()"` on every advanced-arm prompt would diverge from
- * CCHQ's typical authoring shape without a runtime benefit.
+ * Advanced-arm inputs always carry the attribute: their prompt must
+ * bind the typed value for `input(name)` references, but their authored
+ * predicate owns the comparison. Without `exclude`, CommCare Core also
+ * submits the prompt as a normal case-property query parameter and
+ * silently ANDs that unintended auto-match with `_xpath_query`.
  */
-function suppressAutoMatch(input: SearchInputDef): boolean {
-	if (input.kind !== "simple") return false;
+export function searchInputSuppressesAutoMatch(input: SearchInputDef): boolean {
+	if (input.kind === "advanced") return true;
 	return simpleArmNeedsXPathQueryEmission(input satisfies SimpleSearchInputDef);
 }
 
@@ -237,21 +298,43 @@ function composeSearchPropertyLocaleId(moduleId: string, name: string): string {
 	return `search_property.${moduleId}.${name}`;
 }
 
+function composeRuntimeCsqlValidationLocaleId(
+	moduleId: string,
+	name: string,
+): string {
+	return `search_property.${moduleId}.${name}.validation.0.text`;
+}
+
 /**
  * Build one `<prompt>` Element. CCHQ always emits `<display>` on every
  * `QueryPrompt`, so this function does the same as a child.
  * `suppressAutoMatch` threads through to stamp `exclude="true()"` on
- * the prompt when the simple-arm derivation gate routes the input
- * through `_xpath_query`.
+ * any prompt whose comparison is authored in `_xpath_query` rather
+ * than CommCare Core's implicit prompt-key matcher.
  */
 function buildPromptElement(
 	input: SearchInputDef,
 	localeId: string,
 	suppressAutoMatch: boolean,
+	validationLocaleId: string | undefined,
+	validationTest: string | undefined,
+	relationContext: RelationEvaluationScopeContext,
 ): Element {
-	return el("prompt", composePromptAttributes(input, suppressAutoMatch), [
+	const children = [
 		el("display", {}, [el("text", {}, [el("locale", { id: localeId })])]),
-	]);
+	];
+	if (validationLocaleId !== undefined && validationTest !== undefined) {
+		children.push(
+			el("validation", { test: validationTest }, [
+				el("text", {}, [el("locale", { id: validationLocaleId })]),
+			]),
+		);
+	}
+	return el(
+		"prompt",
+		composePromptAttributes(input, suppressAutoMatch, relationContext),
+		children,
+	);
 }
 
 /**
@@ -277,6 +360,7 @@ function buildPromptElement(
 function composePromptAttributes(
 	input: SearchInputDef,
 	suppressAutoMatch: boolean,
+	relationContext: RelationEvaluationScopeContext,
 ): Record<string, string> {
 	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
 
@@ -291,12 +375,15 @@ function composePromptAttributes(
 
 	// `default` is the attribute form, not a child `<default>` element
 	// — see `QueryPrompt::default_value = StringField('@default', ...)`.
-	if (input.default !== undefined) {
-		attribs.default = compileDefaultExpression(input.default);
+	// The historical scalar default slot cannot represent CommCare's paired
+	// daterange answer. Validation asks legacy authors to remove it; omission
+	// here is the final defense against turning one date into an exact query.
+	if (input.type !== "date-range" && input.default !== undefined) {
+		attribs.default = compileDefaultExpression(input.default, relationContext);
 	}
 
 	// `exclude="true()"` is the structural mitigation for the
-	// `name !== property` / non-self via simple-arm cases. CCHQ's
+	// explicit-predicate route. CCHQ's
 	// runtime skips the auto-match against the prompt key when the
 	// boolean XPath evaluates to true; the typed value remains bound
 	// to the search-input instance for the explicit `_xpath_query`
@@ -313,6 +400,9 @@ function composePromptAttributes(
  * `<prompt default>` is on-device-evaluated; the shared emitter
  * produces the right dialect.
  */
-function compileDefaultExpression(expression: ValueExpression): string {
-	return emitOnDeviceExpression(expression);
+function compileDefaultExpression(
+	expression: ValueExpression,
+	relationContext: RelationEvaluationScopeContext,
+): string {
+	return emitOnDeviceExpression(expression, undefined, relationContext);
 }

@@ -6,111 +6,26 @@
 // operator. The schema entry's `defaultValue(ctx)` factory builds a
 // kind-specific default predicate that the user can refine.
 //
-// UI shape: property picker on the left, operator dropdown in the
-// middle, value picker on the right. The value picker mirrors the
-// type of the picked property — text / numeric / date / select —
-// via `LiteralValueInput`'s `data_type` switch.
+// UI shape: subject editor + operator, then the comparison value.
+// A property subject stays compact; every other ValueExpression
+// remains editable through the same recursive expression editor.
 
 "use client";
-import { isOrdered } from "@/lib/domain";
 import {
-	type ComparisonKind,
 	comparisonObjectConstraint,
-	compatibleTypesFor,
-	eq,
-	gt,
-	gte,
-	lt,
-	lte,
-	neq,
+	comparisonSubjectConstraint,
+	type eq,
 	type Predicate,
-	prop,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import {
-	useEditorErrorsAt,
-	usePredicateEditContext,
-	useResolvedType,
-} from "../editorContext";
-import type { PredicateEditContext } from "../editorSchemas";
+import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import { appendSlot, type EditorPath } from "../path";
-import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
-import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { KIND_BUILDERS } from "./comparisonSeed";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
-import {
-	reseedValueForConstraint,
-	resolveExpressionType,
-	seedLiteralForProperty,
-} from "./reseed";
+import { reseedValueForConstraint, resolveExpressionType } from "./reseed";
 
-/** Per-kind builder dispatch. Keeps the card body's onChange paths
- *  precise — each kind constructs through the matching builder so
- *  the AST stays canonical. Exported so `preservedOperandSwap` in
- *  `ChildPredicateEditor` can route comparison ↔ comparison
- *  replacements through the same builders. */
-export const KIND_BUILDERS: Record<
-	ComparisonKind,
-	(left: Parameters<typeof eq>[0], right: Parameters<typeof eq>[1]) => Predicate
-> = {
-	eq,
-	neq,
-	gt,
-	gte,
-	lt,
-	lte,
-};
-
-const ORDERED_KINDS = new Set<ComparisonKind>(["lt", "lte", "gt", "gte"]);
-
-/**
- * Comparison-arm shape narrowed on the per-kind discriminator. The
- * schema's comparison arm declares `kind: ComparisonKind`, so a
- * direct `Extract<Predicate, { kind: K }>` (where K is one of the
- * six comparison kinds) resolves to `never` — the narrowing
- * tightens `kind` to the literal but preserves the schema's
- * operand types. This alias is what every comparison default
- * factory returns.
- */
-type ComparisonArm<K extends ComparisonKind> = Extract<
-	Predicate,
-	{ kind: ComparisonKind }
-> & { kind: K };
-
-/**
- * Build the default comparison predicate for a kind. Picks the
- * first applicable property — for ordering operators, the first
- * ordered-typed property; otherwise any property — and seeds the
- * RHS with an empty literal so the user immediately sees the value
- * input.
- *
- * Returns the precise `ComparisonArm<K>` shape rather than
- * `Extract<Predicate, { kind: K }>` because the latter resolves to
- * `never` (the schema's comparison arm carries `kind:
- * ComparisonKind`, not the per-kind narrowed literal). The runtime
- * AST is identical.
- */
-export function comparisonDefault<K extends ComparisonKind>(
-	kind: K,
-	ctx: PredicateEditContext,
-): ComparisonArm<K> {
-	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
-	const property = ct?.properties.find((p) =>
-		ORDERED_KINDS.has(kind) ? isOrdered(p) : true,
-	);
-	const propName = property?.name ?? "";
-	const builder = KIND_BUILDERS[kind] as (
-		l: Parameters<typeof eq>[0],
-		r: Parameters<typeof eq>[1],
-	) => ComparisonArm<K>;
-	// Seed the value of the property's OWN type so the default lands
-	// type-correct — a text `literal("")` opposite an ordered (`gt`/…)
-	// or non-text (`eq`/…) property would be a soundness error.
-	return builder(
-		prop(ctx.currentCaseType, propName),
-		seedLiteralForProperty(property),
-	);
-}
+export { comparisonDefault, KIND_BUILDERS } from "./comparisonSeed";
 
 interface ComparisonCardProps {
 	readonly value: Extract<
@@ -123,12 +38,10 @@ interface ComparisonCardProps {
 
 /**
  * Comparison card body. The slots:
- *   - `left` — `ValueExpression`. The card EDITS the canonical
- *     `term(prop(...))` shape via `PropertyRefPicker`; non-Term,
- *     non-prop-Term, and prop-with-non-self-`via` shapes route
- *     through that picker's read-only badge with an explicit
- *     Replace affordance, so the authored expression round-trips
- *     without destruction.
+ *   - `left` — `ValueExpression`. The recursive `ExpressionPicker`
+ *     exposes every valid subject source and calculated expression.
+ *     Its subject presentation keeps the dominant property case
+ *     compact while preserving full editability for complex ASTs.
  *   - operator — kind discriminator (eq / neq / gt / lt / lte / gte).
  *   - `right` — `ValueExpression`. The card mounts an
  *     `ExpressionPicker` shell at the slot, dispatching every
@@ -139,14 +52,6 @@ interface ComparisonCardProps {
  *     surfaces inline errors at the slot path.
  */
 export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
-	// Left-side errors render via the picker's `invalid` prop +
-	// the inline `<InlineError>` below — `PropertyRefPicker` doesn't
-	// have a card-shell footer of its own, so the slot's errors
-	// surface here directly. Right-side errors render via the
-	// `ExpressionPicker` shell's `CardShell` footer at the matching
-	// slot path; rendering them again here would double the
-	// diagnostic row count for the same message.
-	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
 	const ctx = usePredicateEditContext();
 
 	// The subject (left) drives what the value (right) may hold — the
@@ -155,7 +60,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	// checker `checkComparison` validates against, so the offered set
 	// is exactly the accept set.
 	const subjectType = useResolvedType(value.left);
-	const objectConstraint = comparisonObjectConstraint(subjectType);
+	const objectConstraint = comparisonObjectConstraint(value.kind, subjectType);
 
 	const setLeft = (left: ValueExpression) => {
 		const builder = KIND_BUILDERS[value.kind];
@@ -164,7 +69,14 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 		// subject no longer accepts, reseed it (carrying the typed
 		// content where the new type allows) in the SAME onChange so the
 		// committed comparison is never transiently type-wrong.
-		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
+		const accepts = comparisonObjectConstraint(
+			value.kind,
+			resolveExpressionType(left, ctx),
+		).accepts;
+		if (accepts === "any") {
+			onChange(builder(left, value.right));
+			return;
+		}
 		const rightType = resolveExpressionType(value.right, ctx);
 		const right =
 			rightType !== undefined && !accepts.has(rightType)
@@ -179,27 +91,21 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	};
 
 	return (
-		<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
-			<div>
-				{/* Ordering operators (`gt` / `gte` / `lt` / `lte`) only
-				 *  compare ordered types, so the left picker narrows to
-				 *  ordered properties for those kinds — picking the verb
-				 *  first (the verb menu disables ordering for a non-ordered
-				 *  subject), then the property, keeps each step valid. */}
-				<PropertyRefPicker
-					mode="left"
+		<div className="space-y-3">
+			<div className="grid grid-cols-1 items-start gap-2 @sm:grid-cols-[minmax(0,1fr)_auto]">
+				<ExpressionPicker
 					value={value.left}
 					onChange={setLeft}
-					filter={ORDERED_KINDS.has(value.kind) ? isOrdered : undefined}
-					invalid={leftErrors.length > 0}
-					ariaLabel="Left operand"
+					path={appendSlot(path, "left")}
+					constraint={comparisonSubjectConstraint(value.kind)}
+					presentation="subject"
+					variant="nested"
 				/>
-				<InlineError errors={leftErrors} />
+
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
-			<PredicateVerbMenu value={value} onChange={onChange} />
-
-			<div>
+			<div className="min-w-0">
 				{/* Right operand routes through `ExpressionPicker` so
 				 *  every admissible ValueExpression kind (term, arith, if,
 				 *  count, etc.) is editable at this slot via the registry-

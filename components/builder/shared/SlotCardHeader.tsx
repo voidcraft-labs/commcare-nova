@@ -1,6 +1,6 @@
 // components/builder/shared/SlotCardHeader.tsx
 //
-// Shared header chrome for optional-slot cards: etched mono section
+// Shared header chrome for optional-slot cards: readable section
 // label, hint line, optional disclosure toggle, and an `ml-auto`
 // Clear button when the slot is defined. The look matches the rest
 // of the inspector's console chrome (`InspectorSection`,
@@ -22,6 +22,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
+import { Button } from "@/components/shadcn/button";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -57,8 +58,7 @@ export interface SlotCardHeaderClear {
 }
 
 export interface SlotCardHeaderProps {
-	/** Header title — short label rendered as the section's etched
-	 *  console eyebrow (e.g., "Show when", "Excluded owners"). */
+	/** Header title — short sentence-case section label. */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */
@@ -74,8 +74,8 @@ export interface SlotCardHeaderProps {
 
 // ── Component ─────────────────────────────────────────────────────
 
-const ETCHED_LABEL_CLS =
-	"font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted";
+const SECTION_LABEL_CLS =
+	"text-[13px] font-semibold leading-5 text-nova-text-secondary";
 
 /**
  * Shared header chrome for optional-slot cards. Every consumer's
@@ -91,49 +91,55 @@ export function SlotCardHeader({
 		<header className="space-y-1.5">
 			<div className="flex items-center gap-2">
 				{collapse ? (
-					<button
-						type="button"
-						onClick={collapse.onToggle}
-						aria-expanded={collapse.isOpen}
-						aria-controls={collapse.controlsId}
-						aria-label={
-							collapse.isOpen ? collapse.collapseLabel : collapse.expandLabel
-						}
-						className="group flex-1 min-w-0 min-h-11 flex items-center gap-2 text-left cursor-pointer"
-					>
-						<Icon
-							icon={collapse.isOpen ? tablerChevronDown : tablerChevronRight}
-							width="12"
-							height="12"
-							className="shrink-0 text-nova-text-muted group-hover:text-nova-violet-bright transition-colors"
-						/>
-						<h3
-							className={`${ETCHED_LABEL_CLS} group-hover:text-nova-text-secondary transition-colors`}
+					<h3 className="min-w-0 flex-1">
+						<Button
+							type="button"
+							variant="ghost"
+							size="xl"
+							onClick={collapse.onToggle}
+							aria-expanded={collapse.isOpen}
+							aria-controls={collapse.controlsId}
+							aria-label={
+								collapse.isOpen ? collapse.collapseLabel : collapse.expandLabel
+							}
+							className="w-full min-w-0 justify-start gap-2 rounded-lg px-1 text-left not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
 						>
-							{title}
-						</h3>
-					</button>
+							<Icon
+								icon={collapse.isOpen ? tablerChevronDown : tablerChevronRight}
+								width="12"
+								height="12"
+								className="shrink-0 text-nova-text-muted transition-colors group-hover/button:text-nova-violet-bright"
+							/>
+							<span
+								className={`${SECTION_LABEL_CLS} transition-colors group-hover/button:text-nova-text`}
+							>
+								{title}
+							</span>
+						</Button>
+					</h3>
 				) : (
-					<h3 className={`flex-1 min-w-0 ${ETCHED_LABEL_CLS}`}>{title}</h3>
+					<h3 className={`min-w-0 flex-1 ${SECTION_LABEL_CLS}`}>{title}</h3>
 				)}
 				{clear ? (
 					// Button renders only with `clear` — a cleared-slot
 					// header has no stray spacer node. `whitespace-nowrap`
 					// because an action label must never wrap mid-phrase.
-					<button
+					<Button
 						type="button"
+						variant="destructive"
+						size="xl"
 						onClick={clear.onClick}
-						className="shrink-0 inline-flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider whitespace-nowrap rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10 transition-colors cursor-pointer"
+						className="shrink-0 gap-1 rounded-lg px-2.5 text-sm"
 						aria-label={clear.ariaLabel}
 					>
-						<Icon icon={tablerX} width="11" height="11" />
+						<Icon icon={tablerX} width="13" height="13" />
 						<span>{clear.label}</span>
-					</button>
+					</Button>
 				) : null}
 			</div>
 			{/* Description gets its own line — sharing the title row made
 			 *  it fight the Clear action for space in narrow rails. */}
-			<p className="text-[11px] leading-relaxed text-nova-text-muted">
+			<p className="text-[13px] leading-relaxed text-nova-text-muted">
 				{description}
 			</p>
 		</header>

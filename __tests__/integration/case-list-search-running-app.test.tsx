@@ -198,6 +198,15 @@ vi.mock("@/lib/session/hooks", async () => {
 	};
 });
 
+// CaseListScreen reads the authenticated worker to evaluate session-backed
+// search defaults. Keep this integration focused on case-store behavior and
+// avoid Better Auth's nanostore subscription timer crossing test teardown.
+vi.mock("@/lib/auth/hooks/useAuth", () => ({
+	useAuth: () => ({
+		user: { id: OWNER_ID, name: "Preview Worker", email: "worker@example.org" },
+	}),
+}));
+
 // `caseDataBinding` Server Actions are mocked at module scope so
 // the action wrappers' session resolution + `withOwnerContext`
 // construction are bypassed; each mock delegates to the helper
@@ -212,7 +221,6 @@ vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	populateSampleCasesAction: vi.fn(),
 	resetSampleCasesAction: vi.fn(),
 	submitFormAction: vi.fn(),
-	loadCaseListPreviewAction: vi.fn(),
 	loadFilterPreviewAction: vi.fn(),
 }));
 
@@ -563,14 +571,14 @@ beforeEach(async () => {
 //
 // Seed three rows differing on `name` + `status`. The case-list's
 // always-on filter narrows to `status = 'open'` (drops the closed
-// row). Typing into the search input narrows further to the row
-// whose `name` matches the typed value. Both narrowing layers
+// row). Submitting the search input narrows further to the row whose
+// `name` matches the typed value. Both narrowing layers
 // compile through the Postgres compiler stack — no mocked store,
 // no hand-rolled SQL.
 // =================================================================
 
 describe("CaseListScreen with search inputs — real Postgres narrowing", () => {
-	it("renders sorted rows after the always-on filter, then narrows further on typed search input", async () => {
+	it("renders sorted rows after the always-on filter, then narrows after Search is submitted", async () => {
 		const store = buildStore();
 		const doc = buildFixtureDoc();
 		await store.applySchemaChange({
@@ -628,14 +636,14 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		// form, end-to-end against a real-Postgres render.
 		expect(screen.getByRole("heading", { name: MODULE_NAME })).toBeDefined();
 
-		// Sort order — `age desc` puts Bob (40) before Alice (25). Each
-		// data row renders as a clickable `<button>` whose text is the
-		// concatenated cell values; `getAllByRole` preserves DOM order,
-		// so filtering to the case-name-bearing buttons yields the body
-		// rows in their rendered order.
-		const bodyRows = screen
-			.getAllByRole("button")
-			.filter((row) => /Bob|Alice/.test(row.textContent ?? ""));
+		// Sort order — `age desc` puts Bob (40) before Alice (25). The
+		// visual row contains the cell values and a sibling full-row action,
+		// allowing phone/value-detail actions to remain valid independent controls.
+		const bodyRows = Array.from(
+			document.querySelectorAll<HTMLElement>(
+				'[data-case-result-row="interactive"]',
+			),
+		);
 		expect(bodyRows).toHaveLength(2);
 		expect(bodyRows[0]?.textContent).toContain("Bob");
 		expect(bodyRows[1]?.textContent).toContain("Alice");
@@ -649,11 +657,11 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		expect(bodyRows[0]?.textContent).toContain("41");
 		expect(bodyRows[1]?.textContent).toContain("26");
 
-		// Type "Alice" into the search input. `SearchInputForm`
-		// debounces 300 ms before emitting the new value bag;
-		// `waitFor` polls until the re-fired action's result lands.
+		// Type "Alice", then submit. Draft values must not disturb the current
+		// Results until the person explicitly chooses Search.
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
 		fireEvent.change(input, { target: { value: "Alice" } });
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
 		// Encode the full expected end-state in the predicate, not a
 		// partial signal. Asserting only `Bob is null` is satisfied by
@@ -669,11 +677,12 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 			{ timeout: 3_000 },
 		);
 
-		// Clear the input — debounced 300 ms → both open-status rows
-		// return. The runtime-bindings layer's empty-value
+		// Clear and submit again — both open-status rows return. The
+		// runtime-bindings layer's empty-value
 		// short-circuit drops the input clause; the always-on filter
 		// (`status = 'open'`) still applies so Carol stays out.
 		fireEvent.change(input, { target: { value: "" } });
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
 		await waitFor(
 			() => {
 				expect(screen.getByText("Bob")).toBeDefined();
@@ -846,10 +855,15 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
-		// Alice's data row renders as one clickable button whose text
-		// concatenates the cell values in column order.
-		const aliceRow = screen.getByRole("button", { name: /Alice/ });
-		const rowText = aliceRow.textContent ?? "";
+		// Alice's data row keeps the full-row action separate from its visible
+		// cells so an actionable cell (such as a phone link) never nests inside
+		// a button. Read the sibling content from the shared row container.
+		const aliceAction = screen.getByRole("button", { name: /Alice/ });
+		const aliceRow = aliceAction.closest<HTMLElement>(
+			'[data-case-result-row="interactive"]',
+		);
+		expect(aliceRow).not.toBeNull();
+		const rowText = aliceRow?.textContent ?? "";
 		// Plain Age column reads the patched property → "41"; calc
 		// column re-evaluates → 42 (age + 1).
 		expect(rowText).toContain("41");
@@ -901,8 +915,16 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		// editable fields; the submit row still mounts in test mode.
 		const formView = renderFormScreen(doc, CLOSE_FORM_UUID, caseId);
 
-		const submit = await screen.findByRole("button", {
-			name: /^submit$/i,
+		/* The button mounts disabled while the bound row preloads. Under a
+		 * loaded full-suite worker, finding the element can beat that preload;
+		 * clicking a disabled button is correctly ignored. Wait for the actual
+		 * worker-visible readiness state before exercising submit. */
+		const submit = await waitFor(() => {
+			const button = screen.getByRole("button", {
+				name: /^submit$/i,
+			}) as HTMLButtonElement;
+			expect(button.disabled).toBe(false);
+			return button;
 		});
 		fireEvent.click(submit);
 

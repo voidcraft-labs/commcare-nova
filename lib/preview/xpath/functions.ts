@@ -1,8 +1,13 @@
 import { toBoolean, toDate, toNumber, xpathToString } from "./coerce";
+import { formatCommCareDate } from "./dateFormatting";
 import type { XPathValue } from "./types";
 import { XPathDate } from "./types";
 
 type XPathFn = (args: XPathValue[]) => XPathValue;
+
+export type XPathFunctionInvocation =
+	| { readonly kind: "handled"; readonly value: XPathValue }
+	| { readonly kind: "unsupported" };
 
 /** Registry of supported XPath/CommCare functions. */
 const registry = new Map<string, XPathFn>();
@@ -11,8 +16,23 @@ function register(name: string, fn: XPathFn) {
 	registry.set(name, fn);
 }
 
-export function getFunction(name: string): XPathFn | undefined {
-	return registry.get(name);
+/**
+ * Invoke only a function registered by this module.
+ *
+ * XPath text is user-authored, so the parsed function name is untrusted. Keep
+ * the membership and callable checks adjacent to invocation: an unknown name
+ * (including an Object prototype method) can never become a dynamic call.
+ */
+export function invokeFunction(
+	name: string,
+	args: XPathValue[],
+): XPathFunctionInvocation {
+	if (!registry.has(name)) return { kind: "unsupported" };
+
+	const fn = registry.get(name);
+	if (typeof fn !== "function") return { kind: "unsupported" };
+
+	return { kind: "handled", value: fn(args) };
 }
 
 // ── Boolean / Logic ──────────────────────────────────────────────────
@@ -33,6 +53,7 @@ register("if", (args) => {
 
 register("string", (args) => xpathToString(args[0] ?? ""));
 register("number", (args) => toNumber(args[0] ?? ""));
+register("double", (args) => toNumber(args[0] ?? ""));
 register("int", (args) => {
 	const n = toNumber(args[0] ?? "");
 	return Number.isNaN(n) ? NaN : Math.trunc(n);
@@ -73,6 +94,19 @@ register("translate", (args) => {
 	}
 	return result;
 });
+register("replace", (args) => {
+	try {
+		const value = xpathToString(args[0] ?? "");
+		const pattern = javaDefaultRegexPattern(xpathToString(args[1] ?? ""));
+		const replacement = xpathToString(args[2] ?? "");
+		// Core treats the XPath replacement argument as literal output. Passing a
+		// string directly to JavaScript replace would reinterpret `$1`, `$&`, and
+		// friends as substitution syntax; a callback preserves the authored bytes.
+		return value.replace(new RegExp(pattern, "g"), () => replacement);
+	} catch {
+		return xpathToString(args[0] ?? "");
+	}
+});
 register("substr", (args) => {
 	const str = xpathToString(args[0] ?? "");
 	// CommCare substr is 0-based: substr(string, start, end?)
@@ -103,6 +137,26 @@ register("count-selected", (args) => {
 	const value = xpathToString(args[0] ?? "").trim();
 	if (value === "") return 0;
 	return value.split(" ").length;
+});
+register("selected-at", (args) => {
+	// Mirrors commcare-core `XPathSelectedAtFunc.selectedAt`: the selection
+	// splits per `DataUtil.splitOnSpaces` ("" → zero entries; runs of spaces
+	// collapse; Java's split drops trailing empty tokens), and an
+	// out-of-range index THROWS — the device errors the evaluating screen
+	// rather than rendering an empty string, and Preview must fail the same
+	// way instead of green-lighting an expression that crashes the real app.
+	const selection = xpathToString(args[0] ?? "");
+	const index = Math.trunc(toNumber(args[1] ?? 0));
+	const entries = selection === "" ? [] : selection.split(/ +/);
+	while (entries.length > 0 && entries[entries.length - 1] === "") {
+		entries.pop();
+	}
+	if (index < 0 || entries.length <= index) {
+		throw new Error(
+			`Attempting to select element ${index} of a list with only ${entries.length} elements.`,
+		);
+	}
+	return entries[index];
 });
 
 // ── Coalesce ────────────────────────────────────────────────────────
@@ -188,16 +242,11 @@ register("format-date", (args) => {
 	/* Coerce first arg to a date, then to a JS Date for field extraction. */
 	const xd = toDate(raw);
 	if (!xd) return xpathToString(raw);
-	const d = xd.toJSDate();
-
-	return format
-		.replace("%Y", String(d.getUTCFullYear()))
-		.replace("%m", String(d.getUTCMonth() + 1).padStart(2, "0"))
-		.replace("%d", String(d.getUTCDate()).padStart(2, "0"))
-		.replace("%H", String(d.getUTCHours()).padStart(2, "0"))
-		.replace("%M", String(d.getUTCMinutes()).padStart(2, "0"))
-		.replace("%S", String(d.getUTCSeconds()).padStart(2, "0"))
-		.replace("%e", String(d.getUTCDate()));
+	const result = formatCommCareDate(xd, format);
+	// JavaRosa rejects an unsupported escape. The lightweight Preview evaluator
+	// cannot surface a runtime exception inline, so preserve the source value
+	// rather than presenting a fabricated formatting result.
+	return result.kind === "formatted" ? result.text : xpathToString(raw);
 });
 
 // ── Misc ────────────────────────────────────────────────────────────
@@ -206,10 +255,98 @@ register("uuid", () => crypto.randomUUID());
 register("regex", (args) => {
 	try {
 		const str = xpathToString(args[0] ?? "");
-		const pattern = xpathToString(args[1] ?? "");
+		const pattern = javaDefaultRegexPattern(xpathToString(args[1] ?? ""));
 		return new RegExp(pattern).test(str);
 	} catch {
 		return false;
 	}
 });
 register("instance", () => "");
+
+/**
+ * JavaRosa delegates these functions to Java's default `Pattern` mode, where
+ * `\s` is the ASCII whitespace class unless UNICODE_CHARACTER_CLASS is enabled.
+ * JavaScript's `\s` additionally matches NBSP and other Unicode separators.
+ * Rewriting the two shorthands keeps Preview from accepting location text that
+ * the exported app rejects (and preserves the same rule for user-authored
+ * regex/replace expressions).
+ */
+
+/** Java's default-mode `\s` membership, as bare class members. */
+const JAVA_ASCII_WHITESPACE = " \\t\\n\\x0B\\f\\r";
+/**
+ * JS `\s` minus Java-default `\s` — the Unicode separators JavaScript's
+ * shorthand matches that Java's ASCII-only default mode does not. Added
+ * back onto `\S` inside a class so the complement covers them.
+ */
+const JS_ONLY_WHITESPACE =
+	"\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff";
+
+function javaDefaultRegexPattern(pattern: string): string {
+	let translated = "";
+	let index = 0;
+	// Depth, not a flag: Java supports nested classes (`[a[b]]`, union
+	// semantics JS lacks) — depth-tracking keeps the "inside a class"
+	// answer right through them; the nested-class pattern itself still
+	// fails JS RegExp parsing and falls to the caller's catch.
+	let classDepth = 0;
+	while (index < pattern.length) {
+		const char = pattern[index];
+		if (char !== "\\") {
+			if (char === "[") classDepth += 1;
+			else if (char === "]" && classDepth > 0) classDepth -= 1;
+			translated += char;
+			index += 1;
+			continue;
+		}
+
+		const slashStart = index;
+		while (pattern[index] === "\\") index += 1;
+		const slashCount = index - slashStart;
+		if (slashCount % 2 === 0) {
+			// Even run: literal backslash pairs only. The following char is
+			// unescaped — re-enter the loop so bracket bookkeeping sees it.
+			translated += "\\".repeat(slashCount);
+			continue;
+		}
+
+		// Odd run: pairs are literal backslashes; the final one escapes the
+		// next char.
+		translated += "\\".repeat(slashCount - 1);
+		const escaped = pattern[index];
+		if (escaped === "s" || escaped === "S") {
+			translated +=
+				classDepth > 0
+					? // Inside a class, contribute MEMBERS — wrapping in `[...]`
+						// would nest a bracket JS reads as a different pattern
+						// (`[\s0-9]` must become `[ \t\n\x0B\f\r0-9]`, not
+						// `[[ \t\n\x0B\f\r]0-9]`). `\S` keeps the JS shorthand and
+						// adds back the Unicode whitespace Java's complement holds.
+						escaped === "s"
+						? JAVA_ASCII_WHITESPACE
+						: `\\S${JS_ONLY_WHITESPACE}`
+					: escaped === "s"
+						? `[${JAVA_ASCII_WHITESPACE}]`
+						: `[^${JAVA_ASCII_WHITESPACE}]`;
+			index += 1;
+			// A dash directly after a class shorthand can only be a LITERAL
+			// dash in a Java pattern (a range can't start from a class), but
+			// JS would pair it with the inlined set's last member as a range
+			// — escape it.
+			if (classDepth > 0 && pattern[index] === "-") {
+				translated += "\\-";
+				index += 1;
+			}
+			continue;
+		}
+		if (escaped !== undefined) {
+			translated += `\\${escaped}`;
+			index += 1;
+			continue;
+		}
+		// Trailing lone backslash — invalid in both dialects; preserved so
+		// the caller's RegExp constructor rejects it the same way.
+		translated += "\\";
+	}
+	return translated;
+}

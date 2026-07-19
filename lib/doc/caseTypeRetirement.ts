@@ -255,8 +255,8 @@ function userBlockedRetirementMessage(
 	const lines = references.map((r) => `  • ${r}`).join("\n");
 	const one = references.length === 1;
 	return (
-		`${action} would leave the "${caseType}" case type with no module — ` +
-		`but ${one ? "something" : `${references.length} things`} still ${one ? "uses" : "use"} it:\n` +
+		`${action} would leave the "${caseType}" case type with no module. ` +
+		`${one ? "Something" : `${references.length} things`} still ${one ? "uses" : "use"} it:\n` +
 		`${lines}\n` +
 		`${one ? "Update or remove that first" : "Update or remove those first"}, or keep a module for "${caseType}".`
 	);
@@ -579,6 +579,8 @@ function collectModuleConfigReferences(
 	const list = mod.caseListConfig;
 	const search = mod.caseSearchConfig;
 	const inputName = (name: string) => `search input "${name}" on ${where}`;
+	const searchField = (input: { name: string; label: string }) =>
+		`search field "${input.label || input.name || "Untitled field"}" on ${where}`;
 
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
@@ -598,22 +600,20 @@ function collectModuleConfigReferences(
 						col.kind === "calculated" &&
 						expressionRefsCaseType(col.expression, caseType)
 					) {
-						out.push(
-							sameRef(
-								`a calculated case-list column ("${col.header}") on ${where} reads a "${caseType}" property`,
-							),
-						);
+						out.push({
+							verbose: `a calculated case-list column ("${col.header}") on ${where} reads a "${caseType}" property`,
+							concise: `calculated information "${col.header || "Calculated value"}" in Results on ${where} uses "${caseType}" information`,
+						});
 					}
 				}
 				break;
 			}
 			case "case_list_filter": {
 				if (list?.filter && predicateRefsCaseType(list.filter, caseType)) {
-					out.push(
-						sameRef(
-							`the case-list filter on ${where} reads a "${caseType}" property`,
-						),
-					);
+					out.push({
+						verbose: `the case-list filter on ${where} reads a "${caseType}" property`,
+						concise: `the Cases available setting on ${where} uses "${caseType}" information`,
+					});
 				}
 				break;
 			}
@@ -623,9 +623,10 @@ function collectModuleConfigReferences(
 						input.kind === "simple" &&
 						viaNamesCaseType(input.via, caseType)
 					) {
-						out.push(
-							sameRef(`${inputName(input.name)} walks through "${caseType}"`),
-						);
+						out.push({
+							verbose: `${inputName(input.name)} walks through "${caseType}"`,
+							concise: `${searchField(input)} follows a connection through the "${caseType}" case type`,
+						});
 					}
 				}
 				break;
@@ -636,11 +637,10 @@ function collectModuleConfigReferences(
 						input.default !== undefined &&
 						expressionRefsCaseType(input.default, caseType)
 					) {
-						out.push(
-							sameRef(
-								`${inputName(input.name)} defaults from a "${caseType}" property`,
-							),
-						);
+						out.push({
+							verbose: `${inputName(input.name)} defaults from a "${caseType}" property`,
+							concise: `the starting value for ${searchField(input)} uses "${caseType}" information`,
+						});
 					}
 				}
 				break;
@@ -651,11 +651,10 @@ function collectModuleConfigReferences(
 						input.kind === "advanced" &&
 						predicateRefsCaseType(input.predicate, caseType)
 					) {
-						out.push(
-							sameRef(
-								`${inputName(input.name)} reads a "${caseType}" property`,
-							),
-						);
+						out.push({
+							verbose: `${inputName(input.name)} reads a "${caseType}" property`,
+							concise: `the condition for ${searchField(input)} uses "${caseType}" information`,
+						});
 					}
 				}
 				break;
@@ -665,11 +664,10 @@ function collectModuleConfigReferences(
 					search?.searchButtonDisplayCondition &&
 					predicateRefsCaseType(search.searchButtonDisplayCondition, caseType)
 				) {
-					out.push(
-						sameRef(
-							`the search-button display condition on ${where} reads a "${caseType}" property`,
-						),
-					);
+					out.push({
+						verbose: `the search-button display condition on ${where} reads a "${caseType}" property`,
+						concise: `the condition for showing the Search button on ${where} uses "${caseType}" information`,
+					});
 				}
 				break;
 			}
@@ -680,7 +678,7 @@ function collectModuleConfigReferences(
 				) {
 					out.push(
 						sameRef(
-							`the excluded-owners expression on ${where} reads a "${caseType}" property`,
+							`the assigned cases setting on ${where} reads "${caseType}" information`,
 						),
 					);
 				}

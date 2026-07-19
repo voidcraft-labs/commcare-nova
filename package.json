@@ -42,6 +42,7 @@
 		"test:smoke": "bash scripts/smoke.sh",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",
 		"test:smoke:url": "playwright test --project=public",
+		"case:manual": "PORT=3100 SMOKE_BASE_URL=http://localhost:3100 BETTER_AUTH_URL=http://localhost:3100 CASE_WORKSPACE_MANUAL=1 bash scripts/smoke.sh --project=case-workspace-manual --headed",
 		"mp:watch": "MP_TILE=1 MP_SLOWMO=${MP_SLOWMO:-3000} bash scripts/smoke.sh --project=multiplayer --headed",
 		"mp:manual": "MP_MANUAL=1 bash scripts/smoke.sh --project=mp-manual --headed"
 	},

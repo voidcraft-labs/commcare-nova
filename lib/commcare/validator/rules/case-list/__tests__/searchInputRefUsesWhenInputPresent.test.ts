@@ -3,7 +3,9 @@
  * wire-emission-bound predicate slots (the always-on filter + every
  * advanced-arm search input's authored predicate) and rejects bare
  * `input(...)` Term refs that aren't inside an enclosing
- * `when-input-present` envelope.
+ * `when-input-present` envelope. The assigned-case exclusion is a deliberate
+ * exception: blank means "exclude nobody" on every runtime, so it may return a
+ * Search answer directly.
  */
 
 import { describe, expect, it } from "vitest";
@@ -328,7 +330,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("default");
 		// `forbids-input-ref` mode message body names the wire-eval timing.
-		expect(hits[0].message).toContain("before any search input is bound");
+		expect(hits[0].message).toContain("evaluates before the user has typed");
 	});
 
 	it("fires when a calculated column expression references an input", () => {
@@ -405,9 +407,9 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 		expect(hits[0].message).toContain("search-button display condition");
 	});
 
-	// ── excludedOwnerIds — requires envelope (input refs ARE valid wrapped) ──
+	// ── excludedOwnerIds — blank is the safe identity ──
 
-	it("fires when excludedOwnerIds has a bare input ref", () => {
+	it("allows excludedOwnerIds to return a Search answer directly", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -435,7 +437,6 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			caseTypes: standardCaseTypes,
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("excluded-owner-ids");
+		expect(hits).toHaveLength(0);
 	});
 });

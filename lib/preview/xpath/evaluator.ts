@@ -8,7 +8,7 @@ import {
 	toBoolean,
 	toNumber,
 } from "./coerce";
-import { getFunction } from "./functions";
+import { invokeFunction } from "./functions";
 import type { EvalContext, XPathValue } from "./types";
 
 // Pre-resolve all node types from the parser — zero string comparisons at runtime
@@ -95,8 +95,17 @@ function evalNode(
 
 	// ── XPath root — evaluate its single child expression ──
 	if (type === T.XPath) {
-		const child = node.firstChild;
-		return child ? evalNode(child, source, ctx) : "";
+		// The grammar splices grouping parens flat into the parent — `(expr)`
+		// parses as `XPath → "(" expr ")"` with no wrapper node — so the
+		// root's first child can be the `(` TOKEN. Skip paren tokens to reach
+		// the inner expression; evaluating the token would fall through every
+		// dispatch branch and return blank for any fully-parenthesized root.
+		let child = node.firstChild;
+		while (child && child.type === T.OpenParen) {
+			child = child.nextSibling;
+		}
+		if (!child || child.type === T.CloseParen) return "";
+		return evalNode(child, source, ctx);
 	}
 
 	// ── Literals ──
@@ -342,8 +351,8 @@ function evalInvoke(
 	if (fnName === "position") return ctx.position;
 	if (fnName === "last") return ctx.size;
 
-	const fn = getFunction(fnName);
-	if (fn) return fn(args);
+	const invocation = invokeFunction(fnName, args);
+	if (invocation.kind === "handled") return invocation.value;
 
 	// Unknown function — return empty string
 	return "";

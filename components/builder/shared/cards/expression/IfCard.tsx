@@ -25,6 +25,7 @@
 "use client";
 import {
 	ANY_CONSTRAINT,
+	branchConstraint,
 	ifExpr,
 	literal,
 	matchAll,
@@ -33,12 +34,12 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { useEditorErrorsAt } from "../../editorContext";
+import { useEditorErrorsAt, useResolvedType } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendKind, appendKindSlot, type EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
-import { ChildPredicateEditor } from "../ChildPredicateEditor";
+import { PredicateFocusBoundary } from "../ChildPredicateEditor";
 
 /** Default `if` — `if(match-all, "", "")`. The condition seeds to
  *  match-all so the user immediately sees the predicate-editor card;
@@ -79,6 +80,10 @@ export function IfCard({
 	// branches) render those via their own `CardShell` footers, so
 	// no parallel `<InlineError>` is needed for those slots here.
 	const operatorErrors = useEditorErrorsAt(appendKind(path, "if"));
+	const thenType = useResolvedType(value.then);
+	const elseType = useResolvedType(value.else);
+	const thenConstraint = branchConstraint(constraint, elseType);
+	const elseConstraint = branchConstraint(constraint, thenType);
 
 	const setCond = (next: Predicate) => {
 		// Builders preserve the absent-not-undefined contract on
@@ -99,11 +104,11 @@ export function IfCard({
 		<div className="space-y-2">
 			{operatorErrors.length > 0 && <InlineError errors={operatorErrors} />}
 
-			<div>
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
+			<div className="space-y-1.5">
+				<div className="text-[13px] font-medium text-nova-text-secondary">
 					When
 				</div>
-				<ChildPredicateEditor
+				<PredicateFocusBoundary
 					value={value.cond}
 					onChange={setCond}
 					path={appendKindSlot(path, "if", "cond")}
@@ -111,28 +116,28 @@ export function IfCard({
 				/>
 			</div>
 
-			<div>
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-					Then
+			<div className="space-y-1.5">
+				<div className="text-[13px] font-medium text-nova-text-secondary">
+					Use this value
 				</div>
 				<ExpressionPicker
 					value={value.then}
 					onChange={setThen}
 					path={appendKindSlot(path, "if", "then")}
-					constraint={constraint}
+					constraint={thenConstraint}
 					variant="nested"
 				/>
 			</div>
 
-			<div>
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-					Else
+			<div className="space-y-1.5">
+				<div className="text-[13px] font-medium text-nova-text-secondary">
+					Otherwise
 				</div>
 				<ExpressionPicker
 					value={value.else}
 					onChange={setElse}
 					path={appendKindSlot(path, "if", "else")}
-					constraint={constraint}
+					constraint={elseConstraint}
 					variant="nested"
 				/>
 			</div>

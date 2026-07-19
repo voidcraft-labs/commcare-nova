@@ -62,12 +62,35 @@ import {
 	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
-import { eq, gt, input, literal, prop, term } from "@/lib/domain/predicate";
+import {
+	and,
+	between,
+	concat,
+	dateAdd,
+	dateLiteral,
+	double,
+	eq,
+	gt,
+	ifExpr,
+	input,
+	isIn,
+	isNull,
+	literal,
+	matchAll,
+	matchNone,
+	not,
+	or,
+	prop,
+	sessionContext,
+	sessionUser,
+	term,
+	today,
+	whenInput,
+} from "@/lib/domain/predicate";
 import {
 	caseRowDisplayValue,
 	caseRowsToFormPreloads,
 	caseRowToFormPreload,
-	mapCaseListPreviewError,
 	mapFilterPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
@@ -79,7 +102,6 @@ import {
 	applyRegistrationMutation,
 	applySurveyMutation,
 	readCaseData,
-	readCaseListPreview,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
@@ -391,6 +413,162 @@ describe("readCases", () => {
 		expect(ids).toEqual([ALICE_CASE_ID, BOB_CASE_ID].sort());
 	});
 
+	it("returns stable bounded windows with honest totals and clamps a stale offset", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		const caseIds = [
+			"10000000-0000-0000-0000-000000000003",
+			"10000000-0000-0000-0000-000000000001",
+			"10000000-0000-0000-0000-000000000002",
+		];
+		for (const [index, caseId] of caseIds.entries()) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "patient",
+					case_name: `Patient ${index + 1}`,
+					status: "open",
+					properties: { name: `Patient ${index + 1}`, age: 20 + index },
+				},
+			});
+		}
+
+		const firstPage = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			page: { offset: 0, limit: 2 },
+		});
+		expect(firstPage).toMatchObject({
+			kind: "rows",
+			totalCount: 3,
+			pageOffset: 0,
+			pageSize: 2,
+		});
+		if (firstPage.kind !== "rows") return;
+		expect(firstPage.rows.map((row) => row.case_id)).toEqual(
+			[...caseIds].sort().slice(0, 2),
+		);
+
+		const staleFinalPage = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			page: { offset: 100, limit: 2 },
+		});
+		expect(staleFinalPage).toMatchObject({
+			kind: "rows",
+			totalCount: 3,
+			pageOffset: 2,
+			pageSize: 2,
+		});
+		if (staleFinalPage.kind !== "rows") return;
+		expect(staleFinalPage.rows.map((row) => row.case_id)).toEqual([
+			[...caseIds].sort()[2],
+		]);
+	});
+
+	it("recounts and retries once when a delete empties the counted page", async () => {
+		let backingRows = Array.from({ length: 51 }, (_, index) => ({
+			...buildSyntheticRow({ name: `Patient ${index + 1}` }),
+			case_id: `10000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+			calculated: {},
+		}));
+		const count = vi.fn(async () => backingRows.length);
+		const query = vi.fn(async (args) => {
+			if (query.mock.calls.length === 1) {
+				// The store's backing population mutates after COUNT observed 51
+				// rows but before the first SELECT applies its offset.
+				backingRows = backingRows.slice(0, 50);
+			}
+			const offset = args.offset ?? 0;
+			return backingRows.slice(
+				offset,
+				offset + (args.limit ?? backingRows.length),
+			);
+		});
+		const racingStore = { count, query } as unknown as CaseStore;
+
+		const result = await readCases(racingStore, {
+			appId: APP_ID,
+			caseType: "patient",
+			page: { offset: 50, limit: 50 },
+		});
+
+		expect(result).toMatchObject({
+			kind: "rows",
+			totalCount: 50,
+			pageOffset: 0,
+			pageSize: 50,
+		});
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(50);
+		expect(count).toHaveBeenCalledTimes(2);
+		expect(query).toHaveBeenCalledTimes(2);
+		expect(query.mock.calls.map(([args]) => args.offset)).toEqual([50, 0]);
+		expect(query.mock.calls.map(([args]) => args.limit)).toEqual([50, 50]);
+	});
+
+	it("uses Results order, not Details order, to break equal sort priorities", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+
+		const CAROL_CASE_ID = "40000000-0000-0000-0000-000000000003";
+		for (const row of [
+			{ caseId: ALICE_CASE_ID, name: "A", age: 2 },
+			{ caseId: BOB_CASE_ID, name: "A", age: 1 },
+			{ caseId: CAROL_CASE_ID, name: "B", age: 0 },
+		]) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: row.caseId,
+					case_type: "patient",
+					case_name: row.name,
+					status: "open",
+					properties: { name: row.name, age: row.age },
+				},
+			});
+		}
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [
+					plainColumn(NAME_COLUMN_UUID, "name", "Name", {
+						sort: { direction: "asc", priority: 0 },
+						listOrder: "a",
+						detailOrder: "b",
+					}),
+					plainColumn(
+						asUuid("10000000-0000-0000-0000-000000000003"),
+						"age",
+						"Age",
+						{
+							sort: { direction: "asc", priority: 0 },
+							listOrder: "b",
+							detailOrder: "a",
+						},
+					),
+				],
+				searchInputs: [],
+			},
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		// Results order makes `name` primary, then `age`: B, A, C. If
+		// Details order leaked into sorting, `age` would lead: C, B, A.
+		expect(result.rows.map((row) => row.case_id)).toEqual([
+			BOB_CASE_ID,
+			ALICE_CASE_ID,
+			CAROL_CASE_ID,
+		]);
+	});
+
 	it("respects tenant scope — owner B sees an empty case-type that owner A populated", async () => {
 		const storeA = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
@@ -412,6 +590,50 @@ describe("readCases", () => {
 			caseType: "patient",
 		});
 		expect(result.kind).toBe("empty");
+	});
+
+	it("uses the same session bindings for the page count, filter, sort, and projection", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		const regionUuid = asUuid("00000000-0000-0000-0000-000000000b01");
+		const bindings = {
+			sessionContext: new Map([["userid", OWNER_A]]),
+			sessionUser: new Map<string, string>(),
+			sessionUserFallback: "",
+		};
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			bindings,
+			caseListConfig: {
+				columns: [
+					calculatedColumn(regionUuid, "Region", term(sessionUser("region")), {
+						visibleInList: true,
+						sort: { direction: "asc", priority: 0 },
+					}),
+				],
+				searchInputs: [],
+				filter: eq(prop("patient", "owner_id"), sessionContext("userid")),
+			},
+			page: { offset: 0, limit: 50 },
+		});
+
+		expect(result).toMatchObject({ kind: "rows", totalCount: 1 });
+		if (result.kind !== "rows") return;
+		expect(result.rows[0]?.calculated[regionUuid]).toBe("");
 	});
 });
 
@@ -439,6 +661,69 @@ const READCASES_ADVANCED_INPUT_UUID = asUuid(
 );
 
 describe("readCases — running-app search-input composition", () => {
+	it("excludes resolved owner ids inside the case-store query", async () => {
+		const store = makeStore(OWNER_A);
+		const excludedOwnerStore = makeStore(OWNER_A, "excluded-owner");
+		const visibleOwnerStore = makeStore(OWNER_A, "visible-owner");
+		const unownedCaseId = "40000000-0000-0000-0000-000000000003";
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await excludedOwnerStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await visibleOwnerStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+		await visibleOwnerStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: unownedCaseId,
+				case_type: "patient",
+				case_name: "Unowned",
+				status: "open",
+				properties: { name: "Unowned", age: 50 },
+			},
+		});
+		/* Historical/imported rows may carry no CommCare owner. SQL's
+		 * three-valued logic makes `NOT (NULL IN (...))` unknown, so mutate
+		 * this fixture to the nullable storage shape and pin that owner
+		 * exclusion keeps it visible. */
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.updateTable("cases")
+			.set({ owner_id: null })
+			.where("case_id", "=", unownedCaseId)
+			.execute();
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: { columns: [], searchInputs: [] },
+			excludedOwnerIds: ["excluded-owner"],
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows.map((row) => [row.case_id, row.owner_id])).toEqual([
+			[BOB_CASE_ID, "visible-owner"],
+			[unownedCaseId, null],
+		]);
+	});
+
 	it("reads as before when caseListConfig has no search inputs (filter alone)", async () => {
 		// Pins the no-runtime-contribution short-circuit. The helper
 		// MUST pass `caseListConfig.filter` through to `store.query`
@@ -604,6 +889,71 @@ describe("readCases — running-app search-input composition", () => {
 		expect(result.rows[0]?.case_id).toBe(ALICE_CASE_ID);
 	});
 
+	it("binds a wrapped input in the always-on filter and neutralizes its absent gate", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+		const caseListConfig: CaseListConfig = {
+			columns: [],
+			searchInputs: [
+				advancedSearchInputDef(
+					READCASES_ADVANCED_INPUT_UUID,
+					"name_filter",
+					"Name",
+					"text",
+					matchAll(),
+				),
+			],
+			filter: whenInput(
+				input("name_filter"),
+				eq(prop("patient", "name"), input("name_filter")),
+			),
+		};
+
+		const present = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig,
+			inputValues: new Map([["name_filter", "Alice"]]),
+		});
+		expect(present.kind).toBe("rows");
+		if (present.kind !== "rows") return;
+		expect(present.rows.map((row) => row.case_id)).toEqual([ALICE_CASE_ID]);
+		expect(present.constraintSource).toBe("worker-search");
+
+		const absent = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig,
+		});
+		expect(absent.kind).toBe("rows");
+		if (absent.kind !== "rows") return;
+		expect(absent.rows).toHaveLength(2);
+		expect(absent.constraintSource).toBe("unconstrained");
+	});
+
 	it("AND-composes multiple contributing inputs across simple-arm modes", async () => {
 		// Mixed-arm composition: a `select` exact match on `status`
 		// AND a `text` starts-with match on `name`. Each contributes
@@ -750,10 +1100,10 @@ describe("readCases — running-app search-input composition", () => {
 		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
 	});
 
-	it("AND-composes the unified filter with the runtime contribution", async () => {
-		// Both halves contribute non-trivially. `caseListConfig.filter`
-		// narrows to `age > 30`; the simple-arm `name` input adds an
-		// equality clause. Only the row passing BOTH predicates lands.
+	it("intersects an always-on rule and a search input on the same property", async () => {
+		// Both halves deliberately target `name`. A compatible entered value
+		// keeps Bob; a disagreeing value returns zero rows. That is ordinary AND
+		// semantics, not an invalid configuration.
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -763,7 +1113,6 @@ describe("readCases — running-app search-input composition", () => {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
 				case_name: "Alice",
-				// `age > 30` rejects Alice.
 				status: "open",
 				properties: { name: "Alice", age: 25 },
 			},
@@ -775,7 +1124,6 @@ describe("readCases — running-app search-input composition", () => {
 				case_type: "patient",
 				case_name: "Bob",
 				status: "open",
-				// Bob clears `age > 30` AND matches `name = "Bob"`.
 				properties: { name: "Bob", age: 40 },
 			},
 		});
@@ -796,7 +1144,7 @@ describe("readCases — running-app search-input composition", () => {
 						{ mode: exactMode() },
 					),
 				],
-				filter: gt(prop("patient", "age"), literal(30)),
+				filter: eq(prop("patient", "name"), literal("Bob")),
 			},
 			inputValues: new Map([["name", "Bob"]]),
 		});
@@ -804,6 +1152,32 @@ describe("readCases — running-app search-input composition", () => {
 		if (result.kind !== "rows") return;
 		expect(result.rows).toHaveLength(1);
 		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
+
+		const noMatch = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					simpleSearchInputDef(
+						READCASES_PRIMARY_INPUT_UUID,
+						"name",
+						"Name",
+						"text",
+						"name",
+						{ mode: exactMode() },
+					),
+				],
+				filter: eq(prop("patient", "name"), literal("Bob")),
+			},
+			inputValues: new Map([["name", "Alice"]]),
+		});
+		expect(noMatch).toEqual({
+			kind: "empty",
+			constraintSource: "worker-search",
+			authoredMatchingCount: 1,
+		});
 	});
 
 	it("AND-composes simple-arm multi-select-contains across a single property", async () => {
@@ -877,6 +1251,84 @@ describe("readCases — running-app search-input composition", () => {
 		if (result.kind !== "rows") return;
 		expect(result.rows).toHaveLength(1);
 		expect(result.rows[0]?.case_id).toBe(ALICE_CASE_ID);
+	});
+
+	it("keeps the selected final day for both date and UTC datetime range targets", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([FORMATTED_PROPS_CASE_TYPE]);
+		const caseTypeSchemas = buildCaseTypeMap(blueprint);
+		await seedSchema(store, blueprint, "patient");
+		const beforeRangeId = "40000000-0000-0000-0000-000000000011";
+		const finalDayId = "40000000-0000-0000-0000-000000000012";
+		const afterRangeId = "40000000-0000-0000-0000-000000000013";
+		for (const row of [
+			{
+				case_id: beforeRangeId,
+				case_name: "Before",
+				properties: {
+					dob: "2025-05-31",
+					last_seen: "2025-05-31T23:59:59Z",
+				},
+			},
+			{
+				case_id: finalDayId,
+				case_name: "Final day late",
+				properties: {
+					dob: "2025-06-30",
+					// The regression: an inclusive `<= 2025-06-30::date` cast
+					// excluded this valid same-day instant after midnight.
+					last_seen: "2025-06-30T23:59:59Z",
+				},
+			},
+			{
+				case_id: afterRangeId,
+				case_name: "After",
+				properties: {
+					dob: "2025-07-01",
+					last_seen: "2025-07-01T00:00:00Z",
+				},
+			},
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					...row,
+					case_type: "patient",
+					status: "open",
+				},
+			});
+		}
+
+		const inputValues = new Map([
+			["window:from", "2025-06-01"],
+			["window:to", "2025-06-30"],
+		]);
+		const query = async (property: "dob" | "last_seen") =>
+			readCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas,
+				caseListConfig: {
+					columns: [],
+					searchInputs: [
+						simpleSearchInputDef(
+							READCASES_PRIMARY_INPUT_UUID,
+							"window",
+							"Date window",
+							"date-range",
+							property,
+						),
+					],
+				},
+				inputValues,
+			});
+
+		for (const property of ["dob", "last_seen"] as const) {
+			const result = await query(property);
+			expect(result.kind).toBe("rows");
+			if (result.kind !== "rows") continue;
+			expect(result.rows.map((row) => row.case_id)).toEqual([finalDayId]);
+		}
 	});
 });
 
@@ -971,6 +1423,94 @@ describe("readCaseData", () => {
 		expect(result.row.properties).toEqual({ name: "Alice", age: 30 });
 		// A root case (no parent link) carries an empty ancestor chain.
 		expect(result.ancestors).toEqual([]);
+	});
+
+	it("projects calculated display values for an identity-loaded Details row", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		const calculatedUuid = asUuid("00000000-0000-0000-0000-000000000d01");
+		const caseListConfig: CaseListConfig = {
+			columns: [
+				calculatedColumn(
+					calculatedUuid,
+					"Age from calculation",
+					term(prop("patient", "age")),
+					{ visibleInList: false, visibleInDetail: true },
+				),
+			],
+			searchInputs: [],
+			// This filter deliberately excludes Alice. Identity-backed Details
+			// enriches the selected row but must never inherit Results filtering.
+			filter: matchNone(),
+		};
+
+		const result = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseId: ALICE_CASE_ID,
+			ancestorDepth: 0,
+			caseListConfig,
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+		});
+
+		expect(result.kind).toBe("row");
+		if (result.kind !== "row") return;
+		expect(result.row.case_id).toBe(ALICE_CASE_ID);
+		expect(Number(result.row.calculated[calculatedUuid])).toBe(30);
+	});
+
+	it("projects a session-backed Details value with the device blank fallback", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		const calculatedUuid = asUuid("00000000-0000-0000-0000-000000000d02");
+		const result = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseId: ALICE_CASE_ID,
+			ancestorDepth: 0,
+			caseListConfig: {
+				columns: [
+					calculatedColumn(
+						calculatedUuid,
+						"Region",
+						term(sessionUser("region")),
+						{ visibleInDetail: true },
+					),
+				],
+				searchInputs: [],
+			},
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			bindings: {
+				sessionUser: new Map(),
+				sessionUserFallback: "",
+			},
+		});
+
+		expect(result.kind).toBe("row");
+		if (result.kind !== "row") return;
+		expect(result.row.calculated[calculatedUuid]).toBe("");
 	});
 
 	it("walks the ancestor chain nearest-first onto the row arm", async () => {
@@ -1189,8 +1729,21 @@ describe("readCaseData", () => {
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
-		// `parent_case_id` carries no FK — a deleted parent leaves a
-		// dangling link, which must end the walk, not throw.
+		const deletedParentId = "40000000-0000-0000-0000-00000000dead";
+		/* Relationship writes now require a live, tenant-local parent. Create a
+		 * valid relationship first, then delete the parent below the store
+		 * boundary to reproduce a legacy/imported dangling edge. The read path
+		 * must remain defensive even though new writes are valid by construction. */
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: deletedParentId,
+				case_type: "patient",
+				case_name: "Deleted parent",
+				status: "open",
+				properties: { name: "Deleted parent", age: 60 },
+			},
+		});
 		await store.insert({
 			appId: APP_ID,
 			row: {
@@ -1198,10 +1751,14 @@ describe("readCaseData", () => {
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				parent_case_id: "40000000-0000-0000-0000-00000000dead",
+				parent_case_id: deletedParentId,
 				properties: { name: "Alice", age: 30 },
 			},
 		});
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.deleteFrom("cases")
+			.where("case_id", "=", deletedParentId)
+			.execute();
 
 		const result = await readCaseData(store, {
 			appId: APP_ID,
@@ -1848,17 +2405,6 @@ describe("mapPopulateSampleCasesError", () => {
 	});
 });
 
-// ---------------------------------------------------------------
-// `readCaseListPreview` + `mapCaseListPreviewError`
-// ---------------------------------------------------------------
-//
-// The case-list authoring-surface live-preview helpers route through
-// `caseStore.query` (with a `calculated` arg). The integration tests
-// here pin the discriminated-union return shapes the live preview's
-// UI dispatches on — the empty arm, the rows arm with calculated
-// projection, and the typed-error mapping (mirrors the
-// `mapPopulateSampleCasesError` pattern).
-
 /**
  * Build a v2 `CaseListConfig` snapshot. The schema collapses to
  * three slots — `columns` (carrying display + sort + calc +
@@ -1885,99 +2431,6 @@ function makeCaseListConfig(
  */
 const NAME_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000001");
 const NOTE_CALC_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000002");
-
-describe("readCaseListPreview", () => {
-	it("returns the empty arm when no rows exist", async () => {
-		const store = makeStore(OWNER_A);
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-		await seedSchema(store, blueprint, "patient");
-		const result = await readCaseListPreview(store, {
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
-			}),
-		});
-		expect(result.kind).toBe("empty");
-	});
-
-	it("returns the rows arm with the calculated map populated", async () => {
-		const store = makeStore(OWNER_A);
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-		await seedSchema(store, blueprint, "patient");
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: ALICE_CASE_ID,
-				case_type: "patient",
-				case_name: "Alice",
-				status: "open",
-				properties: { name: "Alice", age: 30 },
-			},
-		});
-		// Calculated column emits a literal — predictable shape that
-		// pins the rows-arm contract without exercising the AST
-		// compiler's per-arm semantics here (the SQL contract test
-		// covers that surface). v2 lifts calc into the `columns`
-		// union; the case-store keys each row's `calculated` map by
-		// the calc column's `uuid`, so the assertion reads the slot
-		// at `NOTE_CALC_COLUMN_UUID`.
-		const result = await readCaseListPreview(store, {
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: makeCaseListConfig({
-				columns: [
-					plainColumn(NAME_COLUMN_UUID, "name", "Name"),
-					calculatedColumn(
-						NOTE_CALC_COLUMN_UUID,
-						"Note",
-						term(literal("hello")),
-					),
-				],
-			}),
-		});
-		expect(result.kind).toBe("rows");
-		if (result.kind !== "rows") return;
-		expect(result.rows).toHaveLength(1);
-		expect(result.rows[0]?.calculated[NOTE_CALC_COLUMN_UUID]).toBe("hello");
-	});
-});
-
-describe("mapCaseListPreviewError", () => {
-	// Mirrors `mapPopulateSampleCasesError` shape — the helper is
-	// the catch-block delegate for the Server Action and translates
-	// case-store typed errors into the structured arm shape the live-
-	// preview consumer dispatches on.
-
-	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm", () => {
-		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
-		const result = mapCaseListPreviewError(err);
-		expect(result).toEqual({ kind: "missing-case-type", caseType: "patient" });
-	});
-
-	it("maps SchemaNotSyncedError to the schema-not-synced arm", () => {
-		const err = new SchemaNotSyncedError("app-1", "patient");
-		const result = mapCaseListPreviewError(err);
-		expect(result).toEqual({ kind: "schema-not-synced", caseType: "patient" });
-	});
-
-	it("falls through to the generic error arm for an unrelated Error", () => {
-		const err = new Error("connection refused");
-		const result = mapCaseListPreviewError(err);
-		expect(result.kind).toBe("error");
-		if (result.kind !== "error") return;
-		expect(result.message).toBe("connection refused");
-	});
-
-	it("falls through to the generic error arm with a default message for non-Error throws", () => {
-		const result = mapCaseListPreviewError("some string");
-		expect(result.kind).toBe("error");
-		if (result.kind !== "error") return;
-		expect(result.message).toBe("Failed to load preview.");
-	});
-});
 
 // ---------------------------------------------------------------
 // `applyRegistrationMutation`
@@ -2336,9 +2789,12 @@ describe("applyCloseMutation", () => {
 			caseType: "patient",
 		});
 		if (patients.kind !== "rows") throw new Error("expected rows");
-		// Property update + closure timestamp landed atop the same row.
+		// Property update + both halves of the built-in lifecycle
+		// transition landed atop the same row. The preview helper passes
+		// no status value; the CaseStore close operation owns it.
 		expect(patients.rows[0]?.properties).toEqual({ name: "Alice", age: 32 });
 		expect(patients.rows[0]?.closed_on).not.toBeNull();
+		expect(patients.rows[0]?.status).toBe("closed");
 	});
 
 	it("skips the primary UPDATE call when the patch carries no writes but still stamps closed_on", async () => {
@@ -2411,6 +2867,7 @@ describe("applyCloseMutation", () => {
 		// landed regardless.
 		expect(patients.rows[0]?.properties).toEqual({ name: "Alice", age: 30 });
 		expect(patients.rows[0]?.closed_on).not.toBeNull();
+		expect(patients.rows[0]?.status).toBe("closed");
 	});
 });
 
@@ -2656,8 +3113,13 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const legacyRows = Array.from({ length: 51 }, (_, index) => ({
+			...buildSyntheticRow({ name: `Patient ${index + 1}` }),
+			case_id: `10000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+			calculated: {},
+		}));
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([]),
+			query: vi.fn().mockResolvedValueOnce(legacyRows),
 			count: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
@@ -2677,14 +3139,302 @@ describe("loadCasesAction", () => {
 			caseType: "patient",
 			caseTypes: [PATIENT_CASE_TYPE],
 		});
-		expect(result).toEqual({ kind: "empty" });
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows).toHaveLength(51);
 		// The catalog is rebuilt into the `(name → CaseType)` map the SQL
 		// compiler reads — sourced from the wire arg, not a server read.
 		const queryArg = stubStore.query.mock.calls[0]?.[0];
+		// An old client omits `page` and has no pager. Rolling compatibility
+		// requires the legacy call to remain unbounded.
+		expect(queryArg?.limit).toBeUndefined();
+		expect(queryArg?.offset).toBeUndefined();
 		expect(queryArg?.caseTypeSchemas).toBeInstanceOf(Map);
 		expect(queryArg?.caseTypeSchemas?.get("patient")).toEqual(
 			PATIENT_CASE_TYPE,
 		);
+		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
+		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
+	});
+
+	it("caps only an explicit new-client page request", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi
+				.fn()
+				.mockResolvedValueOnce([
+					{ ...buildSyntheticRow({ name: "Alice" }), calculated: {} },
+				]),
+			count: vi.fn().mockResolvedValueOnce(150),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			page: { offset: 25.8, limit: 10_000 },
+		});
+
+		expect(stubStore.query).toHaveBeenCalledWith(
+			expect.objectContaining({ limit: 100, offset: 25 }),
+		);
+		expect(stubStore.query.mock.calls[0]?.[0].bindings).toBe(
+			stubStore.count.mock.calls[0]?.[0].bindings,
+		);
+	});
+
+	it("rejects an invalid calendar quantity before opening the case store", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const predicate = whenInput(
+			input("months"),
+			eq(
+				prop("patient", "due_date"),
+				dateAdd(today(), "months", double(term(input("months")))),
+			),
+		);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypes: [PATIENT_CASE_TYPE],
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					advancedSearchInputDef(
+						asUuid("month-input"),
+						"months",
+						"Months",
+						"text",
+						predicate,
+					),
+				],
+			},
+			inputValues: { months: "1.5" },
+		});
+
+		expect(result).toEqual({
+			kind: "invalid-search",
+			message: expect.stringContaining("whole number"),
+			repair: "inputs",
+		});
+		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+	});
+
+	it("evaluates a session-backed excluded-owner expression before querying", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: {
+				id: OWNER_A,
+				name: "Owner A",
+				email: "owner-a@example.org",
+			},
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			excludedOwnerIdsExpression: term(sessionContext("userid")),
+		});
+
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "authored-rules",
+		});
+		expect(stubStore.query).toHaveBeenCalledWith(
+			expect.objectContaining({
+				predicate: or(
+					isNull(prop("patient", "owner_id")),
+					not(isIn(prop("patient", "owner_id"), literal(OWNER_A))),
+				),
+			}),
+		);
+	});
+
+	it("reports an empty evaluated owner exclusion as unconstrained", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			excludedOwnerIdsExpression: term(literal("")),
+		});
+
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
+		expect(stubStore.query).toHaveBeenCalledWith(
+			expect.objectContaining({ predicate: undefined }),
+		);
+	});
+
+	it("binds a completed date range into excluded-owner expression evaluation", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: {
+				id: OWNER_A,
+				name: "Owner A",
+				email: "owner-a@example.org",
+			},
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const rangeInput = simpleSearchInputDef(
+			asUuid("range-action"),
+			"visit_dates",
+			"Visit dates",
+			"date-range",
+			"dob",
+		);
+		const excludedOwnerIdsExpression = ifExpr(
+			not(whenInput(input("visit_dates"), matchNone())),
+			term(literal("range-owner")),
+			term(literal("")),
+		);
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypes: [FORMATTED_PROPS_CASE_TYPE],
+			caseListConfig: { columns: [], searchInputs: [rangeInput] },
+			inputValues: {
+				"visit_dates:from": "2025-01-02",
+				"visit_dates:to": "2025-03-04",
+			},
+			excludedOwnerIdsExpression,
+		});
+
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "worker-search",
+		});
+		expect(stubStore.query).toHaveBeenCalledWith(
+			expect.objectContaining({
+				predicate: and(
+					between(prop("patient", "dob"), {
+						lower: dateLiteral("2025-01-02"),
+						upper: dateLiteral("2025-03-04"),
+					}),
+					or(
+						isNull(prop("patient", "owner_id")),
+						not(isIn(prop("patient", "owner_id"), literal("range-owner"))),
+					),
+				),
+			}),
+		);
+	});
+
+	it("rejects an incomplete date-range request before querying the store", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const rangeInput = simpleSearchInputDef(
+			asUuid("range-action"),
+			"visit_dates",
+			"Visit dates",
+			"date-range",
+			"dob",
+		);
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypes: [FORMATTED_PROPS_CASE_TYPE],
+			caseListConfig: { columns: [], searchInputs: [rangeInput] },
+			inputValues: { "visit_dates:from": "2025-01-02" },
+		});
+
+		expect(result).toEqual({
+			kind: "invalid-search",
+			message: "Choose both a start date and an end date",
+			repair: "inputs",
+		});
+		expect(stubStore.query).not.toHaveBeenCalled();
 	});
 
 	it("collapses a Project-membership denial to the not-found arm without binding a store", async () => {
@@ -2710,6 +3460,58 @@ describe("loadCasesAction", () => {
 			caseType: "patient",
 		});
 		expect(result).toEqual({ kind: "error", message: "App not found." });
+		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+	});
+});
+
+// ---------------------------------------------------------------
+// `loadCaseCountAction` (Server Action)
+// ---------------------------------------------------------------
+
+describe("loadCaseCountAction", () => {
+	it("returns the complete unfiltered population for the bound case type", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn().mockResolvedValueOnce(37),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCaseCountAction } = await import("../caseDataBinding");
+		const result = await loadCaseCountAction({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+
+		expect(result).toEqual({ kind: "count", count: 37 });
+		expect(stubStore.count).toHaveBeenCalledWith({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+	});
+
+	it("short-circuits before the store when the session is missing", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce(null);
+
+		const { loadCaseCountAction } = await import("../caseDataBinding");
+		expect(
+			await loadCaseCountAction({ appId: APP_ID, caseType: "patient" }),
+		).toEqual({ kind: "unauthenticated" });
 		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
 	});
 });
@@ -2874,147 +3676,21 @@ describe("resetSampleCasesAction", () => {
 	});
 });
 
-// ---------------------------------------------------------------
-// `loadCaseListPreviewAction` (Server Action)
-// ---------------------------------------------------------------
-//
-// The action wraps `readCaseListPreview` with three responsibilities
-// the helper itself doesn't carry:
-//
-//   1. Wire-boundary parse via `caseListConfigSchema.safeParse(...)`.
-//      An unparseable config returns the `invalid-config` arm
-//      WITHOUT touching auth or the store.
-//   2. Session resolution + `withProjectContext` construction.
-//   3. Catch-and-map for case-store typed errors.
-//
-// This block pins (1) — the parse-failure path — since the helper
-// tests above bypass it by passing an already-typed
-// `CaseListConfig`.
-
-describe("loadCaseListPreviewAction", () => {
-	it("returns the invalid-config arm with a path-prefixed message when caseListConfig fails Zod parse", async () => {
-		// The action runs `getSession()` first (session-first matches
-		// every other action in this file), then
-		// `caseListConfigSchema.safeParse(...)`. Mock the session so
-		// the parse path is reachable; pass a config whose `columns`
-		// slot is a string instead of an array; the schema's
-		// `z.array(columnSchema)` rejects with a structural type
-		// mismatch.
-		const { getSession } = await import("@/lib/auth-utils");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		// Cast through `unknown` because the bad shape intentionally
-		// violates the `CaseListConfig` type at the call site — the
-		// runtime parse is the structural defense.
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
-			caseListConfig: {
-				columns: "not an array",
-				searchInputs: [],
-			} as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["caseListConfig"],
-		});
-		expect(result.kind).toBe("invalid-config");
-		if (result.kind !== "invalid-config") return;
-		// The action prefixes the first Zod issue's path so the
-		// client surface dispatches on the structural cause rather
-		// than the wrapped invariant body. The path for `columns` is
-		// the literal string "columns".
-		expect(result.message).toMatch(/^columns:/);
-	});
-
-	it("returns the invalid-blueprint arm with a path-prefixed message when blueprint fails Zod parse", async () => {
-		// Symmetric to the `invalid-config` test above. After session
-		// resolution and the (passing) `caseListConfig` parse, the
-		// action runs `blueprintDocSchema.safeParse(...)`. Pass a
-		// blueprint whose `appId` is a number — the schema's
-		// `z.string()` rejects with a structural type mismatch.
-		const { getSession } = await import("@/lib/auth-utils");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		// Cast through `unknown` because the bad shape intentionally
-		// violates the `BlueprintDoc` type at the call site — the
-		// runtime parse is the structural defense.
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: {
-				appId: 42,
-				appName: "Test app",
-				connectType: null,
-				caseTypes: [],
-				modules: {},
-				forms: {},
-				fields: {},
-				moduleOrder: [],
-				formOrder: {},
-				fieldOrder: {},
-				fieldParent: {},
-			} as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["blueprint"],
-			caseListConfig: makeCaseListConfig(),
-		});
-		expect(result.kind).toBe("invalid-blueprint");
-		if (result.kind !== "invalid-blueprint") return;
-		// The path for `appId` is the literal string "appId".
-		expect(result.message).toMatch(/^appId:/);
-	});
-
-	it("returns the unauthenticated arm before parsing when the session is absent", async () => {
-		// Session-first ordering means an unauthenticated request
-		// short-circuits BEFORE the Zod parse. Pass a deliberately
-		// malformed `caseListConfig`; assert the result is
-		// `unauthenticated`, not `invalid-config`.
-		const { getSession } = await import("@/lib/auth-utils");
-		vi.mocked(getSession).mockResolvedValueOnce(null);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
-			caseListConfig: {
-				columns: "not an array",
-				searchInputs: [],
-			} as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["caseListConfig"],
-		});
-		expect(result).toEqual({ kind: "unauthenticated" });
-	});
-
-	it("parses a case-list-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
-		// Regression for the live preview that never worked since the
-		// case-list/case-search feature landed. The authoring surface
-		// ships the doc-store snapshot through `pickBlueprintDoc`, which
-		// re-attaches the in-memory `fieldParent` reverse index.
-		// `blueprintDocSchema` is `.strict()` and doesn't declare
-		// `fieldParent`, so parsing the raw value rejected it with
-		// `Unrecognized key: "fieldParent"` and the preview rendered the
-		// "Blueprint is malformed" state. The action must strip the
-		// derived index before the trust-boundary parse so a real
-		// snapshot reaches the store rather than the `invalid-blueprint`
-		// arm. The other action tests in this block pass parse-failing
-		// shapes (`appId: 42`) whose type error masks the `fieldParent`
-		// key error — only a VALID-but-fieldParent-carrying doc exercises
-		// the strip.
+describe("loadCaseDataAction session projection", () => {
+	it("threads authenticated session bindings into a Details calculated projection", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
+			user: { id: OWNER_A, name: "Owner A", email: "owner-a@example.org" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([]),
+			query: vi.fn().mockResolvedValueOnce([
+				{
+					...buildSyntheticRow({ name: "Alice" }),
+					case_id: ALICE_CASE_ID,
+					calculated: {},
+				},
+			]),
 			count: vi.fn(),
 			insert: vi.fn(),
 			insertWithChildren: vi.fn(),
@@ -3027,58 +3703,32 @@ describe("loadCaseListPreviewAction", () => {
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+		const calculatedUuid = asUuid("00000000-0000-0000-0000-000000000d03");
 
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: {
-				...buildBlueprint([PATIENT_CASE_TYPE]),
-				// The populated reverse index `pickBlueprintDoc` ships on
-				// every live-preview call. A populated map makes the
-				// regression unmistakable; even `{}` trips strict mode.
-				fieldParent: {
-					[asUuid("70000000-0000-0000-0000-000000000001")]: asUuid(
-						"70000000-0000-0000-0000-000000000002",
+		const { loadCaseDataAction } = await import("../caseDataBinding");
+		const result = await loadCaseDataAction(
+			APP_ID,
+			"patient",
+			ALICE_CASE_ID,
+			0,
+			{
+				columns: [
+					calculatedColumn(
+						calculatedUuid,
+						"Region",
+						term(sessionUser("region")),
+						{ visibleInDetail: true },
 					),
-				},
+				],
+				searchInputs: [],
 			},
-			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
-			}),
-		});
-		// Empty stub store → `empty`. The load-bearing assertion is the
-		// negative: the parse did NOT reject the fieldParent-carrying doc.
-		expect(result.kind).toBe("empty");
-		expect(stubStore.query).toHaveBeenCalledTimes(1);
-	});
+			[PATIENT_CASE_TYPE],
+		);
 
-	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
-		// The strip runs BEFORE the trust-boundary parse, so it must not
-		// itself throw on a malformed wire payload — a `null`/`undefined`
-		// blueprint (a non-editor caller, the exact shape the parse exists
-		// to reject gracefully) must still land on the typed
-		// `invalid-blueprint` arm, not a raw destructure TypeError routed
-		// through the generic `error` arm. Session is mocked so the parse
-		// path is reachable; `withProjectContext` must never be constructed
-		// because the parse fails first.
-		const { getSession } = await import("@/lib/auth-utils");
-		const { withProjectContext } = await import("@/lib/case-store");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: null as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["blueprint"],
-			caseListConfig: makeCaseListConfig(),
-		});
-		expect(result.kind).toBe("invalid-blueprint");
-		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+		expect(result.kind).toBe("row");
+		const queryArg = stubStore.query.mock.calls[0]?.[0];
+		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
+		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
 	});
 });
 
@@ -3195,12 +3845,118 @@ describe("readFilterPreview", () => {
 		expect(result.totalCount).toBe(1);
 	});
 
+	it("counts a nested filter whose Combined text value still has one blank part", async () => {
+		// Acceptance coverage for the full Results authoring path: the row
+		// sample and match count both compile this same predicate immediately
+		// after a user chooses Combined text, before they fill its first part.
+		// PostgreSQL's variadic concat cannot infer the type of a lone prepared
+		// parameter unless the SQL compiler supplies the AST's text coercion.
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				filter: and(
+					eq(prop("patient", "name"), literal("")),
+					or(
+						eq(prop("patient", "name"), literal("")),
+						eq(prop("patient", "name"), literal("")),
+						not(eq(prop("patient", "name"), concat(term(literal(""))))),
+					),
+				),
+			}),
+		});
+
+		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
+	});
+
+	it("treats an unset typed date in a live filter as no matches, not a database error", async () => {
+		// The predicate editor commits `dateLiteral("")` while its optional
+		// native date control is empty. Both the sample query and count query
+		// execute immediately, so this acceptance test pins the whole live-
+		// preview boundary against PostgreSQL's `invalid input syntax for type
+		// date: ""` failure rather than only checking the cold SQL string.
+		const store = makeStore(OWNER_A);
+		const datePatient: CaseType = {
+			...PATIENT_CASE_TYPE,
+			properties: [
+				...PATIENT_CASE_TYPE.properties,
+				{ name: "dob", label: "Date of birth", data_type: "date" },
+			],
+		};
+		const blueprint = buildBlueprint([datePatient]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30, dob: "2000-06-15" },
+			},
+		});
+
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				filter: eq(prop("patient", "dob"), dateLiteral("")),
+			}),
+		});
+		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
+	});
+
+	it("applies assigned-case exclusions to both the sample and total count", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+			}),
+			excludedOwnerIds: [OWNER_A],
+		});
+
+		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
+	});
+
 	it("populates calculated columns inline when the filter passes", async () => {
 		// Pins the cross-feature shape: filter narrowing AND
-		// calculated-column projection compose. The Filters preview
-		// surfaces the same column-rendering shape the Display
-		// section's preview uses, so calculated values must render
-		// per row alongside the filter narrowing.
+		// calculated-column projection compose. The structural query
+		// returns the same calculated row shape as the running Preview,
+		// so the two compiler paths cannot drift.
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -3236,12 +3992,40 @@ describe("readFilterPreview", () => {
 		expect(result.rows[0]?.calculated[NOTE_CALC_COLUMN_UUID]).toBe("hello");
 		expect(result.totalCount).toBe(1);
 	});
+
+	it("threads session bindings through both filter-preview reads", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		const result = await readFilterPreview(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			bindings: {
+				sessionContext: new Map([["userid", OWNER_A]]),
+			},
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				filter: eq(prop("patient", "owner_id"), sessionContext("userid")),
+			}),
+		});
+
+		expect(result).toMatchObject({ kind: "rows", totalCount: 1 });
+	});
 });
 
 describe("mapFilterPreviewError", () => {
-	// Mirrors `mapCaseListPreviewError`'s shape — same typed errors,
-	// same arm structure (the only difference between the two result
-	// types is the paired `totalCount` on the success arms).
+	// Typed case-store errors get stable result arms for the inspector.
 
 	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm", () => {
 		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
@@ -3279,8 +4063,7 @@ describe("mapFilterPreviewError", () => {
 // `loadFilterPreviewAction` (Server Action)
 // ---------------------------------------------------------------
 //
-// Mirrors `loadCaseListPreviewAction`'s test block. Pins the wire-
-// boundary parse arms and the session-first ordering invariant.
+// Pins the wire-boundary parse arms and session-first ordering invariant.
 
 describe("loadFilterPreviewAction", () => {
 	it("returns the invalid-config arm with a path-prefixed message when caseListConfig fails Zod parse", async () => {
@@ -3341,8 +4124,7 @@ describe("loadFilterPreviewAction", () => {
 	it("returns the unauthenticated arm before parsing when the session is absent (session-first ordering)", async () => {
 		// Pins the session-first ordering: an unauthenticated
 		// request short-circuits BEFORE the Zod parse. The ordering
-		// matches `loadCaseListPreviewAction` and every other action
-		// in the file. Passing a deliberately malformed
+		// matches every other action in the file. Passing a deliberately malformed
 		// `caseListConfig` here would fail `invalid-config` if the
 		// parse ran first; the test asserts `unauthenticated` to
 		// confirm the session check beats the parse to the punch.
@@ -3365,8 +4147,7 @@ describe("loadFilterPreviewAction", () => {
 	});
 
 	it("parses a filter-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
-		// Sibling of the `loadCaseListPreviewAction` regression — the
-		// Filters-section live preview ships the same `pickBlueprintDoc`
+		// The Filters-section live preview ships a `pickBlueprintDoc`
 		// snapshot (with `fieldParent` re-attached) and runs the same
 		// strict `blueprintDocSchema.safeParse`, so it carried the same
 		// "Blueprint is malformed" failure. The action must strip the
@@ -3410,10 +4191,14 @@ describe("loadFilterPreviewAction", () => {
 		// Filter preview returns a single `rows` arm even when empty. The
 		// load-bearing assertion is the negative: NOT `invalid-blueprint`.
 		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
+		const queryArg = stubStore.query.mock.calls[0]?.[0];
+		const countArg = stubStore.count.mock.calls[0]?.[0];
+		expect(queryArg?.bindings).toBe(countArg?.bindings);
+		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
+		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
 	});
 
 	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
-		// Sibling of the `loadCaseListPreviewAction` null-blueprint guard.
 		// The pre-parse strip must not throw on a `null` wire payload — it
 		// must reach the typed `invalid-blueprint` arm, not a raw
 		// destructure TypeError surfaced through the generic `error` arm.

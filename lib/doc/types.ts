@@ -16,8 +16,10 @@ import {
 	assetIdSchema,
 	CONNECT_TYPES,
 	casePropertySchema,
+	caseSearchConfigSchema,
 	caseTypeSchema,
 	columnSchema,
+	columnSortSchema,
 	fieldKinds,
 	fieldPatchSchemaByKind,
 	fieldSchema,
@@ -28,7 +30,7 @@ import {
 	selectOptionSchema,
 	uuidSchema,
 } from "@/lib/domain";
-import { predicateSchema } from "@/lib/domain/predicate";
+import { predicateSchema, searchInputRefSchema } from "@/lib/domain/predicate";
 
 /**
  * The four field message slots a `Media` bundle attaches to. The
@@ -110,6 +112,20 @@ function clearablePartialPatch<
 
 const moduleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
 const formUpdatePatchSchema = clearablePartialPatch(formSchema);
+const caseSearchConfigPatchSchema = z
+	.object({
+		excludedOwnerIds: caseSearchConfigSchema.shape.excludedOwnerIds.nullable(),
+		searchScreenTitle:
+			caseSearchConfigSchema.shape.searchScreenTitle.nullable(),
+		searchScreenSubtitle:
+			caseSearchConfigSchema.shape.searchScreenSubtitle.nullable(),
+		searchButtonLabel:
+			caseSearchConfigSchema.shape.searchButtonLabel.nullable(),
+		searchButtonDisplayCondition:
+			caseSearchConfigSchema.shape.searchButtonDisplayCondition.nullable(),
+	})
+	.partial()
+	.strict();
 
 /**
  * Per-`targetKind` arms for the `updateField` mutation. Each arm
@@ -169,11 +185,116 @@ const updateFieldArms = fieldKinds.map(
 
 export const mutationSchema = z.discriminatedUnion("kind", [
 	// Module
-	z.object({
-		kind: z.literal("addModule"),
-		module: moduleSchema,
-		index: z.number().int().nonnegative().optional(),
-	}),
+	z
+		.object({
+			kind: z.literal("addModule"),
+			// The nested module is the origin/main reducer fallback. New strict
+			// nested slots travel in top-level extensions so old PUT handlers can
+			// parse this established discriminator and safely degrade.
+			module: moduleSchema,
+			index: z.number().int().nonnegative().optional(),
+			columnSurfaceOrders: z
+				.array(
+					z
+						.object({
+							uuid: uuidSchema,
+							listOrder: z.string().optional(),
+							detailOrder: z.string().optional(),
+						})
+						.strict()
+						.refine(
+							(value) =>
+								value.listOrder !== undefined ||
+								value.detailOrder !== undefined,
+							{ message: "A column surface-order entry cannot be empty." },
+						),
+				)
+				.optional(),
+			// Desired owner-only Search state contains Nova's private false bit.
+			// The old-shape module carries a match-none projection instead.
+			caseSearchConfigValue: caseSearchConfigSchema.optional(),
+			// Belongs only to updateModule; reject accidental cross-arm placement.
+			caseSearchConfigPatch: z.never().optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			const columns = mutation.module.caseListConfig?.columns ?? [];
+			for (const [index, column] of columns.entries()) {
+				for (const key of ["listOrder", "detailOrder"] as const) {
+					if (column[key] !== undefined) {
+						ctx.addIssue({
+							code: "custom",
+							path: ["module", "caseListConfig", "columns", index, key],
+							message:
+								"Column surface order must use addModule.columnSurfaceOrders so the strict pre-deploy module schema can parse the fallback.",
+						});
+					}
+				}
+			}
+			const columnUuids = new Set(columns.map((column) => column.uuid));
+			const seenSurfaceOrders = new Set<string>();
+			for (const [index, entry] of (
+				mutation.columnSurfaceOrders ?? []
+			).entries()) {
+				if (!columnUuids.has(entry.uuid) || seenSurfaceOrders.has(entry.uuid)) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["columnSurfaceOrders", index, "uuid"],
+						message:
+							"Each column surface-order entry must name one unique column in the fallback module.",
+					});
+				}
+				seenSurfaceOrders.add(entry.uuid);
+			}
+
+			const desiredSearch = mutation.caseSearchConfigValue;
+			const fallbackSearch = mutation.module.caseSearchConfig;
+			if (desiredSearch !== undefined) {
+				if (
+					desiredSearch.searchActionEnabled !== false ||
+					desiredSearch.excludedOwnerIds === undefined
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["caseSearchConfigValue"],
+						message:
+							"Only disabled assigned-case availability needs the addModule compatibility extension.",
+					});
+				}
+				if (
+					fallbackSearch?.searchActionEnabled === false ||
+					fallbackSearch?.searchButtonDisplayCondition?.kind !== "match-none"
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["module", "caseSearchConfig"],
+						message:
+							"Owner-only addModule must carry an origin-compatible match-none Search fallback.",
+					});
+				}
+				const { searchActionEnabled: _intent, ...originSearch } = desiredSearch;
+				const expectedFallback = {
+					...originSearch,
+					searchButtonDisplayCondition: { kind: "match-none" as const },
+				};
+				if (
+					JSON.stringify(fallbackSearch) !== JSON.stringify(expectedFallback)
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["module", "caseSearchConfig"],
+						message:
+							"The owner-only module fallback must agree with every retained Search setting.",
+					});
+				}
+			} else if (fallbackSearch?.searchActionEnabled === false) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["module", "caseSearchConfig", "searchActionEnabled"],
+					message:
+						"Nova's private Search intent must use addModule.caseSearchConfigValue outside the strict pre-deploy module fallback.",
+				});
+			}
+		}),
 	z.object({ kind: z.literal("removeModule"), uuid: uuidSchema }),
 	// A move carries the absolute fractional `order` key the gesture computed;
 	// the reducer writes it verbatim (a same-parent reorder leaves the
@@ -195,18 +316,270 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		// schema boundary is the only layer that catches this before write.
 		newId: z.string().min(1),
 	}),
-	z.object({
-		kind: z.literal("updateModule"),
-		uuid: uuidSchema,
-		// A clear carries an explicit `null` (the clearable slots are
-		// nullable — see `clearablePartialPatch`), so a clear-only edit is a
-		// NON-empty patch that round-trips intact. The `{}` default exists for
-		// a genuinely-empty patch: a degenerate no-property update, or a legacy
-		// event written before clears carried `null` (then a clear lowered to
-		// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
-		// an empty, document-omitted map). See `updateFieldArms`.
-		patch: moduleUpdatePatchSchema.default(() => ({})),
-	}),
+	z
+		.object({
+			kind: z.literal("updateModule"),
+			uuid: uuidSchema,
+			// A clear carries an explicit `null` (the clearable slots are
+			// nullable — see `clearablePartialPatch`), so a clear-only edit is a
+			// NON-empty patch that round-trips intact. The `{}` default exists for
+			// a genuinely-empty patch: a degenerate no-property update, or a legacy
+			// event written before clears carried `null` (then a clear lowered to
+			// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
+			// an empty, document-omitted map). See `updateFieldArms`.
+			patch: moduleUpdatePatchSchema.default(() => ({})),
+			// Semantic absent -> present transition. This deliberately extends the
+			// pre-deploy `updateModule` arm instead of adding a discriminator: an old
+			// parser strips this flag and applies the empty fallback snapshot, while
+			// the new reducer ensures the container without replacing peer contents.
+			ensureCaseListConfig: z.literal(true).optional(),
+			// A full case-list replacement carries old-shape nested columns in the
+			// patch and reconstructs current-only surface keys from this top-level
+			// extension. Origin/main strips the extension and accepts the fallback.
+			columnSurfaceOrders: z
+				.array(
+					z
+						.object({
+							uuid: uuidSchema,
+							listOrder: z.string().optional(),
+							detailOrder: z.string().optional(),
+						})
+						.strict()
+						.refine(
+							(value) =>
+								value.listOrder !== undefined ||
+								value.detailOrder !== undefined,
+							{ message: "A column surface-order entry cannot be empty." },
+						),
+				)
+				.optional(),
+			// Search presence and final-input cleanup are likewise semantic edits on
+			// the origin/main-known `updateModule` discriminator. The patch retains
+			// the locally projected `caseSearchConfig` as an old-reducer fallback;
+			// new reducers interpret this operation against fresh peer state instead.
+			caseSearchConfigOperation: z
+				.enum([
+					"enable",
+					"disable-if-unused",
+					"remove-if-no-authored-settings",
+					"cleanup-after-final-input",
+					"set-owner-only",
+				])
+				.optional(),
+			// Desired owner-only state contains Nova's private false bit, which an
+			// origin/main strict nested schema cannot parse. Keeping it in a new
+			// top-level slot means an old parser strips it whole and consumes only
+			// the old-compatible match-none fallback in `patch`.
+			caseSearchConfigValue: caseSearchConfigSchema.optional(),
+			// Per-setting enabled-Search edits merge into the fresh bag. The nested
+			// patch remains a full origin-compatible snapshot for old reducers.
+			caseSearchConfigPatch: caseSearchConfigPatchSchema.optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			const caseListFallback = mutation.patch.caseListConfig;
+			const fallbackColumns =
+				caseListFallback === null || caseListFallback === undefined
+					? []
+					: caseListFallback.columns;
+			for (const [index, column] of fallbackColumns.entries()) {
+				for (const key of ["listOrder", "detailOrder"] as const) {
+					if (column[key] !== undefined) {
+						ctx.addIssue({
+							code: "custom",
+							path: ["patch", "caseListConfig", "columns", index, key],
+							message:
+								"Surface order must use updateModule.columnSurfaceOrders so the strict pre-deploy nested schema can parse the fallback.",
+						});
+					}
+				}
+			}
+			const fallbackColumnUuids = new Set(
+				fallbackColumns.map((column) => column.uuid),
+			);
+			const seenSurfaceOrders = new Set<string>();
+			for (const [index, entry] of (
+				mutation.columnSurfaceOrders ?? []
+			).entries()) {
+				if (
+					!fallbackColumnUuids.has(entry.uuid) ||
+					seenSurfaceOrders.has(entry.uuid)
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["columnSurfaceOrders", index, "uuid"],
+						message:
+							"Each column surface-order entry must name one unique column in the fallback case-list config.",
+					});
+				}
+				seenSurfaceOrders.add(entry.uuid);
+			}
+
+			if (mutation.ensureCaseListConfig) {
+				const fallback = mutation.patch.caseListConfig;
+				const hasOnlyRequiredEmptySlots =
+					fallback !== null &&
+					fallback !== undefined &&
+					fallback.columns.length === 0 &&
+					fallback.searchInputs.length === 0 &&
+					Object.keys(fallback).every(
+						(key) => key === "columns" || key === "searchInputs",
+					);
+				if (!hasOnlyRequiredEmptySlots) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["patch", "caseListConfig"],
+						message:
+							"A semantic case-list ensure must carry the required empty config as its pre-deploy fallback.",
+					});
+				}
+			}
+
+			const operation = mutation.caseSearchConfigOperation;
+			const patchSearch = mutation.patch.caseSearchConfig;
+			const semanticPatch = mutation.caseSearchConfigPatch;
+			if (semanticPatch !== undefined) {
+				if (Object.keys(semanticPatch).length === 0) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["caseSearchConfigPatch"],
+						message: "A semantic Search settings patch cannot be empty.",
+					});
+				}
+				if (!Object.hasOwn(mutation.patch, "caseSearchConfig")) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["patch", "caseSearchConfig"],
+						message:
+							"A semantic Search settings patch needs an origin-compatible fallback.",
+					});
+				}
+				if (
+					operation !== undefined ||
+					mutation.caseSearchConfigValue !== undefined
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["caseSearchConfigPatch"],
+						message:
+							"A per-setting Search patch cannot be combined with another Search semantic operation.",
+					});
+				}
+				for (const [slot, semanticValue] of Object.entries(semanticPatch)) {
+					const fallbackValue =
+						patchSearch === null || patchSearch === undefined
+							? undefined
+							: (patchSearch as unknown as Record<string, unknown>)[slot];
+					const desiredValue = semanticValue ?? undefined;
+					if (JSON.stringify(fallbackValue) !== JSON.stringify(desiredValue)) {
+						ctx.addIssue({
+							code: "custom",
+							path: ["caseSearchConfigPatch", slot],
+							message:
+								"Each Search settings patch slot must agree with its origin-compatible fallback.",
+						});
+					}
+				}
+			}
+			if (patchSearch?.searchActionEnabled === false) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["patch", "caseSearchConfig", "searchActionEnabled"],
+					message:
+						"The pre-deploy Search fallback cannot contain Nova's private searchActionEnabled slot.",
+				});
+			}
+			if (operation === undefined) {
+				if (mutation.caseSearchConfigValue !== undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["caseSearchConfigValue"],
+						message:
+							"A semantic Search value requires a caseSearchConfigOperation.",
+					});
+				}
+				return;
+			}
+			if (!Object.hasOwn(mutation.patch, "caseSearchConfig")) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["patch", "caseSearchConfig"],
+					message:
+						"A semantic Search operation must carry a caseSearchConfig fallback for pre-deploy receivers.",
+				});
+				return;
+			}
+			const fallback = mutation.patch.caseSearchConfig;
+			if (
+				operation === "enable" &&
+				(fallback == null || fallback.searchActionEnabled === false)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["patch", "caseSearchConfig"],
+					message:
+						"A semantic Search enable must carry an enabled config snapshot as its pre-deploy fallback.",
+				});
+			}
+			if (
+				(operation === "disable-if-unused" ||
+					operation === "remove-if-no-authored-settings") &&
+				fallback !== null
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["patch", "caseSearchConfig"],
+					message:
+						"A conditional Search removal must carry null as its pre-deploy fallback.",
+				});
+			}
+			if (operation === "set-owner-only") {
+				if (
+					mutation.caseSearchConfigValue?.searchActionEnabled !== false ||
+					mutation.caseSearchConfigValue.excludedOwnerIds === undefined
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["caseSearchConfigValue"],
+						message:
+							"An owner-only Search operation must carry the desired disabled assigned-case config outside the legacy patch.",
+					});
+				}
+				if (mutation.caseSearchConfigValue !== undefined) {
+					const { searchActionEnabled: _intent, ...originSearch } =
+						mutation.caseSearchConfigValue;
+					const expectedFallback = {
+						...originSearch,
+						searchButtonDisplayCondition: { kind: "match-none" as const },
+					};
+					if (JSON.stringify(fallback) !== JSON.stringify(expectedFallback)) {
+						ctx.addIssue({
+							code: "custom",
+							path: ["patch", "caseSearchConfig"],
+							message:
+								"The owner-only fallback must agree with every retained Search setting.",
+						});
+					}
+				}
+				if (
+					fallback == null ||
+					fallback.searchButtonDisplayCondition?.kind !== "match-none"
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["patch", "caseSearchConfig"],
+						message:
+							"An owner-only Search operation must carry an origin-compatible match-none fallback.",
+					});
+				}
+			} else if (mutation.caseSearchConfigValue !== undefined) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["caseSearchConfigValue"],
+					message:
+						"Only an owner-only Search operation may carry a semantic config value.",
+				});
+			}
+		}),
 	// Form
 	z.object({
 		kind: z.literal("addForm"),
@@ -345,45 +718,200 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	// ─── Granular case-list collections ──────────────────────────────────
 	//
 	// `caseListConfig.columns` / `.searchInputs` are membership arrays whose
-	// position is NOT authoritative (sequence is `sort-by-(order, uuid)`). Each
-	// quartet (`add` / `update` / `remove` / `move`) is keyed by the owning
-	// module uuid + the item uuid, so concurrent edits to different columns /
-	// inputs merge. `add` carries the entity (with its `order`); `move` carries
-	// the gesture-computed `order` and leaves membership untouched; `update`
-	// replaces content and PRESERVES the item's current `order` in the reducer.
-	z.object({
-		kind: z.literal("addColumn"),
-		moduleUuid: uuidSchema,
-		column: columnSchema,
-	}),
-	z.object({
-		kind: z.literal("updateColumn"),
-		moduleUuid: uuidSchema,
-		uuid: uuidSchema,
-		column: columnSchema,
-	}),
+	// position is NOT authoritative. Search inputs use `sort-by-(order, uuid)`;
+	// columns additionally carry independent `listOrder` / `detailOrder` keys
+	// (each falling back to `order`). Every kind is keyed by the owning module
+	// uuid + item uuid, so concurrent edits merge. New column content updates
+	// preserve all three current order keys plus both current visibility slots;
+	// each move or visibility mutation changes only its named surface.
+	// A config's absent -> present transition is the semantic extension on
+	// `updateModule` above. Its old-client fallback is an empty config snapshot;
+	// new reducers treat it as an idempotent ensure before the granular edits.
+	z
+		.object({
+			kind: z.literal("addColumn"),
+			moduleUuid: uuidSchema,
+			// Origin/main's nested column schema is strict and predates the two
+			// surface keys, so the fallback column must remain in the old shape.
+			column: columnSchema,
+			surfaceOrders: z
+				.object({
+					listOrder: z.string().optional(),
+					detailOrder: z.string().optional(),
+				})
+				.strict()
+				.optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			for (const key of ["listOrder", "detailOrder"] as const) {
+				if (mutation.column[key] !== undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["column", key],
+						message:
+							"Surface order must use addColumn.surfaceOrders so the strict pre-deploy column schema can parse the fallback.",
+					});
+				}
+			}
+		}),
+	z
+		.object({
+			kind: z.literal("updateColumn"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			column: columnSchema,
+			// New content emitters opt into preserving the fresh slots;
+			// visibility-only emitters carry a single-surface patch. Both are
+			// optional extensions of the existing kind so pre-deploy clients keep
+			// recognizing streamed events. Absence retains legacy full-body behavior.
+			preserveVisibility: z.literal(true).optional(),
+			// Content-only replacements preserve a peer's fresh sort directive.
+			preserveSort: z.literal(true).optional(),
+			// Sort is an independently mergeable slot. `null` clears it; the
+			// nested column remains an old-reducer full-body fallback.
+			sortPatch: columnSortSchema.nullable().optional(),
+			visibilityPatch: z
+				.object({
+					surface: z.enum(["list", "detail"]),
+					visible: z.boolean(),
+				})
+				.strict()
+				.optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			for (const key of ["listOrder", "detailOrder"] as const) {
+				if (mutation.column[key] !== undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["column", key],
+						message:
+							"Surface order keys must stay out of the strict pre-deploy updateColumn fallback.",
+					});
+				}
+			}
+			if (mutation.sortPatch !== undefined) {
+				if (
+					mutation.preserveSort ||
+					mutation.preserveVisibility ||
+					mutation.visibilityPatch !== undefined
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["sortPatch"],
+						message:
+							"A sort patch cannot be combined with another updateColumn semantic mode.",
+					});
+				}
+				const fallbackSort = mutation.column.sort ?? null;
+				if (
+					JSON.stringify(fallbackSort) !== JSON.stringify(mutation.sortPatch)
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["column", "sort"],
+						message:
+							"The old-reducer column fallback must carry the requested sort value.",
+					});
+				}
+			}
+			if (mutation.visibilityPatch === undefined) return;
+			if (mutation.preserveVisibility) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["preserveVisibility"],
+					message:
+						"A visibility-only update cannot also be a content update that preserves visibility.",
+				});
+			}
+			if (mutation.preserveSort) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["preserveSort"],
+					message:
+						"A visibility-only patch cannot also request content sort preservation.",
+				});
+			}
+			const slot =
+				mutation.visibilityPatch.surface === "list"
+					? "visibleInList"
+					: "visibleInDetail";
+			if (
+				(mutation.column[slot] !== false) !==
+				mutation.visibilityPatch.visible
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["column", slot],
+					message:
+						"The fallback column visibility must agree with the visibility patch for pre-deploy receivers.",
+				});
+			}
+		}),
 	z.object({
 		kind: z.literal("removeColumn"),
 		moduleUuid: uuidSchema,
 		uuid: uuidSchema,
 	}),
-	z.object({
-		kind: z.literal("moveColumn"),
-		moduleUuid: uuidSchema,
-		uuid: uuidSchema,
-		order: z.string(),
-	}),
+	z
+		.object({
+			kind: z.literal("moveColumn"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			// Pre-deploy fallback: old reducers move the legacy shared order key.
+			order: z.string(),
+			// New reducers use the named surface key instead. Keeping this optional
+			// on the existing discriminator lets both old open tabs and old servers
+			// accept the payload; a string value must agree with the legacy fallback.
+			surfaceOrderPatch: z
+				.object({
+					surface: z.enum(["list", "detail"]),
+					// `null` clears the override and restores the generic fallback.
+					order: z.string().nullable(),
+				})
+				.strict()
+				.optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			const semanticOrder = mutation.surfaceOrderPatch?.order;
+			if (semanticOrder === undefined || semanticOrder === null) return;
+			if (semanticOrder !== mutation.order) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["order"],
+					message:
+						"The legacy column-order fallback must agree with the surface order patch.",
+				});
+			}
+		}),
 	z.object({
 		kind: z.literal("addSearchInput"),
 		moduleUuid: uuidSchema,
 		searchInput: searchInputDefSchema,
 	}),
-	z.object({
-		kind: z.literal("updateSearchInput"),
-		moduleUuid: uuidSchema,
-		uuid: uuidSchema,
-		searchInput: searchInputDefSchema,
-	}),
+	z
+		.object({
+			kind: z.literal("updateSearchInput"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			// Origin-compatible full-row fallback. A rename retains the previous
+			// declaration name here; current receivers apply the desired name below
+			// and structurally rewrite module-wide input refs against fresh state.
+			searchInput: searchInputDefSchema,
+			renamedTo: searchInputRefSchema.shape.name.optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			if (
+				mutation.renamedTo !== undefined &&
+				mutation.renamedTo === mutation.searchInput.name
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["renamedTo"],
+					message:
+						"A Search-input rename extension must differ from its origin-compatible fallback name.",
+				});
+			}
+		}),
 	z.object({
 		kind: z.literal("removeSearchInput"),
 		moduleUuid: uuidSchema,
@@ -395,6 +923,9 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		uuid: uuidSchema,
 		order: z.string(),
 	}),
+	// Presence-only Search transitions and final-input cleanup are the semantic
+	// `updateModule` extension above. Keeping their fallback on the established
+	// discriminator lets an open pre-deploy client parse and safely replay them.
 	// The module's case-list metadata that is NOT a membership array — the
 	// always-on `filter` predicate and the case-list-link `icon` / `audioLabel`.
 	// Each slot is nullable so a clear crosses the JSON wire as `null`.

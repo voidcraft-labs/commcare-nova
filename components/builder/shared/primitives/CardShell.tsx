@@ -1,7 +1,7 @@
 // components/builder/shared/primitives/CardShell.tsx
 //
 // Shared chrome for every predicate card: header (icon + label +
-// optional kebab menu), body slot, and inline-error footer. The
+// optional remove action), body slot, and inline-error footer. The
 // shell never reaches into the AST itself — it's purely a visual
 // container the per-kind cards compose around their own body.
 //
@@ -12,18 +12,63 @@
 // and presents through the optional `dragHandleProps` slot.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import type { ReactNode } from "react";
-import { useRef } from "react";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
+import type { KeyboardEvent, ReactNode } from "react";
+import { Button } from "@/components/shadcn/button";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { removeAndRestoreFocus } from "../focusAfterRemoval";
+import type { ReorderKeyboardKey } from "../useReorderableList";
+
+function isReorderKeyboardKey(key: string): key is ReorderKeyboardKey {
+	return (
+		key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End"
+	);
+}
+
+function handleReorderKey(
+	event: KeyboardEvent<HTMLButtonElement>,
+	onMove: ((key: ReorderKeyboardKey) => void) | undefined,
+) {
+	if (onMove === undefined || !isReorderKeyboardKey(event.key)) return;
+	event.preventDefault();
+	onMove(event.key);
+}
+
+interface RemoveConditionButtonProps {
+	readonly onClick: () => void;
+	readonly label?: string;
+	readonly className?: string;
+}
+
+/**
+ * One shared condition-removal affordance. The outer shadcn Button keeps a
+ * full 44px target and focus ring; the smaller inner surface keeps the hover
+ * treatment visually quiet instead of turning that whole target into a
+ * block. Row-shaped cards position this target inside their own padding.
+ */
+function RemoveConditionButton({
+	onClick,
+	label = "Delete condition",
+	className = "",
+}: RemoveConditionButtonProps) {
+	return (
+		<SimpleTooltip content={label}>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon"
+				onClick={(event) => removeAndRestoreFocus(event.currentTarget, onClick)}
+				aria-label={label}
+				data-removal-action
+				className={`size-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose ${className}`}
+			>
+				<Icon icon={tablerTrash} width="16" height="16" />
+			</Button>
+		</SimpleTooltip>
+	);
+}
 
 interface CardShellProps {
 	/** Imported `IconifyIcon` data — drives the leading icon. */
@@ -43,19 +88,25 @@ interface CardShellProps {
 	 * doesn't render.
 	 */
 	readonly dragHandleRef?: (el: HTMLElement | null) => void;
+	/** Keyboard alternative for a visible drag handle. */
+	readonly onMove?: (key: ReorderKeyboardKey) => void;
+	/** Position-aware accessible name supplied by the list owner. */
+	readonly reorderLabel?: string;
 	/**
-	 * Optional remove handler — when provided, the kebab menu shows
-	 * a "Delete" item. Cards inside an `and` / `or` group's clause
+	 * Optional remove handler — when provided, a direct remove control appears.
+	 * Cards inside an `and` / `or` group's clause
 	 * list and cards under a `not` / `when-input-present` / `exists`
-	 * wrapper get a delete affordance; the top-level card does not
-	 * (the parent owns the replacement). The kebab itself is hidden
-	 * when no `onRemove` is wired.
+	 * wrapper get a delete affordance; standalone top-level cards omit it
+	 * unless their parent is itself a visible condition list.
 	 */
 	readonly onRemove?: () => void;
+	readonly removeLabel?: string;
 	/** Optional kind-name override displayed in error toasts / labels. */
 	readonly kindAccent?: ReactNode;
 	/** Inline diagnostics to render at the card's footer (one row each). */
 	readonly errors?: readonly string[];
+	/** Optional action row that remains visually inside this card. */
+	readonly footerAction?: ReactNode;
 	readonly children: ReactNode;
 }
 
@@ -74,16 +125,19 @@ export function CardShell({
 	label,
 	variant = "normal",
 	dragHandleRef,
+	onMove,
+	reorderLabel,
 	onRemove,
+	removeLabel,
 	kindAccent,
 	errors,
+	footerAction,
 	children,
 }: CardShellProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
 	const hasErrors = errors !== undefined && errors.length > 0;
 
 	const surfaceCls = [
-		"group/card relative rounded-md border px-3 py-2.5 transition-colors",
+		"group/card @container relative rounded-md border px-3 py-2.5 transition-colors",
 		variant === "nested" ? "bg-nova-surface/30" : "bg-nova-surface/40",
 		hasErrors
 			? "border-nova-rose/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
@@ -91,8 +145,8 @@ export function CardShell({
 	].join(" ");
 
 	return (
-		<div className={surfaceCls}>
-			{/* Header: drag handle + icon + label + kebab. The handle is a
+		<div className={surfaceCls} data-removal-card>
+			{/* Header: drag handle + icon + label + remove action. The handle is a
 			 *  thin grip indicator on the leading edge; clicking it does
 			 *  nothing (the native drag binding intercepts the press). */}
 			<div className="flex items-center gap-2 mb-2">
@@ -103,14 +157,28 @@ export function CardShell({
 					// directly. Wrapping in a fresh-each-render arrow
 					// would force React 19 to detach + re-attach the
 					// ref every render.
-					<button
-						type="button"
-						ref={dragHandleRef}
-						aria-label="Drag to reorder"
-						className="size-11 -ml-2.5 grid place-items-center rounded-md cursor-grab text-nova-text-muted hover:text-nova-text-muted transition-colors"
+					<SimpleTooltip
+						content={
+							onMove === undefined
+								? "Drag to reorder"
+								: "Drag or use arrow keys"
+						}
 					>
-						<Icon icon={tablerGripVertical} width="14" height="14" />
-					</button>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							ref={dragHandleRef}
+							aria-label={reorderLabel ?? "Drag to reorder"}
+							aria-keyshortcuts={
+								onMove === undefined ? undefined : "ArrowUp ArrowDown Home End"
+							}
+							onKeyDown={(event) => handleReorderKey(event, onMove)}
+							className="size-11 cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+						>
+							<Icon icon={tablerGripVertical} width="16" height="16" />
+						</Button>
+					</SimpleTooltip>
 				)}
 				<div className="w-0.5 h-3 rounded-full bg-nova-violet/40" />
 				<Icon
@@ -119,44 +187,17 @@ export function CardShell({
 					height="14"
 					className="text-nova-violet-bright"
 				/>
-				<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted">
+				<span className="text-sm font-medium text-nova-text-secondary">
 					{label}
 				</span>
 				{kindAccent !== undefined && (
-					<span className="ml-1 text-[10px] text-nova-text-muted">
+					<span className="ml-1 text-xs text-nova-text-muted">
 						{kindAccent}
 					</span>
 				)}
 				<div className="flex-1" />
 				{onRemove !== undefined && (
-					<Menu.Root>
-						<Menu.Trigger
-							ref={triggerRef}
-							aria-label="Card actions"
-							className="size-11 -mr-1.5 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
-						>
-							<Icon icon={tablerDotsVertical} width="14" height="14" />
-						</Menu.Trigger>
-						<Menu.Portal>
-							<Menu.Positioner
-								side="bottom"
-								align="end"
-								sideOffset={4}
-								anchor={triggerRef}
-								className={MENU_POSITIONER_CLS}
-							>
-								<Menu.Popup className={MENU_POPUP_CLS}>
-									<Menu.Item
-										onClick={onRemove}
-										className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose hover:text-nova-rose`}
-									>
-										<Icon icon={tablerTrash} width="14" height="14" />
-										<span>Delete</span>
-									</Menu.Item>
-								</Menu.Popup>
-							</Menu.Positioner>
-						</Menu.Portal>
-					</Menu.Root>
+					<RemoveConditionButton onClick={onRemove} label={removeLabel} />
 				)}
 			</div>
 
@@ -165,6 +206,11 @@ export function CardShell({
 			 *  arbitrary grids / rows without the shell imposing
 			 *  layout. */}
 			<div className="space-y-2">{children}</div>
+			{footerAction !== undefined ? (
+				<div className="mt-3 flex justify-end border-t border-white/[0.05] pt-2">
+					{footerAction}
+				</div>
+			) : null}
 
 			{/* Footer — operator-level diagnostics (e.g.
 			 *  "between has lower > upper", "gt requires ordered
@@ -193,10 +239,7 @@ export function CardShell({
 				className={hasErrors ? "mt-2 space-y-0.5" : "sr-only"}
 			>
 				{errors?.map((message) => (
-					<div
-						key={message}
-						className="text-[11px] leading-snug text-nova-rose"
-					>
+					<div key={message} className="text-xs leading-snug text-nova-rose">
 						{message}
 					</div>
 				))}
@@ -207,9 +250,14 @@ export function CardShell({
 
 interface RowShellProps {
 	readonly dragHandleRef?: (el: HTMLElement | null) => void;
+	readonly onMove?: (key: ReorderKeyboardKey) => void;
+	readonly reorderLabel?: string;
 	readonly onRemove?: () => void;
+	readonly removeLabel?: string;
 	readonly errors?: readonly string[];
 	readonly variant?: "normal" | "nested";
+	/** Optional action row that remains visually inside this condition. */
+	readonly footerAction?: ReactNode;
 	readonly children: ReactNode;
 }
 
@@ -224,23 +272,26 @@ interface RowShellProps {
  * inline.
  *
  * Row chrome that survives from the card shell: a full-height grab
- * rail on the leading edge when the row is reorderable, a corner
- * actions menu when it's removable, and the same aria-live error
+ * rail on the leading edge when the row is reorderable, an inset corner
+ * remove action when it's removable, and the same aria-live error
  * footer.
  */
 export function PredicateRowShell({
 	dragHandleRef,
+	onMove,
+	reorderLabel,
 	onRemove,
+	removeLabel,
 	errors,
 	variant = "normal",
+	footerAction,
 	children,
 }: RowShellProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
 	const hasErrors = errors !== undefined && errors.length > 0;
 
 	const surfaceCls = [
-		"group/card relative rounded-md border py-2.5 pr-3 transition-colors",
-		dragHandleRef !== undefined ? "pl-8" : "pl-3",
+		"group/card @container relative rounded-md border py-2.5 pr-3 transition-colors",
+		dragHandleRef !== undefined ? "pl-12" : "pl-3",
 		variant === "nested" ? "bg-nova-surface/30" : "bg-nova-surface/40",
 		hasErrors
 			? "border-nova-rose/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
@@ -248,49 +299,45 @@ export function PredicateRowShell({
 	].join(" ");
 
 	return (
-		<div className={surfaceCls}>
+		<div className={surfaceCls} data-removal-card>
 			{dragHandleRef !== undefined && (
-				<button
-					type="button"
-					ref={dragHandleRef}
-					aria-label="Drag to reorder"
-					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted hover:text-nova-text-muted transition-colors"
+				<SimpleTooltip
+					content={
+						onMove === undefined ? "Drag to reorder" : "Drag or use arrow keys"
+					}
 				>
-					<Icon icon={tablerGripVertical} width="14" height="14" />
-				</button>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						ref={dragHandleRef}
+						aria-label={reorderLabel ?? "Drag to reorder"}
+						aria-keyshortcuts={
+							onMove === undefined ? undefined : "ArrowUp ArrowDown Home End"
+						}
+						onKeyDown={(event) => handleReorderKey(event, onMove)}
+						className="absolute inset-y-0 left-0 h-auto w-11 cursor-grab rounded-l-md rounded-r-none text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+					>
+						<Icon icon={tablerGripVertical} width="16" height="16" />
+					</Button>
+				</SimpleTooltip>
 			)}
-			<div className={`space-y-2 ${onRemove !== undefined ? "pr-8" : ""}`}>
+			<div className={`space-y-2 ${onRemove !== undefined ? "@sm:pr-14" : ""}`}>
 				{children}
 			</div>
+			{footerAction !== undefined ? (
+				<div className="mt-3 flex justify-end border-t border-white/[0.05] pt-2">
+					{footerAction}
+				</div>
+			) : null}
 			{onRemove !== undefined && (
-				<Menu.Root>
-					<Menu.Trigger
-						ref={triggerRef}
-						aria-label="Condition actions"
-						className="absolute top-0 right-0 w-11 h-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-					>
-						<Icon icon={tablerDotsVertical} width="14" height="14" />
-					</Menu.Trigger>
-					<Menu.Portal>
-						<Menu.Positioner
-							side="bottom"
-							align="end"
-							sideOffset={4}
-							anchor={triggerRef}
-							className={MENU_POSITIONER_CLS}
-						>
-							<Menu.Popup className={MENU_POPUP_CLS}>
-								<Menu.Item
-									onClick={onRemove}
-									className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose hover:text-nova-rose`}
-								>
-									<Icon icon={tablerTrash} width="14" height="14" />
-									<span>Delete</span>
-								</Menu.Item>
-							</Menu.Popup>
-						</Menu.Positioner>
-					</Menu.Portal>
-				</Menu.Root>
+				<div className="mt-2 flex justify-end border-t border-white/[0.05] pt-2 @sm:contents">
+					<RemoveConditionButton
+						onClick={onRemove}
+						label={removeLabel}
+						className="right-3 top-3 @sm:absolute"
+					/>
+				</div>
 			)}
 			<div
 				aria-live="polite"
@@ -298,10 +345,7 @@ export function PredicateRowShell({
 				className={hasErrors ? "mt-2 space-y-0.5" : "sr-only"}
 			>
 				{errors?.map((message) => (
-					<div
-						key={message}
-						className="text-[11px] leading-snug text-nova-rose"
-					>
+					<div key={message} className="text-xs leading-snug text-nova-rose">
 						{message}
 					</div>
 				))}
@@ -348,7 +392,7 @@ export function InlineError({ errors }: InlineErrorProps) {
 			 *  merged paths, so every `errors` entry is guaranteed
 			 *  unique within a single render. */}
 			{errors.map((message) => (
-				<div key={message} className="text-[11px] leading-snug text-nova-rose">
+				<div key={message} className="text-xs leading-snug text-nova-rose">
 					{message}
 				</div>
 			))}

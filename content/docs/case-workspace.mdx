@@ -1,0 +1,218 @@
+---
+title: Case search, results, and details
+description: Configure how people find, compare, and open cases in the Nova builder.
+---
+
+The case workspace controls how people find a case, compare the results, and
+understand the case they open. It is split into three focused tabs so you can
+work on one part of that experience at a time.
+
+## Design the journey directly
+
+| Tab | What you configure |
+| --- | --- |
+| **Search** | The action people use to continue, plus any questions they can answer to narrow the cases themselves. |
+| **Results** | Which cases are available, the information people scan, and which cases appear first. |
+| **Details** | The information people see after opening a case. |
+
+Each tab is a picture of that part of the app, not a list of technical
+settings. Add information in the canvas, drag it into place, and select a row
+when you want to change its properties.
+
+The tab strip stays in place while you work. Only the active tab's body
+scrolls, and each tab remembers where you were when you switch away and back.
+
+## Arrange information in the canvas
+
+Choose **Add search field**, then select the case information people should be
+able to search. Nova puts Case name first as a useful suggestion, but does not
+choose a property for you. The new field gets a suitable field type and match
+behavior after you make that choice. Search fields can then be dragged into the
+order people should answer them. Results and Details use the same direct
+arrangement: the row you move is the row the person using the app will see in
+that position. You can also focus a drag handle and use the arrow, Home, or End
+keys.
+
+Results and Details have separate arrangements. Moving an item in Results does
+not move it in Details, so each screen can follow the reading order that makes
+sense there.
+
+The normal canvas stays focused on what people will see. **Add information**
+always asks what you want to show; it never picks a case property for you. If
+the same information was already set up for another screen, choosing it keeps
+that label and formatting. Previously configured information stays mixed into
+the same familiar groups instead of becoming a prominent “hidden fields”
+concept. Less-common choices sit quietly at the bottom: **Calculated value**
+for information derived from other values, and **Show information another
+way** when the same property needs a second label or format.
+
+Select a Results or Details row, then use **Hide from results** or **Hide from
+details** at the bottom of its properties when you only want it off that
+screen. Hiding is reversible. **Delete information** removes that display
+setup from both screens and Default order, if used, but never deletes the case
+property or saved case data. Results must keep at least one item so people can
+recognize and choose a case. Search fields can be removed from the bottom of
+their own properties. Removing the final field removes the questions people
+can answer, but an intentionally configured Search action can remain.
+
+If another rule uses that field's answer, Nova does not silently rewrite or
+discard the rule. The removal dialog groups every place the answer is used and
+opens the exact spot — a condition in Results, another search field's condition
+or starting value, a calculated column's formula, Assigned cases, or the
+Search button's display condition.
+After each update, return to the field to see the remaining uses. Once none
+remain, the dialog closes and **Remove search field** is ready for you again.
+
+## Choose which cases people can find
+
+Search owns the action people use to continue and any **Search fields** they
+can fill in themselves. Select a field to change it, or choose **Edit Search
+screen** for the screen copy. The action can exist without any fields: when
+**Cases available** already narrows the list, Results can open automatically;
+without that rule, the input-free Search action remains a real button on the
+case list. Removing the final field does not discard an authored action label
+or availability condition. Those less-common action settings remain under
+**More settings**.
+
+Results owns **Cases available**, the rules that always decide which cases can
+appear before anyone searches. The conditions are listed and edited together
+in the canvas, above Default order. Choose **Add condition** for another rule,
+then decide whether **all conditions must match** or **any condition can
+match**. You can group conditions, exclude matches, use a search answer only
+when it has been filled in, follow connections to related cases, and combine
+those ideas at any depth. Opening a group gives it the full canvas; Back and
+the location trail return you to the surrounding rule. Nova keeps the exact
+structure you authored instead of flattening it into a simpler filter.
+
+To intentionally make one condition include everything or nothing, open that
+condition's matching menu and look under **Special conditions** for **Always
+match** or **Never match**. These whole-condition choices stay out of **Add
+condition**, so the common path still begins with a useful comparison.
+
+You can remove or rearrange conditions independently. Removing the complete
+rule confirms that cases it excluded can appear in Results. This keeps simple
+rules quick to scan without preventing the complex rules an established
+CommCare app may need. If a condition needs attention, Results and that
+condition show the finding where it can be fixed.
+
+The always-on rule and a search field may use the same property. Nova combines
+them: leaving the field empty keeps the always-on rule, a compatible value
+narrows the cases further, and a value that disagrees can legitimately return
+no matches.
+
+For dates, **Exact value** means the complete selected calendar day, including
+datetime values later that day. Choose **Between dates** when people should
+enter both a start and an end; Nova changes the field to one paired **Date
+range** control automatically. Date ranges do not offer a one-date starting
+value, because that would leave the other end undefined.
+
+Under **Cases available**, open **More availability settings** to decide what
+happens to **Cases assigned to the person using the app**. Choose **Show in
+Results** for the usual experience, or **Hide from Results** when people should
+not see work already assigned to themselves. If an imported app has a different
+assignment rule, Nova keeps it unchanged and explains that some cases may be
+hidden. A saved rule that tries to read a case before one has been selected is
+marked for replacement. Replacing a saved rule with either simple choice requires confirmation,
+because the imported rule cannot be recovered from the builder afterward.
+This is a Results-availability setting, not a Search action: it applies whether
+people browse Results directly or arrive through Search, and it never adds a
+Search action by itself.
+
+## Choose which cases appear first
+
+Results keeps **Default order** directly below Cases available and beside the
+information it affects. Choose **Set order** the first time, or **Change order**
+once it is configured, to expand the editor in the canvas. Then add the
+information to sort by, choose a friendly direction such as A to Z or newest
+first, and drag the rules into priority order. The first rule decides first;
+when two cases match, the next rule breaks the tie.
+
+This is separate from arranging information inside a result. One controls the
+order of cases; the other controls how each case is presented.
+
+## Use the sidebar for properties
+
+Select a search field, result item, or detail item to edit its data source,
+label, matching behavior, or formatting in the right sidebar. Screen options
+that do not have a visible row also live there. Less-common settings stay
+behind **More settings**. Arrangement does not: screen membership, row order, and
+the Cases available and Default order sections each have one home in the
+center canvas.
+When a search field needs a custom matching condition, or the Search button
+needs a display condition, the sidebar shows its summary and opens the same
+full condition editor in the center. The condition is never duplicated in both
+places.
+
+For a case-list-only module, use the settings button beside the module name for
+appearance. **App home tile** controls how the module looks on the app's main
+menu; **Case list link** controls the distinct link that opens the list. Those
+two values stay separate, and Results does not offer a second copy of either
+setting.
+
+Property menus use the labels people recognize and offer each built-in value
+once. For example, Case name and External ID appear as single choices even
+though older CommCare wire formats have alternate spellings for them.
+**Case status** is the built-in open-or-closed lifecycle value. A separate
+`current_status` property appears only when the app has intentionally created
+one; Nova does not treat it as a second spelling of Case status.
+
+Changing a search field's internal name keeps rules that use its answer
+connected to that field. You do not need to find and rename those references
+yourself.
+
+## Manage the data used for testing
+
+Use **Case data** in the builder's breadcrumb bar to see the complete,
+unfiltered number of cases for the module's case type. That population is
+shared across the app, so every module that uses the same case type sees the
+same cases in Preview. When there are none, you can choose **Add sample cases**
+to create a realistic set. When cases already exist, choose **Replace case
+data** and review the case-type-qualified confirmation before deleting
+anything.
+That confirmation is important: replacement includes cases entered by hand
+or through Preview, not only generated examples. If another case type contains
+cases linked to the replaced cases, Nova preserves those cases and clears the
+links whose old targets no longer exist. It never silently deletes the linked
+case or assigns it to an unrelated new sample case.
+
+Sample cases include readable names and unique external IDs, so the complete
+Search → Results → Details journey is useful as soon as you enter Preview.
+
+Case-data controls stay outside Preview. Preview contains only the app a
+frontline user will run, so every button there behaves like a real app button.
+
+## Preview without starting over
+
+Edit mode stays focused on the screen's structure, labels, and reading order;
+it does not place one arbitrary case value beside every field. To inspect real
+data and try the complete experience, use **Preview** in the builder header.
+Preview runs the configured journey against the same case data. When Search is
+configured, it appears before Results and Details. Entering a search leaves the
+current results in place until you choose the screen's Search button, matching
+the app people will ultimately use. A
+case row opens that case, while an action inside the row, such as calling a
+phone number or checking why a value is shown, works independently.
+The Results filter matches the same text people see—including formatted dates,
+calculated answers, and choice labels. If an older case contains a choice value
+that is no longer in the app, Nova leaves that saved value visible instead of
+hiding the data.
+Large result sets appear 50 cases at a time with **Previous** and **Next**.
+When paging is active, the quick filter is labeled **Filter this page** and
+explains its scope, so an empty page filter never claims that no matching case
+exists elsewhere.
+
+Nova keeps the running preview in its flipbook. Switch back to edit a setting,
+with **Back to edit**, then return to Preview and continue where you left off
+instead of restarting the app and retracing every step.
+
+## Working with the sidebars
+
+The workspace is designed to remain readable with both sidebars open. Use the
+left sidebar to keep your place in the app and the right sidebar for chat or
+the settings of the selected item. On narrower desktop windows, both open
+sidebars compact to preserve useful canvas space. On short windows, selecting
+an item gives its properties priority and condenses chat to a return bar. You
+can collapse either sidebar when you want more room; the canvas reflows without
+moving a setting to a different place. Scrolling stays inside the active tab's
+body, so the Search / Results / Details strip remains available even on a short
+window.

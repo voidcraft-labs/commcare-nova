@@ -13,45 +13,53 @@
 // the type checker's `checkInDestinationScope` contract.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerLink from "@iconify-icons/tabler/link";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
-import { useMemo, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
+import { Button } from "@/components/shadcn/button";
 import {
-	ancestorPath,
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import { FieldDescription } from "@/components/shadcn/field";
+import {
 	exists,
-	matchAll,
 	missing,
 	type Predicate,
 	type RelationPath,
-	relationStep,
 } from "@/lib/domain/predicate";
 import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
+	CONDITION_SEED_UNAVAILABLE_REASON,
+	firstConditionSeed,
+} from "../conditionSeed";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
 	WithCurrentCaseType,
 } from "../editorContext";
+import type { PredicateEditContext } from "../editorSchemas";
 import { appendKindSlot, type EditorPath } from "../path";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
 import { resolveRelationDestination } from "../relationDestination";
+import { relatedCasePathDefault } from "../relationSeed";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
-import { rescopeWhereForVia } from "./reseed";
 
-export function existsDefault(): Extract<Predicate, { kind: "exists" }> {
-	// Default to a single-step ancestor walk via `parent` — the
-	// CommCare-canonical relation. Authors who need a different
-	// shape pivot via the relation-path picker.
-	return exists(ancestorPath(relationStep("parent")));
+export function existsDefault(
+	ctx: PredicateEditContext,
+): Extract<Predicate, { kind: "exists" }> {
+	return exists(relatedCasePathDefault(ctx));
 }
 
-export function missingDefault(): Extract<Predicate, { kind: "missing" }> {
-	return missing(ancestorPath(relationStep("parent")));
+export function missingDefault(
+	ctx: PredicateEditContext,
+): Extract<Predicate, { kind: "missing" }> {
+	return missing(relatedCasePathDefault(ctx));
 }
 
 interface ExistsCardProps {
@@ -63,6 +71,7 @@ interface ExistsCardProps {
 export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 	const ctx = usePredicateEditContext();
 	const operatorErrors = useEditorErrorsAt(path);
+	const unavailableReasonId = useId();
 
 	const setKind = (nextKind: "exists" | "missing") => {
 		const builder = nextKind === "missing" ? missing : exists;
@@ -71,11 +80,12 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 
 	const setVia = (next: RelationPath) => {
 		const builder = value.kind === "missing" ? missing : exists;
-		// A new walk can change the destination scope; a `where` whose
-		// property refs no longer resolve there resets to `matchAll()`
-		// in the same onChange so the committed quantifier stays sound.
-		const where = rescopeWhereForVia(value.where, next, ctx);
-		onChange(where === undefined ? builder(next) : builder(next, where));
+		// Changing the connection must never destroy an authored condition.
+		// If its property refs do not resolve in the new destination, the
+		// checker keeps the exact tree visible with an inline repair finding.
+		onChange(
+			value.where === undefined ? builder(next) : builder(next, value.where),
+		);
 	};
 
 	const setWhere = (next: Predicate | undefined) => {
@@ -96,38 +106,69 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 			resolveRelationDestination(value.via, ctx.currentCaseType, ctx.caseTypes),
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
+	const whereSeed = useMemo(
+		() =>
+			destinationCaseType === undefined
+				? undefined
+				: firstConditionSeed({
+						caseTypes: ctx.caseTypes,
+						currentCaseType: destinationCaseType,
+						knownInputs: ctx.knownInputs,
+					}),
+		[destinationCaseType, ctx.caseTypes, ctx.knownInputs],
+	);
+	const addWhere = () => {
+		if (whereSeed === undefined) return;
+		setWhere(whereSeed);
+	};
+	const addWhereUnavailable =
+		value.where === undefined && whereSeed === undefined;
 
 	return (
 		<div className="space-y-2">
-			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
+			<div className="space-y-2">
 				<KindMenu kind={value.kind} setKind={setKind} />
-				<div>
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-						Connection
-					</div>
-					<RelationPathBuilder
-						value={value.via}
-						onChange={setVia}
-						invalid={operatorErrors.length > 0}
-					/>
-				</div>
+				<RelationPathBuilder
+					value={value.via}
+					onChange={setVia}
+					invalid={operatorErrors.length > 0}
+					allowSelf={false}
+				/>
 			</div>
 
 			<div>
-				<div className="flex items-center justify-between mb-1">
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Where (optional)
+				<div className="mb-1 flex min-h-11 items-center justify-between gap-2">
+					<div className="text-[13px] font-medium text-nova-text-secondary">
+						Related case condition
 					</div>
-					<button
+					<Button
 						type="button"
-						onClick={() =>
-							setWhere(value.where === undefined ? matchAll() : undefined)
+						variant="ghost"
+						size="xl"
+						disabled={addWhereUnavailable}
+						aria-describedby={
+							addWhereUnavailable ? unavailableReasonId : undefined
 						}
-						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer"
+						onClick={() =>
+							value.where === undefined ? addWhere() : setWhere(undefined)
+						}
+						className={`px-2 text-sm ${
+							value.where === undefined
+								? "text-nova-text-muted not-disabled:hover:text-nova-violet-bright"
+								: "text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
+						}`}
 					>
-						{value.where === undefined ? "+ Add filter" : "Remove filter"}
-					</button>
+						{value.where === undefined ? "Add condition" : "Delete condition"}
+					</Button>
 				</div>
+				{addWhereUnavailable ? (
+					<FieldDescription
+						id={unavailableReasonId}
+						className="text-[13px] leading-relaxed text-nova-text-muted"
+					>
+						{CONDITION_SEED_UNAVAILABLE_REASON}
+					</FieldDescription>
+				) : null}
 				{value.where !== undefined && destinationCaseType !== undefined && (
 					<WithCurrentCaseType caseType={destinationCaseType}>
 						<ChildPredicateEditor
@@ -139,8 +180,8 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 					</WithCurrentCaseType>
 				)}
 				{value.where !== undefined && destinationCaseType === undefined && (
-					<div className="text-[11px] text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-						Pick a valid connection before narrowing it with a condition.
+					<div className="rounded-md border border-dashed border-white/[0.06] px-3 py-2 text-[13px] text-nova-text-muted">
+						Choose a valid connection before adding a condition
 					</div>
 				)}
 			</div>
@@ -161,17 +202,24 @@ function KindMenu({
 		label: string;
 		icon: IconifyIcon;
 	}[] = [
-		{ kind: "exists", label: "Has", icon: tablerLink },
-		{ kind: "missing", label: "No", icon: tablerUnlink },
+		{ kind: "exists", label: "Has a related case", icon: tablerLink },
+		{ kind: "missing", label: "Has no related case", icon: tablerUnlink },
 	];
 	const current = items.find((i) => i.kind === kind) ?? items[0];
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
-				aria-label={`Quantifier: ${current.label}`}
-				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
+				aria-label={`Related case requirement ${current.label}`}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className="group gap-1.5 border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-violet-bright not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 @max-md:justify-self-start"
+					/>
+				}
 			>
 				<Icon
 					icon={current.icon}
@@ -180,50 +228,33 @@ function KindMenu({
 					className="text-nova-violet-bright"
 				/>
 				<span>{current.label}</span>
-				<svg
+				<Icon
+					icon={tablerChevronDown}
 					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
+					width="14"
+					height="14"
 					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((it, i) => {
+					<DropdownMenuPopup>
+						{items.map((it) => {
 							const isActive = it.kind === kind;
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
 							return (
-								<Menu.Item
+								<DropdownMenuItem
 									key={it.kind}
 									onClick={() => setKind(it.kind)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
+									className={
+										isActive
+											? "bg-nova-violet/10 text-nova-violet-bright"
+											: undefined
+									}
 								>
 									<Icon
 										icon={it.icon}
@@ -235,13 +266,13 @@ function KindMenu({
 												: "text-nova-text-muted"
 										}
 									/>
-									<span>{it.label} a related case</span>
-								</Menu.Item>
+									<span>{it.label}</span>
+								</DropdownMenuItem>
 							);
 						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }

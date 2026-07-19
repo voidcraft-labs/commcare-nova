@@ -20,6 +20,7 @@
 // kind-replace menu) is identical to every other kind's card.
 
 "use client";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import type { Column } from "@/lib/domain";
@@ -48,6 +49,7 @@ export function CalculatedColumnCard({
 	onChange,
 	ctx,
 }: CalculatedColumnCardProps) {
+	const usesDefaultHeader = value.header.trim() === "";
 	const setHeader = (next: string) =>
 		onChange(
 			calculatedColumn(value.uuid, next, value.expression, slotsFrom(value)),
@@ -58,22 +60,24 @@ export function CalculatedColumnCard({
 		);
 
 	return (
-		<div className="space-y-2">
-			<div>
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-					Header
+		<div className="space-y-4">
+			<div className="[&_input]:!text-[14px]">
+				<div className="mb-2 flex items-baseline justify-between gap-3">
+					<div className={INSPECTOR_LABEL_CLS}>Label</div>
+					{usesDefaultHeader ? (
+						<span className="text-[12px] leading-4 text-nova-text-muted">
+							Default
+						</span>
+					) : null}
 				</div>
 				<BlurCommitTextInput
-					value={value.header}
+					value={usesDefaultHeader ? "Calculated value" : value.header}
 					onCommit={setHeader}
-					placeholder="Column heading"
-					ariaLabel="Column header"
+					ariaLabel="Display label"
 				/>
 			</div>
-			<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
-					Expression
-				</div>
+			<div className="space-y-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3.5">
+				<div className={INSPECTOR_LABEL_CLS}>Calculation</div>
 				<ExpressionCardEditor
 					value={value.expression}
 					onChange={setExpression}
@@ -93,10 +97,14 @@ function slotsFrom(value: Extract<Column, { kind: "calculated" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	listOrder?: typeof value.listOrder;
+	detailOrder?: typeof value.detailOrder;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 }

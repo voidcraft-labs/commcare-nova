@@ -102,7 +102,7 @@ export type GenerationError = {
 	severity: "recovering" | "failed";
 } | null;
 
-/** Status label for each generation stage, shown in the Signal Grid panel. */
+/** Status label for each generation stage, shown in builder progress surfaces. */
 export const STAGE_LABELS: Record<GenerationStage, string> = {
 	[GenerationStage.Foundation]: "Setting up app",
 	[GenerationStage.Build]: "Building app content",

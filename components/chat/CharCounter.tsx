@@ -30,7 +30,7 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
 
 	const counter = (
 		<span
-			className="select-none text-[11px] tabular-nums tracking-tight"
+			className="select-none text-xs tabular-nums tracking-tight"
 			style={{
 				color: over ? "var(--nova-rose)" : "var(--nova-amber)",
 			}}
@@ -46,7 +46,7 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
 		<Tooltip>
 			<TooltipTrigger render={counter} />
 			<TooltipContent>
-				Over the {max.toLocaleString()}-character limit — trim to send
+				Trim your message to {max.toLocaleString()} characters to send
 			</TooltipContent>
 		</Tooltip>
 	);

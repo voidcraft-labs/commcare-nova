@@ -56,6 +56,66 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({ kind: "addModule", module: module_, index: 2 });
 		});
 
+		it("addModule with backward-compatible column surface orders", () => {
+			const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+			expectRoundTrip({
+				kind: "addModule",
+				module: {
+					...module_,
+					caseListConfig: {
+						columns: [
+							{
+								uuid: columnUuid,
+								kind: "plain",
+								field: "case_name",
+								header: "Name",
+								order: "generic-a",
+							},
+						],
+						searchInputs: [],
+					},
+				},
+				columnSurfaceOrders: [
+					{ uuid: columnUuid, listOrder: "list-a", detailOrder: "detail-z" },
+				],
+			});
+		});
+
+		it("rejects an update-only Search patch on addModule", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "addModule",
+					module: module_,
+					caseSearchConfigPatch: { searchScreenTitle: "Find cases" },
+				}).success,
+			).toBe(false);
+		});
+
+		it("rejects owner-only addModule state that disagrees with its fallback", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "addModule",
+					module: {
+						...module_,
+						caseSearchConfig: {
+							excludedOwnerIds: {
+								kind: "term",
+								term: { kind: "literal", value: "owner-b" },
+							},
+							searchButtonDisplayCondition: { kind: "match-none" },
+						},
+					},
+					caseSearchConfigValue: {
+						searchActionEnabled: false,
+						excludedOwnerIds: {
+							kind: "term",
+							term: { kind: "literal", value: "owner-a" },
+						},
+					},
+				}).success,
+			).toBe(false);
+		});
+
 		it("removeModule", () => {
 			expectRoundTrip({ kind: "removeModule", uuid: moduleUuid });
 		});
@@ -89,6 +149,74 @@ describe("mutationSchema round-trip", () => {
 				uuid: moduleUuid,
 				patch: {},
 			});
+		});
+
+		it("updateModule with a backward-compatible case-list ensure", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				ensureCaseListConfig: true,
+			});
+		});
+
+		it("updateModule carries full-config surface orders outside its strict legacy patch", () => {
+			const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: {
+					caseListConfig: {
+						columns: [
+							{
+								uuid: columnUuid,
+								kind: "plain",
+								field: "case_name",
+								header: "Name",
+								order: "generic-a",
+							},
+						],
+						searchInputs: [],
+					},
+				},
+				columnSurfaceOrders: [
+					{ uuid: columnUuid, listOrder: "list-a", detailOrder: "detail-z" },
+				],
+			});
+		});
+
+		it("rejects current-only surface orders nested in a full module patch", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {
+						caseListConfig: {
+							columns: [
+								{
+									uuid: asUuid("66666666-6666-6666-6666-666666666666"),
+									kind: "plain",
+									field: "case_name",
+									header: "Name",
+									listOrder: "nested-new-key",
+								},
+							],
+							searchInputs: [],
+						},
+					},
+				}).success,
+			).toBe(false);
+		});
+
+		it("rejects a case-list ensure without its legacy empty fallback", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {},
+					ensureCaseListConfig: true,
+				}).success,
+			).toBe(false);
 		});
 	});
 
@@ -242,6 +370,346 @@ describe("mutationSchema round-trip", () => {
 
 		it("setCaseTypes (null)", () => {
 			expectRoundTrip({ kind: "setCaseTypes", caseTypes: null });
+		});
+	});
+
+	describe("case-list column surface order", () => {
+		const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+		const column = {
+			uuid: columnUuid,
+			kind: "plain" as const,
+			field: "case_name",
+			header: "Name",
+		};
+
+		it("addColumn carries surface orders outside its strict legacy fallback", () => {
+			expectRoundTrip({
+				kind: "addColumn",
+				moduleUuid,
+				column,
+				surfaceOrders: { listOrder: "list-a", detailOrder: "detail-z" },
+			});
+		});
+
+		it("rejects add/update fallbacks with nested current-only surface keys", () => {
+			for (const kind of ["addColumn", "updateColumn"] as const) {
+				expect(
+					mutationSchema.safeParse({
+						kind,
+						moduleUuid,
+						...(kind === "updateColumn" && { uuid: columnUuid }),
+						column: { ...column, listOrder: "nested" },
+					}).success,
+				).toBe(false);
+			}
+		});
+
+		it("updateColumn with the legacy full-body shape", () => {
+			expectRoundTrip({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column,
+			});
+		});
+
+		it("updateColumn with content visibility and sort preservation", () => {
+			expectRoundTrip({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column,
+				preserveVisibility: true,
+				preserveSort: true,
+			});
+		});
+
+		it("updateColumn with a backward-compatible sort patch", () => {
+			expectRoundTrip({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column: {
+					...column,
+					sort: { direction: "desc", priority: 1 },
+				},
+				sortPatch: { direction: "desc", priority: 1 },
+			});
+		});
+
+		it("rejects a sort patch that contradicts its fallback", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: columnUuid,
+					column: { ...column, sort: { direction: "asc", priority: 0 } },
+					sortPatch: { direction: "desc", priority: 0 },
+				}).success,
+			).toBe(false);
+		});
+
+		it("updateColumn with a backward-compatible visibility patch", () => {
+			expectRoundTrip({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column: { ...column, visibleInList: false },
+				visibilityPatch: { surface: "list", visible: false },
+			});
+		});
+
+		it("rejects a visibility patch combined with content preservation", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: columnUuid,
+					column: { ...column, visibleInList: false },
+					preserveVisibility: true,
+					visibilityPatch: { surface: "list", visible: false },
+				}).success,
+			).toBe(false);
+		});
+
+		it.each([
+			"list",
+			"detail",
+		] as const)("rejects a %s visibility patch that contradicts its fallback column", (surface) => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: columnUuid,
+					column,
+					visibilityPatch: { surface, visible: false },
+				}).success,
+			).toBe(false);
+		});
+
+		it("moveColumn with a Results surface patch", () => {
+			expectRoundTrip({
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "list-a",
+				surfaceOrderPatch: { surface: "list", order: "list-a" },
+			});
+		});
+
+		it("moveColumn clears a Results override with a generic fallback", () => {
+			expectRoundTrip({
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "generic-a",
+				surfaceOrderPatch: { surface: "list", order: null },
+			});
+		});
+
+		it("moveColumn with a Details surface patch", () => {
+			expectRoundTrip({
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "detail-z",
+				surfaceOrderPatch: { surface: "detail", order: "detail-z" },
+			});
+		});
+
+		it("moveColumn clears a Details override with a generic fallback", () => {
+			expectRoundTrip({
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "generic-z",
+				surfaceOrderPatch: { surface: "detail", order: null },
+			});
+		});
+
+		it("rejects a surface patch that disagrees with its legacy fallback", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "moveColumn",
+					moduleUuid,
+					uuid: columnUuid,
+					order: "legacy-a",
+					surfaceOrderPatch: { surface: "list", order: "semantic-z" },
+				}).success,
+			).toBe(false);
+		});
+	});
+
+	describe("case-search semantic operations", () => {
+		const ownerRule = {
+			kind: "term" as const,
+			term: { kind: "literal" as const, value: "owner-a" },
+		};
+
+		it("enables with an origin-compatible fallback", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseSearchConfig: {} },
+				caseSearchConfigOperation: "enable",
+			});
+		});
+
+		it("conditionally disables with a null fallback", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseSearchConfig: null },
+				caseSearchConfigOperation: "disable-if-unused",
+			});
+		});
+
+		it("conditionally removes a cleared Search bag with a null fallback", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseSearchConfig: null },
+				caseSearchConfigOperation: "remove-if-no-authored-settings",
+			});
+		});
+
+		it("cleans up the final input with an owner-only legacy fallback", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: {
+					caseSearchConfig: {
+						excludedOwnerIds: ownerRule,
+						searchButtonDisplayCondition: { kind: "match-none" },
+					},
+				},
+				caseSearchConfigOperation: "cleanup-after-final-input",
+			});
+		});
+
+		it("stores owner-only state outside the strict legacy patch", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: {
+					caseSearchConfig: {
+						excludedOwnerIds: ownerRule,
+						searchButtonDisplayCondition: { kind: "match-none" },
+					},
+				},
+				caseSearchConfigOperation: "set-owner-only",
+				caseSearchConfigValue: {
+					searchActionEnabled: false,
+					excludedOwnerIds: ownerRule,
+				},
+			});
+		});
+
+		it("merges one Search setting with an agreeing legacy snapshot", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseSearchConfig: { searchScreenTitle: "Find cases" } },
+				caseSearchConfigPatch: { searchScreenTitle: "Find cases" },
+			});
+		});
+
+		it("clears one Search setting with an agreeing null fallback", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseSearchConfig: null },
+				caseSearchConfigPatch: { excludedOwnerIds: null },
+			});
+		});
+
+		it("rejects a Search setting patch that contradicts its fallback", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: { caseSearchConfig: { searchScreenTitle: "Old fallback" } },
+					caseSearchConfigPatch: { searchScreenTitle: "New semantic" },
+				}).success,
+			).toBe(false);
+		});
+
+		it("rejects owner-only settings that disagree with the fallback", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {
+						caseSearchConfig: {
+							excludedOwnerIds: {
+								kind: "term",
+								term: { kind: "literal", value: "owner-b" },
+							},
+							searchButtonDisplayCondition: { kind: "match-none" },
+						},
+					},
+					caseSearchConfigOperation: "set-owner-only",
+					caseSearchConfigValue: {
+						searchActionEnabled: false,
+						excludedOwnerIds: ownerRule,
+					},
+				}).success,
+			).toBe(false);
+		});
+
+		it("rejects the private intent bit inside any legacy patch", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {
+						caseSearchConfig: {
+							searchActionEnabled: false,
+							excludedOwnerIds: ownerRule,
+						},
+					},
+				}).success,
+			).toBe(false);
+		});
+	});
+
+	describe("Search-input rename compatibility", () => {
+		const inputUuid = asUuid("77777777-7777-4777-8777-777777777777");
+
+		it("carries the desired name outside the origin-compatible row", () => {
+			expectRoundTrip({
+				kind: "updateSearchInput",
+				moduleUuid,
+				uuid: inputUuid,
+				searchInput: {
+					uuid: inputUuid,
+					kind: "simple",
+					name: "old_name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+				renamedTo: "new_name",
+			});
+		});
+
+		it("rejects a rename extension identical to its fallback", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateSearchInput",
+					moduleUuid,
+					uuid: inputUuid,
+					searchInput: {
+						uuid: inputUuid,
+						kind: "simple",
+						name: "same_name",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+					renamedTo: "same_name",
+				}).success,
+			).toBe(false);
 		});
 	});
 

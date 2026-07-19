@@ -620,24 +620,33 @@ describe("Connect repairs", () => {
 });
 
 describe("case-list repairs", () => {
-	it("CASE_LIST_DUPLICATE_SORT_PRIORITY: renumbers in the existing resolution order", () => {
+	it("CASE_LIST_DUPLICATE_SORT_PRIORITY: preserves Results-order precedence when storage order disagrees", () => {
 		const doc = minDoc();
 		const moduleUuid = doc.moduleOrder[0];
 		doc.modules[moduleUuid].caseListConfig = {
 			columns: [
 				plainColumn(asUuid("col-a"), "case_name", "Name", {
 					sort: { direction: "asc", priority: 1 },
+					listOrder: "b",
 				}),
 				plainColumn(asUuid("col-b"), "village", "Village", {
 					sort: { direction: "desc", priority: 1 },
+					listOrder: "a",
 				}),
 			],
 			searchInputs: [],
 		};
 		const outcome = expectRepaired(doc, "CASE_LIST_DUPLICATE_SORT_PRIORITY");
 		const columns = outcome.doc.modules[moduleUuid].caseListConfig?.columns;
-		expect(columns?.map((column) => column.sort?.priority)).toEqual([0, 1]);
-		// Direction and column order untouched — only the colliding ranks move.
+		// Storage is [a, b], but Results displays [b, a]. The repaired priorities
+		// therefore map back to those UUIDs as [1, 0], preserving the runtime and
+		// wire precedence that existed before repair.
+		expect(columns?.map((column) => column.sort?.priority)).toEqual([1, 0]);
+		// Direction and storage order stay untouched — only the colliding ranks move.
+		expect(columns?.map((column) => column.uuid)).toEqual([
+			asUuid("col-a"),
+			asUuid("col-b"),
+		]);
 		expect(columns?.map((column) => column.sort?.direction)).toEqual([
 			"asc",
 			"desc",
@@ -669,6 +678,64 @@ describe("case-list repairs", () => {
 			kind: "plain",
 			field: "case_name",
 			header: "Name",
+		});
+	});
+
+	it("MISSING_CASE_LIST_COLUMNS: seeds a formless case-list viewer", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					forms: [],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+
+		const outcome = expectRepaired(doc, "MISSING_CASE_LIST_COLUMNS", {
+			applyProposed: true,
+		});
+		expect(
+			outcome.doc.modules[doc.moduleOrder[0]].caseListConfig?.columns,
+		).toEqual([
+			expect.objectContaining({
+				kind: "plain",
+				field: "case_name",
+				header: "Name",
+			}),
+		]);
+	});
+
+	it("MISSING_CASE_LIST_COLUMNS: restores case_name when all definitions are Details-only", () => {
+		const doc = minDoc();
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		if (!config) throw new Error("fixture must have case-list config");
+		config.columns = config.columns.map((column) => ({
+			...column,
+			visibleInList: false,
+		}));
+
+		const outcome = expectRepaired(doc, "MISSING_CASE_LIST_COLUMNS", {
+			applyProposed: true,
+		});
+		const columns =
+			outcome.doc.modules[doc.moduleOrder[0]].caseListConfig?.columns;
+		expect(columns).toHaveLength(2);
+		expect(
+			columns?.find(
+				(column) =>
+					column.kind !== "calculated" && column.field === "case_name",
+			),
+		).toMatchObject({ visibleInList: true });
+		expect(
+			columns?.find(
+				(column) => column.kind !== "calculated" && column.field === "village",
+			),
+		).toMatchObject({
+			visibleInList: false,
 		});
 	});
 });

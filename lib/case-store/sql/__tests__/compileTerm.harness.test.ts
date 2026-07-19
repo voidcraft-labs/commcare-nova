@@ -232,6 +232,69 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
 
+	test("an unset date literal is a no-match instead of a Postgres cast error", async ({
+		db,
+	}) => {
+		// Optional temporal controls intentionally commit an empty typed
+		// literal while no value is selected. Live filter previews execute
+		// that transient AST immediately, so `''::date` would surface as a
+		// raw 22007 database failure on every edit. The literal compiler
+		// lowers the empty string through NULLIF; SQL's unknown comparison
+		// then fails closed without weakening real malformed-value errors.
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ dob: "2000-06-15" }),
+				}),
+			)
+			.execute();
+
+		const left = compileTerm(prop("patient", "dob"), makeCtx(db));
+		const right = compileTerm(dateLiteral(""), makeCtx(db));
+		const rows = await db
+			.selectFrom("cases as c")
+			.select(["c.case_id"])
+			.where("c.app_id", "=", APP_ID)
+			.where("c.project_id", "=", OWNER_ID)
+			.where(sql<boolean>`${left} = ${right}`)
+			.execute();
+		expect(rows).toEqual([]);
+	});
+
+	test("a non-empty malformed date literal still fails at the Postgres cast", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ dob: "2000-06-15" }),
+				}),
+			)
+			.execute();
+
+		const left = compileTerm(prop("patient", "dob"), makeCtx(db));
+		const right = compileTerm(dateLiteral("not-a-date"), makeCtx(db));
+		await expect(
+			db
+				.selectFrom("cases as c")
+				.select(["c.case_id"])
+				.where("c.app_id", "=", APP_ID)
+				.where("c.project_id", "=", OWNER_ID)
+				.where(sql<boolean>`${left} = ${right}`)
+				.execute(),
+		).rejects.toThrow(/invalid input syntax for type date/i);
+	});
+
 	test("time property casts to time and ordered comparison works", async ({
 		db,
 	}) => {

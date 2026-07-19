@@ -16,6 +16,7 @@
 
 "use client";
 import { useId } from "react";
+import { Input } from "@/components/shadcn/input";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 import { INSPECTOR_INPUT_CLS, INSPECTOR_LABEL_CLS } from "./inspectorChrome";
 
@@ -25,6 +26,22 @@ interface OptionalTextRowProps {
 	readonly value: string | undefined;
 	readonly onCommit: (next: string | undefined) => void;
 	readonly placeholder?: string;
+	/** Optional person-facing limit for concise action labels. This is checked
+	 * by grapheme rather than UTF-16 code unit, so emoji and accented letters
+	 * count the way people expect. The input remains editable and explains the
+	 * problem instead of silently truncating saved copy. */
+	readonly maxGraphemes?: number;
+}
+
+const graphemeSegmenter =
+	typeof Intl.Segmenter === "function"
+		? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+		: null;
+
+function graphemeCount(value: string): number {
+	return graphemeSegmenter === null
+		? Array.from(value).length
+		: Array.from(graphemeSegmenter.segment(value)).length;
 }
 
 export function OptionalTextRow({
@@ -33,8 +50,10 @@ export function OptionalTextRow({
 	value,
 	onCommit,
 	placeholder,
+	maxGraphemes,
 }: OptionalTextRowProps) {
 	const inputId = useId();
+	const helperId = useId();
 	// Convert `string | undefined` ↔ `string` at the hook boundary.
 	// `useCommitField` requires a defined `value: string`, pairs
 	// `onSave` with `onEmpty: () -> void` for the "empty commit" path,
@@ -51,26 +70,39 @@ export function OptionalTextRow({
 	// `onCommit(undefined)` would transition the parent config from
 	// absent to `{}`, persisting an empty config and writing an
 	// undo-history entry the user never asked for.
-	const { draft, setDraft, ref, handleFocus, handleBlur, handleKeyDown } =
-		useCommitField({
-			value: value ?? "",
-			onSave: (next) => {
-				onCommit(next);
-				return undefined;
-			},
-			onEmpty: () => {
-				if (value !== undefined) {
-					onCommit(undefined);
-				}
-			},
-		});
+	const {
+		draft,
+		setDraft,
+		ref,
+		handleFocus,
+		handleBlur,
+		handleKeyDown,
+		rejection,
+	} = useCommitField({
+		value: value ?? "",
+		onSave: (next) => {
+			if (maxGraphemes !== undefined && graphemeCount(next) > maxGraphemes) {
+				return {
+					ok: false,
+					messages: [`Keep the label to ${maxGraphemes} characters or fewer`],
+				};
+			}
+			onCommit(next);
+			return undefined;
+		},
+		onEmpty: () => {
+			if (value !== undefined) {
+				onCommit(undefined);
+			}
+		},
+	});
 
 	return (
 		<div className="flex flex-col gap-1.5">
 			<label htmlFor={inputId} className={INSPECTOR_LABEL_CLS}>
 				{label}
 			</label>
-			<input
+			<Input
 				id={inputId}
 				ref={ref as React.RefCallback<HTMLInputElement>}
 				type="text"
@@ -82,10 +114,16 @@ export function OptionalTextRow({
 				autoComplete="off"
 				data-1p-ignore
 				placeholder={placeholder}
-				className={INSPECTOR_INPUT_CLS}
+				aria-describedby={helperId}
+				aria-invalid={rejection !== null || undefined}
+				className={`${INSPECTOR_INPUT_CLS} h-auto md:text-[14px] dark:bg-nova-deep/50`}
 			/>
-			<span className="text-[11px] leading-relaxed text-nova-text-muted">
-				{hint}
+			<span
+				id={helperId}
+				role={rejection === null ? undefined : "alert"}
+				className={`text-[13px] leading-relaxed ${rejection === null ? "text-nova-text-muted" : "text-nova-rose"}`}
+			>
+				{rejection ?? hint}
 			</span>
 		</div>
 	);

@@ -1,50 +1,35 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
-import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
+import { Button } from "@/components/shadcn/button";
 
 interface ScreenNavButtonsProps {
 	canGoBack?: boolean;
-	canGoUp?: boolean;
 	onBack?: () => void;
-	onUp?: () => void;
 }
 
 /** Hover uses `bg-white/5` (not a theme color) so the buttons read correctly
- *  on the breadcrumb bar's translucent surface. */
-const btnClass = (enabled: boolean) =>
-	`p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg shrink-0 ${enabled ? "text-nova-text-muted hover:text-nova-text hover:bg-white/5 cursor-pointer" : "text-nova-text-muted opacity-40 cursor-default"}`;
+ *  on the breadcrumb bar's translucent surface. The shadcn primitive supplies
+ *  the consistent focus ring and gates hover styles while disabled. */
+const BUTTON_CLASS =
+	"size-11 rounded-lg p-1.5 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text";
 
 /**
- * Nav buttons (back + up) rendered in the breadcrumb bar. Back steps through
- * history; up navigates to the parent screen in the hierarchy.
+ * Back control rendered in the breadcrumb bar. The adjacent breadcrumb owns
+ * hierarchy navigation, so a second unlabeled "up" arrow would duplicate it.
  */
-export function ScreenNavButtons({
-	canGoBack,
-	canGoUp,
-	onBack,
-	onUp,
-}: ScreenNavButtonsProps) {
+export function ScreenNavButtons({ canGoBack, onBack }: ScreenNavButtonsProps) {
 	return (
-		<div className="flex items-center gap-0.5 -ml-1.5">
-			<button
-				type="button"
-				onClick={onBack}
-				disabled={!canGoBack}
-				className={btnClass(canGoBack ?? false)}
-				aria-label="Go back"
-			>
-				<Icon icon={tablerArrowLeft} width={20} height={20} />
-			</button>
-			<button
-				type="button"
-				onClick={onUp}
-				disabled={!canGoUp}
-				className={btnClass(canGoUp ?? false)}
-				aria-label="Go to parent"
-			>
-				<Icon icon={tablerArrowUp} width={20} height={20} />
-			</button>
-		</div>
+		<Button
+			type="button"
+			variant="ghost"
+			size="icon-lg"
+			onClick={onBack}
+			disabled={!canGoBack}
+			className={`-ml-1.5 ${BUTTON_CLASS}`}
+			aria-label="Go back"
+		>
+			<Icon icon={tablerArrowLeft} width={20} height={20} className="size-5" />
+		</Button>
 	);
 }

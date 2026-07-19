@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import type { ReactNode } from "react";
 import { ASSET_KIND_META } from "@/components/builder/media/assetKindMeta";
+import { Button } from "@/components/shadcn/button";
 import {
 	Tooltip,
 	TooltipContent,
@@ -75,7 +76,7 @@ export function AttachmentChip({
 	);
 
 	return (
-		<div className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border border-nova-border bg-nova-surface py-1 pr-1 pl-2 text-xs text-nova-text-secondary">
+		<div className="inline-flex min-h-11 max-w-[14rem] items-center gap-0.5 rounded-lg border border-nova-border bg-nova-surface pr-0.5 pl-1.5 text-xs text-nova-text-secondary">
 			{onPreview ? (
 				/* While the document is still reading, the preview body goes inert the
 				 * same way the × does: `aria-disabled` (not native `disabled`) and no
@@ -84,19 +85,20 @@ export function AttachmentChip({
 				<Tooltip>
 					<TooltipTrigger
 						render={
-							<button
+							<Button
 								type="button"
+								variant="ghost"
 								onClick={previewDisabled ? undefined : onPreview}
 								aria-disabled={previewDisabled || undefined}
 								className={cn(
-									"flex min-w-0 items-center gap-1.5 rounded-sm focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
+									"h-11 min-w-0 flex-1 justify-start gap-1.5 px-1.5 text-xs font-normal text-nova-text-secondary",
 									previewDisabled
-										? "cursor-default"
-										: "cursor-pointer transition-colors hover:text-nova-text",
+										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-secondary dark:hover:bg-transparent"
+										: "hover:text-nova-text",
 								)}
 							>
 								{label}
-							</button>
+							</Button>
 						}
 					/>
 					<TooltipContent>
@@ -104,7 +106,9 @@ export function AttachmentChip({
 					</TooltipContent>
 				</Tooltip>
 			) : (
-				<span className="flex min-w-0 items-center gap-1.5">{label}</span>
+				<span className="flex min-h-11 min-w-0 items-center gap-1.5 px-1.5">
+					{label}
+				</span>
 			)}
 			{trailing}
 			{onRemove && (
@@ -117,16 +121,17 @@ export function AttachmentChip({
 				<Tooltip>
 					<TooltipTrigger
 						render={
-							<button
+							<Button
 								type="button"
+								variant="ghost"
+								size="icon-lg"
 								onClick={removeDisabled ? undefined : onRemove}
 								aria-disabled={removeDisabled || undefined}
 								className={cn(
-									"flex size-4 shrink-0 items-center justify-center rounded-sm",
-									"focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
+									"size-11 shrink-0 text-nova-text-muted",
 									removeDisabled
-										? "cursor-default text-nova-text-muted"
-										: "cursor-pointer text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text",
+										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-muted dark:hover:bg-transparent"
+										: "hover:bg-white/[0.06] hover:text-nova-text",
 								)}
 								aria-label={
 									removeDisabled
@@ -134,8 +139,8 @@ export function AttachmentChip({
 										: `Remove ${filename}`
 								}
 							>
-								<Icon icon={tablerX} className="size-3" />
-							</button>
+								<Icon icon={tablerX} className="size-4" />
+							</Button>
 						}
 					/>
 					<TooltipContent>

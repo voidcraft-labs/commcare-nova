@@ -1,25 +1,6 @@
 // @vitest-environment happy-dom
-//
-// components/builder/shared/__tests__/CustomDatePatternInput.test.tsx
-//
-// Empty-pattern signal tests for the shared
-// `CustomDatePatternInput` primitive. The primitive is mounted by
-// both `cards/expression/FormatDateCard` and
-// `cards/column/DateColumnCard`; testing it once at the primitive
-// level pins the behavior for both consumers without duplicating
-// the assertion across the cards.
-//
-// Pinned behaviors:
-//   1. Preset click commits the preset's pattern verbatim.
-//   2. "Custom" button switches to free-text mode and seeds the
-//      input with the supplied `customSeed`.
-//   3. Empty-string commit on blur is REFUSED — the primitive
-//      surfaces `aria-invalid="true"`, renders the inline error
-//      message, and does NOT call `onChange`.
-//   4. Non-empty draft commits on blur and clears the error
-//      signal.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	CustomDatePatternInput,
@@ -29,24 +10,41 @@ import {
 const PRESETS: readonly DatePatternPreset[] = [
 	{ id: "short", label: "Short", pattern: "short" },
 	{ id: "long", label: "Long", pattern: "long" },
-	{ id: "iso", label: "ISO", pattern: "%Y-%m-%d" },
+	{ id: "iso", label: "Year-month-day", pattern: "iso" },
 ];
 
-describe("CustomDatePatternInput — preset selection", () => {
-	it("commits the preset pattern verbatim on click", () => {
+function renderPattern(
+	value: string,
+	onChange: (next: string) => void = () => {},
+) {
+	return render(
+		<CustomDatePatternInput
+			value={value}
+			onChange={onChange}
+			presets={PRESETS}
+		/>,
+	);
+}
+
+async function settleDisclosureAnimation() {
+	await act(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+}
+
+describe("CustomDatePatternInput — common choices", () => {
+	it("commits a preset without revealing technical syntax", () => {
 		const onChange = vi.fn();
-		render(
-			<CustomDatePatternInput
-				value="short"
-				onChange={onChange}
-				presets={PRESETS}
-			/>,
-		);
-		fireEvent.click(screen.getByRole("button", { name: /^iso$/i }));
-		expect(onChange).toHaveBeenCalledWith("%Y-%m-%d");
+		renderPattern("short", onChange);
+
+		fireEvent.click(screen.getByRole("button", { name: "Year-month-day" }));
+
+		expect(onChange).toHaveBeenCalledWith("iso");
+		expect(screen.queryByRole("textbox")).toBeNull();
 	});
 
-	it("switching from preset to custom seeds with the customSeed pattern", () => {
+	it("starts Custom from a real pattern", () => {
 		const onChange = vi.fn();
 		render(
 			<CustomDatePatternInput
@@ -56,117 +54,168 @@ describe("CustomDatePatternInput — preset selection", () => {
 				customSeed="%d-%b-%Y"
 			/>,
 		);
-		fireEvent.click(screen.getByRole("button", { name: /^custom$/i }));
+
+		fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+
 		expect(onChange).toHaveBeenCalledWith("%d-%b-%Y");
 	});
 
-	it("custom branch shows the free-text input when value isn't a preset", () => {
-		const { container } = render(
-			<CustomDatePatternInput
-				value="%d-%b-%Y"
-				onChange={() => {}}
-				presets={PRESETS}
-			/>,
-		);
-		const customInput = container.querySelector(
-			'input[aria-label="Custom date pattern"]',
-		);
-		expect(customInput).not.toBeNull();
-	});
+	it("shows a live example for a preset", () => {
+		renderPattern("long");
 
-	it("preset branch hides the free-text input", () => {
-		const { container } = render(
-			<CustomDatePatternInput
-				value="short"
-				onChange={() => {}}
-				presets={PRESETS}
-			/>,
-		);
-		const customInput = container.querySelector(
-			'input[aria-label="Custom date pattern"]',
-		);
-		expect(customInput).toBeNull();
+		expect(screen.getByText("Example")).toBeDefined();
+		expect(screen.getByText("“July 7, 2026”")).toBeDefined();
 	});
 });
 
-describe("CustomDatePatternInput — empty-pattern signal", () => {
-	it("refuses an empty-string commit on blur and surfaces the error", () => {
+describe("CustomDatePatternInput — custom style", () => {
+	it("preserves an imported pattern and explains it only in Custom", () => {
 		const onChange = vi.fn();
-		const { container } = render(
-			<CustomDatePatternInput
-				value="%d-%b-%Y"
-				onChange={onChange}
-				presets={PRESETS}
-			/>,
-		);
-		const input = screen.getByLabelText(
-			"Custom date pattern",
-		) as HTMLInputElement;
-		input.focus();
-		fireEvent.change(input, { target: { value: "" } });
-		fireEvent.blur(input);
+		renderPattern("Report %A, %B %e (%Y)", onChange);
+
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		}) as HTMLInputElement;
+		expect(input.value).toBe("Report %A, %B %e (%Y)");
+		expect(screen.getByText("“Report Tuesday, July 7 (2026)”")).toBeDefined();
+		expect(screen.queryByRole("button", { name: /Insert year/ })).toBeNull();
 		expect(onChange).not.toHaveBeenCalled();
-		expect(input.getAttribute("aria-invalid")).toBe("true");
-		expect(container.textContent).toMatch(/cannot be empty/i);
 	});
 
-	it("clears the error signal on the next non-empty keystroke", () => {
-		const onChange = vi.fn();
-		const { container } = render(
-			<CustomDatePatternInput
-				value="%d-%b-%Y"
-				onChange={onChange}
-				presets={PRESETS}
-			/>,
-		);
-		const input = screen.getByLabelText(
-			"Custom date pattern",
-		) as HTMLInputElement;
-		input.focus();
-		fireEvent.change(input, { target: { value: "" } });
-		fireEvent.blur(input);
-		// Error visible.
-		expect(container.textContent).toMatch(/cannot be empty/i);
-		// Re-focus and type a real pattern; the error clears as
-		// soon as the draft is non-empty.
-		input.focus();
-		fireEvent.change(input, { target: { value: "%Y-%m-%d" } });
-		expect(input.getAttribute("aria-invalid")).not.toBe("true");
+	it("reveals plain-language pieces on request and keeps 44px targets", async () => {
+		renderPattern("%Y");
+
+		const guide = screen.getByRole("button", {
+			name: "Choose date pieces",
+		});
+		expect(guide.className).toContain("h-11");
+		fireEvent.click(guide);
+		await settleDisclosureAnimation();
+
+		const year = screen.getByRole("button", {
+			name: "Insert year, shown as 2026",
+		});
+		expect(year.className).toContain("min-h-11");
+		expect(
+			screen.getByRole("button", {
+				name: "Insert time zone, shown as -07",
+			}),
+		).toBeDefined();
 	});
 
-	it("commits a non-empty draft on blur", () => {
+	it("inserts a chosen piece at the caret in the one pattern input", async () => {
 		const onChange = vi.fn();
-		render(
-			<CustomDatePatternInput
-				value="%d-%b-%Y"
-				onChange={onChange}
-				presets={PRESETS}
-			/>,
-		);
-		const input = screen.getByLabelText(
-			"Custom date pattern",
-		) as HTMLInputElement;
+		renderPattern("%Y-", onChange);
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		}) as HTMLInputElement;
 		input.focus();
-		fireEvent.change(input, { target: { value: "%Y-%m" } });
+		input.setSelectionRange(3, 3);
+
+		fireEvent.click(screen.getByRole("button", { name: "Choose date pieces" }));
+		await settleDisclosureAnimation();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Insert month number, shown as 07",
+			}),
+		);
+
+		expect(input.value).toBe("%Y-%m");
+		expect(document.activeElement).toBe(input);
 		fireEvent.blur(input);
 		expect(onChange).toHaveBeenCalledWith("%Y-%m");
 	});
 
-	it("treats whitespace-only draft as empty (refuses commit)", () => {
+	it("updates the human example for every valid draft before commit", () => {
 		const onChange = vi.fn();
-		render(
-			<CustomDatePatternInput
-				value="%d-%b-%Y"
-				onChange={onChange}
-				presets={PRESETS}
-			/>,
-		);
-		const input = screen.getByLabelText(
-			"Custom date pattern",
-		) as HTMLInputElement;
-		input.focus();
-		fireEvent.change(input, { target: { value: "   " } });
+		renderPattern("%d-%b-%Y", onChange);
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		});
+
+		fireEvent.change(input, { target: { value: "%B %e, %Y" } });
+
+		expect(screen.getByText("“July 7, 2026”")).toBeDefined();
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("commits a supported draft on Enter", () => {
+		const onChange = vi.fn();
+		renderPattern("%Y", onChange);
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		});
+		fireEvent.change(input, { target: { value: "%Y %B" } });
+
+		fireEvent.keyDown(input, { key: "Enter" });
+
+		expect(onChange).toHaveBeenCalledWith("%Y %B");
+	});
+
+	it("keeps an unsupported draft visible with a specific correction", () => {
+		const onChange = vi.fn();
+		renderPattern("%d-%b-%Y", onChange);
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		}) as HTMLInputElement;
+		fireEvent.change(input, { target: { value: "%Q" } });
+
 		fireEvent.blur(input);
+
+		expect(input.value).toBe("%Q");
+		expect(input.getAttribute("aria-invalid")).toBe("true");
+		expect(
+			screen.getByText(
+				"%Q isn’t a date piece. Choose another piece or remove it",
+			),
+		).toBeDefined();
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("explains an unfinished percent piece without discarding it", () => {
+		renderPattern("%Y");
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		}) as HTMLInputElement;
+		fireEvent.change(input, { target: { value: "Date %" } });
+
+		fireEvent.blur(input);
+
+		expect(input.value).toBe("Date %");
+		expect(
+			screen.getByText("Finish the date piece after % or remove it"),
+		).toBeDefined();
+	});
+
+	it("treats literal whitespace as a supported imported pattern", () => {
+		const onChange = vi.fn();
+		renderPattern("%Y", onChange);
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		});
+		fireEvent.change(input, { target: { value: "   " } });
+
+		fireEvent.blur(input);
+
+		expect(onChange).toHaveBeenCalledWith("   ");
+		expect(screen.queryByText(/Enter a custom style/)).toBeNull();
+	});
+
+	it("refuses an empty draft and keeps it available for correction", () => {
+		const onChange = vi.fn();
+		renderPattern("%Y", onChange);
+		const input = screen.getByRole("textbox", {
+			name: "Custom date style",
+		}) as HTMLInputElement;
+		fireEvent.change(input, { target: { value: "" } });
+
+		fireEvent.blur(input);
+
+		expect(input.value).toBe("");
+		expect(input.getAttribute("aria-invalid")).toBe("true");
+		expect(
+			screen.getByText("Enter a custom style or choose a date piece"),
+		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
 	});
 });

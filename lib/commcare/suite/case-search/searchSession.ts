@@ -11,20 +11,28 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import { bySortKey } from "@/lib/doc/order/compare";
-import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
-import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
+import {
+	type CaseListConfig,
+	type CaseSearchConfig,
+	DEFAULT_CASE_SEARCH_TITLE,
+} from "@/lib/domain";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { validateCaseType } from "../../identifierValidation";
 import {
 	collectExpressionInstances,
 	collectPredicateInstances,
 } from "../../predicate";
+import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { buildSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
 import {
 	deriveSimpleArmPredicate,
 	simpleArmNeedsXPathQueryEmission,
 } from "./simpleArmDerivation";
 import type { WireShape } from "./types";
-import { composeXPathQueryEmission } from "./xpathQuery";
+import {
+	buildRuntimeCsqlPromptValidations,
+	composeXPathQueryEmission,
+} from "./xpathQuery";
 
 /**
  * The CCHQ `app_aware_remote_search` endpoint URL with `__DOMAIN__`
@@ -81,6 +89,8 @@ export function buildSearchSession(args: {
 	readonly wire: WireShape;
 	readonly caseType: string;
 	readonly moduleIndex: number;
+	readonly hasDetailScreen?: boolean;
+	readonly typeContext?: TypeContext;
 }): SearchSessionEmission {
 	const { caseListConfig, caseSearchConfig, wire, moduleIndex } = args;
 	// Route `caseType` through the identifier-validation gate before
@@ -121,8 +131,9 @@ export function buildSearchSession(args: {
 
 	// `_xpath_query` — AND-composition of the unified filter with
 	// every advanced-arm search input's predicate plus every
-	// simple-arm input routed through the wire (per the
-	// simple-arm-with-via or `name !== property` shapes). CCHQ
+	// simple-arm input routed through the explicit predicate path (related
+	// targets, renamed prompt keys, non-exact modes, reserved paths, and
+	// exact whole-day date inputs). CCHQ
 	// accepts at most one `_xpath_query` per `<query>`; the
 	// AST-level `and(...)` reduces to one Predicate before the CSQL
 	// emitter walks it. Non-grammar value expressions inline as
@@ -136,6 +147,7 @@ export function buildSearchSession(args: {
 	const xpathQueryEmission = composeXPathQueryEmission(
 		caseListConfig,
 		caseType,
+		args.typeContext,
 	);
 	if (xpathQueryEmission !== undefined) {
 		dataElements.push(
@@ -148,14 +160,21 @@ export function buildSearchSession(args: {
 
 	// Authoring → wire vocabulary translation. Schema slot reads
 	// `excludedOwnerIds`; CCHQ wire slot reads `commcare_blacklisted_owner_ids`.
+	// The shared normalization helper also feeds HQ JSON and the ordinary list,
+	// so repeated/trailing/tab whitespace cannot create empty owner-id tokens on
+	// one path while Preview trims them away.
 	// CCHQ scopes this on `<query>`, not `<post>` — the post fires
 	// after case selection, by which point the filter has already
 	// gated the visible result set.
 	if (caseSearchConfig.excludedOwnerIds !== undefined) {
+		const excludedOwnerIds = emitNormalizedExcludedOwnerIdsExpression(
+			caseSearchConfig.excludedOwnerIds,
+			args.typeContext ?? {},
+		);
 		dataElements.push(
 			el("data", {
 				key: EXCLUDED_OWNER_IDS_WIRE_KEY,
-				ref: emitOnDeviceExpression(caseSearchConfig.excludedOwnerIds),
+				ref: excludedOwnerIds,
 			}),
 		);
 	}
@@ -165,22 +184,24 @@ export function buildSearchSession(args: {
 	const promptEmission = buildSearchPrompts(
 		[...caseListConfig.searchInputs].sort(bySortKey),
 		moduleId,
+		buildRuntimeCsqlPromptValidations(xpathQueryEmission),
+		args.typeContext ?? {},
 	);
 
 	// Title locale id pattern is CCHQ's `case_search.{m}.inputs`. The
-	// fallback case-type display reads cleanly at runtime — when no
-	// override is registered, the runtime renders the locale value
-	// rather than the raw locale id.
+	// default is shared with preview and HQ JSON, so every runtime renders the
+	// same friendly screen copy.
 	const titleLocaleId = `case_search.${moduleId}.inputs`;
 	// The schema's `searchScreenTitle: z.string().min(1).optional()`
 	// guarantees the slot is either `undefined` or a non-empty string,
-	// so `undefined` is the sole "no override" sentinel. The case-type
-	// fallback mirrors the HQ-JSON projection's symmetric fallback at
+	// so `undefined` is the sole "no override" sentinel. The Nova default
+	// mirrors the HQ-JSON projection's symmetric fallback at
 	// `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument` so
 	// the same authored input lands the same locale string regardless
 	// of which path (local suite XML vs CCHQ-regenerated suite) the
 	// runtime sees.
-	const titleDisplay = caseSearchConfig.searchScreenTitle ?? caseType;
+	const titleDisplay =
+		caseSearchConfig.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
 
 	// Description (subtitle) is conditional — CCHQ's `<query>` carries
 	// `<description>` only when the author supplied copy. The locale id
@@ -231,7 +252,9 @@ export function buildSearchSession(args: {
 		id: "search_case_id",
 		nodeset: datumNodeset,
 		value: "./@case_id",
-		"detail-confirm": `${moduleId}_search_long`,
+		...((args.hasDetailScreen ?? true) && {
+			"detail-confirm": `${moduleId}_search_long`,
+		}),
 		"detail-select": `${moduleId}_search_short`,
 	});
 
@@ -258,7 +281,7 @@ export function buildSearchSession(args: {
 	// instance declared on the surrounding `<remote-request>`.
 	// `casedb` and `commcaresession` are always present (above);
 	// `search-input:results` appears whenever a filter / advanced-arm
-	// predicate / excluded-owner expression / simple-arm-with-via
+	// predicate / excluded-owner expression / explicitly-routed simple-arm
 	// derived predicate / per-prompt default expression references an
 	// `input(...)` Term, which CCHQ resolves through
 	// `instance('search-input:results')/input/field[@name='…']`.
@@ -287,7 +310,11 @@ export function buildSearchSession(args: {
 		// the instance accumulator must walk it the same way the
 		// advanced-arm predicates above are walked.
 		if (input.kind === "simple" && simpleArmNeedsXPathQueryEmission(input)) {
-			const derived = deriveSimpleArmPredicate(input, caseType);
+			const derived = deriveSimpleArmPredicate(
+				input,
+				caseType,
+				args.typeContext,
+			);
 			for (const id of collectPredicateInstances(derived)) {
 				instances.add(id);
 			}
@@ -340,6 +367,8 @@ export function emitSearchSession(args: {
 	readonly wire: WireShape;
 	readonly caseType: string;
 	readonly moduleIndex: number;
+	readonly hasDetailScreen?: boolean;
+	readonly typeContext?: TypeContext;
 }): {
 	readonly xml: string;
 	readonly strings: Record<string, string>;

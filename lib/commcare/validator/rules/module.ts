@@ -13,10 +13,13 @@ import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCanno
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
 import { columnReferences } from "./case-list/columnReferences";
+import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
+import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { idMappingValueRequired } from "./case-list/idMappingValueRequired";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
+import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
@@ -26,10 +29,10 @@ import { searchInputSelectWidgetNotSupported } from "./case-list/searchInputSele
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
+import { strictNullPortability } from "./case-list/strictNullPortability";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
-import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 
@@ -155,12 +158,11 @@ function caseTypeTooLong(
 }
 
 /**
- * Modules with cases but no case-list columns are unusable — the case
- * list screen has no row content to render. The columns array is the
- * single display source: every entry in it is a column the runtime
- * may render (visibility flags gate per-surface display, not the
- * "is this a column" check), so non-emptiness of the array is the
- * condition.
+ * Every reachable case list needs at least one visible Results field so a
+ * person has something to scan before choosing a case. A definition that is
+ * Details-only (or otherwise kept off Results) does not satisfy that floor.
+ * This applies equally to form-bearing case modules and case-list-only
+ * viewers: the latter have no other screen through which a case can be picked.
  */
 function missingCaseListColumns(
 	mod: Module,
@@ -169,17 +171,19 @@ function missingCaseListColumns(
 ): ValidationError[] {
 	const forms = formsOf(doc, moduleUuid);
 	const columns = mod.caseListConfig?.columns ?? [];
+	const hasVisibleResult = columns.some(
+		(column) => column.visibleInList !== false,
+	);
 	const needsColumns =
 		!!mod.caseType &&
-		!mod.caseListOnly &&
-		forms.length > 0 &&
-		columns.length === 0;
+		(mod.caseListOnly || forms.length > 0) &&
+		!hasVisibleResult;
 	if (!needsColumns) return [];
 	return [
 		validationError(
 			"MISSING_CASE_LIST_COLUMNS",
 			"module",
-			`Module "${mod.name}" manages "${mod.caseType}" cases but its case list has no columns. The case list screen needs at least one column so users can tell rows apart and pick which case to open. Add a column to \`caseListConfig.columns\` — usually something identifying like "name" — so the list has something to render.`,
+			`Module "${mod.name}" shows "${mod.caseType}" cases but its Results screen has no visible fields. Every case list needs at least one visible Results field so users can tell rows apart and pick which case to open. Add or restore an identifying field such as "case_name" on Results.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
@@ -203,6 +207,9 @@ export const MODULE_RULES = [
 	imageMapValueUnique,
 	matchModeWhitespaceInValue,
 	matchModeOnDeviceCompatibility,
+	onDeviceExpressionCompatibility,
+	dateAddOnDeviceCompatibility,
+	strictNullPortability,
 	ancestorExistsCannotNestSubcase,
 	sortPriorityUniqueness,
 	searchInputNameUniqueness,
@@ -211,15 +218,15 @@ export const MODULE_RULES = [
 	searchInputSelectWidgetNotSupported,
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
+	csqlPredicateRepresentability,
 	searchInputRefUsesWhenInputPresent,
 	searchInputViaModeCompatibility,
-	// Case-search-config rules — fire only when `caseSearchConfig`
-	// is present on the module; otherwise the module emits no
-	// `<remote-request>` and these rules have no authoring concern
-	// to gate.
+	// Case-search-config rules. Slot-specific checks read authored config;
+	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
+	// markerless inputs receive the same validation as the remote request they
+	// still emit.
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
-	filterSearchInputConflict,
 	caseSearchConfigRequiresSearchableSurface,
 	caseSearchConfigRequiresCaseType,
 ];

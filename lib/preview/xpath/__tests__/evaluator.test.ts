@@ -40,6 +40,19 @@ describe("XPath evaluator", () => {
 			expect(evaluate("", makeCtx())).toBe("");
 			expect(evaluate("  ", makeCtx())).toBe("");
 		});
+
+		it("evaluates a fully-parenthesized root expression", () => {
+			// The grammar splices grouping parens flat into the parent (no
+			// wrapper node), so the root's first child is the `(` token —
+			// the evaluator must skip it rather than fall through to blank.
+			// CSQL rejection guards parenthesize each obligation, so a
+			// single-obligation condition arrives exactly in this shape.
+			expect(evaluate("(1 = 1)", makeCtx())).toBe(true);
+			expect(evaluate("('a')", makeCtx())).toBe("a");
+			expect(evaluate("((1 = 1))", makeCtx())).toBe(true);
+			expect(evaluate("(true())", makeCtx())).toBe(true);
+			expect(evaluate("(1 = 1) or (2 = 3)", makeCtx())).toBe(true);
+		});
 	});
 
 	describe("arithmetic", () => {
@@ -217,6 +230,18 @@ describe("XPath evaluator", () => {
 			expect(evaluate("count-selected(/data/items)", ctx)).toBe(3);
 		});
 
+		it("selected-at() returns the Nth token and throws out of range like JavaRosa", () => {
+			const ctx = makeCtx({ "/data/items": "a b c" });
+			expect(evaluate("selected-at(/data/items, 1)", ctx)).toBe("b");
+			// commcare-core `XPathSelectedAtFunc.selectedAt` THROWS for an
+			// out-of-range index — the device errors the evaluating screen
+			// instead of rendering blank, and Preview must fail the same way.
+			expect(() => evaluate("selected-at(/data/items, 3)", ctx)).toThrow(
+				/select element 3 of a list with only 3 elements/,
+			);
+			expect(() => evaluate("selected-at(/data/items, -1)", ctx)).toThrow();
+		});
+
 		it("today() returns an XPathDate", () => {
 			const result = evaluate("today()", makeCtx());
 			expect(isXPathDate(result)).toBe(true);
@@ -254,6 +279,78 @@ describe("XPath evaluator", () => {
 			expect(evaluate('normalize-space("  hello   world  ")', makeCtx())).toBe(
 				"hello world",
 			);
+		});
+
+		it("replace() keeps dollar substitution tokens literal like Core", () => {
+			expect(evaluate(`replace('abc', '(b)', '$1')`, makeCtx())).toBe("a$1c");
+			expect(evaluate(`replace('abc', 'b', '$&')`, makeCtx())).toBe("a$&c");
+		});
+
+		it("translates only unescaped Java whitespace shorthands", () => {
+			expect(evaluate(String.raw`regex(' ', '\s')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '\s')`, makeCtx())).toBe(false);
+			// Two backslashes make `\\s` a literal backslash followed by `s` in
+			// Java's Pattern grammar; Preview must not rewrite the second slash.
+			expect(evaluate(String.raw`regex('\s', '\\s')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '\\s')`, makeCtx())).toBe(false);
+			expect(evaluate(String.raw`replace('a\sb', '\\s', 'X')`, makeCtx())).toBe(
+				"aXb",
+			);
+		});
+
+		it("translates \\s inside a character class to members, not a nested class", () => {
+			// `[\s0-9]` must reach JS as `[ \t\n\x0B\f\r0-9]` — the old nested
+			// `[[ \t\n\x0B\f\r]0-9]` shape parsed as a different pattern (the
+			// class ends at the first `]`, leaving `0-9]` as literal text).
+			expect(evaluate(String.raw`regex('7', '^[\s0-9]+$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex(' 7', '^[\s0-9]+$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex('a', '^[\s0-9]+$')`, makeCtx())).toBe(
+				false,
+			);
+			// NBSP is JS-\s-only; Java's default mode excludes it in classes too.
+			expect(evaluate("regex(' ', '^[\\s]$')", makeCtx())).toBe(false);
+			// Both the space and the digit are class members and are removed;
+			// the broken nested-class translation matched neither and left
+			// the input untouched.
+			expect(
+				evaluate(String.raw`replace('a 1b', '[\s0-9]', '')`, makeCtx()),
+			).toBe("ab");
+		});
+
+		it("keeps \\S complement semantics inside a character class", () => {
+			expect(evaluate(String.raw`regex('a', '^[\S]$')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '^[\S]$')`, makeCtx())).toBe(false);
+			// NBSP is non-whitespace to Java's default mode, so `[\S]` matches
+			// it — JS bare `\S` alone would not.
+			expect(evaluate("regex(' ', '^[\\S]$')", makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '^[^\S]$')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex('a', '^[^\S]$')`, makeCtx())).toBe(
+				false,
+			);
+		});
+
+		it("treats a dash directly after an in-class shorthand as a literal dash", () => {
+			// Java reads `[\s-9]` as whitespace, literal '-', literal '9'; the
+			// inlined member set must not donate `\r` to a JS `\r-9` range.
+			expect(evaluate(String.raw`regex('-', '^[\s-9]$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex('9', '^[\s-9]$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex('5', '^[\s-9]$')`, makeCtx())).toBe(
+				false,
+			);
+		});
+
+		it("does not dispatch unknown or prototype method names", () => {
+			expect(evaluate("unknownFunction()", makeCtx())).toBe("");
+			expect(evaluate("valueOf()", makeCtx())).toBe("");
+			expect(evaluate("hasOwnProperty()", makeCtx())).toBe("");
 		});
 	});
 
@@ -328,6 +425,12 @@ describe("XPath evaluator", () => {
 		it("format-date works with XPathDate from today()", () => {
 			const result = evaluate("format-date(today(), '%Y')", makeCtx());
 			expect(result).toBe(String(new Date().getUTCFullYear()));
+		});
+
+		it("format-date preserves the original value for an unsupported pattern", () => {
+			expect(evaluate("format-date('2026-07-14', '%Q')", makeCtx())).toBe(
+				"2026-07-14",
+			);
 		});
 
 		it("number(date('2008-09-05')) returns days since epoch", () => {

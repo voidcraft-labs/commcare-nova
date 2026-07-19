@@ -12,7 +12,11 @@ import {
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
-import { bySortKey } from "@/lib/doc/order/compare";
+import {
+	byDetailColumnOrder,
+	byListColumnOrder,
+	bySortKey,
+} from "@/lib/doc/order/compare";
 import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
@@ -114,10 +118,37 @@ function summarizeCaseList(mod: Module): string | undefined {
 		return undefined;
 	}
 	const lines: string[] = ["    case_list:"];
-	if (config.columns.length > 0) {
-		lines.push("      columns:");
-		for (const col of [...config.columns].sort(bySortKey)) {
+	const results = config.columns
+		.filter((column) => column.visibleInList !== false)
+		.sort(byListColumnOrder);
+	const details = config.columns
+		.filter((column) => column.visibleInDetail !== false)
+		.sort(byDetailColumnOrder);
+	if (results.length > 0) {
+		lines.push("      results:");
+		for (const col of results) {
 			lines.push(`        - ${formatColumn(col)}`);
+		}
+	}
+	if (details.length > 0) {
+		lines.push("      details:");
+		for (const col of details) {
+			lines.push(`        - ${formatColumn(col)}`);
+		}
+	}
+	const sortedColumns = config.columns
+		.filter((column) => column.sort !== undefined)
+		.sort(
+			(a, b) =>
+				(a.sort?.priority ?? 0) - (b.sort?.priority ?? 0) ||
+				byListColumnOrder(a, b),
+		);
+	if (sortedColumns.length > 0) {
+		lines.push("      default_order:");
+		for (const col of sortedColumns) {
+			lines.push(
+				`        - ${col.uuid}: "${col.header}" (${col.sort?.direction === "asc" ? "ascending" : "descending"})`,
+			);
 		}
 	}
 	if (config.searchInputs.length > 0) {
@@ -134,18 +165,11 @@ function summarizeCaseList(mod: Module): string | undefined {
 
 /** One-line column summary — uuid + kind + header + per-kind hint. */
 function formatColumn(col: Column): string {
-	const visibility =
-		col.visibleInList === false || col.visibleInDetail === false
-			? ` [list:${col.visibleInList ?? true} detail:${col.visibleInDetail ?? true}]`
-			: "";
-	const sort = col.sort
-		? ` [sort:${col.sort.direction} priority:${col.sort.priority}]`
-		: "";
 	const body =
 		col.kind === "calculated"
 			? `(${col.kind}) "${col.header}"`
 			: `(${col.kind}) ${col.field} → "${col.header}"`;
-	return `${col.uuid}: ${body}${sort}${visibility}`;
+	return `${col.uuid}: ${body}`;
 }
 
 /** One-line search-input summary — uuid + kind + name + label hint. */

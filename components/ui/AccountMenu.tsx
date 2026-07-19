@@ -9,7 +9,6 @@
  */
 
 "use client";
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerFiles from "@iconify-icons/tabler/files";
 import tablerLogout from "@iconify-icons/tabler/logout";
@@ -18,11 +17,18 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
+import { Button } from "@/components/shadcn/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import { CreditAmount } from "@/components/ui/CreditAmount";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { ASSET_KINDS } from "@/lib/domain/multimedia";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 import { getInitials } from "@/lib/utils";
 
 /**
@@ -38,7 +44,7 @@ function getBarGradient(remainingRatio: number): string {
 
 // ── Avatar helper ──────────────────────────────────────────────────
 
-/** Size presets for the avatar — trigger (28px) and profile (36px). */
+/** Size presets for the 36px avatar inside the trigger and profile row. */
 const AVATAR_SIZES = {
 	sm: { box: "w-9 h-9", text: "text-xs", border: "" },
 	md: {
@@ -126,7 +132,10 @@ export function AccountMenu() {
 	/* ── Loading placeholder while session check is in flight ────── */
 	if (!mounted || isPending) {
 		return (
-			<div className="w-7 h-7 rounded-full bg-nova-surface animate-pulse" />
+			<div
+				className="size-11 rounded-full bg-nova-surface animate-pulse"
+				aria-hidden="true"
+			/>
 		);
 	}
 
@@ -144,121 +153,129 @@ export function AccountMenu() {
 
 	return (
 		<>
-			<Popover.Root open={open} onOpenChange={setOpen}>
+			<Popover open={open} onOpenChange={setOpen}>
 				{/* ── Trigger: avatar or initials ──────────────────────── */}
-				<Popover.Trigger
-					className="flex items-center justify-center w-9 h-9 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
+				<PopoverTrigger
+					className="flex size-11 items-center justify-center rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
 					aria-label="Account menu"
 				>
 					<UserAvatar user={user} size="sm" />
-				</Popover.Trigger>
+				</PopoverTrigger>
 
-				{/* ── Dropdown (portal) ────────────────────────────────── */}
-				<Popover.Portal>
-					<Popover.Positioner
-						side="bottom"
-						align="end"
-						sideOffset={6}
-						className={POPOVER_POSITIONER_GLASS_CLS}
-					>
-						<Popover.Popup className={POPOVER_POPUP_CLS}>
-							<div className="w-64 overflow-hidden">
-								{/* ── Profile ────────────────────────────────────── */}
-								<div className="px-4 pt-4 pb-3 flex items-center gap-3">
-									<UserAvatar user={user} size="md" />
-									<div className="min-w-0">
-										<p className="text-sm font-medium text-nova-text truncate">
-											{user.name}
-										</p>
-										<p className="text-xs text-nova-text-muted truncate">
-											{user.email}
-										</p>
-									</div>
+				{/* ── Dropdown (the shared component portals + avoids collisions) ── */}
+				<PopoverContent
+					side="bottom"
+					align="end"
+					sideOffset={6}
+					className="w-64 gap-0 p-0"
+				>
+					<PopoverTitle className="sr-only">Account</PopoverTitle>
+					<PopoverDescription className="sr-only">
+						Account details and actions
+					</PopoverDescription>
+					<div className="w-full overflow-hidden">
+						{/* ── Profile ────────────────────────────────────── */}
+						<div className="px-4 pt-4 pb-3 flex items-center gap-3">
+							<UserAvatar user={user} size="md" />
+							<div className="min-w-0">
+								<p className="break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
+									{user.name}
+								</p>
+								<p className="break-words text-xs text-nova-text-muted [overflow-wrap:anywhere]">
+									{user.email}
+								</p>
+							</div>
+						</div>
+
+						{/* ── Credit bar ─────────────────────────────────── */}
+						{usage && (
+							<div className="px-4 pb-3">
+								<div className="flex items-baseline justify-between mb-1.5">
+									<span className="text-[11px] text-nova-text-muted">
+										Credits this month
+									</span>
+									{/* Just the remaining balance — no "/ total", no "credits" word. A
+									 * countdown to zero reads fine without the denominator, and dropping the
+									 * trailing text keeps this on one line beside the "Credits this month"
+									 * label instead of wrapping. The bar below still conveys the proportion
+									 * remaining. */}
+									<CreditAmount
+										value={usage.balance}
+										className="text-nova-text-secondary"
+									/>
 								</div>
-
-								{/* ── Credit bar ─────────────────────────────────── */}
-								{usage && (
-									<div className="px-4 pb-3">
-										<div className="flex items-baseline justify-between mb-1.5">
-											<span className="text-[11px] text-nova-text-muted">
-												Credits this month
-											</span>
-											{/* Just the remaining balance — no "/ total", no "credits" word. A
-											 * countdown to zero reads fine without the denominator, and dropping the
-											 * trailing text keeps this on one line beside the "Credits this month"
-											 * label instead of wrapping. The bar below still conveys the proportion
-											 * remaining. */}
-											<CreditAmount
-												value={usage.balance}
-												className="text-nova-text-secondary"
-											/>
-										</div>
-										<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-											<div
-												className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(remainingRatio)} transition-all duration-500`}
-												style={{ width: `${remainingRatio * 100}%` }}
-											/>
-										</div>
-									</div>
-								)}
-
-								{/* ── Divider ────────────────────────────────────── */}
-								<div className="border-t border-white/[0.06]" />
-
-								{/* ── Files (file manager) ─────────────────────── */}
-								{/* Opens the media dialog as a standalone manager — the only
-								 *  entry to it outside the chat composer's attach flow. Close
-								 *  the menu first, then open the dialog (a sibling of this
-								 *  Popover, so it outlives the menu). */}
-								<button
-									type="button"
-									onClick={() => {
-										setOpen(false);
-										setFileManagerOpen(true);
-									}}
-									className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
-								>
-									<Icon icon={tablerFiles} width="16" height="16" />
-									Files
-								</button>
-
-								{/* ── Settings link ────────────────────────────── */}
-								<Link
-									href="/settings"
-									onClick={() => setOpen(false)}
-									className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
-								>
-									<Icon icon={tablerSettings} width="16" height="16" />
-									Settings
-								</Link>
-
-								{/* ── Divider ────────────────────────────────────── */}
-								<div className="border-t border-white/[0.06]" />
-
-								{/* ── Sign out ──────────────────────────────────── */}
-								<div>
-									<button
-										type="button"
-										onClick={() => {
-											signOut();
-											setOpen(false);
-										}}
-										className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-rose hover:bg-nova-rose/[0.06] transition-colors cursor-pointer rounded-b-xl"
-									>
-										<Icon
-											icon={tablerLogout}
-											width="16"
-											height="16"
-											className="transition-colors"
-										/>
-										Sign out
-									</button>
+								<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+									<div
+										className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(remainingRatio)} transition-all duration-500`}
+										style={{ width: `${remainingRatio * 100}%` }}
+									/>
 								</div>
 							</div>
-						</Popover.Popup>
-					</Popover.Positioner>
-				</Popover.Portal>
-			</Popover.Root>
+						)}
+
+						{/* ── Divider ────────────────────────────────────── */}
+						<div className="border-t border-white/[0.06]" />
+
+						{/* ── Files (file manager) ─────────────────────── */}
+						{/* Opens the media dialog as a standalone manager — the only
+						 *  entry to it outside the chat composer's attach flow. Close
+						 *  the menu first, then open the dialog (a sibling of this
+						 *  Popover, so it outlives the menu). */}
+						<Button
+							type="button"
+							variant="ghost"
+							size="xl"
+							onClick={() => {
+								setOpen(false);
+								setFileManagerOpen(true);
+							}}
+							className="w-full justify-start gap-2.5 rounded-none px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.06]"
+						>
+							<Icon icon={tablerFiles} width="16" height="16" />
+							Files
+						</Button>
+
+						{/* ── Settings link ────────────────────────────── */}
+						<Button
+							render={<Link href="/settings" />}
+							nativeButton={false}
+							role="link"
+							variant="ghost"
+							size="xl"
+							onClick={() => setOpen(false)}
+							className="w-full justify-start gap-2.5 rounded-none px-3 text-nova-text-secondary not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.06]"
+						>
+							<Icon icon={tablerSettings} width="16" height="16" />
+							Settings
+						</Button>
+
+						{/* ── Divider ────────────────────────────────────── */}
+						<div className="border-t border-white/[0.06]" />
+
+						{/* ── Sign out ──────────────────────────────────── */}
+						<div>
+							<Button
+								type="button"
+								variant="ghost"
+								size="xl"
+								onClick={() => {
+									signOut();
+									setOpen(false);
+								}}
+								className="w-full justify-start gap-2.5 rounded-t-none rounded-b-xl px-3 text-nova-text-secondary not-disabled:hover:bg-nova-rose/[0.06] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-nova-rose/[0.06]"
+							>
+								<Icon
+									icon={tablerLogout}
+									width="16"
+									height="16"
+									className="transition-colors"
+								/>
+								Sign out
+							</Button>
+						</div>
+					</div>
+				</PopoverContent>
+			</Popover>
 
 			{/* The file manager opens OUTSIDE the Popover (it portals to body
 			 *  anyway), so it outlives the menu closing on the click that opened it.

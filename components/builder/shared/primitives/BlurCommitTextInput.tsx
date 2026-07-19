@@ -27,6 +27,7 @@
 
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Input } from "@/components/shadcn/input";
 
 interface BlurCommitTextInputProps {
 	readonly value: string;
@@ -89,13 +90,13 @@ export function BlurCommitTextInput({
 		[commit, value],
 	);
 	const cls = [
-		"w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors",
+		"h-auto min-h-11 w-full rounded-lg border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30 md:text-sm dark:bg-nova-deep/50",
 		monospace ? "font-mono" : "",
 	]
 		.filter(Boolean)
 		.join(" ");
 	return (
-		<input
+		<Input
 			ref={inputRef}
 			type="text"
 			value={draft}

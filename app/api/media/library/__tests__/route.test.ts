@@ -125,6 +125,24 @@ describe("GET /api/media/library kind filter", () => {
 		await drainBody(res);
 	});
 
+	it("passes a trimmed name search to the Project-scoped query", async () => {
+		const res = await GET(reqWith("?q=%20Client%20plan%20"));
+		expect(res.status).toBe(200);
+		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
+			kinds: [],
+			cursor: undefined,
+			query: "Client plan",
+		});
+		await drainBody(res);
+	});
+
+	it("rejects a search longer than the UI and database contract", async () => {
+		const res = await GET(reqWith(`?q=${"a".repeat(201)}`));
+		expect(res.status).toBe(400);
+		expect(listReadyAssetsForProject).not.toHaveBeenCalled();
+		await drainBody(res);
+	});
+
 	it("rejects a kind outside the accepted set as a 400", async () => {
 		const res = await GET(reqWith("?kind=exe"));
 		expect(res.status).toBe(400);

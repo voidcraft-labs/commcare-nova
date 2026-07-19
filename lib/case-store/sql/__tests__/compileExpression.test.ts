@@ -227,11 +227,12 @@ describe("compileExpression — today / now constants", () => {
 // `date-coerce` / `datetime-coerce` / `double` — typed casts
 // ---------------------------------------------------------------
 //
-// Each of the three cast arms wraps the inner expression in
-// `(<inner>)::<cast>`. The cast token differs per arm:
+// Each coercion produces the corresponding Postgres scalar:
 //
 //   - `date-coerce` → `::date`
-//   - `datetime-coerce` → `::timestamptz` (preserves timezone info)
+//   - `datetime-coerce` → a date-only-aware CASE that makes CSQL's UTC
+//     midnight explicit, with `::timestamptz` for real datetime strings so
+//     their authored offsets remain authoritative
 //   - `double` → `::numeric` (Postgres's arbitrary-precision decimal)
 
 describe("compileExpression — coercion casts", () => {
@@ -250,7 +251,9 @@ describe("compileExpression — coercion casts", () => {
 				makeCtx(),
 			),
 		);
+		expect(compiled.sql).toContain("timezone(");
 		expect(compiled.sql).toContain("as timestamptz)");
+		expect(compiled.parameters).toContain("UTC");
 		expect(compiled.parameters).toContain("2026-01-01T12:00:00Z");
 	});
 
@@ -322,6 +325,15 @@ describe("compileExpression — concat arm", () => {
 		expect(compiled.sql.toLowerCase()).toContain("concat(");
 		expect(compiled.parameters).toContain("Hello, ");
 		expect(compiled.parameters).toContain("World");
+	});
+
+	it("types a single bare literal part as text for Postgres parameter inference", () => {
+		const compiled = compileExpression_(
+			compileExpression(concat(term(literal(""))), makeCtx()),
+		);
+
+		expect(compiled.sql.toLowerCase()).toContain("concat(cast($1 as text))");
+		expect(compiled.parameters).toEqual([""]);
 	});
 });
 
@@ -542,16 +554,25 @@ describe("compileExpression — count arm", () => {
 		expect(log[0]).toMatchObject({ kind: "eq" });
 	});
 
-	it("throws when count is invoked with a self via", () => {
-		// `count(self)` is rejected by the type checker — the type-
-		// checker's `checkRelationalQuantifier` short-circuits any
-		// `via.kind === "self"` at the operator boundary before
-		// reaching the SQL compiler. The compiler defends the
-		// invariant with a clear error rather than emit a degenerate
-		// "count anchor row" subquery.
-		expect(() => compileExpression(count(selfPath()), makeCtx())).toThrow(
-			/self/i,
+	it("emits one for count(self)", () => {
+		const compiled = compileExpression_(
+			compileExpression(count(selfPath()), makeCtx()),
 		);
+		expect(compiled.sql).toContain('1 as "v"');
+		expect(compiled.sql).not.toContain("count(*)");
+	});
+
+	it("emits a conditional 1-or-0 for count(self, where)", () => {
+		const { thunk, log } = makeStubPredicateThunk();
+		const compiled = compileExpression_(
+			compileExpression(
+				count(selfPath(), { kind: "match-all" }),
+				makeCtx({ compilePredicate: thunk }),
+			),
+		);
+		expect(log).toHaveLength(1);
+		expect(compiled.sql.toLowerCase()).toContain("case when");
+		expect(compiled.sql.toLowerCase()).toContain("then 1 else 0 end");
 	});
 
 	it("throws when count carries a where but no predicate thunk is supplied", () => {
@@ -571,15 +592,11 @@ describe("compileExpression — count arm", () => {
 // `date-add` — date / datetime + interval arithmetic
 // ---------------------------------------------------------------
 //
-// SQL: `cast(<date> as timestamptz) + make_interval(0, ..., 0,
-// <quantity>)` — the quantity occupies the positional slot for the
-// AST unit (per Postgres's `make_interval(years, months, weeks,
-// days, hours, mins, secs)` signature), zero-padded through every
-// preceding slot. The cold suite's structural check is "the call
-// reaches `make_interval` with the expected slot count and the
-// quantity binds as the trailing parameter"; the harness sibling
-// pins the runtime equivalence against `+ INTERVAL '1 <unit>'` for
-// each arm.
+// SQL preserves the base type: date operands cast the shifted result back to
+// `date`, while datetime operands retain `timestamptz`. The interval reaches
+// Postgres's typed `make_interval(years, months, weeks, days, hours, mins,
+// secs)` surface. Fixed-duration units multiply a one-unit interval by a
+// float8 quantity so fractional values remain representable.
 //
 // The expected slot count per unit follows the function signature's
 // positional order — `years` is slot 0 (1 arg total), `months` is
@@ -622,22 +639,110 @@ describe("compileExpression — date-add arm", () => {
 			expect(compiled.parameters).toContain(1);
 		});
 	}
+
+	it("preserves a date base as date", () => {
+		const compiled = compileExpression_(
+			compileExpression(
+				dateAdd(today(), "hours", term(literal(12.5))),
+				makeCtx(),
+			),
+		);
+		const sqlText = compiled.sql.toLowerCase();
+		expect(sqlText).not.toContain("timestamptz");
+		expect(sqlText.match(/as date/g)?.length).toBeGreaterThanOrEqual(2);
+		expect(sqlText).toContain("as float8");
+	});
+
+	it("preserves a datetime base as timestamptz", () => {
+		const compiled = compileExpression_(
+			compileExpression(dateAdd(now(), "hours", term(literal(1))), makeCtx()),
+		);
+		const sqlText = compiled.sql.toLowerCase();
+		expect(sqlText).toContain("as timestamptz");
+		expect(sqlText).not.toContain("as date");
+	});
+
+	it("resolves date and datetime property bases from the canonical schema", () => {
+		const dateSql = compileExpression_(
+			compileExpression(
+				dateAdd(term(prop("patient", "dob")), "days", term(literal(1))),
+				makeCtx(),
+			),
+		).sql.toLowerCase();
+		const datetimeSql = compileExpression_(
+			compileExpression(
+				dateAdd(
+					term(prop("patient", "registered_at")),
+					"days",
+					term(literal(1)),
+				),
+				makeCtx(),
+			),
+		).sql.toLowerCase();
+		expect(dateSql.match(/as date/g)?.length).toBeGreaterThanOrEqual(2);
+		expect(dateSql).not.toContain("timestamptz");
+		expect(datetimeSql).toContain("timestamptz");
+	});
+
+	it("treats null as neutral when a wrapper's remaining value is a date", () => {
+		const compiled = compileExpression_(
+			compileExpression(
+				dateAdd(
+					coalesce(term(literal(null)), term(prop("patient", "dob"))),
+					"days",
+					term(literal(1)),
+				),
+				makeCtx(),
+			),
+		);
+		expect(compiled.sql.toLowerCase()).not.toContain("timestamptz");
+	});
+
+	it("resolves implicit standard datetime properties for type checking", () => {
+		const compiled = compileExpression_(
+			compileExpression(
+				dateAdd(term(prop("patient", "date_opened")), "days", term(literal(1))),
+				makeCtx(),
+			),
+		);
+		expect(compiled.sql.toLowerCase()).toContain("timestamptz");
+	});
+
+	it("fails closed when runtime binding erased the base's temporal type", () => {
+		expect(() =>
+			compileExpression(
+				dateAdd(term(literal("2026-01-01")), "days", term(literal(1))),
+				makeCtx(),
+			),
+		).toThrow(/without a resolvable date-or-datetime base type/i);
+	});
+
+	it.each([
+		"months",
+		"years",
+	] as const)("guards a dynamic %s quantity before adapting it to make_interval's integer slot", (interval) => {
+		const compiled = compileExpression_(
+			compileExpression(
+				dateAdd(now(), interval, double(term(literal("1.0")))),
+				makeCtx(),
+			),
+		);
+		const sqlText = compiled.sql.toLowerCase();
+		expect(sqlText).toContain("case when");
+		expect(sqlText).toContain("trunc(");
+		expect(sqlText).toContain("as integer");
+		expect(sqlText).toContain("make_interval(");
+	});
 });
 
 // ---------------------------------------------------------------
 // `format-date` — Postgres `to_char` rendering
 // ---------------------------------------------------------------
 //
-// SQL: `to_char((<date>)::timestamptz, '<pattern>')`. Postgres's
-// `to_char` is documented at
-// `https://www.postgresql.org/docs/18/functions-formatting.html`.
-// The three preset names (`short` / `long` / `iso`) map to fixed
-// Postgres patterns; arbitrary author-supplied strings pass
-// through verbatim under the assumption that authors target
-// Postgres's pattern vocabulary on Nova-runtime apps. This
-// pass-through choice keeps the compiler reasoning purely
-// dialect-aligned — Nova owns the runtime, so it owns the pattern
-// vocabulary at the export boundary.
+// JavaRosa patterns are parsed into literal/token runs. Each supported escape
+// lowers to an equivalent typed Postgres expression; ordinary author text is a
+// bound literal, never a `to_char` template. This is intentionally not a
+// pass-through because JavaRosa and Postgres use unrelated pattern dialects.
 
 describe("compileExpression — format-date arm", () => {
 	it("emits to_char with a mapped pattern for the `iso` preset", () => {
@@ -646,8 +751,9 @@ describe("compileExpression — format-date arm", () => {
 		);
 		const sqlText = compiled.sql.toLowerCase();
 		expect(sqlText).toContain("to_char");
-		// `iso` → `YYYY-MM-DD` (ISO 8601 date-only).
-		expect(compiled.parameters).toContain("YYYY-MM-DD");
+		expect(compiled.parameters).toEqual(
+			expect.arrayContaining(["YYYY", "-", "MM", "DD"]),
+		);
 	});
 
 	it("emits to_char with a mapped pattern for the `short` preset", () => {
@@ -656,8 +762,9 @@ describe("compileExpression — format-date arm", () => {
 		);
 		const sqlText = compiled.sql.toLowerCase();
 		expect(sqlText).toContain("to_char");
-		// `short` → `MM/DD/YYYY` (locale-default short form).
-		expect(compiled.parameters).toContain("MM/DD/YYYY");
+		expect(compiled.parameters).toEqual(
+			expect.arrayContaining(["MM", "/", "DD", "YYYY"]),
+		);
 	});
 
 	it("emits to_char with a mapped pattern for the `long` preset", () => {
@@ -666,18 +773,50 @@ describe("compileExpression — format-date arm", () => {
 		);
 		const sqlText = compiled.sql.toLowerCase();
 		expect(sqlText).toContain("to_char");
-		// `long` → `FMMonth FMDD, YYYY` (locale-default long form;
-		// `FM` prefix strips Postgres's fixed-width month padding).
-		expect(compiled.parameters).toContain("FMMonth FMDD, YYYY");
+		// Names are fixed English CASE branches, not locale-sensitive
+		// Postgres `Month` output.
+		expect(compiled.parameters).toEqual(
+			expect.arrayContaining(["January", "December", "FMDD", "YYYY"]),
+		);
 	});
 
-	it("passes a free-form pattern through verbatim", () => {
+	it("binds custom JavaRosa literals and compiles their tokens separately", () => {
 		const compiled = compileExpression_(
-			compileExpression(formatDate(today(), "Day, DD-Mon-YYYY"), makeCtx()),
+			compileExpression(formatDate(today(), "Day DD: %A, %e-%b-%Y"), makeCtx()),
 		);
 		const sqlText = compiled.sql.toLowerCase();
 		expect(sqlText).toContain("to_char");
-		expect(compiled.parameters).toContain("Day, DD-Mon-YYYY");
+		expect(compiled.parameters).toContain("Day DD: ");
+		expect(compiled.parameters).not.toContain("Day DD: %A, %e-%b-%Y");
+	});
+
+	it.each([
+		"%Q",
+		"Date %",
+	])("rejects a JavaRosa pattern that cannot be evaluated: %s", (pattern) => {
+		expect(() =>
+			compileExpression(formatDate(today(), pattern), makeCtx()),
+		).toThrow(/format-date pattern/i);
+	});
+
+	it("compiles JavaRosa's complete supported escape set", () => {
+		const compiled = compileExpression_(
+			compileExpression(
+				formatDate(
+					today(),
+					"%Y|%y|%m|%n|%B|%b|%d|%e|%H|%h|%M|%S|%3|%A|%a|%w|%Z|%%",
+				),
+				makeCtx(),
+			),
+		);
+		expect(compiled.sql.toLowerCase()).toContain("date_part");
+		// `%Z` computes the viewer zone's offset from `date_part('epoch',
+		// ...)` deltas rather than `to_char(..., 'OF')` — `OF` reads the
+		// SESSION zone, and the wall-clock `timestamp` the other tokens
+		// render from carries no offset at all.
+		expect(compiled.parameters).toEqual(
+			expect.arrayContaining(["YYYY", "MS", "dow", "epoch", "%"]),
+		);
 	});
 });
 

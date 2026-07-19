@@ -24,9 +24,9 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([modUuid]);
 	});
 
-	it("returns [moduleUuid, 'cases'] for case list", () => {
+	it("returns [moduleUuid, 'results'] for Results authoring", () => {
 		const loc: Location = { kind: "cases", moduleUuid: modUuid };
-		expect(serializePath(loc)).toEqual([modUuid, "cases"]);
+		expect(serializePath(loc)).toEqual([modUuid, "results"]);
 	});
 
 	it("returns [moduleUuid, 'cases', caseId] when caseId is present", () => {
@@ -38,22 +38,22 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([modUuid, "cases", "abc123"]);
 	});
 
-	it("returns [moduleUuid, 'search-config'] for the case-search authoring kind", () => {
-		// Mirrors the cases arm — same uuid-anchored shape, different
-		// segment slug. Pins the discriminator-to-segment mapping.
+	it("returns [moduleUuid, 'search'] for the case-search authoring kind", () => {
+		// Internal discriminants stay stable while visible URLs use the
+		// workspace's friendly Search / Results / Details nouns.
 		const loc: Location = {
 			kind: "search-config",
 			moduleUuid: modUuid,
 		};
-		expect(serializePath(loc)).toEqual([modUuid, "search-config"]);
+		expect(serializePath(loc)).toEqual([modUuid, "search"]);
 	});
 
-	it("returns [moduleUuid, 'detail-config'] for the case-detail authoring kind", () => {
+	it("returns [moduleUuid, 'details'] for the case-details authoring kind", () => {
 		const loc: Location = {
 			kind: "detail-config",
 			moduleUuid: modUuid,
 		};
-		expect(serializePath(loc)).toEqual([modUuid, "detail-config"]);
+		expect(serializePath(loc)).toEqual([modUuid, "details"]);
 	});
 
 	it("returns [formUuid] for form without selection", () => {
@@ -139,7 +139,17 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("parses case list", () => {
+	it("parses the canonical Results authoring path", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "results"], doc)).toEqual({
+			kind: "cases",
+			moduleUuid: modUuid,
+		});
+	});
+
+	it("accepts the legacy /cases authoring alias", () => {
 		const doc = makeParseDoc({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 		});
@@ -160,13 +170,23 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("falls back to home when case screen module is missing", () => {
-		expect(parsePathToLocation([modUuid, "cases"], makeParseDoc())).toEqual({
+	it("falls back to home when Results module is missing", () => {
+		expect(parsePathToLocation([modUuid, "results"], makeParseDoc())).toEqual({
 			kind: "home",
 		});
 	});
 
-	it("parses case-search authoring screen", () => {
+	it("parses the canonical Search authoring path", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "search"], doc)).toEqual({
+			kind: "search-config",
+			moduleUuid: modUuid,
+		});
+	});
+
+	it("accepts the legacy /search-config authoring alias", () => {
 		const doc = makeParseDoc({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 		});
@@ -176,19 +196,27 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("falls back to home when search-config module is missing", () => {
-		// Mirrors the cases arm's missing-module recovery: the trailing
-		// `search-config` segment is meaningless without a valid
+	it("falls back to home when Search module is missing", () => {
+		// Mirrors the Results arm's missing-module recovery: the trailing
+		// `search` segment is meaningless without a valid
 		// module reference, so the parser collapses to home rather
 		// than serving an unresolvable URL.
-		expect(
-			parsePathToLocation([modUuid, "search-config"], makeParseDoc()),
-		).toEqual({
+		expect(parsePathToLocation([modUuid, "search"], makeParseDoc())).toEqual({
 			kind: "home",
 		});
 	});
 
-	it("parses case-detail authoring screen", () => {
+	it("parses the canonical Details authoring path", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "details"], doc)).toEqual({
+			kind: "detail-config",
+			moduleUuid: modUuid,
+		});
+	});
+
+	it("accepts the legacy /detail-config authoring alias", () => {
 		const doc = makeParseDoc({
 			modules: { [modUuid]: { uuid: modUuid } as never },
 		});
@@ -198,10 +226,8 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
-	it("falls back to home when detail-config module is missing", () => {
-		expect(
-			parsePathToLocation([modUuid, "detail-config"], makeParseDoc()),
-		).toEqual({
+	it("falls back to home when Details module is missing", () => {
+		expect(parsePathToLocation([modUuid, "details"], makeParseDoc())).toEqual({
 			kind: "home",
 		});
 	});

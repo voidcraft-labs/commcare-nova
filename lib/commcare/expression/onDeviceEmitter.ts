@@ -10,10 +10,13 @@
 // the post-ES `<search_filter>` slot — both run on the same on-device
 // XPath evaluator, so the wire form is identical regardless of slot.
 //
-// Emission policy: total. Every `ValueExpression` AST node produces a
-// well-formed XPath expression. Nova emits the maximum CCHQ-supported
-// feature subset; runtime player capabilities are Dimagi's concern,
-// not a structural concern in this emitter.
+// Emission policy: total over validator-admitted on-device expressions.
+// Every supported `ValueExpression` AST node produces a well-formed XPath
+// expression. Calendar-relative `months` / `years`, or a structurally obvious
+// datetime base, throw as defensive tripwires: the module validator keeps
+// those shapes out of every on-device slot, but this emitter must never
+// silently manufacture an unknown call or discard calendar/time semantics
+// when invoked outside the normal compile boundary.
 //
 // File ownership: this file owns operator dispatch for the on-device
 // expression dialect. Lexical concerns (string quoting, identifier
@@ -68,22 +71,29 @@
 //     emitter's `exists` join (without the `> 0` comparator) — `count`
 //     is a value, not a presence test, so the bare `count(...)` call
 //     surfaces here.
-//   - `date-add(value, interval, quantity)` → `date-add(<value>,
-//     '<interval>', <quantity>)`. CCHQ wire signature per
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py::date_add`
-//     (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`) — three
-//     separate arguments, `interval` quoted as a CSQL/XPath string
-//     literal. Whether a runtime player dispatches `date-add` is
-//     Dimagi's concern; the wire shape is well-formed XPath function-
-//     call syntax.
-//   - `unwrap-list(value)` → `unwrap-list(<value>)`. CCHQ value
-//     function at the `unwrap-list` entry on
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
+//   - `date-add(value, interval, quantity)` for seconds through weeks →
+//     `date(floor(<value> + <quantity-in-days>))`. JavaRosa registers neither
+//     `date-add` nor `datetime-add`, but it does register `floor`; date values
+//     numerically coerce to epoch days. Scaling sub-day/week intervals and
+//     flooring the final epoch-day value preserves CCHQ date-add's date result
+//     for positive, negative, fractional, and pre-epoch values. The validator
+//     admits this lowering only for date-typed bases and rejects datetimes
+//     (Core's numeric coercion discards their time-of-day) plus calendar-based
+//     months/years. The emitter repeats those context-free guards defensively.
+//   - `unwrap-list(value)` — rejected defensively. CCHQ recognizes it only
+//     while parsing server-side CSQL; CommCare Core does not register an
+//     on-device XPath function by that name.
 //   - `term(t)` → delegate to the shared on-device term emitter at
 //     `../predicate/termEmitter:emitTerm`. The structural lifter for
 //     `Term` flavors (property, input, session-user, session-context,
 //     literal).
 
+import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
+import {
+	canonicalizeRelationPath,
+	type RelationEvaluationScopeContext,
+} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import { inferStructuralTemporalType } from "@/lib/domain/predicate/temporalType";
 import type {
 	Predicate,
 	RelationPath,
@@ -91,14 +101,21 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
 import { emitCaseListFilter } from "../predicate/caseListFilterEmitter";
+import {
+	descendOnDeviceCaseAnchor,
+	emitImmediateRelationPresence,
+	type OnDeviceCaseAnchor,
+	onDeviceAnchorCaseId,
+	ROOT_ON_DEVICE_CASE_ANCHOR,
+} from "../predicate/relationPresenceEmitter";
 import { quoteLiteral } from "../predicate/stringQuoting";
 import {
-	buildAncestorJoinNodeset,
 	buildSubcaseJoinNodeset,
 	DEFAULT_INSTANCE_ROOT,
 	emitTerm,
 	type InstanceRoot,
 } from "../predicate/termEmitter";
+import { findOnDeviceScalarExpressionIssue } from "./onDeviceCompatibility";
 
 /**
  * Map a five-op `arith` operator to its XPath wire token. CCHQ's
@@ -139,13 +156,51 @@ const ARITH_OPS: Record<
 export function emitOnDeviceExpression(
 	expr: ValueExpression,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+	relationContext: RelationEvaluationScopeContext = {},
+	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
 ): string {
+	const compatibilityIssue = findOnDeviceScalarExpressionIssue(
+		expr,
+		relationContext,
+	);
+	if (compatibilityIssue?.reason === "unwrap-list") {
+		throw new Error(
+			"emitOnDeviceExpression: unwrap-list is a server-side case-search function and is not registered by CommCare Core's on-device XPath evaluator. Validation should reject it before wire emission.",
+		);
+	}
+	if (compatibilityIssue?.reason === "multi-valued-relation-read") {
+		const { property } = compatibilityIssue;
+		throw new Error(
+			`emitOnDeviceExpression: case property '${property.property}' uses a '${property.via?.kind}' relation that can produce several values in a scalar on-device expression. Use count(...) or put the read inside a predicate relation scope. Validation should reject it before wire emission.`,
+		);
+	}
+
 	switch (expr.kind) {
-		case "term":
+		case "term": {
 			// Structural lifter: any `Term` becomes a value via the
 			// shared on-device term emitter. Property refs, search-input
 			// refs, session refs, and literals all flow through here.
-			return emitTerm(expr.term, root);
+			// A related property also materializes every inferable case-type
+			// qualifier before emission. Those qualifiers are semantic row-set
+			// constraints: another case type may use the same index name, and
+			// SQL/Preview already apply the inferred destination filter.
+			const value = expr.term;
+			if (
+				value.kind === "prop" &&
+				value.via !== undefined &&
+				value.via.kind !== "self"
+			) {
+				const relation = canonicalizeRelationPath(value.via, {
+					...relationContext,
+					currentCaseType: relationContext.currentCaseType ?? value.caseType,
+				});
+				return emitTerm(
+					relation.via === value.via ? value : { ...value, via: relation.via },
+					root,
+				);
+			}
+			return emitTerm(value, root);
+		}
 		case "today":
 			// CCHQ value function registered on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
@@ -173,11 +228,11 @@ export function emitOnDeviceExpression(
 			// `DateUtils::daysSinceEpoch`) and stringification formats
 			// date-only (`FunctionUtils::toString` →
 			// `DateUtils::formatDate(FORMAT_ISO8601)`).
-			return `date(${emitOnDeviceExpression(expr.value, root)})`;
+			return `date(${emitOnDeviceExpression(expr.value, root, relationContext, anchor)})`;
 		case "double":
 			// CCHQ value function at the `double` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `double(${emitOnDeviceExpression(expr.value, root)})`;
+			return `double(${emitOnDeviceExpression(expr.value, root, relationContext, anchor)})`;
 		case "arith":
 			// Paren-wrapping is unconditional so a recursive composition
 			// stays parse-stable without a precedence walker. The cost
@@ -185,58 +240,110 @@ export function emitOnDeviceExpression(
 			// the expression is the top of a value slot; that's a worth-
 			// while trade-off against tracking arithmetic precedence
 			// across the recursive walk.
-			return `(${emitOnDeviceExpression(expr.left, root)} ${ARITH_OPS[expr.op]} ${emitOnDeviceExpression(expr.right, root)})`;
+			return `(${emitOnDeviceExpression(expr.left, root, relationContext, anchor)} ${ARITH_OPS[expr.op]} ${emitOnDeviceExpression(expr.right, root, relationContext, anchor)})`;
 		case "concat":
 			// XPath 1.0 standard `concat(...)` is variadic; the schema
 			// guarantees at least one part.
-			return `concat(${expr.parts.map((p) => emitOnDeviceExpression(p, root)).join(", ")})`;
+			return `concat(${expr.parts.map((p) => emitOnDeviceExpression(p, root, relationContext, anchor)).join(", ")})`;
 		case "coalesce":
 			// CCHQ `coalesce(...)` returns the first non-empty argument;
 			// the schema guarantees at least one value.
-			return `coalesce(${expr.values.map((v) => emitOnDeviceExpression(v, root)).join(", ")})`;
+			return `coalesce(${expr.values.map((v) => emitOnDeviceExpression(v, root, relationContext, anchor)).join(", ")})`;
 		case "if":
 			// Cross-family recursion: `cond` is a Predicate emitted via
 			// the on-device predicate emitter; `then` / `else` recurse
 			// through this function. CCHQ wire form for the conditional-
 			// dispatch value function.
-			return `if(${emitCaseListFilter(expr.cond, root)}, ${emitOnDeviceExpression(expr.then, root)}, ${emitOnDeviceExpression(expr.else, root)})`;
+			return `if(${emitCaseListFilter(expr.cond, root, relationContext, anchor)}, ${emitOnDeviceExpression(expr.then, root, relationContext, anchor)}, ${emitOnDeviceExpression(expr.else, root, relationContext, anchor)})`;
 		case "switch":
 			// XPath has no native `switch` value function. The expansion
 			// is a right-nested `if(...)` chain whose innermost branch is
 			// the fallback — a shape CCHQ authors hand-write today.
-			return expandSwitchAsIfChain(expr.on, expr.cases, expr.fallback, root);
+			return expandSwitchAsIfChain(
+				expr.on,
+				expr.cases,
+				expr.fallback,
+				root,
+				relationContext,
+				anchor,
+			);
 		case "format-date":
 			// `format-date(<date>, '<pattern>')`. The pattern routes
 			// through `quoteLiteral` for the per-dialect single-quote
 			// escape (concat-fallback when the pattern contains `'`).
-			return `format-date(${emitOnDeviceExpression(expr.date, root)}, ${quoteLiteral(expr.pattern, "case-list-filter")})`;
+			return `format-date(${emitOnDeviceExpression(expr.date, root, relationContext, anchor)}, ${quoteLiteral(resolveCommCareDatePattern(expr.pattern), "case-list-filter")})`;
 		case "count":
 			// Relational aggregation. The on-device wire form mirrors
 			// the predicate emitter's `exists` join shape — same
 			// `instance('<root>')/...` nodeset construction, without
 			// the `> 0` comparator that turns `count` into a presence
 			// test on the predicate side.
-			return emitCount(expr.via, expr.where, root);
+			return emitCount(expr.via, expr.where, root, relationContext, anchor);
 		case "date-add":
-			// CCHQ wire signature: `date-add(date, interval, quantity)`
-			// — three separate arguments. Source citation:
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/value_functions.py::date_add`
-			// (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`).
-			// Interval flows through `quoteLiteral` because it is a
-			// CSQL/XPath string literal at the wire layer; the schema's
-			// `DATE_ADD_INTERVALS` enum already constrains the value
-			// space, but routing through the same lexical helper as
-			// other string literals keeps the escape rule centralised.
-			return `date-add(${emitOnDeviceExpression(expr.date, root)}, ${quoteLiteral(expr.interval, "case-list-filter")}, ${emitOnDeviceExpression(expr.quantity, root)})`;
+			// JavaRosa's function dispatcher has no `date-add` or
+			// `datetime-add` handler. For a date base, Core converts the date to
+			// epoch days. Scale every fixed-duration interval into days, floor the
+			// result (matching CCHQ's date-only formatting for negative fractions
+			// and dates before 1970), then convert it back with `date(...)`.
+			// Calendar-relative months/years have no fixed-day equivalent.
+			if (expr.interval === "months" || expr.interval === "years") {
+				throw new Error(
+					`emitOnDeviceExpression: calendar-relative date-add interval '${expr.interval}' cannot run faithfully in JavaRosa's on-device XPath evaluator. Seconds, minutes, hours, days, and weeks can scale to epoch days; validation should reject this expression before wire emission.`,
+				);
+			}
+			if (inferStructuralTemporalType(expr.date) === "datetime") {
+				throw new Error(
+					"emitOnDeviceExpression: date-add with a structurally datetime-typed base cannot use JavaRosa's epoch-day fallback because it would discard the time-of-day. Validation should reject this expression before wire emission.",
+				);
+			}
+			return `date(floor(${emitOnDeviceExpression(expr.date, root, relationContext, anchor)} + ${emitDateAddQuantityInDays(expr, root, relationContext, anchor)}))`;
 		case "unwrap-list":
-			// CCHQ value function at the `unwrap-list` entry on
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `unwrap-list(${emitOnDeviceExpression(expr.value, root)})`;
+			// Guarded before dispatch. Keep the arm as an explicit tripwire so a
+			// future refactor cannot silently reintroduce the unknown Core call.
+			throw new Error(
+				"emitOnDeviceExpression: unwrap-list cannot run in CommCare Core's on-device XPath evaluator",
+			);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
 				`emitOnDeviceExpression: unhandled ValueExpression kind ${String(_exhaustive)}`,
 			);
+		}
+	}
+}
+
+function emitDateAddQuantityInDays(
+	expression: Extract<ValueExpression, { kind: "date-add" }>,
+	root: InstanceRoot,
+	relationContext: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
+): string {
+	const quantity = emitOnDeviceExpression(
+		expression.quantity,
+		root,
+		relationContext,
+		anchor,
+	);
+	switch (expression.interval) {
+		case "seconds":
+			return `(${quantity} div 86400)`;
+		case "minutes":
+			return `(${quantity} div 1440)`;
+		case "hours":
+			return `(${quantity} div 24)`;
+		case "days":
+			return quantity;
+		case "weeks":
+			return `(${quantity} * 7)`;
+		case "months":
+		case "years":
+			// Guarded by the caller before recursively emitting either operand.
+			throw new Error(
+				`emitDateAddQuantityInDays: calendar-relative interval '${expression.interval}' has no fixed day scale`,
+			);
+		default: {
+			const _exhaustive: never = expression.interval;
+			return _exhaustive;
 		}
 	}
 }
@@ -263,18 +370,27 @@ function expandSwitchAsIfChain(
 	cases: ReadonlyArray<SwitchCase>,
 	fallback: ValueExpression,
 	root: InstanceRoot,
+	relationContext: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
-	const onText = emitOnDeviceExpression(on, root);
+	const onText = emitOnDeviceExpression(on, root, relationContext, anchor);
 	// Recurse from the right: the innermost `if` carries the last case
 	// and the fallback; each outer layer wraps with the next case.
-	let result = emitOnDeviceExpression(fallback, root);
+	let result = emitOnDeviceExpression(fallback, root, relationContext, anchor);
 	for (let i = cases.length - 1; i >= 0; i -= 1) {
 		const c = cases[i];
 		const whenText = emitOnDeviceExpression(
 			{ kind: "term", term: c.when },
 			root,
+			relationContext,
+			anchor,
 		);
-		const thenText = emitOnDeviceExpression(c.then, root);
+		const thenText = emitOnDeviceExpression(
+			c.then,
+			root,
+			relationContext,
+			anchor,
+		);
 		result = `if(${onText} = ${whenText}, ${thenText}, ${result})`;
 	}
 	return result;
@@ -305,41 +421,104 @@ function emitCount(
 	via: RelationPath,
 	where: Predicate | undefined,
 	root: InstanceRoot,
+	relationContext: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
-	switch (via.kind) {
+	const relation = canonicalizeRelationPath(via, relationContext);
+	const childContext =
+		relation.destinationCaseType === undefined
+			? relationContext
+			: {
+					...relationContext,
+					currentCaseType: relation.destinationCaseType,
+				};
+	const childAnchor = descendOnDeviceCaseAnchor(anchor, relation.via);
+	switch (relation.via.kind) {
 		case "self":
 			if (where === undefined) return "1";
-			return `if(${emitCaseListFilter(where, root)}, 1, 0)`;
+			return `if(${emitCaseListFilter(where, root, childContext, childAnchor)}, 1, 0)`;
 		case "ancestor":
+			return `if(${emitImmediateRelationPresence(
+				relation.via,
+				where === undefined
+					? undefined
+					: emitCaseListFilter(where, root, childContext, childAnchor),
+				root,
+			)}, 1, 0)`;
+		case "subcase": {
+			const anchorCaseId = onDeviceAnchorCaseId(anchor, root);
+			if (anchorCaseId === undefined) {
+				throw new Error(
+					"emitOnDeviceExpression: a child-case count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",
+				);
+			}
 			return emitDirectedCount(
-				buildAncestorJoinNodeset(via.via, root),
+				buildSubcaseJoinNodeset(
+					relation.via.identifier,
+					root,
+					relation.via.ofCaseType,
+					anchorCaseId,
+				),
 				where,
 				root,
+				childContext,
+				childAnchor,
 			);
-		case "subcase":
-			return emitDirectedCount(
-				buildSubcaseJoinNodeset(via.identifier, root),
-				where,
-				root,
-			);
+		}
 		case "any-relation": {
 			// Direction-agnostic count: sum the ancestor and subcase
 			// cardinalities. Each side computes a directed count
 			// independently; their sum is the total reachable count.
-			const ancestorCount = emitDirectedCount(
-				buildAncestorJoinNodeset([{ identifier: via.identifier }], root),
-				where,
+			const ancestorCount = `if(${emitImmediateRelationPresence(
+				{
+					kind: "ancestor",
+					via: [
+						{
+							identifier: relation.via.identifier,
+							throughCaseType: relation.via.ofCaseType,
+						},
+					],
+				},
+				where === undefined
+					? undefined
+					: emitCaseListFilter(
+							where,
+							root,
+							childContext,
+							descendOnDeviceCaseAnchor(anchor, {
+								kind: "ancestor",
+								via: [
+									{
+										identifier: relation.via.identifier,
+										throughCaseType: relation.via.ofCaseType,
+									},
+								],
+							}),
+						),
 				root,
-			);
+			)}, 1, 0)`;
+			const anchorCaseId = onDeviceAnchorCaseId(anchor, root);
+			if (anchorCaseId === undefined) {
+				throw new Error(
+					"emitOnDeviceExpression: an any-relation count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",
+				);
+			}
 			const subcaseCount = emitDirectedCount(
-				buildSubcaseJoinNodeset(via.identifier, root),
+				buildSubcaseJoinNodeset(
+					relation.via.identifier,
+					root,
+					relation.via.ofCaseType,
+					anchorCaseId,
+				),
 				where,
 				root,
+				childContext,
+				{ kind: "unaddressable" },
 			);
 			return `(${ancestorCount} + ${subcaseCount})`;
 		}
 		default: {
-			const _exhaustive: never = via;
+			const _exhaustive: never = relation.via;
 			throw new Error(
 				`emitOnDeviceExpression: unhandled RelationPath kind ${String(_exhaustive)}`,
 			);
@@ -359,8 +538,12 @@ function emitDirectedCount(
 	nodeset: string,
 	where: Predicate | undefined,
 	root: InstanceRoot,
+	relationContext: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
 	const filter =
-		where !== undefined ? `[${emitCaseListFilter(where, root)}]` : "";
+		where !== undefined
+			? `[${emitCaseListFilter(where, root, relationContext, anchor)}]`
+			: "";
 	return `count(${nodeset}${filter})`;
 }

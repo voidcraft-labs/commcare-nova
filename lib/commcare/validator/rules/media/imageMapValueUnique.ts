@@ -13,14 +13,21 @@
  *
  * Cousin columns can share a value freely (the arm is per-column);
  * only siblings inside one column collide. The inner loop scopes the
- * uniqueness check to one column at a time.
+ * uniqueness check to one column at a time. Fully off-screen, unsorted legacy
+ * mappings have no emitted arm, so they are ignored until they regain a
+ * Results, Details, or Default-order role.
  *
  * Mirrors `idMappingValueRequired`'s shape: module scope; iterate
  * `caseListConfig.columns`; emit one error per duplicate row with
  * 1-based human-readable row index in the message.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	caseListColumnHasRuntimeRole,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 
 export function imageMapValueUnique(
@@ -32,6 +39,7 @@ export function imageMapValueUnique(
 	const errors: ValidationError[] = [];
 	for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
 		const column = columns[columnIndex];
+		if (!caseListColumnHasRuntimeRole(column)) continue;
 		if (column.kind !== "image-map") continue;
 
 		// Track each `value` against the row index it first appeared at,
@@ -50,6 +58,11 @@ export function imageMapValueUnique(
 						`Image-map column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has two rows that share the value "${entry.value}" (rows ${prior + 1} and ${rowIndex + 1}). Each case-property value can map to at most one image, so only the first row's image displays. Change one row's value, or delete the duplicate.`,
 						{ moduleUuid, moduleName: mod.name },
 						{
+							// `slot` keys the case-workspace boundary verdicts
+							// (`lib/doc/commitVerdicts.ts::caseWorkspaceBoundaryVerdicts`)
+							// — a column finding without it never reaches the
+							// workspace's broken-column marks.
+							slot: `caseListConfig.columns[${columnIndex}].mapping[${rowIndex}].value`,
 							columnIndex: String(columnIndex),
 							firstRowIndex: String(prior),
 							duplicateRowIndex: String(rowIndex),

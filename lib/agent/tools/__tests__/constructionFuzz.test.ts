@@ -50,7 +50,7 @@ import {
 } from "@/lib/doc/caseTypeRetirement";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -453,7 +453,10 @@ const opArb = fc.oneof(
 		})
 		.map((r) => ({ type: "removeCaseListColumn" as const, ...r })),
 	fc
-		.record({ moduleIndex: moduleIndexArb })
+		.record({
+			moduleIndex: moduleIndexArb,
+			surface: fc.constantFrom("results" as const, "details" as const),
+		})
 		.map((r) => ({ type: "reorderCaseListColumns" as const, ...r })),
 	fc
 		.record({
@@ -572,7 +575,7 @@ function formTypeAt(
 function caseListConfigAt(
 	doc: BlueprintDoc,
 	moduleIndex: number,
-): { columns: { uuid: Uuid }[]; searchInputs: { uuid: Uuid }[] } | undefined {
+): CaseListConfig | undefined {
 	return doc.modules[doc.moduleOrder[moduleIndex]]?.caseListConfig;
 }
 
@@ -990,12 +993,19 @@ async function applyOp(
 			/* Reversal of the live uuid set — always a complete permutation,
 			 * so the op exercises the reorder commit rather than the
 			 * unknown/missing-uuid input rejections. */
-			const columns = caseListConfigAt(doc, op.moduleIndex)?.columns ?? [];
+			const columns = (
+				caseListConfigAt(doc, op.moduleIndex)?.columns ?? []
+			).filter((column) =>
+				op.surface === "results"
+					? column.visibleInList !== false
+					: column.visibleInDetail !== false,
+			);
 			if (columns.length === 0) return doc;
 			return runParsed(
 				reorderCaseListColumnsTool,
 				{
 					moduleIndex: op.moduleIndex,
+					surface: op.surface,
 					columnUuids: columns.map((c) => c.uuid).reverse(),
 				},
 				ctx,

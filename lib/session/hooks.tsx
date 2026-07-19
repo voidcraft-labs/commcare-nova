@@ -275,9 +275,9 @@ export function useStatusMessage(): string {
 	}, [events]);
 }
 
-/** Whether the run is reading document attachments right now — the pre-Opus
+/** Whether the run is reading document attachments right now — the pre-agent
  *  `resolveAttachments` window (resolving asset refs to their stored extracts).
- *  Drives the "reading documents" signal-grid status while the first model
+ *  Drives the "Reading your documents" chat status while the first model
  *  token is still blocked. */
 export function useAttachmentPrep(): boolean {
 	const events = useBuilderSession((s) => s.events);

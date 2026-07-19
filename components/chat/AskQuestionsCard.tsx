@@ -97,18 +97,18 @@ export function AskQuestionsCard({
 				{/* Header */}
 				<div className="px-3.5 py-2.5 border-b border-nova-violet/10">
 					{isLoading ? (
-						<span className="text-[10px] uppercase tracking-widest text-nova-violet-bright font-medium">
-							Questions loading...
+						<span className="text-xs font-medium text-nova-violet-bright">
+							Loading questions…
 						</span>
 					) : (
 						isWaiting && (
-							<span className="text-[10px] uppercase tracking-widest text-nova-violet-bright font-medium">
+							<span className="text-xs font-medium text-nova-violet-bright">
 								Question {currentIndex + 1} of {questions.length}
 							</span>
 						)
 					)}
 					<p className="text-sm font-medium text-nova-text-secondary mt-0.5">
-						{input?.header || "A few questions..."}
+						{input?.header || "A few questions"}
 					</p>
 				</div>
 

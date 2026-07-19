@@ -17,10 +17,21 @@
 // the card shell's footer. Mounts through the full `PredicateCardEditor`
 // so the validity index is the real one produced by `checkPredicate`.
 
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
-import { eq, gt, literal, prop } from "@/lib/domain/predicate";
+import {
+	checkPredicate,
+	eq,
+	gt,
+	input,
+	literal,
+	type Predicate,
+	predicateSchema,
+	prop,
+	sessionContext,
+	sessionUser,
+} from "@/lib/domain/predicate";
 import { PredicateCardEditor } from "../../PredicateCardEditor";
 
 const PATIENT: CaseType = {
@@ -79,10 +90,203 @@ describe("ComparisonCard — inline errors", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// The error message references the unknown property by name
-		// — the type checker emits a message including the property
-		// name, and the card renders the message verbatim under the
-		// offending input.
-		expect(container.textContent).toMatch(/Unknown property/i);
+		// The editor translates checker detail into a stable, friendly
+		// next action under the offending input.
+		expect(container.textContent).toMatch(/Choose available case information/i);
+	});
+});
+
+describe("ComparisonCard — exhaustive subject authoring", () => {
+	const ctx = {
+		caseTypes: [PATIENT],
+		currentCaseType: "patient",
+		knownInputs: [
+			{ name: "name_search", data_type: "text" as const },
+			{ name: "minimum_age", data_type: "int" as const },
+		],
+	};
+
+	function renderEditor(value: Predicate, onChange = vi.fn()) {
+		render(
+			<PredicateCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={ctx.caseTypes}
+				currentCaseType={ctx.currentCaseType}
+				knownInputs={ctx.knownInputs}
+			/>,
+		);
+		return onChange;
+	}
+
+	it("keeps the common property subject compact", () => {
+		renderEditor(eq(prop("patient", "name"), literal("Alice")));
+
+		expect(
+			screen.getByRole("button", {
+				name: "Condition source: Case information",
+			}),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /^Case information: Case name/i }),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("button", { name: /Replace .* expression/i }),
+		).toBeNull();
+	});
+
+	it("centers one-line source choices without misaligning explained choices", () => {
+		renderEditor(eq(prop("patient", "age"), literal(1)));
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Value source: A value" }),
+		);
+		const searchAnswer = screen.getByRole("menuitem", {
+			name: /^A search answer/,
+		});
+		const appInformation = screen.getByRole("menuitem", {
+			name: /^App information/,
+		});
+
+		expect(searchAnswer.className).toContain("items-center");
+		expect(searchAnswer.className).not.toContain("items-start");
+		expect(appInformation.getAttribute("aria-disabled")).toBe("true");
+		expect(appInformation.className).toContain("items-start");
+	});
+
+	it("authors a search answer as the subject and stays valid", async () => {
+		const onChange = renderEditor(
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Condition source: Case information",
+			}),
+		);
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: /A search answer/i }),
+		);
+		expect(onChange).not.toHaveBeenCalled();
+		fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
+
+		await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+		const next = onChange.mock.calls[0]?.[0] as Predicate;
+		expect(next.kind).toBe("eq");
+		if (next.kind !== "eq") throw new Error("Expected an equality predicate");
+		expect(next.left).toEqual({ kind: "term", term: input("name_search") });
+		expect(checkPredicate(next, ctx).ok).toBe(true);
+	});
+
+	it("authors app information as the subject and stays valid", async () => {
+		const onChange = renderEditor(
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Condition source: Case information",
+			}),
+		);
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: /App information/i }),
+		);
+		expect(onChange).not.toHaveBeenCalled();
+		fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
+
+		await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+		const next = onChange.mock.calls[0]?.[0] as Predicate;
+		expect(next.kind).toBe("eq");
+		if (next.kind !== "eq") throw new Error("Expected an equality predicate");
+		expect(next.left).toEqual({
+			kind: "term",
+			term: { kind: "session-context", field: "userid" },
+		});
+		expect(checkPredicate(next, ctx).ok).toBe(true);
+	});
+
+	it("collects a schema-valid user field before replacing case information", async () => {
+		const onChange = renderEditor(
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Condition source: Case information",
+			}),
+		);
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: /User information/i }),
+		);
+
+		const replace = screen.getByRole("button", { name: "Replace" });
+		const field = screen.getByRole("textbox", { name: "User field name" });
+		expect((replace as HTMLButtonElement).disabled).toBe(true);
+		expect(onChange).not.toHaveBeenCalled();
+
+		fireEvent.change(field, { target: { value: "bad field" } });
+		expect((replace as HTMLButtonElement).disabled).toBe(true);
+		expect(onChange).not.toHaveBeenCalled();
+
+		fireEvent.change(field, { target: { value: "assigned_region" } });
+		expect((replace as HTMLButtonElement).disabled).toBe(false);
+		fireEvent.click(replace);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+		const next = onChange.mock.calls[0]?.[0] as Predicate;
+		expect(next.kind).toBe("eq");
+		if (next.kind !== "eq") throw new Error("Expected an equality predicate");
+		expect(next.left).toEqual({
+			kind: "term",
+			term: sessionUser("assigned_region"),
+		});
+		expect(predicateSchema.safeParse(next).success).toBe(true);
+		expect(checkPredicate(next, ctx).ok).toBe(true);
+	});
+
+	it("names app information in familiar, specific language", async () => {
+		renderEditor(eq(sessionContext("userid"), literal("worker-1")));
+
+		expect(
+			screen.getByRole("button", {
+				name: "Condition source: App information",
+			}),
+		).toBeDefined();
+		const fieldMenu = screen.getByRole("button", {
+			name: "App information: Current user's ID",
+		});
+		fireEvent.click(fieldMenu);
+
+		const userNameItem = await screen.findByRole("menuitem", {
+			name: "Current user's name",
+		});
+		expect(userNameItem.className).toContain("rounded-lg");
+		expect(
+			userNameItem.closest('[data-slot="dropdown-menu-popup"]')?.className,
+		).toContain("p-1");
+		expect(
+			screen.getByRole("menuitem", { name: "This device's ID" }),
+		).toBeDefined();
+	});
+
+	it("authors a calculated numeric subject as a full expression", async () => {
+		const onChange = renderEditor(gt(prop("patient", "age"), literal(18)));
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Condition source: Case information",
+			}),
+		);
+		fireEvent.click(await screen.findByRole("menuitem", { name: /^Math/i }));
+		expect(onChange).not.toHaveBeenCalled();
+		fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
+
+		await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+		const next = onChange.mock.calls[0]?.[0] as Predicate;
+		expect(next.kind).toBe("gt");
+		if (next.kind !== "gt")
+			throw new Error("Expected a greater-than predicate");
+		expect(next.left.kind).toBe("arith");
+		expect(checkPredicate(next, ctx).ok).toBe(true);
 	});
 });

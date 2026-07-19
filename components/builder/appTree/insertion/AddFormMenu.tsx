@@ -8,9 +8,14 @@
 // `createForm` scaffold (form + a default first field) and navigates to it.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useState } from "react";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	CASE_FORM_TYPES,
@@ -22,12 +27,6 @@ import {
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
-import {
-	MENU_ITEM_CLS,
-	MENU_ITEM_DISABLED_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import {
 	INSERTION_TRIGGER_CLS,
 	insertionTriggerStyle,
@@ -42,7 +41,7 @@ const FORM_TYPE_DESC: Record<FormType, string> = {
 	registration: "Creates a new case",
 	followup: "Updates a case",
 	close: "Closes a case",
-	survey: "Collects data — no case",
+	survey: "Collects data without a case",
 };
 
 interface AddFormMenuProps {
@@ -51,12 +50,15 @@ interface AddFormMenuProps {
 	readonly hasCaseType: boolean;
 	/** Insertion index in the module's `formOrder`. */
 	readonly atIndex: number;
+	/** The final insertion point is the one persistent keyboard/AT action. */
+	readonly prominent?: boolean;
 }
 
 export function AddFormMenu({
 	moduleUuid,
 	hasCaseType,
 	atIndex,
+	prominent = false,
 }: AddFormMenuProps) {
 	const [open, setOpen] = useState(false);
 	const { createForm } = useBlueprintMutations();
@@ -75,60 +77,60 @@ export function AddFormMenu({
 	if (!canEdit) return null;
 
 	return (
-		<Menu.Root open={open} onOpenChange={setOpen}>
-			<Menu.Trigger
-				ref={ref}
-				className={INSERTION_TRIGGER_CLS}
-				style={insertionTriggerStyle(revealed)}
-				aria-label="Add form"
-			>
-				{/* Indented to the form rows' depth (FormCard is pl-5) so the
-				 *  affordance reads as INSIDE the module — the strip directly
-				 *  below it is the full-width "+ Module" one. */}
-				<TreeInsertionLine
-					revealed={revealed}
-					progress={progress}
-					label="Form"
-					insetCls="left-5 right-3"
-				/>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					className={MENU_POSITIONER_CLS}
+		<li>
+			<DropdownMenu open={open} onOpenChange={setOpen}>
+				<DropdownMenuTrigger
+					ref={ref}
+					className={`${INSERTION_TRIGGER_CLS} ${prominent ? "h-11" : "h-2"}`}
+					style={insertionTriggerStyle(revealed, prominent)}
+					tabIndex={prominent ? 0 : -1}
+					aria-hidden={prominent ? undefined : true}
+					aria-label="Add form"
+				>
+					{/* Indented to the form rows' depth (FormCard is pl-5) so the
+					 *  affordance reads as INSIDE the module — the strip directly
+					 *  below it is the full-width "+ Module" one. */}
+					<TreeInsertionLine
+						revealed={prominent || revealed}
+						progress={progress}
+						label={prominent ? "Add form" : "Form"}
+						insetCls="left-5 right-3"
+					/>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent
 					side="bottom"
 					align="center"
 					sideOffset={6}
+					preferredMinWidth={220}
 				>
-					<Menu.Popup className={MENU_POPUP_CLS} style={{ minWidth: 220 }}>
-						{FORM_TYPES.map((type) => {
-							// Case-managing types need a case type; survey never does —
-							// the domain's CASE_FORM_TYPES is the single source of that gate.
-							const disabled = CASE_FORM_TYPES.has(type) && !hasCaseType;
-							return (
-								<Menu.Item
-									key={type}
-									disabled={disabled}
-									onClick={() => handleSelect(type)}
-									className={disabled ? MENU_ITEM_DISABLED_CLS : MENU_ITEM_CLS}
-								>
-									<Icon
-										icon={formTypeIcons[type]}
-										width="16"
-										height="16"
-										className="text-nova-text-muted shrink-0"
-									/>
-									<span className="flex-1 min-w-0">
-										<span className="block">{formTypeLabels[type]}</span>
-										<span className="block text-[10px] text-nova-text-muted">
-											{disabled ? "Needs a case type" : FORM_TYPE_DESC[type]}
-										</span>
+					{FORM_TYPES.map((type) => {
+						// Case-managing types need a case type; survey never does —
+						// the domain's CASE_FORM_TYPES is the single source of that gate.
+						const disabled = CASE_FORM_TYPES.has(type) && !hasCaseType;
+						return (
+							<DropdownMenuItem
+								key={type}
+								disabled={disabled}
+								onClick={() => handleSelect(type)}
+								className="min-h-14"
+							>
+								<Icon
+									icon={formTypeIcons[type]}
+									width="16"
+									height="16"
+									className="text-nova-text-muted shrink-0"
+								/>
+								<span className="flex-1 min-w-0">
+									<span className="block">{formTypeLabels[type]}</span>
+									<span className="block text-xs text-nova-text-muted">
+										{disabled ? "Needs a case type" : FORM_TYPE_DESC[type]}
 									</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+								</span>
+							</DropdownMenuItem>
+						);
+					})}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</li>
 	);
 }

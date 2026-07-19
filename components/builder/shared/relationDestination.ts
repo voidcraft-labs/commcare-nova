@@ -35,20 +35,19 @@ export interface RelationDestinationCaseType {
  * error inline via the type checker's verdict). Branches:
  *
  *   - `self` — no traversal; the destination is the origin. The
- *     type checker rejects `exists(via: self)` / `count(via: self)`
- *     as meaningless top-level shapes, but the editor renders the
- *     where-clause against the origin so transient `self` picks
- *     don't blank the inner editor.
+ *     type checker rejects `exists(via: self)` / `missing(via: self)`
+ *     as meaningless quantifiers. `count(via: self)` and property
+ *     refs via self are valid and remain in the current scope.
  *   - `ancestor` — multi-hop walk along `parent_type` chains. Each
  *     hop's `throughCaseType` qualifier is NOT consulted here; the
  *     type checker reports any structural mismatch and the editor
  *     falls back to the resolved parent so the where clause stays
  *     renderable.
- *   - `subcase` / `any-relation` — find a case type whose
- *     `parent_type` points back at the origin. When more than one
- *     matches, prefer `ofCaseType` when set; otherwise return the
- *     first match (the editor's inline error surfaces the
- *     disambiguation requirement).
+ *   - `subcase` — the canonical `parent` index resolves through child types.
+ *   - `any-relation` — the canonical `parent` index resolves through the
+ *     union of the origin's parent and children.
+ *   - custom index names — Nova has no relationship metadata to infer their
+ *     direction, so only an explicit declared destination resolves.
  */
 export function resolveRelationDestination(
 	via: RelationPath,
@@ -60,16 +59,33 @@ export function resolveRelationDestination(
 			return originCaseType;
 		case "ancestor": {
 			let current: string | undefined = originCaseType;
-			for (const _step of via.via) {
+			for (const step of via.via) {
 				if (current === undefined) return undefined;
+				if (step.identifier !== "parent") {
+					if (
+						step.throughCaseType === undefined ||
+						!caseTypes.some(
+							(candidate) => candidate.name === step.throughCaseType,
+						)
+					) {
+						return undefined;
+					}
+					current = step.throughCaseType;
+					continue;
+				}
 				const ct = caseTypes.find((c) => c.name === current);
 				if (ct === undefined) return undefined;
 				current = ct.parent_type;
 			}
 			return current;
 		}
-		case "subcase":
-		case "any-relation": {
+		case "subcase": {
+			if (via.identifier !== "parent") {
+				return via.ofCaseType !== undefined &&
+					caseTypes.some((candidate) => candidate.name === via.ofCaseType)
+					? via.ofCaseType
+					: undefined;
+			}
 			const candidates = caseTypes.filter(
 				(c) => c.parent_type === originCaseType,
 			);
@@ -78,6 +94,29 @@ export function resolveRelationDestination(
 				return named?.name;
 			}
 			return candidates[0]?.name;
+		}
+		case "any-relation": {
+			if (via.identifier !== "parent") {
+				return via.ofCaseType !== undefined &&
+					caseTypes.some((candidate) => candidate.name === via.ofCaseType)
+					? via.ofCaseType
+					: undefined;
+			}
+			const origin = caseTypes.find(
+				(candidate) => candidate.name === originCaseType,
+			);
+			const candidateNames = [
+				...(origin?.parent_type === undefined ? [] : [origin.parent_type]),
+				...caseTypes
+					.filter((candidate) => candidate.parent_type === originCaseType)
+					.map((candidate) => candidate.name),
+			].filter((candidate, index, all) => all.indexOf(candidate) === index);
+			if (via.ofCaseType !== undefined) {
+				return candidateNames.includes(via.ofCaseType)
+					? via.ofCaseType
+					: undefined;
+			}
+			return candidateNames[0];
 		}
 	}
 }

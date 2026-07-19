@@ -1,16 +1,9 @@
 // components/builder/case-list-config/ColumnEditor.tsx
 //
-// Inspector body for one `Column`. A column is one thing shown about
-// each case, and the panel walks through it in plain sections:
-//
-//   - **Display** — what kind of thing this column shows (full-width
-//     picker, every choice labeled and described) and the kind's own
-//     fields (property, header, date pattern, mapping table, …).
-//   - **Visibility** — labeled switches for the two surfaces a column
-//     can appear on (the case list, the case detail).
-//   - **Sorting** — a segmented Off / Ascending / Descending control,
-//     plus the column's place in the sort order when several columns
-//     sort.
+// Inspector body for one `Column`. The rail owns the field's data source and
+// formatting — the properties that cannot be manipulated in the running-app
+// composition. Results/Details membership and order, and the list's default
+// ordering, each live once in the center canvas where their effect is visible.
 //
 // Every control carries a visible text label and a full-size target.
 // The kind-vs-property applicability check surfaces inline next to
@@ -18,27 +11,34 @@
 // so the surrounding save affordance can gate.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
-import { useMemo, useRef } from "react";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	CONSOLE_MENU_ITEM_MIN,
 	CONSOLE_TRIGGER_CLS,
-	InspectorHint,
 	InspectorSection,
-	SegmentedRow,
-	ToggleRow,
 } from "@/components/builder/inspector/inspectorChrome";
 import { PredicateEditProvider } from "@/components/builder/shared/editorContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type {
-	CaseType,
-	Column,
-	ColumnKind,
-	ColumnSort,
-	SortDirection,
-} from "@/lib/domain";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import type { CaseType, Column, ColumnKind } from "@/lib/domain";
 import {
 	calculatedColumn,
 	dateColumn,
@@ -49,18 +49,13 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
+import { propertyDisplayLabel } from "../shared/primitives/propertyDisplay";
 import {
 	type ColumnCardSchema,
 	type ColumnEditContext,
 	columnCardSchemaList,
 	columnCardSchemas,
 	resolveColumnProperty,
-	resolveColumnPropertyDataType,
 } from "./columnEditorSchemas";
 import { NO_SEARCH_INPUTS } from "./searchInputResolution";
 
@@ -92,22 +87,6 @@ interface ColumnEditorProps {
 	 */
 	readonly currentCaseType: string;
 	/**
-	 * Total number of columns in the current list whose `sort` slot
-	 * is set. A freshly-switched-on sort lands at the end of the
-	 * existing priority order, so the user's first sorted column is
-	 * the primary.
-	 */
-	readonly sortedColumnCount: number;
-	/**
-	 * The column's resolved sort priority position among its sorted
-	 * peers (1-based). `undefined` when the column isn't sorted.
-	 */
-	readonly sortPriorityPosition: number | undefined;
-	/** Opens the case list's own settings (where the sort-order
-	 *  stack lives) — surfaced when several columns sort and the
-	 *  order between them matters. */
-	readonly onEditSortOrder?: () => void;
-	/**
 	 * Surfaces the boolean validity verdict to the parent on
 	 * every onChange. The parent gates its save affordance on
 	 * this. The editor does not gate the onChange itself —
@@ -117,17 +96,13 @@ interface ColumnEditorProps {
 }
 
 /**
- * Column inspector body. Display (kind + per-kind fields) →
- * Visibility → Sorting, every control labeled.
+ * Column inspector body: display kind and the selected kind's own properties.
  */
 export function ColumnEditor({
 	value,
 	onChange,
 	caseTypes,
 	currentCaseType,
-	sortedColumnCount,
-	sortPriorityPosition,
-	onEditSortOrder,
 	onValidityChange,
 }: ColumnEditorProps) {
 	const ctx = useMemo<ColumnEditContext>(
@@ -145,11 +120,16 @@ export function ColumnEditor({
 		const property = resolveColumnProperty(ctx, value.field);
 		const schema = columnCardSchemas[value.kind];
 		if (schema.applicableForProperty(property)) return [] as const;
-		const requirement =
-			schema.applicabilityRequirement ?? "an applicable property";
-		const dataType = resolveColumnPropertyDataType(ctx, value.field);
+		const information =
+			property !== undefined
+				? propertyDisplayLabel(property)
+				: "This information";
+		const guidance =
+			value.kind === "phone"
+				? "Choose information saved as text or a choice."
+				: "Choose information saved as a date or date and time.";
 		return [
-			`${schema.label} columns require ${requirement}; "${value.field}" is ${dataType ?? "untyped"}.`,
+			`${information} can’t use ${schema.label.toLowerCase()} formatting. ${guidance}`,
 		] as const;
 	}, [ctx, value]);
 
@@ -179,41 +159,6 @@ export function ColumnEditor({
 		errors?: readonly string[];
 	}>;
 
-	const visibleInList = value.visibleInList ?? true;
-	const visibleInDetail = value.visibleInDetail ?? true;
-
-	// Visibility toggles — the canonical "visible" default is absent;
-	// toggling off writes `false`, toggling back to visible writes
-	// `undefined` so the slot returns to absent and the parse stays
-	// clean. (Schema reads `visibleInList ?? true` so absent ≡ true.)
-	const setVisibleInList = (next: boolean) => {
-		onChange(replaceSlot(value, "visibleInList", next ? undefined : false));
-	};
-	const setVisibleInDetail = (next: boolean) => {
-		onChange(replaceSlot(value, "visibleInDetail", next ? undefined : false));
-	};
-
-	// Sort control — "off" drops the slot; switching on appends the
-	// column at the end of the existing priority order; a direction
-	// change preserves the existing priority. Per-column clears drop
-	// the sort slot without renumbering peers, so the resulting
-	// priority sequence may carry gaps (priorities `[0, 1, 2]` with
-	// the middle column cleared becomes `[0, 2]`). Gaps are tolerated
-	// by every layer — the schema doesn't enforce contiguity, the
-	// wire emitter sorts by priority ascending, and
-	// `resolveSortedColumns` tie-breaks to source-array index when
-	// priorities collide. The list settings' sort-order stack
-	// normalizes back to 0..N-1 the next time the user reorders.
-	const sortSetting: "off" | SortDirection = value.sort?.direction ?? "off";
-	const setSortSetting = (next: "off" | SortDirection) => {
-		if (next === "off") {
-			onChange(replaceSlot(value, "sort", undefined));
-			return;
-		}
-		const priority = value.sort?.priority ?? sortedColumnCount;
-		onChange(replaceSlot(value, "sort", { direction: next, priority }));
-	};
-
 	return (
 		<PredicateEditProvider
 			caseTypes={caseTypes}
@@ -221,101 +166,23 @@ export function ColumnEditor({
 			knownInputs={NO_SEARCH_INPUTS}
 			validityIndex={EMPTY_VALIDITY_INDEX}
 		>
-			<InspectorSection label="Display">
-				<KindPicker currentValue={value} onChange={onChange} ctx={ctx} />
+			<InspectorSection label="Display as">
+				<KindPicker
+					key={`kind:${value.uuid}`}
+					currentValue={value}
+					onChange={onChange}
+					ctx={ctx}
+				/>
 				<Component
+					key={`card:${value.uuid}`}
 					value={value}
 					onChange={onChange}
 					ctx={ctx}
 					errors={applicabilityErrors}
 				/>
 			</InspectorSection>
-
-			<InspectorSection label="Visibility">
-				<ToggleRow
-					label="Show in the Case List"
-					description="A column in the list itself."
-					checked={visibleInList}
-					onChange={setVisibleInList}
-				/>
-				<ToggleRow
-					label="Show in Case Detail"
-					description="A row on the screen that opens from the list."
-					checked={visibleInDetail}
-					onChange={setVisibleInDetail}
-				/>
-			</InspectorSection>
-
-			<InspectorSection label="Sorting">
-				<SegmentedRow
-					legend="Sort the case list by this column"
-					options={[
-						{ value: "off", label: "Off" },
-						{ value: "asc", label: "Ascending" },
-						{ value: "desc", label: "Descending" },
-					]}
-					value={sortSetting}
-					onChange={setSortSetting}
-				/>
-				<SortOrderNote
-					position={sortPriorityPosition}
-					sortedColumnCount={sortedColumnCount}
-					onEditSortOrder={onEditSortOrder}
-				/>
-			</InspectorSection>
 		</PredicateEditProvider>
 	);
-}
-
-/**
- * What the sort setting means right now, in a sentence — and, when
- * several columns sort, the way to the list settings where their
- * order is arranged.
- */
-function SortOrderNote({
-	position,
-	sortedColumnCount,
-	onEditSortOrder,
-}: {
-	readonly position: number | undefined;
-	readonly sortedColumnCount: number;
-	readonly onEditSortOrder?: () => void;
-}) {
-	if (position === undefined) {
-		return (
-			<InspectorHint>
-				Ascending runs A to Z, oldest to newest, lowest to highest.
-			</InspectorHint>
-		);
-	}
-	if (sortedColumnCount <= 1) {
-		return <InspectorHint>The list follows this column's order.</InspectorHint>;
-	}
-	return (
-		<div className="space-y-2">
-			<InspectorHint>
-				{position === 1
-					? `First of ${sortedColumnCount} in the sort order — it sorts the whole list.`
-					: `${ordinalWord(position)} of ${sortedColumnCount} in the sort order — it breaks ties left by the ones above it.`}
-			</InspectorHint>
-			{onEditSortOrder !== undefined && (
-				<button
-					type="button"
-					onClick={onEditSortOrder}
-					className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				>
-					Arrange the Sort Order…
-				</button>
-			)}
-		</div>
-	);
-}
-
-/** Ordinal words for sort positions — sorted-column lists are short,
- *  so the numeric fallback rarely shows. */
-function ordinalWord(n: number): string {
-	const words = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"];
-	return words[n - 1] ?? `${n}th`;
 }
 
 /**
@@ -329,8 +196,8 @@ function ordinalWord(n: number): string {
  * field-bearing kind seeds the new column's field via the target
  * schema's default-value factory; swapping TO calc drops the
  * field entirely. Header is preserved on every transition. The
- * column's `uuid` and optional common slots (`sort`,
- * `visibleInList`, `visibleInDetail`) thread through verbatim —
+ * column's `uuid` and optional common slots (`sort`, visibility,
+ * and each surface order) thread through verbatim —
  * they're identity / surface-visibility shape, not kind-specific.
  *
  * Exported as part of the module's tested surface — the
@@ -347,6 +214,8 @@ export function preservedColumnSwap(
 		sort: currentValue.sort,
 		visibleInList: currentValue.visibleInList,
 		visibleInDetail: currentValue.visibleInDetail,
+		listOrder: currentValue.listOrder,
+		detailOrder: currentValue.detailOrder,
 	};
 	// Field source: the current value's field if the source has one;
 	// otherwise the target schema's default-picked field.
@@ -471,11 +340,10 @@ function pickFieldFromTarget(
  * kind-specific extras across structural-twin transitions (see
  * `preservedColumnSwap`).
  *
- * Kinds the current property can't run (a date format over a text
- * property, say) stay clickable — same convention as the predicate /
- * expression kind menus, so authors switching kinds mid-edit aren't
- * locked out by transient property mismatches — but dim and say what
- * they need instead of their normal description.
+ * Kinds the current property can't run (a date format over text information,
+ * say) stay visible so authors can understand the available presentation
+ * choices, but are disabled with a plain-language reason. A display choice
+ * must never look selectable and then bounce back from the document gate.
  */
 function KindPicker({
 	currentValue,
@@ -486,7 +354,18 @@ function KindPicker({
 	readonly onChange: (next: Column) => void;
 	readonly ctx: ColumnEditContext;
 }) {
+	const [pendingKind, setPendingKind] = useState<ColumnKind | null>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	/* A style experiment should be reversible while this inspector remains
+	 * open. The document stores only the active column arm, so retain exact
+	 * per-kind drafts locally and merge the current common display slots back
+	 * in when an author returns to one. The confirmation below still tells the
+	 * truth about the persisted change: leaving the inspector commits only the
+	 * active style, while ordinary Undo remains available at document level. */
+	const draftsByKindRef = useRef(new Map<ColumnKind, Column>());
+	useEffect(() => {
+		draftsByKindRef.current.set(currentValue.kind, currentValue);
+	}, [currentValue]);
 	const property =
 		currentValue.kind === "calculated"
 			? undefined
@@ -494,175 +373,225 @@ function KindPicker({
 	const currentKind = currentValue.kind;
 	const currentSchema = columnCardSchemas[currentKind];
 
-	const replaceWith = <K extends ColumnKind>(schema: ColumnCardSchema<K>) => {
-		onChange(preservedColumnSwap(currentValue, schema.kind, ctx));
+	const nextFor = (targetKind: ColumnKind): Column => {
+		const draft = draftsByKindRef.current.get(targetKind);
+		if (draft === undefined) {
+			return preservedColumnSwap(currentValue, targetKind, ctx);
+		}
+		return restoreColumnDraft(draft, currentValue);
 	};
+	const replaceWith = <K extends ColumnKind>(schema: ColumnCardSchema<K>) => {
+		const consequence = columnKindChangeConsequence(
+			currentValue,
+			schema.kind,
+			ctx,
+		);
+		if (consequence !== null) {
+			setPendingKind(schema.kind);
+			return;
+		}
+		onChange(nextFor(schema.kind));
+	};
+	const pendingSchema =
+		pendingKind === null ? null : columnCardSchemas[pendingKind];
+	const pendingConsequence =
+		pendingKind === null
+			? null
+			: columnKindChangeConsequence(currentValue, pendingKind, ctx);
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Display as: ${currentSchema.label}`}
-				className={CONSOLE_TRIGGER_CLS}
-			>
-				<Icon
-					icon={currentSchema.icon}
-					width="16"
-					height="16"
-					className="text-nova-violet-bright shrink-0"
-				/>
-				<span className="flex-1 min-w-0 text-left">
-					<span className="block text-nova-text">{currentSchema.label}</span>
-					<span className="block text-[11px] text-nova-text-muted truncate">
-						{currentSchema.description}
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					ref={triggerRef}
+					aria-label={`Display as: ${currentSchema.label}`}
+					className={CONSOLE_TRIGGER_CLS}
+				>
+					<Icon
+						icon={currentSchema.icon}
+						width="16"
+						height="16"
+						className="text-nova-violet-bright shrink-0"
+					/>
+					<span className="flex-1 min-w-0 text-left">
+						<span className="block text-nova-text">{currentSchema.label}</span>
+						<span className="block whitespace-normal break-words text-[13px] leading-5 text-nova-text-muted">
+							{currentSchema.description}
+						</span>
 					</span>
-				</span>
-				<Chevron />
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
+					<Chevron />
+				</DropdownMenuTrigger>
+				<DropdownMenuContent
 					align="start"
 					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ minWidth: "var(--anchor-width)", maxHeight: 360 }}
+					preferredMinWidth="19rem"
+					className="max-h-[min(22.5rem,var(--available-height))] overflow-y-auto"
 				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} max-h-[22.5rem] overflow-y-auto min-w-[19rem]`}
-					>
-						{columnCardSchemaList.map((s, i) => {
-							const isCurrent = s.kind === currentKind;
-							// Calculated source has no property; every target kind
-							// stays at full opacity. Otherwise consult the
-							// per-target schema's applicability predicate against
-							// the current property.
-							const isApplicable =
-								currentValue.kind === "calculated"
-									? true
-									: s.applicableForProperty(property);
-							const last = columnCardSchemaList.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={s.kind}
-									onClick={() => replaceWith(s)}
-									disabled={isCurrent}
-									className={`${corners} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
-										isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									} ${isApplicable ? "" : "opacity-45"}`}
-								>
-									<Icon
-										icon={s.icon}
-										width="15"
-										height="15"
-										className={
+					{columnCardSchemaList.map((s) => {
+						const isCurrent = s.kind === currentKind;
+						// Calculated source has no property; every target kind
+						// stays at full opacity. Otherwise consult the
+						// per-target schema's applicability predicate against
+						// the current property.
+						const isApplicable =
+							currentValue.kind === "calculated"
+								? true
+								: s.applicableForProperty(property);
+						return (
+							<DropdownMenuItem
+								key={s.kind}
+								onClick={() => replaceWith(s)}
+								disabled={isCurrent || !isApplicable}
+								className={`${CONSOLE_MENU_ITEM_MIN} ${
+									isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
+								}`}
+							>
+								<Icon
+									icon={s.icon}
+									width="15"
+									height="15"
+									className={
+										isCurrent
+											? "text-nova-violet-bright"
+											: "text-nova-text-muted"
+									}
+								/>
+								<span className="flex-1 text-left min-w-0">
+									<div className="whitespace-normal break-words">{s.label}</div>
+									<div
+										className={`whitespace-normal break-words text-[13px] leading-5 ${
 											isCurrent
 												? "text-nova-violet-bright"
 												: "text-nova-text-muted"
-										}
+										}`}
+									>
+										{isApplicable
+											? s.description
+											: `Choose ${s.applicabilityRequirement ?? "different information"}`}
+									</div>
+								</span>
+								{isCurrent && (
+									<Icon
+										icon={tablerCheck}
+										width="14"
+										height="14"
+										className="text-nova-violet-bright"
 									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{s.label}</div>
-										<div
-											className={`text-[11px] truncate ${
-												isCurrent
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
-											}`}
-										>
-											{isApplicable
-												? s.description
-												: `Needs ${s.applicabilityRequirement ?? "a different property"}.`}
-										</div>
-									</span>
-									{isCurrent && (
-										<Icon
-											icon={tablerCheck}
-											width="14"
-											height="14"
-											className="text-nova-violet-bright"
-										/>
-									)}
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+								)}
+							</DropdownMenuItem>
+						);
+					})}
+				</DropdownMenuContent>
+			</DropdownMenu>
+
+			<AlertDialog
+				open={pendingSchema !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingKind(null);
+				}}
+			>
+				<AlertDialogContent finalFocus={triggerRef} className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Change display to {pendingSchema?.label ?? "another style"}?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{pendingConsequence ?? "This replaces the current display setup"}.
+							Saved case information won’t change.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								if (pendingKind === null) return;
+								onChange(nextFor(pendingKind));
+								setPendingKind(null);
+							}}
+						>
+							Change display
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
 	);
 }
 
-// ── Slot replacement helper ────────────────────────────────────────
-//
-// `replaceSlot` produces a fresh column object with one optional slot
-// replaced. Drops keys whose value is `undefined` so the output shape
-// round-trips equal to a freshly-built column under the schema's
-// strip-mode parse. The discriminated-union narrowing is preserved
-// because `Pick<Column, "kind" | ...required>` is intersected with
-// the rebuilt optional slots — TypeScript carries the kind discriminator
-// through the spread on each arm.
+/** Common slots follow the active display while a locally retained kind draft
+ * restores only that kind's source and formatting. */
+function restoreColumnDraft(draft: Column, current: Column): Column {
+	return {
+		...draft,
+		uuid: current.uuid,
+		header: current.header,
+		sort: current.sort,
+		visibleInList: current.visibleInList,
+		visibleInDetail: current.visibleInDetail,
+		listOrder: current.listOrder,
+		detailOrder: current.detailOrder,
+	} as Column;
+}
 
-function replaceSlot<K extends "sort" | "visibleInList" | "visibleInDetail">(
-	value: Column,
-	key: K,
-	next: Column[K],
-): Column {
-	const baseSlots = {
-		sort: value.sort,
-		visibleInList: value.visibleInList,
-		visibleInDetail: value.visibleInDetail,
-	};
-	const merged = { ...baseSlots, [key]: next };
-	const optional: {
-		sort?: ColumnSort;
-		visibleInList?: boolean;
-		visibleInDetail?: boolean;
-	} = {};
-	if (merged.sort !== undefined) optional.sort = merged.sort;
-	if (merged.visibleInList !== undefined)
-		optional.visibleInList = merged.visibleInList;
-	if (merged.visibleInDetail !== undefined)
-		optional.visibleInDetail = merged.visibleInDetail;
-	// Strip the existing optional slots from the incoming column then
-	// reapply the cleaned set. This keeps the column's required slots
-	// (uuid, kind, field/header/etc.) intact while ensuring the
-	// optional slots reflect the updated state — including absent keys
-	// when the user toggles a slot back to its default.
-	const {
-		sort: _s,
-		visibleInList: _v,
-		visibleInDetail: _d,
-		...required
-	} = value;
-	return { ...required, ...optional } as Column;
+/** Explain only changes that discard meaningful authored work. Ordinary
+ * presentation changes stay one click; custom mappings, calculations, and
+ * tuned formats receive a truthful consequence before replacement. */
+function columnKindChangeConsequence(
+	current: Column,
+	targetKind: ColumnKind,
+	ctx: ColumnEditContext,
+): string | null {
+	if (current.kind === targetKind) return null;
+	if (targetKind === "calculated" && current.kind !== "calculated") {
+		return "The current information source will be replaced with a new calculation";
+	}
+	switch (current.kind) {
+		case "plain":
+		case "phone":
+			return null;
+		case "date": {
+			const seed = columnCardSchemas.date.defaultValue(ctx);
+			return current.pattern === seed.pattern
+				? null
+				: "The custom date format will be removed";
+		}
+		case "id-mapping":
+			return current.mapping.length === 0
+				? null
+				: "The friendly value labels will be removed";
+		case "image-map":
+			return current.mapping.length === 0
+				? null
+				: "The value images will be removed";
+		case "interval": {
+			const seed = columnCardSchemas.interval.defaultValue(ctx);
+			const customized =
+				current.threshold !== seed.threshold ||
+				current.unit !== seed.unit ||
+				current.display !== seed.display ||
+				current.text !== seed.text;
+			return customized ? "The time range settings will be removed" : null;
+		}
+		case "calculated": {
+			const seed = columnCardSchemas.calculated.defaultValue(ctx);
+			return JSON.stringify(current.expression) ===
+				JSON.stringify(seed.expression)
+				? null
+				: "The calculation will be replaced with saved case information";
+		}
+	}
 }
 
 function Chevron() {
 	return (
-		<svg
+		<Icon
+			icon={tablerChevronDown}
 			aria-hidden="true"
-			width="10"
-			height="10"
-			viewBox="0 0 10 10"
+			width="14"
+			height="14"
 			className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-		>
-			<path
-				d="M2 3.5L5 6.5L8 3.5"
-				stroke="currentColor"
-				strokeWidth="1.2"
-				fill="none"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
+		/>
 	);
 }

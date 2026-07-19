@@ -67,7 +67,7 @@ export function ChatMessage({
 	 * Switching kind — or hitting text / attachments / askQuestions — flushes the
 	 * open run first, preserving the model's narrative order
 	 * (think → "3 changes" → text → think → "4 changes"). Generation tools and
-	 * bookkeeping parts (data-*, step-start) are elided: the signal grid +
+	 * bookkeeping parts (data-*, step-start) are elided: the activity status +
 	 * GenerationProgress own build-mode feedback.
 	 */
 	const items: ReactNode[] = [];

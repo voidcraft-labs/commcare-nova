@@ -52,8 +52,8 @@ describe("IfCard — cross-family Predicate cond", () => {
 
 	it("surfaces a branch-mismatch error when then/else types disagree", () => {
 		// `then = literal(1)` (int), `else = literal("x")` (text). The
-		// type checker emits "if branches must agree on type" at the
-		// operator-level path `[..., "if"]`.
+		// type checker reports the mismatch at the operator-level path;
+		// the editor presents a friendly next action there.
 		const value = ifExpr(
 			eq(prop("patient", "age"), literal(0)),
 			term(literal(1)),
@@ -69,7 +69,9 @@ describe("IfCard — cross-family Predicate cond", () => {
 				onValidityChange={onValidityChange}
 			/>,
 		);
-		expect(container.textContent).toMatch(/branches must agree/i);
+		expect(container.textContent).toMatch(
+			/Make every possible result use the same kind of information/i,
+		);
 		expect(onValidityChange).toHaveBeenCalledWith(false);
 	});
 });

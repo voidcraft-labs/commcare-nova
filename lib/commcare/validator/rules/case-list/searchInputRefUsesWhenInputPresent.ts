@@ -1,9 +1,11 @@
 /**
  * Rule: every `input(...)` Term reachable from a wire-emission-bound
- * predicate or value expression is either rejected outright or
- * enclosed in a `when-input-present` envelope keyed to the same
- * input name — depending on whether the slot's wire-eval context
- * has access to the user's typed search-input values.
+ * predicate or value expression is either rejected outright or enclosed in a
+ * `when-input-present` envelope keyed to the same input name — depending on
+ * whether the slot's wire-eval context has access to the user's typed
+ * search-input values. The assigned-case exclusion is the one value-slot
+ * exception: blank means "exclude nobody" there, so a direct Search answer is
+ * safe and useful.
  *
  * **Why the gate is load-bearing.** CCHQ's CSQL runtime resolves an
  * unset search-input ref to the empty string, not to absent / null
@@ -29,18 +31,31 @@
  *   - `"requires-envelope"` — input refs are valid IFF wrapped in a
  *     `when-input-present` envelope keyed to the matching name. The
  *     slot's wire-eval context binds search inputs at evaluation
- *     time. Covers `caseListConfig.filter`,
- *     `caseListConfig.searchInputs[i].predicate` (advanced arm),
- *     and `caseSearchConfig.excludedOwnerIds`.
+ *     time. Covers `caseListConfig.filter` and
+ *     `caseListConfig.searchInputs[i].predicate` (advanced arm).
  *
  *   - `"forbids-input-ref"` — any input ref (bare or wrapped) is a
- *     structural authoring error. The slot's wire-eval context fires
- *     before the search-input layer is populated, so an input ref
- *     resolves to the empty string regardless of any envelope. The
- *     envelope is no help; the only fix is to remove the ref.
- *     Covers `caseListConfig.searchInputs[i].default`,
+ *     structural authoring error, for one of two reasons the envelope
+ *     can't fix. A prompt DEFAULT evaluates before the user has typed,
+ *     so the ref reads an unanswered instance and resolves to the
+ *     empty string. The search-button display condition and a
+ *     calculated column evaluate on the ordinary case list, where the
+ *     `search-input` instance is not loaded at all — commcare-core
+ *     throws on the first touch of a declared-but-unloaded instance
+ *     (`XPathPathExpr.evalRaw`), before any enclosing guard runs, so
+ *     the ref would error the whole screen. Either way the only fix
+ *     is to remove the ref. Covers
+ *     `caseListConfig.searchInputs[i].default`,
  *     `caseSearchConfig.searchButtonDisplayCondition`, and
  *     `caseListConfig.columns[i].expression` (calculated columns).
+ *
+ * `caseSearchConfig.excludedOwnerIds` is intentionally in neither mode. The
+ * expression resolves at Search fire time and blank is its identity value:
+ * Preview parses it as an empty exclusion list, remote Search receives no ids,
+ * and the ordinary-list nodeset explicitly short-circuits on
+ * `normalize-space(value) = ''`. Requiring a predicate envelope around a value
+ * branch cannot express that contract and would reject every useful
+ * `input(...)` return value.
  *
  * **Walker contract.** The rule walks the AST top-down maintaining
  * a set of input names "currently gated by an enclosing
@@ -56,7 +71,12 @@
  * no in-scope slots.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	caseListColumnHasRuntimeRole,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type {
 	Predicate,
 	SearchInputRef,
@@ -143,7 +163,13 @@ export function searchInputRefUsesWhenInputPresent(
 	// no search-input context.
 	for (let i = 0; i < (listConfig?.columns.length ?? 0); i++) {
 		const column = listConfig?.columns[i];
-		if (column === undefined || column.kind !== "calculated") continue;
+		if (
+			column === undefined ||
+			!caseListColumnHasRuntimeRole(column) ||
+			column.kind !== "calculated"
+		) {
+			continue;
+		}
 		const refs = findExpressionInputRefs(
 			column.expression,
 			"forbids-input-ref",
@@ -184,29 +210,6 @@ export function searchInputRefUsesWhenInputPresent(
 		}
 	}
 
-	// Slot: excluded owner ids — wire-emitted to `<data>` on
-	// `<query>`. Wraps validly when envelope-gated; bare refs are
-	// footguns. CCHQ resolves `instance('search-input:results')`
-	// values at search-fire time.
-	if (searchConfig?.excludedOwnerIds !== undefined) {
-		const refs = findExpressionInputRefs(
-			searchConfig.excludedOwnerIds,
-			"requires-envelope",
-		);
-		for (const ref of refs) {
-			errors.push(
-				buildError({
-					mod,
-					moduleUuid,
-					ref,
-					mode: "requires-envelope",
-					slot: "caseSearchConfig.excludedOwnerIds",
-					adviceSlotName: "the excluded-owner-ids expression",
-				}),
-			);
-		}
-	}
-
 	return errors;
 }
 
@@ -223,7 +226,7 @@ function buildError(args: {
 	const message =
 		mode === "requires-envelope"
 			? `Module "${mod.name}" has a bare \`input("${ref.inputName}")\` reference inside ${slot}${at}. CCHQ's runtime resolves an unset input to the empty string, so the wire would match cases whose property equals "" when the user hasn't typed anything yet — not the "filter only when the input has a value" semantic the authoring shape suggests. Open ${adviceSlotName} and wrap the offending subtree in a \`when-input-present(input("${ref.inputName}"), <subtree>)\` envelope so the runtime short-circuits cleanly on an unset input; alternatively, remove the input reference if the predicate isn't supposed to depend on user input.`
-			: `Module "${mod.name}" references \`input("${ref.inputName}")\` inside ${slot}${at}. The slot's wire-evaluation context fires before any search input is bound — for the default-value expression, the search screen has not yet opened; for the search-button display condition, the user is still on the case list; for a calculated column, the runtime walks each row outside any search context. The reference resolves to the empty string regardless of any \`when-input-present\` envelope, so the slot cannot react to a typed value the way the authoring shape suggests. Open ${adviceSlotName} and remove the input reference; if you need the slot to react to a search input, you likely want a different slot (e.g. \`caseListConfig.filter\` for filtering, or an advanced-arm search-input predicate for input-driven matching).`;
+			: `Module "${mod.name}" references \`input("${ref.inputName}")\` inside ${slot}${at}. This slot can never see a typed search value: a starting-value expression evaluates before the user has typed, so the reference resolves to the empty string — while the search-button display condition and calculated columns evaluate on the ordinary case list, where the search-input data doesn't exist yet and touching it errors the whole screen on a device (no \`when-input-present\` envelope can guard that — the failure happens before the guard runs). Open ${adviceSlotName} and remove the input reference; if you need the slot to react to a search input, you likely want a different slot (e.g. \`caseListConfig.filter\` for filtering, or an advanced-arm search-input predicate for input-driven matching).`;
 	return validationError(
 		"CASE_LIST_BARE_SEARCH_INPUT_REF",
 		"module",

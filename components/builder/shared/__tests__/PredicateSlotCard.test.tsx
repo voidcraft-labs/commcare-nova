@@ -101,7 +101,9 @@ describe("PredicateSlotCard — slot populated", () => {
 			/>,
 		);
 
-		expect(screen.getByLabelText(/^clear filter$/i)).toBeDefined();
+		expect(screen.getByLabelText(/^clear filter$/i).className).toContain(
+			"bg-destructive",
+		);
 		expect(screen.queryByLabelText(/^add filter$/i)).toBeNull();
 	});
 

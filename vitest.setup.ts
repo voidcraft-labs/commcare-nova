@@ -101,7 +101,7 @@ vi.mock("@sentry/nextjs", () => ({
  * assertion that inspects rendered structure changes outcome.
  *
  * The only RUNTIME imports the app pulls from `motion/react` are the
- * `motion` proxy, `AnimatePresence`, `useMotionValue`, and `animate`, so
+ * `motion` proxy, `AnimatePresence`, `useMotionValue`, `useReducedMotion`, and `animate`, so
  * those are the exports the mock provides; `HTMLMotionProps` is type-only
  * (erased at compile time). If a new runtime export is imported without a
  * matching stub added here, it resolves to `undefined` at the import
@@ -245,7 +245,15 @@ vi.mock("motion/react", () => {
 	}
 
 	/** Animation driver stub — resolves nothing, animates nothing. */
-	const animate = () => ({ stop: () => {} });
+	const animate = vi.fn(() => ({ stop: vi.fn() }));
+	/** Tests opt into reduced motion explicitly when that behavior is relevant. */
+	const useReducedMotion = vi.fn(() => false);
 
-	return { motion, AnimatePresence, useMotionValue, animate };
+	return {
+		motion,
+		AnimatePresence,
+		useMotionValue,
+		useReducedMotion,
+		animate,
+	};
 });

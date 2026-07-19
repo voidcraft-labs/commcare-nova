@@ -118,7 +118,7 @@ describe("ExpressionCardEditor — validity propagation", () => {
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
-				constraint={comparisonObjectConstraint("int")}
+				constraint={comparisonObjectConstraint("eq", "int")}
 				onValidityChange={onValidityChange}
 			/>,
 		);
@@ -134,7 +134,7 @@ describe("ExpressionCardEditor — validity propagation", () => {
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
-				constraint={comparisonObjectConstraint("int")}
+				constraint={comparisonObjectConstraint("eq", "int")}
 				onValidityChange={onValidityChange}
 			/>,
 		);

@@ -47,9 +47,15 @@
 //     is well-formed against CCHQ's query-function grammar by the
 //     emitter's contract.
 
+import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
-import { effectiveFilterForEmission } from "@/lib/domain/predicate";
-import type { Predicate } from "@/lib/domain/predicate/types";
+import {
+	effectiveFilterForEmission,
+	substituteUnansweredSearchInputsInExpression,
+	substituteUnansweredSearchInputsInPredicate,
+} from "@/lib/domain/predicate";
+import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 
 /**
  * Compile a module-level `caseListConfig.filter` to the bracketed
@@ -62,15 +68,32 @@ import type { Predicate } from "@/lib/domain/predicate/types";
  * itself, so the case-type qualifier and status filter remain the
  * concern of the session-datum builder.
  */
-export function emitNodesetFilter(filter: Predicate | undefined): string {
-	// `effectiveFilterForEmission` returns the narrowing predicate to
-	// emit, or `undefined` when nothing narrows — an absent filter (most
-	// modules) OR one that reduces to `match-all` (top-level or nested
-	// in an authored `and`). Either way no bracket appends, so the
-	// session-datum nodeset stays at the canonical
-	// `[@case_type='X'][@status='open']` shape rather than a tautological
-	// `[true() and …]`. See `lib/domain/predicate/simplify.ts`.
-	const effective = effectiveFilterForEmission(filter);
+export function emitNodesetFilter(
+	filter: Predicate | undefined,
+	relationContext: RelationEvaluationScopeContext = {},
+): string {
+	// The ordinary case list evaluates before any Search runs, so every
+	// Search-input dependency substitutes to its unanswered reading first
+	// (`when-input-present` envelopes → `match-all`, bare refs → '').
+	// Emitting the `instance('search-input:results')` reference instead
+	// would crash the entry: Core throws `XPathMissingInstanceException`
+	// for the declared-but-unloaded instance before the envelope's own
+	// `if(count(...))` guard can evaluate
+	// (`commcare-core .../org/javarosa/xpath/expr/XPathPathExpr.java::evalRaw`).
+	//
+	// `effectiveFilterForEmission` then returns the narrowing predicate
+	// to emit, or `undefined` when nothing narrows — an absent filter
+	// (most modules) OR one that reduces to `match-all` (top-level,
+	// nested in an authored `and`, or via the substitution above).
+	// Either way no bracket appends, so the session-datum nodeset stays
+	// at the canonical `[@case_type='X'][@status='open']` shape rather
+	// than a tautological `[true() and …]`. See
+	// `lib/domain/predicate/simplify.ts`.
+	const effective = effectiveFilterForEmission(
+		filter === undefined
+			? undefined
+			: substituteUnansweredSearchInputsInPredicate(filter),
+	);
 	if (effective === undefined) return "";
 
 	// Every other predicate (including `match-none`) compiles via
@@ -78,5 +101,100 @@ export function emitNodesetFilter(filter: Predicate | undefined): string {
 	// nodeset position. `match-none` emits as `false()` — wrapped
 	// here as `[false()]`, the wire form that faithfully represents
 	// "match no cases" against the surrounding nodeset.
-	return `[${emitCaseListFilter(effective)}]`;
+	return `[${emitCaseListFilter(effective, undefined, relationContext)}]`;
+}
+
+/**
+ * Compile Nova's owner-exclusion value expression to the bare on-device
+ * predicate used by an ordinary case list. CommCare's `selected()` function
+ * treats the first argument as a space-delimited token list, so negating the
+ * membership check removes only cases whose `@owner_id` is present in the
+ * authored exclusion list.
+ *
+ * Search-input refs never reach this wire surface as instance references.
+ * The ordinary list evaluates before any Search runs, and Core throws
+ * `XPathMissingInstanceException` for the declared-but-unloaded
+ * `search-input:results` instance before ANY enclosing expression — the
+ * blank guard included — can evaluate
+ * (`commcare-core .../org/javarosa/xpath/expr/XPathPathExpr.java::evalRaw`).
+ * So the emitter substitutes the unanswered reading statically (bare refs
+ * → '', envelopes → `match-all`); an exclusion that reduces to the blank
+ * literal emits no fragment at all, because blank means "exclude nobody".
+ *
+ * The runtime blank guard stays load-bearing for values only known at
+ * evaluation time (a missing session-user field, an empty conditional
+ * branch). Core's
+ * `org/javarosa/xpath/expr/XPathSelectedFunc.java::multiSelected`
+ * implements `(" " + s1 + " ").contains(" " + s2.trim() + " ")`, which
+ * makes `selected('', '')` true — without the guard a runtime-blank
+ * exclusion would hide every unassigned case on the ordinary list while
+ * Preview and remote Search parse the blank value as an empty exclusion
+ * set. Whitespace-only has the same identity meaning, hence
+ * `normalize-space(...) = ''`.
+ *
+ * This is deliberately independent of remote case search. CCHQ's
+ * `blacklisted_owner_ids_expression` is a query datum and therefore only
+ * affects results returned by a remote request; Nova also applies the same
+ * authoring intent to the local `casedb` list so entering a module through its
+ * ordinary case-list path cannot reveal a case the search path excludes.
+ */
+export function emitExcludedOwnerFilterExpression(
+	excludedOwnerIds: ValueExpression | undefined,
+	relationContext: RelationEvaluationScopeContext = {},
+): string | undefined {
+	if (excludedOwnerIds === undefined) return undefined;
+	const unanswered =
+		substituteUnansweredSearchInputsInExpression(excludedOwnerIds);
+	if (staticallyBlankExclusion(unanswered)) return undefined;
+	const expression = emitNormalizedExcludedOwnerIdsExpression(
+		unanswered,
+		relationContext,
+	);
+	return `${expression} = '' or not(selected(${expression}, @owner_id))`;
+}
+
+/**
+ * A blank-literal exclusion — the shape a pure Search-answer exclusion
+ * reduces to under the unanswered substitution — matches the runtime
+ * guard's "exclude nobody" arm statically, so no fragment is emitted.
+ */
+function staticallyBlankExclusion(expression: ValueExpression): boolean {
+	return (
+		expression.kind === "term" &&
+		expression.term.kind === "literal" &&
+		String(expression.term.value ?? "").trim() === ""
+	);
+}
+
+/**
+ * Emit the canonical owner-id list shared by every wire consumer.
+ *
+ * Preview trims and splits on whitespace. Core's `selected()` preserves raw
+ * spacing, while CCHQ's remote `SearchCriteria.value_as_list` splits on the
+ * literal space character and can retain empty tokens. Normalizing once in the
+ * emitted XPath makes trailing, repeated, tab, and newline whitespace mean the
+ * same token list on the ordinary case list, local remote request, HQ JSON
+ * upload, and Preview.
+ */
+export function emitNormalizedExcludedOwnerIdsExpression(
+	excludedOwnerIds: ValueExpression,
+	relationContext: RelationEvaluationScopeContext = {},
+): string {
+	return `normalize-space(${emitOnDeviceExpression(
+		excludedOwnerIds,
+		undefined,
+		relationContext,
+	)})`;
+}
+
+/** Bracketed form appended directly to a case-loading datum's nodeset. */
+export function emitExcludedOwnerNodesetFilter(
+	excludedOwnerIds: ValueExpression | undefined,
+	relationContext: RelationEvaluationScopeContext = {},
+): string {
+	const predicate = emitExcludedOwnerFilterExpression(
+		excludedOwnerIds,
+		relationContext,
+	);
+	return predicate === undefined ? "" : `[${predicate}]`;
 }

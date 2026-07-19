@@ -86,9 +86,13 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 		<ContentFrame width="5xl" className="p-6 space-y-4">
 			<div className="flex items-center gap-2">
 				{canEdit ? (
-					<EditableTitle value={mod.name} onSave={saveModuleName} />
+					<EditableTitle
+						value={mod.name}
+						onSave={saveModuleName}
+						ariaLabel="Module name"
+					/>
 				) : (
-					<EditableTitle value={mod.name} readOnly />
+					<EditableTitle value={mod.name} readOnly ariaLabel="Module name" />
 				)}
 				{/* Module-settings gear — the module-level analog of
 				 *  `FormScreen`'s `FormSettingsButton` on the form header.

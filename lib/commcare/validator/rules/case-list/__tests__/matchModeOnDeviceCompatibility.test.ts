@@ -2,25 +2,41 @@
  * Tests for `matchModeOnDeviceCompatibility`. JavaRosa on-device
  * XPath registers `starts-with` but has no entry for `fuzzy-match`,
  * `phonetic-match`, or `fuzzy-date` — those are CCHQ-server-only
- * functions. The rule rejects the three CSQL-only modes on slots
- * that lower to on-device XPath (`caseListConfig.filter` and
- * `caseSearchConfig.searchButtonDisplayCondition`), pointing the
- * author at the advanced-arm search input slot — which routes only
- * through CSQL and admits the full mode set.
+ * functions. The rule inventories every module Predicate/ValueExpression
+ * slot that actually lowers on-device, while leaving an advanced search
+ * input's CSQL-only predicate body alone.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, plainColumn } from "@/lib/domain";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
+import {
+	advancedSearchInputDef,
+	asUuid,
+	calculatedColumn,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import {
 	and,
+	coalesce,
+	count,
 	dateLiteral,
 	eq,
+	gt,
+	ifExpr,
 	literal,
 	match,
+	matchAll,
+	matchNone,
 	not,
+	or,
 	prop,
+	selfPath,
+	subcasePath,
+	term,
 } from "@/lib/domain/predicate";
+import { errorIdentity } from "../../../gate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_MATCH_MODE_NOT_ON_DEVICE" as const;
@@ -69,10 +85,10 @@ describe("matchModeOnDeviceCompatibility", () => {
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("`fuzzy` match");
-		expect(hits[0].message).toContain("caseListConfig.filter");
-		expect(hits[0].message).toContain("advanced-arm");
+		expect(hits[0].message).toContain("Cases available rule");
 		expect(hits[0].details?.mode).toBe("fuzzy");
 		expect(hits[0].details?.property).toBe("case_name");
+		expect(hits[0].details?.surface).toBe("filter");
 	});
 
 	it("fires for phonetic match in caseListConfig.filter", () => {
@@ -193,6 +209,72 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(hits[0].details?.mode).toBe("phonetic");
 	});
 
+	it("fires for a fuzzy match nested in an if condition inside a value expression", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: eq(
+							coalesce(
+								ifExpr(
+									match(prop("patient", "case_name"), "Alice", "fuzzy"),
+									term(literal("yes")),
+									term(literal("no")),
+								),
+								term(literal("fallback")),
+							),
+							literal("yes"),
+						),
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details?.mode).toBe("fuzzy");
+		expect(hits[0].details?.slot).toBe("caseListConfig.filter");
+	});
+
+	it("fires for a phonetic match nested in count.where on the search-button condition", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						searchButtonDisplayCondition: gt(
+							count(
+								selfPath(),
+								match(prop("patient", "case_name"), "Alice", "phonetic"),
+							),
+							literal(0),
+						),
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details?.mode).toBe("phonetic");
+		expect(hits[0].details?.slot).toBe(
+			"caseSearchConfig.searchButtonDisplayCondition",
+		);
+	});
+
 	it("fires for fuzzy match in caseSearchConfig.searchButtonDisplayCondition", () => {
 		const doc = buildDoc({
 			appName: "T",
@@ -218,9 +300,10 @@ describe("matchModeOnDeviceCompatibility", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain(
+		expect(hits[0].details?.slot).toBe(
 			"caseSearchConfig.searchButtonDisplayCondition",
 		);
+		expect(userFacingError(hits[0])).toContain("Search button condition");
 	});
 
 	it("is silent on advanced-arm search input predicates — those route only through CSQL", () => {
@@ -256,7 +339,200 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(hits).toHaveLength(0);
 	});
 
-	it("flags every offending match when multiple appear in one filter", () => {
+	it("rejects a fuzzy match nested in an advanced value expression that CSQL inlines on-device", () => {
+		const inputUuid = asUuid("si-1");
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							{
+								kind: "advanced",
+								uuid: inputUuid,
+								name: "name_q",
+								label: "Name",
+								type: "text",
+								predicate: eq(
+									ifExpr(
+										match(prop("patient", "case_name"), "Alice", "fuzzy"),
+										term(literal("yes")),
+										term(literal("no")),
+									),
+									literal("yes"),
+								),
+							},
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			inputUuid,
+			surface: "advanced-input",
+		});
+		expect(userFacingError(hits[0])).toContain(
+			'The condition for search field "Name"',
+		);
+	});
+
+	it("keeps a fuzzy match inside a native direct-LHS subcase count server-side", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							advancedSearchInputDef(
+								asUuid("si-count"),
+								"child_count",
+								"Matching children",
+								"text",
+								gt(
+									count(
+										subcasePath("parent", "patient"),
+										match(prop("patient", "case_name"), "Alice", "fuzzy"),
+									),
+									literal(0),
+								),
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		expect(runValidation(doc).filter((error) => error.code === CODE)).toEqual(
+			[],
+		);
+	});
+
+	it("normalizes a right-side subcase count before deciding its filter stays server-side", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							advancedSearchInputDef(
+								asUuid("si-count-right"),
+								"child_count_right",
+								"Matching children",
+								"text",
+								eq(
+									literal(0),
+									count(
+										subcasePath("parent", "patient"),
+										match(prop("patient", "case_name"), "Alice", "phonetic"),
+									),
+								),
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		expect(runValidation(doc).filter((error) => error.code === CODE)).toEqual(
+			[],
+		);
+	});
+
+	it("rejects a match inside a count shape that CSQL evaluates on-device", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							advancedSearchInputDef(
+								asUuid("si-runtime-count"),
+								"runtime_count",
+								"Current matches",
+								"text",
+								gt(
+									count(
+										selfPath(),
+										match(prop("patient", "case_name"), "Alice", "fuzzy-date"),
+									),
+									literal(0),
+								),
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			mode: "fuzzy-date",
+			surface: "advanced-input",
+		});
+	});
+
+	it("drops an advanced runtime finding when match-none absorbs the composed CSQL", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: matchNone(),
+						searchInputs: [
+							advancedSearchInputDef(
+								asUuid("si-dead"),
+								"dead_q",
+								"Dead condition",
+								"text",
+								eq(
+									ifExpr(
+										match(prop("patient", "case_name"), "Alice", "fuzzy"),
+										term(literal("yes")),
+										term(literal("no")),
+									),
+									literal("yes"),
+								),
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		expect(runValidation(doc).filter((error) => error.code === CODE)).toEqual(
+			[],
+		);
+	});
+
+	it("reports one actionable finding when multiple offenders share a slot", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -277,9 +553,206 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details?.surface).toBe("filter");
+	});
+
+	it("rejects a nested unsupported match in a runtime calculated field", () => {
+		const columnUuid = asUuid("column-derived");
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(asUuid("c-1"), "case_name", "Name"),
+							calculatedColumn(
+								columnUuid,
+								"Name quality",
+								ifExpr(
+									match(prop("patient", "case_name"), "Alice", "phonetic"),
+									term(literal("close")),
+									term(literal("different")),
+								),
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			columnLabel: "Name quality",
+			columnUuid,
+			surface: "calculated-column",
+		});
+		expect(userFacingError(hits[0])).toContain(
+			'The calculation for field "Name quality"',
+		);
+		expect(userFacingError(hits[0])).not.toContain("advanced search");
+	});
+
+	it("ignores a fully off-screen unsorted calculated definition", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(asUuid("c-1"), "case_name", "Name"),
+							calculatedColumn(
+								asUuid("column-retired"),
+								"Retired",
+								ifExpr(
+									match(prop("patient", "case_name"), "Alice", "fuzzy"),
+									term(literal("yes")),
+									term(literal("no")),
+								),
+								{ visibleInList: false, visibleInDetail: false },
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		expect(runValidation(doc).filter((error) => error.code === CODE)).toEqual(
+			[],
+		);
+	});
+
+	it("rejects nested unsupported matches in every search-input default", () => {
+		const simpleUuid = asUuid("input-simple");
+		const advancedUuid = asUuid("input-advanced");
+		const unsupportedDefault = ifExpr(
+			match(prop("patient", "case_name"), "Alice", "fuzzy"),
+			term(literal("Alice")),
+			term(literal("")),
+		);
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								simpleUuid,
+								"name_q",
+								"Client name",
+								"text",
+								"case_name",
+								{ default: unsupportedDefault },
+							),
+							advancedSearchInputDef(
+								advancedUuid,
+								"advanced_q",
+								"Similar name",
+								"text",
+								match(prop("patient", "case_name"), "Bob", "phonetic"),
+								{ default: unsupportedDefault },
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		const hits = runValidation(doc).filter((error) => error.code === CODE);
 		expect(hits).toHaveLength(2);
-		const modes = hits.map((h) => h.details?.mode).sort();
-		expect(modes).toEqual(["fuzzy", "phonetic"]);
+		expect(hits.map((hit) => hit.details?.inputUuid)).toEqual([
+			simpleUuid,
+			advancedUuid,
+		]);
+		expect(
+			hits.every((hit) => hit.details?.surface === "search-input-default"),
+		).toBe(true);
+		expect(userFacingError(hits[1])).toContain(
+			'The default for search field "Similar name"',
+		);
+
+		const moved = {
+			...hits[1],
+			details: {
+				...hits[1].details,
+				slot: "caseListConfig.searchInputs[99].default",
+			},
+		};
+		expect(errorIdentity(moved)).toBe(errorIdentity(hits[1]));
+	});
+
+	it("rejects a nested unsupported match in the assigned-cases expression", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						excludedOwnerIds: ifExpr(
+							match(prop("patient", "case_name"), "Alice", "fuzzy"),
+							term(literal("owner-a")),
+							term(literal("")),
+						),
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details?.surface).toBe("excluded-owner-ids");
+		expect(userFacingError(hits[0])).toContain("assigned cases setting");
+	});
+
+	it("ignores matches removed from filter and button conditions by wire simplification", () => {
+		const dead = or(
+			matchAll(),
+			match(prop("patient", "case_name"), "Alice", "fuzzy"),
+		);
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: dead,
+						searchInputs: [],
+					},
+					caseSearchConfig: { searchButtonDisplayCondition: dead },
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+
+		expect(runValidation(doc).filter((error) => error.code === CODE)).toEqual(
+			[],
+		);
 	});
 
 	it("short-circuits when neither on-device-lowering slot is present", () => {

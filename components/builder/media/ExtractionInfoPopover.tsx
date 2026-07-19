@@ -9,23 +9,16 @@
 
 import { InfoPopover } from "@/components/builder/InfoPopover";
 
-/**
- * `className` sizes the trigger (forwarded to the shared `InfoPopover`), so
- * callers can shrink it to fit a tight host — e.g. `size-3` to sit inside a
- * Badge without widening it. Defaults to `size-4`.
- */
-export function ExtractionInfoPopover({ className }: { className?: string }) {
+export function ExtractionInfoPopover() {
 	return (
 		<InfoPopover
 			title="What Nova reads"
 			ariaLabel="What does Nova read from a document?"
-			className={className}
 		>
-			Nova reads a structured <span className="text-nova-text">extract</span> of
-			each document — the requirements it can pull out — and works from that,
-			not the raw file. Open any document and switch to{" "}
+			Nova creates a structured summary of each document and works from that
+			summary, not the raw file. Open any document and switch to{" "}
 			<span className="text-nova-text">What Nova reads</span> to see exactly
-			what it got. If something's missing there, add it in the chat.
+			what Nova found. If something's missing, tell Nova in chat.
 		</InfoPopover>
 	);
 }

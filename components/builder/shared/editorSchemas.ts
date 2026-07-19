@@ -41,13 +41,14 @@ import tablerTextRecognition from "@iconify-icons/tabler/text-recognition";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import type { ComponentType } from "react";
 import type { CaseProperty, CaseType } from "@/lib/domain";
-import { isOrdered, isTextShaped } from "@/lib/domain";
+import { effectiveDataType, isOrdered, isTextShaped } from "@/lib/domain";
 import {
+	acceptsType,
 	matchAll as buildMatchAll,
 	matchNone as buildMatchNone,
 	type ComparisonKind,
+	inSubjectConstraint,
 	type Predicate,
-	type SearchInputDecl,
 	type SlotConstraint,
 } from "@/lib/domain/predicate";
 import { BetweenCard, betweenDefault } from "./cards/BetweenCard";
@@ -76,6 +77,9 @@ import {
 	WithinDistanceCard,
 	withinDistanceDefault,
 } from "./cards/WithinDistanceCard";
+import { hasConditionSeed } from "./conditionSeed";
+import { hasRelatedCaseType } from "./relationSeed";
+import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -88,7 +92,7 @@ import {
 export interface PredicateEditContext {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
-	readonly knownInputs: readonly SearchInputDecl[];
+	readonly knownInputs: readonly EditorSearchInputDecl[];
 }
 
 /**
@@ -124,6 +128,9 @@ type PredicateOfKind<K extends Predicate["kind"]> = [
  */
 export interface PredicateCardSchema<K extends Predicate["kind"]> {
 	readonly kind: K;
+	/** Product-level vocabulary boundary. `roundTripOnly` predicates remain
+	 * fully editable when imported, but no add/change surface may create one. */
+	readonly authoring: "authorable" | "roundTripOnly";
 	readonly label: string;
 	readonly icon: IconifyIcon;
 	readonly description: string;
@@ -157,6 +164,13 @@ function hasAnyProperty(ctx: PredicateEditContext): boolean {
 	return ct !== undefined && ct.properties.length > 0;
 }
 
+function hasMembershipProperty(ctx: PredicateEditContext): boolean {
+	const constraint = inSubjectConstraint();
+	return hasPropertyOfType(ctx, (property) =>
+		acceptsType(constraint, effectiveDataType(property)),
+	);
+}
+
 function hasPropertyOfType(
 	ctx: PredicateEditContext,
 	predicate: (p: CaseProperty) => boolean,
@@ -164,6 +178,43 @@ function hasPropertyOfType(
 	const ct = getCurrentCaseType(ctx);
 	if (ct === undefined) return false;
 	return ct.properties.some(predicate);
+}
+
+/** Actionable copy for condition choices that cannot yet produce a valid
+ * predicate in the current scope. Menus share this wording so authors never
+ * get a generic search-field instruction for an unrelated case relationship
+ * or data-type requirement. */
+export function predicateUnavailableReason(
+	kind: Predicate["kind"],
+	ctx: PredicateEditContext,
+): string {
+	switch (kind) {
+		case "exists":
+		case "missing":
+			return "Add a parent or child case type first";
+		case "when-input-present":
+			return ctx.knownInputs.length === 0
+				? "Add a search field first"
+				: "Add case information or a related case type first";
+		case "and":
+		case "or":
+		case "not":
+			return "Add case information or a related case type first";
+		case "lt":
+		case "lte":
+		case "gt":
+		case "gte":
+		case "between":
+			return "Add number, date, or time case information first";
+		case "multi-select-contains":
+			return "Add case information with multiple choices first";
+		case "within-distance":
+			return "Add location case information first";
+		case "match":
+			return "Add text, choice, date, or time case information first";
+		default:
+			return "Add case information first";
+	}
 }
 
 // ── Registry ────────────────────────────────────────────────────────────
@@ -189,6 +240,7 @@ export const predicateCardSchemas: {
 	// ── Comparison (6 kinds, one card) ──────────────────────────────
 	eq: {
 		kind: "eq",
+		authoring: "authorable",
 		label: "Is",
 		icon: tablerEqual,
 		description: "The property is exactly a value",
@@ -198,7 +250,8 @@ export const predicateCardSchemas: {
 	},
 	neq: {
 		kind: "neq",
-		label: "Is not",
+		authoring: "authorable",
+		label: "Isn’t",
 		icon: tablerEqualNot,
 		description: "The property is anything except a value",
 		component: ComparisonCard,
@@ -207,15 +260,17 @@ export const predicateCardSchemas: {
 	},
 	lt: {
 		kind: "lt",
+		authoring: "authorable",
 		label: "Is less than",
 		icon: tablerMathLower,
-		description: "Below a value — ordered by number or date",
+		description: "Below a number or date",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("lt", ctx),
 		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
 	},
 	lte: {
 		kind: "lte",
+		authoring: "authorable",
 		label: "Is at most",
 		icon: tablerMathLower,
 		description: "A value or below",
@@ -225,15 +280,17 @@ export const predicateCardSchemas: {
 	},
 	gt: {
 		kind: "gt",
+		authoring: "authorable",
 		label: "Is more than",
 		icon: tablerMathGreater,
-		description: "Above a value — ordered by number or date",
+		description: "Above a number or date",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("gt", ctx),
 		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
 	},
 	gte: {
 		kind: "gte",
+		authoring: "authorable",
 		label: "Is at least",
 		icon: tablerMathGreater,
 		description: "A value or above",
@@ -245,18 +302,20 @@ export const predicateCardSchemas: {
 	// ── Membership / range ──────────────────────────────────────────
 	in: {
 		kind: "in",
+		authoring: "authorable",
 		label: "Is any of",
 		icon: tablerListCheck,
 		description: "Matches one value from a list",
 		component: InCard,
 		defaultValue: inDefault,
-		applicable: hasAnyProperty,
+		applicable: hasMembershipProperty,
 	},
 	between: {
 		kind: "between",
+		authoring: "authorable",
 		label: "Is between",
 		icon: tablerArrowsHorizontal,
-		description: "Falls inside a range — either end optional",
+		description: "Falls inside a range with either end left open if needed",
 		component: BetweenCard,
 		defaultValue: betweenDefault,
 		applicable: (ctx) => hasPropertyOfType(ctx, isOrdered),
@@ -265,9 +324,10 @@ export const predicateCardSchemas: {
 	// ── Multi-select containment ────────────────────────────────────
 	"multi-select-contains": {
 		kind: "multi-select-contains",
+		authoring: "authorable",
 		label: "Includes options",
 		icon: tablerCheckbox,
-		description: "A multi-choice list includes any (or all) of the options",
+		description: "Includes one or every option you choose",
 		component: MultiSelectContainsCard,
 		defaultValue: multiSelectContainsDefault,
 		applicable: (ctx) =>
@@ -277,9 +337,11 @@ export const predicateCardSchemas: {
 	// ── Text match (4 modes, one card) ──────────────────────────────
 	match: {
 		kind: "match",
+		authoring: "authorable",
 		label: "Matches text",
 		icon: tablerTextRecognition,
-		description: "Fuzzy, starts-with, or sounds-like matching",
+		description:
+			"Match by similar spelling, the beginning of text, sound, or a flexible date",
 		component: MatchCard,
 		defaultValue: matchDefault,
 		applicable: (ctx) =>
@@ -295,6 +357,7 @@ export const predicateCardSchemas: {
 	// ── Geo ─────────────────────────────────────────────────────────
 	"within-distance": {
 		kind: "within-distance",
+		authoring: "authorable",
 		label: "Is near",
 		icon: tablerMapPin,
 		description: "Within a distance of a place",
@@ -307,18 +370,20 @@ export const predicateCardSchemas: {
 	// ── Null / blank ─────────────────────────────────────────────────
 	"is-null": {
 		kind: "is-null",
+		authoring: "roundTripOnly",
 		label: "Was never recorded",
 		icon: tablerCircleDashed,
-		description: "Strictly absent — an empty value still counts as recorded",
+		description: "The value was never recorded; an empty value still counts",
 		component: IsNullCard,
 		defaultValue: isNullDefault,
 		applicable: hasAnyProperty,
 	},
 	"is-blank": {
 		kind: "is-blank",
+		authoring: "authorable",
 		label: "Is blank",
 		icon: tablerCircleOff,
-		description: "Empty, or missing entirely",
+		description: "Empty or missing entirely",
 		component: IsBlankCard,
 		defaultValue: isBlankDefault,
 		applicable: hasAnyProperty,
@@ -327,18 +392,20 @@ export const predicateCardSchemas: {
 	// ── Sentinels ────────────────────────────────────────────────────
 	"match-all": {
 		kind: "match-all",
-		label: "Always true",
+		authoring: "authorable",
+		label: "Always match",
 		icon: tablerAsterisk,
-		description: "Always passes — a placeholder to build from",
+		description: "Let everything pass this condition",
 		component: MatchAllCard,
 		defaultValue: () => buildMatchAll(),
 		applicable: () => true,
 	},
 	"match-none": {
 		kind: "match-none",
-		label: "Always false",
+		authoring: "authorable",
+		label: "Never match",
 		icon: tablerSlash,
-		description: "Never passes — an explicit off switch",
+		description: "Let nothing pass this condition",
 		component: MatchNoneCard,
 		defaultValue: () => buildMatchNone(),
 		applicable: () => true,
@@ -347,61 +414,67 @@ export const predicateCardSchemas: {
 	// ── Logical groups (and / or / not, one card) ───────────────────
 	and: {
 		kind: "and",
-		label: "All of these",
+		authoring: "authorable",
+		label: "All conditions match",
 		icon: tablerLogicAnd,
-		description: "A group — every condition inside must match",
+		description: "Group conditions so every condition must match",
 		component: LogicalGroupCard,
 		defaultValue: andDefault,
-		applicable: () => true,
+		applicable: hasConditionSeed,
 	},
 	or: {
 		kind: "or",
-		label: "Any of these",
+		authoring: "authorable",
+		label: "Any condition matches",
 		icon: tablerLogicOr,
-		description: "A group — at least one condition inside must match",
+		description: "Group conditions so at least one condition must match",
 		component: LogicalGroupCard,
 		defaultValue: orDefault,
-		applicable: () => true,
+		applicable: hasConditionSeed,
 	},
 	not: {
 		kind: "not",
-		label: "Not",
+		authoring: "authorable",
+		label: "Exclude when",
 		icon: tablerLogicNot,
-		description: "Flips the condition inside — matches when it doesn't",
+		description: "Exclude cases when the condition inside matches",
 		component: LogicalGroupCard,
 		defaultValue: notDefault,
-		applicable: () => true,
+		applicable: hasConditionSeed,
 	},
 
 	// ── Conditional ──────────────────────────────────────────────────
 	"when-input-present": {
 		kind: "when-input-present",
-		label: "When a search field is filled",
+		authoring: "authorable",
+		label: "After a search answer",
 		icon: tablerFilter,
-		description: "Applies the condition inside only while a field has a value",
+		description: "Apply the condition only after a search field has an answer",
 		component: WhenInputPresentCard,
 		defaultValue: whenInputPresentDefault,
-		applicable: (ctx) => ctx.knownInputs.length > 0,
+		applicable: (ctx) => ctx.knownInputs.length > 0 && hasConditionSeed(ctx),
 	},
 
 	// ── Relational quantifiers ──────────────────────────────────────
 	exists: {
 		kind: "exists",
+		authoring: "authorable",
 		label: "Has a related case",
 		icon: tablerLink,
-		description: "At least one connected case satisfies a condition",
+		description: "Require at least one connected case to match",
 		component: ExistsCard,
-		defaultValue: () => existsDefault(),
-		applicable: () => true,
+		defaultValue: existsDefault,
+		applicable: hasRelatedCaseType,
 	},
 	missing: {
 		kind: "missing",
-		label: "No related case",
+		authoring: "authorable",
+		label: "Has no related case",
 		icon: tablerUnlink,
-		description: "No related case satisfies a condition",
+		description: "Require that no connected case matches",
 		component: ExistsCard,
-		defaultValue: () => missingDefault(),
-		applicable: () => true,
+		defaultValue: missingDefault,
+		applicable: hasRelatedCaseType,
 	},
 };
 
@@ -414,3 +487,10 @@ export const predicateCardSchemaList: readonly PredicateCardSchema<
 >[] = Object.values(predicateCardSchemas) as readonly PredicateCardSchema<
 	Predicate["kind"]
 >[];
+
+/** Product-level authoring boundary shared by every predicate add/change
+ * menu. Callers keep the current round-trip-only kind visible as a recovery
+ * source, but exclude it from every new-target list. */
+export function isAuthorablePredicateKind(kind: Predicate["kind"]): boolean {
+	return predicateCardSchemas[kind].authoring === "authorable";
+}

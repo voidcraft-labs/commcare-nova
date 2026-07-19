@@ -21,10 +21,10 @@ export const POPOVER_GLASS =
 
 /** Base classes shared by every menu item (normal, disabled, submenu trigger). */
 export const MENU_ITEM_BASE =
-	"flex w-full items-center gap-2.5 px-3 py-2 text-sm outline-none select-none transition-colors";
+	"flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm outline-none select-none transition-colors";
 
 /** Interactive item: subtle highlight on hover / keyboard focus. */
-export const MENU_ITEM_CLS = `${MENU_ITEM_BASE} text-nova-text cursor-pointer data-[highlighted]:bg-white/[0.06]`;
+export const MENU_ITEM_CLS = `${MENU_ITEM_BASE} cursor-pointer text-nova-text data-[highlighted]:bg-white/[0.06] data-disabled:cursor-not-allowed data-disabled:opacity-40`;
 
 /** Disabled item: muted and non-interactive. */
 export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-40 cursor-not-allowed`;
@@ -39,7 +39,7 @@ export const MENU_SUBMENU_POSITIONER_CLS =
 
 /** Popup animation — scale + fade entrance/exit via Base UI data attributes. */
 export const MENU_POPUP_CLS =
-	"overflow-hidden rounded-xl origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
+	"overflow-hidden rounded-xl p-1 origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 /* ── Base UI Popover shared styles ────────────────────────────────────────
  * Same glass/elevated surface split as menus (see constraint above). */

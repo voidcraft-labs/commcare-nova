@@ -19,9 +19,10 @@
 // reason id-mapping uses them: tables are short and authored once.
 
 "use client";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
-import { nodeId } from "@/components/builder/shared/nodeIdentity";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
+import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
 import {
 	type Column,
 	type ImageMapEntry,
@@ -35,6 +36,7 @@ import {
 	MappingEmptyNotice,
 	MappingRowShell,
 	MappingSectionLabel,
+	useMappingRemovalFocus,
 } from "./mappingChrome";
 
 interface ImageMapColumnCardProps {
@@ -49,10 +51,14 @@ export function ImageMapColumnCard({
 	onChange,
 	errors,
 }: ImageMapColumnCardProps) {
+	const { rootRef, removeWithFocus } = useMappingRemovalFocus();
+	const rowIdentity = useStableListIdentity(value.mapping);
 	const slots = {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -68,14 +74,22 @@ export function ImageMapColumnCard({
 		);
 
 	const updateEntry = (index: number, patch: Partial<ImageMapEntry>) => {
-		const next = value.mapping.map((entry, i) =>
-			i === index ? { ...entry, ...patch } : entry,
+		const next = value.mapping.map((entry, entryIndex) =>
+			entryIndex === index ? { ...entry, ...patch } : entry,
 		);
+		rowIdentity.stage(next, { kind: "replace" });
 		setMapping(next);
 	};
 
 	const removeEntry = (index: number) => {
-		setMapping(value.mapping.filter((_, i) => i !== index));
+		const next = value.mapping.filter((_, i) => i !== index);
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index,
+			deleteCount: 1,
+			insertCount: 0,
+		});
+		setMapping(next);
 	};
 
 	const moveEntry = (from: number, to: number) => {
@@ -85,6 +99,11 @@ export function ImageMapColumnCard({
 		const next = [...value.mapping];
 		const [moved] = next.splice(from, 1);
 		next.splice(to, 0, moved);
+		rowIdentity.stage(next, {
+			kind: "move",
+			fromIndex: from,
+			toIndex: to,
+		});
 		setMapping(next);
 	};
 
@@ -93,11 +112,18 @@ export function ImageMapColumnCard({
 		// `SingleAssetSlot` shows the "+ Image" pill until the author
 		// picks one; the schema's required `assetId` keeps the column
 		// flagged incomplete (via the validity propagator) until then.
-		setMapping([...value.mapping, imageMapEntry("", "")]);
+		const next = [...value.mapping, imageMapEntry("", "")];
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index: value.mapping.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
+		setMapping(next);
 	};
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-4">
 			<ColumnFieldRow
 				field={value.field}
 				onFieldChange={setField}
@@ -105,31 +131,28 @@ export function ImageMapColumnCard({
 				onHeaderChange={setHeader}
 				errors={errors}
 			/>
-			<div className="space-y-1.5">
+			<div ref={rootRef} className="space-y-3 [&_input]:!text-[14px]">
 				<MappingSectionLabel />
 				{value.mapping.length === 0 && (
 					<MappingEmptyNotice>
-						No entries yet — rows show no image until you give a value one.
+						Add a value and image to show images in this field
 					</MappingEmptyNotice>
 				)}
 				{value.mapping.map((entry, i) => (
 					<MappingRow
-						// Per-entry identity from `nodeId(entry)` — the same
-						// WeakMap-backed reference-identity scheme `IdMappingCard`
-						// uses, so a remove of an earlier row doesn't shift another
-						// row's draft into its slot.
-						key={nodeId(entry)}
+						// Clone-safe sidecar identity preserves same-slot edits,
+						// moves with reorders, and mints only for true inserts. Row
+						// draft and media state follow the authored entry.
+						key={rowIdentity.keys[i]}
 						index={i}
 						entry={entry}
-						// Staged-upload identity: the column's uuid + the row's
-						// position. Positional because a mapping entry has no stable
-						// id of its own; the rows are short, authored once, and
-						// rarely reordered mid-upload.
-						slotKey={`imagemap:${value.uuid}:${i}`}
+						// Keep an in-flight picker/upload bound to this entry even
+						// when the author reorders the mapping while it is open.
+						slotKey={`imagemap:${value.uuid}:${rowIdentity.keys[i]}`}
 						isFirst={i === 0}
 						isLast={i === value.mapping.length - 1}
 						onUpdate={(patch) => updateEntry(i, patch)}
-						onRemove={() => removeEntry(i)}
+						onRemove={() => removeWithFocus(i, () => removeEntry(i))}
 						onMoveUp={() => moveEntry(i, i - 1)}
 						onMoveDown={() => moveEntry(i, i + 1)}
 					/>
@@ -177,23 +200,17 @@ function MappingRow({
 			onMoveDown={onMoveDown}
 			onRemove={onRemove}
 		>
-			<div className="grid grid-cols-2 gap-2">
+			<div className="grid grid-cols-1 gap-3">
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Value
-					</div>
+					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
 					<BlurCommitTextInput
 						value={entry.value}
 						onCommit={(next) => onUpdate({ value: next })}
-						placeholder="Property value"
-						ariaLabel={`Mapping ${index + 1} value`}
-						monospace
+						ariaLabel={`Value ${index + 1} saved value`}
 					/>
 				</div>
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Image
-					</div>
+					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Image shown</div>
 					{/* `assetId` is stored as a string; an empty string is the
 					 *  unfilled state (slot shows the "+ Image" pill). Clearing
 					 *  maps `undefined` back to "" so the row stays present. */}
@@ -202,7 +219,7 @@ function MappingRow({
 						onChange={(next) => onUpdate({ assetId: next ?? "" })}
 						kind="image"
 						slotKey={slotKey}
-						ariaLabel={`Mapping ${index + 1} image`}
+						ariaLabel={`Value ${index + 1} image`}
 					/>
 				</div>
 			</div>

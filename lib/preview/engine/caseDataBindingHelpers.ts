@@ -31,6 +31,7 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	CaseUpdate,
+	TermBindings,
 } from "@/lib/case-store";
 import { withProjectContext } from "@/lib/case-store";
 import {
@@ -40,14 +41,22 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
-import { bySortKey } from "@/lib/doc/order/compare";
-import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
+import { byListColumnOrder } from "@/lib/doc/order/compare";
+import {
+	type CaseListConfig,
+	type CaseType,
+	type Column,
+	caseListColumnHasRuntimeRole,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import {
 	ancestorPath,
-	and,
 	eq,
+	isIn,
+	isNull,
 	literal,
+	not,
+	or,
 	prop,
 	relationStep,
 	term,
@@ -56,9 +65,9 @@ import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
 import { log } from "@/lib/logger";
 import type {
+	CaseQueryConstraintSource,
 	JsonObject,
 	LoadCaseDataResult,
-	LoadCaseListPreviewResult,
 	LoadCasesResult,
 	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
@@ -66,8 +75,10 @@ import type {
 	SubmissionResult,
 } from "./caseDataBindingTypes";
 import {
+	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
 	type SearchInputValues,
+	withSearchInputExpressionValues,
 } from "./runtimeBindings";
 
 /**
@@ -78,11 +89,22 @@ import {
  */
 export const SAMPLE_CASE_DEFAULT_COUNT = 30;
 
+/** Narrow and discard legacy calculated definitions that are neither shown
+ * nor used for ordering. Keeping this as a real type predicate lets the
+ * case-store receive the calculated-column arm rather than the broad union. */
+function isRuntimeCalculatedColumn(
+	column: Column,
+): column is Extract<Column, { kind: "calculated" }> {
+	return column.kind === "calculated" && caseListColumnHasRuntimeRole(column);
+}
+
 /**
- * Read every row of a case type for the bound tenant, projecting
- * each `caseListConfig.columns` calc-arm column's expression as a
- * SELECT slot. `empty` surfaces the "Generate sample data"
- * affordance.
+ * Read an optional bounded window of one case type for the bound tenant,
+ * projecting each `caseListConfig.columns` calc-arm column's expression as a
+ * SELECT slot. Running Results always supplies a page; raw helper consumers
+ * may omit it for their legacy unpaged read. An empty bounded worker query
+ * also reports the authored-only population so the UI can name Search versus
+ * Cases available as the real cause.
  *
  * The running-app case-list shows the live module's
  * `caseListConfig.columns`, including `kind: "calculated"` columns.
@@ -110,6 +132,9 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * that flows to `store.query(...)`. The per-arm dispatch (simple-arm
  * modes, advanced-arm substitution, range, multi-select-contains)
  * lives in `composeRuntimeFilter` in `./runtimeBindings.ts`.
+ * `excludedOwnerIds` is the already-evaluated advanced search value. It joins
+ * that same predicate rather than being post-filtered in JavaScript, so limits,
+ * sort order, and empty-state semantics all see the truthful population.
  */
 export async function readCases(
 	store: CaseStore,
@@ -119,44 +144,175 @@ export async function readCases(
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
 		inputValues?: SearchInputValues;
+		bindings?: TermBindings;
+		excludedOwnerIds?: readonly string[];
+		authoredExcludedOwnerIds?: readonly string[];
+		page?: { offset: number; limit: number };
 	},
 ): Promise<LoadCasesResult> {
-	const rows = await store.query({
+	const composedQuery = composeQueryPredicate(
+		args.caseListConfig,
+		args.inputValues,
+		args.caseType,
+		args.caseTypeSchemas,
+		args.excludedOwnerIds,
+		args.authoredExcludedOwnerIds,
+	);
+	const page = normalizeCaseListPage(args.page);
+	const countArgs = {
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
-		predicate: composeQueryPredicate(
-			args.caseListConfig,
-			args.inputValues,
-			args.caseType,
-		),
-		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
-		calculated: args.caseListConfig?.columns.filter(
-			(col) => col.kind === "calculated",
-		),
+		bindings: args.bindings,
+		predicate: composedQuery.predicate,
+	};
+	let totalCount =
+		page === undefined ? undefined : await store.count(countArgs);
+	if (page !== undefined && totalCount === 0) {
+		const authoredMatchingCount =
+			composedQuery.constraintSource === "worker-search"
+				? await countAuthoredCasePopulation(store, args)
+				: undefined;
+		return {
+			kind: "empty",
+			constraintSource: composedQuery.constraintSource,
+			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+		};
+	}
+	let pageOffset =
+		page === undefined || totalCount === undefined
+			? (page?.offset ?? 0)
+			: Math.min(
+					page.offset,
+					Math.floor((totalCount - 1) / page.limit) * page.limit,
+				);
+	const queryAtOffset = (offset: number) =>
+		store.query({
+			appId: args.appId,
+			caseType: args.caseType,
+			caseTypeSchemas: args.caseTypeSchemas,
+			bindings: args.bindings,
+			predicate: composedQuery.predicate,
+			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
+			calculated: args.caseListConfig?.columns.filter(
+				isRuntimeCalculatedColumn,
+			),
+			limit: page?.limit,
+			offset: page === undefined ? undefined : offset,
+		});
+	let rows = await queryAtOffset(pageOffset);
+
+	// COUNT and SELECT are intentionally separate, so a delete can remove the
+	// last row from the counted page between them. Recount and reclamp exactly
+	// once before calling the population empty: this repairs the common stale
+	// final-page race while preserving the caller's normalized limit and cannot
+	// spin under a continuously mutating dataset.
+	if (
+		page !== undefined &&
+		totalCount !== undefined &&
+		totalCount > 0 &&
+		rows.length === 0
+	) {
+		totalCount = await store.count(countArgs);
+		if (totalCount > 0) {
+			pageOffset = Math.min(
+				page.offset,
+				Math.floor((totalCount - 1) / page.limit) * page.limit,
+			);
+			rows = await queryAtOffset(pageOffset);
+		}
+	}
+	if (rows.length === 0) {
+		const authoredMatchingCount =
+			composedQuery.constraintSource === "worker-search"
+				? await countAuthoredCasePopulation(store, args)
+				: undefined;
+		return {
+			kind: "empty",
+			constraintSource: composedQuery.constraintSource,
+			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+		};
+	}
+	return {
+		kind: "rows",
+		rows,
+		constraintSource: composedQuery.constraintSource,
+		...(page !== undefined && {
+			totalCount: totalCount ?? rows.length,
+			pageOffset,
+			pageSize: page.limit,
+		}),
+	};
+}
+
+/** A crafted Server Action payload must not turn a bounded Results read back
+ * into an unbounded scan. Fifty is the normal UI page; one hundred leaves room
+ * for future denser layouts without making the client the resource authority. */
+const CASE_LIST_PAGE_LIMIT_CEILING = 100;
+
+function normalizeCaseListPage(
+	page: { readonly offset: number; readonly limit: number } | undefined,
+): { readonly offset: number; readonly limit: number } | undefined {
+	if (page === undefined) return undefined;
+	const limit = Number.isFinite(page.limit)
+		? Math.min(
+				CASE_LIST_PAGE_LIMIT_CEILING,
+				Math.max(1, Math.floor(page.limit)),
+			)
+		: 1;
+	const offset = Number.isFinite(page.offset)
+		? Math.max(0, Math.floor(page.offset))
+		: 0;
+	return { offset, limit };
+}
+
+/** Count the population that authored availability alone permits. This is the
+ * causal boundary for an empty worker Search: if this is already zero, telling
+ * the worker to clear Search is false because no Search answer can reveal a
+ * row until the authored rule changes. */
+async function countAuthoredCasePopulation(
+	store: CaseStore,
+	args: {
+		readonly appId: string;
+		readonly caseType: string;
+		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+		readonly caseListConfig?: CaseListConfig;
+		readonly bindings?: TermBindings;
+		readonly authoredExcludedOwnerIds?: readonly string[];
+	},
+): Promise<number> {
+	const authoredQuery = composeQueryPredicate(
+		args.caseListConfig,
+		undefined,
+		args.caseType,
+		args.caseTypeSchemas,
+		args.authoredExcludedOwnerIds,
+		args.authoredExcludedOwnerIds,
+	);
+	return store.count({
+		appId: args.appId,
+		caseType: args.caseType,
+		caseTypeSchemas: args.caseTypeSchemas,
+		bindings: args.bindings,
+		predicate: authoredQuery.predicate,
 	});
-	if (rows.length === 0) return { kind: "empty" };
-	return { kind: "rows", rows };
 }
 
 /**
  * Compose the predicate that flows to `store.query(...)` from the
- * always-on `caseListConfig.filter` slot and the per-input runtime
- * contributions. The two sources collapse into one predicate so the
- * case-store sees a single WHERE clause regardless of how many
- * surfaces contributed.
+ * always-on `caseListConfig.filter` slot, per-input runtime contributions, and
+ * the optional excluded-owner set. The sources collapse into one predicate so
+ * the case-store sees a single WHERE clause regardless of how many surfaces
+ * contributed.
  *
  * Short-circuit policy:
  *
- *   - `caseListConfig === undefined` — the raw-row read path. No
- *     filter, no inputs; return `undefined` and the case-store falls
- *     through to the unfiltered scan.
+ *   - No config and no excluded owners — the raw-row read path; return
+ *     `undefined` and the case-store falls through to the unfiltered scan.
  *   - `caseListConfig.searchInputs.length === 0` OR `inputValues`
- *     absent — no runtime contribution. Just the base filter (the
- *     Filters / Display previews and the calc surface call `readCases`
- *     without `inputValues`, so this is the branch they take).
- *   - Both slots populated — AND the base filter with the runtime
- *     filter.
+ *     absent — no prompt contribution. The base filter and owner exclusion
+ *     still apply.
+ *   - Multiple populated sources — AND every effective predicate together.
  *
  * Either way the result runs through `effectiveFilterForEmission`, so a
  * `match-all` — top-level OR nested inside an authored `and` — folds to
@@ -165,103 +321,148 @@ export async function readCases(
  * the same "match-all ≡ no filter" decision the wire emitters apply, so
  * preview and export agree on the effective filter.
  */
+interface ComposedCaseQuery {
+	readonly predicate: Predicate | undefined;
+	readonly constraintSource: CaseQueryConstraintSource;
+}
+
 function composeQueryPredicate(
 	caseListConfig: CaseListConfig | undefined,
 	inputValues: SearchInputValues | undefined,
 	caseType: string,
-): Predicate | undefined {
-	if (caseListConfig === undefined) return undefined;
-	const baseFilter = caseListConfig.filter;
-	if (inputValues === undefined || caseListConfig.searchInputs.length === 0) {
-		return effectiveFilterForEmission(baseFilter);
+	caseTypeSchemas: ReadonlyMap<string, CaseType> | undefined,
+	excludedOwnerIds: readonly string[] | undefined,
+	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
+): ComposedCaseQuery {
+	const clauses: Predicate[] = [];
+	let hasAuthoredConstraint = false;
+	let hasWorkerConstraint = false;
+	const knownInputNames = new Set(
+		caseListConfig?.searchInputs.map((input) => input.name) ?? [],
+	);
+	const emptyExpressionInputValues =
+		caseListConfig === undefined
+			? undefined
+			: withSearchInputExpressionValues(caseListConfig.searchInputs, new Map());
+	const expressionInputValues =
+		caseListConfig !== undefined && inputValues !== undefined
+			? withSearchInputExpressionValues(
+					caseListConfig.searchInputs,
+					inputValues,
+				)
+			: emptyExpressionInputValues;
+	const authoredFilter =
+		caseListConfig?.filter !== undefined && expressionInputValues !== undefined
+			? bindSearchInputValuesInPredicate(
+					caseListConfig.filter,
+					expressionInputValues,
+					knownInputNames,
+					caseListConfig.searchInputs,
+				)
+			: caseListConfig?.filter;
+	const baseFilter = effectiveFilterForEmission(authoredFilter);
+	if (baseFilter !== undefined) {
+		clauses.push(baseFilter);
+		const filterWithoutWorkerValues =
+			caseListConfig?.filter !== undefined &&
+			emptyExpressionInputValues !== undefined
+				? bindSearchInputValuesInPredicate(
+						caseListConfig.filter,
+						emptyExpressionInputValues,
+						knownInputNames,
+						caseListConfig.searchInputs,
+					)
+				: caseListConfig?.filter;
+		const baseFilterWithoutWorkerValues = effectiveFilterForEmission(
+			filterWithoutWorkerValues,
+		);
+		// Predicate ASTs are canonical JSON-shaped values. A changed effective
+		// filter means submitted prompt values added narrowing the worker can
+		// remove; the empty-bound remainder is the always-authored contribution.
+		hasWorkerConstraint =
+			JSON.stringify(baseFilter) !==
+			JSON.stringify(baseFilterWithoutWorkerValues);
+		hasAuthoredConstraint = baseFilterWithoutWorkerValues !== undefined;
 	}
 
-	const runtimeFilter = composeRuntimeFilter(
-		caseListConfig.searchInputs,
-		inputValues,
-		caseType,
-	);
+	if (
+		caseListConfig !== undefined &&
+		inputValues !== undefined &&
+		caseListConfig.searchInputs.length > 0
+	) {
+		const runtimeFilter = effectiveFilterForEmission(
+			composeRuntimeFilter(
+				caseListConfig.searchInputs,
+				inputValues,
+				caseType,
+				caseTypeSchemas,
+			),
+		);
+		if (runtimeFilter !== undefined) {
+			clauses.push(runtimeFilter);
+			hasWorkerConstraint = true;
+		}
+	}
 
-	// At most two contributing predicates (base + runtime); AND them
-	// when both are present, then normalize.
-	const composed =
-		baseFilter === undefined ? runtimeFilter : and(baseFilter, runtimeFilter);
-	return effectiveFilterForEmission(composed);
-}
-
-/**
- * Default row count for the case-list authoring surface's live
- * preview. The preview is a "what does my list look like?" check
- * — it doesn't need to render every row, but it does need enough
- * to communicate the case-list's authored shape (sort order,
- * filter narrowing, calculated-column values per row). 30 mirrors
- * `SAMPLE_CASE_DEFAULT_COUNT` from the sample-data populate path
- * so the two surfaces feel cohesive when the user populates and
- * then previews.
- */
-export const PREVIEW_CASE_DEFAULT_LIMIT = 30;
-
-/**
- * Read case-list authoring-surface live-preview rows for the bound
- * tenant. Threads each `kind: "calculated"` column's expression
- * into `store.query` so it evaluates at the SQL layer rather than
- * reconstructed in TypeScript.
- *
- * `caseListConfig` collapses display, sort, calc, and visibility
- * onto a single `columns` array — calc-arm columns are the
- * calculated projection; per-column `sort` directives surface via
- * `buildCaseStoreSortKeys`; the optional `filter` slot threads
- * through verbatim. A host mounting both the Display section and
- * the Filters section gets predicate narrowing for free; the
- * Display-section preview alone passes the same config through
- * and the underlying query falls through unfiltered when `filter`
- * is undefined.
- *
- * `caseTypeSchemas` is the term compiler's data-type-resolution
- * dependency — the helper accepts the narrow shape directly so the
- * Server Action at `./caseDataBinding.ts` runs the
- * `BlueprintDoc → ReadonlyMap` conversion once at the request edge
- * via `buildCaseTypeMap`.
- *
- * Typed-error mapping mirrors `mapPopulateSampleCasesError` for
- * consistency: missing-case-type and schema-not-synced get
- * dedicated arms so the client surface can re-resolve / await the
- * sync rather than render a wrapped invariant message.
- */
-export async function readCaseListPreview(
-	store: CaseStore,
-	args: {
-		appId: string;
-		caseType: string;
-		caseTypeSchemas: ReadonlyMap<string, CaseType>;
-		caseListConfig: CaseListConfig;
-		limit?: number;
-	},
-): Promise<LoadCaseListPreviewResult> {
-	const limit = args.limit ?? PREVIEW_CASE_DEFAULT_LIMIT;
-	const rows = await store.query({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		calculated: args.caseListConfig.columns.filter(
-			(col) => col.kind === "calculated",
+	const normalizeOwnerIds = (ownerIds: readonly string[] | undefined) => [
+		...new Set(
+			(ownerIds ?? []).map((ownerId) => ownerId.trim()).filter(Boolean),
 		),
-		// Normalize so a `match-all`-reducing filter falls through to the
-		// unfiltered scan instead of a redundant `TRUE` operand — same
-		// "no effective filter" decision the wire emitters + `readCases`
-		// apply, so every preview surface agrees on the effective filter.
-		predicate: effectiveFilterForEmission(args.caseListConfig.filter),
-		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
-		limit,
-	});
-	if (rows.length === 0) return { kind: "empty" };
-	return { kind: "rows", rows };
+	];
+	const ownerIds = normalizeOwnerIds(excludedOwnerIds);
+	const authoredOwnerIds = normalizeOwnerIds(authoredExcludedOwnerIds);
+	if (ownerIds.length > 0) {
+		hasAuthoredConstraint ||= authoredOwnerIds.length > 0;
+		hasWorkerConstraint ||=
+			JSON.stringify(ownerIds) !== JSON.stringify(authoredOwnerIds);
+		const [firstOwnerId, ...otherOwnerIds] = ownerIds;
+		clauses.push(
+			or(
+				isNull(prop(caseType, "owner_id")),
+				not(
+					isIn(
+						prop(caseType, "owner_id"),
+						literal(firstOwnerId),
+						...otherOwnerIds.map((ownerId) => literal(ownerId)),
+					),
+				),
+			),
+		);
+	}
+	// A worker value can also REMOVE an authored/default owner exclusion. That
+	// loosening cannot itself cause an empty result, but it is still worker-
+	// dependent provenance and must not be presented as a fixed availability
+	// rule when the authored-only probe explains the population differently.
+	if (
+		ownerIds.length === 0 &&
+		JSON.stringify(ownerIds) !== JSON.stringify(authoredOwnerIds)
+	) {
+		hasWorkerConstraint = true;
+		hasAuthoredConstraint ||= authoredOwnerIds.length > 0;
+	}
+
+	const predicate =
+		clauses.length === 0
+			? undefined
+			: clauses.length === 1
+				? clauses[0]
+				: effectiveFilterForEmission({
+						kind: "and",
+						clauses: clauses as [Predicate, ...Predicate[]],
+					});
+	return {
+		predicate,
+		constraintSource: hasWorkerConstraint
+			? "worker-search"
+			: hasAuthoredConstraint
+				? "authored-rules"
+				: "unconstrained",
+	};
 }
 
 /**
  * Default row-sample limit for the Filters-section live preview.
- * Smaller than `PREVIEW_CASE_DEFAULT_LIMIT` because the Filters
- * section's preview is "what passes the filter, plus how many" —
+ * The filter preview is "what passes the filter, plus how many" —
  * the count surfaces totality, the row sample only needs to be
  * enough to show shape (column-rendering, sort order). Pinning to
  * 10 mirrors common "top results" UX conventions and keeps the
@@ -298,10 +499,8 @@ export const FILTER_PREVIEW_DEFAULT_LIMIT = 10;
  * `BlueprintDoc → ReadonlyMap` conversion once at the request edge
  * via `buildCaseTypeMap`.
  *
- * Typed-error mapping reuses the same shape as
- * `mapCaseListPreviewError` — `LoadFilterPreviewResult`'s error
- * arms mirror `LoadCaseListPreviewResult`'s, so the mapper logic
- * is identical.
+ * Missing case types and unsynced schemas are mapped to dedicated
+ * result arms at the Server Action boundary.
  */
 export async function readFilterPreview(
 	store: CaseStore,
@@ -310,6 +509,8 @@ export async function readFilterPreview(
 		caseType: string;
 		caseTypeSchemas: ReadonlyMap<string, CaseType>;
 		caseListConfig: CaseListConfig;
+		bindings?: TermBindings;
+		excludedOwnerIds?: readonly string[];
 		limit?: number;
 	},
 ): Promise<LoadFilterPreviewResult> {
@@ -321,17 +522,22 @@ export async function readFilterPreview(
 	// filter falls through to the unfiltered scan) and reuse it for both
 	// the row sample and the count, so the two SELECTs are guaranteed to
 	// compile the identical WHERE clause.
-	const predicate = effectiveFilterForEmission(args.caseListConfig.filter);
+	const predicate = composeQueryPredicate(
+		args.caseListConfig,
+		undefined,
+		args.caseType,
+		args.caseTypeSchemas,
+		args.excludedOwnerIds,
+	).predicate;
 
-	// Row sample. The calc-arm projection mirrors the Display preview's
-	// shape so table cells render uniformly.
+	// Row sample. Calculated columns are projected by the case store so
+	// callers receive the same row shape as the running case list.
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
-		calculated: args.caseListConfig.columns.filter(
-			(col) => col.kind === "calculated",
-		),
+		bindings: args.bindings,
+		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
 		predicate,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
@@ -343,6 +549,7 @@ export async function readFilterPreview(
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
+		bindings: args.bindings,
 		predicate,
 	});
 
@@ -355,10 +562,10 @@ export async function readFilterPreview(
  * `column.sort: { direction, priority }` slot — there is no
  * top-level `sort` array. Columns with `sort` set become
  * directives; the array sorts by `priority` ascending with
- * explicit tie-break to source-array index so the column
- * appearing earlier in `caseListConfig.columns` wins on equal
- * priority. The tie-break rule binds at every layer (saga /
- * preview / wire) — see
+ * explicit tie-break to independent Results order so the column
+ * appearing earlier in the running list wins on equal priority.
+ * Details order cannot affect query ordering. The tie-break rule binds at
+ * every layer (saga / preview / wire) — see
  * `lib/commcare/suite/case-list/sortKeys.ts::buildSortDirectives`,
  * which the wire emitter binds to the same shape.
  *
@@ -381,19 +588,24 @@ function buildCaseStoreSortKeys(
 	caseListConfig: CaseListConfig | undefined,
 	caseType: string,
 ): CaseStoreSortKey[] {
-	if (caseListConfig === undefined) return [];
+	const stablePageTieBreaker: CaseStoreSortKey = {
+		direction: "asc",
+		expression: term(prop(caseType, "case_id")),
+	};
+	if (caseListConfig === undefined) return [stablePageTieBreaker];
 
 	type Survivor = { readonly column: Column; readonly index: number };
 	const survivors: Survivor[] = [];
-	// DISPLAY order (`sort-by-(order, uuid)`, not array position) — the same
-	// sequence the wire emitter walks, so the equal-priority tie-break matches.
-	const sortedColumns = [...caseListConfig.columns].sort(bySortKey);
+	// Results order — the same independent surface sequence the short-detail
+	// wire emitter walks, so equal-priority sort rules break ties identically
+	// without coupling the running list to Details rearrangement.
+	const sortedColumns = [...caseListConfig.columns].sort(byListColumnOrder);
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		if (column.sort === undefined) continue;
 		survivors.push({ column, index: i });
 	}
-	if (survivors.length === 0) return [];
+	if (survivors.length === 0) return [stablePageTieBreaker];
 
 	const sorted = [...survivors].sort((a, b) => {
 		const ap = a.column.sort?.priority ?? 0;
@@ -402,19 +614,25 @@ function buildCaseStoreSortKeys(
 		return a.index - b.index;
 	});
 
-	return sorted.flatMap(({ column }) => {
-		const sortConfig = column.sort;
-		if (sortConfig === undefined) return [];
-		// Calc-arm column: the column's own `expression` is the sort
-		// key. Non-calc kinds carry a flat `field` slot; the case-
-		// store's term compiler reads its data_type from the bound
-		// blueprint's case-type schema.
-		const expression =
-			column.kind === "calculated"
-				? column.expression
-				: term(prop(caseType, column.field));
-		return [{ direction: sortConfig.direction, expression }];
-	});
+	return [
+		...sorted.flatMap(({ column }) => {
+			const sortConfig = column.sort;
+			if (sortConfig === undefined) return [];
+			// Calc-arm column: the column's own `expression` is the sort
+			// key. Non-calc kinds carry a flat `field` slot; the case-
+			// store's term compiler reads its data_type from the bound
+			// blueprint's case-type schema.
+			const expression =
+				column.kind === "calculated"
+					? column.expression
+					: term(prop(caseType, column.field));
+			return [{ direction: sortConfig.direction, expression }];
+		}),
+		// Offset pagination needs a total order. Authored keys can tie; UUIDv7
+		// case identity is deterministic and preserves insertion order for the
+		// otherwise-unsorted list without exposing another setting.
+		stablePageTieBreaker,
+	];
 }
 
 /**
@@ -444,9 +662,16 @@ const UUID_PATTERN =
  * READ is the validator's `caseRefAcceptMap` concern, decided at
  * authoring time.
  *
- * No `blueprint` is threaded — `case_id` is a reserved scalar
- * column, so the term compiler never resolves a property
- * `data_type`. `limit: 1` is belt-and-suspenders; the PK
+ * The optional `caseListConfig` + `caseTypeSchemas` pair enriches only
+ * the selected row with the same calculated-column projection Results
+ * uses. It deliberately does NOT carry the list filter, search answers,
+ * sort, or page window: a canonical Details URL addresses a case by
+ * identity even when that case is outside (or excluded from) the current
+ * Results page. Raw case-loading-form callers omit the pair and receive
+ * the ordinary `calculated: {}` row shape.
+ *
+ * `case_id` is a reserved scalar column, so the identity predicate itself
+ * needs no schema lookup. `limit: 1` is belt-and-suspenders; the PK
  * guarantees at-most-one match.
  */
 export async function readCaseData(
@@ -456,6 +681,9 @@ export async function readCaseData(
 		caseType: string;
 		caseId: string;
 		ancestorDepth: number;
+		caseListConfig?: CaseListConfig;
+		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+		bindings?: TermBindings;
 	},
 ): Promise<LoadCaseDataResult> {
 	// Postgres rejects malformed UUIDs at the parameter cast (the
@@ -465,7 +693,10 @@ export async function readCaseData(
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
+		caseTypeSchemas: args.caseTypeSchemas,
+		bindings: args.bindings,
 		predicate: eq(prop(args.caseType, "case_id"), literal(args.caseId)),
+		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
 	});
 	const found = rows[0];
@@ -737,10 +968,11 @@ export async function applyFollowupMutation(
 /**
  * Apply a close `SubmissionMutation`: same primary update + child
  * inserts as the followup arm, plus a final `caseStore.close` to
- * stamp `closed_on`. Close runs last so the closure timestamp
- * lands after every property write. `caseStore.close` is
- * idempotent on row state — re-closing preserves the original
- * timestamp.
+ * atomically stamp `closed_on` and the built-in lifecycle
+ * `status = "closed"`. Close runs last so the lifecycle transition
+ * lands after every property write. `caseStore.close` is idempotent
+ * on consistent row state and repairs the status of a previously
+ * inconsistent closed row without replacing its closure timestamp.
  */
 export async function applyCloseMutation(
 	store: CaseStore,

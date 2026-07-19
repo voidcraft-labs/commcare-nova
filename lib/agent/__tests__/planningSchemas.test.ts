@@ -172,6 +172,33 @@ describe("cleanCaseTypeRecord", () => {
 		expect("parent_type" in clean).toBe(false);
 		expect("hint" in clean.properties[0]).toBe(false);
 	});
+
+	it.each([
+		["name", "case_name"],
+		["external-id", "external_id"],
+		["date-opened", "date_opened"],
+	])("canonicalizes legacy catalog property %s to %s", (legacy, canonical) => {
+		const parsed = caseTypeRecordSchema.parse({
+			name: "client",
+			properties: [{ name: legacy, label: "Value" }],
+		});
+		expect(cleanCaseTypeRecord(parsed).properties[0]?.name).toBe(canonical);
+	});
+
+	it("rejects two catalog entries that collapse to one canonical property", () => {
+		const result = caseTypeRecordSchema.safeParse({
+			name: "client",
+			properties: [
+				{ name: "case_name", label: "Case name" },
+				{ name: "name", label: "Name" },
+			],
+		});
+		expect(result.success).toBe(false);
+		if (result.success) throw new Error("expected canonical collision");
+		expect(result.error.issues[0]?.message).toContain(
+			'canonical name "case_name"',
+		);
+	});
 });
 
 describe("connectFormConfigSchema", () => {

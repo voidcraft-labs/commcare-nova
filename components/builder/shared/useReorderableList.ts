@@ -6,7 +6,7 @@
 //   - `concat.parts` (variadic text concatenation)
 //   - `coalesce.values` (variadic fallback chain)
 //   - `switch.cases` (multi-case dispatch)
-//   - `sort` (case-list sort-key list)
+//   - case-list display order + `sort` priority
 //
 // Each surface reorders inside ONE container; cross-container drops
 // never apply. The hook is generic over `T` (the row payload type)
@@ -67,18 +67,67 @@ import {
  *  `toIndex` into a placeholder if needed. `null` means no drag in
  *  flight or cursor in dead space. */
 export type PendingDrop = {
+	/** Stable source identity; keeps the correct row marked when the list is
+	 * reordered remotely before the next pointer event. */
+	readonly itemKey: string;
 	readonly fromIndex: number;
 	readonly toIndex: number;
 } | null;
+
+/** The one item move that produced a reordered array. Consumers backed by
+ * fractional keys use this metadata to write only the moved entity. */
+export interface ReorderMove<T> {
+	readonly item: T;
+	readonly fromIndex: number;
+	/** Final index after removing the item from `fromIndex`. */
+	readonly toIndex: number;
+}
+
+/** Keyboard commands shared by every reorder handle. Home and End provide a
+ * fast path through long authored lists; arrow keys make one-step changes. */
+export type ReorderKeyboardKey = "ArrowUp" | "ArrowDown" | "Home" | "End";
+
+/** Pure keyboard counterpart to drag reordering. Returns undefined at a list
+ * boundary so the caller can announce that the item is already first/last
+ * without emitting a no-op document mutation. */
+export function reorderByKeyboard<T>(
+	items: readonly T[],
+	fromIndex: number,
+	key: ReorderKeyboardKey,
+): { readonly items: readonly T[]; readonly move: ReorderMove<T> } | undefined {
+	const toIndex =
+		key === "Home"
+			? 0
+			: key === "End"
+				? items.length - 1
+				: fromIndex + (key === "ArrowUp" ? -1 : 1);
+	if (
+		fromIndex < 0 ||
+		fromIndex >= items.length ||
+		toIndex < 0 ||
+		toIndex >= items.length ||
+		toIndex === fromIndex
+	) {
+		return undefined;
+	}
+
+	const reordered = [...items];
+	const [moved] = reordered.splice(fromIndex, 1);
+	if (moved === undefined) return undefined;
+	reordered.splice(toIndex, 0, moved);
+	return {
+		items: reordered,
+		move: { item: moved, fromIndex, toIndex },
+	};
+}
 
 interface UseReorderableListArgs<T> {
 	/** Stable per-container identity. The monitor and the source /
 	 *  target payloads scope drops to this key, so an outer container
 	 *  with a sibling list at the same nesting level doesn't accept
-	 *  drags from this list. Use `nodeId(value)` from
-	 *  `nodeIdentity.ts` for AST-rooted containers; for non-AST
-	 *  containers (e.g. the SortKey list, which has no envelope
-	 *  object), use a stable per-mount identifier. */
+	 *  drags from this list. Use a stable per-mount identifier such as
+	 *  React's `useId()`: immutable edits replace AST envelope objects,
+	 *  so a value envelope is not a container identity. */
 	readonly containerKey: string;
 	/** The container's discriminator — drives the source / target
 	 *  payloads and gates the monitor against cross-container drops.
@@ -90,10 +139,14 @@ interface UseReorderableListArgs<T> {
 	 *  reference; the monitor effect re-installs only when
 	 *  `containerKey` / `containerKind` changes. */
 	readonly items: readonly T[];
-	/** Fired when a drop produces a new item order. Receives the
-	 *  reordered array; the caller rebuilds the list-owning AST via
-	 *  the matching builder. */
-	readonly onReorder: (next: readonly T[]) => void;
+	/** Stable, occurrence-safe identities parallel to `items`. These must not
+	 * depend on array position: a multiplayer update can reorder `items` while
+	 * the pointer is still down. */
+	readonly itemKeys: readonly string[];
+	/** Fired when a drop produces a new item order. Collection-valued editors
+	 *  rebuild from `next`; fractional-order surfaces use `move` to write only
+	 *  the moved entity rather than resequencing its neighbors. */
+	readonly onReorder: (next: readonly T[], move: ReorderMove<T>) => void;
 }
 
 interface UseReorderableListResult {
@@ -113,7 +166,7 @@ interface UseReorderableListResult {
 export function useReorderableList<T>(
 	args: UseReorderableListArgs<T>,
 ): UseReorderableListResult {
-	const { containerKey, containerKind, items, onReorder } = args;
+	const { containerKey, containerKind, items, itemKeys, onReorder } = args;
 	const [pendingDrop, setPendingDrop] = useState<PendingDrop>(null);
 
 	// Ref-stash: write the latest items + onReorder during render so
@@ -122,8 +175,10 @@ export function useReorderableList<T>(
 	// re-installs on every parent render that emits a fresh items
 	// array.
 	const itemsRef = useRef(items);
+	const itemKeysRef = useRef(itemKeys);
 	const onReorderRef = useRef(onReorder);
 	itemsRef.current = items;
+	itemKeysRef.current = itemKeys;
 	onReorderRef.current = onReorder;
 
 	useEffect(() => {
@@ -156,20 +211,16 @@ export function useReorderableList<T>(
 				) {
 					return;
 				}
-				const fromIndex = sourceData.itemIndex;
-				let toIndex = targetData.itemIndex;
 				const edge = extractClosestEdge(target.data);
-				// "bottom" is the after-edge on the vertical axis; "right"
-				// is its horizontal-axis twin (rows that opted into
-				// `axis="horizontal"` on their `ReorderableRow`).
-				if (edge === "bottom" || edge === "right") toIndex += 1;
-				// Adjacency adjustment — Trello-style insertion semantics.
-				if (fromIndex < toIndex) toIndex -= 1;
-				if (fromIndex === toIndex) return;
-				const reordered = [...itemsRef.current];
-				const [moved] = reordered.splice(fromIndex, 1);
-				reordered.splice(toIndex, 0, moved);
-				onReorderRef.current(reordered);
+				const resolved = reorderByStableItemKey({
+					items: itemsRef.current,
+					itemKeys: itemKeysRef.current,
+					sourceItemKey: sourceData.itemKey,
+					targetItemKey: targetData.itemKey,
+					placeAfterTarget: edge === "bottom" || edge === "right",
+				});
+				if (resolved === undefined) return;
+				onReorderRef.current(resolved.items, resolved.move);
 			},
 			onDrag: ({ source, location }) => {
 				const sourceData = readListItemDragData(source.data);
@@ -195,21 +246,75 @@ export function useReorderableList<T>(
 					return;
 				}
 				const edge = extractClosestEdge(target.data);
-				let to = targetData.itemIndex;
-				if (edge === "bottom" || edge === "right") to += 1;
-				if (sourceData.itemIndex < to) to -= 1;
-				if (sourceData.itemIndex === to) {
+				const resolved = reorderByStableItemKey({
+					items: itemsRef.current,
+					itemKeys: itemKeysRef.current,
+					sourceItemKey: sourceData.itemKey,
+					targetItemKey: targetData.itemKey,
+					placeAfterTarget: edge === "bottom" || edge === "right",
+				});
+				if (resolved === undefined) {
 					// Adjacency suppression — drop would be a no-op.
 					setPendingDrop(null);
 					return;
 				}
-				setPendingDrop({ fromIndex: sourceData.itemIndex, toIndex: to });
+				setPendingDrop({
+					itemKey: sourceData.itemKey,
+					fromIndex: resolved.move.fromIndex,
+					toIndex: resolved.move.toIndex,
+				});
 			},
 		});
 		return () => cleanup();
 	}, [containerKey, containerKind]);
 
 	return { pendingDrop };
+}
+
+interface StableItemReorderArgs<T> {
+	readonly items: readonly T[];
+	readonly itemKeys: readonly string[];
+	readonly sourceItemKey: string;
+	readonly targetItemKey: string;
+	readonly placeAfterTarget: boolean;
+}
+
+interface StableItemReorderResult<T> {
+	readonly items: readonly T[];
+	readonly move: ReorderMove<T>;
+}
+
+/**
+ * Resolve a drag against the latest list snapshot by stable identity. The
+ * source and target indices embedded in native drag payloads describe the DOM
+ * at registration time, so they are unsafe after a remote multiplayer frame.
+ * Missing source/target rows and adjacency no-ops deliberately produce no
+ * mutation.
+ */
+export function reorderByStableItemKey<T>(
+	args: StableItemReorderArgs<T>,
+): StableItemReorderResult<T> | undefined {
+	const { items, itemKeys, sourceItemKey, targetItemKey, placeAfterTarget } =
+		args;
+	if (itemKeys.length !== items.length) return undefined;
+	const fromIndex = itemKeys.indexOf(sourceItemKey);
+	const targetIndex = itemKeys.indexOf(targetItemKey);
+	if (fromIndex < 0 || targetIndex < 0) return undefined;
+
+	let toIndex = targetIndex + (placeAfterTarget ? 1 : 0);
+	// Trello-style insertion semantics: removing an earlier source shifts the
+	// target insertion slot left by one.
+	if (fromIndex < toIndex) toIndex -= 1;
+	if (fromIndex === toIndex) return undefined;
+
+	const reordered = [...items];
+	const [moved] = reordered.splice(fromIndex, 1);
+	if (moved === undefined) return undefined;
+	reordered.splice(toIndex, 0, moved);
+	return {
+		items: reordered,
+		move: { item: moved, fromIndex, toIndex },
+	};
 }
 
 /** Per-row wiring the host card's row component consumes via the
@@ -238,6 +343,8 @@ export interface ReorderableRowWiring {
 
 interface ReorderableRowProps {
 	readonly index: number;
+	/** Stable identity from the parallel `itemKeys` vector in the container hook. */
+	readonly itemKey: string;
 	readonly containerKey: string;
 	readonly containerKind: string;
 	readonly pendingDrop: PendingDrop;
@@ -267,6 +374,7 @@ interface ReorderableRowProps {
 export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 	const {
 		index,
+		itemKey,
 		containerKey,
 		containerKind,
 		pendingDrop,
@@ -288,12 +396,14 @@ export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 		const dragData: ListItemDragData = {
 			kind: "list-item-drag",
 			containerKind,
+			itemKey,
 			itemIndex: index,
 			nodeKey: containerKey,
 		};
 		const dropData: ListItemDropData = {
 			kind: "list-item-drop",
 			containerKind,
+			itemKey,
 			itemIndex: index,
 			nodeKey: containerKey,
 		};
@@ -346,9 +456,9 @@ export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 			}),
 		);
 		return () => cleanup();
-	}, [containerKey, containerKind, handleEl, index, axis]);
+	}, [containerKey, containerKind, handleEl, index, itemKey, axis]);
 
-	const beingMoved = pendingDrop !== null && pendingDrop.fromIndex === index;
+	const beingMoved = pendingDrop !== null && pendingDrop.itemKey === itemKey;
 
 	const previewPortal: ReactNode =
 		previewState.type === "active"

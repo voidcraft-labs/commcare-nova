@@ -34,9 +34,15 @@
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
+	dateRangeSearchPredicate,
+	exactDateSearchPredicate,
+} from "@/lib/domain/predicate";
+import {
 	ancestorPath,
 	and,
 	between,
+	concat,
+	dateLiteral,
 	eq,
 	exists,
 	gt,
@@ -58,6 +64,7 @@ import {
 	or,
 	prop,
 	relationStep,
+	sessionUser,
 	term,
 	whenInput,
 	within,
@@ -95,6 +102,7 @@ const PATIENT_SCHEMA: CaseType = {
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "bmi", label: "BMI", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
+		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
 		{ name: "tags", label: "Tags", data_type: "multi_select" },
 		{ name: "loc", label: "Location", data_type: "geopoint" },
 	],
@@ -156,6 +164,102 @@ async function executeAgainstPredicate(
 }
 
 // ---------------------------------------------------------------
+// Calendar-day search lowering — UTC-stable datetime bounds
+// ---------------------------------------------------------------
+
+describe("compilePredicate — calendar-day search UTC boundaries", () => {
+	test("exact day and inclusive range keep UTC endpoints in a non-UTC session", async ({
+		db,
+		pgClient,
+	}) => {
+		await pgClient.query("SET LOCAL TIME ZONE 'America/Los_Angeles'");
+		// 2025-03-09 is the spring-forward day in Los Angeles. A
+		// timestamptz + interval '1 day' upper bound computed in the session
+		// zone lands at 23:00Z and drops the final UTC hour.
+		const exactStartId = "20000000-0000-0000-0000-000000000011";
+		const finalInstantId = "20000000-0000-0000-0000-000000000012";
+		const afterRangeId = "20000000-0000-0000-0000-000000000013";
+		const rangeStartId = "20000000-0000-0000-0000-000000000014";
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: rangeStartId,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({
+						last_seen: "2025-03-01T00:00:00Z",
+					}),
+				}),
+				makeCaseRow({
+					case_id: exactStartId,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({
+						last_seen: "2025-03-09T00:00:00Z",
+					}),
+				}),
+				makeCaseRow({
+					case_id: finalInstantId,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({
+						last_seen: "2025-03-09T23:59:59Z",
+					}),
+				}),
+				makeCaseRow({
+					case_id: afterRangeId,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({
+						last_seen: "2025-03-10T00:00:00Z",
+					}),
+				}),
+			])
+			.execute();
+
+		const typeContext = {
+			caseTypes: [PATIENT_SCHEMA, HOUSEHOLD_SCHEMA, VILLAGE_SCHEMA],
+			knownInputs: [],
+			currentCaseType: "patient",
+		};
+		const exact = exactDateSearchPredicate({
+			caseType: "patient",
+			property: "last_seen",
+			day: term(dateLiteral("2025-03-09")),
+			typeContext,
+		});
+		const range = dateRangeSearchPredicate({
+			caseType: "patient",
+			property: "last_seen",
+			lowerDay: term(dateLiteral("2025-03-01")),
+			upperDay: term(dateLiteral("2025-03-09")),
+			typeContext,
+		});
+
+		const exactRows = await executeAgainstPredicate(
+			db,
+			compilePredicate(exact, makeCtx(db)),
+		);
+		const rangeRows = await executeAgainstPredicate(
+			db,
+			compilePredicate(range, makeCtx(db)),
+		);
+
+		expect(exactRows.map(({ case_id }) => case_id).sort()).toEqual(
+			[exactStartId, finalInstantId].sort(),
+		);
+		expect(rangeRows.map(({ case_id }) => case_id).sort()).toEqual(
+			[rangeStartId, exactStartId, finalInstantId].sort(),
+		);
+	});
+});
+
+// ---------------------------------------------------------------
 // Sentinels round-trip
 // ---------------------------------------------------------------
 
@@ -212,6 +316,44 @@ describe("compilePredicate — round-trip — sentinels", () => {
 // ---------------------------------------------------------------
 
 describe("compilePredicate — round-trip — logical operators", () => {
+	test("nested boolean rules execute when Combined text has one blank part", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ nickname: "Alice" }),
+				}),
+			)
+			.execute();
+
+		// Exact structure produced by the rule editor in the live regression:
+		// root AND → nested OR (three children) → NOT → comparison whose RHS
+		// is a valid single-part Combined text expression. In the full case-store
+		// query, its app/project/case-type constraints plus these preceding bare
+		// literals make the concat operand parameter $7; Postgres used to reject
+		// it as untyped before it could evaluate the otherwise-valid predicate.
+		const pred = and(
+			eq(prop("patient", "nickname"), literal("")),
+			or(
+				eq(prop("patient", "nickname"), literal("")),
+				eq(prop("patient", "nickname"), literal("")),
+				not(eq(prop("patient", "nickname"), concat(term(literal(""))))),
+			),
+		);
+
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([]);
+	});
+
 	test("and matches only rows satisfying every clause", async ({ db }) => {
 		await db
 			.insertInto("cases")
@@ -926,6 +1068,42 @@ describe("compilePredicate — round-trip — multi-select-contains", () => {
 // ---------------------------------------------------------------
 
 describe("compilePredicate — round-trip — match", () => {
+	for (const [mode, first, second] of [
+		["starts-with", "Ali", "ce"],
+		["fuzzy", "Ali", "se"],
+		["phonetic", "Sm", "ith"],
+	] as const) {
+		test(`${mode} executes a computed ValueExpression match value`, async ({
+			db,
+		}) => {
+			await db
+				.insertInto("cases")
+				.values(
+					makeCaseRow({
+						case_id: PATIENT_CASE_ID,
+						case_type: "patient",
+						app_id: APP_ID,
+						project_id: OWNER_ID,
+						properties: JSON.stringify({ nickname: "Alice Smyth" }),
+					}),
+				)
+				.execute();
+
+			const rows = await executeAgainstPredicate(
+				db,
+				compilePredicate(
+					match(
+						prop("patient", "nickname"),
+						concat(term(literal(first)), term(literal(second))),
+						mode,
+					),
+					makeCtx(db),
+				),
+			);
+			expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+		});
+	}
+
 	test("starts-with matches rows whose property has the prefix", async ({
 		db,
 	}) => {
@@ -1338,6 +1516,117 @@ describe("compilePredicate — round-trip — match", () => {
 		);
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
+
+	test("fuzzy-date executes a computed value and filters invalid generated permutations", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ nickname: "2024-03-12" }),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_2_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					// This is one raw digit swap, but not a calendar date. HQ drops it.
+					properties: JSON.stringify({ nickname: "2024-21-03" }),
+				}),
+			])
+			.execute();
+
+		const pred = match(
+			prop("patient", "nickname"),
+			concat(term(literal("2024-12")), term(literal("-03"))),
+			"fuzzy-date",
+		);
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("fuzzy-date treats a malformed computed runtime value as no match", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ nickname: "2024-03-12" }),
+				}),
+			)
+			.execute();
+
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				match(
+					prop("patient", "nickname"),
+					concat(term(literal("not-a")), term(literal("-date"))),
+					"fuzzy-date",
+				),
+				makeCtx(db),
+			),
+		);
+		expect(rows).toEqual([]);
+
+		const yearZeroRows = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				match(
+					prop("patient", "nickname"),
+					concat(term(literal("0000-01")), term(literal("-01"))),
+					"fuzzy-date",
+				),
+				makeCtx(db),
+			),
+		);
+		expect(yearZeroRows).toEqual([]);
+	});
+
+	test("fuzzy-date reads a session-backed runtime value", async ({ db }) => {
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ nickname: "2024-03-12" }),
+				}),
+			)
+			.execute();
+
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				match(
+					prop("patient", "nickname"),
+					term(sessionUser("date_query")),
+					"fuzzy-date",
+				),
+				makeCtx(db, {
+					bindings: {
+						sessionUser: new Map([["date_query", "2024-12-03"]]),
+					},
+				}),
+			),
+		);
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
 });
 
 // ---------------------------------------------------------------
@@ -1382,6 +1671,90 @@ describe("compilePredicate — round-trip — within-distance", () => {
 			compilePredicate(pred, makeCtx(db)),
 		);
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("uses Core and Elasticsearch's sphere model at the distance boundary", async ({
+		db,
+	}) => {
+		// At latitude 60, one degree of longitude is just under 55.7 km on the
+		// sphere used by Core/Elasticsearch, but just over 55.7 km on PostGIS's
+		// default WGS-84 spheroid. This boundary pins ST_DWithin's fourth argument
+		// to false so Preview does not exclude a case the exported app includes.
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ loc: "60 1 0 0" }),
+				}),
+			)
+			.execute();
+
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				within(prop("patient", "loc"), literal("60 0"), 55.7, "kilometers"),
+				makeCtx(db),
+			),
+		);
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("accepts intentional center separators and rejects ambiguous or incompatible spellings", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ loc: "42.3601 -71.0589 0 0" }),
+				}),
+			)
+			.execute();
+
+		for (const center of [
+			"42.3601 -71.0589",
+			"42.3601, -71.0589",
+			" 42.3601\t-71.0589 ",
+			"42.3601 -71.0589 NaN NaN",
+		]) {
+			const rows = await executeAgainstPredicate(
+				db,
+				compilePredicate(
+					within(prop("patient", "loc"), literal(center), 1, "miles"),
+					makeCtx(db),
+				),
+			);
+			expect(rows, center).toEqual([{ case_id: PATIENT_CASE_ID }]);
+		}
+
+		for (const center of [
+			"42",
+			"42 -71 0",
+			"42 -71 0 1 2",
+			"91 0",
+			"0 181",
+			"+42 -71",
+			"4.2e1 -71",
+			"40,7 -74,0",
+			"42\u00a0-71",
+		]) {
+			const rows = await executeAgainstPredicate(
+				db,
+				compilePredicate(
+					within(prop("patient", "loc"), literal(center), 1, "miles"),
+					makeCtx(db),
+				),
+			);
+			expect(rows, center).toEqual([]);
+		}
 	});
 });
 

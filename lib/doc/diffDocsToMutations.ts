@@ -41,14 +41,17 @@
  *      step 7's `updateField` patch pins the id back.
  *   6. Module + form renames, then field converts (`convertField`).
  *   7. Updates — `updateModule` / `updateForm` / `updateField` patches of
- *      ONLY the changed keys (excluding `order`, `caseListConfig`, `options`,
- *      and media, each diffed separately). A field's `id` rides its
+ *      ONLY the changed keys (excluding `order`, `caseListConfig`,
+ *      `caseSearchConfig`, `options`, and media, each diffed separately). A field's `id` rides its
  *      `updateField` patch, not `renameField`.
  *   8. Media — the dedicated clear-safe kinds (`setFieldMedia` /
  *      `setModuleMedia` / `setFormMedia`).
- *   9. Granular COLLECTIONS — case-list column / search-input / `setCaseListMeta`
- *      kinds + select-option kinds, keyed by item uuid (a presence transition /
- *      case-type flip falls back to a wholesale `updateModule{caseListConfig}`).
+ *   9. Granular COLLECTIONS — case-list column / search-input / semantic
+ *      `updateModule` case-list/Search operations / `setCaseListMeta` +
+ *      select-option kinds, keyed by item uuid.
+ *      Case-list birth is an idempotent ensure followed by granular contents;
+ *      only an explicit whole-config removal uses
+ *      `updateModule{caseListConfig:null}`.
  *  10. Module order — `moveModule{order}` for a module whose `order` changed.
  *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
  *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
@@ -68,12 +71,28 @@
  */
 
 import { produce } from "immer";
+import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import {
+	columnAddMutation,
+	columnSnapshotMutations,
+} from "@/lib/doc/caseListColumnMutations";
+import {
+	cleanupCaseSearchAfterFinalInputMutation,
+	disableUnusedCaseSearchMutation,
+	enableCaseSearchMutation,
+	setOwnerOnlyCaseSearchMutation,
+} from "@/lib/doc/caseSearchConfigMutations";
+import {
+	caseSearchConfigPatchMutations,
+	clearCaseSearchConfigSettingsMutations,
+} from "@/lib/doc/caseSearchConfigPatchMutations";
 import {
 	orderedFieldUuids,
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
+import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
 	type BlueprintDoc,
 	FIELD_MEDIA_SLOTS,
@@ -92,6 +111,11 @@ import type {
 	SearchInputDef,
 	SelectOption,
 } from "@/lib/domain";
+import {
+	caseSearchConfigAfterFinalInputRemoval,
+	caseSearchConfigHasAuthoredSettings,
+} from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -231,16 +255,18 @@ function propertyPatch(
 // so the generic patch skips it too.
 
 // `order` is carried by `moveModule` / `moveForm`; `caseListConfig` is diffed
-// granularly (column / search-input / `setCaseListMeta` kinds) so the
-// module-common loop never co-emits a wholesale patch that would clobber a
-// concurrent collection edit — except on a presence transition, handled
-// explicitly below.
+// granularly (column / search-input / `setCaseListMeta` kinds), and empty
+// `caseSearchConfig` presence via semantic `updateModule` extensions, so the
+// module-common loop never co-emits a wholesale present-config patch that
+// would clobber a concurrent collection edit. An explicit config removal still
+// travels as `updateModule{caseListConfig:null}`.
 const MODULE_PATCH_SKIP = new Set<string>([
 	"icon",
 	"audioLabel",
 	"name",
 	"order",
 	"caseListConfig",
+	"caseSearchConfig",
 ]);
 const FORM_PATCH_SKIP = new Set<string>([
 	"icon",
@@ -427,11 +453,7 @@ export function diffDocsToMutations(
 	for (const uuid of next.moduleOrder) {
 		if (!addedModuleSet.has(uuid)) continue;
 		const index = next.moduleOrder.indexOf(uuid);
-		adds.push({
-			kind: "addModule",
-			module: cloneEntity(next.modules[uuid]),
-			index,
-		});
+		adds.push(addModuleMutation(cloneEntity(next.modules[uuid]), index));
 	}
 
 	// Forms: in next.formOrder order per module, so each lands at its
@@ -481,11 +503,12 @@ export function diffDocsToMutations(
 			});
 		}
 		// `caseListConfig` is excluded from the generic patch — its content is
-		// diffed into granular column / search-input / `setCaseListMeta` kinds
-		// (a presence transition / case-type flip falls back to a wholesale
-		// `updateModule{caseListConfig}`).
+		// diffed into an idempotent birth plus granular column / search-input /
+		// `setCaseListMeta` kinds. A case-type flip never snapshots the config;
+		// only an explicit config removal uses `updateModule{caseListConfig:null}`.
 		collections.push(
 			...diffCaseListConfig(prev.modules[uuid], next.modules[uuid], uuid),
+			...diffCaseSearchConfig(prev.modules[uuid], next.modules[uuid], uuid),
 		);
 	}
 
@@ -945,7 +968,7 @@ function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
 
 // ── Granular collection + catalog diffs ──────────────────────────────
 
-/** Deep-equal two values ignoring the `order` sort key (collection content). */
+/** Deep-equal two values ignoring generic + surface order keys. */
 function contentEqualIgnoringOrder(a: unknown, b: unknown): boolean {
 	return deepEqual(stripOrder(a), stripOrder(b));
 }
@@ -954,16 +977,26 @@ function stripOrder(value: unknown): unknown {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
 		return value;
 	}
-	const { order: _order, ...rest } = value as Record<string, unknown>;
+	const {
+		order: _order,
+		listOrder: _listOrder,
+		detailOrder: _detailOrder,
+		...rest
+	} = value as Record<string, unknown>;
 	return rest;
 }
 
 /**
- * Diff a module's `caseListConfig`. Content edits emit granular column /
- * search-input / `setCaseListMeta` kinds (keyed by item uuid, so concurrent
- * edits to different items merge). A PRESENCE transition (config absent↔present)
- * OR a case-type flip emits the wholesale `updateModule{caseListConfig}` (the
- * whole-object birth / clear / swap), never for a content edit.
+ * Diff a module's `caseListConfig`. Birth is an idempotent semantic extension
+ * on `updateModule`, followed by the same granular column / search-input /
+ * `setCaseListMeta` kinds used for ordinary content edits. Reapplying that
+ * batch over a peer-populated config therefore merges by item uuid instead of
+ * replacing the peer's work with the empty rolling-deploy fallback snapshot.
+ *
+ * A case-type flip has no special config behavior: `updateModule{caseType}`
+ * changes the module context, while any simultaneous config changes remain
+ * granular. Only an explicit present -> absent transition is a deliberate
+ * whole-config removal and carries `updateModule{caseListConfig:null}`.
  */
 function diffCaseListConfig(
 	prevMod: Module,
@@ -972,26 +1005,32 @@ function diffCaseListConfig(
 ): Mutation[] {
 	const prevConfig = prevMod.caseListConfig;
 	const nextConfig = nextMod.caseListConfig;
-	const presenceChanged =
-		(prevConfig === undefined) !== (nextConfig === undefined);
-	const caseTypeFlipped = prevMod.caseType !== nextMod.caseType;
-	if (presenceChanged || (caseTypeFlipped && nextConfig !== undefined)) {
-		// Wholesale birth / clear / swap. A clear travels as `null` (the patch
-		// schema admits it on the optional slot); a present config is set whole.
+	if (nextConfig === undefined) {
+		if (prevConfig === undefined) return [];
+		// A deliberate whole-config removal travels as `null` (the patch schema
+		// admits it on the optional slot, and null survives the JSON wire).
 		return [
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: {
-					caseListConfig:
-						nextConfig === undefined ? null : cloneEntity(nextConfig),
-				} as Partial<Module>,
+				patch: { caseListConfig: null } as unknown as Partial<Module>,
 			},
 		];
 	}
-	if (nextConfig === undefined) return []; // both absent
+	const birth: Mutation[] =
+		prevConfig === undefined
+			? [
+					{
+						kind: "updateModule",
+						uuid: moduleUuid,
+						patch: { caseListConfig: { columns: [], searchInputs: [] } },
+						ensureCaseListConfig: true,
+					},
+				]
+			: [];
 	const prevC = prevConfig ?? { columns: [], searchInputs: [] };
 	return [
+		...birth,
 		...diffColumns(prevC.columns, nextConfig.columns, moduleUuid),
 		...diffSearchInputs(
 			prevC.searchInputs,
@@ -1013,17 +1052,10 @@ function diffColumns(
 	for (const col of next) {
 		const p = prevByUuid.get(col.uuid);
 		if (!p) {
-			out.push({ kind: "addColumn", moduleUuid, column: cloneEntity(col) });
+			out.push(columnAddMutation(moduleUuid, cloneEntity(col)));
 			continue;
 		}
-		if (!contentEqualIgnoringOrder(p, col)) {
-			out.push({
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: col.uuid,
-				column: cloneEntity(col),
-			});
-		}
+		out.push(...columnSnapshotMutations(moduleUuid, p, cloneEntity(col)));
 		if (col.order !== undefined && p.order !== col.order) {
 			out.push({
 				kind: "moveColumn",
@@ -1060,12 +1092,7 @@ function diffSearchInputs(
 			continue;
 		}
 		if (!contentEqualIgnoringOrder(p, input)) {
-			out.push({
-				kind: "updateSearchInput",
-				moduleUuid,
-				uuid: input.uuid,
-				searchInput: cloneEntity(input),
-			});
+			out.push(searchInputUpdateMutation(moduleUuid, p, cloneEntity(input)));
 		}
 		if (input.order !== undefined && p.order !== input.order) {
 			out.push({
@@ -1105,6 +1132,111 @@ function diffCaseListMeta(
 	}
 	if (Object.keys(patch).length === 0) return [];
 	return [{ kind: "setCaseListMeta", uuid: moduleUuid, patch }];
+}
+
+/**
+ * Diff the search-settings bag without turning its synthetic empty marker into
+ * a destructive whole-slot write. Empty absent→present is an idempotent
+ * enable; empty present→absent after the final searchable surface disappears
+ * is a fresh-state-conditional disable. Authored settings remain a deliberate
+ * wholesale bag edit (the settings UI has one owner), while marker intent and
+ * final-input cleanup remain semantic so stale batches cannot erase a peer's
+ * newer settings. Config-to-absent is likewise a per-setting clear while the
+ * case-list surface survives; raw whole-bag removal is reserved for structural
+ * case-list teardown, where the Search bag has no remaining owner.
+ */
+function diffCaseSearchConfig(
+	prevMod: Module,
+	nextMod: Module,
+	moduleUuid: Uuid,
+): Mutation[] {
+	const prev = prevMod.caseSearchConfig;
+	const next = nextMod.caseSearchConfig;
+
+	// Removing the final input owns screen-only copy and Search/owner provenance,
+	// but those decisions must be made against the state present at replay time.
+	// Emit the conditional cleanup even when the local config did not change: a
+	// peer may have added screen copy, an action setting, an owner rule, or a new
+	// input while this diff was in flight.
+	const removedFinalInput =
+		(prevMod.caseListConfig?.searchInputs.length ?? 0) > 0 &&
+		(nextMod.caseListConfig?.searchInputs.length ?? 0) === 0;
+	if (
+		prev !== undefined &&
+		removedFinalInput &&
+		deepEqual(
+			next,
+			caseSearchConfigAfterFinalInputRemoval(
+				prev,
+				effectiveFilterForEmission(nextMod.caseListConfig?.filter) !==
+					undefined,
+			),
+		)
+	) {
+		return [
+			cleanupCaseSearchAfterFinalInputMutation({
+				uuid: moduleUuid,
+				config: prev,
+				hasCasesAvailableCondition:
+					effectiveFilterForEmission(nextMod.caseListConfig?.filter) !==
+					undefined,
+			}),
+		];
+	}
+
+	if (deepEqual(prev, next)) return [];
+
+	// Owner-only storage and an enabled Search action differ only by Nova's
+	// internal false provenance bit. Preserve the owner expression (including a
+	// peer's newer value) by replaying semantic enable rather than a bag snapshot.
+	if (prev?.searchActionEnabled === false && next !== undefined) {
+		const { searchActionEnabled: _disabled, ...enabled } = prev;
+		if (deepEqual(enabled, next)) {
+			return [enableCaseSearchMutation(moduleUuid, next)];
+		}
+	}
+
+	const prevIsMarker =
+		prev !== undefined &&
+		prev.searchActionEnabled !== false &&
+		!caseSearchConfigHasAuthoredSettings(prev);
+	const nextIsMarker =
+		next !== undefined &&
+		next.searchActionEnabled !== false &&
+		!caseSearchConfigHasAuthoredSettings(next);
+	if (prev === undefined && nextIsMarker) {
+		return [enableCaseSearchMutation(moduleUuid, next)];
+	}
+	if (
+		prevIsMarker &&
+		next === undefined &&
+		nextMod.caseListConfig?.searchInputs.length === 0 &&
+		effectiveFilterForEmission(nextMod.caseListConfig?.filter) === undefined
+	) {
+		return [disableUnusedCaseSearchMutation(moduleUuid)];
+	}
+	if (next?.searchActionEnabled === false) {
+		return [setOwnerOnlyCaseSearchMutation(moduleUuid, next)];
+	}
+	if (next !== undefined) {
+		return caseSearchConfigPatchMutations(moduleUuid, prev, next);
+	}
+	if (nextMod.caseListConfig !== undefined) {
+		return clearCaseSearchConfigSettingsMutations(moduleUuid, prev);
+	}
+
+	// Structural case-list removal makes the entire Search bag meaningless. This
+	// is the one deliberate whole-slot clear: there is no surviving Search/list
+	// surface whose peer settings could remain actionable.
+	return [
+		{
+			kind: "updateModule",
+			uuid: moduleUuid,
+			patch: {
+				caseSearchConfig: null,
+			},
+		},
+	];
 }
 
 /** Diff a select field's options by uuid into the granular option kinds. A

@@ -23,6 +23,7 @@ import {
 	matchAll,
 	prop,
 	term,
+	today,
 	whenInput,
 } from "@/lib/domain/predicate";
 import { asUuid } from "@/lib/domain/uuid";
@@ -34,6 +35,8 @@ const CASE_TYPES: CaseType[] = [
 		properties: [
 			{ name: "name", label: "Name", data_type: "text" },
 			{ name: "dob", label: "Date of birth", data_type: "date" },
+			{ name: "age", label: "Age", data_type: "int" },
+			{ name: "score", label: "Score", data_type: "int" },
 		],
 	} as CaseType,
 ];
@@ -53,7 +56,7 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({});
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.brokenColumns.size).toBe(0);
-		expect(v.previewObstacle).toBeNull();
+		expect(v.filterBroken).toBe(false);
 	});
 
 	it("reports well-typed columns, filter, and inputs clean", () => {
@@ -78,20 +81,60 @@ describe("caseListConfigVerdicts", () => {
 			],
 		});
 		expect(v.errorAreas).toEqual(CLEAN);
-		expect(v.previewObstacle).toBeNull();
+		expect(v.filterBroken).toBe(false);
 	});
 
-	it("marks a kind-vs-property mismatch (date column on a DECLARED text property) without pausing the preview", () => {
+	it("checks Results filters against a date field's runtime date value", () => {
+		const v = verdicts({
+			filter: eq(prop("patient", "dob"), input("visit_date")),
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("date-search"),
+					"visit_date",
+					"Visit date",
+					"date",
+					"dob",
+				),
+			],
+		});
+
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.filterBroken).toBe(false);
+	});
+
+	it("marks a kind-vs-property mismatch on every screen that shows it", () => {
 		const v = verdicts({
 			columns: [dateColumn(asUuid("c1"), "name", "Name", "%d/%m/%Y")],
 		});
-		// The mark + both tab dots (both canvases render every column)…
+		// The mark + both tab dots (the default column appears on both screens)…
 		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
 		expect(v.errorAreas.list).toBe(true);
 		expect(v.errorAreas.detail).toBe(true);
-		// …but the live rows keep running: an applicability mismatch is a
-		// formatting concern, not an AST the SQL compiler would choke on.
-		expect(v.previewObstacle).toBeNull();
+	});
+
+	it("badges only Details for a broken Details-only field", () => {
+		const column = {
+			...dateColumn(asUuid("details-only"), "name", "Name", "%d/%m/%Y"),
+			visibleInList: false,
+		};
+		const v = verdicts({ columns: [column] });
+
+		expect(v.brokenColumns.has(column.uuid)).toBe(true);
+		expect(v.errorAreas.list).toBe(false);
+		expect(v.errorAreas.detail).toBe(true);
+	});
+
+	it("attributes a broken off-screen sort carrier to Results only", () => {
+		const column = {
+			...dateColumn(asUuid("sort-carrier"), "name", "Name", "%d/%m/%Y"),
+			visibleInList: false,
+			visibleInDetail: false,
+			sort: { direction: "asc" as const, priority: 0 },
+		};
+		const v = verdicts({ columns: [column] });
+
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.errorAreas.detail).toBe(false);
 	});
 
 	it("accepts a date column on a property with NO resolved type (honest unknown)", () => {
@@ -112,7 +155,7 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.brokenColumns.size).toBe(0);
 	});
 
-	it("pauses the preview for a calculated column whose expression fails its type check, naming it", () => {
+	it("marks a calculated column whose expression fails its type check", () => {
 		const v = verdicts({
 			columns: [
 				// References a property that doesn't exist on the case type.
@@ -124,11 +167,27 @@ describe("caseListConfigVerdicts", () => {
 			],
 		});
 		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
-		expect(v.previewObstacle).toContain('the calculated column "Calc"');
-		expect(v.previewObstacle).toContain("has an error");
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.errorAreas.detail).toBe(true);
 	});
 
-	it("pauses the preview for a filter that references an unknown property", () => {
+	it("ignores an unconsumed legacy hidden calculation until it is added back", () => {
+		const hidden = {
+			...calculatedColumn(
+				asUuid("hidden-calc"),
+				"Old calculation",
+				term(prop("patient", "missing_prop")),
+			),
+			visibleInList: false,
+			visibleInDetail: false,
+		};
+		const v = verdicts({ columns: [hidden] });
+
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.brokenColumns.size).toBe(0);
+	});
+
+	it("marks Cases available on Results when its rule references an unknown property", () => {
 		const v = verdicts({
 			filter: {
 				kind: "eq",
@@ -136,11 +195,12 @@ describe("caseListConfigVerdicts", () => {
 				right: term(literal("x")),
 			},
 		});
+		expect(v.errorAreas.search).toBe(false);
 		expect(v.errorAreas.list).toBe(true);
-		expect(v.previewObstacle).toContain("the filter has an error");
+		expect(v.filterBroken).toBe(true);
 	});
 
-	it("pluralizes the obstacle across the filter and several calculated columns", () => {
+	it("reports the filter and several calculated columns independently", () => {
 		const v = verdicts({
 			columns: [
 				calculatedColumn(
@@ -160,12 +220,11 @@ describe("caseListConfigVerdicts", () => {
 				right: term(literal("x")),
 			},
 		});
-		expect(v.previewObstacle).toContain(
-			"the filter and 2 calculated columns have errors",
-		);
+		expect(v.filterBroken).toBe(true);
+		expect(v.brokenColumns).toEqual(new Set([asUuid("c1"), asUuid("c2")]));
 	});
 
-	it("flags structural search-input errors on the search tab only, without pausing", () => {
+	it("flags structural search-input errors on the search tab only", () => {
 		const v = verdicts({
 			searchInputs: [
 				simpleSearchInputDef(asUuid("s1"), "a", "", "text", "name"),
@@ -174,7 +233,44 @@ describe("caseListConfigVerdicts", () => {
 		});
 		expect(v.errorAreas.search).toBe(true);
 		expect(v.errorAreas.list).toBe(false);
-		expect(v.previewObstacle).toBeNull();
+	});
+
+	it("flags legacy range defaults and range/widget mismatches on Search", () => {
+		const legacyDefault = verdicts({
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("range-default"),
+					"dob",
+					"DOB",
+					"date-range",
+					"dob",
+					{ default: today() },
+				),
+			],
+		});
+		const mismatchedWidget = verdicts({
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("range-mode"),
+					"dob",
+					"DOB",
+					"date",
+					"dob",
+					{ mode: { kind: "range" } },
+				),
+			],
+		});
+
+		expect(legacyDefault.errorAreas).toEqual({
+			search: true,
+			list: false,
+			detail: false,
+		});
+		expect(mismatchedWidget.errorAreas).toEqual({
+			search: true,
+			list: false,
+			detail: false,
+		});
 	});
 
 	it("accepts an advanced input whose condition references its own input", () => {
@@ -199,6 +295,69 @@ describe("caseListConfigVerdicts", () => {
 	it("accepts a match-all filter (the empty-filter seed)", () => {
 		const v = verdicts({ filter: matchAll() });
 		expect(v.errorAreas).toEqual(CLEAN);
-		expect(v.previewObstacle).toBeNull();
+		expect(v.filterBroken).toBe(false);
+	});
+
+	it("applies the remote-query restriction only when Results are search-backed", () => {
+		const propertyComparison = config({
+			filter: eq(prop("patient", "age"), prop("patient", "score")),
+		});
+		const onDevice = caseListConfigVerdicts(
+			propertyComparison,
+			CASE_TYPES,
+			"patient",
+			{ caseSearchEnabled: false },
+		);
+		const searchBacked = caseListConfigVerdicts(
+			propertyComparison,
+			CASE_TYPES,
+			"patient",
+			{ caseSearchEnabled: true },
+		);
+
+		expect(onDevice.filterBroken).toBe(false);
+		expect(onDevice.errorAreas).toEqual(CLEAN);
+		expect(searchBacked.filterBroken).toBe(true);
+		expect(searchBacked.errorAreas.list).toBe(true);
+	});
+
+	it("keeps Search-action and assigned-case findings owned by their settings", () => {
+		const baseBoundary = {
+			filterBroken: false,
+			searchInputsBroken: false,
+			searchButtonConditionBroken: false,
+			excludedOwnerIdsBroken: false,
+			brokenColumnUuids: [],
+		} as const;
+		const searchButton = caseListConfigVerdicts(
+			config({}),
+			CASE_TYPES,
+			"patient",
+			{
+				boundary: { ...baseBoundary, searchButtonConditionBroken: true },
+			},
+		);
+		const assignedCases = caseListConfigVerdicts(
+			config({}),
+			CASE_TYPES,
+			"patient",
+			{
+				boundary: { ...baseBoundary, excludedOwnerIdsBroken: true },
+			},
+		);
+
+		expect(searchButton.errorAreas).toEqual({
+			search: true,
+			list: false,
+			detail: false,
+		});
+		expect(searchButton.searchButtonConditionBroken).toBe(true);
+		expect(assignedCases.errorAreas).toEqual({
+			search: false,
+			list: true,
+			detail: false,
+		});
+		expect(assignedCases.filterBroken).toBe(false);
+		expect(assignedCases.excludedOwnerIdsBroken).toBe(true);
 	});
 });

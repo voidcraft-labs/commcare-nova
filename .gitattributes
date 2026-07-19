@@ -1,0 +1,3 @@
+# The historical breadcrumb signature contained NUL separators. Force this
+# source file through the text diff driver while this change removes them.
+components/builder/SubheaderToolbar.tsx diff

@@ -24,22 +24,26 @@
 
 "use client";
 
-import { Menu } from "@base-ui/react/menu";
-import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import Image from "next/image";
 import type { ReactElement, RefAttributes } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
 import { usePresenceRoster } from "@/lib/collab/PresenceProvider";
 import type { Peer } from "@/lib/collab/presence";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useNavigate } from "@/lib/routing/hooks";
 import { recoverLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-	POPOVER_GLASS,
-} from "@/lib/styles";
 import { getInitials } from "@/lib/utils";
 
 /** Avatars shown as circles; a larger roster shows one fewer plus a "+N"
@@ -64,7 +68,7 @@ function whereLabel(location: Location): string {
 	}
 }
 
-export function PresenceRoster() {
+export function PresenceRoster({ compact = false }: { compact?: boolean }) {
 	const peers = usePresenceRoster();
 	const navigate = useNavigate();
 	// Only the entity maps `recoverLocation` reads — a peer moving between
@@ -85,10 +89,18 @@ export function PresenceRoster() {
 	const capped = peers.length > MAX_AVATARS;
 	const shown = capped ? peers.slice(0, MAX_AVATARS - 1) : peers;
 	const overflow = capped ? peers.slice(MAX_AVATARS - 1) : [];
+	if (compact) {
+		return (
+			<div className="flex items-center">
+				<CompactRosterChip peers={peers} onFollow={follow} />
+				<span aria-hidden className="ml-1 h-6 w-px bg-nova-border-bright" />
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex items-center">
-			<div className="flex items-center -space-x-1.5">
+			<div className="flex items-center gap-0.5">
 				{shown.map((peer) => (
 					<PeerAvatar
 						key={peer.userId}
@@ -111,6 +123,57 @@ export function PresenceRoster() {
 			 *  those three in step or the line drifts off-center. */}
 			<span aria-hidden className="ml-5 h-6 w-px bg-nova-border-bright" />
 		</div>
+	);
+}
+
+/** One stable header target for compact layouts. The first collaborator keeps
+ * the cross-surface color/face signal; a count badge communicates the crowd,
+ * and the menu keeps every person individually followable. */
+function CompactRosterChip({
+	peers,
+	onFollow,
+}: {
+	peers: readonly Peer[];
+	onFollow: (peer: Peer) => void;
+}) {
+	const first = peers[0];
+	if (first === undefined) return null;
+	const label = `${peers.length} ${peers.length === 1 ? "collaborator" : "collaborators"} here`;
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				aria-label={label}
+				className="group/button relative flex size-11 items-center justify-center rounded-full bg-transparent p-0 outline-none transition-all focus-visible:ring-3 focus-visible:ring-ring/50"
+			>
+				<span
+					className={`flex size-7 items-center justify-center rounded-full ring-2 ${first.peerColor.ring} ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110`}
+				>
+					<AvatarFace peer={first} size="md" />
+				</span>
+				{peers.length > 1 && (
+					<span className="absolute right-0.5 bottom-0.5 flex min-w-4 items-center justify-center rounded-full border border-nova-void bg-nova-surface px-1 text-[9px] font-semibold leading-4 text-nova-text">
+						+{peers.length - 1}
+					</span>
+				)}
+			</DropdownMenuTrigger>
+			<DropdownMenuContent sideOffset={8} preferredMinWidth={220}>
+				{peers.map((peer) => (
+					<DropdownMenuItem key={peer.userId} onClick={() => onFollow(peer)}>
+						<span className="flex min-w-0 items-center gap-2">
+							<AvatarFace peer={peer} size="sm" />
+							<span className="min-w-0">
+								<span className="block truncate">
+									{peer.name || "Collaborator"}
+								</span>
+								<span className="block truncate text-xs text-nova-text-muted first-letter:uppercase">
+									{whereLabel(peer.location)}
+								</span>
+							</span>
+						</span>
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -172,57 +235,58 @@ function PeerHoverCard({
 	children: ReactElement<RefAttributes<HTMLElement>>;
 }) {
 	return (
-		<BaseTooltip.Root>
-			<BaseTooltip.Trigger delay={300} render={children} />
-			<BaseTooltip.Portal>
-				<BaseTooltip.Positioner
-					side="bottom"
-					sideOffset={8}
-					collisionPadding={8}
-					className={`z-tooltip ${POPOVER_GLASS}`}
-				>
-					<BaseTooltip.Popup className="w-60 overflow-hidden rounded-xl pointer-events-none select-none origin-[var(--transform-origin)] transition-[transform,scale,opacity] duration-100 data-[starting-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.96]">
-						<div className="flex items-center gap-3 p-3">
-							<AvatarFace peer={peer} size="lg" />
-							<div className="min-w-0">
-								<div className="text-sm font-semibold text-nova-text truncate">
-									{peer.name || "Collaborator"}
-								</div>
-								{peer.email && (
-									<div className="mt-0.5 font-mono text-[11px] text-nova-text-muted truncate">
-										{peer.email}
-									</div>
-								)}
+		<Tooltip>
+			<TooltipTrigger delay={300} render={children} />
+			<TooltipContent
+				side="bottom"
+				sideOffset={8}
+				className="pointer-events-none w-60 max-w-[min(15rem,var(--available-width))] overflow-hidden rounded-xl p-0"
+			>
+				<div className="flex items-center gap-3 p-3">
+					<AvatarFace peer={peer} size="lg" />
+					<div className="min-w-0">
+						<div className="truncate text-sm font-semibold text-nova-text">
+							{peer.name || "Collaborator"}
+						</div>
+						{peer.email && (
+							<div className="mt-0.5 truncate font-mono text-[11px] text-nova-text-muted">
+								{peer.email}
 							</div>
-						</div>
-						<div className="flex items-center gap-1.5 border-t border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[11px] text-nova-text-secondary">
-							{/* Heartbeat-true: presence IS a live signal, so the dot
-							 *  breathes (and holds still under reduced motion). */}
-							<span
-								className={`h-1.5 w-1.5 shrink-0 rounded-full ${peer.peerColor.bg} animate-pulse motion-reduce:animate-none`}
-							/>
-							<span className="min-w-0 truncate first-letter:uppercase">
-								{whereLabel(peer.location)}
-							</span>
-						</div>
-					</BaseTooltip.Popup>
-				</BaseTooltip.Positioner>
-			</BaseTooltip.Portal>
-		</BaseTooltip.Root>
+						)}
+					</div>
+				</div>
+				<div className="flex items-center gap-1.5 border-t border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[11px] text-nova-text-secondary">
+					{/* Heartbeat-true: presence IS a live signal, so the dot
+					 *  breathes (and holds still under reduced motion). */}
+					<span
+						className={`h-1.5 w-1.5 shrink-0 rounded-full ${peer.peerColor.bg} animate-pulse motion-reduce:animate-none`}
+					/>
+					<span className="min-w-0 truncate first-letter:uppercase">
+						{whereLabel(peer.location)}
+					</span>
+				</div>
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 
 function PeerAvatar({ peer, onFollow }: { peer: Peer; onFollow: () => void }) {
 	return (
 		<PeerHoverCard peer={peer}>
-			<button
+			<Button
 				type="button"
+				variant="ghost"
+				size="xl"
 				onClick={onFollow}
 				aria-label={`Follow ${peer.name || "collaborator"}`}
-				className={`flex items-center justify-center w-7 h-7 rounded-full ring-2 ${peer.peerColor.ring} ring-offset-1 ring-offset-nova-void cursor-pointer transition-transform hover:scale-110 hover:z-10 focus-visible:outline-none focus-visible:ring-nova-text`}
+				className="size-11 rounded-full bg-transparent p-0 not-disabled:hover:bg-transparent"
 			>
-				<AvatarFace peer={peer} size="md" />
-			</button>
+				<span
+					className={`flex size-7 items-center justify-center rounded-full ring-2 ${peer.peerColor.ring} ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110`}
+				>
+					<AvatarFace peer={peer} size="md" />
+				</span>
+			</Button>
 		</PeerHoverCard>
 	);
 }
@@ -237,47 +301,37 @@ function OverflowChip({
 	onFollow: (peer: Peer) => void;
 }) {
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				aria-label={`${peers.length} more collaborators`}
-				className="flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-nova-border ring-offset-1 ring-offset-nova-void bg-nova-surface text-[11px] font-semibold leading-none text-nova-text cursor-pointer transition-transform hover:scale-110 hover:z-10 focus-visible:outline-none focus-visible:ring-nova-text"
+				className="group/button flex size-11 items-center justify-center rounded-full bg-transparent p-0 text-[11px] font-semibold leading-none text-nova-text outline-none transition-all focus-visible:ring-3 focus-visible:ring-ring/50"
 			>
-				+{peers.length}
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					className={MENU_POSITIONER_CLS}
-					sideOffset={8}
-					collisionPadding={8}
-				>
-					<Menu.Popup className={MENU_POPUP_CLS} style={{ minWidth: 220 }}>
-						{peers.map((peer) => (
-							<Menu.Item
-								key={peer.userId}
-								className={MENU_ITEM_CLS}
-								onClick={() => onFollow(peer)}
-							>
-								<span className="flex items-center gap-2">
-									<AvatarFace peer={peer} size="sm" />
-									<span className="min-w-0">
-										<span className="block truncate">
-											{peer.name || "Collaborator"}
-										</span>
-										{peer.email && (
-											<span className="block truncate text-xs text-nova-text-muted">
-												{peer.email}
-											</span>
-										)}
-										<span className="block text-xs text-nova-text-muted">
-											{whereLabel(peer.location)}
-										</span>
-									</span>
+				<span className="flex size-7 items-center justify-center rounded-full bg-nova-surface ring-2 ring-nova-border ring-offset-1 ring-offset-nova-void transition-transform group-hover/button:scale-110">
+					+{peers.length}
+				</span>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent sideOffset={8} preferredMinWidth={220}>
+				{peers.map((peer) => (
+					<DropdownMenuItem key={peer.userId} onClick={() => onFollow(peer)}>
+						<span className="flex items-center gap-2">
+							<AvatarFace peer={peer} size="sm" />
+							<span className="min-w-0">
+								<span className="block truncate">
+									{peer.name || "Collaborator"}
 								</span>
-							</Menu.Item>
-						))}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+								{peer.email && (
+									<span className="block truncate text-xs text-nova-text-muted">
+										{peer.email}
+									</span>
+								)}
+								<span className="block text-xs text-nova-text-muted">
+									{whereLabel(peer.location)}
+								</span>
+							</span>
+						</span>
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }

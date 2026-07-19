@@ -1,7 +1,7 @@
 // components/builder/media/ExtractionStatusBadge.tsx
 //
 // The feature-extraction indicator shown on a document in the file manager and
-// the composer: "Reading…" while the extract is being produced, "Extracted" once
+// the composer: "Reading…" while the file is being prepared, "Ready" once
 // Nova can read it, "Couldn't read" (with retry) on failure. Nothing for a
 // non-document (images reach the model directly). This is the surface that
 // answers "is feature extraction happening?" — so a user understands Nova works
@@ -12,8 +12,10 @@
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import { Badge } from "@/components/shadcn/badge";
+import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import {
+	SimpleTooltip,
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
@@ -47,7 +49,7 @@ export function ExtractionStatusBadge({
 }
 
 /**
- * Presentational indicator: "Reading…" / "Couldn't read" (retry) / "Extracted",
+ * Presentational indicator: "Reading…" / "Couldn't read" (retry) / "Ready",
  * or nothing for a non-document. Split from the hook so a caller that already
  * holds the extraction status (the composer, which gates the chip's X on it) can
  * render the same badge without triggering a second `useDocumentExtraction`.
@@ -73,41 +75,36 @@ export function ExtractionStatusBadgeView({
 					}
 				/>
 				<TooltipContent>
-					Reading this into Nova's extract — this can take up to a few minutes.
+					Nova is reading this file. This can take a few minutes.
 				</TooltipContent>
 			</Tooltip>
 		);
 	}
 
 	if (status === "failed") {
-		// Render the badge as a button so a failed extract is one click to retry.
+		// A failed extract is one clear, full-size action rather than a tiny badge
+		// that happens to be clickable.
 		return (
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<Badge
-							variant="destructive"
-							render={
-								<button type="button" onClick={retry}>
-									<Icon icon={tablerAlertTriangle} />
-									Retry
-								</button>
-							}
-						/>
-					}
-				/>
-				<TooltipContent>Couldn't read this — click to retry</TooltipContent>
-			</Tooltip>
+			<SimpleTooltip content="Try reading this file again">
+				<Button
+					type="button"
+					variant="destructive"
+					className="h-11 px-3"
+					onClick={retry}
+				>
+					<Icon icon={tablerAlertTriangle} />
+					Retry
+				</Button>
+			</SimpleTooltip>
 		);
 	}
 
-	// ready — the clickable info popover takes the decorative sparkles' place
-	// (sized to the badge's icon so the chip doesn't widen) and explains what Nova
-	// reads on click; no hover tooltip, the one affordance is enough.
+	// Ready keeps the status and its explanation together. The info trigger gets
+	// the same full-size target as the other media controls.
 	return (
-		<Badge variant="outline">
-			<ExtractionInfoPopover className="size-3" />
-			Extracted
+		<Badge variant="outline" className="min-h-11 gap-1.5 px-2 text-xs">
+			<ExtractionInfoPopover />
+			Ready
 		</Badge>
 	);
 }

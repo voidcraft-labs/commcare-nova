@@ -1,12 +1,15 @@
 /**
  * SA tool: `setCaseSearchAdvanced` — set the advanced cluster of a
- * module's case-search config (the niche search-side filters most
- * authors never reach for; today, the `excludedOwnerIds` slot).
+ * module's case-search config (today, the rare owner-availability
+ * `excludedOwnerIds` slot). The value is global: it may read session/current-
+ * user values and Search answers, but never a case property or relationship
+ * because it resolves before a case is selected.
  *
- * Wholesale-with-`null`-clears: every slot is required-and-nullable
- * on the SA boundary; `null` clears, non-null sets. Mirrors
- * `setCaseListFilter`. The display cluster round-trips byte-identically
- * (harvested via `pickDisplayCluster`).
+ * Every slot is required-and-nullable on the SA boundary: `null` clears,
+ * non-null sets. The tool computes a whole editor projection so the display
+ * cluster round-trips byte-identically, then `updateModuleMutations` splits
+ * it into fresh-state per-slot writes; its whole-config payload is only the
+ * rolling-deploy fallback.
  *
  * Two exit branches: module-index-out-of-range returns `{ error }`
  * with no mutations; success returns `{ message, advancedSlotsSet }`
@@ -31,7 +34,9 @@ import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,
 	applyClusterPatch,
+	collapseUnauthoredCaseSearchConfig,
 	pickDisplayCluster,
+	pickSearchActionIntent,
 	setCaseSearchAdvancedBodySchema,
 	slotsSetByInput,
 	snapshotCaseSearchConfig,
@@ -70,7 +75,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set a module's advanced case-search cluster (niche search-side filters — excludedOwnerIds). null clears a slot. Display text lives on setCaseSearchDisplay.",
+		"Set a module's rare owner-availability rule (excludedOwnerIds). The value can use fixed owner ids, current-user/session values, or Search answers, but not case properties or relationships; null clears it. Search action text lives on setCaseSearchDisplay.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,
@@ -99,13 +104,25 @@ export const setCaseSearchAdvancedTool = {
 			// assertions in `shared.ts` catch cluster-home omissions at
 			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
-			const nextConfig: CaseSearchConfig = {
+			const advancedPatch = applyClusterPatch(input, ADVANCED_SLOT_NAMES);
+			const addingFirstOwnerRule =
+				existing === undefined &&
+				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
+				advancedPatch.excludedOwnerIds !== undefined;
+			const nextConfigCandidate: CaseSearchConfig = {
 				...pickDisplayCluster(existing),
-				...applyClusterPatch(input, ADVANCED_SLOT_NAMES),
+				...(addingFirstOwnerRule
+					? { searchActionEnabled: false as const }
+					: pickSearchActionIntent(existing)),
+				...advancedPatch,
 			};
+			const nextConfig = collapseUnauthoredCaseSearchConfig(
+				existing,
+				nextConfigCandidate,
+			);
 
 			const mutations = updateModuleMutations(mod, {
-				caseSearchConfig: nextConfig,
+				caseSearchConfig: nextConfig ?? null,
 			});
 			const commit = await guardedMutate(
 				ctx,

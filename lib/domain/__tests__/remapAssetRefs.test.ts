@@ -179,6 +179,42 @@ function docWithDormantCaseListIcon() {
 	});
 }
 
+function docWithDormantImageMap() {
+	return blueprintDocSchema.parse({
+		appId: "app-3",
+		appName: "Dormant image",
+		connectType: null,
+		caseTypes: null,
+		moduleOrder: ["mod-x"],
+		formOrder: { "mod-x": [] },
+		fieldOrder: {},
+		modules: {
+			"mod-x": {
+				uuid: "mod-x",
+				id: "m",
+				name: "M",
+				caseListOnly: true,
+				caseListConfig: {
+					columns: [
+						{
+							uuid: "col-dormant",
+							kind: "image-map",
+							field: "status",
+							header: "Old status image",
+							visibleInList: false,
+							visibleInDetail: false,
+							mapping: [{ value: "open", assetId: "dormant-image" }],
+						},
+					],
+					searchInputs: [],
+				},
+			},
+		},
+		forms: {},
+		fields: {},
+	});
+}
+
 describe("collectMovableAssetRefs", () => {
 	it("carries a non-caseListOnly module's caseListConfig media the gated walk drops", () => {
 		const doc = asWalkableDoc(docWithDormantCaseListIcon());
@@ -199,5 +235,11 @@ describe("collectMovableAssetRefs", () => {
 		for (const id of collectAssetRefs(doc)) {
 			expect(movable.has(id)).toBe(true);
 		}
+	});
+
+	it("keeps dormant image-map media movable without validating or emitting it", () => {
+		const doc = asWalkableDoc(docWithDormantImageMap());
+		expect(collectAssetRefs(doc).has("dormant-image")).toBe(false);
+		expect(collectMovableAssetRefs(doc).has("dormant-image")).toBe(true);
 	});
 });

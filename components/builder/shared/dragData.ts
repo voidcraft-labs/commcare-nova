@@ -16,13 +16,14 @@
 /**
  * Source-side payload — identifies which clause is being dragged
  * inside which logical group. The `nodeKey` field is the parent
- * `and` / `or` group's stable id (per `nodeIdentity.ts`); it
+ * `and` / `or` group's stable per-mount id (`useId()`); it
  * scopes the drop to that group's clause list so a clause can
  * never reorder into a sibling group's list at the wire layer.
  */
 export interface ClauseDragData {
 	readonly kind: "predicate-clause-drag";
 	readonly groupKind: "and" | "or";
+	readonly itemKey: string;
 	readonly clauseIndex: number;
 	readonly nodeKey: string;
 }
@@ -36,6 +37,7 @@ export interface ClauseDragData {
 export interface ClauseDropData {
 	readonly kind: "predicate-clause-drop";
 	readonly groupKind: "and" | "or";
+	readonly itemKey: string;
 	readonly clauseIndex: number;
 	readonly nodeKey: string;
 }
@@ -72,6 +74,7 @@ export function readClauseDragData(
 ): ClauseDragData | undefined {
 	const partial = data as Partial<ClauseDragData>;
 	if (partial.kind !== "predicate-clause-drag") return undefined;
+	if (typeof partial.itemKey !== "string") return undefined;
 	if (partial.clauseIndex === undefined) return undefined;
 	if (partial.nodeKey === undefined) return undefined;
 	if (partial.groupKind !== "and" && partial.groupKind !== "or") {
@@ -80,6 +83,7 @@ export function readClauseDragData(
 	return {
 		kind: "predicate-clause-drag",
 		groupKind: partial.groupKind,
+		itemKey: partial.itemKey,
 		clauseIndex: partial.clauseIndex,
 		nodeKey: partial.nodeKey,
 	};
@@ -94,6 +98,7 @@ export function readClauseDropData(
 ): ClauseDropData | undefined {
 	const partial = data as Partial<ClauseDropData>;
 	if (partial.kind !== "predicate-clause-drop") return undefined;
+	if (typeof partial.itemKey !== "string") return undefined;
 	if (partial.clauseIndex === undefined) return undefined;
 	if (partial.nodeKey === undefined) return undefined;
 	if (partial.groupKind !== "and" && partial.groupKind !== "or") {
@@ -102,6 +107,7 @@ export function readClauseDropData(
 	return {
 		kind: "predicate-clause-drop",
 		groupKind: partial.groupKind,
+		itemKey: partial.itemKey,
 		clauseIndex: partial.clauseIndex,
 		nodeKey: partial.nodeKey,
 	};
@@ -125,8 +131,8 @@ export function readClauseDropData(
 //
 // `containerKind` is a free-form `string` so call sites pick their own
 // scope tokens without coupling to a closed enum here. The `nodeKey`
-// is the strict scope (a UUID per container instance from
-// `nodeIdentity.ts`); `containerKind` is a coarser belt-and-suspenders
+// is the strict scope (a stable id per mounted container); `containerKind` is
+// a coarser belt-and-suspenders
 // gate that catches a misregistered monitor before it ever reads the
 // nodeKey. Same pattern the predicate-clause payload above uses with
 // its own discriminator.
@@ -137,6 +143,11 @@ export function readClauseDropData(
 export interface ListItemDragData {
 	readonly kind: "list-item-drag";
 	readonly containerKind: string;
+	/** Stable identity for the dragged item. Array positions can change while a
+	 * drag is in flight when another collaborator reorders the same list. */
+	readonly itemKey: string;
+	/** Position at drag start. Used only for immediate visual feedback; drop
+	 * resolution finds `itemKey` in the latest item list. */
 	readonly itemIndex: number;
 	readonly nodeKey: string;
 }
@@ -146,6 +157,9 @@ export interface ListItemDragData {
 export interface ListItemDropData {
 	readonly kind: "list-item-drop";
 	readonly containerKind: string;
+	/** Stable identity for the target item. The monitor resolves its current
+	 * position at drag/drop time rather than trusting `itemIndex`. */
+	readonly itemKey: string;
 	readonly itemIndex: number;
 	readonly nodeKey: string;
 }
@@ -158,12 +172,14 @@ export function readListItemDragData(
 ): ListItemDragData | undefined {
 	const partial = data as Partial<ListItemDragData>;
 	if (partial.kind !== "list-item-drag") return undefined;
+	if (typeof partial.itemKey !== "string") return undefined;
 	if (partial.itemIndex === undefined) return undefined;
 	if (partial.nodeKey === undefined) return undefined;
 	if (typeof partial.containerKind !== "string") return undefined;
 	return {
 		kind: "list-item-drag",
 		containerKind: partial.containerKind,
+		itemKey: partial.itemKey,
 		itemIndex: partial.itemIndex,
 		nodeKey: partial.nodeKey,
 	};
@@ -175,12 +191,14 @@ export function readListItemDropData(
 ): ListItemDropData | undefined {
 	const partial = data as Partial<ListItemDropData>;
 	if (partial.kind !== "list-item-drop") return undefined;
+	if (typeof partial.itemKey !== "string") return undefined;
 	if (partial.itemIndex === undefined) return undefined;
 	if (partial.nodeKey === undefined) return undefined;
 	if (typeof partial.containerKind !== "string") return undefined;
 	return {
 		kind: "list-item-drop",
 		containerKind: partial.containerKind,
+		itemKey: partial.itemKey,
 		itemIndex: partial.itemIndex,
 		nodeKey: partial.nodeKey,
 	};

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HqFormLink } from "@/lib/commcare";
 import {
+	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
 	deriveFormLinkStack,
 	derivePostSubmitStack,
@@ -82,6 +83,23 @@ describe("deriveSessionDatums", () => {
 		const datums = deriveSessionDatums("followup", 0, "patient", matchNone());
 		expect(datums[0].nodeset).toBe(
 			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][false()]",
+		);
+	});
+
+	it("applies owner exclusion after the always-on list filter", () => {
+		const filter = eq(prop("patient", "is_priority"), literal(true));
+		const excludedOwners = term(literal("owner-a owner-b"));
+		const datums = deriveSessionDatums(
+			"followup",
+			0,
+			"patient",
+			filter,
+			undefined,
+			excludedOwners,
+		);
+
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][is_priority = 'true'][normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))]",
 		);
 	});
 
@@ -371,12 +389,14 @@ describe("deriveEntryDefinition", () => {
 		expect(entry.stack?.operations).toHaveLength(1);
 	});
 
-	it("accumulates the search-input:results instance when the case-list filter references an input", () => {
-		// The case-list filter's bracketed XPath fragment lives inside
-		// the case-loading datum's nodeset. Any instance the fragment
-		// references must be declared on the `<entry>` itself; an
-		// undeclared instance breaks `instance('...')` resolution at
-		// runtime.
+	it("never declares search-input:results on the ordinary entry, matching the substituted nodeset", () => {
+		// The ordinary case-loading entry evaluates before any Search
+		// runs, so the nodeset emission substitutes Search-input refs to
+		// their unanswered reading and the accumulator collects from the
+		// SAME substituted tree — a declared-but-unloaded
+		// `search-input:results` instance would itself throw
+		// `XPathMissingInstanceException` in Core the moment the nodeset
+		// referenced it.
 		const filter = eq(
 			prop("patient", "city"),
 			term({ kind: "input", name: "city_q" }),
@@ -393,11 +413,9 @@ describe("deriveEntryDefinition", () => {
 		);
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("casedb");
-		expect(ids).toContain("search-input:results");
-		const searchInput = entry.instances.find(
-			(i) => i.id === "search-input:results",
-		);
-		expect(searchInput?.src).toBe("jr://instance/search-input/results");
+		expect(ids).not.toContain("search-input:results");
+		const nodeset = entry.session?.datums[0]?.nodeset ?? "";
+		expect(nodeset).not.toContain("search-input:results");
 	});
 
 	it("accumulates the commcaresession instance when the case-list filter references a session term", () => {
@@ -445,6 +463,50 @@ describe("deriveEntryDefinition", () => {
 		);
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("commcaresession");
+	});
+
+	it("accumulates instances referenced by the owner-exclusion expression", () => {
+		const excludedOwners = term({
+			kind: "session-user",
+			field: "excluded_owner_ids",
+		});
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			excludedOwners,
+		);
+
+		expect(entry.instances).toContainEqual({
+			id: "commcaresession",
+			src: "jr://instance/session",
+		});
+		expect(entry.session?.datums[0].nodeset).toContain(
+			"[normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids) = '' or not(selected(normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids), @owner_id))]",
+		);
+	});
+
+	it("omits detail-confirm when a case-list viewer has no Details fields", () => {
+		const entry = deriveCaseListEntryDefinition(
+			0,
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			false,
+		);
+		const datum = entry.session?.datums[0];
+
+		expect(datum?.detailSelect).toBe("m0_case_short");
+		expect(datum?.detailConfirm).toBeUndefined();
 	});
 
 	it("accumulates search-input:results when the search-button display condition references a search input", () => {

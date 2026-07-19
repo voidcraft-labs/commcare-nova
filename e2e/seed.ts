@@ -7,9 +7,10 @@
  *
  *   1. an `auth_user` row (the signed-in Dimagi user),
  *   2. an `auth_session` row (a live, non-expired session token),
- *   3. one `complete` app to open in the builder, plus a handful of throwaway
- *      `complete` apps for the delete test to consume — all via the real no-LLM
- *      `createApp`, so the suite never calls Anthropic.
+ *   3. one `complete` app to open in the builder, a populated patient workspace
+ *      for Search / Results / Details visual QA, plus a handful of throwaway
+ *      `complete` apps for the delete test to consume — all via real no-LLM
+ *      storage paths, so the suite never calls a model.
  *
  * Auth state and app/thread/run state both live in Postgres now (one store).
  * The delete test mutates seeded state irreversibly, and Playwright retries
@@ -29,13 +30,21 @@ import type { Pool } from "pg";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
+import { withProjectContext } from "@/lib/case-store";
 import {
 	closeCaseStoreDatabase,
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
 import { appendSyntheticBatch, createApp } from "@/lib/db/apps";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	buildCaseWorkspaceBlueprint,
+	CASE_WORKSPACE_SEED,
+	caseWorkspaceCaseRows,
+	caseWorkspaceRoutes,
+} from "./lib/caseWorkspaceSeed";
 import { DELETE_APP_COUNT } from "./lib/config";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
@@ -257,6 +266,50 @@ async function main(): Promise<void> {
 		appName: SEED.openAppName,
 		status: "complete",
 	});
+
+	/* Full Search / Results / Details visual-QA fixture. The authored ids and
+	 * patient values are stable; the app + case ids are minted by their real
+	 * stores and written into seed.json for exact deep links. Materialize before
+	 * inserting so the fixture exercises the same schema gate as live case data. */
+	const caseWorkspaceAppId = await createApp(
+		SEED.userId,
+		seedProjectId,
+		randomUUID(),
+		{ appName: CASE_WORKSPACE_SEED.appName, status: "complete" },
+	);
+	const caseWorkspaceDoc = toPersistableDoc(
+		buildCaseWorkspaceBlueprint(caseWorkspaceAppId),
+	);
+	await appendSyntheticBatch(caseWorkspaceAppId, caseWorkspaceDoc);
+	await materializeCaseStoreSchemas({
+		appId: caseWorkspaceAppId,
+		blueprint: caseWorkspaceDoc,
+		// A newly-created app starts at seq 0; appendSyntheticBatch advances it once.
+		syncedSeq: 1,
+	});
+	const caseStore = await withProjectContext(seedProjectId, SEED.userId);
+	const caseWorkspaceCaseIds: string[] = [];
+	for (const row of caseWorkspaceCaseRows()) {
+		const inserted = await caseStore.insert({
+			appId: caseWorkspaceAppId,
+			row,
+		});
+		caseWorkspaceCaseIds.push(inserted.caseId);
+	}
+	const firstCaseId = caseWorkspaceCaseIds[0];
+	if (!firstCaseId) {
+		throw new Error("e2e/seed.ts: patient workspace seeded no case rows");
+	}
+	const caseWorkspace = {
+		appId: caseWorkspaceAppId,
+		moduleUuid: CASE_WORKSPACE_SEED.moduleUuid,
+		caseType: CASE_WORKSPACE_SEED.caseType,
+		columnUuids: CASE_WORKSPACE_SEED.columns,
+		searchInputUuids: CASE_WORKSPACE_SEED.searchInputs,
+		caseIds: caseWorkspaceCaseIds,
+		caseCount: caseWorkspaceCaseIds.length,
+		routes: caseWorkspaceRoutes(caseWorkspaceAppId, firstCaseId),
+	};
 	/* The conversations fixture: a module-bearing app (docked chat) plus two
 	 * tall, settled conversations written through the real thread store (turn
 	 * upsert + response append, live marker cleared) — exactly the rows finished
@@ -352,6 +405,7 @@ async function main(): Promise<void> {
 			{
 				...SEED,
 				openAppId,
+				caseWorkspace,
 				deleteAppIds,
 				threadsAppId,
 				olderThreadId,
@@ -376,7 +430,7 @@ async function main(): Promise<void> {
 	await writeFile(MULTIPLAYER_FILE, JSON.stringify(multiplayer, null, 2));
 
 	console.log(
-		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}\n[seed] multiplayer app=${multiplayer.appId} project=shared users=${multiplayer.userA.id},${multiplayer.userB.id}`,
+		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] caseWorkspace app=${caseWorkspace.appId} cases=${caseWorkspace.caseCount} results=${caseWorkspace.routes.results}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}\n[seed] multiplayer app=${multiplayer.appId} project=shared users=${multiplayer.userA.id},${multiplayer.userB.id}`,
 	);
 
 	// Release the pg pool so the process exits promptly — an open pool would

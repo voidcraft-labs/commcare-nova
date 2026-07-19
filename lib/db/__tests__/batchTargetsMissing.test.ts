@@ -156,6 +156,16 @@ describe("batchTargetsMissing — entity kinds", () => {
 				{ kind: "removeField", uuid: MISSING } as Mutation,
 			]),
 		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateModule",
+					uuid: MISSING,
+					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					ensureCaseListConfig: true,
+				} as unknown as Mutation,
+			]),
+		).toBe(true);
 	});
 
 	it("tracks intra-batch adds — an add-then-edit of the same entity is not missing", () => {
@@ -210,7 +220,7 @@ describe("batchTargetsMissing — granular catalog kinds", () => {
 					kind: "addCaseProperty",
 					caseType: "household",
 					property: { name: "x", label: "X" },
-				} as Mutation,
+				} as unknown as Mutation,
 			]),
 		).toBe(true);
 		expect(
@@ -244,6 +254,10 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 			selectUuid,
 			optionUuid,
 		} = fixture();
+		const column = doc.modules[moduleUuid].caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === columnUuid,
+		);
+		if (!column) throw new Error("fixture column missing");
 		// Non-destructive edits to every live item (no remove-then-move on the
 		// same uuid, which would legitimately trip the guard mid-batch).
 		const live: Mutation[] = [
@@ -252,6 +266,27 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				moduleUuid,
 				uuid: columnUuid,
 				order: "a1",
+			} as Mutation,
+			{
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "a2",
+				surfaceOrderPatch: { surface: "list", order: "a2" },
+			} as Mutation,
+			{
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "a3",
+				surfaceOrderPatch: { surface: "detail", order: "a3" },
+			} as Mutation,
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column: { ...column, visibleInDetail: false },
+				visibilityPatch: { surface: "detail", visible: false },
 			} as Mutation,
 			{
 				kind: "removeSearchInput",
@@ -279,6 +314,45 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		expect(
 			batchTargetsMissing(doc, [
 				{
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: MISSING,
+					column: {
+						uuid: MISSING,
+						kind: "plain",
+						field: "x",
+						header: "X",
+						visibleInList: false,
+					},
+					visibilityPatch: { surface: "list", visible: false },
+				} as Mutation,
+			]),
+		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "moveColumn",
+					moduleUuid,
+					uuid: MISSING,
+					order: "a1",
+					surfaceOrderPatch: { surface: "list", order: "a1" },
+				} as Mutation,
+			]),
+		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "moveColumn",
+					moduleUuid,
+					uuid: MISSING,
+					order: "a1",
+					surfaceOrderPatch: { surface: "detail", order: "a1" },
+				} as Mutation,
+			]),
+		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{
 					kind: "updateSearchInput",
 					moduleUuid,
 					uuid: MISSING,
@@ -295,6 +369,30 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				} as Mutation,
 			]),
 		).toBe(true);
+	});
+
+	it("tracks an intra-batch column add before its visibility patch", () => {
+		const { doc, moduleUuid } = fixture();
+		const owner = asUuid(moduleUuid);
+		const uuid = asUuid("column-new");
+		const column = {
+			uuid,
+			kind: "plain" as const,
+			field: "case_name",
+			header: "Second name",
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{ kind: "addColumn", moduleUuid: owner, column },
+				{
+					kind: "updateColumn",
+					moduleUuid: owner,
+					uuid,
+					column: { ...column, visibleInDetail: false },
+					visibilityPatch: { surface: "detail", visible: false },
+				},
+			]),
+		).toBe(false);
 	});
 
 	it("returns true when a column/option target's parent module/field was removed", () => {
@@ -373,14 +471,15 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				},
 			},
 		} as BlueprintDoc;
-		// A wholesale config birth (`updateModule{caseListConfig}`) followed by a
-		// setCaseListMeta in the same batch: the guard tracks the intra-batch birth.
+		// The semantic config ensure followed by setCaseListMeta: the guard tracks
+		// the intra-batch birth without requiring a stale whole-config snapshot.
 		expect(
 			batchTargetsMissing(cleared, [
 				{
 					kind: "updateModule",
 					uuid: moduleUuid,
 					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					ensureCaseListConfig: true,
 				} as unknown as Mutation,
 				{
 					kind: "setCaseListMeta",

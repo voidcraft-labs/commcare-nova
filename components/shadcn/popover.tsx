@@ -14,17 +14,28 @@ function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
 	return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
 }
 
+function PopoverClose({ ...props }: PopoverPrimitive.Close.Props) {
+	return <PopoverPrimitive.Close data-slot="popover-close" {...props} />;
+}
+
 function PopoverContent({
 	className,
 	align = "center",
 	alignOffset = 0,
 	side = "bottom",
 	sideOffset = 4,
+	collisionAvoidance,
+	collisionPadding,
 	...props
 }: PopoverPrimitive.Popup.Props &
 	Pick<
 		PopoverPrimitive.Positioner.Props,
-		"align" | "alignOffset" | "side" | "sideOffset"
+		| "align"
+		| "alignOffset"
+		| "side"
+		| "sideOffset"
+		| "collisionAvoidance"
+		| "collisionPadding"
 	>) {
 	return (
 		// Portals to document.body (Base UI default) and positions at `z-modal`,
@@ -36,21 +47,25 @@ function PopoverContent({
 		// `lib/styles.ts`) lives on the POSITIONER — `will-change: transform`
 		// there creates a compositing boundary that would break a descendant
 		// `backdrop-filter` — while the popup carries only the animation.
-		// `z-modal` re-overrides the constant's `z-popover` for the portal-order
-		// reasoning above.
+		// The shared glass constant supplies `z-popover` for direct Base UI users.
+		// An inline token is intentional here: Tailwind's generated utility order,
+		// not class-string order, otherwise lets that shared class beat `z-modal`.
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
 				align={align}
 				alignOffset={alignOffset}
 				side={side}
 				sideOffset={sideOffset}
-				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS, "z-modal")}
+				collisionAvoidance={collisionAvoidance}
+				collisionPadding={collisionPadding}
+				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS)}
+				style={{ zIndex: "var(--z-modal)" }}
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"
 					className={cn(
 						POPOVER_POPUP_CLS,
-						"flex w-72 flex-col gap-2.5 p-3 text-sm text-nova-text outline-hidden",
+						"flex w-72 max-w-[var(--available-width)] flex-col gap-2.5 overflow-x-hidden p-3 text-sm text-nova-text outline-hidden",
 						className,
 					)}
 					{...props}
@@ -95,6 +110,7 @@ function PopoverDescription({
 
 export {
 	Popover,
+	PopoverClose,
 	PopoverContent,
 	PopoverDescription,
 	PopoverHeader,

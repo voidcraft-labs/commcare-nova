@@ -40,5 +40,8 @@
 // runtime import for a type-only reference.
 
 export type { CsqlSegment } from "../predicate/csqlSegment";
-export { emitCsqlExpressionSegments } from "./csqlEmitter";
+export {
+	emitCsqlExpressionSegments,
+	isNativeCsqlValueExpression,
+} from "./csqlEmitter";
 export { emitOnDeviceExpression } from "./onDeviceEmitter";

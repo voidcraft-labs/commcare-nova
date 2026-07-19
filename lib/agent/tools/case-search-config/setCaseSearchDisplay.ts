@@ -3,10 +3,11 @@
  * module's case-search config (search-screen labels + the search-
  * button display predicate).
  *
- * Wholesale-with-`null`-clears: every slot is required-and-nullable
- * on the SA boundary; `null` clears, non-null sets. Mirrors
- * `setCaseListFilter`. The advanced cluster round-trips byte-identically
- * (harvested via `pickAdvancedCluster`).
+ * Every slot is required-and-nullable on the SA boundary: `null` clears,
+ * non-null sets. The tool computes a whole editor projection so the advanced
+ * cluster round-trips byte-identically, then `updateModuleMutations` splits
+ * it into fresh-state per-slot writes; its whole-config payload is only the
+ * rolling-deploy fallback.
  *
  * Two exit branches: module-index-out-of-range returns `{ error }`
  * with no mutations; success returns `{ message, displaySlotsSet }`
@@ -25,13 +26,16 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	applyClusterPatch,
+	collapseUnauthoredCaseSearchConfig,
 	DISPLAY_SLOT_NAMES,
 	type DisplaySlotName,
 	pickAdvancedCluster,
+	pickSearchActionIntent,
 	setCaseSearchDisplayBodySchema,
 	slotsSetByInput,
 	snapshotCaseSearchConfig,
@@ -99,13 +103,26 @@ export const setCaseSearchDisplayTool = {
 			// assertions in `shared.ts` catch cluster-home omissions at
 			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
-			const nextConfig: CaseSearchConfig = {
+			const displayPatch = applyClusterPatch(input, DISPLAY_SLOT_NAMES);
+			if (displayPatch.searchButtonDisplayCondition !== undefined) {
+				displayPatch.searchButtonDisplayCondition =
+					canonicalizePredicateCaseProperties(
+						displayPatch.searchButtonDisplayCondition,
+					);
+			}
+			const authoredDisplaySetting = Object.keys(displayPatch).length > 0;
+			const nextConfigCandidate: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),
-				...applyClusterPatch(input, DISPLAY_SLOT_NAMES),
+				...(!authoredDisplaySetting && pickSearchActionIntent(existing)),
+				...displayPatch,
 			};
+			const nextConfig = collapseUnauthoredCaseSearchConfig(
+				existing,
+				nextConfigCandidate,
+			);
 
 			const mutations = updateModuleMutations(mod, {
-				caseSearchConfig: nextConfig,
+				caseSearchConfig: nextConfig ?? null,
 			});
 			const commit = await guardedMutate(
 				ctx,

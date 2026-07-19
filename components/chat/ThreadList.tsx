@@ -6,7 +6,7 @@
  * open (ChatSidebar owns the open/close state and the header's back
  * affordance). A row shows what a person needs to pick a conversation —
  * its opening request, how old it is, how much was said — and two live
- * signals: the violet dot marks the OPEN conversation, the pulsing LIVE
+ * signals: the violet dot marks the open conversation, and the pulsing active
  * badge marks one with a run streaming right now (its row resumes the
  * stream on open).
  */
@@ -15,6 +15,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerMessage from "@iconify-icons/tabler/message";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
+import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import type { ThreadMeta } from "@/lib/db/types";
 import { formatRelativeDate } from "@/lib/utils/format";
@@ -23,8 +24,8 @@ interface ThreadListProps {
 	threads: ThreadMeta[];
 	/** The conversation currently open in the rail (the Chat instance's id). */
 	activeThreadId: string;
-	/** True while the OPEN conversation's stream is live in this tab — lights
-	 *  its LIVE badge even before the server-side marker round-trips. */
+	/** True while the open conversation's stream is live in this tab. This lights
+	 *  its active badge even before the server-side marker round-trips. */
 	activeThreadStreaming: boolean;
 	openingThreadId: string | null;
 	onSelect: (threadId: string) => void | Promise<void>;
@@ -56,13 +57,14 @@ export function ThreadList({
 					thread.active_stream_id !== null || (active && activeThreadStreaming);
 				return (
 					<li key={thread.thread_id}>
-						<button
+						<Button
 							type="button"
+							variant="ghost"
 							onClick={() => void onSelect(thread.thread_id)}
 							disabled={openingThreadId !== null}
 							aria-current={active ? "true" : undefined}
 							aria-busy={opening || undefined}
-							className={`relative w-full min-h-11 border-b border-nova-border px-4 py-3 text-left outline-none transition-colors cursor-pointer focus-visible:z-10 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 ${
+							className={`relative h-auto min-h-11 w-full flex-col items-stretch gap-0 whitespace-normal rounded-none border-b border-nova-border px-4 py-3 text-left focus-visible:z-10 focus-visible:ring-inset ${
 								active
 									? "bg-nova-violet/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-nova-violet"
 									: "not-disabled:hover:bg-nova-surface/40"
@@ -92,13 +94,13 @@ export function ThreadList({
 											<span className="absolute inline-flex size-full rounded-full bg-nova-emerald/60 animate-ping motion-reduce:hidden" />
 											<span className="relative inline-flex size-2 rounded-full bg-nova-emerald" />
 										</span>
-										<span className="text-[9px] font-mono tracking-[0.18em] text-nova-text-muted">
-											LIVE
+										<span className="text-xs font-medium text-nova-text-muted">
+											Active
 										</span>
 									</span>
 								) : null}
 							</div>
-							<div className="mt-1 pl-6 flex items-center gap-1.5 text-[11px] text-nova-text-muted">
+							<div className="mt-1 flex items-center gap-1.5 pl-6 text-xs text-nova-text-muted">
 								<span>
 									{thread.thread_type === "build" ? "Initial build" : "Edit"}
 								</span>
@@ -109,7 +111,7 @@ export function ThreadList({
 									{thread.message_count === 1 ? "message" : "messages"}
 								</span>
 							</div>
-						</button>
+						</Button>
 					</li>
 				);
 			})}

@@ -127,6 +127,52 @@ describe("useNavigate", () => {
 		);
 	});
 
+	it("workspace navigation uses the canonical Search, Results, and Details paths", () => {
+		const store = makeStore();
+		const moduleUuid = store.getState().moduleOrder[0];
+		const { result } = renderHook(() => useNavigate(), {
+			wrapper: wrap(store),
+		});
+
+		act(() => result.current.openSearchConfig(asUuid(moduleUuid)));
+		expect(pushStateSpy).toHaveBeenLastCalledWith(
+			null,
+			"",
+			`/build/app-1/${moduleUuid}/search`,
+		);
+
+		act(() => result.current.openCaseList(asUuid(moduleUuid)));
+		expect(pushStateSpy).toHaveBeenLastCalledWith(
+			null,
+			"",
+			`/build/app-1/${moduleUuid}/results`,
+		);
+
+		act(() => result.current.openDetailConfig(asUuid(moduleUuid)));
+		expect(pushStateSpy).toHaveBeenLastCalledWith(
+			null,
+			"",
+			`/build/app-1/${moduleUuid}/details`,
+		);
+	});
+
+	it("keeps running case-record deep links under /cases/{caseId}", () => {
+		const store = makeStore();
+		const moduleUuid = store.getState().moduleOrder[0];
+		const { result } = renderHook(() => useNavigate(), {
+			wrapper: wrap(store),
+		});
+
+		act(() =>
+			result.current.openCaseDetail(asUuid(moduleUuid), "case-record-1"),
+		);
+		expect(pushStateSpy).toHaveBeenCalledWith(
+			null,
+			"",
+			`/build/app-1/${moduleUuid}/cases/case-record-1`,
+		);
+	});
+
 	it("up on form-with-selection clears only the selection", () => {
 		const store = makeStore();
 		const state = store.getState();

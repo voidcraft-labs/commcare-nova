@@ -1,6 +1,6 @@
 /**
- * Carry an existing case-list item's IDENTITY (`uuid`) and DISPLAY POSITION
- * (`order`) onto a rebuilt body.
+ * Carry an existing case-list item's identity and every persisted display
+ * position onto a rebuilt body.
  *
  * The column / search-input editors rebuild the body (`preservedColumnSwap`,
  * `simpleSearchInputDef` / `advancedSearchInputDef`) without re-emitting these
@@ -12,11 +12,22 @@
  * the preservation independent of whichever editor produced the body.
  */
 export function withPreservedIdentity<
-	T extends { uuid?: string; order?: string },
+	T extends {
+		uuid?: string;
+		order?: string;
+		listOrder?: string;
+		detailOrder?: string;
+	},
 >(existing: T, next: T): T {
 	return {
 		...next,
 		uuid: existing.uuid,
 		...(existing.order !== undefined && { order: existing.order }),
+		...(existing.listOrder !== undefined && {
+			listOrder: existing.listOrder,
+		}),
+		...(existing.detailOrder !== undefined && {
+			detailOrder: existing.detailOrder,
+		}),
 	};
 }

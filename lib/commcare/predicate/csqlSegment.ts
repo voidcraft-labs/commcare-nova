@@ -31,10 +31,11 @@
  *     layer encloses each constant run in an XPath string literal,
  *     splitting on embedded quotes via the alternating-quote concat
  *     idiom when both `'` and `"` appear in the same constant.
- *   - `runtime` — an XPath path expression evaluated on-device whose
- *     string result interpolates into the CSQL fragment as a value.
- *     Runtime segments pass through verbatim as their own concat
- *     argument; the wrap layer never parses or splits them.
+ *   - `runtime` — an XPath expression evaluated on-device whose string
+ *     result interpolates into the CSQL fragment. Runtime value segments
+ *     may also carry a `rejectWhen` proof obligation when no CSQL literal
+ *     can represent the resolved bytes. Runtime segments pass through as
+ *     their own concat argument; the wrap layer never parses or splits them.
  *
  * The discriminator field is `kind`, matching the predicate AST's
  * own discriminator pattern so a reader scanning either surface sees
@@ -42,7 +43,44 @@
  */
 export type CsqlSegment =
 	| { readonly kind: "constant"; readonly text: string }
-	| { readonly kind: "runtime"; readonly xpath: string };
+	| {
+			readonly kind: "runtime";
+			readonly xpath: string;
+			/**
+			 * On-device XPath condition that makes this interpolation impossible
+			 * to represent as a CSQL value without changing its bytes. The final
+			 * wrapper lifts every such condition ahead of the whole CSQL fragment,
+			 * so an unrepresentable runtime value cannot accidentally broaden a
+			 * negated, not-equal, or OR-composed filter.
+			 */
+			readonly rejectWhen?: string;
+			/**
+			 * Why the runtime interpolation is rejected. Quote safety remains the
+			 * default for older callers; numeric constraints opt into their exact
+			 * kind so prompt validation can give the worker an actionable message
+			 * while the final CSQL wrapper still fail-closes every obligation.
+			 */
+			readonly rejectionKind?: RuntimeCsqlRejectionKind;
+			/**
+			 * Search prompts whose entered bytes contribute to this exact runtime
+			 * obligation. This stays attached to the obligation instead of being
+			 * reconstructed from the whole predicate so two independent computed
+			 * values cannot blame one another's prompts.
+			 */
+			readonly rejectionInputNames?: readonly string[];
+	  };
+
+export type RuntimeCsqlRejectionKind =
+	| "quote"
+	| "whole-number"
+	| "nonnegative-whole-number"
+	| "geopoint";
+
+export interface RuntimeCsqlRejection {
+	readonly condition: string;
+	readonly kind: RuntimeCsqlRejectionKind;
+	readonly inputNames?: readonly string[];
+}
 
 /**
  * Compile a constant CSQL fragment to a sequence of one or more XPath

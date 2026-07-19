@@ -10,10 +10,10 @@
  *
  *   /build/[id]                                   → home
  *   /build/[id]/{moduleUuid}                      → module
- *   /build/[id]/{moduleUuid}/cases                → case list authoring
+ *   /build/[id]/{moduleUuid}/results              → case-results authoring
  *   /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
- *   /build/[id]/{moduleUuid}/search-config        → case-search authoring
- *   /build/[id]/{moduleUuid}/detail-config        → case-detail authoring
+ *   /build/[id]/{moduleUuid}/search               → case-search authoring
+ *   /build/[id]/{moduleUuid}/details              → case-details authoring
  *   /build/[id]/{formUuid}                        → form
  *   /build/[id]/{formUuid}/{fieldUuid}          → form + selected field
  *
@@ -34,8 +34,10 @@ import { uuidSchema } from "@/lib/domain";
  * schema).
  *
  * `cases` / `search-config` / `detail-config` are sibling kinds — the
- * three tabs of the unified case-list workspace (list / search /
- * detail). Each tab is its own URL kind so tab switches are ordinary
+ * three tabs of the unified case workspace (Results / Search /
+ * Details). The internal kinds stay stable for presence compatibility;
+ * their serialized URL segments use the user-facing tab nouns. Each
+ * tab is its own URL kind so tab switches are ordinary
  * history navigation and the routing dispatch branches on a single
  * discriminator instead of carrying a tab parameter.
  *

@@ -212,3 +212,58 @@ describe("updateModule", () => {
 		expect(next.modules[M("missing")]).toBeUndefined();
 	});
 });
+
+describe("updateModule.ensureCaseListConfig", () => {
+	it("materializes the required empty shape when the config is absent", () => {
+		const start: BlueprintDoc = {
+			...emptyDoc(),
+			modules: { [M("A")]: module_(M("A"), "A") },
+			moduleOrder: [M("A")],
+			formOrder: { [M("A")]: [] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateModule",
+				uuid: M("A"),
+				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				ensureCaseListConfig: true,
+			});
+		});
+		expect(next.modules[M("A")]?.caseListConfig).toEqual({
+			columns: [],
+			searchInputs: [],
+		});
+	});
+
+	it("is idempotent and preserves a peer-populated config", () => {
+		const existing = {
+			columns: [
+				{
+					uuid: Q("col"),
+					kind: "plain" as const,
+					field: "case_name",
+					header: "Name",
+				},
+			],
+			searchInputs: [],
+			filter: { kind: "match-all" as const },
+		};
+		const start: BlueprintDoc = {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: { ...module_(M("A"), "A"), caseListConfig: existing },
+			},
+			moduleOrder: [M("A")],
+			formOrder: { [M("A")]: [] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateModule",
+				uuid: M("A"),
+				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				ensureCaseListConfig: true,
+			});
+		});
+		expect(next.modules[M("A")]?.caseListConfig).toEqual(existing);
+	});
+});

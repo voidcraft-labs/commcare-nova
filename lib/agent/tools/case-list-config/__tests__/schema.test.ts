@@ -213,6 +213,37 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		expect(result.success).toBe(true);
 	});
 
+	it("rejects a newly authored field that has no screen or ordering job", () => {
+		const useless = addCaseListColumnsTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columns: [
+				{
+					kind: "plain",
+					field: "phone",
+					header: "Phone",
+					visibleInList: false,
+					visibleInDetail: false,
+				},
+			],
+		});
+		const sortCarrier = addCaseListColumnsTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columns: [
+				{
+					kind: "plain",
+					field: "phone",
+					header: "Phone",
+					visibleInList: false,
+					visibleInDetail: false,
+					sort: { direction: "asc", priority: 0 },
+				},
+			],
+		});
+
+		expect(useless.success).toBe(false);
+		expect(sortCarrier.success).toBe(true);
+	});
+
 	it("updateCaseListColumn: parses a representative payload", () => {
 		const result = updateCaseListColumnTool.inputSchema.safeParse({
 			moduleIndex: 0,
@@ -251,6 +282,22 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		expect(result.success).toBe(true);
 	});
 
+	it("column inputs reject tool-owned generic and surface order keys", () => {
+		for (const key of ["order", "listOrder", "detailOrder"] as const) {
+			const result = updateCaseListColumnTool.inputSchema.safeParse({
+				moduleIndex: 0,
+				columnUuid: "11111111-1111-1111-1111-111111111111",
+				column: {
+					kind: "plain",
+					field: "case_name",
+					header: "Patient",
+					[key]: "technical-key",
+				},
+			});
+			expect(result.success, `${key} must stay off the SA surface`).toBe(false);
+		}
+	});
+
 	it("removeCaseListColumn: parses a representative payload", () => {
 		const result = removeCaseListColumnTool.inputSchema.safeParse({
 			moduleIndex: 0,
@@ -262,6 +309,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 	it("reorderCaseListColumns: parses a representative payload", () => {
 		const result = reorderCaseListColumnsTool.inputSchema.safeParse({
 			moduleIndex: 0,
+			surface: "results",
 			columnUuids: [
 				"22222222-2222-2222-2222-222222222222",
 				"11111111-1111-1111-1111-111111111111",
@@ -368,6 +416,49 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		expect([...SA_SEARCH_INPUT_TYPES]).toEqual(
 			SEARCH_INPUT_TYPES.filter((t) => t !== "select"),
 		);
+	});
+
+	it("rejects scalar date-range defaults and range/widget mismatches at the tool boundary", () => {
+		const base = {
+			moduleIndex: 0,
+			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+		};
+		const legacyDefault = updateSearchInputTool.inputSchema.safeParse({
+			...base,
+			searchInput: {
+				kind: "simple",
+				name: "visit_window",
+				label: "Visit window",
+				type: "date-range",
+				property: "visit_date",
+				default: { kind: "today" },
+			},
+		});
+		const wrongWidget = updateSearchInputTool.inputSchema.safeParse({
+			...base,
+			searchInput: {
+				kind: "simple",
+				name: "visit_window",
+				label: "Visit window",
+				type: "date",
+				property: "visit_date",
+				mode: { kind: "range" },
+			},
+		});
+		const validRange = updateSearchInputTool.inputSchema.safeParse({
+			...base,
+			searchInput: {
+				kind: "simple",
+				name: "visit_window",
+				label: "Visit window",
+				type: "date-range",
+				property: "visit_date",
+			},
+		});
+
+		expect(legacyDefault.success).toBe(false);
+		expect(wrongWidget.success).toBe(false);
+		expect(validRange.success).toBe(true);
 	});
 
 	it("updateSearchInput: parses with full simple-arm optional coverage", () => {

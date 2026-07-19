@@ -13,14 +13,13 @@
 // CCHQ accepts at most one `_xpath_query` per `<query>` (the
 // runtime CSQL parser treats it as a single source); the AST-level
 // `and(...)` reducer folds the unified `caseListConfig.filter`,
-// every advanced-arm `searchInputs[i].predicate`, AND every
-// simple-arm input with a non-self `via` (derived through
-// `deriveSimpleArmPredicate`) into ONE Predicate before the CSQL
-// emitter walks the result. The simple-arm-with-via routing is the
-// only wire-correct shape for cross-case simple inputs: the bare
-// `<prompt>` element binds one runtime value but carries no
-// relation-walk metadata, so the relation walk must live in
-// `_xpath_query` for the wire to honor the author's intent.
+// every advanced-arm `searchInputs[i].predicate`, AND every simple-arm
+// input whose authored shape cannot ride Core's implicit exact matcher
+// (derived through `deriveSimpleArmPredicate`) into ONE Predicate before
+// the CSQL emitter walks the result. That includes related targets,
+// prompt/target name mismatches, non-exact match modes, reserved wire-path
+// aliases, and every exact date input. Exact date uses an explicit typed
+// half-open day interval; a bare prompt cannot preserve that meaning.
 //
 // Non-grammar value expressions (`if`, `switch`, `arith`, `concat`,
 // `coalesce`, `format-date`, non-LHS `count`) inline as runtime
@@ -37,9 +36,21 @@
 import type { CaseListConfig } from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
-import { type CsqlEmissionResult, emitCsql } from "../../predicate";
-import { getAdvancedArmPredicates } from "./searchPrompts";
+import {
+	type CsqlEmissionResult,
+	checkCsqlRepresentability,
+	emitCsql,
+	normalizeCsqlPredicate,
+} from "../../predicate";
+import {
+	combineRuntimeCsqlPromptValidations,
+	getAdvancedArmPredicates,
+	RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
+	type RuntimeCsqlPromptValidation,
+} from "./searchPrompts";
 import {
 	deriveSimpleArmPredicate,
 	simpleArmNeedsXPathQueryEmission,
@@ -52,7 +63,95 @@ import {
  * exactly; the type alias keeps the contract symmetric across both
  * consumers.
  */
-export type ComposedXPathQuery = CsqlEmissionResult;
+export interface ComposedXPathQuery extends CsqlEmissionResult {
+	/** The exact effective predicate after emission simplification and CSQL's
+	 * reversible operand normalization. Derived consumers (prompt validation,
+	 * Preview parity) inspect this same tree rather than reconstructing a subtly
+	 * different query from the authored slots. */
+	readonly predicate: Predicate;
+}
+
+/**
+ * Derive the one prompt assertion that mirrors the emitted wrapper's exact
+ * runtime-representability guard. A computed output can combine multiple
+ * individually safe prompt values into one string containing both quote
+ * delimiters, so validation must evaluate the complete rejection condition —
+ * checking each raw answer independently is unsound.
+ *
+ * Attach the shared assertion to every prompt whose bytes can reach the
+ * computed CSQL output. Presence gates and other control-only references are
+ * deliberately excluded: they can activate a branch but do not themselves
+ * introduce the unrepresentable quote combination, so blaming that field would
+ * be misleading. Fixed session/computed failures with no value-contributing
+ * prompt remain observable through the wrapper's explicit invalid sentinel
+ * because a worker has no search answer capable of repairing them.
+ */
+export function buildRuntimeCsqlPromptValidations(
+	emission: ComposedXPathQuery | undefined,
+): ReadonlyMap<string, RuntimeCsqlPromptValidation> {
+	if (emission === undefined) return new Map();
+	const obligations = new Map<
+		string,
+		Array<RuntimeCsqlPromptValidation & { readonly kind: string }>
+	>();
+	for (const rejection of emission.runtimeRejections ?? []) {
+		const message = (() => {
+			switch (rejection.kind) {
+				case "quote":
+					return RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE;
+				case "geopoint":
+					return "Enter a location as latitude and longitude";
+				case "whole-number":
+					return "Enter a whole number";
+				case "nonnegative-whole-number":
+					return "Enter a whole number that is zero or greater";
+				default: {
+					const _exhaustive: never = rejection.kind;
+					return String(_exhaustive);
+				}
+			}
+		})();
+		for (const name of rejection.inputNames ?? []) {
+			const entries = obligations.get(name) ?? [];
+			const test = `not(${rejection.condition})`;
+			if (!entries.some((entry) => entry.test === test)) {
+				entries.push({ kind: rejection.kind, test, message });
+				obligations.set(name, entries);
+			}
+		}
+	}
+	const result = new Map<string, RuntimeCsqlPromptValidation>();
+
+	for (const [name, entries] of obligations) {
+		const validations = entries.map(({ test, message }) => ({ test, message }));
+		const kinds = new Set(entries.map(({ kind }) => kind));
+		const combined = combineRuntimeCsqlPromptValidations(
+			validations,
+			(() => {
+				const instructions: string[] = [];
+				if (kinds.has("geopoint")) {
+					instructions.push("Enter a location as latitude and longitude");
+				}
+				if (
+					kinds.has("whole-number") ||
+					kinds.has("nonnegative-whole-number")
+				) {
+					instructions.push(
+						kinds.has("nonnegative-whole-number")
+							? "enter a whole number that is zero or greater"
+							: "enter a whole number",
+					);
+				}
+				if (kinds.has("quote")) {
+					instructions.push("don’t use both kinds of quotation mark");
+				}
+				return instructions.join(", and ");
+			})(),
+		);
+		if (combined !== undefined) result.set(name, combined);
+	}
+	return result;
+}
 
 /**
  * Compose the unified `_xpath_query`. Returns `undefined` when
@@ -87,7 +186,52 @@ export type ComposedXPathQuery = CsqlEmissionResult;
 export function composeXPathQueryEmission(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
+	typeContext?: TypeContext,
 ): ComposedXPathQuery | undefined {
+	const composed = composeXPathQueryPredicate(
+		caseListConfig,
+		caseType,
+		typeContext,
+	);
+	if (composed === undefined) return undefined;
+
+	// Defense in depth — the validator rule
+	// `searchInputRefUsesWhenInputPresent` rejects every bare
+	// `input(...)` ref outside a `when-input-present` envelope at
+	// authoring time. CCHQ's CSQL runtime resolves an unset input
+	// ref to the empty string, so a bare ref would silently match
+	// cases whose property equals "" until the user types. This
+	// walker throws if a bare ref survived to the wire boundary —
+	// the validator should have caught it, and reaching this throw
+	// means the validator was bypassed (an AST built at runtime, an
+	// `as any` cast, or a partial discriminated-union widening).
+	// Same shape as the defensive throw at
+	// `lib/commcare/predicate/csqlEmitter.ts::emitComparisonOperandSegments`
+	// for `count` arms the hoist pass should have lifted.
+	assertNoBareSearchInputRefs(composed);
+	assertCsqlRepresentable(composed);
+
+	return {
+		...emitCsql(composed, typeContext),
+		predicate: normalizeRelationEvaluationScopes(
+			normalizeCsqlPredicate(composed),
+			typeContext ?? {},
+		),
+	};
+}
+
+/**
+ * Compose the exact effective Predicate that owns `_xpath_query` before it is
+ * serialized. Keeping this step public lets every derived surface inspect the
+ * same simplified clause set: filters, advanced predicates, and derived simple
+ * inputs are combined once, with boolean absorption applied before any prompt
+ * restriction is inferred.
+ */
+export function composeXPathQueryPredicate(
+	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
+	typeContext?: TypeContext,
+): Predicate | undefined {
 	const clauses: Predicate[] = [];
 	if (caseListConfig.filter !== undefined) {
 		clauses.push(caseListConfig.filter);
@@ -95,11 +239,11 @@ export function composeXPathQueryEmission(
 	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs)) {
 		clauses.push(entry.predicate);
 	}
-	// Simple-arm inputs with a non-self `via` derive an advanced-style
-	// predicate at the wire boundary. Self-walk / absent-via simple
-	// inputs ride on the bare `<prompt>` slot and contribute nothing
-	// here — CCHQ's runtime evaluates their comparison directly
-	// against the current case's property. The gate at
+	// Simple-arm inputs whose authored semantics cannot ride Core's
+	// implicit exact matcher derive an advanced-style predicate at the
+	// wire boundary. A plain non-date exact self target can stay on the
+	// bare prompt; date exact always contributes its typed whole-day
+	// interval, even on self. The gate at
 	// `simpleArmNeedsXPathQueryEmission` is the single contract; it
 	// also returns `false` for blank-property inputs (transient editor
 	// state), so the compile path stays clean while the validator's
@@ -109,7 +253,7 @@ export function composeXPathQueryEmission(
 		for (const input of caseListConfig.searchInputs) {
 			if (input.kind !== "simple") continue;
 			if (!simpleArmNeedsXPathQueryEmission(input)) continue;
-			clauses.push(deriveSimpleArmPredicate(input, caseType));
+			clauses.push(deriveSimpleArmPredicate(input, caseType, typeContext));
 		}
 	}
 	if (clauses.length === 0) {
@@ -135,22 +279,40 @@ export function composeXPathQueryEmission(
 		return undefined;
 	}
 
-	// Defense in depth — the validator rule
-	// `searchInputRefUsesWhenInputPresent` rejects every bare
-	// `input(...)` ref outside a `when-input-present` envelope at
-	// authoring time. CCHQ's CSQL runtime resolves an unset input
-	// ref to the empty string, so a bare ref would silently match
-	// cases whose property equals "" until the user types. This
-	// walker throws if a bare ref survived to the wire boundary —
-	// the validator should have caught it, and reaching this throw
-	// means the validator was bypassed (an AST built at runtime, an
-	// `as any` cast, or a partial discriminated-union widening).
-	// Same shape as the defensive throw at
-	// `lib/commcare/predicate/csqlEmitter.ts::emitComparisonOperandSegments`
-	// for `count` arms the hoist pass should have lifted.
-	assertNoBareSearchInputRefs(composed);
+	return composed;
+}
 
-	return emitCsql(composed);
+/**
+ * Defense in depth for the CCHQ server-query boundary.
+ *
+ * The validator reports these issues against the authored module, where the
+ * builder can identify the exact card and offer a repair. Reaching this helper
+ * means that authoring gate was bypassed. Throwing here is still essential:
+ * emitting a wider Nova predicate as CSQL would otherwise create a package
+ * that Preview accepts but CCHQ rejects (or, worse, interprets differently).
+ */
+function assertCsqlRepresentable(predicate: Predicate): void {
+	const issues = checkCsqlRepresentability(predicate);
+	if (issues.length === 0) return;
+
+	const detail = issues
+		.map((issue) => {
+			const path = issue.path.length > 0 ? issue.path.join(".") : "root";
+			return `- ${path}: ${issue.message}`;
+		})
+		.join("\n");
+	throw new Error(
+		compilerBugMessage({
+			where: "composeXPathQueryEmission",
+			invariant:
+				"the composed _xpath_query predicate is representable in CCHQ's server query language",
+			detail: [
+				"The validator rule `csqlPredicateRepresentability` should have rejected this authored shape before compilation. Reaching this throw means validation was bypassed.",
+				"",
+				detail,
+			].join("\n"),
+		}),
+	);
 }
 
 /**

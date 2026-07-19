@@ -34,7 +34,7 @@ export function MatchAllCard({ value, onChange }: MatchAllCardProps) {
 	return (
 		<div className="flex flex-wrap items-center gap-2.5">
 			<PredicateVerbMenu value={value} onChange={onChange} />
-			<div className="flex items-center gap-1.5 text-[11px] text-nova-text-muted leading-snug">
+			<div className="flex items-center gap-1.5 text-[13px] leading-relaxed text-nova-text-muted">
 				<Icon
 					icon={tablerAsterisk}
 					width="13"
@@ -45,7 +45,7 @@ export function MatchAllCard({ value, onChange }: MatchAllCardProps) {
 				 *  filter AND non-case slots like the search button's
 				 *  show-when condition, so it can't say "matches every
 				 *  case". */}
-				Always true — pick a verb to turn this into a real condition.
+				Everything passes this condition
 			</div>
 		</div>
 	);
@@ -55,14 +55,14 @@ export function MatchNoneCard({ value, onChange }: MatchNoneCardProps) {
 	return (
 		<div className="flex flex-wrap items-center gap-2.5">
 			<PredicateVerbMenu value={value} onChange={onChange} />
-			<div className="flex items-center gap-1.5 text-[11px] text-nova-text-muted leading-snug">
+			<div className="flex items-center gap-1.5 text-[13px] leading-relaxed text-nova-text-muted">
 				<Icon
 					icon={tablerSlash}
 					width="13"
 					height="13"
 					className="text-nova-text-muted shrink-0"
 				/>
-				Always false — an explicit off switch.
+				Nothing passes this condition
 			</div>
 		</div>
 	);

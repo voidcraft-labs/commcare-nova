@@ -20,7 +20,6 @@
 // container cards when picked.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerAbc from "@iconify-icons/tabler/abc";
 import tablerArrowsHorizontal from "@iconify-icons/tabler/arrows-horizontal";
@@ -29,6 +28,7 @@ import tablerCalendarQuestion from "@iconify-icons/tabler/calendar-question";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerCheckbox from "@iconify-icons/tabler/checkbox";
 import tablerChecks from "@iconify-icons/tabler/checks";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerCircleDashed from "@iconify-icons/tabler/circle-dashed";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerEar from "@iconify-icons/tabler/ear";
@@ -48,15 +48,29 @@ import tablerMathLower from "@iconify-icons/tabler/math-lower";
 import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { useRef } from "react";
-import { effectiveDataType } from "@/lib/domain";
+import { useRef, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import {
+	acceptsType,
 	and,
 	between,
 	type ComparisonKind,
+	comparisonObjectTypesFor,
 	comparisonOperatorsFor,
 	compatibleTypesFor,
+	inSubjectConstraint,
 	isIn,
+	type Literal,
+	literal,
+	literalType,
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	matchModesFor,
 	not,
@@ -67,17 +81,20 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import {
+	isAuthorablePredicateKind,
 	type PredicateEditContext,
 	predicateCardSchemas,
+	predicateUnavailableReason,
 } from "../editorSchemas";
-import { preservedOperandSwap } from "./ChildPredicateEditor";
+import { MATCH_MODE_VOCABULARY } from "../matchModeVocabulary";
+import { useRuleFocusContext } from "../RuleFocusContext";
+import {
+	PredicateTransitionAlert,
+	planPredicateTransition,
+	preservedOperandSwap,
+} from "./ChildPredicateEditor";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
 import {
 	reseedLiteralForConstraint,
@@ -111,7 +128,10 @@ export interface VerbEntry {
 	 * HOW you compare never lands a type the subject can't take; the
 	 * author changes the subject first.
 	 */
-	readonly subjectGate?: (subjectType: ResolvedType | undefined) => boolean;
+	readonly subjectGate?: (
+		subjectType: ResolvedType | undefined,
+		subject: ValueExpression | undefined,
+	) => boolean;
 	/** Reason shown when the subject-type gate disables the verb. */
 	readonly disabledReason?: string;
 }
@@ -149,6 +169,12 @@ export function subjectOf(value: Predicate): ValueExpression | undefined {
  *  near) can only carry a property over, not a computed value. */
 function subjectRefOf(value: Predicate): PropertyRef | undefined {
 	const subject = subjectOf(value);
+	return propertyRefOfExpression(subject);
+}
+
+function propertyRefOfExpression(
+	subject: ValueExpression | undefined,
+): PropertyRef | undefined {
 	if (subject === undefined || subject.kind !== "term") return undefined;
 	return subject.term.kind === "prop" ? subject.term : undefined;
 }
@@ -169,6 +195,141 @@ function objectOf(value: Predicate): ValueExpression | undefined {
 	}
 }
 
+function expressionLiteral(value: ValueExpression): Literal | undefined {
+	return value.kind === "term" && value.term.kind === "literal"
+		? value.term
+		: undefined;
+}
+
+/** Values that can move into a literal-only target such as `in` or
+ * multi-select containment. The objects themselves are reused so partially
+ * authored list drafts survive a compatible verb change. */
+function literalCandidates(value: Predicate): readonly Literal[] {
+	switch (value.kind) {
+		case "eq":
+		case "neq":
+		case "gt":
+		case "gte":
+		case "lt":
+		case "lte": {
+			const literal = expressionLiteral(value.right);
+			return literal === undefined ? [] : [literal];
+		}
+		case "match": {
+			const literal = expressionLiteral(value.value);
+			return literal === undefined ? [] : [literal];
+		}
+		case "in":
+		case "multi-select-contains":
+			return value.values;
+		case "between":
+			return [value.lower, value.upper].flatMap((bound) => {
+				if (bound === undefined) return [];
+				const literal = expressionLiteral(bound);
+				return literal === undefined ? [] : [literal];
+			});
+		case "within-distance": {
+			const literal = expressionLiteral(value.center);
+			return literal === undefined ? [] : [literal];
+		}
+		default:
+			return [];
+	}
+}
+
+/** Best single value for a target that has one object slot. The planner still
+ * confirms when a multi-value source has additional authored values that the
+ * target cannot hold. */
+function singleValueCandidate(
+	value: Predicate,
+	targetComparison?: ComparisonKind,
+): ValueExpression | undefined {
+	const direct = objectOf(value);
+	if (direct !== undefined) return direct;
+	switch (value.kind) {
+		case "in":
+		case "multi-select-contains":
+			return term(value.values[0]);
+		case "between":
+			if (targetComparison === "lt" || targetComparison === "lte") {
+				return value.upper ?? value.lower;
+			}
+			return value.lower ?? value.upper;
+		case "within-distance":
+			return value.center;
+		default:
+			return undefined;
+	}
+}
+
+function rangeFromSource(value: Predicate): {
+	readonly lower?: ValueExpression;
+	readonly upper?: ValueExpression;
+	readonly lowerInclusive: boolean;
+	readonly upperInclusive: boolean;
+} | null {
+	switch (value.kind) {
+		case "gt":
+			return {
+				lower: value.right,
+				lowerInclusive: false,
+				upperInclusive: true,
+			};
+		case "gte":
+			return {
+				lower: value.right,
+				lowerInclusive: true,
+				upperInclusive: true,
+			};
+		case "lt":
+			return {
+				upper: value.right,
+				lowerInclusive: true,
+				upperInclusive: false,
+			};
+		case "lte":
+			return {
+				upper: value.right,
+				lowerInclusive: true,
+				upperInclusive: true,
+			};
+		case "eq":
+		case "neq":
+			return {
+				lower: value.right,
+				upper: value.right,
+				lowerInclusive: true,
+				upperInclusive: true,
+			};
+		case "match":
+			return {
+				lower: value.value,
+				upper: value.value,
+				lowerInclusive: true,
+				upperInclusive: true,
+			};
+		case "in":
+		case "multi-select-contains":
+			return {
+				lower: term(value.values[0]),
+				...(value.values[1] === undefined
+					? { upper: term(value.values[0]) }
+					: { upper: term(value.values[1]) }),
+				lowerInclusive: true,
+				upperInclusive: true,
+			};
+		case "within-distance":
+			return {
+				lower: value.center,
+				upper: value.center,
+				lowerInclusive: true,
+				upperInclusive: true,
+			};
+		default:
+			return null;
+	}
+}
+
 // ── Reseed helpers ────────────────────────────────────────────────
 //
 // Changing the verb carries the subject (and the value where the
@@ -185,9 +346,11 @@ export function propertyType(
 	ctx: PredicateEditContext,
 	ref: PropertyRef,
 ): ResolvedType | undefined {
-	const ct = ctx.caseTypes.find((c) => c.name === ref.caseType);
-	const property = ct?.properties.find((p) => p.name === ref.property);
-	return property === undefined ? undefined : effectiveDataType(property);
+	// Let the canonical checker walk `via` before it resolves the property.
+	// Looking directly at `ref.caseType` is wrong for related information:
+	// that field names the origin scope, while the property lives at the
+	// relation destination.
+	return resolveExpressionType(term(ref), ctx);
 }
 
 /** Carry a value expression unless its resolved type sits outside
@@ -211,10 +374,26 @@ export function buildComparison(
 	value: Predicate,
 	ctx: PredicateEditContext,
 ): Predicate {
-	// Same family: both operands carry verbatim (the subject-type gate
-	// already blocked an operator the subject can't support).
+	// Same family: keep both operands when the target operator admits
+	// them. An `_any` subject admits ordered verbs, but that does NOT make
+	// an unordered object valid; reseed the object against the target
+	// operator's exact inverse rule before returning.
 	const preserved = preservedOperandSwap(value, kind);
-	if (preserved !== null) return preserved;
+	if (preserved !== null) {
+		if (!("right" in preserved)) {
+			throw new Error(
+				`Comparison transition produced '${preserved.kind}' instead of '${kind}'.`,
+			);
+		}
+		const accepts = comparisonObjectTypesFor(
+			kind,
+			resolveExpressionType(preserved.left, ctx),
+		);
+		return COMPARISON_BUILDERS[kind](
+			preserved.left,
+			reseedObjectIfNeeded(preserved.right, accepts, ctx),
+		);
+	}
 	// Cross-family → comparison: carry the subject, then reseed the
 	// value to the subject's compatible set. The fallback's value was
 	// built for the fallback's OWN property, not this subject, so it is
@@ -222,9 +401,12 @@ export function buildComparison(
 	// literal opposite a place subject) becomes `eq(geopoint, null)`.
 	const fallback = predicateCardSchemas[kind].defaultValue(ctx);
 	const left = subjectOf(value) ?? fallback.left;
-	const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
+	const accepts = comparisonObjectTypesFor(
+		kind,
+		resolveExpressionType(left, ctx),
+	);
 	const right = reseedObjectIfNeeded(
-		objectOf(value) ?? fallback.right,
+		singleValueCandidate(value, kind) ?? fallback.right,
 		accepts,
 		ctx,
 	);
@@ -251,7 +433,7 @@ export function buildMatch(
 		ref !== undefined && carriedType !== undefined && allow.has(carriedType)
 			? ref
 			: fallback.property;
-	const carried = objectOf(value);
+	const carried = singleValueCandidate(value);
 	const matchValue =
 		carried !== undefined
 			? reseedMatchValue(carried, allow, ctx)
@@ -267,10 +449,11 @@ export function reseedMatchValue(
 	allow: ReadonlySet<ResolvedType>,
 	ctx: PredicateEditContext,
 ): ValueExpression {
-	if (value.kind === "term") {
-		const type = resolveExpressionType(value, ctx);
-		if (type === undefined || allow.has(type)) return value;
-	}
+	const type = resolveExpressionType(value, ctx);
+	// Match values are full ValueExpressions. Preserve computed values and
+	// unresolved drafts when the target mode can represent their result type;
+	// only an actually incompatible value needs a valid replacement.
+	if (type === undefined || allow.has(type)) return value;
 	return reseedValueForConstraint(value, allow);
 }
 
@@ -286,28 +469,42 @@ export function buildWithSubjectLeft(
 	if (subject === undefined) return fallback;
 	const accepts = compatibleTypesFor(resolveExpressionType(subject, ctx));
 	if (kind === "in") {
-		// Reseed the membership values to the subject's compatible set.
+		// Carry every literal the source shape can represent. Computed objects
+		// cannot enter this literal-only AST arm; the transition planner names
+		// that loss before it can commit.
 		const inFallback = fallback as Extract<Predicate, { kind: "in" }>;
-		const values = inFallback.values.map((v) =>
-			reseedLiteralForConstraint(v, accepts),
+		const candidates = literalCandidates(value);
+		const values = (candidates.length > 0 ? candidates : inFallback.values).map(
+			(value) =>
+				accepts.has(literalType(value))
+					? value
+					: reseedLiteralForConstraint(value, accepts),
 		);
-		const [first, ...rest] = values;
+		const safeValues = values.some((candidate) => candidate.value !== null)
+			? values
+			: [reseedLiteralForConstraint(literal(""), accepts)];
+		const [first, ...rest] = safeValues;
 		return isIn(subject, first, ...rest);
 	}
 	if (kind === "between") {
-		// Reseed each bound to the subject's compatible set.
+		// Comparisons map their value to the matching side of the range;
+		// literal lists map their first two values. This preserves every
+		// representable draft rather than swapping in unrelated defaults.
 		const b = fallback as Extract<Predicate, { kind: "between" }>;
+		const carried = rangeFromSource(value);
+		const lower = carried === null ? b.lower : carried.lower;
+		const upper = carried === null ? b.upper : carried.upper;
 		return between(subject, {
 			lower:
-				b.lower !== undefined
-					? reseedObjectIfNeeded(b.lower, accepts, ctx)
+				lower !== undefined
+					? reseedObjectIfNeeded(lower, accepts, ctx)
 					: undefined,
 			upper:
-				b.upper !== undefined
-					? reseedObjectIfNeeded(b.upper, accepts, ctx)
+				upper !== undefined
+					? reseedObjectIfNeeded(upper, accepts, ctx)
 					: undefined,
-			lowerInclusive: b.lowerInclusive,
-			upperInclusive: b.upperInclusive,
+			lowerInclusive: carried?.lowerInclusive ?? b.lowerInclusive,
+			upperInclusive: carried?.upperInclusive ?? b.upperInclusive,
 		});
 	}
 	// is-null / is-blank carry only the subject — any read can be absent.
@@ -328,8 +525,17 @@ export function buildContains(
 	// Only carry the subject when it's a multi_select property; otherwise
 	// the fallback already anchored a valid multi_select property.
 	const carry = ref !== undefined && propertyType(ctx, ref) === "multi_select";
+	const values = literalCandidates(value);
+	const safeValues = values.some((candidate) => candidate.value !== null)
+		? values
+		: [literal("")];
 	return carry
-		? { ...fallback, quantifier, property: ref }
+		? {
+				...fallback,
+				quantifier,
+				property: ref,
+				values: safeValues as [Literal, ...Literal[]],
+			}
 		: { ...fallback, quantifier };
 }
 
@@ -344,77 +550,58 @@ const COMPARISON_VERBS: ReadonlyArray<{
 	{
 		kind: "eq",
 		label: "is",
-		description: "Exactly this value.",
+		description: "Exactly this value",
 		icon: tablerEqual,
 	},
 	{
 		kind: "neq",
-		label: "is not",
-		description: "Anything except this value.",
+		label: "isn’t",
+		description: "Anything except this value",
 		icon: tablerEqualNot,
 	},
 	{
 		kind: "gt",
 		label: "is more than",
-		description: "Above the value — numbers and dates compare by order.",
+		description: "Above this number or date",
 		icon: tablerMathGreater,
 	},
 	{
 		kind: "gte",
 		label: "is at least",
-		description: "The value or above.",
+		description: "This value or above",
 		icon: tablerMathEqualGreater,
 	},
 	{
 		kind: "lt",
 		label: "is less than",
-		description: "Below the value.",
+		description: "Below this value",
 		icon: tablerMathLower,
 	},
 	{
 		kind: "lte",
 		label: "is at most",
-		description: "The value or below.",
+		description: "This value or below",
 		icon: tablerMathEqualLower,
 	},
 ];
 
+/** Verb label + behavioral description come from the shared match-mode
+ *  vocabulary, so this menu and the search-input Match picker can't
+ *  drift apart in what they claim each behavior does. */
 const MATCH_VERBS: ReadonlyArray<{
 	mode: MatchMode;
-	label: string;
-	description: string;
 	icon: IconifyIcon;
 }> = [
-	{
-		mode: "fuzzy",
-		label: "fuzzy matches",
-		description: "Forgives a typo or two per word; ignores capitalization.",
-		icon: tablerWand,
-	},
-	{
-		mode: "starts-with",
-		label: "starts with",
-		description: "Begins with the text — capitalization counts.",
-		icon: tablerAbc,
-	},
-	{
-		mode: "phonetic",
-		label: "sounds like",
-		description: "Same spoken sound — Smith finds Smyth.",
-		icon: tablerEar,
-	},
-	{
-		mode: "fuzzy-date",
-		label: "fuzzy matches the date",
-		description: "Forgives swapped day and month, and mistyped digits.",
-		icon: tablerCalendarQuestion,
-	},
+	{ mode: "fuzzy", icon: tablerWand },
+	{ mode: "starts-with", icon: tablerAbc },
+	{ mode: "phonetic", icon: tablerEar },
+	{ mode: "fuzzy-date", icon: tablerCalendarQuestion },
 ];
 
 /** Ordering operators compare by total order — only ordered subject
  *  types support them. */
 const ORDERED_COMPARISON_REASON =
-	"Only numbers, dates, and times compare by order.";
+	"Only numbers, dates, and times compare by order";
 
 function buildVerbEntries(): readonly VerbEntry[] {
 	const entries: VerbEntry[] = [];
@@ -442,20 +629,22 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		});
 	}
 	for (const m of MATCH_VERBS) {
+		const vocabulary = MATCH_MODE_VOCABULARY[m.mode];
 		entries.push({
 			id: `match:${m.mode}`,
-			label: m.label,
-			description: m.description,
+			label: vocabulary.verbLabel,
+			description: vocabulary.description,
 			icon: m.icon,
 			schemaKind: "match",
 			isCurrent: (p) => p.kind === "match" && p.mode === m.mode,
 			build: (p, ctx) => buildMatch(m.mode, p, ctx),
-			subjectGate: (t: ResolvedType | undefined) =>
+			subjectGate: (t: ResolvedType | undefined, subject) =>
+				propertyRefOfExpression(subject) !== undefined &&
 				matchModesFor(t).has(m.mode),
 			disabledReason:
 				m.mode === "fuzzy-date"
-					? "Fuzzy-date matching needs a date or text property."
-					: "Text matching needs a text property.",
+					? "Choose date or text information to use flexible date matching"
+					: "Choose text information to use text matching",
 		});
 	}
 	entries.push(
@@ -463,50 +652,61 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			id: "in",
 			label: "is any of",
 			icon: tablerListCheck,
-			description: "Matches one value from a list you write.",
+			description: "Matches one value from a list you write",
 			schemaKind: "in",
 			isCurrent: (p) => p.kind === "in",
 			build: (p, ctx) => buildWithSubjectLeft("in", p, ctx),
+			subjectGate: (t) =>
+				t !== undefined && acceptsType(inSubjectConstraint(), t),
+			disabledReason: "Choose information that can be compared with a list",
 		},
 		{
 			id: "between",
 			label: "is between",
 			icon: tablerArrowsHorizontal,
-			description: "Falls inside a range — either end optional.",
+			description: "Falls inside a range with either end left open if needed",
 			schemaKind: "between",
 			isCurrent: (p) => p.kind === "between",
 			build: (p, ctx) => buildWithSubjectLeft("between", p, ctx),
 			subjectGate: (t) => comparisonOperatorsFor(t).has("gt"),
-			disabledReason:
-				"A range needs an ordered property — a number, date, or time.",
+			disabledReason: "A range needs a number, date, or time",
 		},
 		{
 			id: "msc:any",
 			label: "includes any of",
 			icon: tablerCheckbox,
-			description: "The multi-choice list has at least one of the options.",
+			description: "The multi-choice list has at least one option",
 			schemaKind: "multi-select-contains",
 			isCurrent: (p) =>
 				p.kind === "multi-select-contains" && p.quantifier === "any",
 			build: (p, ctx) => buildContains("any", p, ctx),
+			subjectGate: (t, subject) =>
+				propertyRefOfExpression(subject) !== undefined && t === "multi_select",
+			disabledReason: "Choose information that allows multiple choices",
 		},
 		{
 			id: "msc:all",
 			label: "includes all of",
 			icon: tablerChecks,
-			description: "The multi-choice list has every one of the options.",
+			description: "The multi-choice list has every option",
 			schemaKind: "multi-select-contains",
 			isCurrent: (p) =>
 				p.kind === "multi-select-contains" && p.quantifier === "all",
 			build: (p, ctx) => buildContains("all", p, ctx),
+			subjectGate: (t, subject) =>
+				propertyRefOfExpression(subject) !== undefined && t === "multi_select",
+			disabledReason: "Choose information that allows multiple choices",
 		},
 		{
 			id: "within-distance",
 			label: "is near",
 			icon: tablerMapPin,
-			description: "Within a distance of a place.",
+			description: "Within a distance of a place",
 			schemaKind: "within-distance",
 			isCurrent: (p) => p.kind === "within-distance",
+			subjectGate: (t, subject) =>
+				propertyRefOfExpression(subject) !== undefined && t === "geopoint",
+			disabledReason: "Choose location information",
 			build: (p, ctx) => {
 				if (p.kind === "within-distance") return p;
 				const fallback =
@@ -516,23 +716,41 @@ function buildVerbEntries(): readonly VerbEntry[] {
 				// otherwise the fallback already anchored a valid one.
 				const carry =
 					ref !== undefined && propertyType(ctx, ref) === "geopoint";
-				return carry ? { ...fallback, property: ref } : fallback;
+				const center = singleValueCandidate(p);
+				const centerType =
+					center === undefined ? undefined : resolveExpressionType(center, ctx);
+				const carryCenter =
+					center !== undefined &&
+					(centerType === undefined ||
+						centerType === "geopoint" ||
+						centerType === "text");
+				return carry
+					? {
+							...fallback,
+							property: ref,
+							...(carryCenter ? { center } : {}),
+						}
+					: fallback;
 			},
 		},
 		{
 			id: "is-blank",
 			label: "is blank",
 			icon: tablerCircleOff,
-			description: "Empty, or missing entirely.",
+			description: "Empty or missing entirely",
 			schemaKind: "is-blank",
 			isCurrent: (p) => p.kind === "is-blank",
 			build: (p, ctx) => buildWithSubjectLeft("is-blank", p, ctx),
+			subjectGate: (_t, subject) =>
+				subject !== undefined && expressionLiteral(subject) === undefined,
+			disabledReason:
+				"Choose case information or another value that can change while the app runs",
 		},
 		{
 			id: "is-null",
 			label: "was never recorded",
 			icon: tablerCircleDashed,
-			description: "Strictly absent — an empty value still counts as recorded.",
+			description: "The value was never recorded; an empty value still counts",
 			schemaKind: "is-null",
 			isCurrent: (p) => p.kind === "is-null",
 			build: (p, ctx) => buildWithSubjectLeft("is-null", p, ctx),
@@ -552,9 +770,9 @@ export const VERB_ENTRIES = buildVerbEntries();
 export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "and",
-		label: "All of these…",
+		label: "All conditions match",
 		icon: tablerLogicAnd,
-		description: "A group — every condition inside must match.",
+		description: "Group conditions so every condition must match",
 		schemaKind: "and",
 		isCurrent: (p) => p.kind === "and",
 		// Wrapping (not replacing): the current condition becomes the
@@ -577,9 +795,9 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	},
 	{
 		id: "or",
-		label: "Any of these…",
+		label: "Any condition matches",
 		icon: tablerLogicOr,
-		description: "A group — at least one condition inside must match.",
+		description: "Group conditions so at least one condition must match",
 		schemaKind: "or",
 		isCurrent: (p) => p.kind === "or",
 		build: (p, ctx) => {
@@ -595,9 +813,9 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	},
 	{
 		id: "not",
-		label: "Not…",
+		label: "Exclude when",
 		icon: tablerLogicNot,
-		description: "Flips this condition — matches when it doesn't.",
+		description: "Exclude cases when this condition matches",
 		schemaKind: "not",
 		isCurrent: (p) => p.kind === "not",
 		// Wrapping (not replacing) is the honest meaning of "not".
@@ -605,27 +823,27 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	},
 	{
 		id: "exists",
-		label: "Has a related case…",
+		label: "Has a related case",
 		icon: tablerLink,
-		description: "At least one connected case satisfies a condition.",
+		description: "Require at least one connected case to match",
 		schemaKind: "exists",
 		isCurrent: (p) => p.kind === "exists",
 		build: (_p, ctx) => predicateCardSchemas.exists.defaultValue(ctx),
 	},
 	{
 		id: "missing",
-		label: "Has no related case…",
+		label: "Has no related case",
 		icon: tablerUnlink,
-		description: "No connected case satisfies the condition.",
+		description: "Require that no connected case matches",
 		schemaKind: "missing",
 		isCurrent: (p) => p.kind === "missing",
 		build: (_p, ctx) => predicateCardSchemas.missing.defaultValue(ctx),
 	},
 	{
 		id: "when-input-present",
-		label: "When a search field is filled…",
+		label: "After a search answer",
 		icon: tablerFilter,
-		description: "Applies this condition only while a field has a value.",
+		description: "Apply this condition only after a search field has an answer",
 		schemaKind: "when-input-present",
 		isCurrent: (p) => p.kind === "when-input-present",
 		// Wrap: the current condition becomes the gated clause.
@@ -637,23 +855,35 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	},
 	{
 		id: "match-all",
-		label: "Always true",
+		label: "Always match",
 		icon: tablerAsterisk,
-		description: "Always passes — a placeholder to build from.",
+		description: "Let everything pass this condition",
 		schemaKind: "match-all",
 		isCurrent: (p) => p.kind === "match-all",
 		build: (_p, ctx) => predicateCardSchemas["match-all"].defaultValue(ctx),
 	},
 	{
 		id: "match-none",
-		label: "Always false",
+		label: "Never match",
 		icon: tablerSlash,
-		description: "Never passes — an explicit off switch.",
+		description: "Let nothing pass this condition",
 		schemaKind: "match-none",
 		isCurrent: (p) => p.kind === "match-none",
 		build: (_p, ctx) => predicateCardSchemas["match-none"].defaultValue(ctx),
 	},
 ];
+
+/**
+ * Whole-condition outcomes are valid authored predicates, but they are not
+ * ordinary additions to a filter. Keep them out of the primary Add condition
+ * menu and expose them progressively in the condition's existing kind menu.
+ * Inside the focused workbench the recursive structure actions live elsewhere,
+ * so these are the only non-sentence entries that still belong in this menu.
+ */
+const SPECIAL_CONDITION_ENTRIES = STRUCTURE_ENTRIES.filter(
+	(entry) =>
+		entry.schemaKind === "match-all" || entry.schemaKind === "match-none",
+);
 
 /** The verb the current node reads as — shown on the trigger chip. */
 export function currentVerbLabel(value: Predicate): string {
@@ -676,9 +906,16 @@ export function verbEntryAdmitted(
 	editCtx: PredicateEditContext,
 ): boolean {
 	if (entry.isCurrent(value)) return true;
-	const applicable = predicateCardSchemas[entry.schemaKind].applicable(editCtx);
+	if (!isAuthorablePredicateKind(entry.schemaKind)) return false;
+	const subject = subjectOf(value);
+	// Sentence verbs build from the current subject. Their admission must not
+	// depend on an unrelated direct property in the origin case type: a valid
+	// related-property subject already supplies everything the target needs.
+	const applicable =
+		(VERB_ENTRIES.includes(entry) && subject !== undefined) ||
+		predicateCardSchemas[entry.schemaKind].applicable(editCtx);
 	const subjectAdmitted =
-		entry.subjectGate === undefined || entry.subjectGate(subjectType);
+		entry.subjectGate === undefined || entry.subjectGate(subjectType, subject);
 	return applicable && subjectAdmitted;
 }
 
@@ -699,6 +936,8 @@ export function PredicateVerbMenu({
 	invalid = false,
 }: PredicateVerbMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const [pendingEntryId, setPendingEntryId] = useState<string | null>(null);
+	const focus = useRuleFocusContext();
 	const ctx = usePredicateEditContext();
 	const editCtx: PredicateEditContext = {
 		caseTypes: ctx.caseTypes,
@@ -709,29 +948,95 @@ export function PredicateVerbMenu({
 	// same checker `checkComparison` / `checkMatch` validate against, so
 	// a verb the subject can't take is never selectable into an error.
 	const subjectType = useResolvedType(subjectOf(value));
+	const pendingEntry =
+		pendingEntryId === null
+			? undefined
+			: [...VERB_ENTRIES, ...STRUCTURE_ENTRIES].find(
+					(entry) => entry.id === pendingEntryId,
+				);
+	const pendingPlan =
+		pendingEntry === undefined
+			? null
+			: planPredicateTransition(
+					value,
+					pendingEntry.build(value, editCtx),
+					pendingEntry.label,
+				);
+	const additionalEntries =
+		focus === null ? STRUCTURE_ENTRIES : SPECIAL_CONDITION_ENTRIES;
+	const additionalEntriesLabel =
+		focus === null ? "More ways to combine conditions" : "Special conditions";
+	const workbenchVerbTrigger = () => {
+		if (focus === null) return null;
+		const activePath = JSON.stringify(focus.activePath);
+		const regions = [
+			...document.querySelectorAll<HTMLElement>("[data-workbench-focus-id]"),
+		];
+		const activeRegion =
+			regions.find(
+				(candidate) => candidate.dataset.workbenchFocusId === activePath,
+			) ??
+			document
+				.querySelector<HTMLElement>("[data-workbench-active-heading]")
+				?.closest<HTMLElement>("[data-workbench-focus-id]");
+		return (
+			activeRegion?.querySelector<HTMLButtonElement>(
+				"[data-predicate-verb-trigger]",
+			) ?? null
+		);
+	};
+	const transitionFinalFocus =
+		focus === null ? triggerRef : () => workbenchVerbTrigger() ?? false;
+	const restoreWorkbenchVerbFocus = () => {
+		if (focus === null) return;
+		// A confirmed kind change can replace the card component that owned the
+		// alert. Base UI can no longer return to that disconnected trigger, so
+		// focus the same semantic control in the newly rendered condition.
+		requestAnimationFrame(() => {
+			workbenchVerbTrigger()?.focus({ preventScroll: true });
+		});
+	};
 
-	const renderEntry = (entry: VerbEntry, corners: string) => {
+	const chooseEntry = (entry: VerbEntry) => {
+		const plan = planPredicateTransition(
+			value,
+			entry.build(value, editCtx),
+			entry.label,
+		);
+		if (plan.confirmation !== undefined) {
+			setPendingEntryId(entry.id);
+			return;
+		}
+		onChange(plan.next);
+	};
+
+	const renderEntry = (entry: VerbEntry) => {
 		const isCurrent = entry.isCurrent(value);
 		// The current verb's own row is never disabled for admission
 		// reasons (legacy-open backstop) — `verbEntryAdmitted` exempts it,
 		// and only the no-op `isCurrent` disable applies to it.
 		const admitted = verbEntryAdmitted(entry, value, subjectType, editCtx);
 		// Re-derive the gate pieces only to phrase the disabled reason.
+		const subject = subjectOf(value);
 		const subjectAdmitted =
-			entry.subjectGate === undefined || entry.subjectGate(subjectType);
+			entry.subjectGate === undefined ||
+			entry.subjectGate(subjectType, subject);
+		const applicable =
+			(VERB_ENTRIES.includes(entry) && subject !== undefined) ||
+			predicateCardSchemas[entry.schemaKind].applicable(editCtx);
 		const reason = !subjectAdmitted
 			? entry.disabledReason
-			: !predicateCardSchemas[entry.schemaKind].applicable(editCtx)
-				? "Not available for this case type."
+			: !applicable
+				? predicateUnavailableReason(entry.schemaKind, editCtx)
 				: undefined;
 		return (
-			<Menu.Item
+			<DropdownMenuItem
 				key={entry.id}
 				disabled={!admitted || isCurrent}
-				onClick={() => onChange(entry.build(value, editCtx))}
-				className={`${corners} ${MENU_ITEM_CLS} min-h-11 ${
-					isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
-				} ${admitted ? "" : "opacity-45"}`}
+				onClick={() => chooseEntry(entry)}
+				className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+					isCurrent ? "bg-nova-violet/10 text-nova-violet-bright" : ""
+				}`}
 			>
 				<Icon
 					icon={entry.icon}
@@ -742,9 +1047,9 @@ export function PredicateVerbMenu({
 					}
 				/>
 				<span className="flex-1 text-left min-w-0">
-					<div className="truncate">{entry.label}</div>
+					<div className="break-words">{entry.label}</div>
 					<div
-						className={`text-[11px] truncate ${
+						className={`break-words text-xs ${
 							isCurrent ? "text-nova-violet-bright" : "text-nova-text-muted"
 						}`}
 					>
@@ -759,69 +1064,86 @@ export function PredicateVerbMenu({
 						className="text-nova-violet-bright"
 					/>
 				)}
-			</Menu.Item>
+			</DropdownMenuItem>
 		);
 	};
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Condition: ${currentVerbLabel(value)}`}
-				className={`group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 transition-colors cursor-pointer @max-md:justify-self-start ${
-					invalid
-						? "border-nova-rose/40 text-nova-rose hover:border-nova-rose/60"
-						: "border-white/[0.06] text-nova-violet-bright hover:border-nova-violet/30"
-				}`}
-			>
-				<span>{currentVerbLabel(value)}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					ref={triggerRef}
+					aria-label={`Condition ${currentVerbLabel(value)}`}
+					aria-invalid={invalid || undefined}
+					render={
+						<Button
+							type="button"
+							variant="outline"
+							size="xl"
+							data-predicate-verb-trigger
+							className={`group border bg-nova-deep/50 px-3 text-sm dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 @max-md:justify-self-start ${
+								invalid
+									? "border-nova-rose/40 text-nova-rose not-disabled:hover:border-nova-rose/60"
+									: "border-white/[0.06] text-nova-violet-bright not-disabled:hover:border-nova-violet/30"
+							}`}
+						/>
+					}
 				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
+					<span>{currentVerbLabel(value)}</span>
+					<Icon
+						icon={tablerChevronDown}
+						width="14"
+						height="14"
+						className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
 					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ maxHeight: 380 }}
-				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} max-h-[23.75rem] overflow-y-auto min-w-[17rem]`}
+				</DropdownMenuTrigger>
+				<DropdownMenuPortal>
+					<DropdownMenuPositioner
+						side="bottom"
+						align="start"
+						sideOffset={4}
+						anchor={triggerRef}
+						style={{ minWidth: "17rem", maxHeight: 380 }}
 					>
-						{VERB_ENTRIES.map((entry, i) =>
-							renderEntry(entry, i === 0 ? "rounded-t-xl" : ""),
-						)}
-						<div
-							className="px-3 pt-2.5 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-nova-text-muted border-t border-white/[0.06] mt-1"
-							role="presentation"
-						>
-							Structure
-						</div>
-						{STRUCTURE_ENTRIES.map((entry, i) =>
-							renderEntry(
-								entry,
-								i === STRUCTURE_ENTRIES.length - 1 ? "rounded-b-xl" : "",
-							),
-						)}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+						<DropdownMenuPopup className="max-h-[min(23.75rem,var(--available-height))] min-w-0">
+							{VERB_ENTRIES.filter(
+								(entry) =>
+									entry.isCurrent(value) ||
+									isAuthorablePredicateKind(entry.schemaKind),
+							).map(renderEntry)}
+							{additionalEntries.length > 0 && (
+								<>
+									<div
+										className="mt-1 border-t border-white/[0.06] px-3 pt-2.5 pb-1 text-xs font-medium text-nova-text-muted"
+										role="presentation"
+									>
+										{additionalEntriesLabel}
+									</div>
+									{additionalEntries
+										.filter(
+											(entry) =>
+												entry.isCurrent(value) ||
+												isAuthorablePredicateKind(entry.schemaKind),
+										)
+										.map(renderEntry)}
+								</>
+							)}
+						</DropdownMenuPopup>
+					</DropdownMenuPositioner>
+				</DropdownMenuPortal>
+			</DropdownMenu>
+			<PredicateTransitionAlert
+				plan={pendingPlan}
+				finalFocus={transitionFinalFocus}
+				onCancel={() => setPendingEntryId(null)}
+				onConfirm={() => {
+					if (pendingPlan === null) return;
+					const next = pendingPlan.next;
+					setPendingEntryId(null);
+					onChange(next);
+					restoreWorkbenchVerbFocus();
+				}}
+			/>
+		</>
 	);
 }

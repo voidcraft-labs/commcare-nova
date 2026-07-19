@@ -50,7 +50,6 @@ import {
 	checkExpression,
 	checkValueExpression,
 	describe,
-	type SearchInputDecl,
 	type SlotConstraint,
 	type TypeContext,
 	type ValueExpression,
@@ -58,6 +57,7 @@ import {
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
+import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 interface ExpressionCardEditorProps {
 	/** Current AST. */
@@ -75,7 +75,7 @@ interface ExpressionCardEditorProps {
 	 */
 	readonly currentCaseType: string;
 	/** Search inputs declared on the parent surface. */
-	readonly knownInputs?: readonly SearchInputDecl[];
+	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/**
 	 * The root slot's type constraint. Flows to the root
 	 * `ExpressionPicker` so the kind menu + value sources offer ONLY
@@ -143,7 +143,8 @@ export function ExpressionCardEditor({
 			if (resolved !== undefined && !acceptsType(constraint, resolved)) {
 				collected.push({
 					path: [],
-					message: `This value works out to ${describe(resolved)}, which doesn't fit this spot.`,
+					code: "constraint-value",
+					message: `This value works out to ${describe(resolved)}, which doesn't fit this spot`,
 				});
 			}
 		}

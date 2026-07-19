@@ -88,14 +88,50 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
-import { emitCsql } from "../csqlEmitter";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import { type CsqlEmissionResult, emitCsql } from "../csqlEmitter";
+
+const TEMPORAL_INPUT_CONTEXT: TypeContext = {
+	caseTypes: [],
+	knownInputs: [{ name: "base_date", data_type: "date" }],
+};
+
+function expectDynamicallyQuotedNativeArgument(
+	wrapper: string,
+	xpath: string,
+	functionPrefix: string,
+): void {
+	expect(wrapper).toContain(
+		`if((contains(${xpath}, "'") and contains(${xpath}, '"')), 'nova-runtime-value-contains-both-quote-types()', `,
+	);
+	expect(wrapper).toContain(
+		`${functionPrefix}if(contains(${xpath}, '"'), concat("'", ${xpath}, "'"), concat('"', ${xpath}, '"'))`,
+	);
+}
+
+/** Runtime strings now choose their CSQL delimiter after evaluation and lift
+ * every unrepresentable-state guard ahead of the WHOLE query. Operator tests
+ * should pin the structural fragment they own without duplicating the complete
+ * (intentionally verbose) safety wrapper; csqlRuntimeQuoting.test.ts evaluates
+ * that wrapper byte-for-byte for plain, one-quote, both-quote, NOT/NEQ/OR, and
+ * nested when-input cases. */
+function expectRuntimeGuarded(
+	result: CsqlEmissionResult,
+	...fragments: readonly string[]
+): void {
+	expect(result.rejectionCondition).toBeDefined();
+	expect(result.wrapper).toContain(
+		"'nova-runtime-value-contains-both-quote-types()'",
+	);
+	for (const fragment of fragments) expect(result.wrapper).toContain(fragment);
+}
 
 // ---------- Backward-compat port from xpathEmitter.test.ts ----------
 
 describe("emitCsql — comparison operators", () => {
 	it("emits eq with a string literal wrapped in concat()", () => {
-		const result = emitCsql(eq(prop("patient", "name"), literal("Alice")));
-		expect(result.wrapper).toBe(`concat("name = 'Alice'")`);
+		const result = emitCsql(eq(prop("patient", "full_name"), literal("Alice")));
+		expect(result.wrapper).toBe(`concat("full_name = 'Alice'")`);
 	});
 
 	it("emits eq with a numeric literal", () => {
@@ -126,9 +162,9 @@ describe("emitCsql — comparison operators", () => {
 	});
 
 	it("emits neq / gt / gte / lt / lte", () => {
-		expect(emitCsql(neq(prop("patient", "name"), literal("Bob"))).wrapper).toBe(
-			`concat("name != 'Bob'")`,
-		);
+		expect(
+			emitCsql(neq(prop("patient", "full_name"), literal("Bob"))).wrapper,
+		).toBe(`concat("full_name != 'Bob'")`);
 		expect(emitCsql(gt(prop("patient", "age"), literal(18))).wrapper).toBe(
 			"concat('age > 18')",
 		);
@@ -153,9 +189,9 @@ describe("emitCsql — comparison operators", () => {
 	});
 
 	it("emits null literals as the empty string", () => {
-		expect(emitCsql(eq(prop("patient", "name"), literal(null))).wrapper).toBe(
-			`concat("name = ''")`,
-		);
+		expect(
+			emitCsql(eq(prop("patient", "full_name"), literal(null))).wrapper,
+		).toBe(`concat("full_name = ''")`);
 	});
 });
 
@@ -177,8 +213,8 @@ describe("emitCsql — reserved case attributes", () => {
 	});
 
 	it("leaves user-defined properties bare", () => {
-		const result = emitCsql(eq(prop("patient", "name"), literal("Alice")));
-		expect(result.wrapper).toBe(`concat("name = 'Alice'")`);
+		const result = emitCsql(eq(prop("patient", "full_name"), literal("Alice")));
+		expect(result.wrapper).toBe(`concat("full_name = 'Alice'")`);
 	});
 });
 
@@ -186,21 +222,23 @@ describe("emitCsql — logical operators", () => {
 	it("emits and(...) joining clauses with ' and '", () => {
 		const result = emitCsql(
 			and(
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Alice")),
 				gt(prop("patient", "age"), literal(18)),
 			),
 		);
-		expect(result.wrapper).toBe(`concat("name = 'Alice' and age > 18")`);
+		expect(result.wrapper).toBe(`concat("full_name = 'Alice' and age > 18")`);
 	});
 
 	it("emits or(...) joining clauses with ' or '", () => {
 		const result = emitCsql(
 			or(
-				eq(prop("patient", "name"), literal("Alice")),
-				eq(prop("patient", "name"), literal("Bob")),
+				eq(prop("patient", "full_name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Bob")),
 			),
 		);
-		expect(result.wrapper).toBe(`concat("name = 'Alice' or name = 'Bob'")`);
+		expect(result.wrapper).toBe(
+			`concat("full_name = 'Alice' or full_name = 'Bob'")`,
+		);
 	});
 
 	it("parenthesizes or-clauses inside an and (precedence)", () => {
@@ -209,20 +247,22 @@ describe("emitCsql — logical operators", () => {
 		const result = emitCsql(
 			and(
 				or(
-					eq(prop("patient", "name"), literal("Alice")),
-					eq(prop("patient", "name"), literal("Bob")),
+					eq(prop("patient", "full_name"), literal("Alice")),
+					eq(prop("patient", "full_name"), literal("Bob")),
 				),
 				gt(prop("patient", "age"), literal(18)),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("(name = 'Alice' or name = 'Bob') and age > 18")`,
+			`concat("(full_name = 'Alice' or full_name = 'Bob') and age > 18")`,
 		);
 	});
 
 	it("emits not(...) wrapping its inner with not(...)", () => {
-		const result = emitCsql(not(eq(prop("patient", "name"), literal("Bob"))));
-		expect(result.wrapper).toBe(`concat("not(name = 'Bob')")`);
+		const result = emitCsql(
+			not(eq(prop("patient", "full_name"), literal("Bob"))),
+		);
+		expect(result.wrapper).toBe(`concat("not(full_name = 'Bob')")`);
 	});
 });
 
@@ -248,11 +288,13 @@ describe("emitCsql — string-literal escape", () => {
 		// inner CSQL emitter routes the value through `quoteLiteral`
 		// in csql mode, which switches to double-quoted CSQL when the
 		// value contains a single quote; the resulting CSQL fragment
-		// `name = "O'Brien"` carries both quote styles, and the wrap
+		// `full_name = "O'Brien"` carries both quote styles, and the wrap
 		// step splits via the XPath concat-of-alternating-quotes
 		// idiom.
-		const result = emitCsql(eq(prop("patient", "name"), literal("O'Brien")));
-		expect(result.wrapper).toBe(`concat('name = "O', "'", 'Brien"')`);
+		const result = emitCsql(
+			eq(prop("patient", "full_name"), literal("O'Brien")),
+		);
+		expect(result.wrapper).toBe(`concat('full_name = "O', "'", 'Brien"')`);
 	});
 
 	it("throws when a string literal contains both ' and \"", () => {
@@ -263,7 +305,7 @@ describe("emitCsql — string-literal escape", () => {
 		// where the alternating-quote fallback isn't available for
 		// the inner CSQL string.
 		expect(() =>
-			emitCsql(eq(prop("patient", "name"), literal(`it's "quoted"`))),
+			emitCsql(eq(prop("patient", "full_name"), literal(`it's "quoted"`))),
 		).toThrow(/no portable escape/i);
 	});
 });
@@ -302,21 +344,23 @@ describe("emitCsql — isIn", () => {
 	it("emits multi-value isIn with whitespace-bearing values without tokenizing", () => {
 		const result = emitCsql(
 			isIn(
-				prop("patient", "name"),
+				prop("patient", "full_name"),
 				literal("Alice Smith"),
 				literal("Bob Jones"),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("(name = 'Alice Smith' or name = 'Bob Jones')")`,
+			`concat("(full_name = 'Alice Smith' or full_name = 'Bob Jones')")`,
 		);
 	});
 
 	it("emits multi-value isIn with mixed null + string values", () => {
 		const result = emitCsql(
-			isIn(prop("patient", "name"), literal(null), literal("Alice")),
+			isIn(prop("patient", "full_name"), literal(null), literal("Alice")),
 		);
-		expect(result.wrapper).toBe(`concat("(name = '' or name = 'Alice')")`);
+		expect(result.wrapper).toBe(
+			`concat("(full_name = '' or full_name = 'Alice')")`,
+		);
 	});
 
 	it("emits multi-value isIn with numeric literals as bare XPath numbers", () => {
@@ -329,8 +373,8 @@ describe("emitCsql — isIn", () => {
 
 describe("emitCsql — is-blank", () => {
 	it("emits is-blank against a property as prop = ''", () => {
-		const result = emitCsql(isBlank(prop("patient", "name")));
-		expect(result.wrapper).toBe(`concat("name = ''")`);
+		const result = emitCsql(isBlank(prop("patient", "full_name")));
+		expect(result.wrapper).toBe(`concat("full_name = ''")`);
 	});
 
 	it("emits is-blank against a search-input ref via the runtime path", () => {
@@ -342,15 +386,19 @@ describe("emitCsql — is-blank", () => {
 		// `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral`
 		// produces the segment chain.
 		const result = emitCsql(isBlank(input("name_query")));
-		expect(result.wrapper).toBe(
-			`concat('"', instance('search-input:results')/input/field[@name='name_query'], '" = ', "'", '', "'", '')`,
+		expectRuntimeGuarded(
+			result,
+			`instance('search-input:results')/input/field[@name='name_query']`,
+			` = ''`,
 		);
 	});
 
 	it("emits is-blank against a session-context ref", () => {
 		const result = emitCsql(isBlank(sessionContext("userid")));
-		expect(result.wrapper).toBe(
-			`concat('"', instance('commcaresession')/session/context/userid, '" = ', "'", '', "'", '')`,
+		expectRuntimeGuarded(
+			result,
+			`instance('commcaresession')/session/context/userid`,
+			` = ''`,
 		);
 	});
 });
@@ -363,8 +411,8 @@ describe("emitCsql — is-null faithful emission", () => {
 		// form `is-blank` produces. The strict semantic surfaces only
 		// on the Postgres target where JSONB key presence is
 		// observable; CSQL gets the closest faithful emission.
-		const result = emitCsql(isNull(prop("patient", "name")));
-		expect(result.wrapper).toBe(`concat("name = ''")`);
+		const result = emitCsql(isNull(prop("patient", "full_name")));
+		expect(result.wrapper).toBe(`concat("full_name = ''")`);
 	});
 });
 
@@ -384,11 +432,14 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 		const result = emitCsql(
 			whenInput(
 				input("name_query"),
-				eq(prop("patient", "name"), input("name_query")),
+				eq(prop("patient", "full_name"), input("name_query")),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat(if(count(instance('search-input:results')/input/field[@name='name_query']), concat('name = "', instance('search-input:results')/input/field[@name='name_query'], '"'), 'match-all()'))`,
+		expectRuntimeGuarded(
+			result,
+			`count(instance('search-input:results')/input/field[@name='name_query'])`,
+			"full_name = ",
+			"'match-all()'",
 		);
 	});
 
@@ -401,12 +452,15 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 				eq(prop("patient", "age"), literal(18)),
 				whenInput(
 					input("name_query"),
-					eq(prop("patient", "name"), input("name_query")),
+					eq(prop("patient", "full_name"), input("name_query")),
 				),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat('age = 18 and ', if(count(instance('search-input:results')/input/field[@name='name_query']), concat('name = "', instance('search-input:results')/input/field[@name='name_query'], '"'), 'match-all()'))`,
+		expectRuntimeGuarded(
+			result,
+			"age = 18 and ",
+			`count(instance('search-input:results')/input/field[@name='name_query'])`,
+			"full_name = ",
 		);
 	});
 });
@@ -501,15 +555,17 @@ describe("emitCsql — match", () => {
 	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 
 	it("emits match mode=fuzzy as fuzzy-match(prop, 'v')", () => {
-		const result = emitCsql(match(prop("patient", "name"), "alice", "fuzzy"));
-		expect(result.wrapper).toBe(`concat("fuzzy-match(name, 'alice')")`);
+		const result = emitCsql(
+			match(prop("patient", "full_name"), "alice", "fuzzy"),
+		);
+		expect(result.wrapper).toBe(`concat("fuzzy-match(full_name, 'alice')")`);
 	});
 
 	it("emits match mode=phonetic as phonetic-match(prop, 'v')", () => {
 		const result = emitCsql(
-			match(prop("patient", "name"), "alice", "phonetic"),
+			match(prop("patient", "full_name"), "alice", "phonetic"),
 		);
-		expect(result.wrapper).toBe(`concat("phonetic-match(name, 'alice')")`);
+		expect(result.wrapper).toBe(`concat("phonetic-match(full_name, 'alice')")`);
 	});
 
 	it("emits match mode=fuzzy-date as fuzzy-date(prop, 'v')", () => {
@@ -521,9 +577,24 @@ describe("emitCsql — match", () => {
 
 	it("emits match mode=starts-with as starts-with(prop, 'v')", () => {
 		const result = emitCsql(
-			match(prop("patient", "name"), "Al", "starts-with"),
+			match(prop("patient", "full_name"), "Al", "starts-with"),
 		);
-		expect(result.wrapper).toBe(`concat("starts-with(name, 'Al')")`);
+		expect(result.wrapper).toBe(`concat("starts-with(full_name, 'Al')")`);
+	});
+
+	it("inlines a pure derived expression as the match value", () => {
+		const result = emitCsql(
+			match(
+				prop("patient", "full_name"),
+				ifExpr(matchAll(), term(literal("Ali")), term(literal("Al"))),
+				"starts-with",
+			),
+		);
+		expectRuntimeGuarded(
+			result,
+			"starts-with(full_name, ",
+			"if(true(), 'Ali', 'Al')",
+		);
 	});
 });
 
@@ -537,7 +608,7 @@ describe("emitCsql — within-distance", () => {
 			within(prop("clinic", "location"), literal("40.7,-74.0"), 50, "miles"),
 		);
 		expect(result.wrapper).toBe(
-			`concat("within-distance(location, '40.7,-74.0', 50, 'miles')")`,
+			`concat("within-distance(location, '40.7 -74.0', 50, 'miles')")`,
 		);
 	});
 
@@ -551,7 +622,7 @@ describe("emitCsql — within-distance", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("within-distance(location, '40.7,-74.0', 25, 'kilometers')")`,
+			`concat("within-distance(location, '40.7 -74.0', 25, 'kilometers')")`,
 		);
 	});
 
@@ -565,18 +636,83 @@ describe("emitCsql — within-distance", () => {
 		const result = emitCsql(
 			within(prop("clinic", "location"), input("user_loc"), 25, "kilometers"),
 		);
+		expect(result.wrapper).toContain("'match-none()'");
+		expect(result.wrapper).not.toContain(
+			"nova-runtime-value-contains-both-quote-types",
+		);
+		expect(result.wrapper).toContain("within-distance(location, ");
+		expect(result.wrapper).toContain(
+			`instance('search-input:results')/input/field[@name='user_loc']`,
+		);
+		expect(result.wrapper).toContain("25, 'kilometers'");
+		expect(result.runtimeRejections).toEqual([
+			expect.objectContaining({
+				kind: "geopoint",
+				inputNames: ["user_loc"],
+			}),
+		]);
+	});
+
+	it("emits a small positive within-distance without scientific notation", () => {
+		const result = emitCsql(
+			within(
+				prop("clinic", "location"),
+				literal("40.7,-74.0"),
+				0.0000001,
+				"miles",
+			),
+		);
 		expect(result.wrapper).toBe(
-			`concat('within-distance(location, "', instance('search-input:results')/input/field[@name='user_loc'], '", 25, ', "'", 'kilometers', "'", ')')`,
+			`concat("within-distance(location, '40.7 -74.0', 0.0000001, 'miles')")`,
 		);
 	});
 
-	it("emits within-distance with distance 0 as a bare zero literal", () => {
+	it.each([
+		"40.7 -74.0",
+		" 40.7\t-74.0 ",
+		"40.7 -74.0 NaN NaN",
+		"40.7 -74.0 +1e0 NaN",
+	])("accepts and canonicalizes static center %j", (center) => {
 		const result = emitCsql(
-			within(prop("clinic", "location"), literal("40.7,-74.0"), 0, "miles"),
+			within(prop("clinic", "location"), literal(center), 1, "miles"),
 		);
-		expect(result.wrapper).toBe(
-			`concat("within-distance(location, '40.7,-74.0', 0, 'miles')")`,
+		expect(result.wrapper).toContain(
+			`within-distance(location, '${center.trim().replace(/\s+/g, " ")}', 1, 'miles')`,
 		);
+	});
+
+	it.each([
+		"40",
+		"40 -74 0",
+		"40 -74 0 1 2",
+		"91 0",
+		"0 181",
+		"+40 -74",
+		"4e1 -74",
+		"40,7 -74,0",
+		"40\u00a0-74",
+	])("rejects invalid static center %j", (center) => {
+		expect(() =>
+			emitCsql(within(prop("clinic", "location"), literal(center), 1, "miles")),
+		).toThrow(/invalid literal center/);
+	});
+
+	it("fail-closes a computed session center without inventing a prompt", () => {
+		const result = emitCsql(
+			within(
+				prop("clinic", "location"),
+				term(sessionUser("default_location")),
+				1,
+				"miles",
+			),
+		);
+		expect(result.wrapper).toContain("'match-none()'");
+		expect(result.wrapper).not.toContain(
+			"nova-runtime-value-contains-both-quote-types",
+		);
+		expect(result.runtimeRejections).toEqual([
+			expect.objectContaining({ kind: "geopoint", inputNames: [] }),
+		]);
 	});
 });
 
@@ -661,8 +797,10 @@ describe("emitCsql — exists / missing", () => {
 		const result = emitCsql(
 			exists(subcasePath("child"), eq(prop("child", "x"), input("q"))),
 		);
-		expect(result.wrapper).toBe(
-			`concat('subcase-exists(', "'", 'child', "'", ', x = "', instance('search-input:results')/input/field[@name='q'], '")')`,
+		expectRuntimeGuarded(
+			result,
+			"subcase-exists('child', x = ",
+			`instance('search-input:results')/input/field[@name='q']`,
 		);
 	});
 
@@ -692,7 +830,9 @@ describe("emitCsql — exists / missing", () => {
 
 	it("throws on exists with via.kind === 'self'", () => {
 		expect(() =>
-			emitCsql(exists(selfPath(), eq(prop("patient", "name"), literal("a")))),
+			emitCsql(
+				exists(selfPath(), eq(prop("patient", "full_name"), literal("a"))),
+			),
 		).toThrow(/self/);
 	});
 
@@ -704,11 +844,57 @@ describe("emitCsql — exists / missing", () => {
 		const result = emitCsql(
 			exists(
 				anyRelationPath("rel"),
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Alice")),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("(ancestor-exists(rel, name = 'Alice') or subcase-exists('rel', name = 'Alice'))")`,
+			`concat("(ancestor-exists(rel, full_name = 'Alice') or subcase-exists('rel', full_name = 'Alice'))")`,
+		);
+	});
+
+	it("emits only the graph-valid direction for a canonical parent walk", () => {
+		const context: TypeContext = {
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+				},
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+				},
+				{
+					name: "child",
+					parent_type: "patient",
+					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+				},
+			],
+			knownInputs: [],
+			currentCaseType: "patient",
+		};
+
+		expect(
+			emitCsql(
+				exists(
+					anyRelationPath("parent", "household"),
+					eq(prop("household", "full_name"), literal("Alice")),
+				),
+				context,
+			).wrapper,
+		).toBe(
+			`concat("ancestor-exists(parent, @case_type = 'household' and (full_name = 'Alice'))")`,
+		);
+		expect(
+			emitCsql(
+				exists(
+					anyRelationPath("parent", "child"),
+					eq(prop("child", "full_name"), literal("Alice")),
+				),
+				context,
+			).wrapper,
+		).toBe(
+			`concat("subcase-exists('parent', @case_type = 'child' and (full_name = 'Alice'))")`,
 		);
 	});
 
@@ -719,11 +905,11 @@ describe("emitCsql — exists / missing", () => {
 		const result = emitCsql(
 			missing(
 				anyRelationPath("rel"),
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Alice")),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("not((ancestor-exists(rel, name = 'Alice') or subcase-exists('rel', name = 'Alice')))")`,
+			`concat("not((ancestor-exists(rel, full_name = 'Alice') or subcase-exists('rel', full_name = 'Alice')))")`,
 		);
 	});
 
@@ -812,6 +998,30 @@ describe("emitCsql — subcase-count in comparison-LHS (native)", () => {
 			`concat("subcase-count('visit', state = 'done') = 0")`,
 		);
 	});
+
+	it("canonicalizes a fixed negative-zero child-count bound to 0", () => {
+		const result = emitCsql(eq(count(subcasePath("child")), literal(-0)));
+		expect(result.wrapper).toBe(`concat("subcase-count('child') = 0")`);
+	});
+
+	it("emits a prompted child-count bound as a guarded raw integer token", () => {
+		const path = `instance('search-input:results')/input/field[@name='minimum_children']`;
+		const result = emitCsql(
+			gt(count(subcasePath("child")), double(term(input("minimum_children")))),
+		);
+
+		expect(result.wrapper).toContain(`subcase-count('child') > `);
+		expect(result.wrapper).toContain(`if(number(${path}) = 0, 0, ${path})`);
+		expect(result.wrapper).not.toContain(`double(${path})`);
+		expect(result.runtimeRejections).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "nonnegative-whole-number",
+					condition: expect.stringContaining(`number(${path}) >= 0`),
+				}),
+			]),
+		);
+	});
 });
 
 // ---------- concat() wrapping shape ----------
@@ -820,50 +1030,62 @@ describe("emitCsql — concat() wrapping shape", () => {
 	it("wraps a fully-constant predicate in concat('<full string>')", () => {
 		// The wrap is unconditional even when no runtime interpolation
 		// appears, so the wire layer reads one shape per CSQL value.
-		const result = emitCsql(eq(prop("patient", "name"), literal("Alice")));
+		const result = emitCsql(eq(prop("patient", "full_name"), literal("Alice")));
 		// Single concat() arg.
 		expect(result.wrapper).toMatch(/^concat\((?!.*,).*\)$/);
-		expect(result.wrapper).toBe(`concat("name = 'Alice'")`);
+		expect(result.wrapper).toBe(`concat("full_name = 'Alice'")`);
 	});
 
 	it("lifts a single input ref as a separate concat() arg", () => {
-		const result = emitCsql(eq(prop("patient", "name"), input("name_query")));
-		// Three args: `name = "`, the runtime XPath, `"`.
-		expect(result.wrapper).toBe(
-			`concat('name = "', instance('search-input:results')/input/field[@name='name_query'], '"')`,
+		const result = emitCsql(
+			eq(prop("patient", "full_name"), input("name_query")),
+		);
+		expectRuntimeGuarded(
+			result,
+			"full_name = ",
+			`instance('search-input:results')/input/field[@name='name_query']`,
 		);
 	});
 
 	it("lifts multiple interpolation points as separate concat() args in document order", () => {
 		const result = emitCsql(
 			and(
-				eq(prop("patient", "name"), input("name_query")),
+				eq(prop("patient", "full_name"), input("name_query")),
 				eq(prop("patient", "region"), sessionUser("region")),
 			),
 		);
-		// 7 args total: `name = "`, name xpath, `" and region = "`,
-		// region xpath, `"`.
-		expect(result.wrapper).toBe(
-			`concat('name = "', instance('search-input:results')/input/field[@name='name_query'], '" and region = "', instance('commcaresession')/session/user/data/region, '"')`,
+		const inputPath = `instance('search-input:results')/input/field[@name='name_query']`;
+		const sessionPath = `instance('commcaresession')/session/user/data/region`;
+		expectRuntimeGuarded(
+			result,
+			"full_name = ",
+			inputPath,
+			" and region = ",
+			sessionPath,
+		);
+		expect(result.wrapper.indexOf(inputPath)).toBeLessThan(
+			result.wrapper.lastIndexOf(sessionPath),
 		);
 	});
 
 	it("composes mixed constant + runtime parts in document order", () => {
 		// The literal value `'Alice'` uses single-quoted CSQL while the
 		// runtime interpolation uses double-quoted CSQL brackets, so
-		// the merged constant `name = 'Alice' and region = "` carries
+		// the merged constant `full_name = 'Alice' and region = "` carries
 		// both quote styles. The wrap step splits via the XPath
 		// concat-of-alternating-quotes idiom — each split fragment is
 		// either single-quoted (no `'` after split) or `"'"` (the
 		// literal-quote separator).
 		const result = emitCsql(
 			and(
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Alice")),
 				eq(prop("patient", "region"), input("user_region")),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat('name = ', "'", 'Alice', "'", ' and region = "', instance('search-input:results')/input/field[@name='user_region'], '"')`,
+		expectRuntimeGuarded(
+			result,
+			"full_name = 'Alice' and region = ",
+			`instance('search-input:results')/input/field[@name='user_region']`,
 		);
 	});
 
@@ -901,7 +1123,7 @@ describe("emitCsql — inline runtime operands", () => {
 		// string value the server's `case_property_query` coerces.
 		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
 		const result = emitCsql(eq(lifted, term(literal(19))));
-		expect(result.wrapper).toBe(`concat('"', (age + 1), '" = 19')`);
+		expectRuntimeGuarded(result, "(age + 1)", " = 19");
 	});
 
 	it("inlines an if-expression in a comparison's right operand", () => {
@@ -910,9 +1132,7 @@ describe("emitCsql — inline runtime operands", () => {
 		// double-quote brackets.
 		const lifted = ifExpr(matchAll(), term(literal("a")), term(literal("b")));
 		const result = emitCsql(eq(prop("patient", "label"), lifted));
-		expect(result.wrapper).toBe(
-			`concat('label = "', if(true(), 'a', 'b'), '"')`,
-		);
+		expectRuntimeGuarded(result, "label = ", "if(true(), 'a', 'b')");
 	});
 
 	it("inlines a count outside a top-level comparison when direction is non-subcase", () => {
@@ -926,8 +1146,10 @@ describe("emitCsql — inline runtime operands", () => {
 		// the merged constant carries both `'` and `"`.
 		const ancestorCount = count(ancestorPath(relationStep("parent")));
 		const result = emitCsql(isBlank(ancestorCount));
-		expect(result.wrapper).toBe(
-			`concat('"', count(instance('casedb')/casedb/case[@case_id=current()/index/parent]), '" = ', "'", '', "'", '')`,
+		expectRuntimeGuarded(
+			result,
+			`if(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/parent), 1, 0)`,
+			` = ''`,
 		);
 	});
 
@@ -944,13 +1166,15 @@ describe("emitCsql — inline runtime operands", () => {
 
 	it("inlines a count with non-subcase direction in comparison-LHS", () => {
 		// CCHQ's `_is_subcase_count` recogniser only matches the
-		// literal `subcase-count` function name; ancestor-direction
+		// literal `subcase-count` function full_name; ancestor-direction
 		// counts have no native CSQL form even in the comparison-LHS
 		// slot, so the emitter inlines as on-device XPath.
 		const lifted = count(ancestorPath(relationStep("parent")));
 		const result = emitCsql(gt(lifted, literal(2)));
-		expect(result.wrapper).toBe(
-			`concat('"', count(instance('casedb')/casedb/case[@case_id=current()/index/parent]), '" > 2')`,
+		expectRuntimeGuarded(
+			result,
+			`if(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/parent), 1, 0)`,
+			" > 2",
 		);
 	});
 
@@ -967,8 +1191,11 @@ describe("emitCsql — inline runtime operands", () => {
 		const result = emitCsql(
 			exists(subcasePath("child"), eq(lifted, term(literal(19)))),
 		);
-		expect(result.wrapper).toBe(
-			`concat('subcase-exists(', "'", 'child', "'", ', "', (age + 1), '" = 19)')`,
+		expectRuntimeGuarded(
+			result,
+			"subcase-exists('child', ",
+			"(age + 1)",
+			" = 19)",
 		);
 	});
 });
@@ -993,12 +1220,12 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 	it("lifts ancestor via on eq LHS into ancestor-exists envelope", () => {
 		const result = emitCsql(
 			eq(
-				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
 				literal("Alice"),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent, name = 'Alice')")`,
+			`concat("ancestor-exists(parent, full_name = 'Alice')")`,
 		);
 	});
 
@@ -1065,36 +1292,33 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 		expect(result.wrapper).toBe(`concat('ancestor-exists(parent, age < 18)')`);
 	});
 
-	it("preserves operand order on eq RHS-via lift (symmetric op)", () => {
+	it("canonicalizes an eq RHS-via property onto CCHQ's required left side", () => {
 		// Symmetric ops keep `<original-left> = <prop>` inside the
 		// envelope; the authored `'Alice' = prop` shape survives.
 		const result = emitCsql(
 			eq(
 				literal("Alice"),
-				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent, 'Alice' = name)")`,
+			`concat("ancestor-exists(parent, full_name = 'Alice')")`,
 		);
 	});
 
-	it("nests envelopes when both comparison operands carry vias", () => {
-		// `eq(prop(via=ancestor), prop(via=subcase))` lifts the LHS
-		// first; the inner `where` then carries the RHS via on a
-		// property-vs-property comparison. The recursive lift wraps
-		// the inner expression in the RHS's envelope. Symmetric ops
-		// preserve operand order on the RHS-via lift, so the inner
-		// comparison reads with the authored `x = y` shape.
-		const result = emitCsql(
-			eq(
-				prop("patient", "x", ancestorPath(relationStep("parent"))),
-				prop("patient", "y", subcasePath("child")),
+	it("fails closed when both comparison operands carry vias", () => {
+		// Two related property scopes require a pairwise node-set
+		// comparison, which CSQL cannot represent faithfully. The
+		// validator reports the repair before emission; this throw is
+		// the compiler's defense if that gate is bypassed.
+		expect(() =>
+			emitCsql(
+				eq(
+					prop("patient", "x", ancestorPath(relationStep("parent"))),
+					prop("patient", "y", subcasePath("child")),
+				),
 			),
-		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent, subcase-exists('child', x = y))")`,
-		);
+		).toThrow(/mixed-property-scopes/);
 	});
 
 	it("preserves @-prefix on reserved attributes through the lift", () => {
@@ -1123,14 +1347,14 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 			eq(
 				prop(
 					"patient",
-					"name",
+					"full_name",
 					ancestorPath(relationStep("parent"), relationStep("host")),
 				),
 				literal("Alice"),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent/host, name = 'Alice')")`,
+			`concat("ancestor-exists(parent/host, full_name = 'Alice')")`,
 		);
 	});
 });
@@ -1142,17 +1366,16 @@ describe("emitCsql — property-via lift (any-relation direction expansion)", ()
 	// `caseListFilterEmitter.ts::emitExistsOrMissing`.
 
 	it("expands any-relation via on eq LHS to an OR of ancestor/subcase envelopes", () => {
-		// The top-level `or` carries no defensive paren-wrap — the
-		// expansion sits at the outermost predicate level so XPath
-		// precedence has no parent operator to re-associate against.
-		// Nested inside an `and`, the `or` would paren-wrap on its
-		// own; that case is covered by the `parenthesizes or-clauses
-		// inside an and` test on the logical-operator block.
+		// Keep the direction expansion parenthesized as a single semantic
+		// unit, including at top level; callers may compose this fragment.
 		const result = emitCsql(
-			eq(prop("patient", "name", anyRelationPath("rel")), literal("Alice")),
+			eq(
+				prop("patient", "full_name", anyRelationPath("rel")),
+				literal("Alice"),
+			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(rel, name = 'Alice') or subcase-exists('rel', name = 'Alice')")`,
+			`concat("(ancestor-exists(rel, full_name = 'Alice') or subcase-exists('rel', full_name = 'Alice'))")`,
 		);
 	});
 });
@@ -1166,17 +1389,17 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 	it("lifts via on in.left into ancestor-exists envelope", () => {
 		const result = emitCsql(
 			isIn(
-				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
 				literal("Alice"),
 				literal("Bob"),
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent, (name = 'Alice' or name = 'Bob'))")`,
+			`concat("ancestor-exists(parent, (full_name = 'Alice' or full_name = 'Bob'))")`,
 		);
 	});
 
-	it("lifts via on between.left preserving inclusive bounds", () => {
+	it("lifts related between bounds into independent relation envelopes", () => {
 		const result = emitCsql(
 			between(prop("patient", "age", ancestorPath(relationStep("parent"))), {
 				lower: term(literal(18)),
@@ -1184,74 +1407,66 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 			}),
 		);
 		expect(result.wrapper).toBe(
-			`concat('ancestor-exists(parent, (age >= 18 and age <= 65))')`,
+			`concat('ancestor-exists(parent, age >= 18) and ancestor-exists(parent, age <= 65)')`,
 		);
 	});
 
-	it("lifts via on between.lower bound flipping comparison direction", () => {
-		// Authored `between(left, lower=prop(via))` reads as
-		// `left >= prop(via)` for inclusive lower. Inside the
-		// envelope, the `prop` is the related case's value and the
-		// inner comparison reads `prop <= left` — the direction
-		// flips when the bound moves to the inner LHS so the
-		// authored "left bounded by lower" semantic survives.
-		const result = emitCsql(
-			between(prop("patient", "age"), {
-				lower: term(
-					prop("patient", "min_age", ancestorPath(relationStep("parent"))),
-				),
-			}),
-		);
-		expect(result.wrapper).toBe(
-			`concat('ancestor-exists(parent, min_age <= age)')`,
-		);
+	it("fails closed when between.lower reads another case scope", () => {
+		expect(() =>
+			emitCsql(
+				between(prop("patient", "age"), {
+					lower: term(
+						prop("patient", "min_age", ancestorPath(relationStep("parent"))),
+					),
+				}),
+			),
+		).toThrow(/mixed-property-scopes/);
 	});
 
-	it("lifts via on between.upper bound flipping comparison direction", () => {
-		// Symmetric to the lower-bound rewrite: original
-		// `left <= upper(via)` becomes `upper_prop >= left` inside
-		// the envelope.
-		const result = emitCsql(
-			between(prop("patient", "age"), {
-				upper: term(
-					prop("patient", "max_age", ancestorPath(relationStep("parent"))),
-				),
-			}),
-		);
-		expect(result.wrapper).toBe(
-			`concat('ancestor-exists(parent, max_age >= age)')`,
-		);
+	it("fails closed when between.upper reads another case scope", () => {
+		expect(() =>
+			emitCsql(
+				between(prop("patient", "age"), {
+					upper: term(
+						prop("patient", "max_age", ancestorPath(relationStep("parent"))),
+					),
+				}),
+			),
+		).toThrow(/mixed-property-scopes/);
 	});
 
-	it("lifts via on between.lower with exclusive bound producing strict comparison", () => {
-		// Exclusive lower (`lowerInclusive: false`) authored as
-		// `left > prop(via)`; inner shape `prop < left`.
-		const result = emitCsql(
-			between(prop("patient", "age"), {
-				lower: term(
-					prop("patient", "min_age", ancestorPath(relationStep("parent"))),
-				),
-				lowerInclusive: false,
-				upperInclusive: false,
-			}),
-		);
-		expect(result.wrapper).toBe(
-			`concat('ancestor-exists(parent, min_age < age)')`,
-		);
+	it("fails closed for exclusive bounds from another case scope", () => {
+		expect(() =>
+			emitCsql(
+				between(prop("patient", "age"), {
+					lower: term(
+						prop("patient", "min_age", ancestorPath(relationStep("parent"))),
+					),
+					lowerInclusive: false,
+					upperInclusive: false,
+				}),
+			),
+		).toThrow(/mixed-property-scopes/);
 	});
 
 	it("lifts via on is-null.left into ancestor-exists envelope with absence equality", () => {
 		const result = emitCsql(
-			isNull(prop("patient", "name", ancestorPath(relationStep("parent")))),
+			isNull(
+				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
+			),
 		);
-		expect(result.wrapper).toBe(`concat("ancestor-exists(parent, name = '')")`);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists(parent, full_name = '')")`,
+		);
 	});
 
 	it("lifts via on is-blank.left into subcase-exists envelope", () => {
 		const result = emitCsql(
-			isBlank(prop("patient", "name", subcasePath("child"))),
+			isBlank(prop("patient", "full_name", subcasePath("child"))),
 		);
-		expect(result.wrapper).toBe(`concat("subcase-exists('child', name = '')")`);
+		expect(result.wrapper).toBe(
+			`concat("subcase-exists('child', full_name = '')")`,
+		);
 	});
 });
 
@@ -1265,13 +1480,13 @@ describe("emitCsql — property-via lift (direct PropertyRef slots)", () => {
 	it("lifts via on match.property into ancestor-exists envelope with the same mode", () => {
 		const result = emitCsql(
 			match(
-				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
 				term(literal("Alice")),
 				"fuzzy",
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists(parent, fuzzy-match(name, 'Alice'))")`,
+			`concat("ancestor-exists(parent, fuzzy-match(full_name, 'Alice'))")`,
 		);
 	});
 
@@ -1303,6 +1518,102 @@ describe("emitCsql — property-via lift (direct PropertyRef slots)", () => {
 		expect(result.wrapper).toBe(
 			`concat("ancestor-exists(parent, within-distance(location, '40.0 -73.0', 5, 'miles'))")`,
 		);
+	});
+});
+
+describe("emitCsql — property-via lift (native value-expression carriers)", () => {
+	// CSQL-native value functions recurse into the shared term emitter.
+	// A related property below one of these wrappers therefore needs
+	// the same exists-envelope lift as an operator-direct property;
+	// otherwise the term emitter can print only the bare property name
+	// and silently discard the relationship path.
+	const parentVia = ancestorPath(relationStep("parent"));
+
+	it("preserves an ancestor via below date-coerce", () => {
+		const result = emitCsql(
+			eq(
+				dateCoerce(
+					term(prop("patient", "dob", ancestorPath(relationStep("parent")))),
+				),
+				literal("2024-12-03"),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists(parent, date(dob) = '2024-12-03')")`,
+		);
+	});
+
+	it("fails closed when match.value reads a different case scope", () => {
+		expect(() =>
+			emitCsql(
+				match(
+					prop("patient", "full_name"),
+					term(prop("patient", "alias", ancestorPath(relationStep("parent")))),
+					"starts-with",
+				),
+			),
+		).toThrow(/mixed-property-scopes/);
+	});
+
+	it("fails closed when within-distance.center reads a different case scope", () => {
+		expect(() =>
+			emitCsql(
+				within(
+					prop("clinic", "location"),
+					term(prop("clinic", "origin", ancestorPath(relationStep("parent")))),
+					5,
+					"miles",
+				),
+			),
+		).toThrow(/mixed-property-scopes/);
+	});
+
+	it.each([
+		{
+			carrier: "datetime-coerce",
+			predicate: eq(
+				prop("patient", "modified_on"),
+				datetimeCoerce(term(prop("patient", "parent_modified", parentVia))),
+			),
+		},
+		{
+			carrier: "double",
+			predicate: eq(
+				prop("patient", "weight"),
+				double(term(prop("patient", "parent_weight", parentVia))),
+			),
+		},
+		{
+			carrier: "date-add date operand",
+			predicate: eq(
+				prop("patient", "due_date"),
+				dateAdd(
+					dateCoerce(term(prop("patient", "parent_start", parentVia))),
+					"days",
+					term(literal(7)),
+				),
+			),
+		},
+		{
+			carrier: "date-add quantity operand",
+			predicate: eq(
+				prop("patient", "due_date"),
+				dateAdd(
+					today(),
+					"days",
+					term(prop("patient", "parent_offset", parentVia)),
+				),
+			),
+		},
+		{
+			carrier: "unwrap-list",
+			predicate: eq(
+				prop("patient", "tags"),
+				unwrapList(term(prop("patient", "parent_tags_json", parentVia))),
+			),
+		},
+	])("fails closed for an ancestor via below $carrier", ({ predicate }) => {
+		expect(() => emitCsql(predicate)).toThrow(/mixed-property-scopes/);
 	});
 });
 
@@ -1369,13 +1680,16 @@ describe("emitCsql — property-via lift (recursion)", () => {
 			whenInput(
 				input("q"),
 				eq(
-					prop("patient", "name", ancestorPath(relationStep("parent"))),
+					prop("patient", "full_name", ancestorPath(relationStep("parent"))),
 					term(input("q")),
 				),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat(if(count(instance('search-input:results')/input/field[@name='q']), concat('ancestor-exists(parent, name = "', instance('search-input:results')/input/field[@name='q'], '")'), 'match-all()'))`,
+		expectRuntimeGuarded(
+			result,
+			`count(instance('search-input:results')/input/field[@name='q'])`,
+			"ancestor-exists(parent, full_name = ",
+			"'match-all()'",
 		);
 	});
 
@@ -1406,14 +1720,14 @@ describe("emitCsql — property-via lift (recursion)", () => {
 	});
 
 	it("is idempotent — running the rewrite twice produces the same wire output", () => {
-		// The via-lift pass is total per `csqlHoist.ts`'s contract:
-		// every input AST produces a CSQL-emission-compatible output.
+		// The via-lift pass is total per `normalizeRelationPropertyReads`'s
+		// contract: every input AST produces a CSQL-emission-compatible output.
 		// A second pass over the lifted AST produces no further
 		// changes — every operator-direct via has already lifted. The
 		// emission round-trips identically.
 		const p = and(
 			eq(
-				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				prop("patient", "full_name", ancestorPath(relationStep("parent"))),
 				literal("Alice"),
 			),
 			eq(prop("patient", "state", subcasePath("child")), literal("active")),
@@ -1421,10 +1735,10 @@ describe("emitCsql — property-via lift (recursion)", () => {
 		const first = emitCsql(p);
 		const second = emitCsql(p);
 		expect(first.wrapper).toBe(second.wrapper);
-		// `name = 'Alice'` triggers the double-quoted CSQL wrap for
+		// `full_name = 'Alice'` triggers the double-quoted CSQL wrap for
 		// the inner literal; the rest emits with single-quoted CSQL.
 		expect(first.wrapper).toBe(
-			`concat("ancestor-exists(parent, name = 'Alice') and subcase-exists('child', state = 'active')")`,
+			`concat("ancestor-exists(parent, full_name = 'Alice') and subcase-exists('child', state = 'active')")`,
 		);
 	});
 });
@@ -1433,14 +1747,16 @@ describe("emitCsql — property-via lift (recursion)", () => {
 
 describe("emitCsql — term-arm unwrap (happy path)", () => {
 	it("unwraps a property reference in a comparison's left operand", () => {
-		const result = emitCsql(eq(prop("patient", "name"), literal("Alice")));
-		expect(result.wrapper).toBe(`concat("name = 'Alice'")`);
+		const result = emitCsql(eq(prop("patient", "full_name"), literal("Alice")));
+		expect(result.wrapper).toBe(`concat("full_name = 'Alice'")`);
 	});
 
 	it("unwraps a search-input reference in a comparison's right operand", () => {
 		const result = emitCsql(eq(prop("patient", "phone"), input("phone_query")));
-		expect(result.wrapper).toBe(
-			`concat('phone = "', instance('search-input:results')/input/field[@name='phone_query'], '"')`,
+		expectRuntimeGuarded(
+			result,
+			"phone = ",
+			`instance('search-input:results')/input/field[@name='phone_query']`,
 		);
 	});
 
@@ -1448,8 +1764,10 @@ describe("emitCsql — term-arm unwrap (happy path)", () => {
 		const result = emitCsql(
 			eq(prop("patient", "region"), sessionUser("region")),
 		);
-		expect(result.wrapper).toBe(
-			`concat('region = "', instance('commcaresession')/session/user/data/region, '"')`,
+		expectRuntimeGuarded(
+			result,
+			"region = ",
+			`instance('commcaresession')/session/user/data/region`,
 		);
 	});
 
@@ -1457,8 +1775,10 @@ describe("emitCsql — term-arm unwrap (happy path)", () => {
 		const result = emitCsql(
 			eq(prop("patient", "owner_id"), sessionContext("userid")),
 		);
-		expect(result.wrapper).toBe(
-			`concat('@owner_id = "', instance('commcaresession')/session/context/userid, '"')`,
+		expectRuntimeGuarded(
+			result,
+			"@owner_id = ",
+			`instance('commcaresession')/session/context/userid`,
 		);
 	});
 });
@@ -1470,15 +1790,16 @@ describe("emitCsql — non-term ValueExpression arms inline as runtime fragments
 	// string value.
 
 	it("inlines a concat expression as the runtime fragment", () => {
-		const lifted = concat(term(literal("Mr ")), term(prop("patient", "name")));
+		const lifted = concat(
+			term(literal("Mr ")),
+			term(prop("patient", "full_name")),
+		);
 		const result = emitCsql(eq(prop("patient", "display"), lifted));
 		// `concat(...)` is XPath's own concat — the runtime joins
-		// `'Mr '` with the case's `name` value at concat-evaluation
+		// `'Mr '` with the case's `full_name` value at concat-evaluation
 		// time, and the resulting string substitutes into the CSQL
 		// fragment as a double-quoted value.
-		expect(result.wrapper).toBe(
-			`concat('display = "', concat('Mr ', name), '"')`,
-		);
+		expectRuntimeGuarded(result, "display = ", "concat('Mr ', full_name)");
 	});
 
 	it("inlines a format-date expression as the runtime fragment", () => {
@@ -1490,9 +1811,7 @@ describe("emitCsql — non-term ValueExpression arms inline as runtime fragments
 		// string substitutes directly into the CSQL fragment.
 		const lifted = formatDate(term(prop("patient", "dob")), "iso");
 		const result = emitCsql(eq(prop("patient", "dob_text"), lifted));
-		expect(result.wrapper).toBe(
-			`concat('dob_text = "', format-date(dob, 'iso'), '"')`,
-		);
+		expectRuntimeGuarded(result, "dob_text = ", "format-date(dob, '%Y-%m-%d')");
 	});
 });
 
@@ -1528,29 +1847,35 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		);
 	});
 
-	it("emits date-coerce of a runtime input ref with the runtime XPath inside the call", () => {
-		// `date-coerce(input("user_date"))` becomes
-		// `date(<runtime-xpath>)` — runtime XPath result interpolates
-		// inside the function-call argument unwrapped (CSQL function
-		// calls accept value arguments directly, no string-quote
-		// brackets).
+	it("emits date-coerce of a runtime input as a dynamically quoted scalar", () => {
+		// The runtime XPath is evaluated before CCHQ parses the rendered
+		// CSQL. Its result therefore needs CSQL string delimiters inside
+		// `date(...)`; a raw ISO value would parse as arithmetic.
+		const xpath =
+			"instance('search-input:results')/input/field[@name='user_date']";
 		const result = emitCsql(
 			eq(prop("patient", "dob"), dateCoerce(term(input("user_date")))),
 		);
-		expect(result.wrapper).toBe(
-			`concat('dob = date(', instance('search-input:results')/input/field[@name='user_date'], ')')`,
+		expectDynamicallyQuotedNativeArgument(
+			result.wrapper,
+			xpath,
+			"concat('dob = date(', ",
 		);
 	});
 
-	it("emits datetime-coerce of a runtime ref with the runtime XPath inside the call", () => {
+	it("emits datetime-coerce of a runtime ref as a dynamically quoted scalar", () => {
+		const xpath =
+			"instance('search-input:results')/input/field[@name='user_dt']";
 		const result = emitCsql(
 			eq(
 				prop("patient", "modified_on"),
 				datetimeCoerce(term(input("user_dt"))),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat('modified_on = datetime(', instance('search-input:results')/input/field[@name='user_dt'], ')')`,
+		expectDynamicallyQuotedNativeArgument(
+			result.wrapper,
+			xpath,
+			"concat('modified_on = datetime(', ",
 		);
 	});
 });
@@ -1559,8 +1884,8 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 	// The CSQL value-function whitelist (per
 	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
 	// — `today`, `now`, `double`, `date-add`, `unwrap-list`,
-	// `date-coerce` (wire name `date`), `datetime-coerce` (wire
-	// name `datetime`) — emits through the value-expression emitter
+	// `date-coerce` (wire full_name `date`), `datetime-coerce` (wire
+	// full_name `datetime`) — emits through the value-expression emitter
 	// at `lib/commcare/expression/csqlEmitter.ts`. The predicate
 	// emitter composes the resulting segment list with comparison
 	// operators, CSQL string-quote brackets, and concat-wrap
@@ -1577,6 +1902,18 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 	it("emits now() in a comparison operand as native CSQL", () => {
 		const result = emitCsql(eq(prop("patient", "modified_on"), now()));
 		expect(result.wrapper).toBe(`concat('modified_on = now()')`);
+	});
+
+	it("emits datetime-add for a datetime operand", () => {
+		const result = emitCsql(
+			eq(
+				prop("patient", "modified_on"),
+				dateAdd(now(), "hours", term(literal(2))),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("modified_on = datetime-add(now(), 'hours', 2)")`,
+		);
 	});
 
 	it("emits double(literal) in a comparison operand as native CSQL", () => {
@@ -1603,16 +1940,43 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		);
 	});
 
+	it("guards a prompted calendar quantity before CCHQ evaluates date-add", () => {
+		const path =
+			"instance('search-input:results')/input/field[@name='month_offset']";
+		const result = emitCsql(
+			eq(
+				prop("patient", "due_date"),
+				dateAdd(today(), "months", double(term(input("month_offset")))),
+			),
+		);
+
+		expect(result.wrapper).toContain("date-add(today(), 'months', double(");
+		expect(result.runtimeRejections).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "whole-number",
+					condition: `not(number(${path}) = floor(number(${path})))`,
+				}),
+			]),
+		);
+	});
+
 	it("emits date-add with a runtime-resolved date argument", () => {
+		const xpath =
+			"instance('search-input:results')/input/field[@name='base_date']";
 		const result = emitCsql(
 			eq(
 				prop("patient", "due_date"),
 				dateAdd(term(input("base_date")), "days", term(literal(7))),
 			),
+			TEMPORAL_INPUT_CONTEXT,
 		);
-		expect(result.wrapper).toBe(
-			`concat('due_date = date-add(', instance('search-input:results')/input/field[@name='base_date'], ", 'days', 7)")`,
+		expectDynamicallyQuotedNativeArgument(
+			result.wrapper,
+			xpath,
+			"concat('due_date = date-add(', ",
 		);
+		expect(result.wrapper).toContain(`'days', 7)`);
 	});
 
 	it("emits unwrap-list in a multi-select-contains shape via the predicate emitter", () => {

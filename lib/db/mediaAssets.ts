@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { Selectable, Transaction } from "kysely";
+import { type Selectable, sql, type Transaction } from "kysely";
 import {
 	type AssetId,
 	type AssetKind,
@@ -539,13 +539,11 @@ export async function getAssetsInTransaction(
 const LIBRARY_PAGE_SIZE = 50;
 
 /**
- * Cursor-paginated list of a Project's `ready` assets, newest first. Optionally
- * filtered to a SET of `kinds` via a server-side query — not an in-memory page
- * filter, so every returned page is full up to the page size regardless of how
- * sparse the filtered kinds are. This matters for the picker's "All" view, which
- * allows only its carrier's kinds (e.g. the chat file manager allows images +
- * documents, never audio/video): filtering server-side keeps a page of
- * irrelevant kinds from burying the few attachable ones behind "Load more".
+ * Cursor-paginated list of a Project's `ready` assets, newest first. Kind and
+ * name filters run in Postgres BEFORE pagination — never over one client page.
+ * That makes both "All" and search authoritative across the Project's whole
+ * authorized library: a matching older file cannot be buried behind a page of
+ * newer non-matches while the picker incorrectly says there are no results.
  *
  * A single kind uses an equality (`=`); several use a disjunction (`in`). Both
  * ride the `(project_id, status, kind, created_at DESC, id DESC)` index.
@@ -557,7 +555,13 @@ const LIBRARY_PAGE_SIZE = 50;
  */
 export async function listReadyAssetsForProject(
 	projectId: string,
-	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
+	options: {
+		kinds?: readonly AssetKind[];
+		cursor?: string;
+		/** Case-insensitive literal substring matched against the visible file name
+		 *  and a document's extracted title. Whitespace-only means no search. */
+		query?: string;
+	} = {},
 ): Promise<{ assets: MediaAssetRecord[]; nextCursor: string | null }> {
 	const db = await getAppDb();
 	let query = db
@@ -572,6 +576,15 @@ export async function listReadyAssetsForProject(
 			options.kinds.length === 1
 				? query.where("kind", "=", options.kinds[0])
 				: query.where("kind", "in", [...options.kinds]);
+	}
+	const normalizedQuery = options.query?.trim();
+	if (normalizedQuery) {
+		// `position` treats `%` / `_` as ordinary user text (unlike LIKE), while
+		// Kysely binds the query as a parameter. `concat_ws` searches exactly the
+		// names the library renders: display/filename plus extracted document title.
+		query = query.where(
+			sql<boolean>`position(lower(${normalizedQuery}) in lower(concat_ws(' ', coalesce(display_name, original_filename), extract ->> 'title'))) > 0`,
+		);
 	}
 	query = query
 		.orderBy("created_at", "desc")

@@ -8,19 +8,27 @@
 // reads as "search is broken" to anyone who types a lowercase
 // first name.
 //
-// Property choice prefers `case_name` (the property every case
-// type has and the one searches use), then any unused text
-// property, then any unused property at all. The widget follows the
-// property's data type; text-shaped properties seed with FORGIVING
-// (fuzzy) match — typo-and-case-tolerant on both the wire (CCHQ's
-// per-prompt fuzzy flag) and the preview runtime (pg_trgm) — with
-// Exact one click away in the Match picker.
+// Search-field creation still chooses a useful initial property because that
+// canvas has one concise add action. Display-field creation is different: its
+// center-canvas chooser asks which information the author wants, then the
+// helpers here build a working column for that explicit property. The widget
+// follows the property's data type; text-shaped search properties seed with
+// FORGIVING (fuzzy) match — typo-and-case-tolerant on both the wire (CCHQ's
+// per-prompt fuzzy flag) and the preview runtime (pg_trgm) — with Exact one
+// click away in the Match picker.
 
+import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
+import { appendOrderKey } from "@/lib/doc/order/append";
+import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
+import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
+	authorableCaseProperties,
 	type CaseListConfig,
 	type CaseProperty,
 	type CaseType,
 	type Column,
+	calculatedColumn,
+	canonicalCasePropertyName,
 	dateColumn,
 	effectiveDataType,
 	fuzzyMode,
@@ -28,18 +36,56 @@ import {
 	SEARCH_MODE_PROPERTY_TYPES,
 	type SearchInputDef,
 	type SearchInputType,
+	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { humanizeName } from "./predicateSummary";
+import { literal, term } from "@/lib/domain/predicate";
+import {
+	propertyDisplayLabel,
+	propertyFallbackDisplayLabel,
+} from "../shared/primitives/propertyDisplay";
 import { newUuid } from "./uuid";
+
+/**
+ * Center-canvas display-field add. The working column gets both its generic
+ * append key and the active screen's append key, then the shared mutation
+ * encoder moves the new surface key out of the strict legacy nested fallback.
+ */
+export function seededColumnAddMutation(
+	moduleUuid: Uuid,
+	config: CaseListConfig,
+	surface: ColumnSurface,
+	seed: Column,
+): Extract<Mutation, { kind: "addColumn" }> {
+	const visible = config.columns.filter((column) =>
+		surface === "list"
+			? column.visibleInList !== false
+			: column.visibleInDetail !== false,
+	);
+	const surfaceOrder = appendOrderKey(
+		visible.map((column) => ({
+			uuid: column.uuid,
+			order:
+				surface === "list"
+					? (column.listOrder ?? column.order)
+					: (column.detailOrder ?? column.order),
+		})),
+	);
+	return columnAddMutation(moduleUuid, {
+		...seed,
+		order: appendOrderKey(config.columns),
+		...(surface === "list"
+			? { listOrder: surfaceOrder }
+			: { detailOrder: surfaceOrder }),
+	});
+}
 
 // ── Naming helpers ────────────────────────────────────────────────
 
 /** Property name → person-facing label: `rash_onset_date` reads
  *  "Rash onset date". */
 export function labelFromProperty(property: string): string {
-	const words = humanizeName(property);
-	return words.charAt(0).toUpperCase() + words.slice(1);
+	return propertyFallbackDisplayLabel(property);
 }
 
 /**
@@ -79,7 +125,7 @@ export function pickSeedProperty(
 	caseType: CaseType | undefined,
 	used: ReadonlySet<string>,
 ): CaseProperty | undefined {
-	const props = caseType?.properties ?? [];
+	const props = authorableCaseProperties(caseType?.properties ?? []);
 	if (props.length === 0) return undefined;
 	const unused = props.filter((p) => !used.has(p.name));
 	const textUnused = unused.filter((p) => effectiveDataType(p) === "text");
@@ -120,26 +166,47 @@ export function seedSearchInput(
 ): SearchInputDef | undefined {
 	const used = new Set(
 		config.searchInputs.flatMap((s) =>
-			s.kind === "simple" && s.property !== "" ? [s.property] : [],
+			s.kind === "simple" && s.property !== ""
+				? [canonicalCasePropertyName(s.property)]
+				: [],
 		),
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
+	return seedSearchInputForProperty(config, property);
+}
 
-	const type = widgetTypeForProperty(property);
+/**
+ * Build a working search field for the case property the author explicitly
+ * chose on the Search canvas. The explicit choice owns intent; this helper
+ * owns only the mechanical defaults that keep a fresh field useful.
+ */
+export function seedSearchInputForProperty(
+	config: CaseListConfig,
+	property: CaseProperty,
+): SimpleSearchInputDef {
+	const canonicalProperty = {
+		...property,
+		name: canonicalCasePropertyName(property.name),
+	};
+	const type = widgetTypeForProperty(canonicalProperty);
 	// Text searches fuzzily by default; date / select widgets
 	// keep the per-type default (exact pick-a-value). Fuzzy is gated on
 	// the property's data type too — a number property also renders as
 	// a text widget, but fuzzy is text-only and would seed an invalid row.
 	const fuzzyAdmitted =
-		SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(effectiveDataType(property)) ??
-		true;
+		SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(
+			effectiveDataType(canonicalProperty),
+		) ?? true;
 	return simpleSearchInputDef(
 		newUuid(),
-		uniqueInputName(xmlNameFromProperty(property.name), config.searchInputs),
-		labelFromProperty(property.name),
+		uniqueInputName(
+			xmlNameFromProperty(canonicalProperty.name),
+			config.searchInputs,
+		),
+		propertyDisplayLabel(canonicalProperty),
 		type,
-		property.name,
+		canonicalProperty.name,
 		type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {},
 	);
 }
@@ -152,20 +219,86 @@ export function seedSearchInput(
 export function seedColumn(
 	config: CaseListConfig,
 	caseType: CaseType | undefined,
-	slots?: { visibleInList?: boolean },
+	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
 ): Column | undefined {
 	const used = new Set(
 		config.columns.flatMap((c) =>
-			c.kind !== "calculated" && c.field !== "" ? [c.field] : [],
+			c.kind !== "calculated" && c.field !== ""
+				? [canonicalCasePropertyName(c.field)]
+				: [],
 		),
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
+	return seedColumnForProperty(property, slots);
+}
 
-	const header = labelFromProperty(property.name);
+/** Build a presentable display field for the property the author explicitly
+ * chose in Add information. Unlike `seedColumn`, this never guesses which
+ * information they meant. */
+export function seedColumnForProperty(
+	property: CaseProperty,
+	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
+): Column {
+	const header = propertyDisplayLabel(property);
 	const dataType = effectiveDataType(property);
 	if (dataType === "date" || dataType === "datetime") {
 		return dateColumn(newUuid(), property.name, header, "%Y-%m-%d", slots);
 	}
 	return plainColumn(newUuid(), property.name, header, slots);
+}
+
+/** Build the intentionally secondary, property-free display option exposed by
+ * Add information. The empty literal is a valid starting expression and the
+ * newly selected row opens directly into the inspector, where the author can
+ * compose the value. */
+export function seedCalculatedColumn(slots?: {
+	visibleInList?: boolean;
+	visibleInDetail?: boolean;
+}): Column {
+	return calculatedColumn(
+		newUuid(),
+		"Calculated value",
+		term(literal("")),
+		slots,
+	);
+}
+
+/** Properties that do not already have a display definition. Existing
+ * definitions absent from one screen are mixed into the shared Add
+ * information chooser by meaning so restoring them preserves formatting
+ * without teaching "hidden fields" as a primary concept. */
+export function unrepresentedColumnProperties(
+	config: CaseListConfig,
+	caseType: CaseType | undefined,
+): readonly CaseProperty[] {
+	const represented = new Set(
+		config.columns.flatMap((column) =>
+			column.kind !== "calculated" && column.field !== ""
+				? [canonicalCasePropertyName(column.field)]
+				: [],
+		),
+	);
+	return authorableCaseProperties(caseType?.properties ?? []).filter(
+		(property) => !represented.has(canonicalCasePropertyName(property.name)),
+	);
+}
+
+/** Properties already used by at least one display definition. They stay out
+ * of the primary Add list, but power the quiet "show another way" path for a
+ * second label or format. */
+export function representedColumnProperties(
+	config: CaseListConfig,
+	caseType: CaseType | undefined,
+): readonly CaseProperty[] {
+	const represented = new Set(
+		config.columns.flatMap((column) =>
+			column.kind !== "calculated" && column.field !== ""
+				? [canonicalCasePropertyName(column.field)]
+				: [],
+		),
+	);
+	return authorableCaseProperties(caseType?.properties ?? []).filter(
+		(property) => represented.has(canonicalCasePropertyName(property.name)),
+	);
 }

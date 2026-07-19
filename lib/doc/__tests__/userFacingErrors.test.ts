@@ -161,4 +161,43 @@ describe("userFacingError — delete-aware phrasing", () => {
 		expect(line).toMatch(/needs at least one form/i);
 		expect(line).toMatch(/removing its last one/i);
 	});
+
+	it("MISSING_CASE_LIST_COLUMNS explains how to replace the last result", () => {
+		const line = userFacingError(richFinding("MISSING_CASE_LIST_COLUMNS"));
+		expect(line).toMatch(/needs at least one result field/i);
+		expect(line).toMatch(/add its replacement first/i);
+	});
+});
+
+describe("userFacingError — case-list expression repairs", () => {
+	function expressionFinding(reason: string): ValidationError {
+		return validationError(
+			"CASE_LIST_EXPRESSION_NOT_ON_DEVICE",
+			"module",
+			"internal implementation detail",
+			{
+				moduleUuid: asUuid("11111111-1111-4111-8111-111111111111"),
+				moduleName: "Clients",
+			},
+			{
+				reason,
+				surface: "filter",
+				property: "visit_date",
+				value: "91, 0",
+			},
+		);
+	}
+
+	it.each([
+		["unwrap-list", /saved list text/i],
+		["multi-valued-relation-read", /several.*visit_date.*related cases/i],
+		["mixed-property-scopes", /one condition for each case/i],
+		["unrebasable-relation-scope", /move that condition outside/i],
+		["nested-multi-case-count", /move the count to its own condition/i],
+		["invalid-geopoint-center", /valid latitude and longitude/i],
+	] as const)("explains %s with its own repair", (reason, repair) => {
+		const line = userFacingError(expressionFinding(reason));
+		expect(line).toMatch(repair);
+		if (reason !== "unwrap-list") expect(line).not.toMatch(/saved list text/i);
+	});
 });

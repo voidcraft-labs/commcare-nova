@@ -13,7 +13,8 @@
 //   - clause removal contract — refusing the last-row removal so
 //     the schema's non-empty `parts` invariant holds.
 
-import { render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { concat, literal, term } from "@/lib/domain/predicate";
@@ -67,7 +68,7 @@ describe("ConcatCard — drag handle wiring", () => {
 		// Each row threads a `dragHandleRef` into the card-shell grip,
 		// so we expect one grip per part — three in this case.
 		const grips = container.querySelectorAll(
-			'button[aria-label="Drag to reorder"]',
+			'button[aria-label^="Move value"]',
 		);
 		expect(grips.length).toBe(3);
 	});
@@ -86,8 +87,79 @@ describe("ConcatCard — drag handle wiring", () => {
 			/>,
 		);
 		const grips = container.querySelectorAll(
-			'button[aria-label="Drag to reorder"]',
+			'button[aria-label^="Move value"]',
 		);
 		expect(grips.length).toBe(1);
+	});
+
+	it("moves a value from the keyboard and keeps focus on its handle", () => {
+		const initial = concat(
+			term(literal("first")),
+			term(literal("second")),
+			term(literal("third")),
+		);
+		function Harness() {
+			const [value, setValue] = useState(initial);
+			return (
+				<ExpressionCardEditor
+					value={value}
+					onChange={(next) => {
+						if (next.kind === "concat") setValue(next);
+					}}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>
+			);
+		}
+		render(<Harness />);
+
+		const second = screen.getByRole("button", {
+			name: "Move value 2 of 3",
+		});
+		second.focus();
+		fireEvent.keyDown(second, { key: "Home" });
+
+		expect(document.activeElement).toBe(second);
+		expect(second.getAttribute("aria-label")).toBe("Move value 1 of 3");
+		expect(screen.getByRole("status").textContent).toBe(
+			"Value 2 moved earlier",
+		);
+	});
+
+	it("moves focus to the next value's remove action after deletion", async () => {
+		const initial = concat(
+			term(literal("first")),
+			term(literal("second")),
+			term(literal("third")),
+		);
+		function Harness() {
+			const [value, setValue] = useState(initial);
+			return (
+				<ExpressionCardEditor
+					value={value}
+					onChange={(next) => {
+						if (next.kind === "concat") setValue(next);
+					}}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>
+			);
+		}
+		render(<Harness />);
+
+		const removeActions = screen.getAllByRole("button", {
+			name: "Remove value",
+		});
+		const nextAction = removeActions[1];
+		removeActions[0].focus();
+		await act(async () => {
+			fireEvent.click(removeActions[0]);
+			await Promise.resolve();
+		});
+
+		expect(document.activeElement).toBe(nextAction);
+		expect(
+			screen.getAllByRole("button", { name: "Remove value" }),
+		).toHaveLength(2);
 	});
 });

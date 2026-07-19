@@ -12,10 +12,11 @@
  * the part worth unit-testing.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Media } from "@/lib/domain/multimedia";
 import {
 	clearMediaSlot,
+	fetchMediaLibrary,
 	mediaSrc,
 	setMediaSlot,
 	sha256HexOfBytes,
@@ -71,6 +72,30 @@ describe("clearMediaSlot", () => {
 describe("mediaSrc", () => {
 	it("points at the session-authed proxy route", () => {
 		expect(mediaSrc("asset-xyz")).toBe("/api/media/asset-xyz");
+	});
+});
+
+describe("fetchMediaLibrary", () => {
+	it("sends the trimmed authoritative search with the pagination scope", async () => {
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify({ assets: [], nextCursor: null }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		try {
+			await fetchMediaLibrary({
+				kinds: ["image"],
+				cursor: "next-page",
+				query: " client plan ",
+				appId: "app-1",
+			});
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/media/library?kind=image&cursor=next-page&q=client+plan&appId=app-1",
+			);
+		} finally {
+			fetchMock.mockRestore();
+		}
 	});
 });
 

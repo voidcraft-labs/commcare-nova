@@ -449,8 +449,9 @@ export function scopeOfMutations(
 				break;
 			case "removeColumn":
 			case "moveColumn":
-				// Removing a read-only reference or reordering can only flip
-				// the owning module's own findings.
+				// Removing a read-only reference or reordering (generic or through
+				// the optional surface patch) can only flip the owning module's own
+				// findings.
 				acc.moduleUuids.add(mut.moduleUuid);
 				break;
 			case "addSearchInput":
