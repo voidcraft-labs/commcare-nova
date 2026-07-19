@@ -409,10 +409,9 @@ export function createSolutionsArchitect(
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
 			// streamed reasoning summaries the live-thinking feed needs, plus
-			// the SA's cache affinity: one `promptCacheKey` per app routes
-			// every turn of the app's threads to the shard holding its cached
-			// prefix, and rides the contractual 30-minute ttl (see the helper
-			// for why the mode stays implicit).
+			// the SA's per-app prompt-cache configuration (key + options; the
+			// route's `markStablePrefixBoundary` marker is the third piece of
+			// the documented triple — see the helper's doc).
 			return {
 				providerOptions: reasoningProviderOptions(
 					(editing ? SA_EDIT_REASONING : SA_BUILD_REASONING).effort,

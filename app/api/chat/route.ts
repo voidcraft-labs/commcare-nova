@@ -15,6 +15,7 @@ import {
 	type ErrorType,
 	GenerationContext,
 	MESSAGES,
+	markStablePrefixBoundary,
 	resolveAttachments,
 	shouldRetryTurn,
 	TURN_RETRY_MESSAGE,
@@ -1536,9 +1537,17 @@ export async function POST(req: Request) {
 						messages: effectiveMessages,
 						tools: sa.tools,
 					});
-					const baseModelMessages = await convertToModelMessages(validated, {
-						tools: sa.tools,
-					});
+					/* Mark the stable-prefix boundary (the message before the latest
+					 * user message) with an explicit cache breakpoint — GPT-5.6's
+					 * implicit mode only auto-caches at the LATEST message, an entry
+					 * the next turn's changed tail can never match; the explicit
+					 * marker is what gives the next turn a readable entry. Full
+					 * story on `markStablePrefixBoundary`. */
+					const baseModelMessages = markStablePrefixBoundary(
+						await convertToModelMessages(validated, {
+							tools: sa.tools,
+						}),
+					);
 					/* The full per-turn prompt: converted history, then the app-state
 					 * snapshot (edit turns). A retry/redrive attempt REPLACES the
 					 * snapshot with the turn-retry continuation below — the

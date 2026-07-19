@@ -11,6 +11,7 @@
  * summary it promises cannot come apart.
  */
 
+import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -19,6 +20,7 @@ import {
 	buildAppStateMessage,
 	buildSolutionsArchitectPrompt,
 	isEditableDoc,
+	markStablePrefixBoundary,
 } from "../prompts";
 
 /** Minimal populated blueprint — one module + one form + one field, with
@@ -135,5 +137,72 @@ describe("buildAppStateMessage", () => {
 		 * app-state summary, so it must not receive one. */
 		expect(buildAppStateMessage(fixtureEmptyDoc())).toBeNull();
 		expect(isEditableDoc(fixtureEmptyDoc())).toBe(false);
+	});
+});
+
+describe("markStablePrefixBoundary", () => {
+	const BREAKPOINT = {
+		openai: { promptCacheBreakpoint: { mode: "explicit" } },
+	};
+
+	/** Collect every marker location as "index:role:partType" strings. */
+	function markerLocations(messages: ModelMessage[]): string[] {
+		return messages.flatMap((m, i) => [
+			...(m.providerOptions ? [`${i}:${m.role}:message`] : []),
+			...(Array.isArray(m.content)
+				? m.content.flatMap((p) =>
+						(p as { providerOptions?: unknown }).providerOptions
+							? [`${i}:${m.role}:${p.type}`]
+							: [],
+					)
+				: []),
+		]);
+	}
+
+	it("marks the last text part of the message before the last user message", () => {
+		const messages: ModelMessage[] = [
+			{ role: "system", content: "SYSTEM" },
+			{ role: "user", content: [{ type: "text", text: "u1" }] },
+			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
+			{ role: "user", content: [{ type: "text", text: "new question" }] },
+		];
+		const marked = markStablePrefixBoundary(messages);
+		expect(markerLocations(marked)).toEqual(["2:assistant:text"]);
+		const content = marked[2]?.content as Array<{ providerOptions?: unknown }>;
+		expect(content[0]?.providerOptions).toEqual(BREAKPOINT);
+		// Inputs are never mutated — the base array is reused across retries.
+		expect(markerLocations(messages)).toEqual([]);
+	});
+
+	it("walks past unmarkable trailing messages (tool results) to a text part", () => {
+		const messages: ModelMessage[] = [
+			{ role: "system", content: "SYSTEM" },
+			{ role: "user", content: [{ type: "text", text: "u1" }] },
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "t1",
+						toolName: "askQuestions",
+						output: { type: "json", value: {} },
+					},
+				],
+			},
+			{ role: "user", content: [{ type: "text", text: "new question" }] },
+		];
+		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
+			"1:user:text",
+		]);
+	});
+
+	it("falls back to the system message on a first turn", () => {
+		const messages: ModelMessage[] = [
+			{ role: "system", content: "SYSTEM" },
+			{ role: "user", content: [{ type: "text", text: "only question" }] },
+		];
+		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
+			"0:system:message",
+		]);
 	});
 });

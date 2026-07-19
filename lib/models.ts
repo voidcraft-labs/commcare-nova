@@ -39,6 +39,12 @@ export const MODEL_DEFAULT = "openai/gpt-5.6-sol";
 export const GATEWAY_PROVIDER_OPTIONS = {
 	disallowPromptTraining: true,
 	caching: "auto",
+	/* Pin routing to OpenAI direct. The gateway serves our model ids from a
+	 * provider POOL (openai + bedrock + azure, per routing metadata), and a
+	 * prompt cache is per serving provider — a turn written on one provider
+	 * can never be read from another, so unpinned routing forfeits the
+	 * cross-turn cache reads the static-prompt work exists to enable. */
+	only: ["openai"],
 } as const satisfies GatewayProviderOptions;
 
 /**
@@ -52,19 +58,17 @@ export const GATEWAY_PROVIDER_OPTIONS = {
  * summaries to stream back as `reasoning-delta` parts; without it the
  * reasoning phase is silent and nothing feeds the live-progress surfaces.
  *
- * `promptCacheKey` (optional) is OpenAI's cache-routing affinity hint —
- * requests sharing a key land on the shard holding that key's cached
- * prefixes, so a multi-turn surface (the SA: one key per app) hits its own
- * cache reliably under provider-side load balancing. A key also carries
- * `promptCacheOptions { mode: 'implicit', ttl: '30m' }`: `ttl` makes the
- * 30-minute cache lifetime contractual rather than best-effort, and
- * `implicit` keeps OpenAI's automatic breakpoint on the latest message —
- * which is what lets each tool-loop step cache-read the previous step's
- * growing suffix. (`mode: 'explicit'` would disable caching everywhere a
- * breakpoint isn't hand-placed — a regression for a multi-step loop, not
- * an upgrade; implicit mode still honors any explicit `promptCacheBreakpoint`
- * block markers if a surface ever adds them.) One-shot calls (extraction,
- * scripts) pass no key: there is no second request to route.
+ * `cache` (optional) activates GPT-5.6's documented prompt-cache
+ * configuration as ONE unit — `promptCacheKey` (cache-routing affinity; the
+ * SA passes one key per app) together with `promptCacheOptions
+ * { mode: 'implicit', ttl: '30m' }` (contractual 30-minute lifetime;
+ * implicit keeps the automatic breakpoint on the latest message that lets
+ * each tool-loop step cache-read the previous step's suffix, and honors the
+ * explicit stable-boundary marker `markStablePrefixBoundary` places). The
+ * provider doc specifies key + options + marker as one configuration —
+ * never wire a subset: key-without-marker and marker-without-key were both
+ * live-measured to read zero across requests. One-shot calls (extraction,
+ * scripts) pass no cache config.
  */
 export function reasoningProviderOptions(
 	effort: ReasoningEffort,

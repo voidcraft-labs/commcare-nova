@@ -543,3 +543,74 @@ export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
 			summarizeBlueprint(doc),
 	};
 }
+
+/**
+ * Mark the stable-prefix boundary with an explicit prompt-cache breakpoint —
+ * how a turn's cache entry survives the NEXT turn's changed tail.
+ *
+ * GPT-5.6's cache is breakpoint-based: implicit mode writes ONE automatic
+ * entry on the latest message, so each turn's only entry covers the full
+ * prompt including the volatile tail (the app-state message, the new user
+ * message) — and the next turn, which diverges before that boundary, matches
+ * nothing and reads zero. Implicit mode also HONORS explicit breakpoints, so
+ * placing one marker at the deepest point that replays byte-identically next
+ * turn gives every turn an entry the next turn can actually read. The
+ * placement mirrors the strategy the gateway itself applies to
+ * explicit-marker providers (its automatic-caching doc): the message BEFORE
+ * the last user message, falling back to the system message — everything
+ * from the volatile tail onward stays outside the cached prefix.
+ *
+ * Mechanics: the marker rides part-level `providerOptions` on the boundary
+ * message's last text part (`@ai-sdk/openai` translates it to the wire's
+ * `prompt_cache_breakpoint`); messages whose last part isn't markable (tool
+ * results, tool calls) are walked past. Returns a new array — the input and
+ * its messages are not mutated.
+ */
+export function markStablePrefixBoundary(
+	messages: ModelMessage[],
+): ModelMessage[] {
+	const BREAKPOINT = {
+		openai: { promptCacheBreakpoint: { mode: "explicit" as const } },
+	};
+	const lastUserIdx = messages.findLastIndex((m) => m.role === "user");
+	// Walk backward from just before the last user message (or the array
+	// end when there is none) to the nearest message ending in a text part.
+	for (
+		let i = (lastUserIdx === -1 ? messages.length : lastUserIdx) - 1;
+		i >= 0;
+		i--
+	) {
+		const msg = messages[i];
+		if (!msg) continue;
+		if (msg.role === "system") {
+			// System content is a plain string; the provider accepts the
+			// breakpoint as message-level providerOptions here.
+			const marked = [...messages];
+			marked[i] = { ...msg, providerOptions: BREAKPOINT };
+			return marked;
+		}
+		if (typeof msg.content === "string") {
+			const marked = [...messages];
+			marked[i] = {
+				...msg,
+				content: [
+					{ type: "text", text: msg.content, providerOptions: BREAKPOINT },
+				],
+			} as ModelMessage;
+			return marked;
+		}
+		const last = msg.content[msg.content.length - 1];
+		if (last && last.type === "text") {
+			const marked = [...messages];
+			marked[i] = {
+				...msg,
+				content: [
+					...msg.content.slice(0, -1),
+					{ ...last, providerOptions: BREAKPOINT },
+				],
+			} as ModelMessage;
+			return marked;
+		}
+	}
+	return messages;
+}
