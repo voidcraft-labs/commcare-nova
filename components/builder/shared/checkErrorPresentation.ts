@@ -29,14 +29,14 @@ function lastNamedSlot(path: CheckPath): string | undefined {
 /**
  * A path-aware fallback for an untyped boundary or a future checker
  * category. Even the fallback names the action when the path identifies
- * an editable property, value, search question, or relationship slot.
+ * an editable property, value, Search field, or relationship slot.
  */
 function nextActionForPath(path: CheckPath): string {
 	switch (lastNamedSlot(path)) {
 		case "property":
 			return "Choose available case information";
 		case "input":
-			return "Choose an available search question";
+			return "Choose an available Search field";
 		case "via":
 			return "Choose an available connection to another case";
 		case "left":
@@ -65,7 +65,7 @@ function nextActionForPath(path: CheckPath): string {
 
 const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"unknown-property": () => "Choose available case information",
-	"unknown-search-input": () => "Choose an available search question",
+	"unknown-search-input": () => "Choose an available Search field",
 	"unknown-case-type": () =>
 		"Choose information from an available kind of case",
 	"property-scope": () => "Choose information from the related case shown here",

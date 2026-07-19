@@ -1481,8 +1481,8 @@ function FocusedRelation({
 								{structureLabel(value.where, editContext.knownInputs)}
 							</p>
 							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-secondary">
-								This saved condition is still part of the filter. Fix the
-								connection above to edit it.
+								This condition still applies. Fix the connection above to edit
+								it.
 							</p>
 						</div>
 					</div>

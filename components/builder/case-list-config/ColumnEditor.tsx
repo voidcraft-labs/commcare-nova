@@ -494,11 +494,11 @@ function KindPicker({
 				<AlertDialogContent finalFocus={triggerRef} className="text-left">
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							{pendingConsequence ?? "This display setup will be replaced"}
+							Change display to {pendingSchema?.label ?? "another style"}?
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							The display will change to {pendingSchema?.label}. Saved case
-							information stays unchanged.
+							{pendingConsequence ?? "This replaces the current display setup"}.
+							Saved case information won’t change.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

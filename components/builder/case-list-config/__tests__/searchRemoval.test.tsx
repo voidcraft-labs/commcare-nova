@@ -741,7 +741,7 @@ describe("Search field removal", () => {
 
 		expect(
 			screen.getByRole("heading", {
-				name: "Update these rules before removing Client name",
+				name: "This field is used in other rules",
 			}),
 		).toBeDefined();
 		expect(
@@ -1277,12 +1277,12 @@ describe("Search field removal", () => {
 		);
 		expect(
 			screen.getByRole("heading", {
-				name: "Removing this field removes the Search screen",
+				name: "Remove the last Search field?",
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				/custom title will be removed.*custom Search action label will stay in More settings.*Cases available and the Results layout will stay the same.*assigned cases setting doesn’t change/i,
+				/custom title will also be removed.*custom Search action label will stay in More settings.*Cases available and the Results layout won’t change.*assigned cases setting won’t change/i,
 			),
 		).toBeDefined();
 
@@ -1324,12 +1324,12 @@ describe("Search field removal", () => {
 		const dialog = screen.getByRole("alertdialog");
 		expect(
 			screen.getByRole("heading", {
-				name: "Removing this field removes the Search screen",
+				name: "Remove the last Search field?",
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				/only Search field.*browse the case list without searching first.*Cases available and the Results layout will stay the same/i,
+				/Search screen will be removed.*browse Results without searching first.*Cases available and the Results layout won’t change/i,
 			),
 		).toBeDefined();
 		expect(mutationApi.commitMany).not.toHaveBeenCalled();

@@ -361,7 +361,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 
 		expect(
 			await screen.findByRole("heading", {
-				name: "Changing to “First available value” replaces “Math”",
+				name: "Replace “Math” with “First available value”?",
 			}),
 		).toBeDefined();
 		expect(screen.getByText(/current values and settings/i)).toBeDefined();
@@ -407,7 +407,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 		fireEvent.click(await screen.findByRole("menuitem", { name: /^Value\b/i }));
 		expect(
 			await screen.findByRole("heading", {
-				name: "Changing to “Value” replaces “Math”",
+				name: "Replace “Math” with “Value”?",
 			}),
 		).toBeDefined();
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -507,7 +507,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 
 		expect(
 			await screen.findByRole("heading", {
-				name: "Changing to “Read as a number” replaces “Read as a date”",
+				name: "Replace “Read as a date” with “Read as a number”?",
 			}),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -528,7 +528,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 		fireEvent.click(await screen.findByRole("menuitem", { name: /^Math/i }));
 		expect(
 			await screen.findByRole("heading", {
-				name: "Changing to “Math” replaces the saved value",
+				name: "Use “Math” instead?",
 			}),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -985,12 +985,12 @@ describe("RelationPathBuilder — lossless editing surface", () => {
 		await screen.findByRole("alertdialog");
 		expect(
 			screen.getByRole("heading", {
-				name: "A remaining connection will lead to Patient instead of Household",
+				name: "Remove this connection?",
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				"Nova will update the remaining connections after this one is removed",
+				/A remaining connection will lead to Patient instead of Household\. The remaining connections will update automatically\./,
 			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -1045,11 +1045,11 @@ describe("RelationPathBuilder — lossless editing surface", () => {
 
 		expect(
 			await screen.findByRole("heading", {
-				name: "This value will use information from the current case",
+				name: "Use information from this case?",
 			}),
 		).toBeDefined();
 		expect(
-			screen.getByText("2 parent connections will be removed"),
+			screen.getByText(/2 parent connections will be removed/),
 		).toBeDefined();
 		expect(screen.getByRole("alertdialog").textContent).not.toMatch(
 			/step|path|case-type choice/i,
@@ -1103,7 +1103,7 @@ describe("RelationPathBuilder — lossless editing surface", () => {
 		await waitForSelectToClose();
 		expect(
 			screen.getByRole("heading", {
-				name: "This value will look at a child case instead",
+				name: "Look at a child case instead?",
 			}),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -1145,7 +1145,7 @@ describe("RelationPathBuilder — lossless editing surface", () => {
 		await waitForSelectToClose();
 		expect(
 			screen.getByRole("heading", {
-				name: "This value will look at a child case instead",
+				name: "Look at a child case instead?",
 			}),
 		).toBeDefined();
 		fireEvent.click(screen.getByRole("button", { name: "Replace connection" }));
@@ -1335,7 +1335,7 @@ describe("ExpressionPicker — exhaustive left-subject editing", () => {
 		fireEvent.click(await screen.findByRole("menuitem", { name: /^Math/i }));
 		expect(
 			await screen.findByRole("heading", {
-				name: "Changing to “Math” replaces the saved property",
+				name: "Use “Math” instead?",
 			}),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();

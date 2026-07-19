@@ -177,10 +177,10 @@ export function SearchPanelInspectorBody({
 					value={value?.searchButtonDisplayCondition}
 					onChange={setDisplayCondition}
 					onEdit={onEditDisplayCondition}
-					alwaysSummary="The Search action is always available"
+					alwaysSummary="Search is always available"
 					clearLabel="Always allow Search"
-					clearTitle="Search will always be available"
-					clearConsequence="The saved condition will be removed. The Search action will be available whenever this case list can search."
+					clearTitle="Always allow Search?"
+					clearConsequence="The current condition will be removed, and Search will be available whenever this case list can search. You can undo this change."
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
 					knownInputs={knownInputs}

@@ -835,7 +835,7 @@ describe("PredicateWorkbench deletion focus", () => {
 		expect(screen.getByText("Is")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"This saved condition is still part of the filter. Fix the connection above to edit it.",
+				"This condition still applies. Fix the connection above to edit it.",
 			),
 		).toBeTruthy();
 		expect(

@@ -307,9 +307,9 @@ export function CaseDataManager({
 							Case data
 						</PopoverTitle>
 						<PopoverDescription className="text-sm leading-relaxed text-nova-text-secondary">
-							{canEdit
-								? `Add or replace ${caseTypeDisplayName} case data used throughout your app and in Preview`
-								: `View ${caseTypeDisplayName} case data used throughout your app and in Preview`}
+							{canEdit ? "Add or replace" : "View"} case data for “
+							{caseTypeDisplayName}”. It’s used throughout your app and in
+							Preview.
 						</PopoverDescription>
 					</PopoverHeader>
 					{operation === "create" && (
@@ -487,12 +487,13 @@ export function CaseDataManager({
 							tabIndex={operation === "replace" ? 0 : -1}
 							className="font-display outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep"
 						>
-							Replacing case data deletes {caseLabel(count ?? 0)}
+							Replace all {caseLabel(count ?? 0)}?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left text-pretty">
-							This deletes all case data for {caseTypeDisplayName} in this app,
-							including cases you added by hand or through Preview. New sample
-							cases will take their place throughout your app.
+							All case data for “{caseTypeDisplayName}” will be replaced
+							throughout the app, including cases added by hand or through
+							Preview. New sample cases will appear everywhere this case type is
+							used.
 							{hasLinkedChildren && (
 								<>
 									{" "}

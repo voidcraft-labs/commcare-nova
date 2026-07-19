@@ -261,27 +261,24 @@ export function SearchInputEditor({
 		}
 		transitionFocusRef.current = focus;
 
-		const title =
-			modeChanged && meaningfulDefaultRemoved
-				? "The saved match will change and the starting value will be removed"
-				: modeChanged
-					? "The saved match will change"
-					: "The starting value will be removed";
 		const consequences: string[] = [];
 		if (modeChanged && value.kind === "simple" && next.kind === "simple") {
 			consequences.push(
-				`“${searchModeDescription(value.mode, value.type)}” will become “${searchModeDescription(next.mode, next.type)}”`,
+				`“${searchModeDescription(value.mode, value.type)}” will become “${searchModeDescription(next.mode, next.type)}”.`,
 			);
 		}
 		if (meaningfulDefaultRemoved) {
-			consequences.push("the starting value will be removed");
+			consequences.push(
+				`The starting value will be removed because ${targetDescription} can’t use it.`,
+			);
 		}
+		consequences.push("You can undo this change.");
 		setPendingInputTransition({
 			source: value,
 			next,
 			focus,
-			title,
-			description: `${capitalizeFirst(joinConsequences(consequences))}. ${targetDescription} can’t use those saved settings.`,
+			title: `Change to “${targetDescription}”?`,
+			description: consequences.join(" "),
 		});
 	};
 
@@ -737,8 +734,8 @@ export function SearchInputEditor({
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
 							{pendingStandardReplacement === null
-								? "The custom condition will be replaced"
-								: `The custom condition will be replaced with ${SEARCH_MODE_LABELS[pendingStandardReplacement.resultingMode]}`}
+								? "Replace the custom condition?"
+								: `Replace the custom condition with “${SEARCH_MODE_LABELS[pendingStandardReplacement.resultingMode]}”?`}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							{standardReplacementConsequence(pendingStandardReplacement)}
@@ -775,8 +772,8 @@ export function SearchInputEditor({
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							{pendingCustomConversion === null
-								? "The saved match will be replaced with a custom condition"
-								: `${customConversionModeLabel(pendingCustomConversion)} will be replaced with a custom condition`}
+								? "Use a custom condition?"
+								: `Replace ${customConversionModeLabel(pendingCustomConversion)} with a custom condition?`}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							{customConversionConsequence(pendingCustomConversion)}
@@ -1186,17 +1183,6 @@ function searchModeDescription(
 	return SEARCH_MODE_LABELS[kind];
 }
 
-function joinConsequences(consequences: readonly string[]): string {
-	if (consequences.length <= 1) return consequences[0] ?? "changes this field";
-	return `${consequences.slice(0, -1).join(", ")} and ${consequences.at(-1)}`;
-}
-
-function capitalizeFirst(value: string): string {
-	return value.length === 0
-		? value
-		: `${value[0]?.toUpperCase()}${value.slice(1)}`;
-}
-
 function customConversionModeLabel(row: SimpleSearchInputDef | null): string {
 	if (row === null) return "saved match";
 	return `“${searchModeDescription(row.mode, row.type)}”`;
@@ -1205,21 +1191,25 @@ function customConversionModeLabel(row: SimpleSearchInputDef | null): string {
 function standardReplacementConsequence(
 	pending: PendingStandardReplacement | null,
 ): string {
-	if (pending === null) return "The custom condition will be replaced";
+	if (pending === null) {
+		return "The custom condition will be removed. You can undo this change.";
+	}
 	const match = SEARCH_MODE_LABELS[pending.resultingMode];
 	const modeAdjustment = pending.modeAdjustment ?? "";
 	const defaultConsequence = pending.meaningfulDefaultRemoved
 		? ` The starting value will also be removed because ${SEARCH_INPUT_TYPE_LABELS[pending.next.type]} can’t use it.`
 		: "";
-	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Parts of the custom condition that “${match}” can’t represent will be removed.${defaultConsequence} The custom condition won’t be recoverable after replacement.`;
+	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Some parts of the custom condition don’t fit “${match}” and will be removed.${defaultConsequence} You can undo this change.`;
 }
 
 function customConversionConsequence(row: SimpleSearchInputDef | null): string {
-	if (row === null) return "The saved match will be replaced";
-	if (effectiveModeKind(row) === "range") {
-		return "“Between dates” will become “Exact value”. A custom condition can’t read both ends of this range yet. You can edit the new condition next.";
+	if (row === null) {
+		return "This replaces the saved match. You can undo this change.";
 	}
-	return `${customConversionModeLabel(row)} will become “Exact value”. A custom condition can’t read this field’s list of chosen options yet. You can edit the new condition next.`;
+	if (effectiveModeKind(row) === "range") {
+		return "The new condition will start with “Exact value” because it can’t keep both dates in the range. You can edit it next. You can undo this change.";
+	}
+	return `The new condition will start with “Exact value” because it can’t keep the full list from ${customConversionModeLabel(row)}. You can edit it next. You can undo this change.`;
 }
 
 // ── Row rebuild helper ────────────────────────────────────────────

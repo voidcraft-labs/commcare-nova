@@ -76,7 +76,7 @@ describe("ModuleCaseTypeSection", () => {
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				/removes this module's Search, Results, and Details setup/i,
+				/removes Search, Results, and Details from this module/i,
 			),
 		).toBeDefined();
 
@@ -164,10 +164,10 @@ describe("ModuleCaseTypeSection", () => {
 			await screen.findByRole("heading", { name: "Switch to Visit cases?" }),
 		).toBeDefined();
 		expect(
-			screen.getByText(/current layout and rules stay in place/i),
+			screen.getByText(/current layout and rules will stay/i),
 		).toBeDefined();
 		expect(
-			screen.getByText(/Existing Client cases aren't deleted/i),
+			screen.getByText(/existing Client cases won’t be deleted/i),
 		).toBeDefined();
 
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

@@ -577,7 +577,7 @@ export function TermCard({
 								setPendingShapeChange(null);
 							}}
 						>
-							Replace
+							Change value
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -655,38 +655,42 @@ function describeTermModeReplacement(
 	const replacement = targetLabel.replace(/^./, (letter) =>
 		letter.toLocaleLowerCase(),
 	);
-	const restoreCopy =
-		"Choose the previous source again to restore the saved choice";
+	const title = `Use ${replacement} instead?`;
 	switch (source.kind) {
 		case "literal":
 			return {
-				title: `The saved value will be replaced with ${replacement}`,
-				description: restoreCopy,
+				title,
+				description: "This replaces the saved value. You can undo this change.",
 			};
 		case "prop":
 			return source.via === undefined
 				? {
-						title: `The selected case information will be replaced with ${replacement}`,
-						description: restoreCopy,
+						title,
+						description:
+							"This replaces the selected case information. You can undo this change.",
 					}
 				: {
-						title: `The selected case information and connection will be replaced with ${replacement}`,
-						description: restoreCopy,
+						title,
+						description:
+							"This replaces the selected case information and its connection. You can undo this change.",
 					};
 		case "input":
 			return {
-				title: `The selected search answer will be replaced with ${replacement}`,
-				description: restoreCopy,
+				title,
+				description:
+					"This replaces the selected search answer. You can undo this change.",
 			};
 		case "session-context":
 			return {
-				title: `The selected app information will be replaced with ${replacement}`,
-				description: restoreCopy,
+				title,
+				description:
+					"This replaces the selected app information. You can undo this change.",
 			};
 		case "session-user":
 			return {
-				title: `The saved user information field will be replaced with ${replacement}`,
-				description: restoreCopy,
+				title,
+				description:
+					"This replaces the saved user information field. You can undo this change.",
 			};
 	}
 }
@@ -1440,8 +1444,8 @@ function describeLiteralShapeReplacement(
 			? "saved “No value” choice"
 			: `saved ${LITERAL_SHAPE_LABELS[source].toLocaleLowerCase()} value`;
 	return {
-		title: `The ${sourceDescription} will change to ${LITERAL_SHAPE_LABELS[target].toLocaleLowerCase()}`,
-		description: `Choose ${LITERAL_SHAPE_LABELS[source]} again to restore the saved value`,
+		title: `Change this value to ${LITERAL_SHAPE_LABELS[target].toLocaleLowerCase()}?`,
+		description: `This replaces the ${sourceDescription}. You can undo this change.`,
 	};
 }
 

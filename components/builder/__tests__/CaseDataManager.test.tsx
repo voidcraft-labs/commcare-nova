@@ -141,14 +141,14 @@ describe("CaseDataManager", () => {
 		expect(mocks.reset).not.toHaveBeenCalled();
 		expect(
 			screen.getByRole("heading", {
-				name: "Replacing case data deletes 7 cases",
+				name: "Replace all 7 cases?",
 			}),
 		).toBeTruthy();
 		expect(screen.getByRole("alertdialog").textContent).toContain(
-			"all case data for Patient in this app",
+			"All case data for “Patient” will be replaced throughout the app",
 		);
 		expect(
-			screen.getByText(/including cases you added by hand or through Preview/i),
+			screen.getByText(/including cases added by hand or through Preview/i),
 		).toBeTruthy();
 		expect(screen.getByText(/You can't undo this/i)).toBeTruthy();
 
@@ -179,14 +179,14 @@ describe("CaseDataManager", () => {
 
 		expect(
 			screen.getByText(
-				"Add or replace Patient case data used throughout your app and in Preview",
+				"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
 			),
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Replace case data" }));
 
 		expect(
 			screen.getByText(
-				/New sample cases will take their place throughout your app\./,
+				/New sample cases will appear everywhere this case type is used\./,
 			),
 		).toBeTruthy();
 	});
@@ -224,7 +224,7 @@ describe("CaseDataManager", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"View Patient case data used throughout your app and in Preview",
+				"View case data for “Patient”. It’s used throughout your app and in Preview.",
 			),
 		).toBeTruthy();
 		expect(
@@ -368,7 +368,7 @@ describe("CaseDataManager", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Replace" }));
 		await waitFor(() => expect(mocks.reset).toHaveBeenCalledOnce());
 		const pendingTitle = screen.getByRole("heading", {
-			name: "Replacing case data deletes 7 cases",
+			name: "Replace all 7 cases?",
 		});
 		await waitFor(() => expect(document.activeElement).toBe(pendingTitle));
 		expect(pendingTitle.tabIndex).toBe(0);
@@ -430,7 +430,7 @@ describe("CaseDataManager", () => {
 		fireEvent.click(trigger);
 		expect(
 			screen.getByText(
-				"Add or replace Clients case data used throughout your app and in Preview",
+				"Add or replace case data for “Clients”. It’s used throughout your app and in Preview.",
 			),
 		).toBeTruthy();
 		expect(screen.queryByText(/Clients cases/i)).toBeNull();
@@ -438,11 +438,11 @@ describe("CaseDataManager", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Replace case data" }));
 		expect(
 			screen.getByRole("heading", {
-				name: "Replacing case data deletes 7 cases",
+				name: "Replace all 7 cases?",
 			}),
 		).toBeTruthy();
 		expect(screen.getByRole("alertdialog").textContent).toContain(
-			"all case data for Clients in this app",
+			"All case data for “Clients” will be replaced throughout the app",
 		);
 		expect(screen.getByRole("alertdialog").textContent).not.toContain(
 			"Clients cases",

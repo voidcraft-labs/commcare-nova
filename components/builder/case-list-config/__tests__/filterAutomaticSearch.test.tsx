@@ -186,9 +186,7 @@ describe("Results Cases available composer", () => {
 			searchConfig: { excludedOwnerIds },
 		});
 
-		expect(
-			screen.getByText("The assigned cases setting limits which cases appear"),
-		).toBeDefined();
+		expect(screen.getByText("Some assigned cases are hidden")).toBeDefined();
 		expect(
 			screen.getByText(
 				"Cases assigned to the person using the app are hidden from Results",

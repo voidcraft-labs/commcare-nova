@@ -188,8 +188,8 @@ export function AssignedCasesSetting({
 							/>
 							<p>
 								{canEdit
-									? "This saved assigned cases setting can’t run as written. Choose Show in Results or Hide from Results to replace it."
-									: "This assigned cases setting needs attention. Ask someone who can edit the app to replace it."}
+									? "This saved setting no longer works here. Choose Show in Results or Hide from Results to replace it."
+									: "This saved setting needs attention. Ask someone who can edit the app to replace it."}
 							</p>
 						</div>
 					) : null}
@@ -249,7 +249,7 @@ export function AssignedCasesSetting({
 							</p>
 							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
 								{canEdit
-									? "Your saved setting decides which ones can appear. Choose another option to replace it."
+									? "Your saved setting decides which ones appear. Choose another option to replace it."
 									: "Your saved setting decides which ones can appear"}
 							</p>
 						</div>

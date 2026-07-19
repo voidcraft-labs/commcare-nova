@@ -114,7 +114,7 @@ describe("PredicateCardEditor — user-facing diagnostics", () => {
 		[
 			"search question",
 			{ code: "unknown-search-input", path: ["input"] },
-			"Choose an available search question",
+			"Choose an available Search field",
 		],
 		[
 			"relationship",
@@ -147,7 +147,7 @@ describe("PredicateCardEditor — user-facing diagnostics", () => {
 
 	it.each([
 		[["property"], "Choose available case information"],
-		[["input"], "Choose an available search question"],
+		[["input"], "Choose an available Search field"],
 		[["via"], "Choose an available connection to another case"],
 		[["right"], "Choose a value that works here"],
 	] as const)("keeps a path-specific next action for an unknown diagnostic at %j", (path, copy) => {

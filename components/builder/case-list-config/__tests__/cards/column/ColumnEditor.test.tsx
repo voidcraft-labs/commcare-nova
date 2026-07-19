@@ -556,12 +556,12 @@ describe("ColumnEditor — round-trip preservation", () => {
 
 		expect(
 			screen.getByRole("alertdialog", {
-				name: "The custom date format will be removed",
+				name: "Change display to Text?",
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				"The display will change to Text. Saved case information stays unchanged.",
+				"The custom date format will be removed. Saved case information won’t change.",
 			),
 		).toBeDefined();
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

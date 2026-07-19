@@ -121,9 +121,9 @@ describe("predicate transition planning", () => {
 		const plan = planPredicateTransition(current, next, "is");
 
 		expect(plan.confirmation).toEqual({
-			title:
-				"Changing to “is” removes one range bound and the range boundary choices",
-			description: "Saved case data stays unchanged",
+			title: "Change to “is”?",
+			description:
+				"This removes one range bound and the range boundary choices. Saved case data won’t change. You can undo this change.",
 		});
 	});
 
@@ -148,8 +148,9 @@ describe("predicate transition planning", () => {
 		expect(
 			planPredicateTransition(current, next, "is any of").confirmation,
 		).toEqual({
-			title: "Changing to “is any of” removes the comparison value",
-			description: "Saved case data stays unchanged",
+			title: "Change to “is any of”?",
+			description:
+				"This removes the comparison value. Saved case data won’t change. You can undo this change.",
 		});
 	});
 
@@ -229,8 +230,9 @@ describe("predicate transition planning", () => {
 
 		expect(next).toEqual(eq(term(current.property), center));
 		expect(plan.confirmation).toEqual({
-			title: "Changing to “is” removes the distance and unit",
-			description: "Saved case data stays unchanged",
+			title: "Change to “is”?",
+			description:
+				"This removes the distance and unit. Saved case data won’t change. You can undo this change.",
 		});
 	});
 
@@ -259,9 +261,7 @@ describe("predicate transition planning", () => {
 		const reset = buildPredicateKindReplacement(current, "eq", EDIT_CTX);
 		expect(
 			planPredicateTransition(current, reset, "Is").confirmation?.title,
-		).toBe(
-			"Changing to “Is” removes the case connection and the related-case condition",
-		);
+		).toBe("Change to “Is”?");
 	});
 
 	it("preserves a wrapper's child but confirms before removing its search-answer gate", () => {
@@ -271,8 +271,9 @@ describe("predicate transition planning", () => {
 
 		expect(next).toBe(clause);
 		expect(planPredicateTransition(current, next, "Is").confirmation).toEqual({
-			title: "Changing to “Is” removes the search answer",
-			description: "Saved case data stays unchanged",
+			title: "Change to “Is”?",
+			description:
+				"This removes the search answer. Saved case data won’t change. You can undo this change.",
 		});
 	});
 });
@@ -305,9 +306,7 @@ describe("predicate transition confirmation", () => {
 		let dialog = await screen.findByRole("alertdialog");
 		expect(onChange).not.toHaveBeenCalled();
 		expect(
-			withinElement(dialog).getByText(
-				"Changing to “is blank” removes the range bounds and the range boundary choices",
-			),
+			withinElement(dialog).getByText("Change to “is blank”?"),
 		).toBeDefined();
 
 		fireEvent.click(

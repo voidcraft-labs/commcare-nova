@@ -333,13 +333,14 @@ function relationReplacementCopy(
 	if (nextKind === "self") {
 		if (value.kind === "ancestor" && value.via.length > 1) {
 			return {
-				title: "This value will use information from the current case",
-				description: `${value.via.length} parent connections will be removed`,
+				title: "Use information from this case?",
+				description: `${value.via.length} parent connections will be removed. You can undo this change.`,
 			};
 		}
 		return {
-			title: "This value will use information from the current case",
-			description: "The current case connection will be removed",
+			title: "Use information from this case?",
+			description:
+				"The current case connection will be removed. You can undo this change.",
 		};
 	}
 	const target =
@@ -348,13 +349,15 @@ function relationReplacementCopy(
 			: `a ${kindLabel(nextKind).toLocaleLowerCase()}`;
 	if (value.kind === "ancestor" && value.via.length > 1) {
 		return {
-			title: `This value will look at ${target} instead`,
-			description: "Connections after the first will be removed",
+			title: `Look at ${target} instead?`,
+			description:
+				"Connections after the first will be removed. You can undo this change.",
 		};
 	}
 	return {
-		title: `This value will look at ${target} instead`,
-		description: "The current destination will be replaced",
+		title: `Look at ${target} instead?`,
+		description:
+			"The current destination will be replaced. You can undo this change.",
 	};
 }
 
@@ -713,12 +716,11 @@ export function RelationPathBuilder({
 				<AlertDialogContent finalFocus={kindTriggerRef} className="text-left">
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							{pendingKindChangeCopy?.title ??
-								"Where this value looks will change"}
+							{pendingKindChangeCopy?.title ?? "Change where this value looks?"}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							{pendingKindChangeCopy?.description ??
-								"The current connection will be replaced"}
+								"The current connection will be replaced. You can undo this change."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -1164,12 +1166,13 @@ function AncestorSteps({
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							{pendingRemoval?.consequence ??
-								"A remaining connection will reach a different case type"}
+							Remove this connection?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
-							Nova will update the remaining connections after this one is
-							removed
+							{pendingRemoval?.consequence ??
+								"A remaining connection will reach a different case type"}
+							. The remaining connections will update automatically. You can
+							undo this change.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

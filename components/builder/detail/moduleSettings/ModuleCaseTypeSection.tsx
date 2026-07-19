@@ -160,8 +160,8 @@ export function ModuleCaseTypeSection({
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							{pendingSwitch
-								? `Search, Results, and Details in this module will use ${humanizeId(pendingSwitch.to)} cases instead of ${humanizeId(pendingSwitch.from)} cases. The current layout and rules stay in place. Existing ${humanizeId(pendingSwitch.from)} cases aren't deleted. If another module still uses ${humanizeId(pendingSwitch.from)}, they remain available there.`
-								: "Choose whether to switch this module to the new case type."}
+								? `Search, Results, and Details will use ${humanizeId(pendingSwitch.to)} cases. The current layout and rules will stay. Existing ${humanizeId(pendingSwitch.from)} cases won’t be deleted and will remain available to other modules that use them.`
+								: "Search, Results, and Details will use the new case type."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					{switchError && (
@@ -198,8 +198,8 @@ export function ModuleCaseTypeSection({
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							{hasForms
-								? `This removes this module's Search, Results, and Details setup and turns it into a forms-only workflow. Existing ${humanizeId(module.caseType ?? "case")} cases aren't deleted. If another module still uses ${humanizeId(module.caseType ?? "case")}, they remain available there. Forms that use cases may need to be changed first.`
-								: "This module has no forms. Add a form before clearing its case type so the module still has something to run."}
+								? `This removes Search, Results, and Details from this module, leaving only its forms. Existing ${humanizeId(module.caseType ?? "case")} cases won’t be deleted and will remain available to other modules that use them. Forms that use cases may need changes first.`
+								: "This module has no forms, so stopping case management would leave it empty. Add a form first."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					{clearError && (

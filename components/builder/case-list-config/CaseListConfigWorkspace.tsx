@@ -1642,10 +1642,15 @@ function ColumnInspectorBody({
 		...(column.visibleInList !== false ? ["Results"] : []),
 		...(column.visibleInDetail !== false ? ["Details"] : []),
 	];
-	const deleteLocation =
+	const deleteDescription = `${
 		displayedOn.length === 0
-			? "its saved label and formatting"
-			: `it from ${displayedOn.join(" and ")}`;
+			? "This deletes its saved label and formatting"
+			: `This removes it from ${displayedOn.join(" and ")}`
+	}. Saved case data won’t change${
+		column.sort !== undefined
+			? ". It will also be removed from the default order."
+			: "."
+	}`;
 	return (
 		<>
 			{repairing && (
@@ -1716,14 +1721,9 @@ function ColumnInspectorBody({
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							Deleting {columnDisplayLabel(column)} removes {deleteLocation}
+							Delete {columnDisplayLabel(column)}?
 						</AlertDialogTitle>
-						<AlertDialogDescription>
-							Saved case data will stay
-							{column.sort !== undefined
-								? ". This information will also be removed from the default order."
-								: ""}
-						</AlertDialogDescription>
+						<AlertDialogDescription>{deleteDescription}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -1821,6 +1821,24 @@ function SearchInputInspectorBody({
 		style: "long",
 		type: "conjunction",
 	}).format(searchActionSettingsPreserved);
+	const lastSearchFieldRemovalDescription = [
+		"The Search screen will be removed.",
+		opensResultsAutomatically
+			? "People will go straight to Results, using Cases available."
+			: "People can browse Results without searching first.",
+		searchScreenSettingsRemoved.length > 0
+			? `The ${settingsList} will also be removed.`
+			: undefined,
+		searchActionSettingsPreserved.length > 0
+			? `Your ${actionSettingsList} will stay in More settings.`
+			: undefined,
+		"Cases available and the Results layout won’t change.",
+		preservesAssignedCaseRule
+			? "The assigned cases setting won’t change."
+			: undefined,
+	]
+		.filter((part): part is string => part !== undefined)
+		.join(" ");
 	return (
 		<>
 			<SearchInputEditor
@@ -1855,13 +1873,11 @@ function SearchInputInspectorBody({
 				>
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							Update{" "}
-							{removalDependencies.length === 1 ? "this rule" : "these rules"}{" "}
-							before removing {inputLabel}
+							This field is used in other rules
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							This search field supplies an answer used somewhere else. Remove
-							or replace that answer in each rule first.
+							Open each rule and remove or replace {inputLabel}’s answer. Then
+							you can remove the field.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<ul aria-label={`Rules using ${inputLabel}`} className="grid gap-2">
@@ -1912,23 +1928,10 @@ function SearchInputInspectorBody({
 				>
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							Removing this field removes the Search screen
+							Remove the last Search field?
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							This is the only Search field. After it is removed,
-							{opensResultsAutomatically
-								? " people will go straight to Results using Cases available."
-								: " people can browse the case list without searching first."}
-							{searchScreenSettingsRemoved.length > 0
-								? ` The ${settingsList} will be removed.`
-								: ""}
-							{searchActionSettingsPreserved.length > 0
-								? ` Your ${actionSettingsList} will stay in More settings.`
-								: ""}{" "}
-							Cases available and the Results layout will stay the same.
-							{preservesAssignedCaseRule
-								? " The assigned cases setting doesn’t change."
-								: ""}
+							{lastSearchFieldRemovalDescription}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

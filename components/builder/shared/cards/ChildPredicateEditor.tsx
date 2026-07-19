@@ -517,8 +517,8 @@ export function planPredicateTransition(
 	return {
 		next,
 		confirmation: {
-			title: `Changing to “${targetLabel}” removes ${consequence}`,
-			description: "Saved case data stays unchanged",
+			title: `Change to “${targetLabel}”?`,
+			description: `This removes ${consequence}. Saved case data won’t change. You can undo this change.`,
 		},
 	};
 }

@@ -370,13 +370,14 @@ export function ExpressionPicker({
 					>
 						<AlertDialogHeader>
 							<AlertDialogTitle className="font-display">
-								Changing to “
+								Use “
 								{pendingTermReplacement?.target.label ?? "a calculated value"}”
-								replaces the saved {pendingTermSourceLabel}
+								instead?
 							</AlertDialogTitle>
 							<AlertDialogDescription className="text-left">
-								The current settings will be removed. Saved case data stays
-								unchanged.
+								This replaces the saved {pendingTermSourceLabel} and removes its
+								current settings. Saved case data won’t change. You can undo
+								this change.
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
@@ -747,11 +748,11 @@ function KindReplaceMenu({
 				>
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							Changing to “{pendingTargetLabel}” replaces “{pendingSourceLabel}”
+							Replace “{pendingSourceLabel}” with “{pendingTargetLabel}”?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left">
 							Its current values and settings will be removed. Saved case data
-							stays unchanged.
+							won’t change. You can undo this change.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

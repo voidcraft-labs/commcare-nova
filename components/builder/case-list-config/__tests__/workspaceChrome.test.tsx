@@ -1469,7 +1469,7 @@ describe("case workspace chrome", () => {
 		expect(disclosure.getAttribute("aria-expanded")).toBe("true");
 		expect(disclosure.getAttribute("aria-invalid")).toBe("true");
 		expect(screen.getByRole("alert").textContent).toContain(
-			"This saved assigned cases setting can’t run as written",
+			"This saved setting no longer works here",
 		);
 		expect(screen.getByRole("alert").textContent).toContain(
 			"Show in Results or Hide from Results",
@@ -1513,9 +1513,7 @@ describe("case workspace chrome", () => {
 			name: /More settings/,
 		});
 		expect(moreSettings.getAttribute("aria-expanded")).toBe("true");
-		expect(
-			screen.getByText("The Search action is always available"),
-		).toBeDefined();
+		expect(screen.getByText("Search is always available")).toBeDefined();
 		const alwaysContinue = screen.getByRole("button", {
 			name: "Always allow Search",
 		});
@@ -1525,12 +1523,12 @@ describe("case workspace chrome", () => {
 		let dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "Search will always be available",
+				name: "Always allow Search?",
 			}),
 		).toBeDefined();
 		expect(
 			within(dialog).getByText(
-				"The saved condition will be removed. The Search action will be available whenever this case list can search.",
+				"The current condition will be removed, and Search will be available whenever this case list can search. You can undo this change.",
 			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -1605,7 +1603,7 @@ describe("case workspace chrome", () => {
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByText(
-				"The saved condition will be removed. The Search action will be available whenever this case list can search.",
+				"The current condition will be removed, and Search will be available whenever this case list can search. You can undo this change.",
 			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -1650,7 +1648,7 @@ describe("case workspace chrome", () => {
 			"Some assigned cases may be hidden",
 		);
 		expect(screen.getByRole("status").textContent).toContain(
-			"Your saved setting decides which ones can appear",
+			"Your saved setting decides which ones appear",
 		);
 		expect(screen.queryByText(/owner ID/i)).toBeNull();
 		fireEvent.click(
@@ -1773,7 +1771,7 @@ describe("case workspace chrome", () => {
 		);
 
 		expect(screen.getByRole("status").textContent).toContain(
-			"Your saved setting decides which ones can appear",
+			"Your saved setting decides which ones appear",
 		);
 		expect(screen.queryByRole("textbox")).toBeNull();
 		await settleBaseUiTransitions();
@@ -1974,11 +1972,11 @@ describe("case workspace chrome", () => {
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "The saved match will change and the starting value will be removed",
+				name: "Change to “Date picker”?",
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"“Sounds like” will become “Exact value” and the starting value will be removed. Date picker can’t use those saved settings.",
+			"“Sounds like” will become “Exact value”. The starting value will be removed because Date picker can’t use it. You can undo this change.",
 		);
 		expect(onChange).not.toHaveBeenCalled();
 
@@ -2079,7 +2077,7 @@ describe("case workspace chrome", () => {
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "The starting value will be removed",
+				name: "Change to “Between dates”?",
 			}),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -2283,11 +2281,11 @@ describe("case workspace chrome", () => {
 		let dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "The saved match will change and the starting value will be removed",
+				name: "Change to “Case name”?",
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"“Between dates” will become “Similar spelling” and the starting value will be removed. Case name can’t use those saved settings.",
+			"“Between dates” will become “Similar spelling”. The starting value will be removed because Case name can’t use it. You can undo this change.",
 		);
 		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
@@ -2355,11 +2353,11 @@ describe("case workspace chrome", () => {
 		let dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "“Between dates” will be replaced with a custom condition",
+				name: "Replace “Between dates” with a custom condition?",
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"“Between dates” will become “Exact value”. A custom condition can’t read both ends of this range yet.",
+			"The new condition will start with “Exact value” because it can’t keep both dates in the range.",
 		);
 		expect(onChange).not.toHaveBeenCalled();
 		expect(onEditCondition).not.toHaveBeenCalled();
@@ -2420,11 +2418,11 @@ describe("case workspace chrome", () => {
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "“All chosen options” will be replaced with a custom condition",
+				name: "Replace “All chosen options” with a custom condition?",
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(
-			"“All chosen options” will become “Exact value”",
+			"can’t keep the full list from “All chosen options”",
 		);
 	});
 
@@ -2471,12 +2469,12 @@ describe("case workspace chrome", () => {
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "The custom condition will be replaced with Exact value",
+				name: "Replace the custom condition with “Exact value”?",
 			}),
 		).toBeDefined();
 		expect(
 			within(dialog).getByText(
-				/Parts of the custom condition that “Exact value” can’t represent will be removed\. The custom condition won’t be recoverable after replacement\./,
+				/Some parts of the custom condition don’t fit “Exact value” and will be removed\. You can undo this change\./,
 			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
@@ -2533,7 +2531,7 @@ describe("case workspace chrome", () => {
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "The custom condition will be replaced with Exact value",
+				name: "Replace the custom condition with “Exact value”?",
 			}),
 		).toBeDefined();
 		expect(dialog.textContent).toContain(

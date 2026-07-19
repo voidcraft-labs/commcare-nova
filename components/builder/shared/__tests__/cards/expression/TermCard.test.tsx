@@ -295,12 +295,12 @@ describe("TermCard source transitions", () => {
 		await chooseSource("A value");
 		expect(
 			screen.getByRole("alertdialog", {
-				name: "The selected case information and connection will be replaced with a value",
+				name: "Use a value instead?",
 			}),
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				"Choose the previous source again to restore the saved choice",
+				"This replaces the selected case information and its connection. You can undo this change.",
 			),
 		).toBeDefined();
 		expect(screen.getByRole("alertdialog").textContent).not.toMatch(
@@ -345,7 +345,7 @@ describe("TermCard source transitions", () => {
 		await chooseSource("User information");
 		expect(
 			screen.getByRole("alertdialog", {
-				name: "The selected search answer will be replaced with user information",
+				name: "Use user information instead?",
 			}),
 		).toBeDefined();
 		const field = screen.getByRole("textbox", { name: "User field name" });
@@ -371,16 +371,14 @@ describe("TermCard source transitions", () => {
 			name: "user information",
 			initial: term(sessionUser("assigned_region")),
 			target: "App information",
-			title:
-				"The saved user information field will be replaced with app information",
+			title: "Use app information instead?",
 			back: "User information",
 		},
 		{
 			name: "app information",
 			initial: term(sessionContext("deviceid")),
 			target: "User information",
-			title:
-				"The selected app information will be replaced with user information",
+			title: "Use user information instead?",
 			back: "App information",
 		},
 	])("keeps saved $name while trying another source", async ({
@@ -503,11 +501,13 @@ describe("TermCard literal type transitions", () => {
 		await chooseLiteralShape("Text");
 		expect(
 			screen.getByRole("alertdialog", {
-				name: "The saved date value will change to text",
+				name: "Change this value to text?",
 			}),
 		).toBeDefined();
 		expect(
-			screen.getByText("Choose Date again to restore the saved value"),
+			screen.getByText(
+				"This replaces the saved date value. You can undo this change.",
+			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -520,7 +520,7 @@ describe("TermCard literal type transitions", () => {
 		expect(onChange).not.toHaveBeenCalled();
 
 		await chooseLiteralShape("Text");
-		fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+		fireEvent.click(screen.getByRole("button", { name: "Change value" }));
 		await waitFor(() => {
 			expect(screen.queryByRole("alertdialog")).toBeNull();
 			expect(document.activeElement).toBe(
@@ -545,10 +545,10 @@ describe("TermCard literal type transitions", () => {
 		await chooseLiteralShape("Text");
 		expect(
 			screen.getByRole("alertdialog", {
-				name: `The saved ${back.toLocaleLowerCase()} value will change to text`,
+				name: "Change this value to text?",
 			}),
 		).toBeDefined();
-		fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+		fireEvent.click(screen.getByRole("button", { name: "Change value" }));
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 
 		await chooseLiteralShape(back);

@@ -191,7 +191,7 @@ export function CaseAvailabilityComposer({
 						<div className="min-w-0 flex-1">
 							<p className="text-[14px] font-semibold text-nova-text">
 								{hasAssignedCaseRule
-									? "The assigned cases setting limits which cases appear"
+									? "Some assigned cases are hidden"
 									: "All cases are available"}
 							</p>
 							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
