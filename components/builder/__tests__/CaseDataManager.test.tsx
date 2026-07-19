@@ -229,7 +229,7 @@ describe("CaseDataManager", () => {
 		).toBeTruthy();
 		expect(
 			screen.queryByText(
-				"Add or replace Patient case data used throughout your app and in Preview",
+				"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
 			),
 		).toBeNull();
 		expect(

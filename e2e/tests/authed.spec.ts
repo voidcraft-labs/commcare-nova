@@ -782,7 +782,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: /^Case data for / }).click();
 		const caseData = page.getByRole("dialog", { name: "Case data" });
 		const caseDataDescription = caseData.getByText(
-			"Add or replace Patient case data used throughout your app and in Preview",
+			"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
 		);
 		await expect(caseDataDescription).toBeVisible();
 		const countValue = caseData.getByText("8", { exact: true });
@@ -827,7 +827,7 @@ test.describe("authenticated builder", () => {
 		const replaceDialog = page.getByRole("alertdialog");
 		await expect(
 			replaceDialog.getByRole("heading", {
-				name: "Replacing case data deletes 8 cases",
+				name: "Replace all 8 cases?",
 			}),
 		).toBeVisible();
 		const cancelReplace = replaceDialog.getByRole("button", {
@@ -1002,7 +1002,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "Delete information" }).click();
 		const deletionDialog = page.getByRole("alertdialog");
 		await expect(
-			deletionDialog.getByText("Saved case data will stay"),
+			deletionDialog.getByText("Saved case data won’t change"),
 		).toBeVisible();
 		await deletionDialog.getByRole("button", { name: "Delete" }).click();
 		await expect(
