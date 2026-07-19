@@ -67,7 +67,7 @@ export class ApiError extends Error {
  *   bounded message history (`MAX_CHAT_MESSAGES` turns, each typed message
  *   `MAX_CHAT_MESSAGE_CHARS`), so it gets a larger budget than the pure
  *   blueprint routes. This is the only UNauthenticated parse, so the cap is
- *   the first line before `resolveGatewayKey`.
+ *   the first line before `resolveOpenAIKey`.
  * - `CLIENT_ERROR_MAX_BYTES` — the public `/api/log/error` relay, whose
  *   schema caps every field; the sum of those caps is ~20 KB, so 32 KB
  *   accepts every valid report and rejects the rest.

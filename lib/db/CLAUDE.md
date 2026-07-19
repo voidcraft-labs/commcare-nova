@@ -106,12 +106,14 @@ history — there is no cache-window trim (the run summary's
 Cost and quota live in **separate tables** so an admin intervention on one
 never disturbs the other:
 
-- `usage_months` (`UsageDoc`) — dollar cost, **accumulate-only**, two counters
-  side by side: `cost_estimate` (token math) and `actual_cost` (the gateway's
-  own per-call meter, summed from `providerMetadata.gateway.cost`). Resets
-  never touch it. Its sole gate consumer is the invisible dollar backstop
-  (`ACTUAL_COST_BACKSTOP_USD`), read via `getMonthlyUsage` — trips on the
-  larger of the two.
+- `usage_months` (`UsageDoc`) — dollar cost, **accumulate-only**: the
+  `cost_estimate` counter (token math over `MODEL_PRICING`, which with a
+  direct OpenAI key is the deterministic bill). Resets never touch it. Its
+  sole gate consumer is the invisible dollar backstop (`COST_BACKSTOP_USD`),
+  read via `getMonthlyUsage`. (An orphaned `actual_cost` column — the
+  retired gateway-era per-call meter — survives on this table and
+  `run_summaries` until the expand-contract drop lands; nothing reads or
+  writes it.)
 - `credit_months` (`CreditMonthDoc`) — the **resettable** user-facing gate.
   Balance is derived, not stored: `allowance(2000) + bonus − consumed`.
 - `credit_grants` (`CreditGrantDoc`) — append-only admin audit of every

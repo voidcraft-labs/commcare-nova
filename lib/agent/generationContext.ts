@@ -38,12 +38,13 @@
  * in one SSE burst share `ts`).
  */
 
+import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
 import type {
 	CallWarning,
 	LanguageModelUsage,
 	UIMessageStreamWriter,
 } from "ai";
-import { createGateway, generateText, Output, streamText } from "ai";
+import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
@@ -68,9 +69,8 @@ import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import {
-	GATEWAY_PROVIDER_OPTIONS,
-	gatewayActualCost,
 	MODEL_DEFAULT,
+	OPENAI_BASE_OPTIONS,
 	type ReasoningEffort,
 	reasoningProviderOptions,
 } from "@/lib/models";
@@ -119,7 +119,7 @@ export function logWarnings(
  * `McpContext`.
  */
 interface GenerationContextOptions {
-	/** Server-shared Vercel AI Gateway key (resolved by `resolveGatewayKey`) —
+	/** Server-shared OpenAI API key (resolved by `resolveOpenAIKey`) —
 	 * the one credential behind every model this context resolves. */
 	apiKey: string;
 	/** SSE writer for the live builder. Unchanged wire format. */
@@ -178,17 +178,13 @@ export interface AgentStep {
 		error: unknown;
 	}>;
 	warnings?: CallWarning[];
-	/** The step's provider metadata — carries the gateway's metered actual
-	 *  cost (`gateway.cost`), decoded by `gatewayActualCost`. */
-	providerMetadata?: unknown;
 }
 
 export class GenerationContext implements ToolExecutionContext {
-	/** The AI Gateway provider — the ONE model resolver for every LLM call this
+	/** The OpenAI provider — the ONE model resolver for every LLM call this
 	 *  context issues (the SA, the document summarizer, structured sub-gens).
-	 *  Model ids are gateway-format (`creator/model-name`), so switching
-	 *  providers is a model-id change, not a wiring change. */
-	private gateway: ReturnType<typeof createGateway>;
+	 *  Resolves to the Responses API model for each id. */
+	private openai: OpenAIProvider;
 	readonly writer: UIMessageStreamWriter;
 	readonly logWriter: LogWriter;
 	readonly usage: UsageAccumulator;
@@ -244,7 +240,7 @@ export class GenerationContext implements ToolExecutionContext {
 	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(opts: GenerationContextOptions) {
-		this.gateway = createGateway({ apiKey: opts.apiKey });
+		this.openai = createOpenAI({ apiKey: opts.apiKey });
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -253,11 +249,11 @@ export class GenerationContext implements ToolExecutionContext {
 		this.editLease = opts.editLease;
 	}
 
-	/** Resolve a gateway model id (`creator/model-name`) to a `LanguageModel`.
-	 *  The gateway serves every provider through one credential, so the SA
-	 *  and the document summarizer resolve identically. */
+	/** Resolve an OpenAI model id to a `LanguageModel` (Responses API).
+	 *  One credential serves every model, so the SA and the document
+	 *  summarizer resolve identically. */
 	model(id: string) {
-		return this.gateway(id);
+		return this.openai(id);
 	}
 
 	/**
@@ -714,7 +710,6 @@ export class GenerationContext implements ToolExecutionContext {
 				outputTokens: usage.outputTokens ?? 0,
 				cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 				cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-				actualCostUsd: gatewayActualCost(step.providerMetadata),
 			},
 			{ step: true },
 		);
@@ -814,31 +809,27 @@ export class GenerationContext implements ToolExecutionContext {
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	private trackSubGeneration(
-		usage: {
-			inputTokens?: number;
-			outputTokens?: number;
-			inputTokenDetails?: {
-				cacheReadTokens?: number;
-				cacheWriteTokens?: number;
-			};
-		},
-		providerMetadata?: unknown,
-	): void {
+	private trackSubGeneration(usage: {
+		inputTokens?: number;
+		outputTokens?: number;
+		inputTokenDetails?: {
+			cacheReadTokens?: number;
+			cacheWriteTokens?: number;
+		};
+	}): void {
 		this.usage.track({
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
 			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-			actualCostUsd: gatewayActualCost(providerMetadata),
 		});
 	}
 
 	/**
 	 * The ONE document-extraction call: fills `{ extract, title, summary }` from a
 	 * document (decoded text as `prompt`, or a native `file` block for a PDF) in a
-	 * single structured generation. Runs on the document summarizer (via the
-	 * gateway), streamed through `streamObjectWith` so `onProgress` can pulse the
+	 * single structured generation. Runs on the document summarizer, streamed
+	 * through `streamObjectWith` so `onProgress` can pulse the
 	 * grid — NOT the `Output.object` path `generate` uses. Usage tracks through the same accumulator as every other sub-generation,
 	 * so an extraction shows up on the per-run cost summary alongside the agent loop.
 	 *
@@ -870,8 +861,7 @@ export class GenerationContext implements ToolExecutionContext {
 				onProgress: opts.onProgress,
 			});
 			logWarnings(`extractDocument:${opts.label}`, result.warnings);
-			if (result.usage)
-				this.trackSubGeneration(result.usage, result.providerMetadata);
+			if (result.usage) this.trackSubGeneration(result.usage);
 			return {
 				object: result.object,
 				truncated: result.finishReason === "length",
@@ -910,11 +900,10 @@ export class GenerationContext implements ToolExecutionContext {
 				maxOutputTokens: opts.maxOutputTokens,
 				providerOptions: opts.reasoning
 					? reasoningProviderOptions(opts.reasoning.effort)
-					: { gateway: GATEWAY_PROVIDER_OPTIONS },
+					: { openai: OPENAI_BASE_OPTIONS },
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage)
-				this.trackSubGeneration(result.usage, result.providerMetadata);
+			if (result.usage) this.trackSubGeneration(result.usage);
 			return result.output ?? null;
 		} catch (error) {
 			this.emitError(classifyError(error), `generate:${opts.label}`);
@@ -944,7 +933,7 @@ export class GenerationContext implements ToolExecutionContext {
 			maxOutputTokens: opts.maxOutputTokens,
 			providerOptions: opts.reasoning
 				? reasoningProviderOptions(opts.reasoning.effort)
-				: { gateway: GATEWAY_PROVIDER_OPTIONS },
+				: { openai: OPENAI_BASE_OPTIONS },
 			onError: ({ error }) => {
 				this.emitError(classifyError(error), `streamGenerate:${opts.label}`);
 			},
@@ -958,7 +947,7 @@ export class GenerationContext implements ToolExecutionContext {
 
 		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
 		const usage = await result.usage;
-		if (usage) this.trackSubGeneration(usage, await result.providerMetadata);
+		if (usage) this.trackSubGeneration(usage);
 		return last;
 	}
 }

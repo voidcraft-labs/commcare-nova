@@ -9,8 +9,8 @@ import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { sanitizeHistoricalReasoningParts } from "../sanitizeReasoningParts";
 
-const MODEL = "openai/gpt-5.6-sol";
-const OLD_MODEL = "openai/gpt-5.6-terra";
+const MODEL = "gpt-5.6-sol";
+const OLD_MODEL = "gpt-5.6-terra";
 
 type Part = UIMessage["parts"][number];
 

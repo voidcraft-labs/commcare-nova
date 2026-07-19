@@ -1,5 +1,6 @@
 import "dotenv/config";
-import { createGateway, Output, streamText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { Output, streamText } from "ai";
 import { z } from "zod";
 import {
 	reasoningProviderOptions,
@@ -7,14 +8,14 @@ import {
 	SA_BUILD_REASONING,
 } from "../lib/models";
 
-const apiKey = process.env.AI_GATEWAY_API_KEY;
-if (!apiKey) throw new Error("AI_GATEWAY_API_KEY is required");
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) throw new Error("OPENAI_API_KEY is required");
 
-const gateway = createGateway({ apiKey });
+const openai = createOpenAI({ apiKey });
 
 async function main() {
 	const result = streamText({
-		model: gateway(SA_BUILD_MODEL),
+		model: openai(SA_BUILD_MODEL),
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,

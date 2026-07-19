@@ -6,7 +6,7 @@
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
-// generationContext — shared LLM wrapper around the AI Gateway provider, SSE
+// generationContext — shared LLM wrapper around the OpenAI provider, SSE
 // writer, event log, and usage accumulator.
 export { GenerationContext, logWarnings } from "./generationContext";
 // prompts — the per-turn app-state message an edit turn appends to the end

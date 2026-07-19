@@ -159,7 +159,10 @@ describe("markStablePrefixBoundary", () => {
 		]);
 	}
 
-	it("marks the last text part of the message before the last user message", () => {
+	it("marks the last user message before the final user message", () => {
+		/* NOT the assistant message between them: the Responses wire has no
+		 * breakpoint slot on assistant `output_text` items, so an assistant
+		 * marker would silently vanish from the request. */
 		const messages: ModelMessage[] = [
 			{ role: "system", content: "SYSTEM" },
 			{ role: "user", content: [{ type: "text", text: "u1" }] },
@@ -167,17 +170,18 @@ describe("markStablePrefixBoundary", () => {
 			{ role: "user", content: [{ type: "text", text: "new question" }] },
 		];
 		const marked = markStablePrefixBoundary(messages);
-		expect(markerLocations(marked)).toEqual(["2:assistant:text"]);
-		const content = marked[2]?.content as Array<{ providerOptions?: unknown }>;
+		expect(markerLocations(marked)).toEqual(["1:user:text"]);
+		const content = marked[1]?.content as Array<{ providerOptions?: unknown }>;
 		expect(content[0]?.providerOptions).toEqual(BREAKPOINT);
 		// Inputs are never mutated — the base array is reused across retries.
 		expect(markerLocations(messages)).toEqual([]);
 	});
 
-	it("walks past unmarkable trailing messages (tool results) to a text part", () => {
+	it("walks past unmarkable messages (tool results, assistant turns) to a user message", () => {
 		const messages: ModelMessage[] = [
 			{ role: "system", content: "SYSTEM" },
 			{ role: "user", content: [{ type: "text", text: "u1" }] },
+			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
 			{
 				role: "tool",
 				content: [

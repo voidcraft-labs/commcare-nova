@@ -446,7 +446,6 @@ export function createSolutionsArchitect(
 							: [],
 					),
 					warnings: step.warnings,
-					providerMetadata: step.providerMetadata,
 				},
 				"Solutions Architect",
 			);

@@ -90,7 +90,7 @@ export const messageMetadataSchema = z.object({
 		.array(attachmentRefSchema)
 		.max(MAX_ATTACHMENTS_PER_MESSAGE)
 		.optional(),
-	/** The gateway model id that produced an assistant message — stamped by
+	/** The model id that produced an assistant message — stamped by
 	 *  the chat route's stream (`messageMetadata` on the `start` chunk).
 	 *  `sanitizeHistoricalReasoningParts` reads it to decide whether a paused
 	 *  round's model-bound encrypted reasoning is still replayable. Absent on

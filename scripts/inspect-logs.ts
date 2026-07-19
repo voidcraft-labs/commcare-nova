@@ -385,8 +385,7 @@ function printRunSummary(summary: RunSummaryDoc): void {
 		["Cache read", tok(summary.cacheReadTokens)],
 		["Cache write", tok(summary.cacheWriteTokens)],
 		["Cache hit rate", cacheHitRate],
-		["Est. cost", usd(summary.costEstimate)],
-		["Actual cost", usd(summary.actualCost)],
+		["Cost", usd(summary.costEstimate)],
 	]);
 }
 
@@ -447,14 +446,12 @@ function printRunsTableView(
 			{ header: "Input", align: "right" },
 			{ header: "Output", align: "right" },
 			{ header: "Cache%", align: "right" },
-			{ header: "Est", align: "right" },
-			{ header: "Actual", align: "right" },
+			{ header: "Cost", align: "right" },
 		],
 		rows.map(({ runId, summary }) => {
 			if (!summary) {
 				return [
 					`${runId.slice(0, 8)}…`,
-					"—",
 					"—",
 					"—",
 					"—",
@@ -475,7 +472,6 @@ function printRunsTableView(
 				tok(summary.outputTokens),
 				pct(summary.cacheReadTokens, summary.inputTokens),
 				usd(summary.costEstimate),
-				usd(summary.actualCost),
 			];
 		}),
 	);

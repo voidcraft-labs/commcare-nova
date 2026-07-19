@@ -17,7 +17,7 @@
  *   CONFLUENCE_BASE_URL   — Atlassian Cloud URL (e.g., https://dimagi.atlassian.net/wiki)
  *   CONFLUENCE_EMAIL      — Atlassian account email (optional if Confluence is public)
  *   CONFLUENCE_API_TOKEN  — Atlassian API token (optional if Confluence is public)
- *   AI_GATEWAY_API_KEY    — Vercel AI Gateway key (for triage + distillation)
+ *   OPENAI_API_KEY        — OpenAI key (for triage + distillation)
  */
 
 import * as fs from "node:fs";
@@ -84,7 +84,7 @@ function loadConfig(skipConfirmation: boolean): PipelineConfig {
 	const confluenceBaseUrl = process.env.CONFLUENCE_BASE_URL;
 	const confluenceEmail = process.env.CONFLUENCE_EMAIL;
 	const confluenceApiToken = process.env.CONFLUENCE_API_TOKEN;
-	const gatewayApiKey = process.env.AI_GATEWAY_API_KEY;
+	const openaiApiKey = process.env.OPENAI_API_KEY;
 
 	if (!confluenceBaseUrl) {
 		console.error("Missing required environment variable: CONFLUENCE_BASE_URL");
@@ -102,16 +102,16 @@ function loadConfig(skipConfirmation: boolean): PipelineConfig {
 		confluenceBaseUrl,
 		confluenceEmail: confluenceEmail ?? "",
 		confluenceApiToken: confluenceApiToken ?? "",
-		gatewayApiKey: gatewayApiKey ?? "",
+		openaiApiKey: openaiApiKey ?? "",
 		rateLimitMs: parseInt(process.env.RATE_LIMIT_MS ?? "100", 10),
 		triageBatchSize: parseInt(process.env.TRIAGE_BATCH_SIZE ?? "5", 10),
 		skipConfirmation,
 	};
 }
 
-function requireGatewayKey(config: PipelineConfig) {
-	if (!config.gatewayApiKey) {
-		console.error("AI_GATEWAY_API_KEY is required for this phase.");
+function requireOpenAIKey(config: PipelineConfig) {
+	if (!config.openaiApiKey) {
+		console.error("OPENAI_API_KEY is required for this phase.");
 		process.exit(1);
 	}
 }
@@ -161,7 +161,7 @@ async function main() {
 	// Phase 2: Triage
 	let triageResult: TriageResult | null = null;
 	if (shouldRun("triage")) {
-		requireGatewayKey(config);
+		requireOpenAIKey(config);
 		discoveryResult ??= loadCachedDiscovery();
 		if (!discoveryResult) {
 			console.error("No discovery data found. Run --phase discover first.");
@@ -172,7 +172,7 @@ async function main() {
 
 	// Phase 3: Distill
 	if (shouldRun("distill")) {
-		requireGatewayKey(config);
+		requireOpenAIKey(config);
 		discoveryResult ??= loadCachedDiscovery();
 		triageResult ??= loadCachedTriage();
 		if (!discoveryResult) {
@@ -188,13 +188,13 @@ async function main() {
 
 	// Phase 4: Reorganize — must be explicitly requested (not part of "run all")
 	if (phase === "reorganize") {
-		requireGatewayKey(config);
+		requireOpenAIKey(config);
 		await reorganize(config);
 	} else if (phase === "reorg-plan") {
-		requireGatewayKey(config);
+		requireOpenAIKey(config);
 		await reorgPlan(config);
 	} else if (phase === "reorg-execute") {
-		requireGatewayKey(config);
+		requireOpenAIKey(config);
 		await reorgExecute(config);
 	}
 

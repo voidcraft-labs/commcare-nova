@@ -554,17 +554,22 @@ export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
  * message) — and the next turn, which diverges before that boundary, matches
  * nothing and reads zero. Implicit mode also HONORS explicit breakpoints, so
  * placing one marker at the deepest point that replays byte-identically next
- * turn gives every turn an entry the next turn can actually read. The
- * placement mirrors the strategy the gateway itself applies to
- * explicit-marker providers (its automatic-caching doc): the message BEFORE
- * the last user message, falling back to the system message — everything
- * from the volatile tail onward stays outside the cached prefix.
+ * turn gives every turn an entry the next turn can actually read.
+ *
+ * Placement: the last USER message before the final user message, falling
+ * back to the system message. The markable set is dictated by the Responses
+ * wire (verified in `@ai-sdk/openai`'s input converter): only system/
+ * developer messages, user-message text/file parts, and content-typed tool
+ * outputs carry `prompt_cache_breakpoint` — assistant `output_text` items
+ * and Nova's json-typed tool results have no slot for it, so a marker
+ * placed there would silently vanish from the request. Walking back to the
+ * previous user turn costs nothing real: everything after it (the prior
+ * assistant response) re-bills anyway, because replayed history re-renders
+ * that response differently than it streamed.
  *
  * Mechanics: the marker rides part-level `providerOptions` on the boundary
- * message's last text part (`@ai-sdk/openai` translates it to the wire's
- * `prompt_cache_breakpoint`); messages whose last part isn't markable (tool
- * results, tool calls) are walked past. Returns a new array — the input and
- * its messages are not mutated.
+ * message's last text part. Returns a new array — the input and its
+ * messages are not mutated.
  */
 export function markStablePrefixBoundary(
 	messages: ModelMessage[],
@@ -574,7 +579,7 @@ export function markStablePrefixBoundary(
 	};
 	const lastUserIdx = messages.findLastIndex((m) => m.role === "user");
 	// Walk backward from just before the last user message (or the array
-	// end when there is none) to the nearest message ending in a text part.
+	// end when there is none) to the nearest message the wire can mark.
 	for (
 		let i = (lastUserIdx === -1 ? messages.length : lastUserIdx) - 1;
 		i >= 0;
@@ -589,6 +594,7 @@ export function markStablePrefixBoundary(
 			marked[i] = { ...msg, providerOptions: BREAKPOINT };
 			return marked;
 		}
+		if (msg.role !== "user") continue;
 		if (typeof msg.content === "string") {
 			const marked = [...messages];
 			marked[i] = {
@@ -600,7 +606,7 @@ export function markStablePrefixBoundary(
 			return marked;
 		}
 		const last = msg.content[msg.content.length - 1];
-		if (last && last.type === "text") {
+		if (last && (last.type === "text" || last.type === "file")) {
 			const marked = [...messages];
 			marked[i] = {
 				...msg,

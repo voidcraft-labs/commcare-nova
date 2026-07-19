@@ -24,6 +24,7 @@ import * as addCasesExternalId from "./20260709000000_add_cases_external_id";
 import * as addActualCost from "./20260710000000_add_actual_cost";
 import * as chatStreamChunks from "./20260713000000_chat_stream_chunks";
 import * as threadsFirstClass from "./20260714000000_threads_first_class";
+import * as openaiModelIds from "./20260719000000_openai_model_ids";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -37,6 +38,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260710000000_add_actual_cost": addActualCost,
 	"20260713000000_chat_stream_chunks": chatStreamChunks,
 	"20260714000000_threads_first_class": threadsFirstClass,
+	"20260719000000_openai_model_ids": openaiModelIds,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

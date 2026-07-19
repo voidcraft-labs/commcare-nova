@@ -3,7 +3,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { createGateway, Output, streamText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { Output, streamText } from "ai";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import type { PipelineConfig } from "./types.js";
@@ -12,7 +13,7 @@ const DISTILL_DIR = ".data/confluence-cache/distilled";
 const KNOWLEDGE_DIR = "scripts/knowledge/output";
 const CACHE_DIR = ".data/confluence-cache";
 const PLAN_PATH = path.join(CACHE_DIR, "reorg-plan.json");
-const OPUS_MODEL = "anthropic/claude-opus-4.7";
+const REORGANIZE_MODEL = "gpt-5.6-sol";
 const OPUS_INPUT_COST = 5; // $/M tokens
 const OPUS_OUTPUT_COST = 25; // $/M tokens
 
@@ -99,7 +100,7 @@ function loadDistilledFiles(): Map<string, string> {
 }
 
 export async function reorgPlan(config: PipelineConfig): Promise<ReorgPlan> {
-	const gateway = createGateway({ apiKey: config.gatewayApiKey });
+	const openai = createOpenAI({ apiKey: config.openaiApiKey });
 	const files = loadDistilledFiles();
 
 	log("Reorganize", `Loaded ${files.size} knowledge files`);
@@ -192,7 +193,7 @@ KEEP — Blueprint-level design guidance:
 	log("Reorganize", `  Sending to Opus...`);
 
 	const stream = streamText({
-		model: gateway(OPUS_MODEL),
+		model: openai(REORGANIZE_MODEL),
 		output: Output.object({ schema: reorgPlanSchema }),
 		system,
 		prompt: allContent,
@@ -292,7 +293,7 @@ function printPlan(plan: ReorgPlan): void {
 // --- Pass 2: Execute ---
 
 export async function reorgExecute(config: PipelineConfig): Promise<void> {
-	const gateway = createGateway({ apiKey: config.gatewayApiKey });
+	const openai = createOpenAI({ apiKey: config.openaiApiKey });
 
 	// Load the plan
 	if (!fs.existsSync(PLAN_PATH)) {
@@ -456,7 +457,7 @@ ${sourceContent}`;
 
 		try {
 			const result = streamText({
-				model: gateway(OPUS_MODEL),
+				model: openai(REORGANIZE_MODEL),
 				system,
 				prompt,
 			});

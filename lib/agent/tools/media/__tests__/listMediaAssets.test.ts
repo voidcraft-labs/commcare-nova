@@ -90,7 +90,7 @@ describe("listMediaAssets", () => {
 			extract: {
 				status: "ready",
 				version: 3,
-				model: "openai/gpt-5.6-luna",
+				model: "gpt-5.6-luna",
 				truncated: false,
 				charCount: 1234,
 				// `extractedAt` is epoch ms (jsonb carries no Date).

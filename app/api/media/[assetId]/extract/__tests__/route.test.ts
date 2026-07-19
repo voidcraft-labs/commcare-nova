@@ -19,7 +19,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
-import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
+import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { readTextObject } from "@/lib/storage/media";
@@ -49,8 +49,8 @@ vi.mock("@/lib/db/mediaAssets", () => ({
 vi.mock("@/lib/agent/documentExtractionStore", () => ({
 	ensureStoredExtract: ensureStoredExtractMock,
 }));
-// The gate reads the user's month-to-date usage and compares it to the actual-
-// cost backstop (`ACTUAL_COST_BACKSTOP_USD`, the real client-safe constant the
+// The gate reads the user's month-to-date usage and compares it to the
+// cost backstop (`COST_BACKSTOP_USD`, the real client-safe constant the
 // route imports from creditPolicy — not mocked here). Only `getMonthlyUsage` is
 // stubbed so the over/under-budget tests are deterministic.
 vi.mock("@/lib/db/usage", () => ({
@@ -187,7 +187,7 @@ describe("POST extract (streamed result)", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "openai/gpt-5.6-luna",
+					model: "gpt-5.6-luna",
 					truncated: false,
 					charCount: 12,
 					title: "ANC Program Requirements",
@@ -269,12 +269,12 @@ describe("POST extract (streamed result)", () => {
 	});
 
 	it("429s an over-budget user before running the model", async () => {
-		// A user at/over the monthly actual-cost backstop must not keep triggering
+		// A user at/over the monthly cost backstop must not keep triggering
 		// paid extractions. The gate fires AFTER the document guards (the asset is
 		// fine) but BEFORE the store call, so no model work happens.
 		loadAssetByIdMock.mockResolvedValue(docAsset());
 		getMonthlyUsageMock.mockResolvedValue({
-			cost_estimate: ACTUAL_COST_BACKSTOP_USD,
+			cost_estimate: COST_BACKSTOP_USD,
 		}); // at the backstop
 
 		const res = await POST(req(), ctx());
@@ -304,7 +304,7 @@ describe("GET extract", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "openai/gpt-5.6-luna",
+					model: "gpt-5.6-luna",
 					truncated: false,
 					charCount: 5,
 					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
@@ -344,7 +344,7 @@ describe("GET extract", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "openai/gpt-5.6-luna",
+					model: "gpt-5.6-luna",
 					truncated: false,
 					charCount: 5,
 					title: "ANC Program Requirements",

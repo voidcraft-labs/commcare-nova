@@ -32,13 +32,13 @@ import {
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 
 const {
-	resolveGatewayKeyMock,
+	resolveOpenAIKeyMock,
 	resolveActiveProjectIdMock,
 	resolveAppAccessMock,
 	resolveProjectAccessMock,
 	createSolutionsArchitectMock,
 } = vi.hoisted(() => ({
-	resolveGatewayKeyMock: vi.fn(),
+	resolveOpenAIKeyMock: vi.fn(),
 	resolveActiveProjectIdMock: vi.fn(),
 	resolveAppAccessMock: vi.fn(),
 	resolveProjectAccessMock: vi.fn(),
@@ -53,7 +53,7 @@ class MockAppAccessError extends Error {
 }
 
 vi.mock("@/lib/auth-utils", () => ({
-	resolveGatewayKey: resolveGatewayKeyMock,
+	resolveOpenAIKey: resolveOpenAIKeyMock,
 	resolveActiveProjectId: resolveActiveProjectIdMock,
 }));
 vi.mock("@/lib/db/appAccess", () => ({
@@ -181,13 +181,13 @@ beforeEach(async () => {
 	appDb = harness.appDb;
 	__setAppDbForTests(appDb);
 
-	resolveGatewayKeyMock.mockReset();
+	resolveOpenAIKeyMock.mockReset();
 	resolveActiveProjectIdMock.mockReset();
 	resolveAppAccessMock.mockReset();
 	resolveProjectAccessMock.mockReset();
 	createSolutionsArchitectMock.mockReset();
 
-	resolveGatewayKeyMock.mockResolvedValue({
+	resolveOpenAIKeyMock.mockResolvedValue({
 		ok: true,
 		apiKey: "test-key",
 		session: { user: { id: USER } },

@@ -1,14 +1,12 @@
 /**
  * Central model configuration.
  *
- * Every LLM call routes through the Vercel AI Gateway, so model ids use the
- * gateway's `creator/model-name` format (e.g. "openai/gpt-5.6-sol"). Swapping
- * a constant here switches the model on every surface that uses it — no
- * provider wiring changes needed. List the available ids:
- * `curl -s https://ai-gateway.vercel.sh/v1/models`.
+ * Every LLM call goes straight to OpenAI through `@ai-sdk/openai` (the
+ * Responses API) with the ONE server credential, `OPENAI_API_KEY`. Model ids
+ * are OpenAI's own (e.g. "gpt-5.6-sol"); swapping a constant here switches
+ * the model on every surface that uses it.
  */
 
-import type { GatewayProviderOptions } from "@ai-sdk/gateway";
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 
 /**
@@ -26,30 +24,25 @@ export type ReasoningEffort =
 	| "xhigh";
 
 /** Fallback model for GenerationContext methods when no model is specified. */
-export const MODEL_DEFAULT = "openai/gpt-5.6-sol";
+export const MODEL_DEFAULT = "gpt-5.6-sol";
 
 /**
- * Gateway-level provider options EVERY Nova LLM call carries (under the
- * `gateway` key of `providerOptions`, beside the `openai` reasoning options).
- * `disallowPromptTraining` restricts routing to providers that do not train
- * on prompt data — user content never becomes training data, on any surface
- * (SA, extraction, scripts). `caching: "auto"` opts into the gateway's
- * automatic prompt-caching behavior wherever the routed provider supports it.
+ * The `openai` provider options EVERY Nova LLM call carries. `store: false`
+ * runs the Responses API stateless: OpenAI persists no response object, and
+ * user content stays out of the dashboard's stored-response surfaces (API
+ * traffic is excluded from model training by OpenAI's API terms — there is
+ * no per-call flag to set for that). For reasoning models the SDK reacts to
+ * `store: false` by auto-including `reasoning.encrypted_content`, so
+ * reasoning items come back encrypted and replay across steps and turns as
+ * self-contained items — the exact shape `lib/chat/sanitizeReasoningParts`
+ * maintains in thread history.
  */
-export const GATEWAY_PROVIDER_OPTIONS = {
-	disallowPromptTraining: true,
-	caching: "auto",
-	/* Pin routing to OpenAI direct. The gateway serves our model ids from a
-	 * provider POOL (openai + bedrock + azure, per routing metadata), and a
-	 * prompt cache is per serving provider — a turn written on one provider
-	 * can never be read from another, so unpinned routing forfeits the
-	 * cross-turn cache reads the static-prompt work exists to enable. */
-	only: ["openai"],
-} as const satisfies GatewayProviderOptions;
+export const OPENAI_BASE_OPTIONS = {
+	store: false,
+} as const satisfies OpenAIResponsesProviderOptions;
 
 /**
- * The ONE provider-options literal every reasoning call carries — the
- * `openai` reasoning options beside `GATEWAY_PROVIDER_OPTIONS`. Call this
+ * The ONE provider-options literal every reasoning call carries. Call this
  * instead of restating the shape: a copy that drifts (say, drops
  * `reasoningSummary`) silently darkens that surface's live-thinking feed
  * with no error anywhere.
@@ -81,6 +74,7 @@ export function reasoningProviderOptions(
 	// never reach the wire.
 	return {
 		openai: {
+			...OPENAI_BASE_OPTIONS,
 			reasoningEffort: effort,
 			reasoningSummary: "auto",
 			...(cache && {
@@ -88,32 +82,11 @@ export function reasoningProviderOptions(
 				promptCacheOptions: { mode: "implicit", ttl: "30m" },
 			}),
 		} satisfies OpenAIResponsesProviderOptions,
-		gateway: GATEWAY_PROVIDER_OPTIONS,
 	};
 }
 
-/**
- * The actual USD amount the gateway charged for one call, read from the
- * response's `providerMetadata.gateway.cost` (a decimal string, e.g.
- * "0.0331125") — the gateway's own meter, not a token-math reconstruction.
- * Returns 0 when the metadata is absent or unparseable (a test double, a
- * failed call) so accumulation degrades to under-count, never NaN.
- */
-export function gatewayActualCost(providerMetadata: unknown): number {
-	const cost = (
-		providerMetadata as { gateway?: { cost?: unknown } } | undefined
-	)?.gateway?.cost;
-	const n =
-		typeof cost === "string"
-			? Number(cost)
-			: typeof cost === "number"
-				? cost
-				: Number.NaN;
-	return Number.isFinite(n) && n >= 0 ? n : 0;
-}
-
 /** Model ID for the Solutions Architect agent building a NEW app. */
-export const SA_BUILD_MODEL = "openai/gpt-5.6-sol";
+export const SA_BUILD_MODEL = "gpt-5.6-sol";
 
 /** Model ID for the Solutions Architect agent editing an EXISTING app.
  * Same model as builds, at a lower reasoning effort (`SA_EDIT_REASONING`):
@@ -123,7 +96,7 @@ export const SA_BUILD_MODEL = "openai/gpt-5.6-sol";
  * across both roles also keeps a thread's reasoning items replayable:
  * encrypted reasoning is model-bound, so a build→edit continuation never
  * crosses models mid-thread. */
-export const SA_EDIT_MODEL = "openai/gpt-5.6-sol";
+export const SA_EDIT_MODEL = "gpt-5.6-sol";
 
 /** Reasoning effort for the Solutions Architect building a NEW app —
  * the quality-first ceiling; a ground-up design is the hardest call site. */
@@ -138,30 +111,27 @@ export const SA_EDIT_REASONING: { effort: ReasoningEffort } = {
 };
 
 /**
- * Pricing per million tokens, keyed by gateway model ID.
+ * Pricing per million tokens, keyed by model ID.
  *
- * Base-tier rates: OpenAI bills input past 272k tokens per request at 2×
- * these, which Nova's prompts stay under. Cache reads bill at 0.1× input.
- * The cacheWrite rates are OpenAI's published 1.25× write surcharge. What we
- * OBSERVE through the gateway: our calls carry no `cacheWriteTokens` in usage
- * and are charged no write surcharge (fresh input bills at exactly the plain
- * rate per the gateway's own `providerMetadata.gateway.cost`), so the write
- * arm of an estimate never fires today — whether OpenAI bills Vercel for
- * those writes upstream is not observable from here. The settled per-run
- * truth is the gateway-metered actual (`gatewayActualCost`), which the run
- * summary records beside the estimate.
+ * These are OpenAI's published rates, and with a direct key the token-math
+ * estimate IS the bill: uncached input at the base rate (the 2× long-context
+ * rate starts past 272k tokens per request, which Nova's prompts stay
+ * under), cache reads at 0.1×, cache writes at the published 1.25× write
+ * surcharge whenever usage reports a write bucket, output at the output
+ * rate. There is no separate metered "actual" — `estimateCost` is the one
+ * cost figure every ledger and summary records.
  */
 export const MODEL_PRICING: Record<
 	string,
 	{ input: number; output: number; cacheWrite: number; cacheRead: number }
 > = {
-	"openai/gpt-5.6-sol": {
+	"gpt-5.6-sol": {
 		input: 5,
 		output: 30,
 		cacheWrite: 6.25,
 		cacheRead: 0.5,
 	},
-	"openai/gpt-5.6-luna": {
+	"gpt-5.6-luna": {
 		input: 1,
 		output: 6,
 		cacheWrite: 1.25,

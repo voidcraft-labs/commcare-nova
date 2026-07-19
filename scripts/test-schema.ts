@@ -27,7 +27,8 @@
  *     `removeMediaAsset`, `uploadMediaAsset`.
  */
 import "dotenv/config";
-import { createGateway, generateText, stepCountIs, tool } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
@@ -58,7 +59,7 @@ import {
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
-import { GATEWAY_PROVIDER_OPTIONS, SA_BUILD_MODEL } from "../lib/models";
+import { OPENAI_BASE_OPTIONS, SA_BUILD_MODEL } from "../lib/models";
 
 /**
  * One tool-input schema test: register the tool with a no-op `execute`,
@@ -266,17 +267,17 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 	},
 ];
 
-const apiKey = process.env.AI_GATEWAY_API_KEY;
+const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
-	console.error("Set AI_GATEWAY_API_KEY");
+	console.error("Set OPENAI_API_KEY");
 	process.exit(1);
 }
 
-const gateway = createGateway({ apiKey });
+const openai = createOpenAI({ apiKey });
 const args = process.argv.slice(2);
 const useSol = args.includes("sol");
 const explicitName = args.find((a) => a !== "sol");
-const model = useSol ? SA_BUILD_MODEL : "openai/gpt-5.6-luna";
+const model = useSol ? SA_BUILD_MODEL : "gpt-5.6-luna";
 
 const tests = explicitName
 	? SCHEMA_TESTS.filter((t) => t.name === explicitName)
@@ -307,7 +308,7 @@ console.log(`Testing with ${model}...`);
 
 		try {
 			const r = await generateText({
-				model: gateway(model),
+				model: openai(model),
 				tools: {
 					[test.name]: tool({
 						description: test.description,
@@ -329,7 +330,7 @@ console.log(`Testing with ${model}...`);
 				prompt: test.prompt,
 				maxOutputTokens: 1024,
 				abortSignal: controller.signal,
-				providerOptions: { gateway: GATEWAY_PROVIDER_OPTIONS },
+				providerOptions: { openai: OPENAI_BASE_OPTIONS },
 			});
 			clearTimeout(timer);
 			console.log(

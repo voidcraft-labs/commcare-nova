@@ -49,10 +49,6 @@ export interface SubGenerationObjectResult<T> {
 	usage: LanguageModelUsage | undefined;
 	warnings: CallWarning[] | undefined;
 	finishReason: FinishReason | undefined;
-	/** Provider metadata from the call — carries the gateway's metered actual
-	 *  cost (`gateway.cost`). Absent on the NoObjectGeneratedError path (the
-	 *  error doesn't carry it), so a failed call meters tokens but no actual. */
-	providerMetadata?: unknown;
 }
 
 /**
@@ -121,7 +117,6 @@ export async function generateObjectWith<T>(opts: {
 			usage: result.usage,
 			warnings: result.warnings,
 			finishReason: result.finishReason,
-			providerMetadata: result.providerMetadata,
 		};
 	} catch (err) {
 		// `generateObject` throws `NoObjectGeneratedError` when it can't produce a
@@ -218,7 +213,6 @@ export async function streamObjectWith<T>(opts: {
 			result.usage,
 			result.warnings,
 			result.finishReason,
-			result.providerMetadata,
 		];
 
 		// Draining `stream` advances generation; the result promises resolve once
@@ -240,14 +234,11 @@ export async function streamObjectWith<T>(opts: {
 		}
 
 		// Stream drained → the result promises have settled.
-		const [usage, warnings, finishReason, providerMetadata] = await Promise.all(
-			[
-				result.usage,
-				result.warnings,
-				result.finishReason,
-				result.providerMetadata,
-			],
-		);
+		const [usage, warnings, finishReason] = await Promise.all([
+			result.usage,
+			result.warnings,
+			result.finishReason,
+		]);
 		// Any output failure (truncation / malformed / type-mismatch) → null object:
 		// same "no partial salvage" contract as the blocking path; the caller treats
 		// null as a failed extraction. Two-arg `then` because `output` is a PromiseLike.
@@ -255,7 +246,7 @@ export async function streamObjectWith<T>(opts: {
 			(o) => o as T,
 			() => null,
 		);
-		return { object, usage, warnings, finishReason, providerMetadata };
+		return { object, usage, warnings, finishReason };
 	} catch (err) {
 		// A stream-stopping error (transport failure) reaches here before the result
 		// promises are awaited and may reject them too. Observe each (wrapped, since

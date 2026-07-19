@@ -55,7 +55,7 @@ export interface PipelineConfig {
 	confluenceBaseUrl: string;
 	confluenceEmail: string;
 	confluenceApiToken: string;
-	gatewayApiKey: string;
+	openaiApiKey: string;
 	rateLimitMs: number;
 	triageBatchSize: number;
 	skipConfirmation: boolean;

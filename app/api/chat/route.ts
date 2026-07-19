@@ -22,7 +22,7 @@ import {
 	turnRetryDelayMs,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
+import { resolveActiveProjectId, resolveOpenAIKey } from "@/lib/auth-utils";
 import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
@@ -53,7 +53,7 @@ import {
 	reserveForNewBuild,
 	setAwaitingInput,
 } from "@/lib/db/apps";
-import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
+import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import {
 	getCurrentCreditBalance,
 	OutOfCreditsError,
@@ -105,7 +105,7 @@ let lastChunkPruneAt = 0;
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	// Bound the UNauthenticated parse ahead of `resolveGatewayKey` below. The
+	// Bound the UNauthenticated parse ahead of `resolveOpenAIKey` below. The
 	// cap is generous enough for the largest real request (blueprint + bounded
 	// message history); the message/attachment/text limits stay as the secondary,
 	// post-parse controls. Enforced on BOTH the declared size (cheap, pre-buffer)
@@ -180,7 +180,7 @@ export async function POST(req: Request) {
 	}
 
 	// Require authenticated session + server API key
-	const keyResult = await resolveGatewayKey(req);
+	const keyResult = await resolveOpenAIKey(req);
 	if (!keyResult.ok) {
 		return new Response(JSON.stringify({ error: keyResult.error }), {
 			status: keyResult.status,
@@ -217,11 +217,8 @@ export async function POST(req: Request) {
 	 *       create an orphan app in the common out-of-credits case. */
 	try {
 		const usage = await getMonthlyUsage(userId);
-		const monthlySpend = Math.max(
-			usage?.cost_estimate ?? 0,
-			usage?.actual_cost ?? 0,
-		);
-		if (monthlySpend >= ACTUAL_COST_BACKSTOP_USD) {
+		const monthlySpend = usage?.cost_estimate ?? 0;
+		if (monthlySpend >= COST_BACKSTOP_USD) {
 			return Response.json(
 				{
 					error:

@@ -40,7 +40,7 @@ import { normalizeExtractText } from "@/lib/agent/extractNormalization";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
-import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
+import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import { loadAssetById } from "@/lib/db/mediaAssets";
 import { getMonthlyUsage } from "@/lib/db/usage";
 import {
@@ -128,14 +128,10 @@ export async function POST(
 		// transient read error pauses extraction rather than waving it through.
 		try {
 			const usage = await getMonthlyUsage(session.user.id);
-			// The larger of the token-math estimate and the gateway-metered
-			// actual — same trip condition as the chat route, so the two
-			// paid surfaces can't drift apart on when a month is over cap.
-			const monthlySpend = Math.max(
-				usage?.cost_estimate ?? 0,
-				usage?.actual_cost ?? 0,
-			);
-			if (monthlySpend >= ACTUAL_COST_BACKSTOP_USD) {
+			// Same trip condition as the chat route, so the two paid surfaces
+			// can't drift apart on when a month is over cap.
+			const monthlySpend = usage?.cost_estimate ?? 0;
+			if (monthlySpend >= COST_BACKSTOP_USD) {
 				throw new ApiError(
 					"You've reached this month's usage limit, so document extraction is paused until it resets. Your file is still saved.",
 					429,
