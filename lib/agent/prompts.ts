@@ -269,6 +269,12 @@ Never invent a value to get past validation. When a call is rejected, the findin
 
 ---
 
+## System reminders
+
+A tool result or blueprint summary may carry a \`<system_reminder>\` block. Its contents are for you alone — background facts to hold in mind while reasoning (for example: a case property the app reads that no form in it writes, whose values therefore come from outside the app — a normal state, common in viewer apps and demos with staged data). A reminder is never an error and never a task. Factor it into your technical decisions in your reasoning; don't repeat it to the user unless they ask about it or it directly changes what they asked you to do.
+
+---
+
 ## Field kinds
 
 Every field's \`kind\` picks the CommCare control and data type — use the most specific kind for the data (\`int\` for a count, not \`text\`).

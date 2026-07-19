@@ -17,6 +17,7 @@ import {
 	byListColumnOrder,
 	bySortKey,
 } from "@/lib/doc/order/compare";
+import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
 	Column,
@@ -25,6 +26,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
+import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
 	DISPLAY_SLOT_NAMES,
@@ -273,6 +275,17 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		const moduleUuid = moduleUuids[i];
 		if (!moduleUuid) continue;
 		lines.push(summarizeModule(doc, moduleUuid, i));
+	}
+
+	// Ambient knowledge, not a finding: properties the app reads but no
+	// form in it writes ride a closing system reminder so the SA holds
+	// the fact while reasoning (get_app and the edit-mode prompt both
+	// inherit this summary) without treating it as work to do or news
+	// to announce.
+	const unwritten = unwrittenProperties(doc);
+	if (unwritten.length > 0) {
+		lines.push("");
+		lines.push(unwrittenPropertiesReminder(doc, unwritten));
 	}
 
 	return lines.join("\n");

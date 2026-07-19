@@ -120,3 +120,7 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 <Callout type="warn">
 Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns) — fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>
+
+## System reminders
+
+A few read results (`get_app`, `get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent — for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.

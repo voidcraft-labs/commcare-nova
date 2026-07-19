@@ -18,9 +18,11 @@
 
 import { z } from "zod";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
+import { unwrittenPropertiesReadBy } from "@/lib/doc/unwrittenProperties";
 import type { BlueprintDoc, Field } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
 import { FIELD_REF_HINT, resolveFieldTarget } from "../blueprintHelpers";
+import { unwrittenPropertiesReminder } from "../systemReminder";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -60,6 +62,10 @@ export type GetFieldResult =
 			fieldId: string;
 			path: string;
 			field: Field | ContainerFieldWithChildren;
+			/** Agent-only ambient context (see `lib/agent/systemReminder.ts`):
+			 *  present when the returned field (or its subtree) reads a case
+			 *  property no form in the app writes. */
+			system_reminder?: string;
 	  };
 
 export const getFieldTool = {
@@ -84,9 +90,40 @@ export const getFieldTool = {
 					children: buildFieldTree(doc, resolved.field.uuid),
 				}
 			: resolved.field;
+		const reminder = unwrittenReadsReminder(doc, field);
 		return {
 			kind: "read",
-			data: { moduleIndex, formIndex, fieldId, path: resolved.path, field },
+			data: {
+				moduleIndex,
+				formIndex,
+				fieldId,
+				path: resolved.path,
+				field,
+				...(reminder !== undefined ? { system_reminder: reminder } : {}),
+			},
 		};
 	},
 };
+
+/**
+ * The per-field flavor of the blueprint summary's closing reminder:
+ * when the returned field (for containers, anything in the returned
+ * subtree) reads a case property no form in the app writes, say so as
+ * background knowledge via the shared reminder rendering.
+ */
+function unwrittenReadsReminder(
+	doc: BlueprintDoc,
+	field: Field | ContainerFieldWithChildren,
+): string | undefined {
+	const included = new Set<string>();
+	const collect = (node: Field | FieldWithChildren): void => {
+		included.add(node.uuid);
+		if ("children" in node && node.children) {
+			for (const child of node.children) collect(child);
+		}
+	};
+	collect(field);
+	const entries = unwrittenPropertiesReadBy(doc, included);
+	if (entries.length === 0) return undefined;
+	return unwrittenPropertiesReminder(doc, entries);
+}
