@@ -72,7 +72,11 @@ import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { appendOrderKey } from "@/lib/doc/order/append";
-import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
+import {
+	type ColumnSurface,
+	orderedColumnsOnSurface,
+	resolvedColumnSurfaceOrder,
+} from "@/lib/doc/order/columnSurface";
 import { bySortKey } from "@/lib/doc/order/compare";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
@@ -295,41 +299,16 @@ function authoredSearchActionSettings(
 		.map((key) => SEARCH_ACTION_SETTING_LABELS[key]);
 }
 
-/**
- * Removing the final field removes the visible Search screen. Screen title and
- * subtitle no longer have a surface, but the action label/availability rule
- * still governs CommCare's zero-input Search action (including web auto-launch
- * when Cases available narrows the list), so those settings must survive.
- * Assigned-case behavior remains independent as well.
- */
-export function caseSearchConfigAfterFinalFieldRemoval(
-	config: CaseSearchConfig | undefined,
-	hasCasesAvailableCondition: boolean,
-): CaseSearchConfig | undefined {
-	return caseSearchConfigAfterFinalInputRemoval(
-		config,
-		hasCasesAvailableCondition,
-	);
-}
-
 /** Append to the active surface's resolved sequence, including legacy columns
  * that still use the shared `order` fallback. */
 function appendSurfaceOrderKey(
 	columns: readonly Column[],
 	surface: ColumnSurface,
 ): string {
-	const visible = columns.filter((column) =>
-		surface === "list"
-			? column.visibleInList !== false
-			: column.visibleInDetail !== false,
-	);
 	return appendOrderKey(
-		visible.map((column) => ({
+		orderedColumnsOnSurface(columns, surface).map((column) => ({
 			uuid: column.uuid,
-			order:
-				surface === "list"
-					? (column.listOrder ?? column.order)
-					: (column.detailOrder ?? column.order),
+			order: resolvedColumnSurfaceOrder(column, surface),
 		})),
 	);
 }
@@ -992,7 +971,7 @@ function WorkspaceBody({
 		const hasCasesAvailableCondition =
 			effectiveFilterForEmission(config.filter) !== undefined;
 		const nextSearchConfig = removesVisibleSearchScreen
-			? caseSearchConfigAfterFinalFieldRemoval(
+			? caseSearchConfigAfterFinalInputRemoval(
 					searchConfig,
 					hasCasesAvailableCondition,
 				)
@@ -1068,6 +1047,16 @@ function WorkspaceBody({
 			);
 			if (dependency.kind === "search-field-condition") {
 				openSearchCondition({ kind: "input", uuid: dependency.inputUuid });
+				return;
+			}
+			if (dependency.kind === "search-field-default") {
+				// The starting value lives in the sibling field's inspector on
+				// the Search tab (where the review dialog already is).
+				setSel({ type: "input", uuid: dependency.inputUuid });
+				return;
+			}
+			if (dependency.kind === "search-button-visibility") {
+				openSearchCondition({ kind: "search-button" });
 				return;
 			}
 			deselect();

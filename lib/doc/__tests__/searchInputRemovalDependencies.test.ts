@@ -83,4 +83,78 @@ describe("searchInputRemovalDependencies", () => {
 			},
 		]);
 	});
+
+	it("surfaces sibling starting values and the Search button condition", () => {
+		// Both slots are validator-checked against declared inputs
+		// (`searchInputDefaultTypeCheck` / `searchButtonDisplayConditionTypeCheck`),
+		// so a removal that only these reference would otherwise skip the
+		// review dialog and bounce off the commit gate as a raw rejection.
+		const target = simpleSearchInputDef(
+			targetUuid,
+			"case_name",
+			"Client name",
+			"text",
+			"case_name",
+		);
+		const sibling = {
+			...simpleSearchInputDef(
+				siblingUuid,
+				"external_id",
+				"External ID",
+				"text",
+				"external_id",
+			),
+			default: term(input("case_name")),
+		};
+		const config: CaseListConfig = {
+			columns: [],
+			searchInputs: [target, sibling],
+		};
+		const searchConfig: CaseSearchConfig = {
+			searchButtonDisplayCondition: whenInput(
+				input("case_name"),
+				eq(prop("client", "case_name"), input("case_name")),
+			),
+		};
+
+		expect(
+			searchInputRemovalDependencies(config, searchConfig, targetUuid),
+		).toEqual([
+			{
+				kind: "search-field-default",
+				label: "“External ID” starting value",
+				inputUuid: siblingUuid,
+				paths: [[]],
+			},
+			{
+				kind: "search-button-visibility",
+				label: "Search button visibility",
+				paths: [
+					["when-input-present", "input"],
+					["when-input-present", "clause", "right"],
+				],
+			},
+		]);
+	});
+
+	it("ignores the removed field's own starting value", () => {
+		const target = {
+			...simpleSearchInputDef(
+				targetUuid,
+				"case_name",
+				"Client name",
+				"text",
+				"case_name",
+			),
+			default: term(input("case_name")),
+		};
+		const config: CaseListConfig = {
+			columns: [],
+			searchInputs: [target],
+		};
+
+		expect(
+			searchInputRemovalDependencies(config, undefined, targetUuid),
+		).toEqual([]);
+	});
 });

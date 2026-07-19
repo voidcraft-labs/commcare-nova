@@ -125,14 +125,29 @@ const CLEAN_CASE_WORKSPACE_BOUNDARY: CaseWorkspaceBoundaryVerdicts = {
 	brokenColumnUuids: [],
 };
 
+const CASE_WORKSPACE_VERDICT_CACHE = new WeakMap<
+	BlueprintDoc,
+	Map<Uuid, CaseWorkspaceBoundaryVerdicts>
+>();
+
 /** Run the same module-rule inventory as the commit/export boundary and retain
- * only findings owned by a case-workspace AST slot. */
+ * only findings owned by a case-workspace AST slot.
+ *
+ * Memoized per (doc reference, module uuid) — the `validationContextFor`
+ * discipline. The inventory includes expensive rules (CSQL
+ * representability) and the workspace hook re-runs its selector on every
+ * doc-store notification; every committed batch produces a fresh doc
+ * reference, so reference keying is sound. */
 export function caseWorkspaceBoundaryVerdicts(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): CaseWorkspaceBoundaryVerdicts {
 	const mod = doc.modules[moduleUuid];
 	if (mod === undefined) return CLEAN_CASE_WORKSPACE_BOUNDARY;
+
+	const cachedPerModule = CASE_WORKSPACE_VERDICT_CACHE.get(doc);
+	const cached = cachedPerModule?.get(moduleUuid);
+	if (cached !== undefined) return cached;
 
 	let filterBroken = false;
 	let searchInputsBroken = false;
@@ -170,13 +185,20 @@ export function caseWorkspaceBoundaryVerdicts(
 		}
 	}
 
-	return {
+	const verdicts: CaseWorkspaceBoundaryVerdicts = {
 		filterBroken,
 		searchInputsBroken,
 		searchButtonConditionBroken,
 		excludedOwnerIdsBroken,
 		brokenColumnUuids: [...brokenColumnUuids],
 	};
+	const perModule =
+		cachedPerModule ?? new Map<Uuid, CaseWorkspaceBoundaryVerdicts>();
+	if (cachedPerModule === undefined) {
+		CASE_WORKSPACE_VERDICT_CACHE.set(doc, perModule);
+	}
+	perModule.set(moduleUuid, verdicts);
+	return verdicts;
 }
 
 /**

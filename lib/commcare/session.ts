@@ -37,6 +37,10 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import {
+	substituteUnansweredSearchInputsInExpression,
+	substituteUnansweredSearchInputsInPredicate,
+} from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { validateCaseType } from "./identifierValidation";
@@ -248,8 +252,17 @@ function accumulateCaseLoadingInstances(
 	// search-button display condition (on the detail's `<action relevant>`,
 	// evaluated against the enclosing entry's instances). The Term-kind →
 	// instance-id mapping is fixed in `instanceSourceFor`.
+	//
+	// The filter and owner-exclusion slots collect from the SAME
+	// unanswered-Search substitution `nodesetFilter.ts` emits from, so a
+	// Search-input ref never declares `search-input:results` on an entry
+	// that would leave the instance unloaded (a declared-but-unloaded
+	// instance is itself a runtime throw in Core's `XPathPathExpr.evalRaw`
+	// the moment anything references it).
 	if (caseListFilter !== undefined) {
-		for (const id of collectPredicateInstances(caseListFilter)) {
+		const unanswered =
+			substituteUnansweredSearchInputsInPredicate(caseListFilter);
+		for (const id of collectPredicateInstances(unanswered)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });
@@ -257,11 +270,13 @@ function accumulateCaseLoadingInstances(
 	}
 
 	// Owner exclusion is a scalar expression embedded in the same datum
-	// nodeset as the always-on filter. It can reach session, search-input, or
-	// relation instances, so collect its dependencies before detail-level
+	// nodeset as the always-on filter. It can reach session or relation
+	// instances, so collect its dependencies before detail-level
 	// display/calculated expressions in wire order.
 	if (excludedOwnerIds !== undefined) {
-		for (const id of collectExpressionInstances(excludedOwnerIds)) {
+		const unanswered =
+			substituteUnansweredSearchInputsInExpression(excludedOwnerIds);
+		for (const id of collectExpressionInstances(unanswered)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });

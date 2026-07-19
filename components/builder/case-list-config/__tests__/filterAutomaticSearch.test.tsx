@@ -48,6 +48,7 @@ vi.mock("@/lib/doc/hooks/useBlueprintDoc", () => ({
 
 vi.mock("@/lib/preview/engine/caseDataBindingClient", () => ({
 	pickBlueprintDoc: () => ({}),
+	viewerTimeZone: () => "UTC",
 }));
 
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({

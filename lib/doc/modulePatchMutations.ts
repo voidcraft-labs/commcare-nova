@@ -25,11 +25,22 @@ export function modulePatchMutations(
 		return [updateModuleMutation(mod.uuid, patch)];
 	}
 	const { caseSearchConfig, ...other } = patch;
+	// Present-but-`undefined` means OMITTED, never a clear — the clear
+	// sentinel is `null` ("omission keeps, null clears"), JSON cannot even
+	// carry `undefined`, and forwarding the key would make the reducer's
+	// key-by-key apply delete the whole Search config in memory without the
+	// clear ever round-tripping. Stripping the key keeps a spread-built
+	// caller's `caseSearchConfig: maybeConfig` no-change intent a no-op.
+	if (caseSearchConfig === undefined) {
+		return Object.keys(other).length > 0
+			? [updateModuleMutation(mod.uuid, other)]
+			: [];
+	}
 	const mutations: Mutation[] =
 		Object.keys(other).length > 0
 			? [updateModuleMutation(mod.uuid, other)]
 			: [];
-	if (caseSearchConfig === null || caseSearchConfig === undefined) {
+	if (caseSearchConfig === null) {
 		if (options.nullCaseSearchConfig === "settings") {
 			mutations.push(
 				...clearCaseSearchConfigSettingsMutations(
@@ -39,9 +50,7 @@ export function modulePatchMutations(
 			);
 		} else {
 			mutations.push(
-				updateModuleMutation(mod.uuid, {
-					caseSearchConfig: caseSearchConfig ?? null,
-				}),
+				updateModuleMutation(mod.uuid, { caseSearchConfig: null }),
 			);
 		}
 		return mutations;

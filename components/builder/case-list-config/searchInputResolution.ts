@@ -65,6 +65,7 @@ import {
 	type ValueExpression,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { MATCH_MODE_VOCABULARY } from "../shared/matchModeVocabulary";
 import type { EditorSearchInputDecl } from "../shared/searchInputPresentation";
 
 // ── Forbids-input-ref slots ───────────────────────────────────────
@@ -118,13 +119,15 @@ export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
 /**
  * Outcome-first names for match behavior. Storage keeps its exact mode names,
  * but the authoring surface describes what people can expect from each choice.
+ * The four forgiving-match names come from the shared match-mode vocabulary
+ * (`shared/matchModeVocabulary`), which the condition verb menu also reads.
  */
 export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
 	exact: "Exact value",
-	fuzzy: "Similar spelling",
-	"starts-with": "Begins with",
-	phonetic: "Sounds like",
-	"fuzzy-date": "Flexible date",
+	fuzzy: MATCH_MODE_VOCABULARY.fuzzy.pickerLabel,
+	"starts-with": MATCH_MODE_VOCABULARY["starts-with"].pickerLabel,
+	phonetic: MATCH_MODE_VOCABULARY.phonetic.pickerLabel,
+	"fuzzy-date": MATCH_MODE_VOCABULARY["fuzzy-date"].pickerLabel,
 	range: "Between dates",
 	"multi-select-contains": "Includes options",
 };
@@ -136,29 +139,19 @@ export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
  * value, because the gap between "Exact" and "Fuzzy" is the gap
  * between "search looks broken" and "search works": exact is
  * letter-for-letter including capitalization, which surprises
- * everyone the first time.
- *
- * Behavioral ground truth (mirrored by the case store's Postgres
- * compiler and CommCare HQ's Elasticsearch layer):
- *   - exact: whole-value term match, case-sensitive.
- *   - fuzzy: per-word — a word matches if it equals a word of the
- *     value (ignoring case), or sits within 1 edit (words of 3–5
- *     letters) / 2 edits (6+) of one sharing its first two letters.
- *     It does NOT match partial words: "bo" never finds "bob".
- *   - starts-with: prefix of the whole value, case-sensitive.
- *   - phonetic: Soundex per word — same spoken shape, any spelling.
- *   - fuzzy-date: the typed date plus its digit-permutation set
- *     (swapped day/month, reversed digit pairs).
+ * everyone the first time. The forgiving-match claims (and their
+ * behavioral ground truth) live in the shared match-mode vocabulary;
+ * exact's ground truth is a whole-value term match, case-sensitive
+ * (mirrored by the case store's Postgres compiler and CommCare HQ's
+ * Elasticsearch layer).
  */
 export const SEARCH_MODE_DESCRIPTIONS: Record<SearchInputMode["kind"], string> =
 	{
 		exact: "Finds only the same complete value, including capitalization",
-		fuzzy:
-			"Finds words with small spelling differences and ignores capitalization",
-		"starts-with":
-			"Finds values beginning the same way, including capitalization",
-		phonetic: "Finds names that sound alike, such as Smith and Smyth",
-		"fuzzy-date": "Allows a swapped day and month or a small typing mistake",
+		fuzzy: MATCH_MODE_VOCABULARY.fuzzy.description,
+		"starts-with": MATCH_MODE_VOCABULARY["starts-with"].description,
+		phonetic: MATCH_MODE_VOCABULARY.phonetic.description,
+		"fuzzy-date": MATCH_MODE_VOCABULARY["fuzzy-date"].description,
 		range: "Finds dates between the From and To values",
 		"multi-select-contains": "Finds cases that include the selected options",
 	};

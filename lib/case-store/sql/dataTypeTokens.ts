@@ -117,3 +117,28 @@ export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
 	["date-opened", { column: "opened_on", blankable: false }],
 	["last_modified", { column: "modified_on", blankable: false }],
 ]);
+
+/**
+ * Textual shape of a NAIVE temporal value — a calendar date, or a
+ * date + wall-clock time with NO trailing zone/offset designator
+ * (`2026-07-18`, `2026-07-18 20:00:00`, `2026-07-18T20:00:00.5`).
+ *
+ * Values in this shape carry no timezone of their own, so parsing
+ * them through a bare `::timestamptz` cast silently inherits the
+ * Postgres session `TimeZone` — which the preview pools do not pin.
+ * The compilers instead route naive shapes through
+ * `timezone(<zone>, <text>::timestamp)` with an explicit zone:
+ * `'UTC'` where CCHQ CSQL semantics govern (`datetime-coerce`,
+ * datetime literals), the viewer's zone where device-local
+ * rendering governs (`format-date`). Offset-bearing values keep the
+ * ordinary `timestamptz` cast so an authored `Z` / `+05:30` stays
+ * authoritative.
+ *
+ * The two spellings stay in lockstep: `NAIVE_TEMPORAL_TEXT_PATTERN`
+ * is the Postgres POSIX form bound into SQL `~` tests;
+ * `NAIVE_TEMPORAL_TEXT_RE` is the same grammar for compile-time
+ * (JS) decisions on literals.
+ */
+export const NAIVE_TEMPORAL_TEXT_PATTERN =
+	"^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?)?$";
+export const NAIVE_TEMPORAL_TEXT_RE = new RegExp(NAIVE_TEMPORAL_TEXT_PATTERN);

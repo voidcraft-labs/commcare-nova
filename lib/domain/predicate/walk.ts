@@ -247,6 +247,93 @@ export function renameSearchInputInExpression(
 }
 
 /**
+ * Structurally replace every Search-input dependency with its
+ * "unanswered" reading: `when-input-present` envelopes collapse to
+ * `match-all` (their clause only applies once the input is answered)
+ * and bare `input(...)` Terms become the blank literal (CommCare
+ * resolves an unanswered input to the empty string).
+ *
+ * Wire slots evaluated before any Search runs — the ordinary
+ * case-list nodeset and its HQ-JSON projection — must not reference
+ * `instance('search-input:results')` at all: on such an entry the
+ * instance is declared but never loaded, and Core's
+ * `XPathPathExpr.evalRaw` throws `XPathMissingInstanceException` for
+ * a declared-but-unloaded instance BEFORE any enclosing guard
+ * (`normalize-space(...) = ''`, `if(count(...))`) can evaluate.
+ * Substituting the unanswered reading statically produces exactly the
+ * semantics those runtime guards were written to provide, with no
+ * instance reference left on the wire.
+ *
+ * Returns the given tree unchanged (same reference) when it reaches
+ * no Search-input reference.
+ */
+export function substituteUnansweredSearchInputsInPredicate(
+	predicate: Predicate,
+): Predicate {
+	if (!predicateReferencesAnySearchInput(predicate)) return predicate;
+	const substituted = structuredClone(predicate);
+	walkPredicateNodes(substituted, collapseWhenInputPresent);
+	walkTerms(substituted, blankInputTerm);
+	return substituted;
+}
+
+/** Expression-rooted counterpart to `substituteUnansweredSearchInputsInPredicate`. */
+export function substituteUnansweredSearchInputsInExpression(
+	expression: ValueExpression,
+): ValueExpression {
+	if (!expressionReferencesAnySearchInput(expression)) return expression;
+	const substituted = structuredClone(expression);
+	walkExpressionPredicateNodes(substituted, collapseWhenInputPresent);
+	walkExpressionTerms(substituted, blankInputTerm);
+	return substituted;
+}
+
+/** Whether a predicate reads ANY Search input anywhere in its AST. */
+export function predicateReferencesAnySearchInput(
+	predicate: Predicate,
+): boolean {
+	let found = false;
+	walkTerms(predicate, (term) => {
+		if (term.kind === "input") found = true;
+	});
+	return found;
+}
+
+/** Expression-rooted counterpart to `predicateReferencesAnySearchInput`. */
+export function expressionReferencesAnySearchInput(
+	expression: ValueExpression,
+): boolean {
+	let found = false;
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind === "input") found = true;
+	});
+	return found;
+}
+
+/**
+ * In-place arm swap: `when-input-present` → `match-all`. Runs before
+ * `blankInputTerm` so a collapsed envelope's clause (and its trigger
+ * ref) is dropped wholesale rather than visited. Mutating `kind`
+ * pre-order stops the walker from descending into the deleted clause.
+ */
+function collapseWhenInputPresent(predicate: Predicate): void {
+	if (predicate.kind !== "when-input-present") return;
+	const node = predicate as unknown as Record<string, unknown>;
+	delete node.input;
+	delete node.clause;
+	node.kind = "match-all";
+}
+
+/** In-place arm swap: `input(...)` Term → the blank literal. */
+function blankInputTerm(term: Term): void {
+	if (term.kind !== "input") return;
+	const node = term as unknown as Record<string, unknown>;
+	delete node.name;
+	node.kind = "literal";
+	node.value = "";
+}
+
+/**
  * Convenience wrapper: visit every `PropertyRef` (i.e. every
  * `prop(...)` Term and every operator slot typed `PropertyRef`)
  * reached anywhere inside `predicate`. Filters `walkTerms` to

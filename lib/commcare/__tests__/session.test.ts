@@ -389,12 +389,14 @@ describe("deriveEntryDefinition", () => {
 		expect(entry.stack?.operations).toHaveLength(1);
 	});
 
-	it("accumulates the search-input:results instance when the case-list filter references an input", () => {
-		// The case-list filter's bracketed XPath fragment lives inside
-		// the case-loading datum's nodeset. Any instance the fragment
-		// references must be declared on the `<entry>` itself; an
-		// undeclared instance breaks `instance('...')` resolution at
-		// runtime.
+	it("never declares search-input:results on the ordinary entry, matching the substituted nodeset", () => {
+		// The ordinary case-loading entry evaluates before any Search
+		// runs, so the nodeset emission substitutes Search-input refs to
+		// their unanswered reading and the accumulator collects from the
+		// SAME substituted tree — a declared-but-unloaded
+		// `search-input:results` instance would itself throw
+		// `XPathMissingInstanceException` in Core the moment the nodeset
+		// referenced it.
 		const filter = eq(
 			prop("patient", "city"),
 			term({ kind: "input", name: "city_q" }),
@@ -411,11 +413,9 @@ describe("deriveEntryDefinition", () => {
 		);
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("casedb");
-		expect(ids).toContain("search-input:results");
-		const searchInput = entry.instances.find(
-			(i) => i.id === "search-input:results",
-		);
-		expect(searchInput?.src).toBe("jr://instance/search-input/results");
+		expect(ids).not.toContain("search-input:results");
+		const nodeset = entry.session?.datums[0]?.nodeset ?? "";
+		expect(nodeset).not.toContain("search-input:results");
 	});
 
 	it("accumulates the commcaresession instance when the case-list filter references a session term", () => {

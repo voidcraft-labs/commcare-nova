@@ -82,6 +82,47 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		}
 	});
 
+	it("keeps JS replacement metacharacters in a typed value inert", () => {
+		// The typed value lands in the rejection condition via
+		// `String.replaceAll`; a string replacement would expand `$&` to the
+		// matched instance path and collapse `$$`, so the gate would judge a
+		// different value than the worker typed — `$'` (apostrophe-bearing)
+		// must still flag, and quote-safe `$&`/`$$` values must stay clean.
+		const config: CaseListConfig = {
+			columns: [],
+			searchInputs: [
+				advancedSearchInputDef(
+					FIRST,
+					"query",
+					"Query",
+					"text",
+					whenInput(
+						input("query"),
+						eq(prop("patient", "case_name"), input("query")),
+					),
+				),
+			],
+		};
+
+		expect(
+			searchInputRuntimeQuoteErrors(
+				config,
+				"patient",
+				new Map([["query", `$' O'Brien said "hello"`]]),
+			).get("query"),
+		).toContain("quotation mark");
+		for (const accepted of ["$&", "$$", "pay $& now"]) {
+			expect(
+				searchInputRuntimeQuoteErrors(
+					config,
+					"patient",
+					new Map([["query", accepted]]),
+				).size,
+				accepted,
+			).toBe(0);
+		}
+	});
+
 	it("rejects a computed output that combines individually safe answers", () => {
 		const combined = whenInput(
 			input("first"),

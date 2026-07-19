@@ -110,6 +110,7 @@ function previewCaseStoreBindings(
 	session: PreviewSearchSessionValues,
 	searchInputs: readonly SearchInputDef[] = [],
 	inputValues: SearchInputValues = new Map(),
+	viewerTimeZone?: string,
 ): TermBindings {
 	const boundInputs = new Map(inputValues);
 	for (const input of searchInputs) {
@@ -126,6 +127,7 @@ function previewCaseStoreBindings(
 		sessionContext,
 		sessionUser: new Map(Object.entries(session.user)),
 		sessionUserFallback: "",
+		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
 	};
 }
 
@@ -182,6 +184,11 @@ export async function loadCasesAction(args: {
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by raw-row/legacy callers. */
 	page?: { offset: number; limit: number };
+	/**
+	 * The viewer's IANA timezone — drives `format-date` rendering in
+	 * calculated columns (device-local parity). Omitted falls back to UTC.
+	 */
+	viewerTimeZone?: string;
 }): Promise<LoadCasesResult> {
 	try {
 		const session = await getSession();
@@ -252,6 +259,7 @@ export async function loadCasesAction(args: {
 			searchSession,
 			args.caseListConfig?.searchInputs,
 			expressionInputValues,
+			args.viewerTimeZone,
 		);
 		const excludedOwnerIds =
 			args.excludedOwnerIdsExpression === undefined
@@ -374,6 +382,7 @@ export async function loadCaseDataAction(
 	ancestorDepth: number,
 	caseListConfig?: CaseListConfig,
 	caseTypes?: readonly CaseType[],
+	viewerTimeZone?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const session = await getSession();
@@ -397,6 +406,7 @@ export async function loadCaseDataAction(
 				searchSession,
 				caseListConfig?.searchInputs,
 				expressionInputValues,
+				viewerTimeZone,
 			),
 			caseTypeSchemas:
 				caseTypes && caseTypes.length > 0
@@ -528,6 +538,8 @@ export async function loadFilterPreviewAction(args: {
 	caseListConfig: CaseListConfig;
 	excludedOwnerIdsExpression?: ValueExpression;
 	limit?: number;
+	/** Viewer IANA timezone for `format-date` rendering; UTC when omitted. */
+	viewerTimeZone?: string;
 }): Promise<LoadFilterPreviewResult> {
 	try {
 		// Session-first matches every other action in this file. An
@@ -588,6 +600,7 @@ export async function loadFilterPreviewAction(args: {
 					parsedConfig.data.searchInputs,
 					new Map(),
 				),
+				args.viewerTimeZone,
 			),
 			excludedOwnerIds,
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),

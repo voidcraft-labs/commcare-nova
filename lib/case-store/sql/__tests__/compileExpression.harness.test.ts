@@ -51,6 +51,7 @@ import {
 	dateAdd,
 	dateCoerce,
 	datetimeCoerce,
+	datetimeLiteral,
 	double,
 	formatDate,
 	ifExpr,
@@ -213,6 +214,52 @@ describe("compileExpression — round-trip — coercion arms", () => {
 			.selectFrom(sql`(values (1))`.as("v"))
 			.select(
 				sql<boolean>`${expr} = timestamptz '2026-01-01 00:00:00+00'`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("datetime-coerce treats a naive datetime-with-time as UTC in a non-UTC session", async ({
+		db,
+		pgClient,
+	}) => {
+		// CCHQ resolves a zone-less datetime on its UTC servers; the bare
+		// `timestamptz` cast this arm previously fell to would instead read
+		// 20:00 as Los Angeles wall time and shift the instant to 04:00Z.
+		await pgClient.query("SET LOCAL TIME ZONE 'America/Los_Angeles'");
+		const expr = compileExpression(
+			datetimeCoerce(term(literal("2026-01-01 20:00:00"))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = timestamptz '2026-01-01 20:00:00+00'`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("a naive datetime literal is UTC in a non-UTC session", async ({
+		db,
+		pgClient,
+	}) => {
+		// The `data_type: "datetime"` literal cast shares CSQL's naive→UTC
+		// contract; the decision is static because the value is known at
+		// compile time.
+		await pgClient.query("SET LOCAL TIME ZONE 'America/Los_Angeles'");
+		const expr = compileExpression(
+			term(datetimeLiteral("2026-01-01T20:00:00")),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = timestamptz '2026-01-01 20:00:00+00'`.as(
 					"matches",
 				),
 			)
@@ -597,6 +644,81 @@ describe("compileExpression — round-trip — format-date arm", () => {
 				process.env.TZ = previousTimeZone;
 			}
 		}
+	});
+
+	test("format-date renders viewer-zone wall time, independent of the session zone", async ({
+		db,
+		pgClient,
+	}) => {
+		// 12:00Z on 2 May 2026 is 05:00 in Los Angeles (PDT, UTC-7). The
+		// session zone is deliberately somewhere else entirely — rendering
+		// must read the viewer binding, never the connection `TimeZone`.
+		await pgClient.query("SET LOCAL TIME ZONE 'Asia/Tokyo'");
+		const expr = compileExpression(
+			formatDate(
+				datetimeCoerce(term(literal(FIXTURE_DATETIME))),
+				"%Y-%m-%d %H:%M %Z",
+			),
+			makeCtx(db, {
+				bindings: { viewerTimeZone: "America/Los_Angeles" },
+			}),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("2026-05-02 05:00 -07");
+	});
+
+	test("format-date reads a naive stored value as viewer wall time (stable round-trip)", async ({
+		db,
+		pgClient,
+	}) => {
+		// A zone-less stored string means wall time on the device; parsing
+		// AND rendering in the viewer zone keeps it stable (09:30 in,
+		// 09:30 out) instead of shifting by session-vs-viewer offsets.
+		await pgClient.query("SET LOCAL TIME ZONE 'Asia/Tokyo'");
+		const expr = compileExpression(
+			formatDate(term(literal("2026-05-02 09:30:00")), "%H:%M"),
+			makeCtx(db, {
+				bindings: { viewerTimeZone: "America/Los_Angeles" },
+			}),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("09:30");
+	});
+
+	test("format-date falls back to UTC when no viewer timezone is bound", async ({
+		db,
+		pgClient,
+	}) => {
+		await pgClient.query("SET LOCAL TIME ZONE 'Asia/Tokyo'");
+		const expr = compileExpression(
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), "%H:%M %Z"),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("12:00 Z");
+	});
+
+	test("format-date treats an unrecognized viewer timezone as UTC", async ({
+		db,
+	}) => {
+		const expr = compileExpression(
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), "%H:%M"),
+			makeCtx(db, { bindings: { viewerTimeZone: "Not/AZone" } }),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("12:00");
 	});
 });
 

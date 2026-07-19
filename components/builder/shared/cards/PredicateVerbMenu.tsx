@@ -88,6 +88,7 @@ import {
 	predicateCardSchemas,
 	predicateUnavailableReason,
 } from "../editorSchemas";
+import { MATCH_MODE_VOCABULARY } from "../matchModeVocabulary";
 import { useRuleFocusContext } from "../RuleFocusContext";
 import {
 	PredicateTransitionAlert,
@@ -584,36 +585,17 @@ const COMPARISON_VERBS: ReadonlyArray<{
 	},
 ];
 
+/** Verb label + behavioral description come from the shared match-mode
+ *  vocabulary, so this menu and the search-input Match picker can't
+ *  drift apart in what they claim each behavior does. */
 const MATCH_VERBS: ReadonlyArray<{
 	mode: MatchMode;
-	label: string;
-	description: string;
 	icon: IconifyIcon;
 }> = [
-	{
-		mode: "fuzzy",
-		label: "Similar spelling",
-		description: "Forgives a typo or two per word and ignores capitalization",
-		icon: tablerWand,
-	},
-	{
-		mode: "starts-with",
-		label: "starts with",
-		description: "Begins with the text and keeps capitalization exact",
-		icon: tablerAbc,
-	},
-	{
-		mode: "phonetic",
-		label: "sounds like",
-		description: "Matches words that sound alike, such as Smith and Smyth",
-		icon: tablerEar,
-	},
-	{
-		mode: "fuzzy-date",
-		label: "Flexible date",
-		description: "Forgives a swapped day and month or mistyped digits",
-		icon: tablerCalendarQuestion,
-	},
+	{ mode: "fuzzy", icon: tablerWand },
+	{ mode: "starts-with", icon: tablerAbc },
+	{ mode: "phonetic", icon: tablerEar },
+	{ mode: "fuzzy-date", icon: tablerCalendarQuestion },
 ];
 
 /** Ordering operators compare by total order — only ordered subject
@@ -647,10 +629,11 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		});
 	}
 	for (const m of MATCH_VERBS) {
+		const vocabulary = MATCH_MODE_VOCABULARY[m.mode];
 		entries.push({
 			id: `match:${m.mode}`,
-			label: m.label,
-			description: m.description,
+			label: vocabulary.verbLabel,
+			description: vocabulary.description,
 			icon: m.icon,
 			schemaKind: "match",
 			isCurrent: (p) => p.kind === "match" && p.mode === m.mode,

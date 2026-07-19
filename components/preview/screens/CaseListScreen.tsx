@@ -285,24 +285,19 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * the prompt screen exists. Preview's combined Search + Results composition
 	 * therefore gates the whole Search pane from the same session/global context;
 	 * it must never make the pane's submit button react to its own draft. */
-	const searchActionIsRelevant = (() => {
-		if (searchConfig === undefined) return false;
-		if (searchButtonCondition === undefined) return true;
-		try {
-			return evaluatePreviewSearchPredicate(
+	/* No legacy fallback: the commit gate rejects a condition the on-device
+	 * emitter can't lower, and stored pre-gate documents are migrated rather
+	 * than tolerated — so a throw here is a Nova bug and must surface, not
+	 * fail the action closed. */
+	const searchActionIsRelevant =
+		searchConfig !== undefined &&
+		(searchButtonCondition === undefined ||
+			evaluatePreviewSearchPredicate(
 				searchButtonCondition,
 				config?.searchInputs ?? [],
 				searchSession,
 				EMPTY_SEARCH_INPUT_VALUES,
-			);
-		} catch {
-			/* Legacy/imported documents can carry a schema-valid condition that a
-			 * newer on-device validator rejects. Preview remains a repair surface for
-			 * those documents: fail the action closed instead of crashing the entire
-			 * case list while the builder points the author to the invalid setting. */
-			return false;
-		}
-	})();
+			));
 	/* A retained flipbook submission belongs to the Search action. If a live
 	 * session/config edit makes that action irrelevant, show the ordinary case
 	 * list instead of silently keeping an inaccessible remote-search query. The

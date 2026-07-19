@@ -1654,27 +1654,26 @@ describe("CaseListScreen — search-input form", () => {
 		);
 	});
 
-	it("fails a validator-broken legacy action condition closed instead of crashing Preview", async () => {
+	it("surfaces an on-device-unrepresentable action condition loudly — the state is gate-impossible", () => {
+		// The commit gate rejects a months `date-add` in this slot and stored
+		// pre-gate documents are migrated rather than tolerated, so this
+		// shape reaching render is a Nova bug. No fail-closed legacy
+		// fallback: the emitter's tripwire must propagate instead of
+		// silently hiding the Search pane.
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			searchInputs: [searchInput],
-			searchButtonDisplayCondition: eq(
-				dateAdd(today(), "months", term(literal(1))),
-				today(),
-			),
-		});
-
-		expect(await screen.findByText("Alice")).toBeDefined();
-		expect(screen.queryByRole("search")).toBeNull();
-		expect(screen.queryByLabelText("Name")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
-		expect(vi.mocked(loadCasesAction)).toHaveBeenLastCalledWith(
-			expect.objectContaining({ inputValues: undefined }),
-		);
+		expect(() =>
+			renderCaseListScreen({
+				columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+				searchInputs: [searchInput],
+				searchButtonDisplayCondition: eq(
+					dateAdd(today(), "months", term(literal(1))),
+					today(),
+				),
+			}),
+		).toThrow(/date-add interval 'months'/);
 	});
 
 	it("keeps the pane's sole submit available while a relevant Search draft changes", async () => {

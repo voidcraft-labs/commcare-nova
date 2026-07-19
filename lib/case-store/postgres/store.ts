@@ -611,14 +611,20 @@ export class PostgresCaseStore implements CaseStore {
 		// derived edge. A failure anywhere rolls the entire
 		// registration back.
 		return await this.db.transaction().execute(async (trx) => {
-			await this.lockRelationshipWrites(trx, args.appId);
-			if (
-				args.primary.parent_case_id !== null &&
-				args.primary.parent_case_id !== undefined
-			) {
+			const primaryParentCaseId = args.primary.parent_case_id ?? null;
+			// Only a relationship-bearing registration serializes — the same
+			// conditional `insert` / `update` apply, honoring
+			// `lockRelationshipWrites`'s parentless-writes-stay-concurrent
+			// contract. Unconditional locking would block every Preview form
+			// submission behind `resetSampleData`'s whole replace
+			// transaction, even for forms that create no relationships.
+			if (primaryParentCaseId !== null || args.children.length > 0) {
+				await this.lockRelationshipWrites(trx, args.appId);
+			}
+			if (primaryParentCaseId !== null) {
 				await this.assertParentExists(trx, {
 					appId: args.appId,
-					parentCaseId: args.primary.parent_case_id,
+					parentCaseId: primaryParentCaseId,
 				});
 			}
 			// Primary id generated up-front so child `parent_case_id`

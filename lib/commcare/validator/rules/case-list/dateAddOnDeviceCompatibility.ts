@@ -19,40 +19,30 @@
  * negative fractions and dates before 1970. Months and years are calendar
  * relative and have no faithful fixed-day operator lowering.
  *
- * The inventory mirrors the actual on-device emitters:
- *
- *   - the effective case-list filter (after wire simplification),
- *   - calculated columns with a list/detail/sort runtime role,
- *   - every simple or advanced search-input default,
- *   - the assigned-cases / excluded-owner expression, and
- *   - the simplified search-button display condition.
- *
- * Advanced predicates are mixed-dialect rather than uniformly server-side:
- * direct CSQL-native `date-add` nodes stay on the server, while a `date-add`
- * below a non-native value root (for example `if` or `arith`) is interpolated
- * through JavaRosa. The dialect-state walker mirrors that dispatch. An input's
- * default remains wholly in scope because `<prompt default>` is evaluated
- * on-device.
+ * The slot inventory lives in `moduleWireSlots.ts` and mirrors the actual
+ * on-device emitters. Advanced predicates are mixed-dialect rather than
+ * uniformly server-side: direct CSQL-native `date-add` nodes stay on the
+ * server, while a `date-add` below a non-native value root (for example `if`
+ * or `arith`) is interpolated through JavaRosa. The dialect-state walker
+ * mirrors that dispatch. An input's default remains wholly in scope because
+ * `<prompt default>` is evaluated on-device.
  */
 
 import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate";
-import {
-	type BlueprintDoc,
-	caseListColumnHasRuntimeRole,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
 	checkExpression,
-	effectiveFilterForEmission,
 	type Predicate,
-	simplifyForEmission,
 	type TypeContext,
 	type ValueExpression,
 	walkExpressionNodes,
 	walkPredicateExpressionNodes,
 } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	collectModuleWireSlotFindings,
+	type ModuleWireSlotIdentity,
+} from "./moduleWireSlots";
 import { moduleTypeContext } from "./shared";
 
 type DateAddExpression = Extract<ValueExpression, { kind: "date-add" }>;
@@ -68,163 +58,29 @@ export function dateAddOnDeviceCompatibility(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const errors: ValidationError[] = [];
 	const ctx = moduleTypeContext(mod, doc);
-	const csqlPredicates: Predicate[] = [];
 
-	const filter = effectiveFilterForEmission(mod.caseListConfig?.filter);
-	if (filter !== undefined) {
-		csqlPredicates.push(filter);
-		addPredicateError(errors, filter, ctx, {
-			mod,
-			moduleUuid,
-			slot: "caseListConfig.filter",
-			slotLabel: "the Cases available rule",
-			surface: "filter",
-		});
-	}
-
-	const columns = mod.caseListConfig?.columns ?? [];
-	for (let index = 0; index < columns.length; index += 1) {
-		const column = columns[index];
-		if (column.kind !== "calculated" || !caseListColumnHasRuntimeRole(column)) {
-			continue;
-		}
-		const label = column.header || "Untitled field";
-		addExpressionError(errors, column.expression, ctx, {
-			mod,
-			moduleUuid,
-			slot: `caseListConfig.columns[${index}].expression`,
-			slotLabel: `calculated field "${label}"`,
-			surface: "calculated-column",
-			column: { uuid: column.uuid, label },
-		});
-	}
-
-	const inputs = mod.caseListConfig?.searchInputs ?? [];
-	for (let index = 0; index < inputs.length; index += 1) {
-		const input = inputs[index];
-		const inputIdentity = {
-			uuid: input.uuid,
-			name: input.name,
-			label: input.label || input.name,
-		};
-		if (input.default !== undefined) {
-			addExpressionError(errors, input.default, ctx, {
-				mod,
-				moduleUuid,
-				slot: `caseListConfig.searchInputs[${index}].default`,
-				slotLabel: `the default for search field "${inputIdentity.label}"`,
-				surface: "search-input-default",
-				input: inputIdentity,
+	return collectModuleWireSlotFindings(mod, moduleUuid, {
+		calculatedColumns: "runtime",
+		judgePredicate(predicate, slot) {
+			const offender = firstIncompatibleDateAddInPredicate(predicate, ctx);
+			return offender === undefined ? undefined : buildError(slot, offender);
+		},
+		judgeCsqlPredicate(predicate, slot) {
+			let offender: IncompatibleDateAdd | undefined;
+			walkCsqlOnDeviceNodes(predicate, {
+				visitExpression(node) {
+					if (offender !== undefined || node.kind !== "date-add") return;
+					offender = incompatibilityFor(node, ctx);
+				},
 			});
-		}
-		if (input.kind !== "advanced") continue;
-		const effective = effectiveFilterForEmission(input.predicate);
-		if (effective === undefined) continue;
-		csqlPredicates.push(effective);
-		addCsqlPredicateError(errors, effective, ctx, {
-			mod,
-			moduleUuid,
-			slot: `caseListConfig.searchInputs[${index}].predicate`,
-			slotLabel: `advanced search input "${inputIdentity.label}"`,
-			surface: "advanced-input",
-			input: inputIdentity,
-		});
-	}
-
-	// The filter and advanced predicates are AND-composed for CSQL. A
-	// match-none clause absorbs that server query, so on-device fragments inside
-	// sibling advanced predicates are never emitted. The filter still has an
-	// independent on-device role, so only advanced-input findings are removed.
-	if (csqlPredicates.some((predicate) => predicate.kind === "match-none")) {
-		for (let index = errors.length - 1; index >= 0; index -= 1) {
-			if (errors[index].details?.surface === "advanced-input") {
-				errors.splice(index, 1);
-			}
-		}
-	}
-
-	const searchConfig = mod.caseSearchConfig;
-	if (searchConfig?.excludedOwnerIds !== undefined) {
-		addExpressionError(errors, searchConfig.excludedOwnerIds, ctx, {
-			mod,
-			moduleUuid,
-			slot: "caseSearchConfig.excludedOwnerIds",
-			slotLabel: "the assigned-cases setting",
-			surface: "excluded-owner-ids",
-		});
-	}
-
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
-		addPredicateError(
-			errors,
-			simplifyForEmission(searchConfig.searchButtonDisplayCondition),
-			ctx,
-			{
-				mod,
-				moduleUuid,
-				slot: "caseSearchConfig.searchButtonDisplayCondition",
-				slotLabel: "the search-button display condition",
-				surface: "search-button",
-			},
-		);
-	}
-
-	return errors;
-}
-
-interface SlotIdentity {
-	readonly mod: Module;
-	readonly moduleUuid: Uuid;
-	readonly slot: string;
-	readonly slotLabel: string;
-	readonly surface: string;
-	readonly input?: {
-		readonly uuid: Uuid;
-		readonly name: string;
-		readonly label: string;
-	};
-	readonly column?: {
-		readonly uuid: Uuid;
-		readonly label: string;
-	};
-}
-
-function addPredicateError(
-	errors: ValidationError[],
-	predicate: Predicate,
-	ctx: TypeContext,
-	slot: SlotIdentity,
-): void {
-	const offender = firstIncompatibleDateAddInPredicate(predicate, ctx);
-	if (offender !== undefined) errors.push(buildError(slot, offender));
-}
-
-function addExpressionError(
-	errors: ValidationError[],
-	expression: ValueExpression,
-	ctx: TypeContext,
-	slot: SlotIdentity,
-): void {
-	const offender = firstIncompatibleDateAdd(expression, ctx);
-	if (offender !== undefined) errors.push(buildError(slot, offender));
-}
-
-function addCsqlPredicateError(
-	errors: ValidationError[],
-	predicate: Predicate,
-	ctx: TypeContext,
-	slot: SlotIdentity,
-): void {
-	let offender: IncompatibleDateAdd | undefined;
-	walkCsqlOnDeviceNodes(predicate, {
-		visitExpression(node) {
-			if (offender !== undefined || node.kind !== "date-add") return;
-			offender = incompatibilityFor(node, ctx);
+			return offender === undefined ? undefined : buildError(slot, offender);
+		},
+		judgeExpression(expression, slot) {
+			const offender = firstIncompatibleDateAdd(expression, ctx);
+			return offender === undefined ? undefined : buildError(slot, offender);
 		},
 	});
-	if (offender !== undefined) errors.push(buildError(slot, offender));
 }
 
 /** One finding per emitted slot gives the author one stable repair target
@@ -273,7 +129,7 @@ function incompatibilityFor(
 }
 
 function buildError(
-	args: SlotIdentity,
+	args: ModuleWireSlotIdentity,
 	offender: IncompatibleDateAdd,
 ): ValidationError {
 	const interval = offender.expression.interval;

@@ -8,29 +8,26 @@
  * `property = ''` test. Emitting `is-null` there would therefore make Preview
  * and the exported app disagree.
  *
- * Every module-carried AST wire slot is enumerated here: the case-list filter,
- * calculated-column expressions with a runtime role, advanced search-input
- * predicates, every search-input default, excluded-owner expressions, and the
- * search-button display condition. The canonical predicate/expression walkers
- * cross predicates nested inside every ValueExpression carrier, so an
- * `is-null` hidden in an `if` condition cannot bypass the rule.
+ * The slot inventory lives in `moduleWireSlots.ts`. The canonical
+ * predicate/expression walkers cross predicates nested inside every
+ * ValueExpression carrier, so an `is-null` hidden in an `if` condition cannot
+ * bypass the rule. Strict-null collapses identically in the server-side CSQL
+ * dialect, so advanced predicates get the same whole-tree judgment as
+ * on-device predicate slots.
  */
 
+import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
-	type BlueprintDoc,
-	caseListColumnHasRuntimeRole,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
-import {
-	effectiveFilterForEmission,
 	type Predicate,
-	simplifyForEmission,
 	type ValueExpression,
 	walkExpressionPredicateNodes,
 	walkPredicateNodes,
 } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	collectModuleWireSlotFindings,
+	type ModuleWireSlotIdentity,
+} from "./moduleWireSlots";
 
 type StrictNullPredicate = Extract<Predicate, { kind: "is-null" }>;
 
@@ -39,142 +36,23 @@ export function strictNullPortability(
 	moduleUuid: Uuid,
 	_doc: BlueprintDoc,
 ): ValidationError[] {
-	const errors: ValidationError[] = [];
-	const csqlPredicates: Predicate[] = [];
-
-	const filter = effectiveFilterForEmission(mod.caseListConfig?.filter);
-	if (filter !== undefined) {
-		csqlPredicates.push(filter);
-		addPredicateError(errors, filter, {
-			mod,
-			moduleUuid,
-			slot: "caseListConfig.filter",
-			slotLabel: "the Cases available rule",
-			surface: "filter",
-		});
-	}
-
-	const columns = mod.caseListConfig?.columns ?? [];
-	for (let index = 0; index < columns.length; index += 1) {
-		const column = columns[index];
-		if (column.kind !== "calculated" || !caseListColumnHasRuntimeRole(column)) {
-			continue;
-		}
-		addExpressionError(errors, column.expression, {
-			mod,
-			moduleUuid,
-			slot: `caseListConfig.columns[${index}].expression`,
-			slotLabel: `calculated field "${column.header || "Untitled field"}"`,
-			surface: "calculated-column",
-			column: { uuid: column.uuid, label: column.header || "Untitled field" },
-		});
-	}
-
-	const inputs = mod.caseListConfig?.searchInputs ?? [];
-	for (let index = 0; index < inputs.length; index += 1) {
-		const input = inputs[index];
-		const inputIdentity = {
-			uuid: input.uuid,
-			name: input.name,
-			label: input.label || input.name,
-		};
-		if (input.default !== undefined) {
-			addExpressionError(errors, input.default, {
-				mod,
-				moduleUuid,
-				slot: `caseListConfig.searchInputs[${index}].default`,
-				slotLabel: `the default for search field "${inputIdentity.label}"`,
-				surface: "search-input-default",
-				input: inputIdentity,
-			});
-		}
-		if (input.kind !== "advanced") continue;
-		const effective = effectiveFilterForEmission(input.predicate);
-		if (effective === undefined) continue;
-		csqlPredicates.push(effective);
-		addPredicateError(errors, effective, {
-			mod,
-			moduleUuid,
-			slot: `caseListConfig.searchInputs[${index}].predicate`,
-			slotLabel: `advanced search input "${inputIdentity.label}"`,
-			surface: "advanced-input",
-			input: inputIdentity,
-		});
-	}
-
-	// The filter + advanced predicates are AND-composed into one CSQL query.
-	// A match-none clause absorbs the entire composition, so strict-null nodes
-	// in sibling advanced predicates are dead. The filter still independently
-	// runs on-device, so its portability finding must remain.
-	if (csqlPredicates.some((predicate) => predicate.kind === "match-none")) {
-		for (let index = errors.length - 1; index >= 0; index -= 1) {
-			if (errors[index].details?.surface === "advanced-input") {
-				errors.splice(index, 1);
-			}
-		}
-	}
-
-	const searchConfig = mod.caseSearchConfig;
-	if (searchConfig?.excludedOwnerIds !== undefined) {
-		addExpressionError(errors, searchConfig.excludedOwnerIds, {
-			mod,
-			moduleUuid,
-			slot: "caseSearchConfig.excludedOwnerIds",
-			slotLabel: "the assigned-cases setting",
-			surface: "excluded-owner-ids",
-		});
-	}
-
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
-		addPredicateError(
-			errors,
-			simplifyForEmission(searchConfig.searchButtonDisplayCondition),
-			{
-				mod,
-				moduleUuid,
-				slot: "caseSearchConfig.searchButtonDisplayCondition",
-				slotLabel: "the search-button display condition",
-				surface: "search-button",
-			},
-		);
-	}
-
-	return errors;
-}
-
-interface SlotIdentity {
-	readonly mod: Module;
-	readonly moduleUuid: Uuid;
-	readonly slot: string;
-	readonly slotLabel: string;
-	readonly surface: string;
-	readonly input?: {
-		readonly uuid: Uuid;
-		readonly name: string;
-		readonly label: string;
+	const judgePredicate = (
+		predicate: Predicate,
+		slot: ModuleWireSlotIdentity,
+	): ValidationError | undefined => {
+		const offender = firstStrictNull(predicate);
+		return offender === undefined ? undefined : buildError(slot, offender);
 	};
-	readonly column?: {
-		readonly uuid: Uuid;
-		readonly label: string;
-	};
-}
 
-function addPredicateError(
-	errors: ValidationError[],
-	predicate: Predicate,
-	slot: SlotIdentity,
-): void {
-	const offender = firstStrictNull(predicate);
-	if (offender !== undefined) errors.push(buildError(slot, offender));
-}
-
-function addExpressionError(
-	errors: ValidationError[],
-	expression: ValueExpression,
-	slot: SlotIdentity,
-): void {
-	const offender = firstStrictNullInExpression(expression);
-	if (offender !== undefined) errors.push(buildError(slot, offender));
+	return collectModuleWireSlotFindings(mod, moduleUuid, {
+		calculatedColumns: "runtime",
+		judgePredicate,
+		judgeCsqlPredicate: judgePredicate,
+		judgeExpression(expression, slot) {
+			const offender = firstStrictNullInExpression(expression);
+			return offender === undefined ? undefined : buildError(slot, offender);
+		},
+	});
 }
 
 function firstStrictNull(
@@ -198,7 +76,7 @@ function firstStrictNullInExpression(
 }
 
 function buildError(
-	args: SlotIdentity,
+	args: ModuleWireSlotIdentity,
 	offender: StrictNullPredicate,
 ): ValidationError {
 	const left = offender.left;

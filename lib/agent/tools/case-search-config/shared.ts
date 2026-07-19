@@ -33,6 +33,7 @@
 import { z } from "zod";
 import {
 	type CaseSearchConfig,
+	caseSearchConfigHasAuthoredSettings,
 	excludedOwnerIdsReadsCaseData,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
@@ -262,4 +263,27 @@ export function snapshotCaseSearchConfig(
 	return mod.caseSearchConfig === undefined
 		? undefined
 		: normalizeOwnerOnlyCaseSearchConfig(mod.caseSearchConfig);
+}
+
+// ── Collapse-to-absent decision ─────────────────────────────────────
+
+/**
+ * Decide whether a rebuilt whole-config projection persists or
+ * collapses to absence. Shared by both cluster tools so the decision
+ * cannot drift: a candidate with no authored settings collapses when
+ * the module had no config to begin with (a cluster call must not
+ * birth an empty bag), or when only the internal owner-only
+ * `searchActionEnabled: false` marker remains (it qualifies authored
+ * settings, never stands alone). An EXISTING enabled config survives
+ * with every slot cleared — a saved zero-input Search action is
+ * deliberate authored state.
+ */
+export function collapseUnauthoredCaseSearchConfig(
+	existing: CaseSearchConfig | undefined,
+	candidate: CaseSearchConfig,
+): CaseSearchConfig | undefined {
+	return (existing === undefined || candidate.searchActionEnabled === false) &&
+		!caseSearchConfigHasAuthoredSettings(candidate)
+		? undefined
+		: candidate;
 }

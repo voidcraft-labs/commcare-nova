@@ -352,3 +352,13 @@ export function mapSubmitFormError(err: unknown): SubmissionResult {
 		message: err instanceof Error ? err.message : "Failed to submit form.",
 	};
 }
+
+/**
+ * The browser's IANA timezone, sent with case-data reads so calculated
+ * columns' `format-date` renders wall time the way the device would —
+ * in Preview the author's browser stands in for the device. The server
+ * validates the name and falls back to UTC.
+ */
+export function viewerTimeZone(): string {
+	return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}

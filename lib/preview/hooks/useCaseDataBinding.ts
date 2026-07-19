@@ -30,6 +30,7 @@ import {
 	populateSampleCasesAction,
 	resetSampleCasesAction,
 } from "@/lib/preview/engine/caseDataBinding";
+import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CaseQueryConstraintContext,
 	LoadCaseCountResult,
@@ -195,6 +196,7 @@ export function useCases(args: {
 									pageOffset === undefined || pageLimit === undefined
 										? undefined
 										: { offset: pageOffset, limit: pageLimit },
+								viewerTimeZone: viewerTimeZone(),
 							}),
 						}),
 					},
@@ -381,6 +383,7 @@ export function useCaseData(args: {
 								ancestorDepth,
 								caseListConfig,
 								caseTypes,
+								viewerTimeZone(),
 							),
 						}),
 					},

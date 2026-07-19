@@ -162,9 +162,23 @@ export function caseListConfigVerdicts(
 	}
 
 	// ── Search inputs ──
-	// An advanced predicate resolves `input(...)` against EVERY named
-	// row — the full scope the validator's `moduleTypeContext` and the
-	// wire emitter use. Hoisted out of the loop: it doesn't vary per row.
+	// Both per-row check contexts are row-invariant, so they build once.
+	// Default values run BEFORE the search screen opens, so they resolve
+	// NO `input(...)` ref — mirror the editor's NO_SEARCH_INPUTS scope
+	// (and the commit gate's forbids-input-ref rule); session / user-data
+	// refs still resolve without it. An advanced predicate resolves
+	// `input(...)` against EVERY named row — the full scope the
+	// validator's `moduleTypeContext` and the wire emitter use.
+	const defaultCtx: TypeContext = {
+		caseTypes: [...caseTypes],
+		knownInputs: [...NO_SEARCH_INPUTS],
+		currentCaseType,
+	};
+	const predicateCtx: TypeContext = {
+		caseTypes: [...caseTypes],
+		knownInputs: [...inputDecls],
+		currentCaseType,
+	};
 	let search =
 		boundary.searchInputsBroken || boundary.searchButtonConditionBroken;
 	const resolved = resolveRows(config.searchInputs, caseTypes, currentCaseType);
@@ -177,10 +191,6 @@ export function caseListConfigVerdicts(
 			continue;
 		}
 
-		// Default values run BEFORE the search screen opens, so they
-		// resolve NO `input(...)` ref — mirror the editor's
-		// NO_SEARCH_INPUTS scope (and the commit gate's forbids-input-ref
-		// rule). Session / user-data refs still resolve without it.
 		if (row.default !== undefined) {
 			// A daterange answer is an indivisible start/end pair on the wire.
 			// The legacy scalar default slot cannot represent it faithfully, so
@@ -189,11 +199,6 @@ export function caseListConfigVerdicts(
 				search = true;
 				continue;
 			}
-			const defaultCtx: TypeContext = {
-				caseTypes: [...caseTypes],
-				knownInputs: [...NO_SEARCH_INPUTS],
-				currentCaseType,
-			};
 			const verdict = checkValueExpression(
 				row.default,
 				defaultCtx,
@@ -202,11 +207,6 @@ export function caseListConfigVerdicts(
 			if (!verdict.ok) search = true;
 		}
 		if (row.kind === "advanced") {
-			const predicateCtx: TypeContext = {
-				caseTypes: [...caseTypes],
-				knownInputs: [...inputDecls],
-				currentCaseType,
-			};
 			if (
 				!checkPredicate(row.predicate, predicateCtx).ok ||
 				!caseSearchPredicateVerdict(row.predicate).ok

@@ -45,8 +45,19 @@ export type SearchInputRemovalDependency =
 			readonly paths: SearchInputOccurrencePaths;
 	  }
 	| {
+			readonly kind: "search-field-default";
+			readonly label: string;
+			readonly inputUuid: SearchInputDef["uuid"];
+			readonly paths: SearchInputOccurrencePaths;
+	  }
+	| {
 			readonly kind: "assigned-cases";
 			readonly label: "Assigned cases";
+			readonly paths: SearchInputOccurrencePaths;
+	  }
+	| {
+			readonly kind: "search-button-visibility";
+			readonly label: "Search button visibility";
 			readonly paths: SearchInputOccurrencePaths;
 	  };
 
@@ -108,6 +119,25 @@ export function searchInputRemovalDependencies(
 			paths,
 		});
 	}
+	// Sibling starting values consume answers too (the validator's
+	// `searchInputDefaultTypeCheck` rejects an orphan ref there just like
+	// the condition slots do). The target's own default leaves with the
+	// row, so only siblings count.
+	for (const input of config.searchInputs) {
+		if (input.uuid === target.uuid || input.default === undefined) {
+			continue;
+		}
+		const paths = nonEmptyPaths(
+			expressionInputPaths(input.default, target.name),
+		);
+		if (paths === undefined) continue;
+		dependencies.push({
+			kind: "search-field-default",
+			label: `“${input.label.trim() || input.name.trim() || "Another search field"}” starting value`,
+			inputUuid: input.uuid,
+			paths,
+		});
+	}
 	if (searchConfig?.excludedOwnerIds !== undefined) {
 		const paths = nonEmptyPaths(
 			expressionInputPaths(searchConfig.excludedOwnerIds, target.name),
@@ -116,6 +146,25 @@ export function searchInputRemovalDependencies(
 			dependencies.push({
 				kind: "assigned-cases",
 				label: "Assigned cases",
+				paths,
+			});
+		}
+	}
+	// The Search action's display condition is validator-checked against
+	// declared inputs (`searchButtonDisplayConditionTypeCheck`), so a
+	// removal that orphans a ref here would bounce off the commit gate
+	// without this entry.
+	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+		const paths = nonEmptyPaths(
+			predicateInputPaths(
+				searchConfig.searchButtonDisplayCondition,
+				target.name,
+			),
+		);
+		if (paths !== undefined) {
+			dependencies.push({
+				kind: "search-button-visibility",
+				label: "Search button visibility",
 				paths,
 			});
 		}

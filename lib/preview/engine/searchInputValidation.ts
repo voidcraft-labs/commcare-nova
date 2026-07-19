@@ -262,8 +262,10 @@ function bindRuntimeRejectionCondition(
 			!isValidRuntimeNumericSpelling(rejectionKind, value)
 				? "NaN"
 				: value;
-		bound = bound.replaceAll(
-			path,
+		// Function replacement: a string replacement would expand `$$`/`$&`/
+		// `` $` ``/`$'` inside the worker-typed value and garble the quoted
+		// literal before evaluation.
+		bound = bound.replaceAll(path, () =>
 			quoteLiteral(boundValue, "case-list-filter"),
 		);
 	}

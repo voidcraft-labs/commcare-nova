@@ -64,6 +64,7 @@ import {
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
+	substituteUnansweredSearchInputsInPredicate,
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
@@ -396,13 +397,26 @@ function projectCaseListFilter(
 	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
 	typeContext?: TypeContext,
 ): string | null {
+	// This slot lands in CCHQ's ordinary case-loading datum nodeset
+	// (`EntriesHelper.get_filter_xpath`), which evaluates before any
+	// Search runs — so Search-input dependencies substitute to their
+	// unanswered reading first, exactly like the suite-XML nodeset
+	// emitters (see `nodesetFilter.ts::emitNodesetFilter`); referencing
+	// `instance('search-input:results')` here would crash the
+	// HQ-regenerated entry with `XPathMissingInstanceException`.
+	//
 	// `effectiveFilterForEmission` returns null-equivalent (`undefined`)
-	// for an absent filter OR one that reduces to `match-all` (top-level
-	// or nested in an authored `and`), so the projection is null rather
-	// than a tautological `true() and …` string. Mirrors the suite-XML
-	// `nodesetFilter.ts` surface so both case-list-filter wire forms stay
-	// identity-clean. See `lib/domain/predicate/simplify.ts`.
-	const effective = effectiveFilterForEmission(filter);
+	// for an absent filter OR one that reduces to `match-all` (top-level,
+	// nested in an authored `and`, or via the substitution above), so the
+	// projection is null rather than a tautological `true() and …`
+	// string. Mirrors the suite-XML `nodesetFilter.ts` surface so both
+	// case-list-filter wire forms stay identity-clean. See
+	// `lib/domain/predicate/simplify.ts`.
+	const effective = effectiveFilterForEmission(
+		filter === undefined
+			? undefined
+			: substituteUnansweredSearchInputsInPredicate(filter),
+	);
 	const authoredFilter =
 		effective === undefined
 			? undefined

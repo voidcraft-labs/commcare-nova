@@ -15,6 +15,7 @@ import {
 	type CaseProperty,
 	type CaseType,
 	type Column,
+	caseSearchConfigAfterFinalInputRemoval,
 	fuzzyDateMode,
 	multiSelectContainsMode,
 	rangeMode,
@@ -33,7 +34,6 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
-import { caseSearchConfigAfterFinalFieldRemoval } from "../CaseListConfigWorkspace";
 import { AssignedCasesSetting } from "../canvas/AssignedCasesSetting";
 import { CaseListCanvas } from "../canvas/CaseListCanvas";
 import { DetailCanvas } from "../canvas/DetailCanvas";
@@ -125,7 +125,7 @@ describe("case workspace chrome", () => {
 	it("keeps the assigned-case rule and zero-input Search action settings when the final field is removed", () => {
 		const excludedOwnerIds = term(sessionContext("userid"));
 		expect(
-			caseSearchConfigAfterFinalFieldRemoval(
+			caseSearchConfigAfterFinalInputRemoval(
 				{
 					excludedOwnerIds,
 					searchScreenTitle: "Find a client",
@@ -147,7 +147,7 @@ describe("case workspace chrome", () => {
 		true,
 	])("keeps zero-input Search action settings with Cases available=%s", (hasCasesAvailableCondition) => {
 		expect(
-			caseSearchConfigAfterFinalFieldRemoval(
+			caseSearchConfigAfterFinalInputRemoval(
 				{
 					searchScreenTitle: "Find a client",
 					searchButtonLabel: "Find",
@@ -163,7 +163,7 @@ describe("case workspace chrome", () => {
 
 	it("drops copy that belonged only to the removed Search screen", () => {
 		expect(
-			caseSearchConfigAfterFinalFieldRemoval(
+			caseSearchConfigAfterFinalInputRemoval(
 				{
 					searchScreenTitle: "Find a client",
 					searchScreenSubtitle: "Use any known information",

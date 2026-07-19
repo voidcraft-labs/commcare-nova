@@ -17,11 +17,7 @@
  */
 
 import { z } from "zod";
-import {
-	type BlueprintDoc,
-	type CaseSearchConfig,
-	caseSearchConfigHasAuthoredSettings,
-} from "@/lib/domain";
+import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
 import {
 	resolveModuleUuid,
 	updateModuleMutations,
@@ -38,6 +34,7 @@ import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,
 	applyClusterPatch,
+	collapseUnauthoredCaseSearchConfig,
 	pickDisplayCluster,
 	pickSearchActionIntent,
 	setCaseSearchAdvancedBodySchema,
@@ -119,12 +116,10 @@ export const setCaseSearchAdvancedTool = {
 					: pickSearchActionIntent(existing)),
 				...advancedPatch,
 			};
-			const nextConfig =
-				(existing === undefined ||
-					nextConfigCandidate.searchActionEnabled === false) &&
-				!caseSearchConfigHasAuthoredSettings(nextConfigCandidate)
-					? undefined
-					: nextConfigCandidate;
+			const nextConfig = collapseUnauthoredCaseSearchConfig(
+				existing,
+				nextConfigCandidate,
+			);
 
 			const mutations = updateModuleMutations(mod, {
 				caseSearchConfig: nextConfig ?? null,

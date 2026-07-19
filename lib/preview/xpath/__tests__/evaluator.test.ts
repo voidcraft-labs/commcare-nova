@@ -273,6 +273,55 @@ describe("XPath evaluator", () => {
 			);
 		});
 
+		it("translates \\s inside a character class to members, not a nested class", () => {
+			// `[\s0-9]` must reach JS as `[ \t\n\x0B\f\r0-9]` — the old nested
+			// `[[ \t\n\x0B\f\r]0-9]` shape parsed as a different pattern (the
+			// class ends at the first `]`, leaving `0-9]` as literal text).
+			expect(evaluate(String.raw`regex('7', '^[\s0-9]+$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex(' 7', '^[\s0-9]+$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex('a', '^[\s0-9]+$')`, makeCtx())).toBe(
+				false,
+			);
+			// NBSP is JS-\s-only; Java's default mode excludes it in classes too.
+			expect(evaluate("regex(' ', '^[\\s]$')", makeCtx())).toBe(false);
+			// Both the space and the digit are class members and are removed;
+			// the broken nested-class translation matched neither and left
+			// the input untouched.
+			expect(
+				evaluate(String.raw`replace('a 1b', '[\s0-9]', '')`, makeCtx()),
+			).toBe("ab");
+		});
+
+		it("keeps \\S complement semantics inside a character class", () => {
+			expect(evaluate(String.raw`regex('a', '^[\S]$')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '^[\S]$')`, makeCtx())).toBe(false);
+			// NBSP is non-whitespace to Java's default mode, so `[\S]` matches
+			// it — JS bare `\S` alone would not.
+			expect(evaluate("regex(' ', '^[\\S]$')", makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '^[^\S]$')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex('a', '^[^\S]$')`, makeCtx())).toBe(
+				false,
+			);
+		});
+
+		it("treats a dash directly after an in-class shorthand as a literal dash", () => {
+			// Java reads `[\s-9]` as whitespace, literal '-', literal '9'; the
+			// inlined member set must not donate `\r` to a JS `\r-9` range.
+			expect(evaluate(String.raw`regex('-', '^[\s-9]$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex('9', '^[\s-9]$')`, makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate(String.raw`regex('5', '^[\s-9]$')`, makeCtx())).toBe(
+				false,
+			);
+		});
+
 		it("does not dispatch unknown or prototype method names", () => {
 			expect(evaluate("unknownFunction()", makeCtx())).toBe("");
 			expect(evaluate("valueOf()", makeCtx())).toBe("");

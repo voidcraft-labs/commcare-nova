@@ -810,8 +810,12 @@ describe("compileExpression — format-date arm", () => {
 			),
 		);
 		expect(compiled.sql.toLowerCase()).toContain("date_part");
+		// `%Z` computes the viewer zone's offset from `date_part('epoch',
+		// ...)` deltas rather than `to_char(..., 'OF')` — `OF` reads the
+		// SESSION zone, and the wall-clock `timestamp` the other tokens
+		// render from carries no offset at all.
 		expect(compiled.parameters).toEqual(
-			expect.arrayContaining(["YYYY", "MS", "dow", "OF", "%"]),
+			expect.arrayContaining(["YYYY", "MS", "dow", "epoch", "%"]),
 		);
 	});
 });

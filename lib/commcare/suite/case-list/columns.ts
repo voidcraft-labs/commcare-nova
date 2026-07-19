@@ -407,10 +407,18 @@ export function plainSelectDisplayXpath(
 	const options = property.options ?? [];
 	if (options.length === 0) return plainDisplayXpath(field);
 	if (property.data_type === "single_select") {
+		// Exact string equality, never `selected()`: a single-select
+		// property stores exactly one option value, and Core's
+		// `selected()` is space-token membership
+		// (`XPathSelectedFunc.multiSelected`), so a catalog value that is
+		// a space-bounded prefix of a later multi-word value ("north" vs
+		// "north region") would win by chain order and render the wrong
+		// label — while Preview's projection matches the stored value
+		// exactly. Equality keeps the two surfaces identical.
 		return options.reduceRight((elseArm, option) => {
 			const value = quoteLiteral(option.value, "case-list-filter");
 			const label = quoteLiteral(option.label, "case-list-filter");
-			return `if(selected(${field}, ${value}), ${label}, ${elseArm})`;
+			return `if(${field} = ${value}, ${label}, ${elseArm})`;
 		}, field);
 	}
 

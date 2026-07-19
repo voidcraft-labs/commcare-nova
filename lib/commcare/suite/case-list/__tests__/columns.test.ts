@@ -117,8 +117,38 @@ describe("emitColumnField — plain", () => {
 		};
 		const out = emitColumnField({ column: col, position: 1, ctx });
 
+		// Exact equality per arm — `selected()` is space-token membership,
+		// so it would let a value like "routine" shadow a later multi-word
+		// option ("routine check") by chain order, diverging from
+		// Preview's exact-match projection.
 		expect(out.xml).toContain(
-			"if(selected(priority, &apos;routine&apos;), &apos;Routine&apos;, if(selected(priority, &apos;urgent&apos;), &apos;Urgent&apos;, priority))",
+			"if(priority = &apos;routine&apos;, &apos;Routine&apos;, if(priority = &apos;urgent&apos;, &apos;Urgent&apos;, priority))",
+		);
+	});
+
+	it("labels a multi-word single-select value exactly, never by token prefix", () => {
+		const col = plainColumn(COL_UUIDS.a, "region", "Region");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "region",
+					label: "Region",
+					data_type: "single_select",
+					options: [
+						{ value: "north", label: "North" },
+						{ value: "north region", label: "North Region" },
+					],
+				},
+			],
+		};
+		const out = emitColumnField({ column: col, position: 1, ctx });
+
+		// A stored "north region" must render "North Region": the equality
+		// chain's first arm (region = 'north') is false for it, unlike the
+		// old selected() membership which was true and won by chain order.
+		expect(out.xml).toContain(
+			"if(region = &apos;north&apos;, &apos;North&apos;, if(region = &apos;north region&apos;, &apos;North Region&apos;, region))",
 		);
 	});
 

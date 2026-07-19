@@ -41,7 +41,10 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
-import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
+import {
+	pickBlueprintDoc,
+	viewerTimeZone,
+} from "@/lib/preview/engine/caseDataBindingClient";
 import { useCaseDataRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useCanEdit } from "@/lib/session/hooks";
 import { summarizeFilter } from "../predicateSummary";
@@ -416,6 +419,7 @@ function MatchCount({
 			caseListConfig: config,
 			excludedOwnerIdsExpression,
 			limit: 1,
+			viewerTimeZone: viewerTimeZone(),
 		})
 			.then((result) => {
 				if (cancelled) return;

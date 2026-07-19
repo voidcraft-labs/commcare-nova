@@ -78,6 +78,7 @@ import {
 import { compileRelationPath } from "./compileRelationPath";
 import { compileTerm, type TermCompileContext } from "./compileTerm";
 import type { Database } from "./database";
+import { NAIVE_TEMPORAL_TEXT_PATTERN } from "./dataTypeTokens";
 
 // ---------------------------------------------------------------
 // Public types
@@ -231,43 +232,50 @@ function compileCast(
 }
 
 /**
- * Compile CommCare CSQL's `datetime(...)` coercion without inheriting the
- * Postgres session timezone for a calendar-date operand.
+ * Parse a temporal operand to an instant with the naive shapes pinned to an
+ * explicit zone instead of the Postgres session `TimeZone`.
  *
- * CCHQ defines `datetime('2021-08-02')` as UTC midnight. A plain Postgres
- * `'2021-08-02'::timestamptz`, however, means midnight in the connection's
- * current `TimeZone`. Preview pools do not pin that setting, so the bare cast
- * shifted Nova's exact-day and date-range boundaries whenever a session was
- * non-UTC. Detect the one lexical shape whose timezone CSQL supplies and lift
- * it through `timestamp AT TIME ZONE 'UTC'`. Full datetime strings keep the
+ * A NAIVE value (calendar date, or date + wall time with no zone designator
+ * — see `NAIVE_TEMPORAL_TEXT_PATTERN`) carries no timezone of its own, and a
+ * bare `::timestamptz` cast reads it in the connection's current `TimeZone`
+ * — which the preview pools do not pin. Naive shapes therefore lift through
+ * `timezone(<zone>, <text>::timestamp)`; offset-bearing values keep the
  * ordinary `timestamptz` cast so an authored `Z` or numeric offset remains
  * authoritative.
  *
  * `btrim` accepts a value pasted with harmless surrounding whitespace. The
- * date cast in the UTC arm still lets Postgres reject impossible calendar
- * dates rather than normalizing them silently.
+ * `timestamp` cast in the pinned arm still lets Postgres reject impossible
+ * calendar dates rather than normalizing them silently.
+ */
+function compilePinnedInstant(
+	inner: AliasableExpression<unknown>,
+	zone: string,
+): AliasableExpression<unknown> {
+	const trimmedText = eb.fn<string>("btrim", [eb.cast(inner, "text")]);
+	const isNaive = eb(trimmedText, "~", eb.val(NAIVE_TEMPORAL_TEXT_PATTERN));
+	const pinned = eb.fn<Date>("timezone", [
+		eb.val(zone),
+		eb.cast(trimmedText, "timestamp"),
+	]);
+	return eb
+		.case()
+		.when(isNaive)
+		.then(pinned)
+		.else(eb.cast(inner, "timestamptz"))
+		.end();
+}
+
+/**
+ * Compile CommCare CSQL's `datetime(...)` coercion. CCHQ resolves naive
+ * operands on its UTC servers — `datetime('2021-08-02')` is UTC midnight and
+ * `datetime('2021-08-02 20:00:00')` is 20:00 UTC — so every naive shape pins
+ * to UTC; explicit offsets win via the `timestamptz` arm.
  */
 function compileDatetimeCoerce(
 	value: ValueExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const inner = compileExpression(value, ctx);
-	const trimmedText = eb.fn<string>("btrim", [eb.cast(inner, "text")]);
-	const isCalendarDate = eb(
-		trimmedText,
-		"~",
-		eb.val("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
-	);
-	const utcMidnight = eb.fn<Date>("timezone", [
-		eb.val("UTC"),
-		eb.cast(trimmedText, "timestamp"),
-	]);
-	return eb
-		.case()
-		.when(isCalendarDate)
-		.then(utcMidnight)
-		.else(eb.cast(inner, "timestamptz"))
-		.end();
+	return compilePinnedInstant(compileExpression(value, ctx), "UTC");
 }
 
 /**
@@ -662,6 +670,22 @@ function compileCount(
 }
 
 /**
+ * Resolve the viewer timezone binding to a zone name safe to hand to
+ * Postgres `timezone(...)`. The value is client-supplied; an absent or
+ * unrecognized name falls back to UTC — deterministic, never the unpinned
+ * session zone.
+ */
+function resolveViewerTimeZone(viewerTimeZone: string | undefined): string {
+	if (viewerTimeZone === undefined) return "UTC";
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: viewerTimeZone });
+		return viewerTimeZone;
+	} catch {
+		return "UTC";
+	}
+}
+
+/**
  * `format-date` parses JavaRosa's `%...` vocabulary, then emits one safely
  * bound SQL expression per literal/token run. Passing a JavaRosa pattern
  * straight to Postgres `to_char` is incorrect: the two dialects assign
@@ -669,18 +693,30 @@ function compileCount(
  * disagree on UTC's offset spelling. Parsing first also lets the compiler
  * reject exactly the same unknown/trailing escapes JavaRosa rejects.
  *
- * The explicit `::timestamptz` cast keeps the emission shape uniform with the
- * wider date-arithmetic arms. A null guard preserves the former `to_char(NULL,
- * ...) → NULL` behavior; Postgres `concat` would otherwise skip a null token
- * and leave any surrounding authored literals visible.
+ * Rendering is VIEWER-LOCAL, mirroring the device (JavaRosa formats in the
+ * device's zone; in Preview the author's browser stands in for the device)
+ * and the sibling client-side formatter
+ * (`lib/preview/xpath/dateFormatting.ts`, browser-local) — so a calculated
+ * column and a date-kind column show the same wall time on adjacent Preview
+ * surfaces. The operand parses through `compilePinnedInstant` in the SAME
+ * zone: a naive stored value reads as viewer wall time (what the device does
+ * with its local parse), an offset-bearing value keeps its own instant. The
+ * instant then converts to a viewer wall-clock `timestamp` that
+ * `to_char` / `date_part` render zone-independently.
+ *
+ * A null guard preserves the former `to_char(NULL, ...) → NULL` behavior;
+ * Postgres `concat` would otherwise skip a null token and leave any
+ * surrounding authored literals visible.
  */
 function compileFormatDate(
 	date: ValueExpression,
 	pattern: FormatDatePreset | string,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
+	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
 	const dateExpr = compileExpression(date, ctx);
-	const dateAsTimestamp = eb.cast(dateExpr, "timestamptz");
+	const instant = compilePinnedInstant(dateExpr, zone);
+	const wallClock = eb.fn<Date>("timezone", [eb.val(zone), instant]);
 	const wirePattern = resolveCommCareDatePattern(pattern);
 	const parsed = parseCommCareDatePattern(wirePattern);
 	if (parsed.kind === "unsupported-pattern") {
@@ -693,27 +729,35 @@ function compileFormatDate(
 	const parts = parsed.segments.map((segment) =>
 		segment.kind === "literal"
 			? sqlTextValue(segment.text)
-			: compileCommCareDateToken(dateAsTimestamp, segment.token),
+			: compileCommCareDateToken(wallClock, instant, zone, segment.token),
 	);
 	const formatted =
 		parts.length === 0 ? sqlTextValue("") : eb.fn<string>("concat", parts);
 	return eb
 		.case()
-		.when(eb(dateAsTimestamp, "is", null))
+		.when(eb(instant, "is", null))
 		.then(eb.cast(eb.val(null), "text"))
 		.else(formatted)
 		.end();
 }
 
-/** Compile one JavaRosa token without exposing its pattern to Postgres. */
+/**
+ * Compile one JavaRosa token without exposing its pattern to Postgres.
+ * `wallClock` is the viewer-zone `timestamp` every wall-clock token
+ * renders from; `instant` + `zone` exist only for `%Z`, which needs the
+ * zone's UTC offset AT that instant (a `timestamp` has no offset left to
+ * read).
+ */
 function compileCommCareDateToken(
-	date: AliasableExpression<unknown>,
+	wallClock: AliasableExpression<unknown>,
+	instant: AliasableExpression<unknown>,
+	zone: string,
 	token: CommCareDateFormatToken,
 ): AliasableExpression<unknown> {
 	const toChar = (postgresPattern: string) =>
-		eb.fn<string>("to_char", [date, sqlTextValue(postgresPattern)]);
+		eb.fn<string>("to_char", [wallClock, sqlTextValue(postgresPattern)]);
 	const datePart = (part: "month" | "dow") =>
-		eb.cast(eb.fn<number>("date_part", [eb.val(part), date]), "integer");
+		eb.cast(eb.fn<number>("date_part", [eb.val(part), wallClock]), "integer");
 
 	switch (token) {
 		case "%":
@@ -766,24 +810,70 @@ function compileCommCareDateToken(
 			);
 		case "w":
 			return eb.cast(datePart("dow"), "text");
-		case "Z": {
-			// Postgres `OF` already matches JavaRosa's +HH / +HH:MM shape;
-			// only UTC differs (`+00` versus JavaRosa's `Z`).
-			const offset = toChar("OF");
-			return eb
-				.case()
-				.when(
-					eb(
-						offset as Expression<string>,
-						"=",
-						sqlTextValue("+00") as Expression<string>,
-					),
-				)
-				.then(sqlTextValue("Z"))
-				.else(offset)
-				.end();
-		}
+		case "Z":
+			return compileTimezoneOffsetToken(instant, zone);
 	}
+}
+
+/**
+ * `%Z` — the viewer zone's UTC offset at the formatted instant, in the
+ * client formatter's exact shape (`dateFormatting.ts::formatTimezoneOffset`):
+ * `Z` at zero, else `±HH` or `±HH:MM`. `to_char(..., 'OF')` can't produce
+ * this — it reads the SESSION zone's offset, and the viewer-zone `timestamp`
+ * the other tokens render from has no offset left to read — so the offset is
+ * computed as minutes between the zone's wall clock and UTC's at the instant.
+ */
+function compileTimezoneOffsetToken(
+	instant: AliasableExpression<unknown>,
+	zone: string,
+): AliasableExpression<unknown> {
+	const minutes = eb.cast(
+		eb(
+			eb.fn<number>("date_part", [
+				eb.val("epoch"),
+				eb(
+					eb.fn<Date>("timezone", [eb.val(zone), instant]),
+					"-",
+					eb.fn<Date>("timezone", [eb.val("UTC"), instant]),
+				),
+			]),
+			"/",
+			eb.val(60),
+		),
+		"integer",
+	);
+	const absMinutes = eb.fn<number>("abs", [minutes]);
+	const twoDigit = (value: AliasableExpression<unknown>) =>
+		eb.fn<string>("lpad", [
+			eb.cast(value, "text"),
+			eb.val(2),
+			sqlTextValue("0"),
+		]);
+	const sign = eb
+		.case()
+		.when(eb(minutes as Expression<number>, ">", eb.val(0)))
+		.then(sqlTextValue("+"))
+		.else(sqlTextValue("-"))
+		.end();
+	const remainder = eb(absMinutes, "%", eb.val(60));
+	const minutesSuffix = eb
+		.case()
+		.when(eb(remainder as Expression<number>, "=", eb.val(0)))
+		.then(sqlTextValue(""))
+		.else(eb.fn<string>("concat", [sqlTextValue(":"), twoDigit(remainder)]))
+		.end();
+	return eb
+		.case()
+		.when(eb(minutes as Expression<number>, "=", eb.val(0)))
+		.then(sqlTextValue("Z"))
+		.else(
+			eb.fn<string>("concat", [
+				sign,
+				twoDigit(eb(absMinutes, "/", eb.val(60))),
+				minutesSuffix,
+			]),
+		)
+		.end();
 }
 
 /**

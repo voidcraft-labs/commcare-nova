@@ -256,12 +256,31 @@ register("instance", () => "");
  * the exported app rejects (and preserves the same rule for user-authored
  * regex/replace expressions).
  */
+
+/** Java's default-mode `\s` membership, as bare class members. */
+const JAVA_ASCII_WHITESPACE = " \\t\\n\\x0B\\f\\r";
+/**
+ * JS `\s` minus Java-default `\s` — the Unicode separators JavaScript's
+ * shorthand matches that Java's ASCII-only default mode does not. Added
+ * back onto `\S` inside a class so the complement covers them.
+ */
+const JS_ONLY_WHITESPACE =
+	"\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff";
+
 function javaDefaultRegexPattern(pattern: string): string {
 	let translated = "";
 	let index = 0;
+	// Depth, not a flag: Java supports nested classes (`[a[b]]`, union
+	// semantics JS lacks) — depth-tracking keeps the "inside a class"
+	// answer right through them; the nested-class pattern itself still
+	// fails JS RegExp parsing and falls to the caller's catch.
+	let classDepth = 0;
 	while (index < pattern.length) {
-		if (pattern[index] !== "\\") {
-			translated += pattern[index];
+		const char = pattern[index];
+		if (char !== "\\") {
+			if (char === "[") classDepth += 1;
+			else if (char === "]" && classDepth > 0) classDepth -= 1;
+			translated += char;
 			index += 1;
 			continue;
 		}
@@ -269,18 +288,50 @@ function javaDefaultRegexPattern(pattern: string): string {
 		const slashStart = index;
 		while (pattern[index] === "\\") index += 1;
 		const slashCount = index - slashStart;
-		const escaped = pattern[index];
-		if ((escaped === "s" || escaped === "S") && slashCount % 2 === 1) {
-			// Every preceding pair encodes one literal backslash. Only the odd final
-			// slash introduces Java's whitespace shorthand.
-			translated += "\\".repeat(slashCount - 1);
-			translated +=
-				escaped === "s" ? "[ \\t\\n\\x0B\\f\\r]" : "[^ \\t\\n\\x0B\\f\\r]";
-			index += 1;
+		if (slashCount % 2 === 0) {
+			// Even run: literal backslash pairs only. The following char is
+			// unescaped — re-enter the loop so bracket bookkeeping sees it.
+			translated += "\\".repeat(slashCount);
 			continue;
 		}
 
-		translated += "\\".repeat(slashCount);
+		// Odd run: pairs are literal backslashes; the final one escapes the
+		// next char.
+		translated += "\\".repeat(slashCount - 1);
+		const escaped = pattern[index];
+		if (escaped === "s" || escaped === "S") {
+			translated +=
+				classDepth > 0
+					? // Inside a class, contribute MEMBERS — wrapping in `[...]`
+						// would nest a bracket JS reads as a different pattern
+						// (`[\s0-9]` must become `[ \t\n\x0B\f\r0-9]`, not
+						// `[[ \t\n\x0B\f\r]0-9]`). `\S` keeps the JS shorthand and
+						// adds back the Unicode whitespace Java's complement holds.
+						escaped === "s"
+						? JAVA_ASCII_WHITESPACE
+						: `\\S${JS_ONLY_WHITESPACE}`
+					: escaped === "s"
+						? `[${JAVA_ASCII_WHITESPACE}]`
+						: `[^${JAVA_ASCII_WHITESPACE}]`;
+			index += 1;
+			// A dash directly after a class shorthand can only be a LITERAL
+			// dash in a Java pattern (a range can't start from a class), but
+			// JS would pair it with the inlined set's last member as a range
+			// — escape it.
+			if (classDepth > 0 && pattern[index] === "-") {
+				translated += "\\-";
+				index += 1;
+			}
+			continue;
+		}
+		if (escaped !== undefined) {
+			translated += `\\${escaped}`;
+			index += 1;
+			continue;
+		}
+		// Trailing lone backslash — invalid in both dialects; preserved so
+		// the caller's RegExp constructor rejects it the same way.
+		translated += "\\";
 	}
 	return translated;
 }

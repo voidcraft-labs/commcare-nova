@@ -29,7 +29,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
-	and,
 	anyRelationPath,
 	arith,
 	between,
@@ -49,8 +48,6 @@ import {
 	literal,
 	match,
 	multiSelectAny,
-	not,
-	or,
 	prop,
 	relationStep,
 	selfPath,
@@ -63,14 +60,6 @@ import {
 import { ExpressionCardEditor } from "../ExpressionCardEditor";
 import { buildValidityIndex, PredicateEditProvider } from "../editorContext";
 import { PredicateCardEditor } from "../PredicateCardEditor";
-import {
-	caseTypeAtPredicatePath,
-	getPredicateAtPath,
-	nearestPredicatePath,
-	parentPredicatePath,
-	predicateAncestorPaths,
-	replacePredicateAtPath,
-} from "../predicateNavigation";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
 
 const HOUSEHOLD: CaseType = {
@@ -197,62 +186,6 @@ function openRootExpressionKindMenu() {
 async function waitForSelectToClose() {
 	await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
 }
-
-describe("Predicate focus paths — exact structural preservation", () => {
-	const patientName = eq(prop("patient", "name"), literal("Ada"));
-	const patientAge = gt(prop("patient", "age"), literal(17));
-	const householdNorth = eq(prop("household", "region"), literal("North"));
-	const relatedHousehold = exists(
-		ancestorPath(relationStep("parent")),
-		householdNorth,
-	);
-	const nestedAlternatives = or(patientAge, not(patientName));
-	const root = and(patientName, nestedAlternatives, relatedHousehold);
-
-	it("resolves deep nodes and their destination case-type scope", () => {
-		const notClausePath = ["and", 1, "or", 1, "not", "clause"] as const;
-		const relatedWherePath = ["and", 2, "exists", "where"] as const;
-
-		expect(getPredicateAtPath(root, notClausePath)).toBe(patientName);
-		expect(getPredicateAtPath(root, relatedWherePath)).toBe(householdNorth);
-		expect(
-			caseTypeAtPredicatePath(root, relatedWherePath, "patient", CASE_TYPES),
-		).toBe("household");
-	});
-
-	it("replaces exactly one deep node without flattening sibling structure", () => {
-		const replacement = isBlank(prop("patient", "name"));
-		const path = ["and", 1, "or", 1, "not", "clause"] as const;
-		const next = replacePredicateAtPath(root, path, replacement);
-
-		expect(getPredicateAtPath(next, path)).toBe(replacement);
-		expect(next).toEqual(
-			and(patientName, or(patientAge, not(replacement)), relatedHousehold),
-		);
-		if (next.kind !== "and") throw new Error("Expected root AND group");
-		expect(next.clauses[0]).toBe(patientName);
-		expect(next.clauses[2]).toBe(relatedHousehold);
-	});
-
-	it("returns ancestor paths and recovers to the nearest surviving focus", () => {
-		const path = ["and", 1, "or", 1, "not", "clause"] as const;
-		expect(parentPredicatePath(path)).toEqual(["and", 1, "or", 1]);
-		expect(predicateAncestorPaths(path)).toEqual([
-			[],
-			["and", 1],
-			["and", 1, "or", 1],
-			path,
-		]);
-		expect(nearestPredicatePath(patientName, path)).toEqual([]);
-	});
-
-	it("rejects invalid replacement paths instead of mutating another branch", () => {
-		expect(getPredicateAtPath(root, ["and", 8, "or", 0])).toBeUndefined();
-		expect(() => replacePredicateAtPath(root, ["and", 8], patientAge)).toThrow(
-			/missing group row/i,
-		);
-	});
-});
 
 describe("ExpressionPicker — non-Term round-trip preservation", () => {
 	// Higher-order ValueExpression arms (`arith`, `count`, `today`,

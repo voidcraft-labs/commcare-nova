@@ -4,6 +4,7 @@
 // definitions are shared, while Results and Details each own membership and a
 // presentation order. Legacy documents fall back to the original `order` key.
 
+import { resolvedColumnSurfaceOrder } from "@/lib/doc/order/columnSurface";
 import {
 	byDetailColumnOrder,
 	byListColumnOrder,
@@ -80,12 +81,12 @@ export function removeColumnFromDisplay(
 					/* Snapshot the resolved fallback before hiding. A later restore
 					 * can then return this field to the exact place the author arranged
 					 * instead of quietly appending it to the end. */
-					listOrder: column.listOrder ?? column.order,
+					listOrder: resolvedColumnSurfaceOrder(column, surface),
 					visibleInList: false,
 				} as Column)
 			: ({
 					...column,
-					detailOrder: column.detailOrder ?? column.order,
+					detailOrder: resolvedColumnSurfaceOrder(column, surface),
 					visibleInDetail: false,
 				} as Column);
 	});

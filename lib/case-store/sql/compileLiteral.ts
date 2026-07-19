@@ -26,7 +26,10 @@ import type { AliasableExpression } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { Literal } from "@/lib/domain/predicate/types";
 import type { Database } from "./database";
-import { POSTGRES_CAST_FOR_DATA_TYPE } from "./dataTypeTokens";
+import {
+	NAIVE_TEMPORAL_TEXT_RE,
+	POSTGRES_CAST_FOR_DATA_TYPE,
+} from "./dataTypeTokens";
 
 /**
  * Module-scoped expression builder. `eb.val` / `eb.lit` / `eb.cast`
@@ -57,6 +60,21 @@ export function compileLiteral(lit: Literal): AliasableExpression<unknown> {
 	}
 	if (lit.data_type !== undefined) {
 		const cast = POSTGRES_CAST_FOR_DATA_TYPE[lit.data_type];
+		if (
+			lit.data_type === "datetime" &&
+			typeof lit.value === "string" &&
+			NAIVE_TEMPORAL_TEXT_RE.test(lit.value.trim())
+		) {
+			// A naive datetime literal means UTC (CCHQ CSQL semantics); a bare
+			// `timestamptz` cast would read it in the unpinned session zone.
+			// The literal is known at compile time, so the decision is static
+			// — no SQL CASE. Naive-matching values are never empty, so the
+			// empty-draft `nullif` guard below is moot on this branch.
+			return eb.fn("timezone", [
+				eb.val("UTC"),
+				eb.cast(eb.val(lit.value), "timestamp"),
+			]);
+		}
 		if (
 			typeof lit.value === "string" &&
 			(lit.data_type === "date" ||

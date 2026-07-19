@@ -15,10 +15,9 @@
  * check because the shared relation-scope normalizer lowers their related reads
  * into explicit quantifiers.
  *
- * The inventory is every authored module AST slot that can reach on-device
- * evaluation: the effective case-list filter, all calculated definitions,
- * search-input defaults, excluded-owner ids, the search-button condition, and
- * only the on-device fragments of advanced CSQL predicates.
+ * The slot inventory lives in `moduleWireSlots.ts`; this rule visits every
+ * calculated definition — latent ones included — so a later visibility or
+ * input change cannot activate a runtime-failing expression.
  */
 
 import { findOnDeviceScalarExpressionIssue } from "@/lib/commcare/expression/onDeviceCompatibility";
@@ -34,9 +33,7 @@ import {
 } from "@/lib/commcare/predicate/relationPresenceEmitter";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
-	effectiveFilterForEmission,
 	type Predicate,
-	simplifyForEmission,
 	type TypeContext,
 	type ValueExpression,
 	walkPredicateExpressionNodes,
@@ -48,6 +45,10 @@ import {
 	RelationEvaluationScopeError,
 } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	collectModuleWireSlotFindings,
+	type ModuleWireSlotIdentity,
+} from "./moduleWireSlots";
 import { moduleTypeContext } from "./shared";
 
 type UnwrapListExpression = Extract<ValueExpression, { kind: "unwrap-list" }>;
@@ -74,159 +75,47 @@ export function onDeviceExpressionCompatibility(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const errors: ValidationError[] = [];
-	const csqlPredicates: Predicate[] = [];
 	const ctx = moduleTypeContext(mod, doc);
 
-	const filter = effectiveFilterForEmission(mod.caseListConfig?.filter);
-	if (filter !== undefined) {
-		csqlPredicates.push(filter);
-		addPredicateError(errors, filter, ctx, {
-			mod,
-			moduleUuid,
-			slot: "caseListConfig.filter",
-			slotLabel: "the Cases available rule",
-			surface: "filter",
-		});
-	}
-
-	const columns = mod.caseListConfig?.columns ?? [];
-	for (let index = 0; index < columns.length; index += 1) {
-		const column = columns[index];
-		if (column.kind !== "calculated") continue;
-		const label = column.header || "Untitled field";
-		addScalarExpressionError(errors, column.expression, ctx, {
-			mod,
-			moduleUuid,
-			slot: `caseListConfig.columns[${index}].expression`,
-			slotLabel: `calculated field "${label}"`,
-			surface: "calculated-column",
-			column: { uuid: column.uuid, label },
-		});
-	}
-
-	const inputs = mod.caseListConfig?.searchInputs ?? [];
-	for (let index = 0; index < inputs.length; index += 1) {
-		const input = inputs[index];
-		const inputIdentity = {
-			uuid: input.uuid,
-			name: input.name,
-			label: input.label || input.name,
-		};
-		if (input.default !== undefined) {
-			addScalarExpressionError(errors, input.default, ctx, {
-				mod,
-				moduleUuid,
-				slot: `caseListConfig.searchInputs[${index}].default`,
-				slotLabel: `the default for search field "${inputIdentity.label}"`,
-				surface: "search-input-default",
-				input: inputIdentity,
-			});
-		}
-
-		if (input.kind !== "advanced") continue;
-		const effective = effectiveFilterForEmission(input.predicate);
-		if (effective === undefined) continue;
-		csqlPredicates.push(effective);
-		addCsqlPredicateError(errors, effective, ctx, {
-			mod,
-			moduleUuid,
-			slot: `caseListConfig.searchInputs[${index}].predicate`,
-			slotLabel: `advanced search input "${inputIdentity.label}"`,
-			surface: "advanced-input",
-			input: inputIdentity,
-		});
-	}
-
-	// The filter and advanced predicates are simplified and AND-composed into
-	// one CSQL query. A match-none clause absorbs on-device fragments in sibling
-	// advanced inputs. The filter still has its independent case-list role.
-	if (csqlPredicates.some((predicate) => predicate.kind === "match-none")) {
-		for (let index = errors.length - 1; index >= 0; index -= 1) {
-			if (errors[index].details?.surface === "advanced-input") {
-				errors.splice(index, 1);
-			}
-		}
-	}
-
-	const searchConfig = mod.caseSearchConfig;
-	if (searchConfig?.excludedOwnerIds !== undefined) {
-		addScalarExpressionError(errors, searchConfig.excludedOwnerIds, ctx, {
-			mod,
-			moduleUuid,
-			slot: "caseSearchConfig.excludedOwnerIds",
-			slotLabel: "the assigned-cases setting",
-			surface: "excluded-owner-ids",
-		});
-	}
-
-	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
-		addPredicateError(
-			errors,
-			simplifyForEmission(searchConfig.searchButtonDisplayCondition),
-			ctx,
-			{
-				mod,
-				moduleUuid,
-				slot: "caseSearchConfig.searchButtonDisplayCondition",
-				slotLabel: "the search-button display condition",
-				surface: "search-button",
-			},
-		);
-	}
-
-	return errors;
+	return collectModuleWireSlotFindings(mod, moduleUuid, {
+		calculatedColumns: "all-definitions",
+		judgePredicate(predicate, slot) {
+			return judgePredicateSlot(predicate, ctx, slot);
+		},
+		judgeCsqlPredicate(predicate, slot) {
+			return judgeCsqlPredicateSlot(predicate, ctx, slot);
+		},
+		judgeExpression(expression, slot) {
+			return judgeScalarExpressionSlot(expression, ctx, slot);
+		},
+	});
 }
 
-interface SlotIdentity {
-	readonly mod: Module;
-	readonly moduleUuid: Uuid;
-	readonly slot: string;
-	readonly slotLabel: string;
-	readonly surface: string;
-	readonly input?: {
-		readonly uuid: Uuid;
-		readonly name: string;
-		readonly label: string;
-	};
-	readonly column?: {
-		readonly uuid: Uuid;
-		readonly label: string;
-	};
-}
-
-function addPredicateError(
-	errors: ValidationError[],
+function judgePredicateSlot(
 	predicate: Predicate,
 	ctx: TypeContext,
-	slot: SlotIdentity,
-): void {
+	slot: ModuleWireSlotIdentity,
+): ValidationError | undefined {
 	const invalidCenter = firstInvalidLiteralGeopointCenter(predicate);
 	if (invalidCenter !== undefined) {
-		errors.push(buildError(slot, invalidCenter));
-		return;
+		return buildError(slot, invalidCenter);
 	}
 	const offender = firstUnwrapListInPredicate(predicate);
 	if (offender !== undefined) {
-		errors.push(
-			buildError(slot, { reason: "unwrap-list", expression: offender }),
-		);
-		return;
+		return buildError(slot, { reason: "unwrap-list", expression: offender });
 	}
 	const issue = firstRelationIssueInPredicate(predicate, ctx);
-	if (issue !== undefined) errors.push(buildError(slot, issue));
+	return issue === undefined ? undefined : buildError(slot, issue);
 }
 
-function addScalarExpressionError(
-	errors: ValidationError[],
+function judgeScalarExpressionSlot(
 	expression: ValueExpression,
 	ctx: TypeContext,
-	slot: SlotIdentity,
-): void {
+	slot: ModuleWireSlotIdentity,
+): ValidationError | undefined {
 	const issue = findOnDeviceScalarExpressionIssue(expression, ctx);
 	if (issue !== undefined) {
-		errors.push(buildError(slot, issue));
-		return;
+		return buildError(slot, issue);
 	}
 	let invalidCenter: RelationIssue | undefined;
 	walkPredicateCarriersInExpression(expression, (predicate) => {
@@ -235,28 +124,26 @@ function addScalarExpressionError(
 		}
 	});
 	if (invalidCenter !== undefined) {
-		errors.push(buildError(slot, invalidCenter));
-		return;
+		return buildError(slot, invalidCenter);
 	}
 	const relationIssue = firstRelationIssueInExpression(expression, ctx);
-	if (relationIssue !== undefined) errors.push(buildError(slot, relationIssue));
+	return relationIssue === undefined
+		? undefined
+		: buildError(slot, relationIssue);
 }
 
-function addCsqlPredicateError(
-	errors: ValidationError[],
+function judgeCsqlPredicateSlot(
 	predicate: Predicate,
 	ctx: TypeContext,
-	slot: SlotIdentity,
-): void {
+	slot: ModuleWireSlotIdentity,
+): ValidationError | undefined {
 	const invalidCenter = firstInvalidLiteralGeopointCenter(predicate);
 	if (invalidCenter !== undefined) {
-		errors.push(buildError(slot, invalidCenter));
-		return;
+		return buildError(slot, invalidCenter);
 	}
 	const normalization = normalizeRelationScopes(predicate, ctx);
 	if ("issue" in normalization) {
-		errors.push(buildError(slot, normalization.issue));
-		return;
+		return buildError(slot, normalization.issue);
 	}
 	let offender: UnwrapListExpression | undefined;
 	let nestedCount: RelationIssue | undefined;
@@ -276,12 +163,9 @@ function addCsqlPredicateError(
 		},
 	});
 	if (offender !== undefined) {
-		errors.push(
-			buildError(slot, { reason: "unwrap-list", expression: offender }),
-		);
-		return;
+		return buildError(slot, { reason: "unwrap-list", expression: offender });
 	}
-	if (nestedCount !== undefined) errors.push(buildError(slot, nestedCount));
+	return nestedCount === undefined ? undefined : buildError(slot, nestedCount);
 }
 
 function firstUnwrapListInPredicate(
@@ -674,7 +558,10 @@ function firstNestedMultiCaseCountInExpression(
 }
 
 /** One finding per authored slot provides one stable, actionable repair. */
-function buildError(args: SlotIdentity, issue: OnDeviceIssue): ValidationError {
+function buildError(
+	args: ModuleWireSlotIdentity,
+	issue: OnDeviceIssue,
+): ValidationError {
 	const message = (() => {
 		switch (issue.reason) {
 			case "unwrap-list":

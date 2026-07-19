@@ -105,6 +105,17 @@ export interface TermBindings {
 	 * `deviceid` / `appversion` per `SESSION_CONTEXT_FIELDS`).
 	 */
 	sessionContext?: ReadonlyMap<string, TermBindingValue>;
+
+	/**
+	 * The viewer's IANA timezone (`Intl.DateTimeFormat().resolvedOptions()
+	 * .timeZone`), supplied by the preview client. `format-date` renders
+	 * wall-clock tokens in this zone — the device formats in ITS local
+	 * zone, and in Preview the author's browser stands in for the device.
+	 * Absent (non-preview compile sites, older callers) falls back to UTC,
+	 * which is at least deterministic where the unpinned session zone was
+	 * not. Validated at the compile site, never trusted raw.
+	 */
+	viewerTimeZone?: string;
 }
 
 /**

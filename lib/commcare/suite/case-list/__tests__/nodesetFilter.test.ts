@@ -34,8 +34,10 @@
 import { describe, expect, it } from "vitest";
 import {
 	and,
+	concat,
 	eq,
 	exists,
+	input,
 	literal,
 	matchAll,
 	matchNone,
@@ -43,6 +45,7 @@ import {
 	sessionUser,
 	subcasePath,
 	term,
+	whenInput,
 } from "@/lib/domain/predicate/builders";
 import {
 	emitExcludedOwnerFilterExpression,
@@ -206,16 +209,14 @@ describe("owner exclusion on the ordinary case-list nodeset", () => {
 	it.each([
 		"",
 		"   \t  ",
-	])("keeps unassigned cases when the exclusion value is blank (%j)", (value) => {
-		// CommCare Core's XPathSelectedFunc.multiSelected implements
-		// `(\" \" + s1 + \" \").contains(\" \" + s2.trim() + \" \")`, so
-		// `selected('', '')` is true. The leading normalize-space identity
-		// must therefore win before the unassigned row's empty @owner_id is
-		// tested.
-		const literalXpath = value === "" ? "''" : `'${value}'`;
+	])("emits no fragment when the exclusion value is statically blank (%j)", (value) => {
+		// Blank means "exclude nobody" — the runtime guard's identity arm,
+		// resolved statically. Emitting the guarded `selected()` test for a
+		// literal blank would be a tautological bracket on every row.
 		expect(emitExcludedOwnerFilterExpression(term(literal(value)))).toBe(
-			`normalize-space(${literalXpath}) = '' or not(selected(normalize-space(${literalXpath}), @owner_id))`,
+			undefined,
 		);
+		expect(emitExcludedOwnerNodesetFilter(term(literal(value)))).toBe("");
 	});
 
 	it("normalizes repeated, trailing, and tab whitespace before membership", () => {
@@ -241,5 +242,78 @@ describe("owner exclusion on the ordinary case-list nodeset", () => {
 	it("omits the owner predicate when no exclusion expression is authored", () => {
 		expect(emitExcludedOwnerFilterExpression(undefined)).toBeUndefined();
 		expect(emitExcludedOwnerNodesetFilter(undefined)).toBe("");
+	});
+});
+
+// ============================================================
+// SHELL 5 — Unanswered-Search substitution
+// ============================================================
+//
+// The ordinary case-list nodeset evaluates before any Search runs.
+// Core resolves `instance('search-input:results')` on such an entry
+// to a declared-but-unloaded instance and throws
+// `XPathMissingInstanceException` from `XPathPathExpr.evalRaw` the
+// moment ANY expression references it — before `normalize-space(...)
+// = ''` or `if(count(...))` guards can evaluate. Both ordinary-list
+// emitters therefore substitute the unanswered reading statically:
+// no instance reference may survive on this wire surface.
+
+describe("unanswered-Search substitution on the ordinary nodeset", () => {
+	it("emits no owner fragment for a pure Search-answer exclusion", () => {
+		// `input(...)` reads blank before Search; blank means "exclude
+		// nobody", so the entire fragment collapses away instead of
+		// referencing the unloaded search-input instance.
+		const exclusion = term(input("excluded_owners"));
+		expect(emitExcludedOwnerFilterExpression(exclusion)).toBeUndefined();
+		expect(emitExcludedOwnerNodesetFilter(exclusion)).toBe("");
+	});
+
+	it("keeps non-Search arms of a composite exclusion, blanking the input ref", () => {
+		// `concat(input(...), ' ', session-user)` — the Search arm reads
+		// blank; the session arm is real at ordinary-list evaluation time
+		// and must survive.
+		const exclusion = concat(
+			term(input("excluded_owners")),
+			term(literal(" ")),
+			term(sessionUser("excluded_owner_ids")),
+		);
+		const emitted = emitExcludedOwnerFilterExpression(exclusion);
+		expect(emitted).toBe(
+			"normalize-space(concat('', ' ', instance('commcaresession')/session/user/data/excluded_owner_ids)) = '' or not(selected(normalize-space(concat('', ' ', instance('commcaresession')/session/user/data/excluded_owner_ids)), @owner_id))",
+		);
+		expect(emitted).not.toContain("search-input:results");
+	});
+
+	it("collapses a when-input-present envelope in the filter to its unanswered arm", () => {
+		// The envelope's clause only applies once the input is answered;
+		// on the ordinary list that is never, so only the always-on
+		// conjunct survives — with no `if(count(instance(...)))` guard
+		// left to crash the entry.
+		const filter = and(
+			whenInput(
+				input("name_query"),
+				eq(prop("patient", "full_name"), term(input("name_query"))),
+			),
+			eq(prop("patient", "is_priority"), literal(true)),
+		);
+		expect(emitNodesetFilter(filter)).toBe("[is_priority = 'true']");
+	});
+
+	it("emits no bracket when the filter is only an envelope", () => {
+		const filter = whenInput(
+			input("name_query"),
+			eq(prop("patient", "full_name"), term(input("name_query"))),
+		);
+		expect(emitNodesetFilter(filter)).toBe("");
+	});
+
+	it("does not mutate the authored filter AST", () => {
+		const filter = whenInput(
+			input("name_query"),
+			eq(prop("patient", "full_name"), term(input("name_query"))),
+		);
+		const snapshot = structuredClone(filter);
+		emitNodesetFilter(filter);
+		expect(filter).toEqual(snapshot);
 	});
 });
