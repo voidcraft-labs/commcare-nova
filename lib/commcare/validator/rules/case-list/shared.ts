@@ -58,13 +58,21 @@
  *
  * ## Memoization
  *
- * The admission set is memoized per `BlueprintDoc` reference INSIDE
- * `effectiveCaseTypes` (the doc-store layer replaces the doc
- * reference on every mutation, so staleness is unreachable); this
- * module adds no cache layer of its own.
+ * The effective admission set is memoized per `BlueprintDoc` reference inside
+ * `effectiveCaseTypes`; this module memoizes its canonical compatibility
+ * projection on the same identity. The doc store replaces the doc reference on
+ * every mutation, so neither cache can become stale.
  */
 
-import type { BlueprintDoc, CaseType, Module } from "@/lib/domain";
+import {
+	authorableCaseProperties,
+	type BlueprintDoc,
+	type CaseProperty,
+	type CaseType,
+	LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
+	type Module,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+} from "@/lib/domain";
 import {
 	type CasePropertyDataType,
 	effectiveDataType,
@@ -89,13 +97,55 @@ export interface ValidationContext {
 	readonly augmentedCaseTypes: readonly CaseType[];
 }
 
+const VALIDATION_CONTEXT_CACHE = new WeakMap<BlueprintDoc, ValidationContext>();
+
 /**
  * The `ValidationContext` for the doc. The admission set itself is
- * memoized per doc reference inside `effectiveCaseTypes`, so this is
- * a cheap wrapper construction — no second cache layer.
+ * memoized per doc reference inside `effectiveCaseTypes`; the canonical alias
+ * projection is memoized here on the same document identity.
  */
 export function validationContextFor(doc: BlueprintDoc): ValidationContext {
-	return { augmentedCaseTypes: effectiveCaseTypes(doc) };
+	const cached = VALIDATION_CONTEXT_CACHE.get(doc);
+	if (cached !== undefined) return cached;
+
+	const context = {
+		augmentedCaseTypes: effectiveCaseTypes(doc).map((caseType) => ({
+			...caseType,
+			properties: canonicalPropertiesForValidation(caseType.properties),
+		})),
+	};
+	VALIDATION_CONTEXT_CACHE.set(doc, context);
+	return context;
+}
+
+/**
+ * Collapse CCHQ compatibility spellings onto Nova's canonical property
+ * metadata before validation reads the catalog. The wire emitter maps, for
+ * example, `name` to `case_name`; allowing a stale declared `name.data_type`
+ * to win here would therefore validate one value while emitting another.
+ *
+ * Compatibility aliases are added back as lookup-only mirrors of the
+ * canonical records. That keeps old blueprints and stored predicate ASTs
+ * readable without letting their stale alias metadata become a second source
+ * of truth. Authoring surfaces consume `authorableCaseProperties` directly and
+ * never see these mirrors.
+ */
+function canonicalPropertiesForValidation(
+	properties: readonly CaseProperty[],
+): CaseProperty[] {
+	const canonical = [...authorableCaseProperties(properties)];
+	const canonicalByName = new Map(
+		canonical.map((property) => [property.name, property]),
+	);
+
+	for (const [alias, canonicalName] of Object.entries(
+		LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
+	)) {
+		const property = canonicalByName.get(canonicalName);
+		if (property !== undefined) canonical.push({ ...property, name: alias });
+	}
+
+	return canonical;
 }
 
 /**
@@ -109,19 +159,13 @@ export function validationContextFor(doc: BlueprintDoc): ValidationContext {
  * same admission set as the per-rule property resolvers
  * (`searchInputModeMatchesPropertyType`, `columnReferences`).
  *
- * `knownInputs` is derived from the module's own
- * `caseListConfig.searchInputs`. The discriminated union splits two
- * authoring shapes:
- *
- *   - `kind: "simple"` — carries `(property, mode, via)`. The
- *     declaration carries the input's `name` plus the resolved
- *     `data_type` (when `via` is self-walk and the property resolves
- *     to a known type on the module's case type). Cross-walk inputs
- *     and self-walks against unknown properties fall back to text-as-
- *     no-annotation.
- *   - `kind: "advanced"` — carries a `predicate` AST. The advanced
- *     arm has no single declared property; the type checker has no
- *     `data_type` to bind, so the declaration omits the slot.
+ * `knownInputs` is derived from each input's widget type through
+ * `SEARCH_INPUT_RUNTIME_VALUE_TYPES`. This models what `input(name)` reads at
+ * runtime, independent of authoring arm or target property: date widgets bind
+ * dates; text/select/barcode widgets bind text; date-range widgets bind the
+ * encoded `__range__<from>__<to>` text scalar. A simple date input targeting a
+ * datetime property still reads as date, and an advanced date input is not
+ * silently widened to text merely because it has no target property.
  *
  * `currentCaseType` is set to the module's case type so the
  * relational quantifiers (`exists` / `missing`) and the destination-
@@ -133,45 +177,10 @@ export function moduleTypeContext(mod: Module, doc: BlueprintDoc): TypeContext {
 	const moduleCaseType = mod.caseType;
 	const { augmentedCaseTypes } = validationContextFor(doc);
 
-	const knownInputs: SearchInputDecl[] = [];
-	for (const input of inputs) {
-		// Advanced inputs have no single declared property; the type
-		// checker has no `data_type` to bind. Default to `text` — the
-		// same fallback the type checker applies for un-annotated
-		// declarations.
-		if (input.kind === "advanced" || !moduleCaseType) {
-			knownInputs.push({ name: input.name });
-			continue;
-		}
-		// Self-walk (`via` absent or `kind === "self"`) resolves on the
-		// module's own case type. Cross-walk inputs (`via` carrying an
-		// `ancestor` / `subcase` / `any-relation` step) resolve against
-		// their destination case type — the surrounding type-check call
-		// validates the walk separately, so the input's declaration here
-		// trusts the user's intent and falls back to `text` when the walk
-		// is non-trivial. The declaration's `data_type` is a hint, not a
-		// gate; widening to text on cross-walks just defers to the wire
-		// layer's text-coerced equality.
-		const isSelfWalk = !input.via || input.via.kind === "self";
-		if (!isSelfWalk) {
-			knownInputs.push({ name: input.name });
-			continue;
-		}
-		// Resolve against the augmented list so writer-derived /
-		// standard properties contribute their effective data type to
-		// the input's declaration. Routes through the same lookup the
-		// `resolvePropertyDataType` resolver uses — single source of
-		// truth.
-		const dataType = lookupInAugmented(
-			augmentedCaseTypes,
-			moduleCaseType,
-			input.property,
-		);
-		const decl: SearchInputDecl = dataType
-			? { name: input.name, data_type: dataType }
-			: { name: input.name };
-		knownInputs.push(decl);
-	}
+	const knownInputs: SearchInputDecl[] = inputs.map((input) => ({
+		name: input.name,
+		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+	}));
 
 	return {
 		// `TypeContext.caseTypes` is typed as a mutable array

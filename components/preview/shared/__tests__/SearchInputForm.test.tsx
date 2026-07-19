@@ -13,8 +13,8 @@
 //      suppressed so the form doesn't loop after the parent echoes
 //      `value` back in.
 //   3. Date-range two-key shape — bounds emit under `<name>:from` /
-//      `<name>:to` and clear independently. Mirrors the runtime-
-//      bindings layer's range-mode value contract.
+//      `<name>:to` and clear independently while editing; submission
+//      requires the complete ordered pair CommCare can represent.
 //
 // The date / date-range widgets are Popover+Calendar pickers, NOT
 // native date inputs. Tests assert against the trigger button's text
@@ -29,7 +29,7 @@
 // unless wired through `advanceTimers`. Sticking to `fireEvent.change`
 // keeps the timing model deterministic.
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import {
 	afterEach,
 	beforeEach,
@@ -46,6 +46,10 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
+import {
+	DATE_RANGE_ORDER_MESSAGE,
+	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
+} from "@/lib/preview/engine/dateRangeInputValidation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 
 // Mock the shadcn Calendar with a deterministic stub. The real
@@ -88,6 +92,15 @@ vi.mock("@/components/shadcn/calendar", () => ({
 
 import { SearchInputForm } from "../SearchInputForm";
 
+const ORIGINAL_MEDIA_DEVICES = Object.getOwnPropertyDescriptor(
+	navigator,
+	"mediaDevices",
+);
+const ORIGINAL_SRC_OBJECT = Object.getOwnPropertyDescriptor(
+	HTMLMediaElement.prototype,
+	"srcObject",
+);
+
 // ── Fixtures ────────────────────────────────────────────────────────
 
 const UUID_NAME = asUuid("00000000-0000-0000-0000-000000000001");
@@ -97,6 +110,19 @@ const UUID_REG_RANGE = asUuid("00000000-0000-0000-0000-000000000004");
 const UUID_BARCODE = asUuid("00000000-0000-0000-0000-000000000005");
 const UUID_ADV_SELECT = asUuid("00000000-0000-0000-0000-000000000006");
 
+const READABLE_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+	day: "numeric",
+	month: "long",
+	year: "numeric",
+};
+
+function readableDate(year: number, monthIndex: number, day: number): string {
+	return new Date(year, monthIndex, day).toLocaleDateString(
+		"en-US",
+		READABLE_DATE_FORMAT_OPTIONS,
+	);
+}
+
 /** Case type with one of each property data type that the widgets
  *  dispatch against. `status` carries declared options so the select
  *  widget has a list to render. */
@@ -104,6 +130,7 @@ const PATIENT_CASE_TYPE: CaseType = {
 	name: "patient",
 	properties: [
 		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "case_name", label: "Case name", data_type: "text" },
 		{
 			name: "status",
 			label: "Status",
@@ -186,13 +213,98 @@ function lastEmission(
 	return Object.fromEntries(emitted);
 }
 
+async function flushReactMicrotasks(): Promise<void> {
+	await act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+}
+
 beforeEach(() => {
 	vi.useFakeTimers();
 });
 
 afterEach(() => {
 	vi.useRealTimers();
+	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
+	if (ORIGINAL_MEDIA_DEVICES === undefined) {
+		Reflect.deleteProperty(navigator, "mediaDevices");
+	} else {
+		Object.defineProperty(navigator, "mediaDevices", ORIGINAL_MEDIA_DEVICES);
+	}
+	if (ORIGINAL_SRC_OBJECT === undefined) {
+		Reflect.deleteProperty(HTMLMediaElement.prototype, "srcObject");
+	} else {
+		Object.defineProperty(
+			HTMLMediaElement.prototype,
+			"srcObject",
+			ORIGINAL_SRC_OBJECT,
+		);
+	}
 });
+
+interface BarcodeTestEnvironment {
+	readonly detect: Mock<() => Promise<ReadonlyArray<{ rawValue: string }>>>;
+	readonly getUserMedia: Mock<() => Promise<MediaStream>>;
+	readonly stream: MediaStream;
+	readonly stop: Mock<() => void>;
+	readonly runNextFrame: () => Promise<void>;
+}
+
+/** Installs only the browser APIs the production scanner feature-detects.
+ * RAF advances through fake time only when `runNextFrame` asks for a scan,
+ * so an empty result cannot create an unbounded test loop. */
+function installBarcodeScanner(
+	detections: ReadonlyArray<{ rawValue: string }> = [],
+	formats: ReadonlyArray<string> = ["code_128", "qr_code"],
+): BarcodeTestEnvironment {
+	const detect = vi
+		.fn<() => Promise<ReadonlyArray<{ rawValue: string }>>>()
+		.mockResolvedValue(detections);
+	class MockBarcodeDetector {
+		static getSupportedFormats = vi
+			.fn<() => Promise<ReadonlyArray<string>>>()
+			.mockResolvedValue(formats);
+
+		readonly detect = detect;
+	}
+	vi.stubGlobal("BarcodeDetector", MockBarcodeDetector);
+	vi.stubGlobal("isSecureContext", true);
+
+	const stop = vi.fn();
+	const stream = {
+		getTracks: () => [{ stop }],
+	} as unknown as MediaStream;
+	const getUserMedia = vi
+		.fn<() => Promise<MediaStream>>()
+		.mockResolvedValue(stream);
+	Object.defineProperty(navigator, "mediaDevices", {
+		configurable: true,
+		value: { getUserMedia },
+	});
+	Object.defineProperty(HTMLMediaElement.prototype, "srcObject", {
+		configurable: true,
+		writable: true,
+		value: null,
+	});
+	vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+
+	return {
+		detect,
+		getUserMedia,
+		stream,
+		stop,
+		runNextFrame: async () => {
+			await act(async () => {
+				vi.advanceTimersByTime(20);
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+		},
+	};
+}
 
 // ── Per-type widget dispatch ───────────────────────────────────────
 
@@ -224,7 +336,7 @@ describe("widget dispatch", () => {
 		expect(trigger.textContent ?? "").toContain("Pick a date");
 	});
 
-	it("renders a text input for `type: barcode` inputs", () => {
+	it("keeps manual barcode entry and explains when scanning is unsupported", async () => {
 		// Barcode-scanned values are plain strings on the wire; the
 		// running-app surface matches that shape with a text input
 		// that accepts pasted scanner output.
@@ -242,6 +354,13 @@ describe("widget dispatch", () => {
 		const input = screen.getByLabelText("Barcode");
 		expect((input as HTMLInputElement).tagName).toBe("INPUT");
 		expect((input as HTMLInputElement).type).toBe("text");
+		await flushReactMicrotasks();
+		expect(screen.queryByRole("button", { name: "Scan Barcode" })).toBeNull();
+		const fallback = screen.getByText(
+			"Your browser doesn't support camera scanning. Enter or paste the barcode",
+		);
+		expect(fallback).toBeDefined();
+		expect(input.getAttribute("aria-describedby")).toBe(fallback.id);
 	});
 
 	it("renders two Popover trigger buttons for `type: date-range` inputs", () => {
@@ -265,6 +384,175 @@ describe("widget dispatch", () => {
 		expect(from.tagName).toBe("BUTTON");
 		expect(to.tagName).toBe("BUTTON");
 		expect(from).not.toBe(to);
+	});
+});
+
+describe("barcode scanning", () => {
+	it("does not show Scan when the browser reports no usable barcode formats", async () => {
+		installBarcodeScanner([], []);
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_BARCODE,
+					"barcode",
+					"Barcode",
+					"barcode",
+					"barcode",
+				),
+			],
+		});
+		await flushReactMicrotasks();
+
+		expect(screen.queryByRole("button", { name: "Scan Barcode" })).toBeNull();
+		expect(screen.getByText(/doesn't support camera scanning/i)).toBeDefined();
+	});
+
+	it("shows Scan only when BarcodeDetector and camera capture are supported", async () => {
+		installBarcodeScanner();
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_BARCODE,
+					"barcode",
+					"Barcode",
+					"barcode",
+					"barcode",
+				),
+			],
+		});
+		await flushReactMicrotasks();
+
+		expect(screen.getByRole("button", { name: "Scan Barcode" })).toBeDefined();
+		const manualInput = screen.getByLabelText("Barcode") as HTMLInputElement;
+		fireEvent.change(manualInput, { target: { value: "PASTED-17" } });
+		expect(manualInput.value).toBe("PASTED-17");
+		expect(screen.queryByText(/doesn't support camera scanning/i)).toBeNull();
+	});
+
+	it("writes the first detected barcode into the editable text field", async () => {
+		const scanner = installBarcodeScanner([{ rawValue: "BC-0042" }]);
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_BARCODE,
+					"barcode",
+					"Barcode",
+					"barcode",
+					"barcode",
+				),
+			],
+		});
+		await flushReactMicrotasks();
+
+		fireEvent.click(screen.getByRole("button", { name: "Scan Barcode" }));
+		await flushReactMicrotasks();
+		expect(scanner.getUserMedia).toHaveBeenCalledTimes(1);
+		expect(screen.getByRole("dialog").textContent ?? "").toContain(
+			"Point your camera at the barcode",
+		);
+		await scanner.runNextFrame();
+
+		expect(scanner.detect).toHaveBeenCalledTimes(1);
+		expect((screen.getByLabelText("Barcode") as HTMLInputElement).value).toBe(
+			"BC-0042",
+		);
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(scanner.stop).toHaveBeenCalledTimes(1);
+	});
+
+	it("stops every camera track when the user cancels", async () => {
+		const scanner = installBarcodeScanner();
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_BARCODE,
+					"barcode",
+					"Barcode",
+					"barcode",
+					"barcode",
+				),
+			],
+		});
+		await flushReactMicrotasks();
+
+		fireEvent.click(screen.getByRole("button", { name: "Scan Barcode" }));
+		await flushReactMicrotasks();
+		expect(screen.getByRole("dialog").textContent ?? "").toContain(
+			"Point your camera at the barcode",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		expect(scanner.stop).toHaveBeenCalledTimes(1);
+		expect(screen.queryByRole("dialog")).toBeNull();
+	});
+
+	it("stops a camera that resolves after the dialog has already closed", async () => {
+		const scanner = installBarcodeScanner();
+		let releaseCamera: ((stream: MediaStream) => void) | undefined;
+		scanner.getUserMedia.mockReturnValue(
+			new Promise((resolve) => {
+				releaseCamera = resolve;
+			}),
+		);
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_BARCODE,
+					"barcode",
+					"Barcode",
+					"barcode",
+					"barcode",
+				),
+			],
+		});
+		await flushReactMicrotasks();
+
+		fireEvent.click(screen.getByRole("button", { name: "Scan Barcode" }));
+		await flushReactMicrotasks();
+		expect(screen.getByText("Starting your camera…")).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		expect(scanner.stop).not.toHaveBeenCalled();
+		const resolveCamera = releaseCamera;
+		if (resolveCamera === undefined)
+			throw new Error("Camera was not requested");
+		await act(async () => {
+			resolveCamera(scanner.stream);
+			await Promise.resolve();
+		});
+
+		expect(scanner.stop).toHaveBeenCalledTimes(1);
+	});
+
+	it("explains a denied camera permission and keeps manual entry available", async () => {
+		const scanner = installBarcodeScanner();
+		scanner.getUserMedia.mockRejectedValue(
+			new DOMException("Permission denied", "NotAllowedError"),
+		);
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_BARCODE,
+					"barcode",
+					"Barcode",
+					"barcode",
+					"barcode",
+				),
+			],
+		});
+		await flushReactMicrotasks();
+
+		fireEvent.click(screen.getByRole("button", { name: "Scan Barcode" }));
+		await flushReactMicrotasks();
+		expect(
+			screen.getByText("Your browser blocked camera access"),
+		).toBeDefined();
+		expect(
+			screen.getByText(
+				"Allow camera access in your browser, then try scanning again or enter the barcode",
+			),
+		).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		expect(screen.getByLabelText("Barcode")).toBeDefined();
 	});
 });
 
@@ -292,6 +580,137 @@ describe("select dispatch", () => {
 		const optionLabels = options.map((opt) => opt.textContent?.trim());
 		expect(optionLabels).toContain("Active");
 		expect(optionLabels).toContain("Closed");
+	});
+
+	it("clears only this select through Any and preserves sibling answers", async () => {
+		const { onChange } = renderForm({
+			searchInputs: [
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+				simpleSearchInputDef(
+					UUID_STATUS,
+					"status",
+					"Status",
+					"select",
+					"status",
+				),
+			],
+			value: new Map([
+				["name", "Alice"],
+				["status", "active"],
+			]),
+		});
+
+		fireEvent.click(screen.getByRole("combobox", { name: "Status" }));
+		const anyOption = screen.getByRole("option", { name: "Any" });
+		// Base UI starts an option press on pointer-down; click alone does not
+		// exercise the value-change path in happy-dom.
+		fireEvent.pointerDown(anyOption, { pointerType: "mouse" });
+		fireEvent.click(anyOption);
+		await act(async () => vi.advanceTimersByTime(300));
+
+		expect(lastEmission(onChange)).toEqual({ name: "Alice" });
+		expect(
+			screen.getByRole("combobox", { name: "Status" }).textContent,
+		).toContain("Any");
+		expect(screen.queryByText("Choose an option")).toBeNull();
+	});
+
+	it("disambiguates the Any default from an authored option with the same label", () => {
+		const caseType: CaseType = {
+			...PATIENT_CASE_TYPE,
+			properties: PATIENT_CASE_TYPE.properties.map((property) =>
+				property.name === "status"
+					? {
+							...property,
+							options: [
+								{ value: "any", label: "Any" },
+								{ value: "closed", label: "Closed" },
+							],
+						}
+					: property,
+			),
+		};
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_STATUS,
+					"status",
+					"Status",
+					"select",
+					"status",
+				),
+			],
+			caseType,
+		});
+
+		const trigger = screen.getByRole("combobox", { name: "Status" });
+		expect(trigger.textContent).toContain("Any status");
+		fireEvent.click(trigger);
+		expect(screen.getByRole("option", { name: "Any status" })).toBeDefined();
+		expect(screen.getByRole("option", { name: "Any" })).toBeDefined();
+	});
+
+	it("keeps long spaced and unbroken option labels legible in a narrow pane", () => {
+		const longSpacedLabel =
+			"Needs an in-person follow-up with the community health team this month";
+		const longUnbrokenLabel =
+			"ExtremelyLongImportedChoiceWithoutAnyNaturalWordBreaksForTheNarrowSearchPane";
+		const caseType: CaseType = {
+			...PATIENT_CASE_TYPE,
+			properties: PATIENT_CASE_TYPE.properties.map((property) =>
+				property.name === "status"
+					? {
+							...property,
+							options: [
+								{ value: "follow_up", label: longSpacedLabel },
+								{ value: "imported", label: longUnbrokenLabel },
+							],
+						}
+					: property,
+			),
+		};
+		const { rerender } = renderForm({
+			searchInputs: [
+				simpleSearchInputDef(
+					UUID_STATUS,
+					"status",
+					"Status",
+					"select",
+					"status",
+				),
+			],
+			caseType,
+			value: new Map([["status", "follow_up"]]),
+		});
+
+		const trigger = screen.getByRole("combobox", { name: "Status" });
+		expect(trigger.textContent).toContain(longSpacedLabel);
+		expect(trigger.className).toContain("whitespace-normal");
+		expect(trigger.className).toContain("line-clamp-none");
+		expect(trigger.className).toContain("[overflow-wrap:anywhere]");
+		expect(trigger.className).not.toContain("line-clamp-1");
+		expect(trigger.className).not.toContain("data-[size=default]:h-8");
+		rerender(new Map([["status", "imported"]]));
+		expect(trigger.textContent).toContain(longUnbrokenLabel);
+		fireEvent.click(trigger);
+
+		const content = document.querySelector<HTMLElement>(
+			'[data-slot="select-content"]',
+		);
+		expect(content?.className).toContain("max-w-(--available-width)");
+		expect(content?.className).toContain(
+			"min-w-[min(9rem,var(--available-width))]",
+		);
+		for (const label of [longSpacedLabel, longUnbrokenLabel]) {
+			const option = screen.getByRole("option", { name: label });
+			const itemText = option.querySelector<HTMLElement>(
+				'[data-slot="select-item-text"]',
+			);
+			expect(itemText?.className).toContain("min-w-0");
+			expect(itemText?.className).toContain("whitespace-normal");
+			expect(itemText?.className).toContain("break-words");
+			expect(itemText?.className).toContain("[overflow-wrap:anywhere]");
+		}
 	});
 
 	it("falls back to a text input on advanced-arm `type: select` inputs", () => {
@@ -477,12 +896,11 @@ describe("controlled `value` prop flow", () => {
 		expect(input.value).toBe("Carol");
 	});
 
-	it("renders the ISO-formatted date on the Popover trigger when value is set", () => {
-		// Trigger button label reflects the current ISO value (or
-		// "Pick a date" placeholder when unset). `parseISO` from
-		// `date-fns` lands on local-time midnight, so the rendered
-		// label matches the wire-form value verbatim without
-		// timezone drift.
+	it("renders a readable locale-formatted date while retaining an ISO wire value", () => {
+		// The controlled value stays in the runtime binding's ISO shape,
+		// but that storage detail should not leak into the running app.
+		// `parseISO` lands on local-time midnight, so the locale formatter
+		// preserves the authored calendar day in negative UTC offsets.
 		const initial: SearchInputValues = new Map([["dob", "1990-05-12"]]);
 		renderForm({
 			searchInputs: [
@@ -491,7 +909,8 @@ describe("controlled `value` prop flow", () => {
 			value: initial,
 		});
 		const trigger = screen.getByLabelText("Date of birth");
-		expect(trigger.textContent ?? "").toContain("1990-05-12");
+		expect(trigger.textContent ?? "").toContain(readableDate(1990, 4, 12));
+		expect(trigger.textContent ?? "").not.toContain("1990-05-12");
 	});
 
 	it("renders the placeholder when the inbound value is not ISO-shaped", () => {
@@ -533,7 +952,7 @@ describe("controlled `value` prop flow", () => {
 		expect(trigger.textContent ?? "").toContain("Pick a date");
 	});
 
-	it("renders ISO-formatted bounds on both date-range Popover triggers", () => {
+	it("renders readable locale-formatted bounds on both date-range Popover triggers", () => {
 		const initial: SearchInputValues = new Map([
 			["reg:from", "2024-01-01"],
 			["reg:to", "2024-12-31"],
@@ -552,10 +971,40 @@ describe("controlled `value` prop flow", () => {
 		});
 		expect(
 			screen.getByLabelText("Registered from").textContent ?? "",
-		).toContain("2024-01-01");
+		).toContain(readableDate(2024, 0, 1));
 		expect(screen.getByLabelText("Registered to").textContent ?? "").toContain(
-			"2024-12-31",
+			readableDate(2024, 11, 31),
 		);
+
+		const range = document.querySelector("[data-date-range]");
+		const fields = document.querySelector("[data-date-range-fields]");
+		expect(range).not.toBeNull();
+		expect(fields).not.toBeNull();
+		expect(range?.className.split(" ")).toEqual(
+			expect.arrayContaining(["@container/date-range", "min-w-0"]),
+		);
+		expect(fields?.className.split(" ")).toEqual(
+			expect.arrayContaining([
+				"min-w-0",
+				"grid-cols-1",
+				"@sm/date-range:grid-cols-2",
+			]),
+		);
+		for (const label of ["Registered from", "Registered to"]) {
+			const trigger = screen.getByLabelText(label);
+			expect(trigger.className.split(" ")).toEqual(
+				expect.arrayContaining([
+					"min-h-11",
+					"min-w-0",
+					"whitespace-normal",
+					"text-left",
+				]),
+			);
+			expect(trigger.className).not.toContain("overflow-hidden");
+			expect(trigger.querySelector("span")?.className).not.toContain(
+				"truncate",
+			);
+		}
 	});
 });
 
@@ -599,10 +1048,9 @@ describe("date-range two-key emission", () => {
 	});
 
 	it("leaves the other bound intact when one is cleared", () => {
-		// Date-range bounds are independent contributions to the
-		// runtime predicate — clearing the from bound should not
-		// drop the to bound. Mirrors the runtime-bindings layer's
-		// per-bound short-circuit. The form surfaces a "Clear" button
+		// Date-range bounds keep independent draft state — clearing the from
+		// bound should not destroy the worker's to-bound selection, even though
+		// Search now waits for a complete pair. The form surfaces a "Clear" button
 		// inside the popover's footer when a value is set; tests
 		// click it rather than driving the Calendar's keyboard.
 		const initial: SearchInputValues = new Map([
@@ -632,6 +1080,22 @@ describe("date-range two-key emission", () => {
 // ── Popover auto-close after pick ──────────────────────────────────
 
 describe("popover auto-close after pick", () => {
+	it("keeps the calendar within the available viewport height", () => {
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(UUID_DOB, "dob", "Date of birth", "date", "dob"),
+			],
+		});
+		fireEvent.click(screen.getByLabelText("Date of birth"));
+
+		const content = document.querySelector<HTMLElement>(
+			'[data-slot="popover-content"]',
+		);
+		expect(content?.className).toContain("max-h-[var(--available-height)]");
+		expect(content?.className).toContain("overflow-y-auto");
+		expect(content?.className).toContain("overscroll-contain");
+	});
+
 	it("closes the single-date popover when a day is picked", () => {
 		// Base UI's Popover only auto-dismisses on outside-press /
 		// escape / close-press / focus-out — none fire when the
@@ -666,7 +1130,9 @@ describe("popover auto-close after pick", () => {
 		});
 		fireEvent.click(screen.getByLabelText("Date of birth"));
 		expect(screen.queryByTestId("mock-calendar")).not.toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: /clear/i }));
+		const clearButton = screen.getByRole("button", { name: /clear/i });
+		expect(clearButton.className.split(" ")).toContain("h-11");
+		fireEvent.click(clearButton);
 		expect(screen.queryByTestId("mock-calendar")).toBeNull();
 	});
 });
@@ -727,6 +1193,190 @@ describe("multi-input composition", () => {
 	});
 });
 
+// ── Export-parity validation ──────────────────────────────────────
+
+describe("runtime CSQL quote validation", () => {
+	it("blocks an explicit-query value after submit and clears live when corrected", () => {
+		const explicitInput = simpleSearchInputDef(
+			UUID_NAME,
+			"name_query",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const onSubmit = vi.fn<(next: SearchInputValues) => void>();
+		render(
+			<SearchInputForm
+				searchInputs={[explicitInput]}
+				caseType={PATIENT_CASE_TYPE}
+				value={new Map()}
+				onChange={vi.fn()}
+				onSubmit={onSubmit}
+			/>,
+		);
+
+		const field = screen.getByLabelText("Name");
+		fireEvent.change(field, { target: { value: `it's "quoted"` } });
+		expect(screen.queryByRole("alert")).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		expect(onSubmit).not.toHaveBeenCalled();
+		expect(screen.getByRole("alert").textContent).toContain(
+			"This search can't use both single and double quotation marks. Remove one kind and try again",
+		);
+		expect(field.getAttribute("aria-invalid")).toBe("true");
+
+		fireEvent.change(field, { target: { value: "O'Connor" } });
+		expect(screen.queryByRole("alert")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		expect(onSubmit).toHaveBeenCalledTimes(1);
+		expect(Object.fromEntries(onSubmit.mock.calls[0]?.[0] ?? [])).toEqual({
+			name_query: "O'Connor",
+		});
+	});
+
+	it("does not carry attempted validation feedback into a new module scope", () => {
+		const explicitInput = simpleSearchInputDef(
+			UUID_NAME,
+			"name_query",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const invalidValue = new Map([["name_query", `it's "quoted"`]]);
+		const { rerender } = render(
+			<SearchInputForm
+				scopeKey="module-one"
+				searchInputs={[explicitInput]}
+				caseType={PATIENT_CASE_TYPE}
+				value={invalidValue}
+				onChange={vi.fn()}
+				onSubmit={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		expect(screen.getByRole("alert")).toBeDefined();
+
+		rerender(
+			<SearchInputForm
+				scopeKey="module-two"
+				searchInputs={[explicitInput]}
+				caseType={PATIENT_CASE_TYPE}
+				value={invalidValue}
+				onChange={vi.fn()}
+				onSubmit={vi.fn()}
+			/>,
+		);
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(screen.getByLabelText("Name").getAttribute("aria-invalid")).not.toBe(
+			"true",
+		);
+	});
+
+	it("allows both quote types on an auto-match-only prompt", () => {
+		const autoMatchInput = simpleSearchInputDef(
+			UUID_NAME,
+			"case_name",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const onSubmit = vi.fn<(next: SearchInputValues) => void>();
+		render(
+			<SearchInputForm
+				searchInputs={[autoMatchInput]}
+				caseType={PATIENT_CASE_TYPE}
+				value={new Map()}
+				onChange={vi.fn()}
+				onSubmit={onSubmit}
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: `it's "quoted"` },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		expect(onSubmit).toHaveBeenCalledTimes(1);
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+});
+
+describe("date-range submission validation", () => {
+	it("keeps a partial pair editable but blocks Search until both dates are chosen", () => {
+		const rangeInput = simpleSearchInputDef(
+			UUID_REG_RANGE,
+			"reg",
+			"Registered",
+			"date-range",
+			"reg_at",
+		);
+		const onSubmit = vi.fn<(next: SearchInputValues) => void>();
+		render(
+			<SearchInputForm
+				searchInputs={[rangeInput]}
+				caseType={PATIENT_CASE_TYPE}
+				value={new Map([["reg:from", "2024-01-01"]])}
+				onChange={vi.fn()}
+				onSubmit={onSubmit}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		expect(onSubmit).not.toHaveBeenCalled();
+		const alert = screen.getByRole("alert");
+		expect(alert.textContent).toContain(DATE_RANGE_PAIR_REQUIRED_MESSAGE);
+		for (const label of ["Registered from", "Registered to"]) {
+			const trigger = screen.getByLabelText(label);
+			expect(trigger.getAttribute("aria-invalid")).toBe("true");
+			expect(trigger.getAttribute("aria-describedby")).toBe(alert.id);
+		}
+
+		// Partial state stays intact while editing. Completing the missing bound
+		// clears the error live, then submits the same two-key draft.
+		fireEvent.click(screen.getByLabelText("Registered to"));
+		fireEvent.click(screen.getByTestId("mock-calendar-pick-dec-31"));
+		expect(screen.queryByRole("alert")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		expect(onSubmit).toHaveBeenCalledTimes(1);
+		expect(Object.fromEntries(onSubmit.mock.calls[0]?.[0] ?? [])).toEqual({
+			"reg:from": "2024-01-01",
+			"reg:to": "2024-12-31",
+		});
+	});
+
+	it("blocks a reversed pair with an actionable ordering message", () => {
+		const onSubmit = vi.fn<(next: SearchInputValues) => void>();
+		render(
+			<SearchInputForm
+				searchInputs={[
+					simpleSearchInputDef(
+						UUID_REG_RANGE,
+						"reg",
+						"Registered",
+						"date-range",
+						"reg_at",
+					),
+				]}
+				caseType={PATIENT_CASE_TYPE}
+				value={
+					new Map([
+						["reg:from", "2024-12-31"],
+						["reg:to", "2024-01-01"],
+					])
+				}
+				onChange={vi.fn()}
+				onSubmit={onSubmit}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		expect(onSubmit).not.toHaveBeenCalled();
+		expect(screen.getByRole("alert").textContent).toContain(
+			DATE_RANGE_ORDER_MESSAGE,
+		);
+	});
+});
+
 // ── Layout sanity ──────────────────────────────────────────────────
 
 describe("layout", () => {
@@ -751,13 +1401,10 @@ describe("layout", () => {
 		// regions — assistive tech maps it to the search landmark via
 		// implicit role. happy-dom + aria-query don't expose that
 		// implicit role through `getByRole("search")` yet, so the test
-		// queries the element directly. The semantic guarantee (one
-		// `<search>` wrapping every input) holds regardless of the
-		// runtime's role-mapping lag; real screen readers honor the
-		// element.
+		// queries the element directly.
 		const region = container.querySelector("search");
 		expect(region).not.toBeNull();
 		if (region === null) return;
-		expect(within(region as HTMLElement).getByLabelText("Name")).toBeDefined();
+		expect(within(region).getByLabelText("Name")).toBeDefined();
 	});
 });

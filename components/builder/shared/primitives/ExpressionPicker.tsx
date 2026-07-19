@@ -30,44 +30,89 @@
 // Round-trip preservation is structural: every ValueExpression kind
 // has a card that round-trips its AST shape verbatim via the per-arm
 // cards in `cards/expression/`, and the kind-replace menu preserves
-// the operand-shape twin pairs (`date-coerce` ↔ `datetime-coerce`)
-// so a kind swap doesn't drop authored content.
+// compatible operand carriers (the unary coercions and the two
+// ordered value lists) so a kind swap doesn't drop authored content.
 //
 // Term values (a typed value, a property, a search field — the
 // overwhelmingly common case) render UNBOXED: no card shell, no slot
 // title, because inside a condition sentence the value is just the
 // object of the verb. The computed kinds (math, if–then, today, …)
-// fold into the term's own source dropdown as a "Computed" group —
-// one menu answers "what is this value?". Computed kinds, once
+// fold into the term's own source dropdown as a "Calculated" group —
+// one menu answers "what is this value?". Calculated kinds, once
 // picked, render as titled container cards (their structure isn't
 // expressible inline).
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
-import { useRef } from "react";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import { canonicalCasePropertyName, effectiveDataType } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
+	acceptsType,
 	admitsValueExpressionKind,
-	dateCoerce,
-	datetimeCoerce,
+	dateAdd,
+	dateAddOperandConstraint,
+	ifExpr,
+	input,
+	literal,
+	now,
+	prop,
 	type SlotConstraint,
+	sessionContext,
+	switchCase,
+	switchExpr,
+	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { hasCountableRelation } from "../cards/expression/CountCard";
 import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
-import { TermCard } from "../cards/expression/TermCard";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+	TermCard,
+	termHasMeaningfulContent,
+} from "../cards/expression/TermCard";
+import { reseedValueForConstraint } from "../cards/reseed";
+import {
+	useEditorErrorsAt,
+	useEditorErrorsBelow,
+	useExpressionFocusTarget,
+	usePredicateEditContext,
+} from "../editorContext";
 import {
 	type ExpressionCardSchema,
 	type ExpressionEditContext,
 	expressionCardSchemaList,
 	expressionCardSchemas,
+	isAuthorableExpressionKind,
 } from "../expressionEditorSchemas";
+import { planPreservedExpressionReplacement } from "../expressionReplacement";
 import type { EditorPath } from "../path";
+import {
+	expressionFocusDescription,
+	expressionFocusTitle,
+	pathsEqual,
+	RuleFocusSummary,
+	useRuleFocusContext,
+} from "../RuleFocusContext";
+import type { ReorderKeyboardKey } from "../useReorderableList";
 import { CardShell, InlineError, PredicateRowShell } from "./CardShell";
 
 interface ExpressionPickerProps {
@@ -79,10 +124,14 @@ interface ExpressionPickerProps {
 	 * satisfy it are offered; every other kind is disabled with a
 	 * reason. Defaults to `ANY_CONSTRAINT` (no narrowing). The parent
 	 * card computes it from its subject's resolved type
-	 * (`comparisonObjectConstraint(useResolvedType(left))`, etc.); a
+	 * (`comparisonObjectConstraint(kind, useResolvedType(left))`, etc.); a
 	 * `termOnly` constraint suppresses the computed kinds entirely.
 	 */
 	readonly constraint?: SlotConstraint;
+	/** The semantic role this expression plays. Subject slots keep the
+	 *  common property source primary and phrase its source menu as
+	 *  "A property"; ordinary value slots use "Another property". */
+	readonly presentation?: "value" | "subject";
 	/**
 	 * Optional remove handler — when provided, the card surfaces a
 	 * "Delete" item in its kebab menu. List-shaped containers
@@ -103,6 +152,24 @@ interface ExpressionPickerProps {
 	 * does not render.
 	 */
 	readonly dragHandleRef?: (el: HTMLElement | null) => void;
+	/** Keyboard alternative to drag supplied by list-shaped owners. */
+	readonly onMove?: (key: ReorderKeyboardKey) => void;
+	readonly reorderLabel?: string;
+}
+
+function termSourceLabel(value: Extract<ValueExpression, { kind: "term" }>) {
+	switch (value.term.kind) {
+		case "prop":
+			return "property";
+		case "input":
+			return "search answer";
+		case "session-context":
+			return "app information";
+		case "session-user":
+			return "user information";
+		case "literal":
+			return "value";
+	}
 }
 
 /**
@@ -116,19 +183,70 @@ export function ExpressionPicker({
 	onChange,
 	path,
 	constraint = ANY_CONSTRAINT,
+	presentation = "value",
 	onRemove,
 	variant = "normal",
 	dragHandleRef,
+	onMove,
+	reorderLabel,
 }: ExpressionPickerProps) {
 	const operatorErrors = useEditorErrorsAt(path);
+	const descendantErrors = useEditorErrorsBelow(path);
+	const focus = useRuleFocusContext();
 	const ctx = usePredicateEditContext();
+	const termRootRef = useRef<HTMLDivElement>(null);
+	const replacementFocusFallbackRef = useRef<HTMLElement | null>(null);
+	const { resolve: resolveExpressionFocusTarget, focusAfterReplacement } =
+		useExpressionFocusTarget(path);
+	const [pendingTermReplacement, setPendingTermReplacement] = useState<{
+		readonly source: Extract<ValueExpression, { kind: "term" }>;
+		readonly target: ExpressionCardSchema<ValueExpression["kind"]>;
+	} | null>(null);
 	const schema = expressionCardSchemas[value.kind];
+	// `forbidDirectLiteral` is deliberately local to this node. Once the
+	// current expression is calculated (`if`, `coalesce`, math, and so on),
+	// literal descendants are valid inputs to that calculation and must not
+	// inherit the root absence-check restriction.
+	const childConstraint = useMemo<SlotConstraint>(() => {
+		if (constraint.forbidDirectLiteral !== true) return constraint;
+		const { forbidDirectLiteral: _forbidDirectLiteral, ...rest } = constraint;
+		return rest;
+	}, [constraint]);
 	const Component = schema.component as React.ComponentType<{
 		value: ValueExpression;
 		onChange: (next: ValueExpression) => void;
 		path: EditorPath;
 		constraint?: SlotConstraint;
 	}>;
+
+	// A calculated child becomes a compact semantic row while its parent is in
+	// focus. Opening that row promotes the exact subtree into this same
+	// full-width editor. Term values stay inline because they are the readable
+	// nouns in a condition sentence, not nested structures.
+	if (
+		focus !== null &&
+		value.kind !== "term" &&
+		!pathsEqual(path, focus.activePath)
+	) {
+		return (
+			<PredicateRowShell
+				variant={variant}
+				onRemove={onRemove}
+				dragHandleRef={dragHandleRef}
+				onMove={onMove}
+				reorderLabel={reorderLabel}
+				errors={operatorErrors}
+			>
+				<RuleFocusSummary
+					path={path}
+					icon={schema.icon}
+					title={expressionFocusTitle(value)}
+					description={expressionFocusDescription(value)}
+					hasErrors={operatorErrors.length > 0 || descendantErrors.length > 0}
+				/>
+			</PredicateRowShell>
+		);
+	}
 
 	// Term values render unboxed — see the file header. The computed
 	// kinds ride the term's source menu as injected items, each gated
@@ -143,21 +261,72 @@ export function ExpressionPicker({
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
 		};
+		const typeCtx = {
+			caseTypes: [...ctx.caseTypes],
+			currentCaseType: ctx.currentCaseType,
+			knownInputs: [...ctx.knownInputs],
+		};
+		const pendingTermSourceLabel = termSourceLabel(
+			pendingTermReplacement?.source ?? value,
+		);
 		const computedItems = constraint.termOnly
 			? undefined
 			: expressionCardSchemaList
-					.filter((s) => s.kind !== "term")
+					.filter(
+						(schema) =>
+							schema.kind !== "term" && isAuthorableExpressionKind(schema.kind),
+					)
 					.map((s) => {
-						const { admitted, reason } = admitsValueExpressionKind(
+						const typeAdmission = admitsValueExpressionKind(s.kind, constraint);
+						const countHasConnection =
+							s.kind !== "count" || hasCountableRelation(editCtx);
+						const preserved = planPreservedExpressionReplacement(
+							value,
 							s.kind,
-							constraint,
+							typeCtx,
 						);
+						const candidate =
+							preserved ??
+							defaultExpressionForSlot(s, editCtx, constraint, presentation);
+						const ruleAdmission = ctx.admitExpressionChange?.(path, candidate);
+						const admitted =
+							typeAdmission.admitted &&
+							countHasConnection &&
+							(ruleAdmission?.admitted ?? true);
+						const reason = !countHasConnection
+							? "Add a parent or child case type before counting related cases"
+							: ruleAdmission?.admitted === false
+								? ruleAdmission.reason
+								: typeAdmission.reason;
 						return (
-							<Menu.Item
+							<DropdownMenuItem
 								key={s.kind}
 								disabled={!admitted}
-								onClick={() => onChange(s.defaultValue(editCtx))}
-								className={`${MENU_ITEM_CLS} min-h-11 ${admitted ? "" : "opacity-45"}`}
+								onClick={() => {
+									if (preserved !== null) {
+										onChange(preserved);
+										return;
+									}
+									if (!termHasMeaningfulContent(value.term)) {
+										onChange(
+											defaultExpressionForSlot(
+												s,
+												editCtx,
+												constraint,
+												presentation,
+											),
+										);
+										return;
+									}
+									replacementFocusFallbackRef.current =
+										termRootRef.current
+											?.closest<HTMLElement>("[data-workbench-focus-id]")
+											?.querySelector<HTMLElement>(
+												"[data-workbench-active-heading]",
+											) ?? null;
+									setPendingTermReplacement({ source: value, target: s });
+								}}
+								className="h-auto min-h-11 items-start whitespace-normal py-2"
 							>
 								<Icon
 									icon={s.icon}
@@ -166,24 +335,75 @@ export function ExpressionPicker({
 									className="text-nova-text-muted"
 								/>
 								<span className="flex-1 text-left min-w-0">
-									<div className="truncate">{s.label}</div>
-									<div className="text-[11px] truncate text-nova-text-muted">
+									<div className="break-words">{s.label}</div>
+									<div className="break-words text-xs text-nova-text-muted">
 										{admitted ? s.description : reason}
 									</div>
 								</span>
-							</Menu.Item>
+							</DropdownMenuItem>
 						);
 					});
 		const termBody = (
-			<div className="space-y-1">
+			<div ref={termRootRef} className="space-y-1">
 				<TermCard
 					value={value}
 					onChange={onChange}
 					path={path}
 					constraint={constraint}
+					sourceContext={presentation}
 					computedItems={computedItems}
 				/>
 				<InlineError errors={[...operatorErrors]} />
+				<AlertDialog
+					open={pendingTermReplacement !== null}
+					onOpenChange={(open) => {
+						if (open) return;
+						setPendingTermReplacement(null);
+					}}
+				>
+					<AlertDialogContent
+						finalFocus={() =>
+							resolveExpressionFocusTarget() ??
+							replacementFocusFallbackRef.current
+						}
+						className="text-left"
+					>
+						<AlertDialogHeader>
+							<AlertDialogTitle className="font-display">
+								Use “
+								{pendingTermReplacement?.target.label ?? "a calculated value"}”
+								instead?
+							</AlertDialogTitle>
+							<AlertDialogDescription className="text-left">
+								This replaces the saved {pendingTermSourceLabel} and removes its
+								current settings. Saved case data won’t change. You can undo
+								this change.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								variant="destructive"
+								onClick={() => {
+									const pending = pendingTermReplacement;
+									setPendingTermReplacement(null);
+									if (pending === null || pending.source !== value) return;
+									onChange(
+										defaultExpressionForSlot(
+											pending.target,
+											editCtx,
+											constraint,
+											presentation,
+										),
+									);
+									focusAfterReplacement(replacementFocusFallbackRef.current);
+								}}
+							>
+								Replace
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
 			</div>
 		);
 		if (dragHandleRef !== undefined || onRemove !== undefined) {
@@ -191,7 +411,10 @@ export function ExpressionPicker({
 				<PredicateRowShell
 					variant={variant}
 					dragHandleRef={dragHandleRef}
+					onMove={onMove}
+					reorderLabel={reorderLabel}
 					onRemove={onRemove}
+					removeLabel="Remove value"
 				>
 					{termBody}
 				</PredicateRowShell>
@@ -206,13 +429,18 @@ export function ExpressionPicker({
 			label={schema.label}
 			variant={variant}
 			onRemove={onRemove}
+			removeLabel="Remove value"
 			dragHandleRef={dragHandleRef}
+			onMove={onMove}
+			reorderLabel={reorderLabel}
 			errors={operatorErrors}
 			kindAccent={
 				<KindReplaceMenu
 					currentValue={value}
 					onChange={onChange}
+					path={path}
 					constraint={constraint}
+					presentation={presentation}
 				/>
 			}
 		>
@@ -220,7 +448,7 @@ export function ExpressionPicker({
 				value={value}
 				onChange={onChange}
 				path={path}
-				constraint={constraint}
+				constraint={childConstraint}
 			/>
 		</CardShell>
 	);
@@ -229,195 +457,330 @@ export function ExpressionPicker({
 interface KindReplaceMenuProps {
 	readonly currentValue: ValueExpression;
 	readonly onChange: (next: ValueExpression) => void;
+	readonly path: EditorPath;
 	readonly constraint: SlotConstraint;
+	readonly presentation: "value" | "subject";
 }
 
-/**
- * Map a kind to the structural-twin set it shares — pairs of kinds
- * with identical operand shapes that the editor preserves verbatim
- * across replacement. One twin pair on the ValueExpression side:
- *
- *   - `{ value: ValueExpression }` — `date-coerce` ↔
- *     `datetime-coerce`. Same `value` slot; the two operators differ
- *     only in the result type. Routes through the matching builder
- *     so the construction stays canonical.
- *
- * Other kinds with identical operand-shape carriers (`coalesce` /
- * `concat` differ on slot name `values` vs `parts`, so the AST shape
- * is NOT identical and the swap doesn't apply). `today` ↔ `now` are
- * also discriminator-only but produce different result types
- * (`date` vs `datetime`); the in-card "Change" menu can swap them
- * without losing operand content because there's no operand to
- * lose.
- *
- * Returns `null` when no twin shape applies; the caller falls
- * through to `defaultValue(ctx)`.
- */
-function preservedExpressionSwap(
-	currentValue: ValueExpression,
-	targetKind: ValueExpression["kind"],
-): ValueExpression | null {
-	// date-coerce ↔ datetime-coerce — same `{ value }` operand shape.
-	if (
-		(currentValue.kind === "date-coerce" ||
-			currentValue.kind === "datetime-coerce") &&
-		(targetKind === "date-coerce" || targetKind === "datetime-coerce")
-	) {
-		const builder = targetKind === "date-coerce" ? dateCoerce : datetimeCoerce;
-		return builder(currentValue.value);
+/** Pick a working Term seed for this slot. Predicate subjects prefer a
+ * property so the common condition remains compact and meaningful; typed
+ * slots fall back through a matching search input, session information,
+ * then a checker-compatible literal. */
+function termSeedForSlot(
+	ctx: ExpressionEditContext,
+	constraint: SlotConstraint,
+	presentation: "value" | "subject",
+): ValueExpression {
+	if (presentation === "subject" || constraint.forbidDirectLiteral === true) {
+		const caseType = ctx.caseTypes.find(
+			(candidate) => candidate.name === ctx.currentCaseType,
+		);
+		const property = caseType?.properties.find(
+			(candidate) =>
+				constraint.accepts === "any" ||
+				acceptsType(constraint, effectiveDataType(candidate)),
+		);
+		if (property !== undefined) {
+			return term(
+				prop(ctx.currentCaseType, canonicalCasePropertyName(property.name)),
+			);
+		}
+
+		const searchInput = ctx.knownInputs.find(
+			(candidate) =>
+				constraint.accepts === "any" ||
+				acceptsType(constraint, candidate.data_type ?? "text"),
+		);
+		if (searchInput !== undefined) return term(input(searchInput.name));
+
+		if (constraint.accepts === "any" || acceptsType(constraint, "text")) {
+			return term(sessionContext("userid"));
+		}
 	}
-	// today ↔ now — discriminator-only, no operand content to preserve.
-	// The kind picker's defaultValue factory produces the right shape;
-	// no preservation step needed (the source's content is empty by
-	// definition).
-	return null;
+
+	return constraint.accepts === "any"
+		? term(literal(""))
+		: reseedValueForConstraint(term(literal("")), constraint.accepts);
+}
+
+/** Registry defaults are intentionally context-only. Depend-on-input kinds
+ * (`term`, `if`, `switch`) need their result-bearing leaves reseeded for a
+ * typed slot at selection time; otherwise choosing a calculated numeric
+ * subject could transiently author a text expression. */
+function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
+	schema: ExpressionCardSchema<K>,
+	ctx: ExpressionEditContext,
+	constraint: SlotConstraint,
+	presentation: "value" | "subject",
+): ValueExpression {
+	if (schema.kind === "term") {
+		return termSeedForSlot(ctx, constraint, presentation);
+	}
+
+	const { forbidDirectLiteral: _forbidDirectLiteral, ...childConstraint } =
+		constraint;
+	// Widen the generic registry return to the discriminated union so the
+	// kind checks below narrow the corresponding AST arm normally.
+	const seed: ValueExpression = schema.defaultValue(ctx);
+	const branchSeed = () => termSeedForSlot(ctx, childConstraint, "value");
+
+	if (seed.kind === "if") {
+		return ifExpr(seed.cond, branchSeed(), branchSeed());
+	}
+	if (seed.kind === "switch") {
+		const [first, ...rest] = seed.cases;
+		return switchExpr(
+			seed.on,
+			[
+				switchCase(first.when, branchSeed()),
+				...rest.map((item) => switchCase(item.when, branchSeed())),
+			],
+			branchSeed(),
+		);
+	}
+	if (seed.kind === "date-add") {
+		const dateConstraint = dateAddOperandConstraint(childConstraint);
+		// The standard seed is `today() + 7 days`. In a datetime-only parent
+		// slot, adapt the result-following operand before the AST reaches the
+		// commit gate; `date-add` returns exactly its starting value's type.
+		if (
+			dateConstraint.accepts !== "any" &&
+			!dateConstraint.accepts.has("date") &&
+			dateConstraint.accepts.has("datetime")
+		) {
+			return dateAdd(now(), seed.interval, seed.quantity);
+		}
+	}
+	return seed;
 }
 
 /**
- * Menu that replaces the current card's expression with a different
- * kind. Two replacement strategies (mirrors the Predicate-side
- * `ChildPredicateEditor.KindReplaceMenu`):
- *
- *   1. **Operand-preserving swap** — when the source and target
- *      kinds share an identical operand shape (the `date-coerce` ↔
- *      `datetime-coerce` twin pair on the value side), the existing
- *      operands carry over to the new kind verbatim.
- *   2. **Default-value reset** — for every other kind transition
- *      (e.g. `term` → `arith`), the target schema's `defaultValue(...)`
- *      factory rebuilds from the case-type schema. Operand SHAPES
- *      differ enough that no structural carry-over is sound.
- *
- * The menu lists every kind, marking the current one with a violet
- * dot. A kind whose result type can't satisfy the slot's constraint
- * is disabled WITH A REASON (`admitsValueExpressionKind`) — the
- * editor never offers a swap that would author a type the checker
- * rejects. The current kind's own row stays non-selectable (clicking
- * it would re-render an identical expression) regardless of its
- * admission, so a legacy-open invalid expression keeps rendering its
- * own kind.
+ * Replace the current calculated value without hiding data loss. Compatible
+ * carriers retain every authored child immediately; incompatible shapes open
+ * a consequence-first confirmation and only create a new target default after
+ * the author chooses Replace. Cancel leaves the exact source object untouched.
  */
 function KindReplaceMenu({
 	currentValue,
 	onChange,
+	path,
 	constraint,
+	presentation,
 }: KindReplaceMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const replacementFocusFallbackRef = useRef<HTMLElement | null>(null);
+	const {
+		register: registerExpressionFocusTarget,
+		resolve,
+		focusAfterReplacement,
+	} = useExpressionFocusTarget(path);
+	const setTriggerRef = useCallback(
+		(target: HTMLButtonElement | null) => {
+			triggerRef.current = target;
+			registerExpressionFocusTarget(target);
+		},
+		[registerExpressionFocusTarget],
+	);
+	const [pendingReplacement, setPendingReplacement] = useState<{
+		readonly source: ValueExpression;
+		readonly target: ExpressionCardSchema<ValueExpression["kind"]>;
+	} | null>(null);
 	const ctx = usePredicateEditContext();
 	const editCtx: ExpressionEditContext = {
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
 	};
+	const typeCtx = {
+		caseTypes: [...ctx.caseTypes],
+		currentCaseType: ctx.currentCaseType,
+		knownInputs: [...ctx.knownInputs],
+	};
 	const currentKind = currentValue.kind;
+	const pendingSourceLabel =
+		pendingReplacement === null
+			? "saved value"
+			: expressionCardSchemas[pendingReplacement.source.kind].label;
+	const pendingTargetLabel = pendingReplacement?.target.label ?? "new value";
 
-	const replaceWith = <K extends ValueExpression["kind"]>(
-		schema: ExpressionCardSchema<K>,
+	const requestReplacement = (
+		schema: ExpressionCardSchema<ValueExpression["kind"]>,
 	) => {
-		const preserved = preservedExpressionSwap(currentValue, schema.kind);
-		onChange(preserved ?? schema.defaultValue(editCtx));
+		const preserved = planPreservedExpressionReplacement(
+			currentValue,
+			schema.kind,
+			typeCtx,
+		);
+		if (preserved !== null) {
+			onChange(preserved);
+			return;
+		}
+		replacementFocusFallbackRef.current =
+			triggerRef.current
+				?.closest<HTMLElement>("[data-workbench-focus-id]")
+				?.querySelector<HTMLElement>("[data-workbench-active-heading]") ?? null;
+		setPendingReplacement({ source: currentValue, target: schema });
 	};
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label="Change card type"
-				className="group flex items-center gap-1 px-2 min-h-11 text-[10px] uppercase tracking-wider rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
-			>
-				<span>Change</span>
-				<svg
-					aria-hidden="true"
-					width="8"
-					height="8"
-					viewBox="0 0 10 10"
-					className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					ref={setTriggerRef}
+					aria-label="Change value type"
+					render={
+						<Button
+							type="button"
+							variant="ghost"
+							size="xl"
+							className="group px-2 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-violet-bright"
+						/>
+					}
 				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.4"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
+					<span>Change</span>
+					<Icon
+						icon={tablerChevronDown}
+						width="14"
+						height="14"
+						className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
 					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="end"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ maxHeight: 360 }}
-				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto min-w-[18rem]`}
+				</DropdownMenuTrigger>
+				<DropdownMenuPortal>
+					<DropdownMenuPositioner
+						side="bottom"
+						align="end"
+						sideOffset={4}
+						anchor={triggerRef}
+						style={{ minWidth: "18rem", maxHeight: 360 }}
 					>
-						{expressionCardSchemaList.map((s, i) => {
-							const isCurrent = s.kind === currentKind;
-							// The current kind is exempt from the admission gate —
-							// a legacy-open invalid expression must keep rendering
-							// its own kind even when the slot's constraint no longer
-							// admits it.
-							const { admitted, reason } = isCurrent
-								? { admitted: true, reason: undefined }
-								: admitsValueExpressionKind(s.kind, constraint);
-							const last = expressionCardSchemaList.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							const cls = [
-								corners,
-								MENU_ITEM_CLS,
-								isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : "",
-								admitted ? "" : "opacity-45",
-							].join(" ");
-							return (
-								<Menu.Item
-									key={s.kind}
-									onClick={() => replaceWith(s)}
-									// Current kind is not a valid replacement target —
-									// clicking it would re-render an identical
-									// expression. Inadmissible kinds are disabled WITH a
-									// reason so the editor never offers a swap that would
-									// author a type the checker rejects.
-									disabled={isCurrent || !admitted}
-									className={cls}
-								>
-									<Icon
-										icon={s.icon}
-										width="14"
-										height="14"
-										className={
-											isCurrent
-												? "text-nova-violet-bright"
-												: "text-nova-text-muted"
-										}
-									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{s.label}</div>
-										<div
-											className={`text-[10px] truncate ${
+						<DropdownMenuPopup className="max-h-80 min-w-0 overflow-y-auto">
+							{expressionCardSchemaList
+								.filter(
+									(schema) =>
+										schema.kind === currentKind ||
+										isAuthorableExpressionKind(schema.kind),
+								)
+								.map((schema) => {
+									const isCurrent = schema.kind === currentKind;
+									const typeAdmission = isCurrent
+										? { admitted: true, reason: undefined }
+										: admitsValueExpressionKind(schema.kind, constraint);
+									const countHasConnection =
+										isCurrent ||
+										schema.kind !== "count" ||
+										hasCountableRelation(editCtx);
+									const candidate = isCurrent
+										? currentValue
+										: (planPreservedExpressionReplacement(
+												currentValue,
+												schema.kind,
+												typeCtx,
+											) ??
+											defaultExpressionForSlot(
+												schema,
+												editCtx,
+												constraint,
+												presentation,
+											));
+									const ruleAdmission = isCurrent
+										? { admitted: true as const }
+										: ctx.admitExpressionChange?.(path, candidate);
+									const admitted =
+										typeAdmission.admitted &&
+										countHasConnection &&
+										(ruleAdmission?.admitted ?? true);
+									const reason = !countHasConnection
+										? "Add a parent or child case type before counting related cases"
+										: ruleAdmission?.admitted === false
+											? ruleAdmission.reason
+											: typeAdmission.reason;
+									return (
+										<DropdownMenuItem
+											key={schema.kind}
+											onClick={() => requestReplacement(schema)}
+											disabled={isCurrent || !admitted}
+											className={
 												isCurrent
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
-											}`}
+													? "h-auto min-h-11 items-start whitespace-normal bg-nova-violet/10 py-2 text-nova-violet-bright"
+													: "h-auto min-h-11 items-start whitespace-normal py-2"
+											}
 										>
-											{admitted ? s.description : reason}
-										</div>
-									</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+											<Icon
+												icon={schema.icon}
+												width="14"
+												height="14"
+												className={
+													isCurrent
+														? "text-nova-violet-bright"
+														: "text-nova-text-muted"
+												}
+											/>
+											<span className="min-w-0 flex-1 text-left">
+												<div className="break-words">{schema.label}</div>
+												<div
+													className={`break-words text-xs ${
+														isCurrent
+															? "text-nova-violet-bright"
+															: "text-nova-text-muted"
+													}`}
+												>
+													{admitted ? schema.description : reason}
+												</div>
+											</span>
+										</DropdownMenuItem>
+									);
+								})}
+						</DropdownMenuPopup>
+					</DropdownMenuPositioner>
+				</DropdownMenuPortal>
+			</DropdownMenu>
+
+			<AlertDialog
+				open={pendingReplacement !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingReplacement(null);
+				}}
+			>
+				<AlertDialogContent
+					finalFocus={() => resolve() ?? replacementFocusFallbackRef.current}
+					className="text-left"
+				>
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Replace “{pendingSourceLabel}” with “{pendingTargetLabel}”?
+						</AlertDialogTitle>
+						<AlertDialogDescription className="text-left">
+							Its current values and settings will be removed. Saved case data
+							won’t change. You can undo this change.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								const pending = pendingReplacement;
+								setPendingReplacement(null);
+								if (pending === null || pending.source !== currentValue) return;
+								onChange(
+									defaultExpressionForSlot(
+										pending.target,
+										editCtx,
+										constraint,
+										presentation,
+									),
+								);
+								if (pending.target.kind === "term") {
+									focusAfterReplacement(replacementFocusFallbackRef.current);
+								}
+							}}
+						>
+							Replace
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
 	);
 }

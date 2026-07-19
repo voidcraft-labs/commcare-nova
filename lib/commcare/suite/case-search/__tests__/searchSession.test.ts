@@ -33,7 +33,7 @@
 //      verbatim.
 //
 //   6. `<title>` references `case_search.{moduleId}.inputs` and
-//      registers the authored title (or the case-type fallback) in
+//      registers the authored title (or Nova's friendly default) in
 //      the returned `strings` map.
 //
 //   7. The instance set returned for the orchestrator includes the
@@ -63,6 +63,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { emitSearchSession } from "../searchSession";
 import type { WireShape } from "../types";
 
@@ -201,7 +202,7 @@ describe("emitSearchSession — <data> slot order", () => {
 			moduleIndex: 0,
 		});
 		expect(xml).toContain(
-			`<data key="commcare_blacklisted_owner_ids" ref="&apos;owner-a owner-b&apos;"/>`,
+			`<data key="commcare_blacklisted_owner_ids" ref="normalize-space(&apos;owner-a owner-b&apos;)"/>`,
 		);
 		// Order: case_type first, then commcare_blacklisted_owner_ids.
 		const caseTypeIdx = xml.indexOf(`key="case_type"`);
@@ -212,7 +213,7 @@ describe("emitSearchSession — <data> slot order", () => {
 	});
 
 	it("emits _xpath_query as the last <data> slot when caseListConfig.filter is set", () => {
-		const filter = eq(prop("patient", "name"), literal("Alice"));
+		const filter = eq(prop("patient", "full_name"), literal("Alice"));
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({ filter }),
 			caseSearchConfig: {},
@@ -237,7 +238,7 @@ describe("emitSearchSession — <data> slot order", () => {
 		const config: CaseSearchConfig = {
 			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 		};
-		const filter = eq(prop("patient", "name"), literal("Alice"));
+		const filter = eq(prop("patient", "full_name"), literal("Alice"));
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({ filter }),
 			caseSearchConfig: config,
@@ -259,7 +260,13 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 			caseListConfig: makeListConfig({
 				searchInputs: [
 					// Simple-arm inputs DON'T contribute to _xpath_query.
-					simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"full_name",
+						"Name",
+						"text",
+						"full_name",
+					),
 				],
 			}),
 			caseSearchConfig: {},
@@ -271,7 +278,7 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 	});
 
 	it("emits _xpath_query when only caseListConfig.filter is authored", () => {
-		const filter = eq(prop("patient", "name"), literal("Alice"));
+		const filter = eq(prop("patient", "full_name"), literal("Alice"));
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({ filter }),
 			caseSearchConfig: {},
@@ -317,8 +324,8 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		// `commcare-hq/docs/case_search_query_language.rst::"Example
 		// Query + Tips"`.
 		const filter = eq(
-			arith("+", term(prop("patient", "age")), term(literal(1))),
-			term(literal(19)),
+			prop("patient", "age"),
+			arith("+", term(literal(18)), term(literal(1))),
 		);
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({ filter }),
@@ -333,9 +340,9 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		const dataSlotMatches = xml.match(/<data key="/g) ?? [];
 		// `case_type` + `_xpath_query` = 2 slots; no hoist sibling.
 		expect(dataSlotMatches).toHaveLength(2);
-		// The arith's on-device emission `(age + 1)` lands inside
+		// The pure runtime arith's on-device emission `(18 + 1)` lands inside
 		// the wrapper concat as a runtime fragment.
-		expect(xml).toContain(`(age + 1)`);
+		expect(xml).toContain(`(18 + 1)`);
 		expect(xml).toContain(`key="_xpath_query"`);
 	});
 
@@ -355,7 +362,7 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		const baseAge = { kind: "input" as const, name: "base_age" };
 		const filter = whenInput(
 			baseAge,
-			eq(arith("+", term(baseAge), term(literal(1))), term(literal(19))),
+			eq(prop("patient", "age"), arith("+", term(baseAge), term(literal(1)))),
 		);
 		const { instances, xml } = emitSearchSession({
 			caseListConfig: makeListConfig({ filter }),
@@ -413,7 +420,7 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		// One <data> slot regardless of how many AST predicates
 		// contributed; the wire layer carries one `<data
 		// key="_xpath_query">` element with the AND-composed CSQL.
-		const filter = eq(prop("patient", "name"), literal("Alice"));
+		const filter = eq(prop("patient", "full_name"), literal("Alice"));
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({
 				filter,
@@ -437,7 +444,7 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		// Both predicate fragments compose into the same wire string
 		// via CSQL's `and` operator. XPath single-quote literals
 		// round-trip as `&apos;`.
-		expect(xml).toContain(`name = &apos;Alice&apos;`);
+		expect(xml).toContain(`full_name = &apos;Alice&apos;`);
 		expect(xml).toContain(`status = &apos;active&apos;`);
 		expect(xml).toContain(` and `);
 	});
@@ -506,11 +513,14 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 			moduleIndex: 0,
 		});
 		expect(xml).not.toContain("match-all() and");
-		// Byte-identical to the no-filter fuzzy emission — the identity
-		// filter contributed nothing to the composed query.
-		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;]), concat(&apos;fuzzy-match(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
-		);
+		// The identity filter contributes nothing, while the runtime value keeps
+		// the same fail-closed quotation guard and prompt validation as the
+		// no-filter fuzzy emission.
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("fuzzy-match(case_name");
+		expect(xml).toContain("name_fuzzy");
+		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("<validation");
 	});
 
 	it("drops a `match-all` nested inside an authored `and` filter — no `match-all() and` at depth", () => {
@@ -554,14 +564,21 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 	// relation-walk metadata — the bare prompt slot can't encode a
 	// cross-walk simple input. The wire pipeline routes such inputs
 	// through `_xpath_query` so the relation walk survives the
-	// round-trip to CCHQ. Self-walk / absent-via simple inputs stay
-	// at the prompt slot only.
+	// round-trip to CCHQ. A bare-prompt-compatible non-date exact input
+	// stays at the prompt slot only; exact date is tested below because its
+	// whole-day interval also requires explicit routing on self and relations.
 
 	it("emits a self-walk simple input as a <prompt> with NO _xpath_query contribution", () => {
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({
 				searchInputs: [
-					simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"full_name",
+						"Name",
+						"text",
+						"full_name",
+					),
 				],
 			}),
 			caseSearchConfig: {},
@@ -569,7 +586,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<prompt key="name">`);
+		expect(xml).toContain(`<prompt key="full_name">`);
 		expect(xml).not.toContain(`key="_xpath_query"`);
 	});
 
@@ -646,6 +663,99 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		expect(xml).toContain(`@name=&apos;child_status&apos;`);
 	});
 
+	it("keeps both exact-date bounds inside one ancestor query for a related date property", () => {
+		const via = ancestorPath(relationStep("parent"));
+		const typeContext: TypeContext = {
+			caseTypes: [
+				{ name: "patient", parent_type: "household", properties: [] },
+				{
+					name: "household",
+					properties: [
+						{
+							name: "visit_date",
+							label: "Visit date",
+							data_type: "date",
+						},
+					],
+				},
+			],
+			knownInputs: [{ name: "household_visit", data_type: "date" }],
+			currentCaseType: "patient",
+		};
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"household_visit",
+						"Household visit",
+						"date",
+						"visit_date",
+						{ via },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+			typeContext,
+		});
+
+		expect(xml).toContain(
+			`<prompt key="household_visit" input="date" exclude="true()">`,
+		);
+		expect(xml.match(/ancestor-exists\(/g)).toHaveLength(1);
+		expect(xml).toContain("visit_date &gt;= date(");
+		expect(xml).toContain("visit_date &lt; date-add(date(");
+		expect(xml).not.toContain("datetime-add(");
+	});
+
+	it("uses one UTC datetime interval for an exact-date search through a related datetime property", () => {
+		const via = ancestorPath(relationStep("parent", "household"));
+		const typeContext: TypeContext = {
+			caseTypes: [
+				{ name: "patient", parent_type: "household", properties: [] },
+				{
+					name: "household",
+					properties: [
+						{
+							name: "last_seen",
+							label: "Last seen",
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+			knownInputs: [{ name: "household_seen", data_type: "date" }],
+			currentCaseType: "patient",
+		};
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"household_seen",
+						"Household last seen",
+						"date",
+						"last_seen",
+						{ via },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+			typeContext,
+		});
+
+		expect(xml.match(/ancestor-exists\(/g)).toHaveLength(1);
+		expect(xml).toContain("last_seen &gt;= datetime(");
+		expect(xml).toContain("last_seen &lt; datetime(date-add(date(");
+		expect(xml).not.toContain("datetime-add(");
+	});
+
 	it("AND-composes a bare-prompt-compatible and an ancestor-walk simple input cleanly — only the cross-walk contributes to _xpath_query", () => {
 		// The bare-prompt-compatible shape is self-walk + default
 		// exact + `name === property` — CCHQ's runtime auto-match on
@@ -657,10 +767,10 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 				searchInputs: [
 					simpleSearchInputDef(
 						INPUT_UUIDS.a,
-						"name",
+						"full_name",
 						"Self name",
 						"text",
-						"name",
+						"full_name",
 					),
 					simpleSearchInputDef(
 						asUuid("00000000-0000-4000-8000-aaaa00000002"),
@@ -678,7 +788,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 			moduleIndex: 0,
 		});
 		// Bare-prompt-compatible input: no exclude attribute.
-		expect(xml).toContain(`<prompt key="name">`);
+		expect(xml).toContain(`<prompt key="full_name">`);
 		// Cross-walk input: exclude stamped.
 		expect(xml).toContain(`<prompt key="parent_region" exclude="true()">`);
 		// Only the ancestor-walked input contributes to _xpath_query;
@@ -691,7 +801,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		// inside any `_xpath_query` CSQL because no predicate was
 		// derived for it.
 		const xpathSlice = xml.split(`key="_xpath_query"`)[1] ?? "";
-		expect(xpathSlice).not.toContain(`@name=&apos;name&apos;`);
+		expect(xpathSlice).not.toContain(`@name=&apos;full_name&apos;`);
 	});
 });
 
@@ -710,6 +820,20 @@ describe("emitSearchSession — <datum> shape", () => {
 		expect(xml).toContain(`value="./@case_id"`);
 		expect(xml).toContain(`detail-confirm="m3_search_long"`);
 		expect(xml).toContain(`detail-select="m3_search_short"`);
+	});
+
+	it("omits detail-confirm when Details has no fields", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig(),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 3,
+			hasDetailScreen: false,
+		});
+
+		expect(xml).toContain(`detail-select="m3_search_short"`);
+		expect(xml).not.toContain(`detail-confirm=`);
 	});
 
 	it("includes the [not(commcare_is_related_case=true())] filter from CCHQ's EXCLUDE_RELATED_CASES_FILTER", () => {
@@ -749,7 +873,7 @@ describe("emitSearchSession — <title> + locale strings", () => {
 		expect(strings["case_search.m0.inputs"]).toBe("Find a patient");
 	});
 
-	it("falls back to the case-type name when no title is authored", () => {
+	it("falls back to Nova's friendly title when no title is authored", () => {
 		const { strings } = emitSearchSession({
 			caseListConfig: makeListConfig(),
 			caseSearchConfig: {},
@@ -757,7 +881,7 @@ describe("emitSearchSession — <title> + locale strings", () => {
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(strings["case_search.m0.inputs"]).toBe("patient");
+		expect(strings["case_search.m0.inputs"]).toBe("Search");
 	});
 });
 
@@ -877,7 +1001,13 @@ describe("emitSearchSession — <prompt> body", () => {
 		const { xml, strings } = emitSearchSession({
 			caseListConfig: makeListConfig({
 				searchInputs: [
-					simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"full_name",
+						"Name",
+						"text",
+						"full_name",
+					),
 				],
 			}),
 			caseSearchConfig: {},
@@ -885,8 +1015,8 @@ describe("emitSearchSession — <prompt> body", () => {
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<prompt key="name"`);
-		expect(strings["search_property.m0.name"]).toBe("Name");
+		expect(xml).toContain(`<prompt key="full_name"`);
+		expect(strings["search_property.m0.full_name"]).toBe("Name");
 	});
 
 	it("emits a clean <query> body when no search inputs are authored", () => {
@@ -934,28 +1064,14 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		// value into `search-input:results` regardless. The matcher
 		// strategy rides on the `_xpath_query` slot.
 		expect(xml).toContain(`<prompt key="name_fuzzy"`);
-		// Pin the full `_xpath_query` ref. The fragment encodes the
-		// wire contract: (1) the value is wrapped in CSQL
-		// double-quote brackets so CCHQ's `unwrap_value` reads the
-		// runtime-resolved string as a string literal rather than
-		// rejecting it as a path (`commcare-hq/.../case_search/dsl_utils.py::unwrap_value`
-		// raises `CaseFilterError` on a bare `Step`); (2) the
-		// envelope is `when-input-present` so an unset input
-		// contributes `match-all()` instead of matching against
-		// empty-string. The `&quot;` pair is `"` XML-escaped for
-		// attribute context.
-		// Pin the full `_xpath_query` ref. The fragment encodes the
-		// wire contract: (1) the value wraps in CSQL double-quote
-		// brackets so CCHQ's `unwrap_value` reads the runtime-resolved
-		// string as a string literal rather than rejecting it as a
-		// path; (2) the envelope is `when-input-present` so an unset
-		// input contributes `match-all()` instead of matching against
-		// empty-string. XPath single-quote literals (`'…'`) round-trip
-		// through the serializer as `&apos;` inside the double-quoted
-		// `ref` attribute value.
-		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;]), concat(&apos;fuzzy-match(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
-		);
+		// Pin the behavior rather than the serializer's parenthesis layout: the
+		// authored matcher is present, a blank input is still optional, and a
+		// value that cannot be represented safely fails closed.
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("fuzzy-match(case_name");
+		expect(xml).toContain("name_fuzzy");
+		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("<validation");
 	});
 
 	it("routes a self-walk `starts-with` simple input into _xpath_query as starts-with(prop, input)", () => {
@@ -981,9 +1097,11 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		// supports (via `XPathStartsWithFunc`); on the CSQL side the
 		// value still wraps in double-quote brackets so the
 		// runtime-resolved string interpolates as a string literal.
-		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_starts&apos;]), concat(&apos;starts-with(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_starts&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
-		);
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("starts-with(case_name");
+		expect(xml).toContain("name_starts");
+		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("<validation");
 	});
 
 	it("routes a self-walk `phonetic` simple input into _xpath_query as phonetic-match(prop, input)", () => {
@@ -1005,9 +1123,11 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_phon&apos;]), concat(&apos;phonetic-match(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_phon&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
-		);
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("phonetic-match(case_name");
+		expect(xml).toContain("name_phon");
+		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("<validation");
 	});
 
 	it("routes a self-walk `fuzzy-date` simple input into _xpath_query as fuzzy-date(prop, input)", () => {
@@ -1029,9 +1149,11 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;dob_fdate&apos;]), concat(&apos;fuzzy-date(dob, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;dob_fdate&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
-		);
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("fuzzy-date(dob");
+		expect(xml).toContain("dob_fdate");
+		expect(xml).toContain("nova-runtime-value-contains-both-quote-types()");
+		expect(xml).toContain("<validation");
 	});
 
 	it("does NOT route a blank-property simple input into _xpath_query (transient editor state, validator carries the authoring error)", () => {
@@ -1095,6 +1217,30 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		// And no `exclude="true()"` — the auto-match is the wanted
 		// runtime behaviour for this shape.
 		expect(xml).not.toContain(`exclude=`);
+	});
+
+	it("routes canonical lifecycle status through explicit @status CSQL", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"status",
+						"Case status",
+						"text",
+						"status",
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+
+		expect(xml).toContain(`<prompt key="status" exclude="true()">`);
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("@status = ");
 	});
 
 	it("routes a self-walk `exact` simple input with `name !== property` into _xpath_query AND emits exclude='true()' on the prompt", () => {
@@ -1192,5 +1338,24 @@ describe("composeXPathQueryEmission — defense in depth on bare input refs", ()
 				moduleIndex: 0,
 			}),
 		).toThrow(/bare search-input reference/);
+	});
+});
+
+describe("composeXPathQueryEmission — CSQL representability defense", () => {
+	it("refuses to emit a server query when validation was bypassed with two case-property operands", () => {
+		expect(() =>
+			emitSearchSession({
+				caseListConfig: makeListConfig({
+					filter: eq(
+						prop("patient", "minimum_age"),
+						prop("patient", "maximum_age"),
+					),
+				}),
+				caseSearchConfig: {},
+				wire: WEB_LIST_FIRST,
+				caseType: "patient",
+				moduleIndex: 0,
+			}),
+		).toThrow(/composed _xpath_query predicate is representable/);
 	});
 });

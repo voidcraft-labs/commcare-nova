@@ -16,13 +16,20 @@
 // canonical pattern; inlining would be unsafe in the type-erased
 // path and would invalidate plan-cache reuse). When `data_type` is
 // present, `eb.cast(eb.val(value), <token>)` lifts the bound
-// parameter to the typed value the comparison expects.
+// parameter to the typed value the comparison expects. Temporal
+// strings pass through `nullif(value, '')` before their cast: the
+// builder deliberately uses an empty typed literal while an optional
+// date/time control is unset, and Postgres must treat that transient
+// state as no value rather than trying to parse `''::date`.
 
 import type { AliasableExpression } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { Literal } from "@/lib/domain/predicate/types";
 import type { Database } from "./database";
-import { POSTGRES_CAST_FOR_DATA_TYPE } from "./dataTypeTokens";
+import {
+	NAIVE_TEMPORAL_TEXT_RE,
+	POSTGRES_CAST_FOR_DATA_TYPE,
+} from "./dataTypeTokens";
 
 /**
  * Module-scoped expression builder. `eb.val` / `eb.lit` / `eb.cast`
@@ -36,6 +43,10 @@ const eb = expressionBuilder<Database, keyof Database>();
  * `null` → `eb.lit(null)` (SQL `NULL` keyword); `data_type !==
  * undefined` → `eb.cast(eb.val(value), <token>)` lifts the bound
  * parameter to the typed value; otherwise → bare `eb.val(value)`.
+ * Date / time / datetime strings first pass through SQL `nullif`, so
+ * the editor's intentional empty-string draft becomes typed `NULL`
+ * instead of a Postgres `22007` cast failure. Non-empty values retain
+ * the same cast and still fail loudly when genuinely malformed.
  *
  * Returns `AliasableExpression<unknown>` because each branch
  * resolves to a different per-Postgres-type expression but the
@@ -49,6 +60,29 @@ export function compileLiteral(lit: Literal): AliasableExpression<unknown> {
 	}
 	if (lit.data_type !== undefined) {
 		const cast = POSTGRES_CAST_FOR_DATA_TYPE[lit.data_type];
+		if (
+			lit.data_type === "datetime" &&
+			typeof lit.value === "string" &&
+			NAIVE_TEMPORAL_TEXT_RE.test(lit.value.trim())
+		) {
+			// A naive datetime literal means UTC (CCHQ CSQL semantics); a bare
+			// `timestamptz` cast would read it in the unpinned session zone.
+			// The literal is known at compile time, so the decision is static
+			// — no SQL CASE. Naive-matching values are never empty, so the
+			// empty-draft `nullif` guard below is moot on this branch.
+			return eb.fn("timezone", [
+				eb.val("UTC"),
+				eb.cast(eb.val(lit.value), "timestamp"),
+			]);
+		}
+		if (
+			typeof lit.value === "string" &&
+			(lit.data_type === "date" ||
+				lit.data_type === "datetime" ||
+				lit.data_type === "time")
+		) {
+			return eb.cast(eb.fn("nullif", [eb.val(lit.value), eb.val("")]), cast);
+		}
 		return eb.cast(eb.val(lit.value), cast);
 	}
 	return eb.val(lit.value);

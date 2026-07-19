@@ -22,8 +22,8 @@
 // projections + mappers reach here.
 //
 // Typed-error mappers live here too: `mapPopulateSampleCasesError`,
-// `mapCaseListPreviewError`, `mapFilterPreviewError`, and
-// `mapSubmitFormError` only inspect typed-error classes via
+// `mapFilterPreviewError`, and `mapSubmitFormError` only inspect
+// typed-error classes via
 // `instanceof` — no runtime dependency on the case-store's I/O
 // surface — so they're safe to ship to the client. The error
 // classes are pulled directly from `@/lib/case-store/errors` (the
@@ -41,15 +41,12 @@ import {
 // the alias table is pure data (type-only imports), and the barrel
 // would drag the connection layer in.
 import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "@/lib/case-store/sql/dataTypeTokens";
-import type { BlueprintDoc, Column } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { pickByKeys } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type {
-	CalculatedValue,
 	CaseRow,
-	CaseRowWithCalculated,
 	JsonValue,
-	LoadCaseListPreviewResult,
 	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
 	SubmissionResult,
@@ -225,7 +222,10 @@ function timestampDisplayValue(value: Date | string | null): string {
  * through to `row.properties`, `""` for absent. Lives here so
  * every render surface uses the same coercion.
  */
-export function caseRowDisplayValue(row: CaseRow, field: string): string {
+export function caseRowDisplaySourceValue(
+	row: CaseRow,
+	field: string,
+): JsonValue | Date | string | null | undefined {
 	switch (field) {
 		case "case_name":
 		case "name":
@@ -243,62 +243,19 @@ export function caseRowDisplayValue(row: CaseRow, field: string): string {
 			return row.external_id ?? "";
 		case "date_opened":
 		case "date-opened":
-			return timestampDisplayValue(row.opened_on);
+			return row.opened_on;
 		case "last_modified":
-			return timestampDisplayValue(row.modified_on);
-		default: {
-			const value = row.properties[field];
-			if (value === undefined) return "";
-			return jsonValueToString(value);
-		}
+			return row.modified_on;
+		default:
+			return row.properties[field];
 	}
 }
 
-/**
- * String coercion for a calculated cell value. The case-store's
- * `query` (with `calculated`) returns each value typed per the SQL
- * expression's resolved Postgres type — text / integer / numeric /
- * boolean / Date (date or timestamptz) / JSONB. The running-app
- * preview surfaces all six shapes as a single text cell.
- *
- * `Date` instances pass through `toISOString()` so the table
- * doesn't render the Date object's default string form.
- * `null` / `undefined` collapse to `""` so the cell is empty
- * rather than showing the literal "null". Other JSON shapes
- * (string / number / boolean / array / object) route through
- * `jsonValueToString`, which already handles the same coercion
- * the form-engine preload uses.
- */
-function calculatedValueToString(value: CalculatedValue | undefined): string {
+export function caseRowDisplayValue(row: CaseRow, field: string): string {
+	const value = caseRowDisplaySourceValue(row, field);
+	if (value instanceof Date) return timestampDisplayValue(value);
 	if (value === undefined) return "";
-	if (value instanceof Date) return value.toISOString();
 	return jsonValueToString(value);
-}
-
-/**
- * Read a column's display value off a `CaseRowWithCalculated`,
- * dispatching on the column's discriminator. Calc-arm columns
- * resolve through `row.calculated[column.uuid]` — the case-store's
- * `query` projects each `calculated` expression into the SELECT
- * keyed by uuid, and the running-app preview reads the slot
- * directly. Non-calc kinds read the case property named by
- * `column.field` through the shared `caseRowDisplayValue` helper
- * so reserved-scalar resolution + JSONB coercion stay consistent
- * across every consumer.
- *
- * Returns the empty string for any kind whose slot is absent
- * (empty calc map, missing JSONB key, missing reserved scalar).
- * Callers render the empty string as an empty cell, the same
- * shape a row with a never-set property produces.
- */
-export function evaluateColumnValue(
-	column: Column,
-	row: CaseRowWithCalculated,
-): string {
-	if (column.kind === "calculated") {
-		return calculatedValueToString(row.calculated[column.uuid]);
-	}
-	return caseRowDisplayValue(row, column.field);
 }
 
 // ---------------------------------------------------------------
@@ -346,37 +303,10 @@ export function mapPopulateSampleCasesError(
 }
 
 /**
- * Map errors from `readCaseListPreview` to typed result arms. The
- * three typed errors get dedicated arms so the live-preview client
- * surface can re-resolve / await the sync rather than render an
- * undifferentiated error message. Generic Errors fall through to
- * the `error` arm.
- */
-export function mapCaseListPreviewError(
-	err: unknown,
-): LoadCaseListPreviewResult {
-	if (err instanceof CaseTypeNotInBlueprintError) {
-		return { kind: "missing-case-type", caseType: err.caseType };
-	}
-	if (err instanceof SchemaNotSyncedError) {
-		return { kind: "schema-not-synced", caseType: err.caseType };
-	}
-	return {
-		kind: "error",
-		message: err instanceof Error ? err.message : "Failed to load preview.",
-	};
-}
-
-/**
  * Map errors from `readFilterPreview` to typed `LoadFilterPreviewResult`
- * arms. `LoadFilterPreviewResult`'s error arms are a strict subset
- * of `LoadCaseListPreviewResult`'s (the only difference is the
- * paired `totalCount` on the success arms), so the mapping shape
- * is identical to `mapCaseListPreviewError` modulo the result
- * type. A separate function keeps the typed-result inference
- * tight at the call site — narrowing the union via a single
- * function with a polymorphic return would force the caller to
- * re-narrow.
+ * arms. The typed case-store errors get dedicated arms so the filter
+ * inspector can re-resolve or await schema sync instead of rendering an
+ * undifferentiated error message. Generic errors fall through to `error`.
  */
 export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
 	if (err instanceof CaseTypeNotInBlueprintError) {
@@ -421,4 +351,14 @@ export function mapSubmitFormError(err: unknown): SubmissionResult {
 		kind: "error",
 		message: err instanceof Error ? err.message : "Failed to submit form.",
 	};
+}
+
+/**
+ * The browser's IANA timezone, sent with case-data reads so calculated
+ * columns' `format-date` renders wall time the way the device would —
+ * in Preview the author's browser stands in for the device. The server
+ * validates the name and falls back to UTC.
+ */
+export function viewerTimeZone(): string {
+	return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }

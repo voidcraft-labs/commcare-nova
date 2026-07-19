@@ -8,20 +8,14 @@
 // promise, callers can await it to learn when the fresh data is on screen,
 // not merely when the fetch returned.
 //
-// The case-list preview surfaces (`useCases`, `useCaseListPreview`) share
+// The case-data hooks (`useCases`, `useCaseCount`, and `useCaseData`) share
 // this one primitive rather than each hand-rolling the same concurrency
 // machinery — duplicated last-write-wins logic is the kind that silently
 // diverges when only one copy gets a fix.
 
 "use client";
 
-import {
-	type DependencyList,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** A sync readiness decision: either a not-ready state to show without
  *  fetching, or the fetch thunk to run. Returning the thunk from a guarded
@@ -43,8 +37,11 @@ export function useReloadableResource<T extends { kind: string }>(opts: {
 	/** Keep this prior state on screen during a revalidation
 	 *  (stale-while-revalidate); anything else falls back to `loading`. */
 	readonly keepStale: (prev: T) => boolean;
-	/** Re-fire the load when any of these change. */
-	readonly deps: DependencyList;
+	/** Stable identity for the inputs that should re-fire the load. Callers
+	 * derive one token with a fixed-arity `useMemo`; the resource's own effect
+	 * therefore always has the same dependency shape even while optional query
+	 * configuration hydrates. */
+	readonly reloadToken: unknown;
 }): { state: T; fetching: boolean; reload: () => Promise<void> } {
 	const [state, setState] = useState<T>(() => {
 		const prep = opts.prepare();
@@ -80,16 +77,18 @@ export function useReloadableResource<T extends { kind: string }>(opts: {
 		setFetching(false);
 	}, []);
 
-	// `deps` is the caller's trigger list, forwarded like useEffect's own dep
-	// array; `load` is stable and reads current inputs via the latest ref.
+	// The caller's complete trigger set is represented by ONE stable token.
+	// `load` is stable and reads current inputs through the latest ref.
+	const reloadToken = opts.reloadToken;
 	useEffect(() => {
+		void reloadToken;
 		void load();
 		// Invalidate any in-flight load on unmount / dep change so its settle is
 		// dropped rather than committed to a gone or superseded view.
 		return () => {
 			requestId.current += 1;
 		};
-	}, [load, ...opts.deps]);
+	}, [load, reloadToken]);
 
 	return { state, fetching, reload: load };
 }

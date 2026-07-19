@@ -17,6 +17,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerSpy from "@iconify-icons/tabler/spy";
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { authClient } from "@/lib/auth-client";
 
 interface ImpersonationBannerProps {
@@ -45,27 +46,26 @@ export function ImpersonationBanner({
 	};
 
 	return (
-		<div
-			className="flex items-center gap-2 rounded-lg border border-nova-orchid/25 bg-nova-orchid/8 px-3 py-1.5 text-sm text-nova-orchid"
-			role="status"
-			aria-label={`Impersonating ${userName}`}
-		>
+		<div className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-nova-orchid/25 bg-nova-orchid/8 py-0 pl-3 pr-0.5 text-sm text-nova-orchid">
 			<Icon icon={tablerSpy} width="16" height="16" className="shrink-0" />
-			<span>
+			<span className="min-w-0 truncate">
 				Viewing as{" "}
 				<span className="font-semibold" title={userEmail}>
 					{userName}
 				</span>
 			</span>
-			<button
+			<Button
 				type="button"
+				variant="ghost"
+				size="xl"
 				onClick={handleStopImpersonating}
 				disabled={loading}
-				className="ml-1 flex items-center gap-1 rounded-md bg-nova-orchid/15 px-2 py-0.5 text-xs font-medium transition-colors not-disabled:hover:bg-nova-orchid/25 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+				aria-busy={loading || undefined}
+				className="ml-1 min-h-11 shrink-0 gap-1 rounded-md bg-nova-orchid/15 px-2 text-xs font-medium text-nova-orchid not-disabled:hover:bg-nova-orchid/25 not-disabled:hover:text-nova-orchid"
 			>
 				<Icon icon={tablerArrowBackUp} width="14" height="14" />
 				{loading ? "Switching..." : "Switch back"}
-			</button>
+			</Button>
 		</div>
 	);
 }

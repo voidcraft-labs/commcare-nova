@@ -2,9 +2,9 @@
 //
 // Two-family AST: the boolean-valued **Predicate** family and the
 // value-bearing **ValueExpression** family. Together they form the
-// authoring source of truth for every filter, sort key, calculated
-// column, search-input default, and default search filter in the case-
-// list and search system. Compiled to CommCare XPath/CSQL at HQ wire
+// authoring source of truth for every always-on case rule, sort key,
+// calculated column, and search-input default in the case-list and search
+// system. Compiled to CommCare XPath/CSQL at HQ wire
 // emission and to Kysely query-builder calls at runtime — never
 // round-tripped through strings.
 //
@@ -65,6 +65,14 @@ import { z } from "zod";
 // `valueExpressionSchema` from this file, which would in turn
 // import back into `blueprint.ts` and break module-load order.
 import { casePropertyDataTypeSchema } from "../casePropertyTypes";
+import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
+import {
+	DISTANCE_UNITS,
+	type DistanceUnit,
+	distanceValidationIssue,
+} from "./distance";
+
+export type { DistanceUnit } from "./distance";
 
 // ---------- Identifier patterns ----------
 //
@@ -617,10 +625,10 @@ export type Term = z.infer<typeof termSchema>;
 //     `today` resolves to the project-timezone ISO date; `now` resolves
 //     to the UTC ISO datetime.
 //   - `date-add` — `date + (interval × quantity)` arithmetic. Wire
-//     emission diverges per dialect: CSQL emits the named `date-add`
-//     value function; the on-device dialect supports day-only
-//     intervals via XPath operator arithmetic and rejects month / year
-//     intervals at the representability checker.
+//     emission diverges per dialect: CSQL emits a native named value
+//     function; on-device slots admit date-typed fixed-duration arithmetic
+//     (seconds through weeks) and lower it through scaled XPath epoch-day
+//     addition wrapped in `date(floor(...))`.
 //   - `date-coerce` / `datetime-coerce` — string → typed date /
 //     datetime via CommCare's wire `date(...)` / `datetime(...)`
 //     value functions.
@@ -698,10 +706,12 @@ export type ArithOp = (typeof ARITH_OPS)[number];
  * function set verified at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
  * — CSQL accepts each via the `date-add` / `datetime-add` value
- * functions; the on-device dispatcher does not register a handler
- * (the representability checker rejects non-day intervals for
- * on-device emission, and the on-device emitter falls back to
- * XPath operator arithmetic for `days`-only).
+ * functions; the on-device dispatcher does not register a handler.
+ * The portability validator admits date-typed fixed-duration expressions
+ * (seconds, minutes, hours, days, weeks) in on-device slots, where the emitter
+ * scales quantities to epoch days and wraps the result in `date(floor(...))`.
+ * It rejects datetime-typed bases because epoch-day coercion loses time, plus
+ * calendar-relative months/years because no fixed scale is faithful.
  *
  * Same `as const` pattern as `ARITH_OPS`. Adding an interval here
  * widens the schema's `interval` enum; the on-device emitter and
@@ -720,17 +730,16 @@ export const DATE_ADD_INTERVALS = [
 export type DateAddInterval = (typeof DATE_ADD_INTERVALS)[number];
 
 /**
- * Closed set of preset `format-date` patterns. The three preset names
- * are CommCare's wire-vocabulary aliases — `short` (locale-default
- * short form), `long` (locale-default long form), `iso` (ISO 8601
- * date-only). Authors who need a custom pattern pass an arbitrary
- * string at the `format-date` builder, which the schema admits via
- * the `string` branch of the `pattern` union.
+ * Closed set of Nova's semantic `format-date` presets. They are not literal
+ * JavaRosa patterns: every runtime resolves them through
+ * `lib/domain/dateFormats.ts` (`short` / `long` / `iso` each maps to one exact
+ * JavaRosa pattern). Preview and Postgres then consume that same vocabulary.
+ * Authors who need a custom pattern pass a schema-validated JavaRosa string.
  *
  * Surfacing the preset names as a closed enum lets the type checker
  * recognise the canonical patterns and lets a UI surface render
  * them as preset-card affordances rather than free-text inputs. The
- * arbitrary-string branch retains the full CCHQ pattern vocabulary
+ * arbitrary-string branch retains the full supported JavaRosa vocabulary
  * for advanced cases.
  */
 export const FORMAT_DATE_PRESETS = ["short", "long", "iso"] as const;
@@ -989,14 +998,21 @@ const unwrapListSchema = z
  * branch (and a UI surface can render them as known-pattern chips);
  * everything else lands as a free-text custom pattern.
  *
- * The pattern slot is non-empty: `format-date(date, "")` is
- * meaningless on every CCHQ dialect.
+ * The pattern slot is non-empty and every `%` escape must exist in JavaRosa's
+ * formatter. This makes unsupported patterns invalid at construction rather
+ * than allowing Preview, Postgres, and the device to fail differently.
  */
 const formatDateSchema = z
 	.object({
 		kind: z.literal("format-date"),
 		date: z.lazy(() => valueExpressionSchema),
-		pattern: z.union([z.enum(FORMAT_DATE_PRESETS), z.string().min(1)]),
+		pattern: z.union([
+			z.enum(FORMAT_DATE_PRESETS),
+			z
+				.string()
+				.min(1)
+				.regex(COMMCARE_DATE_PATTERN_REGEX, "Use a supported date format"),
+		]),
 	})
 	.strict();
 
@@ -1105,13 +1121,10 @@ const inSchema = z
 	.strict();
 
 /**
- * Distance units accepted by `within-distance`. Pattern mirrors
- * `COMPARISON_KINDS` above: a local `as const` tuple feeds the schema
- * via `z.enum(...)`, and the exported `DistanceUnit` type derives from
- * it so the builder's `unit` parameter shares this single source of
- * truth. Adding a unit (e.g. `"meters"`) here automatically expands
- * the builder's accepted argument set rather than silently letting
- * the builder reject what the schema accepts.
+ * Distance units accepted by `within-distance`. `DISTANCE_UNITS` and
+ * `DistanceUnit` come from `distance.ts`, the same source that owns meter
+ * conversion and overflow validation. Adding a unit there expands the schema,
+ * builder signature, editor, and both meter-based runtimes together.
  *
  * The two-element list is a deliberate Nova narrowing of CCHQ's wider
  * unit vocabulary. CCHQ accepts nine units (`miles`, `yards`, `feet`,
@@ -1121,9 +1134,6 @@ const inSchema = z
  * two imperial/metric anchor units. Authors who need other units
  * coerce upstream of the AST.
  */
-const DISTANCE_UNITS = ["miles", "kilometers"] as const;
-export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
-
 /**
  * Geo predicate: include cases whose `property` (a geopoint) lies
  * within `distance` of `center`. `property` is a direct property
@@ -1136,21 +1146,30 @@ export type DistanceUnit = (typeof DISTANCE_UNITS)[number];
  * the typed AST) can drive the query alongside the natural search-
  * input or session-user shapes.
  *
- * `distance` is `.nonnegative()` — a negative radius is geometrically
- * meaningless and would propagate to two compilers (XPath/CSQL and
- * Kysely) that don't share a rejection layer. Reject at the AST. Zod
- * 4's `z.number()` already rejects `NaN` and `±Infinity`, so the only
- * structural concern left here is the sign.
+ * `distance` is strictly positive because CommCare's Elasticsearch
+ * `GeoDistanceQueryBuilder` rejects zero and negative radii. The object-level
+ * refinement also guarantees that converting the authored unit to meters stays
+ * finite; otherwise a finite-but-enormous input could overflow only after the
+ * AST passed validation and diverge between the wire and SQL runtimes.
  */
 const withinDistanceSchema = z
 	.object({
 		kind: z.literal("within-distance"),
 		property: propertyRefSchema,
 		center: z.lazy(() => valueExpressionSchema),
-		distance: z.number().nonnegative(),
+		distance: z.number().positive(),
 		unit: z.enum(DISTANCE_UNITS),
 	})
-	.strict();
+	.strict()
+	.superRefine(({ distance, unit }, ctx) => {
+		if (distanceValidationIssue(distance, unit) === "meters-overflow") {
+			ctx.addIssue({
+				code: "custom",
+				path: ["distance"],
+				message: "Distance is too large to convert to meters.",
+			});
+		}
+	});
 
 /**
  * Closed set of CCHQ text-match wire dispatches. Pattern mirrors

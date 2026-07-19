@@ -8,6 +8,8 @@ export * from "./builtinIcons";
 export * from "./casePropertyTypes";
 export * from "./caseTypes";
 export * from "./columnApplicability";
+export * from "./commCareDatePattern";
+export * from "./dateFormats";
 export * from "./effectiveCaseTypes";
 export * from "./expressionSource";
 export * from "./fields";

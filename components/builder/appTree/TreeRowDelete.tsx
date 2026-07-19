@@ -14,7 +14,8 @@
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useCanEdit } from "@/lib/session/hooks";
 
@@ -31,7 +32,21 @@ export function TreeRowDelete({
 	readonly onDelete: () => boolean;
 }) {
 	const [armed, setArmed] = useState(false);
+	const idleRef = useRef<HTMLButtonElement>(null);
+	const confirmRef = useRef<HTMLButtonElement>(null);
+	const restoreFocusRef = useRef(false);
 	const canEdit = useCanEdit();
+
+	useEffect(() => {
+		if (armed) {
+			confirmRef.current?.focus();
+			return;
+		}
+		if (restoreFocusRef.current) {
+			restoreFocusRef.current = false;
+			idleRef.current?.focus();
+		}
+	}, [armed]);
 
 	// A view-only Project member can't delete rows — render nothing.
 	if (!canEdit) return null;
@@ -45,45 +60,57 @@ export function TreeRowDelete({
 				className="flex shrink-0 items-center gap-1"
 				onMouseLeave={() => setArmed(false)}
 			>
-				<button
+				<Button
+					ref={confirmRef}
 					type="button"
-					aria-label={`Confirm — ${label}`}
+					variant="destructive"
+					size="xl"
+					aria-label={`Confirm ${label.toLowerCase()}`}
+					onKeyDown={(event) => event.stopPropagation()}
 					onClick={(e) => {
 						e.stopPropagation();
 						if (!onDelete()) setArmed(false);
 					}}
-					className="cursor-pointer rounded-md bg-nova-rose/15 px-2 py-1 text-[11px] font-medium text-nova-rose transition-colors hover:bg-nova-rose/25"
+					className="h-11 rounded-lg px-3 text-xs"
 				>
-					Delete?
-				</button>
-				<button
+					Delete
+				</Button>
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon-lg"
 					aria-label="Cancel delete"
+					onKeyDown={(event) => event.stopPropagation()}
 					onClick={(e) => {
 						e.stopPropagation();
 						setArmed(false);
 					}}
-					className="cursor-pointer rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
+					className="size-11 text-nova-text-muted hover:bg-white/[0.06] hover:text-nova-text"
 				>
-					<Icon icon={tablerX} width="12" height="12" />
-				</button>
+					<Icon icon={tablerX} width="16" height="16" />
+				</Button>
 			</span>
 		);
 	}
 
 	return (
 		<SimpleTooltip content={label}>
-			<button
+			<Button
+				ref={idleRef}
 				type="button"
+				variant="ghost"
+				size="icon-lg"
 				aria-label={label}
+				onKeyDown={(event) => event.stopPropagation()}
 				onClick={(e) => {
 					e.stopPropagation();
+					restoreFocusRef.current = true;
 					setArmed(true);
 				}}
-				className="shrink-0 cursor-pointer rounded-md p-1 text-nova-text-muted opacity-0 transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose focus-visible:opacity-100 group-hover:opacity-100"
+				className="size-11 shrink-0 text-nova-text-muted opacity-0 hover:bg-nova-rose/[0.08] hover:text-nova-rose focus-visible:opacity-100 group-hover:opacity-100"
 			>
-				<Icon icon={tablerTrash} width="15" height="15" />
-			</button>
+				<Icon icon={tablerTrash} width="16" height="16" />
+			</Button>
 		</SimpleTooltip>
 	);
 }

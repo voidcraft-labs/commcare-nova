@@ -95,7 +95,7 @@ export const FormCard = memo(function FormCard({
 	const formIcon = formTypeIcons[form.type];
 
 	return (
-		<motion.div
+		<motion.li
 			initial={{ opacity: 0, x: -8 }}
 			animate={{ opacity: 1, x: 0 }}
 			transition={{ delay, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
@@ -104,7 +104,10 @@ export const FormCard = memo(function FormCard({
 			}`}
 		>
 			<TreeItemRow
-				className={`group pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? "pointer-events-none" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
+				label={form.name}
+				disabled={locked}
+				selected={isSelected}
+				className={`group flex min-h-11 items-center gap-1.5 py-1.5 pr-3 pl-2 transition-colors ${locked ? "text-nova-text-secondary" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
 				onClick={() =>
 					onSelect({
 						kind: "form",
@@ -123,7 +126,7 @@ export const FormCard = memo(function FormCard({
 						hidden={locked}
 					/>
 				) : (
-					<span className="w-3.5 shrink-0" />
+					<span className="size-11 shrink-0" />
 				)}
 				<div className="flex-1 min-w-0">
 					<div className="flex items-center gap-2 min-w-0">
@@ -167,7 +170,10 @@ export const FormCard = memo(function FormCard({
 			</TreeItemRow>
 
 			{hasFields && !isCollapsed && (
-				<div className="pb-2">
+				<ul
+					aria-label={`${form.name} fields`}
+					className="m-0 list-none p-0 pb-2"
+				>
 					<AnimatePresence mode="sync">
 						{fieldUuids.map((uuid, fieldIdx) => {
 							if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
@@ -189,8 +195,8 @@ export const FormCard = memo(function FormCard({
 							);
 						})}
 					</AnimatePresence>
-				</div>
+				</ul>
 			)}
-		</motion.div>
+		</motion.li>
 	);
 });

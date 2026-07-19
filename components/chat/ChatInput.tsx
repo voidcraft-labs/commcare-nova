@@ -22,6 +22,7 @@ import type {
 } from "@/components/builder/media/mediaClient";
 import { CharCounter } from "@/components/chat/CharCounter";
 import { ChatAttachmentBar } from "@/components/chat/ChatAttachmentBar";
+import { Button } from "@/components/shadcn/button";
 import {
 	Tooltip,
 	TooltipContent,
@@ -80,19 +81,17 @@ interface ChatInputProps {
 	 *  (the docked variant gets a top divider). */
 	centered?: boolean;
 	/** True only for the opening prompt of a brand-new build (centered + nothing
-	 *  sent yet). Drives the placeholder: the "tell me about the app" framing
-	 *  fits only before the first send — the instant the user sends, it flips to
-	 *  the "ask for changes" copy, well before the layout finishes docking. */
+	 *  sent yet). The instant the user sends, the placeholder switches from the
+	 *  app description to a change request, before the layout finishes docking. */
 	openingPrompt?: boolean;
-	/** Reports whether a staged DOCUMENT is still being read (extracted). The
-	 *  sidebar lifts this into the signal panel so the (up to ~1 min) pre-send wait
+	/** Reports whether a staged document is still being read (extracted). The
+	 *  sidebar lifts this into the activity status so the pre-send wait
 	 *  shows the same "Reading your documents" status as the post-send resolve,
-	 *  instead of leaving the user staring at a lone "Reading…" chip. */
+	 *  instead of leaving the user with only the attachment chip. */
 	onReadingChange?: (reading: boolean) => void;
-	/** Build-scoped abort signal for staged docs' extraction reads. Owning the
-	 *  read at the build level (not the chip) keeps it streaming into the grid after
-	 *  the chip unmounts on send — so the read never goes dark mid-extraction —
-	 *  while still aborting when the build is torn down. */
+	/** Build-scoped abort signal for staged documents' extraction reads. Owning
+	 *  the read at the build level keeps it running after the chip unmounts on
+	 *  send, while still aborting when the build is torn down. */
 	extractionAbortSignal?: AbortSignal;
 }
 
@@ -166,7 +165,7 @@ export function ChatInput({
 	// `picked` (not the chip badges): a freshly staged doc has no extract yet, and
 	// the badge's `onExtracted` folds a ready OR failed terminal status back in via
 	// `reconcileExtract` — so once every staged doc is ready/failed, this clears.
-	// Reported up so the sidebar can show the "Reading your documents" signal.
+	// Reported up so the sidebar can show the "Reading your documents" status.
 	const reading = picked.some(
 		(a) =>
 			isDocumentKind(a.kind) &&
@@ -271,8 +270,8 @@ export function ChatInput({
 						onKeyDown={handleTextareaKeyDown}
 						placeholder={
 							openingPrompt
-								? "Tell me about the app you want to build..."
-								: "Ask for changes..."
+								? "Describe the app you want to build"
+								: "Describe a change"
 						}
 					/>
 				</PromptInputBody>
@@ -285,15 +284,17 @@ export function ChatInput({
 						<Tooltip>
 							<TooltipTrigger
 								render={
-									<button
+									<Button
 										type="button"
+										variant="ghost"
+										size="icon-lg"
 										onClick={() => setPickerOpen(true)}
 										disabled={disabled || answerPending}
 										aria-label="Attach a file"
-										className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:cursor-default disabled:opacity-40"
+										className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text"
 									>
 										<Icon icon={tablerPaperclip} className="size-4" />
-									</button>
+									</Button>
 								}
 							/>
 							<TooltipContent>Attach a file</TooltipContent>
@@ -307,7 +308,7 @@ export function ChatInput({
 					 *  The submit is disabled when the text is empty (a staged attachment
 					 *  alone can't send) or over the limit (the text is never truncated —
 					 *  only sending is blocked). While a turn is in flight the whole input
-					 *  is disabled (Nova shows progress on the signal grid, not a stop
+					 *  is disabled (Nova shows progress in the activity status, not a stop
 					 *  button), so the submit shows the spinner. */}
 					<div className="flex items-center gap-2">
 						<CharCounter length={textLength} max={MAX_CHAT_MESSAGE_CHARS} />
@@ -315,7 +316,7 @@ export function ChatInput({
 							<TooltipTrigger render={<CreditAmount value={cost} />} />
 							<TooltipContent>
 								{appReady
-									? `Edits use ${cost} credits — clarifying questions are free.`
+									? `Edits use ${cost} credits. Clarifying questions are free.`
 									: `This build will use ${cost} credits.`}
 								{summary && (
 									<span className="mt-0.5 block text-nova-text-muted">

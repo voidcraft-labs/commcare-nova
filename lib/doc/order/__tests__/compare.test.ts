@@ -1,7 +1,7 @@
 // Tests for `bySortKey` — the one order-consumption comparator.
 
 import { describe, expect, it } from "vitest";
-import { bySortKey } from "../compare";
+import { byDetailColumnOrder, byListColumnOrder, bySortKey } from "../compare";
 
 describe("bySortKey", () => {
 	it("orders by the fractional `order` key when both are present", () => {
@@ -40,5 +40,54 @@ describe("bySortKey", () => {
 		const a = { uuid: "a", order: "F" };
 		const b = { uuid: "b" };
 		expect(Math.sign(bySortKey(a, b))).toBe(-Math.sign(bySortKey(b, a)));
+	});
+});
+
+describe("column surface order comparators", () => {
+	it("orders Results and Details independently", () => {
+		const columns = [
+			{ uuid: "a", order: "a", listOrder: "c", detailOrder: "b" },
+			{ uuid: "b", order: "b", listOrder: "a", detailOrder: "c" },
+			{ uuid: "c", order: "c", listOrder: "b", detailOrder: "a" },
+		];
+		expect([...columns].sort(byListColumnOrder).map((c) => c.uuid)).toEqual([
+			"b",
+			"c",
+			"a",
+		]);
+		expect([...columns].sort(byDetailColumnOrder).map((c) => c.uuid)).toEqual([
+			"c",
+			"a",
+			"b",
+		]);
+	});
+
+	it("falls back to generic order independently for each missing surface key", () => {
+		const columns = [
+			{ uuid: "generic-first", order: "a" },
+			{ uuid: "surface-second", order: "z", listOrder: "b" },
+		];
+		expect([...columns].sort(byListColumnOrder).map((c) => c.uuid)).toEqual([
+			"generic-first",
+			"surface-second",
+		]);
+		expect([...columns].sort(byDetailColumnOrder).map((c) => c.uuid)).toEqual([
+			"generic-first",
+			"surface-second",
+		]);
+	});
+
+	it("is total: equal and absent resolved keys tie-break by uuid", () => {
+		const equal = [
+			{ uuid: "z", order: "a", listOrder: "x" },
+			{ uuid: "a", order: "z", listOrder: "x" },
+		];
+		expect([...equal].sort(byListColumnOrder).map((c) => c.uuid)).toEqual([
+			"a",
+			"z",
+		]);
+		expect(byDetailColumnOrder({ uuid: "z" }, { uuid: "a" })).toBeGreaterThan(
+			0,
+		);
 	});
 });

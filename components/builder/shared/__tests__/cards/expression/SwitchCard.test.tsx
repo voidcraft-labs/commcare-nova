@@ -6,16 +6,21 @@
 // The card's drag surface targets `cases` (one per row); the `on`
 // and `fallback` slots stay structurally fixed.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
+	type CheckError,
+	checkExpression,
 	dateLiteral,
 	literal,
+	predicateSchema,
 	prop,
 	switchCase,
 	switchExpr,
 	term,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
@@ -26,6 +31,13 @@ const PATIENT: CaseType = {
 		{ name: "score", label: "Score", data_type: "int" },
 	],
 };
+
+async function settleTooltipTransition() {
+	await act(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+}
 
 describe("SwitchCard — reorder produces cases array in the new order", () => {
 	it("reordering cases produces a cases array in the new order", () => {
@@ -59,12 +71,9 @@ describe("SwitchCard — drag handle wiring", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// `Reorder case` is the per-case grip's aria-label inside
-		// SwitchCard's CaseRow. Distinct from the outer
-		// `Drag to reorder` label that the shells' grips use on
-		// nested ExpressionPicker shells.
+		// Every reorderable choice exposes the same direct action name.
 		const grips = container.querySelectorAll(
-			'button[aria-label="Reorder case"]',
+			'button[aria-label^="Move choice"]',
 		);
 		expect(grips.length).toBe(2);
 	});
@@ -82,6 +91,133 @@ describe("SwitchCard — case removal contract", () => {
 			term(literal(0)),
 		);
 		expect(value.cases.length).toBe(1);
+	});
+
+	it("moves focus to the next choice's remove action after deletion", async () => {
+		const initial = switchExpr(
+			term(prop("patient", "risk")),
+			[
+				switchCase(literal("low"), term(literal(1))),
+				switchCase(literal("medium"), term(literal(2))),
+				switchCase(literal("high"), term(literal(3))),
+			],
+			term(literal(0)),
+		);
+		function Harness() {
+			const [value, setValue] = useState(initial);
+			return (
+				<ExpressionCardEditor
+					value={value}
+					onChange={(next) => {
+						if (next.kind === "switch") setValue(next);
+					}}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>
+			);
+		}
+		render(<Harness />);
+
+		const removeActions = screen.getAllByRole("button", {
+			name: "Remove choice",
+		});
+		const nextAction = removeActions[1];
+		removeActions[0].focus();
+		await act(async () => {
+			fireEvent.click(removeActions[0]);
+			await Promise.resolve();
+		});
+
+		expect(document.activeElement).toBe(nextAction);
+		expect(
+			screen.getAllByRole("button", { name: "Remove choice" }),
+		).toHaveLength(2);
+	});
+
+	it("moves a choice from the keyboard and keeps focus on its handle", async () => {
+		const initial = switchExpr(
+			term(prop("patient", "risk")),
+			[
+				switchCase(literal("low"), term(literal(1))),
+				switchCase(literal("high"), term(literal(2))),
+			],
+			term(literal(0)),
+		);
+		function Harness() {
+			const [value, setValue] = useState(initial);
+			return (
+				<ExpressionCardEditor
+					value={value}
+					onChange={(next) => {
+						if (next.kind === "switch") setValue(next);
+					}}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>
+			);
+		}
+		render(<Harness />);
+
+		const second = screen.getByRole("button", {
+			name: "Move choice 2 of 2",
+		});
+		second.focus();
+		fireEvent.keyDown(second, { key: "ArrowUp" });
+		await settleTooltipTransition();
+
+		expect(document.activeElement).toBe(second);
+		expect(second.getAttribute("aria-label")).toBe("Move choice 1 of 2");
+		expect(screen.getByRole("status").textContent).toBe(
+			"Choice 2 moved earlier",
+		);
+	});
+});
+
+describe("SwitchCard — compatible new choices", () => {
+	it("adds a choice using the discriminator and saved result types", () => {
+		const value = switchExpr(
+			term(prop("patient", "score")),
+			[switchCase(literal(1), term(literal(10)))],
+			term(literal(0)),
+		);
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add choice" }));
+		expect(onChange).toHaveBeenCalledTimes(1);
+		const next = onChange.mock.calls[0][0] as ValueExpression;
+		expect(
+			predicateSchema.safeParse({
+				kind: "eq",
+				left: term(literal(1)),
+				right: next,
+			}).success,
+		).toBe(true);
+		const errors: CheckError[] = [];
+		expect(
+			checkExpression(
+				next,
+				{
+					caseTypes: [PATIENT],
+					knownInputs: [],
+					currentCaseType: "patient",
+				},
+				errors,
+				[],
+			),
+		).toBe("int");
+		expect(errors).toEqual([]);
+		if (next.kind !== "switch") throw new Error("Expected a switch");
+		expect(next.cases).toHaveLength(2);
+		expect(next.cases[1].when.value).toBe(0);
+		expect(next.cases[1].then).toEqual(term(literal(0)));
 	});
 });
 
@@ -121,9 +257,9 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// Find the case-when input. The aria-label is "Case when value".
+		// Find the value matched by this choice.
 		const whenInput = screen.getByLabelText(
-			"Case when value",
+			"Value to match",
 		) as HTMLInputElement;
 		expect(whenInput.value).toBe("2024-01-01");
 		// Focus then blur without typing — the no-op gate must
@@ -157,7 +293,7 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 			/>,
 		);
 		const whenInput = screen.getByLabelText(
-			"Case when value",
+			"Value to match",
 		) as HTMLInputElement;
 		// Edit the input, then blur to commit.
 		fireEvent.change(whenInput, { target: { value: "2025-06-15" } });

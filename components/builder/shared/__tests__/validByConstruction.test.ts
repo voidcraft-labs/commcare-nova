@@ -163,7 +163,7 @@ describe("valid by construction — match admission ⟺ checker", () => {
 
 describe("valid by construction — object-kind admission is non-trivial", () => {
 	it("a numeric subject's object slot rejects a text result kind", () => {
-		const intConstraint = comparisonObjectConstraint("int");
+		const intConstraint = comparisonObjectConstraint("eq", "int");
 		// `concat` resolves to text — not admitted opposite an int subject.
 		// (full per-kind coverage lives in slotConstraints.test.ts)
 		expect(ALL_RESOLVED_TYPES.includes(ANY_TYPE)).toBe(true);

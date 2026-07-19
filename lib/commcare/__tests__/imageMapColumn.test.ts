@@ -64,7 +64,7 @@ function imageMapDoc() {
 				caseType: "patient",
 				caseListConfig: {
 					columns: [
-						imageMapColumn(asUuid("col-status"), "status", "Status", [
+						imageMapColumn(asUuid("col-status"), "care_status", "Status", [
 							imageMapEntry("active", "asset-active"),
 							imageMapEntry("closed", "asset-closed"),
 						]),
@@ -92,7 +92,7 @@ function imageMapDoc() {
 
 describe("image-map column schema", () => {
 	it("round-trips through columnSchema", () => {
-		const col = imageMapColumn(asUuid("c1"), "status", "Status", [
+		const col = imageMapColumn(asUuid("c1"), "care_status", "Status", [
 			imageMapEntry("active", "asset-1"),
 		]);
 		expect(columnSchema.parse(col)).toEqual(col);
@@ -102,7 +102,7 @@ describe("image-map column schema", () => {
 		const dup = {
 			uuid: asUuid("c1"),
 			kind: "image-map",
-			field: "status",
+			field: "care_status",
 			header: "Status",
 			mapping: [
 				{ value: "active", assetId: "a1" },
@@ -117,7 +117,7 @@ describe("image-map column wire emission", () => {
 	it("projects to format enum-image with jr:// image values in HQ JSON", () => {
 		const hqJson = expandDoc(imageMapDoc(), { assets: manifest() });
 		const shortCols = hqJson.modules[0].case_details.short.columns;
-		const statusCol = shortCols.find((c) => c.field === "status");
+		const statusCol = shortCols.find((c) => c.field === "care_status");
 		expect(statusCol?.format).toBe("enum-image");
 		expect(statusCol?.enum).toEqual([
 			{ key: "active", value: { en: `jr://file/commcare/${HASH_ACTIVE}.png` } },
@@ -144,9 +144,9 @@ describe("image-map column wire emission", () => {
 		// quotes as `&apos;`.
 		expect(suite).not.toContain("replace(join");
 		expect(suite).toContain(
-			"if(selected(status, &apos;active&apos;), " +
+			"if(selected(care_status, &apos;active&apos;), " +
 				`&apos;jr://file/commcare/${HASH_ACTIVE}.png&apos;, ` +
-				"if(selected(status, &apos;closed&apos;), " +
+				"if(selected(care_status, &apos;closed&apos;), " +
 				`&apos;jr://file/commcare/${HASH_CLOSED}.png&apos;, &apos;&apos;))`,
 		);
 	});
@@ -154,7 +154,7 @@ describe("image-map column wire emission", () => {
 	it("degrades to a plain column when media is off", () => {
 		const hqJson = expandDoc(imageMapDoc());
 		const statusCol = hqJson.modules[0].case_details.short.columns.find(
-			(c) => c.field === "status",
+			(c) => c.field === "care_status",
 		);
 		// No manifest → no images to map → the raw value column.
 		expect(statusCol?.format).toBe("plain");

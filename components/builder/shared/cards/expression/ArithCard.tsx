@@ -17,8 +17,18 @@
 // inline next to its operand picker.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
+import { Icon } from "@iconify/react/offline";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import { useRef } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import {
 	ARITH_OPS,
 	type ArithOp,
@@ -28,11 +38,6 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
@@ -46,7 +51,7 @@ const OP_LABELS: Record<ArithOp, { symbol: string; label: string }> = {
 	"-": { symbol: "−", label: "Subtract" },
 	"*": { symbol: "×", label: "Multiply" },
 	div: { symbol: "÷", label: "Divide" },
-	mod: { symbol: "%", label: "Modulo (Remainder)" },
+	mod: { symbol: "%", label: "Remainder" },
 };
 
 /** Default `arith` — `0 + 0`. Both operands are int literals so the
@@ -116,69 +121,56 @@ function OpMenu({ op, setOp }: OpMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const meta = OP_LABELS[op];
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
-				aria-label={`Operator: ${meta.label}`}
-				className="group flex items-center justify-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer min-w-[3rem] @max-md:justify-self-start"
-			>
-				<span className="font-mono text-base leading-none">{meta.symbol}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
+				aria-label={`Math operation ${meta.label}`}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className="group min-w-12 border-white/[0.06] bg-nova-deep/50 px-3 text-nova-violet-bright not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 dark:bg-nova-deep/50 @max-md:justify-self-start"
 					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				}
+			>
+				<span className="text-base leading-none">{meta.symbol}</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="center"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{ARITH_OPS.map((o, i) => {
+					<DropdownMenuPopup>
+						{ARITH_OPS.map((o) => {
 							const isActive = o === op;
-							const last = ARITH_OPS.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
 							const m = OP_LABELS[o];
 							return (
-								<Menu.Item
+								<DropdownMenuItem
 									key={o}
 									onClick={() => setOp(o)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
+									className={
+										isActive
+											? "bg-nova-violet/10 text-nova-violet-bright"
+											: undefined
+									}
 								>
-									<span className="font-mono text-base w-6 text-center">
-										{m.symbol}
-									</span>
+									<span className="w-6 text-center text-base">{m.symbol}</span>
 									<span>{m.label}</span>
-								</Menu.Item>
+								</DropdownMenuItem>
 							);
 						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }

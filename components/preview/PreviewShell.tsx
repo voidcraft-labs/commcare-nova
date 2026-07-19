@@ -47,7 +47,11 @@ import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { Location } from "@/lib/routing/types";
-import { useEditMode, usePreviewCaseTarget } from "@/lib/session/hooks";
+import {
+	useEditMode,
+	usePreviewCaseTarget,
+	useSetPreviewing,
+} from "@/lib/session/hooks";
 import { CaseListScreen } from "./screens/CaseListScreen";
 import { FormScreen } from "./screens/FormScreen";
 import { HomeScreen } from "./screens/HomeScreen";
@@ -143,6 +147,14 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const screen = useDeferredValue(zustandScreen);
 
 	const mode = useEditMode();
+	/* `/cases/{caseId}` is the running record deep link, not the Results
+	 * authoring tab. It must remain a record screen after a reload even though
+	 * preview mode itself is ephemeral session state. */
+	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
+	const setPreviewing = useSetPreviewing();
+	useEffect(() => {
+		if (atCaseRecord && mode !== "preview") setPreviewing(true);
+	}, [atCaseRecord, mode, setPreviewing]);
 
 	/* ── Per-type screen identity ──────────────────────────────────────
 	 * Track the last screen data for each type so Activity boundaries can
@@ -163,8 +175,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const formScreenRef =
 		useRef<Extract<PreviewScreen, { type: "form" }>>(undefined);
 	/** The most-recent moduleUuid + tab that landed on any of the
-	 *  three case-list workspace URLs (`cases` / `search-config` /
-	 *  `detail-config`). Tracked separately from `caseListScreenRef`
+	 *  three case-list workspace URLs (`results` / `search` / `details`).
+	 *  Tracked separately from `caseListScreenRef`
 	 *  because the workspace mounts on the URL location (uuid-shaped)
 	 *  while the legacy `CaseListScreen` mounts on the integer-indexed
 	 *  `PreviewScreen` shape. The ref stays populated once any
@@ -227,7 +239,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * `screen.type` — otherwise navigating Form A → Module → Form B would
 	 * incorrectly restore Form A's scroll position for Form B. */
 	const scrollPositions = useRef(new Map<string, number>());
-	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const scrollContainerRef = useRef<HTMLElement>(null);
 	const prevScreenKeyRef = useRef(screenKey(screen));
 
 	useEffect(() => {
@@ -254,7 +266,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			{/* No header here — wayfinding (back/up + breadcrumb trail) is the
 			 *  builder's own `BreadcrumbStrip`, mounted above the canvas column,
 			 *  so the trail has a single source of truth. */}
-			<div
+			<main
 				ref={scrollContainerRef}
 				data-preview-scroll-container
 				className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg [overflow-anchor:none]"
@@ -285,12 +297,12 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				)}
 				{/*
 				 * Two parallel Activity boundaries cover the three case-list
-				 * workspace URLs (`cases` / `search-config` / `detail-config`).
+				 * workspace URLs (`results` / `search` / `details`).
 				 *
 				 *   - Edit mode: the unified CaseListConfigWorkspace —
-				 *     artifact-first tabbed canvases (Search / Case list /
-				 *     Case detail) whose selected entity opens in the
-				 *     right-rail inspector. The tab IS the URL kind. The
+				 *     focused Search / Results / Details canvases whose selected
+				 *     entity opens in the right-rail inspector. The tab IS the
+				 *     URL kind. The
 				 *     workspace is a builder surface, not a preview-pipeline
 				 *     screen, so it bypasses the legacy `locationToScreen`
 				 *     adapter and reads its identity from the URL-tracked
@@ -314,7 +326,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 							(screen.type === "caseList" ||
 								screen.type === "searchConfig" ||
 								screen.type === "detailConfig") &&
-							mode === "edit"
+							mode === "edit" &&
+							!atCaseRecord
 								? "visible"
 								: "hidden"
 						}
@@ -332,7 +345,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 							(screen.type === "caseList" ||
 								screen.type === "searchConfig" ||
 								screen.type === "detailConfig") &&
-							mode !== "edit"
+							(mode !== "edit" || atCaseRecord)
 								? "visible"
 								: "hidden"
 						}
@@ -349,7 +362,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						<FormScreen screen={formScreenRef.current} onBack={handleBack} />
 					</Activity>
 				)}
-			</div>
+			</main>
 		</div>
 	);
 }

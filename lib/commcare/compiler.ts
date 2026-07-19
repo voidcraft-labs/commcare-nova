@@ -51,12 +51,18 @@ import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
+import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
-import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	caseListColumnHasRuntimeRole,
+	defaultPostSubmit,
+	effectiveCaseSearchConfig,
+} from "@/lib/domain";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
  *  present the archive bundles the referenced files + media_suite.xml +
@@ -165,6 +171,14 @@ export function compileCcz(
 		const modName = hqMod.name.en;
 		const caseType = hqMod.case_type;
 		const hqForms = hqMod.forms;
+		const caseSearchConfig = effectiveCaseSearchConfig(mod);
+		// Owner exclusion belongs to case availability, not to the presence of
+		// a remote Search action. Read the raw authored slot so an owner-only
+		// module still narrows its ordinary `casedb` list even when
+		// `effectiveCaseSearchConfig` intentionally disables remote Search.
+		const excludedOwnerIds = mod.caseSearchConfig?.excludedOwnerIds;
+		const searchButtonDisplayCondition =
+			caseSearchConfig?.searchButtonDisplayCondition;
 
 		appStrings[`modules.m${mIdx}`] = modName;
 
@@ -177,7 +191,10 @@ export function compileCcz(
 		// land on, and so must declare every `<instance>` they reach.
 		const caseListColumnExpressions =
 			mod.caseListConfig?.columns
-				.filter((c) => c.kind === "calculated")
+				.filter(
+					(c): c is Extract<typeof c, { kind: "calculated" }> =>
+						c.kind === "calculated" && caseListColumnHasRuntimeRole(c),
+				)
 				.map((c) => c.expression) ?? [];
 
 		// Case detail definitions — emitted only when the module has a case
@@ -199,7 +216,7 @@ export function compileCcz(
 		// expression's resolved result type). The long-detail emitter
 		// accepts `doc` for API symmetry but doesn't read it.
 		//
-		// When `mod.caseSearchConfig` is present, the same
+		// When search is authored (explicit config, or legacy inputs), the same
 		// `caseListConfig` projects onto a second pair of wire ids —
 		// `m{N}_search_short` + `m{N}_search_long`. Nova's principle:
 		// "from the user's perspective there is only one case list,
@@ -207,8 +224,8 @@ export function compileCcz(
 		// duplicates the rendered content under the search-target
 		// wire ids; the canonical fixture
 		// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
-		// pins the structural identity. Modules without
-		// `caseSearchConfig` skip the search-target emission;
+		// pins the structural identity. Modules without an authored search
+		// surface skip the search-target emission;
 		// emission is purely additive.
 		//
 		// Both detail blocks resolve their `<title>` through CCHQ's
@@ -231,15 +248,16 @@ export function compileCcz(
 			// CCHQ's
 			// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_action_kwargs`.
 			//
-			// Modules without `caseSearchConfig` skip this emission
+			// Modules without an authored search surface skip this emission
 			// entirely; their case-list short detail renders without
 			// an `<action>` child. The two paths compose without
 			// branch-doubling at the detail emitter — `searchAction`
 			// is `undefined` when no case-search config is present.
-			const remoteRequestEmission = mod.caseSearchConfig
+			const remoteRequestEmission = caseSearchConfig
 				? buildRemoteRequest({
-						module: mod,
+						module: { ...mod, caseSearchConfig },
 						moduleIndex: mIdx,
+						typeContext: moduleTypeContext(mod, doc),
 					})
 				: undefined;
 			if (remoteRequestEmission !== undefined) {
@@ -255,10 +273,8 @@ export function compileCcz(
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
-						...(mod.caseSearchConfig?.searchButtonDisplayCondition !==
-							undefined && {
-							displayCondition:
-								mod.caseSearchConfig.searchButtonDisplayCondition,
+						...(searchButtonDisplayCondition !== undefined && {
+							displayCondition: searchButtonDisplayCondition,
 						}),
 					},
 				}),
@@ -284,7 +300,7 @@ export function compileCcz(
 			// The search-target short detail does NOT carry an
 			// `<action>` element — the search results screen IS the
 			// action's destination.
-			if (mod.caseSearchConfig) {
+			if (caseSearchConfig !== undefined) {
 				const searchShort = buildShortDetail({
 					module: mod,
 					moduleIndex: mIdx,
@@ -391,11 +407,13 @@ export function compileCcz(
 				caseType || undefined,
 				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
 				mod.caseListConfig?.filter,
-				mod.caseSearchConfig?.searchButtonDisplayCondition,
+				searchButtonDisplayCondition,
 				caseListColumnExpressions.length > 0
 					? caseListColumnExpressions
 					: undefined,
 				hqForm.actions,
+				excludedOwnerIds,
+				moduleTypeContext(mod, doc),
 			);
 
 			// Re-validate after injection — catches orphaned binds or
@@ -507,10 +525,15 @@ export function compileCcz(
 				mIdx,
 				caseType,
 				mod.caseListConfig?.filter,
-				mod.caseSearchConfig?.searchButtonDisplayCondition,
+				searchButtonDisplayCondition,
 				caseListColumnExpressions.length > 0
 					? caseListColumnExpressions
 					: undefined,
+				(mod.caseListConfig?.columns ?? []).some(
+					(column) => column.visibleInDetail !== false,
+				),
+				excludedOwnerIds,
+				moduleTypeContext(mod, doc),
 			);
 			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
 			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));
@@ -560,7 +583,7 @@ export function compileCcz(
 	// suite reads "details for these cases, then the
 	// remote-request that fetches them, then the form entries that
 	// edit them." The conditional remote-requests block collapses to
-	// an empty spread when no module carries `caseSearchConfig`.
+	// an empty spread when no module carries an authored search surface.
 	const suiteRoot = el("suite", { version: "1" }, [
 		...suiteResources,
 		...localeResources,

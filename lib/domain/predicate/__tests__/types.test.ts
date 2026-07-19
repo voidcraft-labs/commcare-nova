@@ -269,10 +269,9 @@ describe("predicate schema", () => {
 		expect(result.kind).toBe("in");
 	});
 
-	// Numeric structural constraint. A negative radius is geometrically
-	// meaningless and would propagate to two compilers (XPath/CSQL and
-	// Kysely) that don't share a rejection layer — same logic that
-	// defends the tuple-with-rest shape on collection slots applies.
+	// Numeric structural constraint. CommCare's Elasticsearch query rejects a
+	// zero or negative radius, and converting a finite authored radius to meters
+	// must not overflow after the AST has already passed validation.
 
 	it("rejects within-distance with a negative distance", () => {
 		expect(() =>
@@ -284,6 +283,37 @@ describe("predicate schema", () => {
 				unit: "miles",
 			}),
 		).toThrow();
+	});
+
+	it("rejects within-distance with a zero distance", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "within-distance",
+				property: { kind: "prop", caseType: "clinic", property: "location" },
+				center: asValueExpr({ kind: "input", name: "user_location" }),
+				distance: 0,
+				unit: "miles",
+			}),
+		).toThrow();
+	});
+
+	it.each([
+		"miles",
+		"kilometers",
+	] as const)("rejects within-distance when %s conversion to meters overflows", (unit) => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "within-distance",
+				property: {
+					kind: "prop",
+					caseType: "clinic",
+					property: "location",
+				},
+				center: asValueExpr({ kind: "input", name: "user_location" }),
+				distance: Number.MAX_VALUE,
+				unit,
+			}),
+		).toThrow(/too large to convert to meters/);
 	});
 
 	// Shape-pin tests for the two operators that constrain a slot to a
@@ -2171,6 +2201,19 @@ describe("valueExpression schema — unwrap-list + format-date", () => {
 				kind: "format-date",
 				date: { kind: "today" },
 				pattern: "",
+			}),
+		).toThrow();
+	});
+
+	it.each([
+		"%Q",
+		"Date %",
+	])("rejects a format-date pattern JavaRosa cannot evaluate: %s", (pattern) => {
+		expect(() =>
+			valueExpressionSchema.parse({
+				kind: "format-date",
+				date: { kind: "today" },
+				pattern,
 			}),
 		).toThrow();
 	});

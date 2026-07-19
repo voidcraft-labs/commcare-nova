@@ -14,6 +14,7 @@ import tablerLayoutSidebarLeftCollapse from "@iconify-icons/tabler/layout-sideba
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/appTree/AppTree";
 import { AppSettingsButton } from "@/components/builder/detail/appSettings/AppSettingsButton";
+import { Button } from "@/components/shadcn/button";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useBuilderIsReady, useSetSidebarOpen } from "@/lib/session/hooks";
@@ -24,17 +25,23 @@ export function StructureSidebar() {
 	const appName = useAppName();
 
 	return (
-		<div className="w-90 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
+		<div className="w-full border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
 			{/* App row */}
-			<div className="flex items-center gap-1 pl-3 pr-1 h-12 border-b border-nova-border shrink-0">
-				<button
+			<div
+				className="flex h-16 shrink-0 items-center gap-1 border-b border-nova-border pl-3 pr-1"
+				data-builder-secondary-header="structure"
+			>
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon-lg"
 					onClick={() => setSidebarOpen("structure", false)}
 					aria-label="Collapse structure sidebar"
-					className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+					data-builder-sidebar-toggle="collapse-structure"
+					className="size-11 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
 				>
 					<Icon icon={tablerLayoutSidebarLeftCollapse} width="17" height="17" />
-				</button>
+				</Button>
 				<span className="flex-1 min-w-0 text-sm font-medium text-nova-text truncate">
 					{appName || "Structure"}
 				</span>

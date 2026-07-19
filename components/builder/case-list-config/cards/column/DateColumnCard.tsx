@@ -16,21 +16,24 @@
 //     ValueExpression-side `FormatDateCard` so polish-passes apply
 //     once.
 //
-// Preset commits: this card supplies the canonical wire-form
-// pattern values for each preset (`"short"`, `"long"`,
-// `"%Y-%m-%d"` for ISO) — the column schema flattens the union to
-// `z.string().min(1)`, so each preset commits a wire-form string
-// directly. The ValueExpression-side `FormatDateCard` commits the
-// preset enum names instead since its schema retains the
-// preset-vs-custom discriminator.
+// Preset commits: this card reads the shared domain preset table and commits
+// the concrete JavaRosa pattern. The ValueExpression-side card retains the
+// semantic preset id and resolves it at each runtime boundary.
 
 "use client";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import {
 	CustomDatePatternInput,
 	type DatePatternPreset,
 } from "@/components/builder/shared/primitives/CustomDatePatternInput";
 import type { CaseProperty, Column } from "@/lib/domain";
-import { columnKindAcceptsPropertyType, dateColumn } from "@/lib/domain";
+import {
+	columnKindAcceptsPropertyType,
+	DATE_FORMAT_PRESET_DEFINITIONS,
+	dateColumn,
+	resolveCommCareDatePattern,
+} from "@/lib/domain";
+import { FORMAT_DATE_PRESETS } from "@/lib/domain/predicate";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
@@ -42,17 +45,16 @@ const acceptsDateColumn = (p: CaseProperty) =>
 	columnKindAcceptsPropertyType("date", p.data_type);
 
 /**
- * Preset table for the column's date pattern. Labels are CCHQ's
- * canonical preset names; `pattern` values are the wire forms
- * each preset compiles to in CommCare's format-date implementation
- * — the column schema admits any non-empty string, so the wire
- * form is what flows through the AST.
+ * Preset table for the column's date pattern. The domain owns each label,
+ * example, and concrete CommCare pattern; the column stores the supported
+ * pattern while legacy semantic ids are normalized for display below.
  */
-const COLUMN_DATE_PRESET_TABLE: readonly DatePatternPreset[] = [
-	{ id: "short", label: "Short", pattern: "short" },
-	{ id: "long", label: "Long", pattern: "long" },
-	{ id: "iso", label: "ISO", pattern: "%Y-%m-%d" },
-];
+const COLUMN_DATE_PRESET_TABLE: readonly DatePatternPreset[] =
+	FORMAT_DATE_PRESETS.map((id) => ({
+		id,
+		label: DATE_FORMAT_PRESET_DEFINITIONS[id].label,
+		pattern: DATE_FORMAT_PRESET_DEFINITIONS[id].commCarePattern,
+	}));
 
 interface DateColumnCardProps {
 	readonly value: Extract<Column, { kind: "date" }>;
@@ -66,6 +68,7 @@ export function DateColumnCard({
 	onChange,
 	errors,
 }: DateColumnCardProps) {
+	const resolvedPattern = resolveCommCareDatePattern(value.pattern);
 	const setField = (next: string) =>
 		onChange(
 			dateColumn(
@@ -92,7 +95,7 @@ export function DateColumnCard({
 		);
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-4">
 			<ColumnFieldRow
 				field={value.field}
 				onFieldChange={setField}
@@ -101,12 +104,10 @@ export function DateColumnCard({
 				propertyFilter={acceptsDateColumn}
 				errors={errors}
 			/>
-			<div className="space-y-1.5">
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-					Pattern
-				</div>
+			<div className="space-y-2">
+				<div className={INSPECTOR_LABEL_CLS}>Date style</div>
 				<CustomDatePatternInput
-					value={value.pattern}
+					value={resolvedPattern}
 					onChange={setPattern}
 					presets={COLUMN_DATE_PRESET_TABLE}
 				/>
@@ -121,10 +122,14 @@ function slotsFrom(value: Extract<Column, { kind: "date" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	listOrder?: typeof value.listOrder;
+	detailOrder?: typeof value.detailOrder;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 }

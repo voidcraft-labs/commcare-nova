@@ -5,16 +5,37 @@
 // is workspace-local UI state (not URL state — case-list entities
 // have no standalone screens the way fields do).
 
+import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
+
 export type WorkspaceSelection =
-	/** A column — selectable from the case-list table (headers/cells)
-	 *  AND the case-detail rows; one entity, two canvases. */
-	| { readonly type: "column"; readonly uuid: string }
-	/** A search input on the search canvas. */
+	/** A shared field definition selected from a Results or Details row. Each
+	 *  canvas owns its membership + order; selection opens only this field's
+	 *  source and formatting properties in the rail. */
+	| {
+			readonly type: "column";
+			readonly uuid: string;
+			/**
+			 * Present only when Add information found a saved definition that
+			 * cannot safely return to the requested screen yet. The inspector
+			 * keeps it off-screen while the author repairs it, then completes the
+			 * requested reveal atomically with the successful repair.
+			 */
+			readonly reveal?: {
+				readonly surface: ColumnSurface;
+				readonly messages: readonly string[];
+			};
+	  }
+	/** A directly arranged search input; selection opens its property/matching
+	 *  options without moving arrangement out of the canvas. */
 	| { readonly type: "input"; readonly uuid: string }
-	/** The case-list filter (the canvas's human-phrase affordance). */
-	| { readonly type: "filter" }
-	/** The search panel itself — screen labels, button visibility,
-	 *  owner exclusions. */
-	| { readonly type: "search-panel" }
-	/** The case list itself — sort order, menu-link appearance. */
-	| { readonly type: "list-panel" };
+	/** A complex Search condition is edited in the roomy center canvas, never
+	 *  duplicated inside the inspector. The target remembers where Back returns. */
+	| {
+			readonly type: "search-condition";
+			readonly target:
+				| { readonly kind: "input"; readonly uuid: string }
+				| { readonly kind: "search-button" };
+	  }
+	/** Search-screen options with no draggable row: screen copy, button
+	 *  visibility, and owner exclusions. */
+	| { readonly type: "search-panel" };

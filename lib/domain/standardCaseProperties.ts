@@ -34,6 +34,7 @@
 // enum — silent fall-through is structurally impossible, no
 // `?? "text"` defensive default needed at consumers.
 
+import type { CaseProperty } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 
 /**
@@ -54,6 +55,98 @@ export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES = {
 	status: "text",
 } as const satisfies Record<string, CasePropertyDataType>;
 
+/**
+ * Historical CCHQ detail-field spellings that resolve to the same value as a
+ * Nova property. They remain accepted at the wire/runtime boundary so an old
+ * document keeps working, but Nova never offers them as separate authoring
+ * choices. One concept gets one name in the builder.
+ */
+export const LEGACY_STANDARD_CASE_PROPERTY_ALIASES = {
+	name: "case_name",
+	"date-opened": "date_opened",
+	"external-id": "external_id",
+} as const satisfies Readonly<Record<string, StandardCaseListProperty>>;
+
+export type LegacyStandardCasePropertyAlias =
+	keyof typeof LEGACY_STANDARD_CASE_PROPERTY_ALIASES;
+
+export function canonicalCasePropertyName(name: string): string {
+	return Object.hasOwn(LEGACY_STANDARD_CASE_PROPERTY_ALIASES, name)
+		? LEGACY_STANDARD_CASE_PROPERTY_ALIASES[
+				name as LegacyStandardCasePropertyAlias
+			]
+		: name;
+}
+
+export function isLegacyStandardCasePropertyAlias(
+	name: string,
+): name is LegacyStandardCasePropertyAlias {
+	return Object.hasOwn(LEGACY_STANDARD_CASE_PROPERTY_ALIASES, name);
+}
+
+/** Friendly labels for the one supported authoring name of each system value. */
+export const CANONICAL_STANDARD_CASE_PROPERTY_LABELS = {
+	case_name: "Case name",
+	date_opened: "Date opened",
+	last_modified: "Last modified",
+	owner_id: "Owner",
+	external_id: "External ID",
+	status: "Case status (open or closed)",
+} as const satisfies Readonly<Record<string, string>>;
+
+export function standardCasePropertyDisplayLabel(name: string): string {
+	const canonical = canonicalCasePropertyName(name);
+	return Object.hasOwn(CANONICAL_STANDARD_CASE_PROPERTY_LABELS, canonical)
+		? CANONICAL_STANDARD_CASE_PROPERTY_LABELS[
+				canonical as keyof typeof CANONICAL_STANDARD_CASE_PROPERTY_LABELS
+			]
+		: canonical;
+}
+
+/**
+ * Project a semantic property catalog into Nova's authoring vocabulary.
+ * CCHQ aliases are collapsed onto their canonical counterpart, preferring the
+ * canonical property's own metadata when both are present. The input is never
+ * mutated and non-alias properties retain their original order.
+ */
+export function authorableCaseProperties(
+	properties: readonly CaseProperty[],
+): readonly CaseProperty[] {
+	const canonicalByName = new Map(
+		properties
+			.filter((property) => !isLegacyStandardCasePropertyAlias(property.name))
+			.map((property) => [property.name, property]),
+	);
+	const emitted = new Set<string>();
+	const result: CaseProperty[] = [];
+
+	for (const property of properties) {
+		const canonicalName = canonicalCasePropertyName(property.name);
+		if (emitted.has(canonicalName)) continue;
+		emitted.add(canonicalName);
+		const canonical = canonicalByName.get(canonicalName);
+		if (property.name === canonicalName) {
+			result.push(property);
+			continue;
+		}
+		if (canonical === undefined) {
+			result.push({ ...property, name: canonicalName });
+			continue;
+		}
+		// Effective catalogs put declared entries before injected standards.
+		// Keep the old app's authored human copy while taking type/options/
+		// validation semantics from the canonical standard record.
+		result.push({
+			...canonical,
+			name: canonicalName,
+			label: property.label || canonical.label,
+			...(property.hint !== undefined ? { hint: property.hint } : {}),
+		});
+	}
+
+	return result;
+}
+
 /** Closed key set of `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` —
  *  the canonical type a property name passes through after a
  *  `STANDARD_CASE_LIST_PROPERTIES.has(name)` narrowing. Consumers
@@ -70,7 +163,7 @@ export type StandardCaseListProperty =
 export function isStandardCaseListProperty(
 	name: string,
 ): name is StandardCaseListProperty {
-	return name in STANDARD_CASE_LIST_PROPERTY_DATA_TYPES;
+	return Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, name);
 }
 
 /**

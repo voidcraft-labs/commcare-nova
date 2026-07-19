@@ -1,6 +1,6 @@
 /**
- * Rule: when `caseSearchConfig` is present, the module must also
- * carry a `caseType`.
+ * Rule: when case search is effective, the module must also carry a
+ * `caseType`.
  *
  * The CCHQ wire layer's `<remote-request>` carries a mandatory
  * `<data key="case_type" ref="'<type>'"/>` slot — without a case
@@ -16,11 +16,17 @@
  * a clean signal — open the module editor and set a case type, or
  * remove the `caseSearchConfig` — rather than an upload-time error
  * or a silent wire-emission drop. This rule short-circuits cleanly
- * when `caseSearchConfig` is absent (no `<remote-request>` is
- * emitted, no case-type slot is required).
+ * when search is not effective (no `<remote-request>` is emitted, no
+ * case-type slot is required). Legacy markerless `searchInputs` still
+ * make search effective, so they are deliberately covered.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveCaseSearchConfig,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 
 export function caseSearchConfigRequiresCaseType(
@@ -28,13 +34,13 @@ export function caseSearchConfigRequiresCaseType(
 	moduleUuid: Uuid,
 	_doc: BlueprintDoc,
 ): ValidationError[] {
-	if (!mod.caseSearchConfig) return [];
+	if (effectiveCaseSearchConfig(mod) === undefined) return [];
 	if (mod.caseType !== undefined && mod.caseType !== "") return [];
 	return [
 		validationError(
 			"CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE",
 			"module",
-			`Module "${mod.name}" carries a \`caseSearchConfig\` but has no \`caseType\` — the search can't run without one. Set a case type to the kind of case this search should return, or remove \`caseSearchConfig\`.`,
+			`Module "${mod.name}" has case search enabled but no \`caseType\` — the search can't run without knowing which kind of case to return. Set its case type, or remove its search inputs and search settings.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];

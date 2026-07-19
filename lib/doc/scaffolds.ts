@@ -32,6 +32,7 @@ import {
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
+import { addModuleMutation, updateModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import { orderedFormUuids, orderedModuleUuids } from "./fieldWalk";
 import { sequenceOrderKeys } from "./order/append";
@@ -241,7 +242,7 @@ export function caseListModuleMutations(
 	return {
 		mutations: [
 			...declareCaseTypeMutations(doc, caseType),
-			{ kind: "addModule", module, ...(index !== undefined && { index }) },
+			addModuleMutation(module, index),
 		],
 		moduleUuid,
 	};
@@ -287,7 +288,7 @@ export function surveyModuleMutations(
 	const field: TextField = { ...defaultQuestion(), order: firstKey };
 	return {
 		mutations: [
-			{ kind: "addModule", module, ...(index !== undefined && { index }) },
+			addModuleMutation(module, index),
 			{ kind: "addForm", moduleUuid, form },
 			{ kind: "addField", parentUuid: formUuid, field },
 		],
@@ -383,7 +384,7 @@ export function formScaffoldMutations(
 		if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
 			patch.caseListConfig = caseListConfigWithName(mod.caseListConfig);
 		}
-		mutations.push({ kind: "updateModule", uuid: moduleUuid, patch });
+		mutations.push(updateModuleMutation(moduleUuid, patch));
 	}
 	mutations.push({
 		kind: "addForm",

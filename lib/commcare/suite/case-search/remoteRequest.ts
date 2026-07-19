@@ -11,7 +11,13 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import type { CaseListConfig, CaseSearchConfig, Module } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type CaseSearchConfig,
+	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
+	type Module,
+} from "@/lib/domain";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { instanceSourceFor } from "../../predicate";
 import { buildClaimPost, SEARCH_CASE_ID_REF } from "./claim";
 import { compileForPlatform } from "./compileForPlatform";
@@ -68,6 +74,7 @@ export function buildRemoteRequest(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
+	readonly typeContext?: TypeContext;
 }): RemoteRequestBuild {
 	const { module: mod, moduleIndex } = args;
 	const platformContext = args.platformContext ?? DEFAULT_PLATFORM_CONTEXT;
@@ -103,14 +110,13 @@ export function buildRemoteRequest(args: {
 
 	const moduleId = `m${moduleIndex}`;
 	const commandLocaleId = `case_search.${moduleId}`;
-	// `"Search All Cases"` is CCHQ's contract default for an unset
-	// `search_button_label` (see `CaseSearch.search_button_label`). A
-	// fresh Nova-authored search renders the same English text as a
-	// CCHQ-authored one whose label was never customized. The schema's
+	// Nova deliberately uses the short, friendly "Search" default on both
+	// preview and wire paths instead of inheriting CCHQ's longer chrome. The schema's
 	// `searchButtonLabel: z.string().min(1).optional()` guarantees the
 	// slot is either `undefined` or a non-empty string — no `=== ""`
 	// branch is needed here.
-	const commandLabel = caseSearchConfig.searchButtonLabel ?? "Search All Cases";
+	const commandLabel =
+		caseSearchConfig.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
 	const commandEl = el("command", { id: `search_command.${moduleId}` }, [
 		el("display", {}, [
 			el("text", {}, [el("locale", { id: commandLocaleId })]),
@@ -123,6 +129,10 @@ export function buildRemoteRequest(args: {
 		wire,
 		caseType,
 		moduleIndex,
+		hasDetailScreen: caseListConfig.columns.some(
+			(column) => column.visibleInDetail !== false,
+		),
+		typeContext: args.typeContext,
 	});
 
 	// Instance declarations — sort the accumulated id set so the wire
@@ -171,6 +181,7 @@ export function emitRemoteRequest(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
+	readonly typeContext?: TypeContext;
 }): RemoteRequestEmission {
 	const { element, strings, wire } = buildRemoteRequest(args);
 	return { xml: render(element, RENDER_OPTS), strings, wire };

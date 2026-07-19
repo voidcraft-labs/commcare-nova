@@ -15,8 +15,8 @@
 // emissions specific to this visitor (sentinels, between,
 // multi-select expansions, every match mode, within-distance,
 // is-null collapsing to is-blank's wire form, exists / missing
-// across all four relation kinds, the inline relational read on a
-// `prop` term); (3) defensive throws for the structural-bypass
+// across all four relation kinds, and same-row relation quantification);
+// (3) defensive throws for the structural-bypass
 // shape `between` with both bounds absent; (4) ValueExpression
 // operand integration — happy-path term arms plus the predicate ↔
 // value-expression emitter handoff for non-term arms (`arith`, `if`,
@@ -66,14 +66,31 @@ import {
 } from "@/lib/domain/predicate/builders";
 import { emitCaseListFilter } from "../caseListFilterEmitter";
 
+function expectGuardedDistance(
+	wire: string,
+	args: {
+		readonly property: string;
+		readonly rawCenter: string;
+		readonly meters: string;
+	},
+): void {
+	expect(wire).toContain(`regex(${args.property}, '`);
+	expect(wire).toContain(`regex(${args.rawCenter}, '`);
+	expect(wire).toContain(`translate(${args.rawCenter}, ',', ' ')`);
+	expect(wire).toContain(`double(selected-at(${args.property}, 0)) >= -90`);
+	expect(wire).toContain(`double(selected-at(${args.property}, 1)) <= 180`);
+	expect(wire).toContain(`distance(${args.property}, replace(`);
+	expect(wire).toContain(` <= ${args.meters}`);
+}
+
 // ============================================================
 // SHELL 1 — Shared-operator emissions
 // ============================================================
 
 describe("emitCaseListFilter — comparison operators", () => {
 	it("emits eq with a string literal", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 
 	it("emits eq with a numeric literal", () => {
@@ -106,8 +123,8 @@ describe("emitCaseListFilter — comparison operators", () => {
 	});
 
 	it("emits neq", () => {
-		const p = neq(prop("patient", "name"), literal("Bob"));
-		expect(emitCaseListFilter(p)).toBe("name != 'Bob'");
+		const p = neq(prop("patient", "full_name"), literal("Bob"));
+		expect(emitCaseListFilter(p)).toBe("full_name != 'Bob'");
 	});
 
 	it("emits gt / gte / lt / lte", () => {
@@ -135,8 +152,8 @@ describe("emitCaseListFilter — comparison operators", () => {
 	});
 
 	it("emits null literals as the empty string", () => {
-		const p = eq(prop("patient", "name"), literal(null));
-		expect(emitCaseListFilter(p)).toBe("name = ''");
+		const p = eq(prop("patient", "full_name"), literal(null));
+		expect(emitCaseListFilter(p)).toBe("full_name = ''");
 	});
 });
 
@@ -152,16 +169,16 @@ describe("emitCaseListFilter — term emission", () => {
 	});
 
 	it("emits session-context refs against /session/context/<field>", () => {
-		const p = eq(prop("patient", "name"), sessionContext("username"));
+		const p = eq(prop("patient", "full_name"), sessionContext("username"));
 		expect(emitCaseListFilter(p)).toBe(
-			"name = instance('commcaresession')/session/context/username",
+			"full_name = instance('commcaresession')/session/context/username",
 		);
 	});
 
 	it("emits search-input refs against the search-input results instance", () => {
-		const p = eq(prop("patient", "name"), input("name_query"));
+		const p = eq(prop("patient", "full_name"), input("name_query"));
 		expect(emitCaseListFilter(p)).toBe(
-			"name = instance('search-input:results')/input/field[@name='name_query']",
+			"full_name = instance('search-input:results')/input/field[@name='name_query']",
 		);
 	});
 });
@@ -178,26 +195,28 @@ describe("emitCaseListFilter — reserved case attributes", () => {
 	});
 
 	it("leaves user-defined properties bare", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 });
 
 describe("emitCaseListFilter — logical operators", () => {
 	it("emits and(...) joining clauses with ' and '", () => {
 		const p = and(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "full_name"), literal("Alice")),
 			gt(prop("patient", "age"), literal(18)),
 		);
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice' and age > 18");
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice' and age > 18");
 	});
 
 	it("emits or(...) joining clauses with ' or '", () => {
 		const p = or(
-			eq(prop("patient", "name"), literal("Alice")),
-			eq(prop("patient", "name"), literal("Bob")),
+			eq(prop("patient", "full_name"), literal("Alice")),
+			eq(prop("patient", "full_name"), literal("Bob")),
 		);
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice' or name = 'Bob'");
+		expect(emitCaseListFilter(p)).toBe(
+			"full_name = 'Alice' or full_name = 'Bob'",
+		);
 	});
 
 	it("parenthesizes or-clauses inside an and (precedence)", () => {
@@ -206,50 +225,50 @@ describe("emitCaseListFilter — logical operators", () => {
 		// C)`. The visitor's parent-precedence threading is the lock.
 		const p = and(
 			or(
-				eq(prop("patient", "name"), literal("Alice")),
-				eq(prop("patient", "name"), literal("Bob")),
+				eq(prop("patient", "full_name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Bob")),
 			),
 			gt(prop("patient", "age"), literal(18)),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"(name = 'Alice' or name = 'Bob') and age > 18",
+			"(full_name = 'Alice' or full_name = 'Bob') and age > 18",
 		);
 	});
 
 	it("emits not(...) wrapping its inner with not(...)", () => {
-		const p = not(eq(prop("patient", "name"), literal("Bob")));
-		expect(emitCaseListFilter(p)).toBe("not(name = 'Bob')");
+		const p = not(eq(prop("patient", "full_name"), literal("Bob")));
+		expect(emitCaseListFilter(p)).toBe("not(full_name = 'Bob')");
 	});
 });
 
 describe("emitCaseListFilter — string-literal escape", () => {
 	it("emits a quote-free string in single quotes", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 
 	it("emits embedded single quote with concat()", () => {
 		// XPath 1.0's `concat()` is the portable embedded-quote escape:
 		// alternating single-quoted and double-quoted segments produce a
 		// well-formed string literal with the original quote preserved.
-		const p = eq(prop("patient", "name"), literal("O'Brien"));
-		expect(emitCaseListFilter(p)).toBe(`name = concat('O', "'", 'Brien')`);
+		const p = eq(prop("patient", "full_name"), literal("O'Brien"));
+		expect(emitCaseListFilter(p)).toBe(`full_name = concat('O', "'", 'Brien')`);
 	});
 
 	it("emits a quote-only string with concat() boundary segments", () => {
-		const p = eq(prop("patient", "name"), literal("'"));
-		expect(emitCaseListFilter(p)).toBe(`name = concat('', "'", '')`);
+		const p = eq(prop("patient", "full_name"), literal("'"));
+		expect(emitCaseListFilter(p)).toBe(`full_name = concat('', "'", '')`);
 	});
 
 	it("emits embedded double quote with single-quoted wrap", () => {
-		const p = eq(prop("patient", "name"), literal('say "hello"'));
-		expect(emitCaseListFilter(p)).toBe(`name = 'say "hello"'`);
+		const p = eq(prop("patient", "full_name"), literal('say "hello"'));
+		expect(emitCaseListFilter(p)).toBe(`full_name = 'say "hello"'`);
 	});
 
 	it("emits both-quote-styles via concat()", () => {
-		const p = eq(prop("patient", "name"), literal(`it's "quoted"`));
+		const p = eq(prop("patient", "full_name"), literal(`it's "quoted"`));
 		expect(emitCaseListFilter(p)).toBe(
-			`name = concat('it', "'", 's "quoted"')`,
+			`full_name = concat('it', "'", 's "quoted"')`,
 		);
 	});
 });
@@ -285,18 +304,24 @@ describe("emitCaseListFilter — in (set membership)", () => {
 		// Or-of-equalities preserves each value as a single equality
 		// RHS, so spaces inside a value are wire-side opaque.
 		const p = isIn(
-			prop("patient", "name"),
+			prop("patient", "full_name"),
 			literal("Alice Smith"),
 			literal("Bob Jones"),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"(name = 'Alice Smith' or name = 'Bob Jones')",
+			"(full_name = 'Alice Smith' or full_name = 'Bob Jones')",
 		);
 	});
 
 	it("emits multi-value in with mixed null + string values", () => {
-		const p = isIn(prop("patient", "name"), literal(null), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("(name = '' or name = 'Alice')");
+		const p = isIn(
+			prop("patient", "full_name"),
+			literal(null),
+			literal("Alice"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"(full_name = '' or full_name = 'Alice')",
+		);
 	});
 
 	it("emits multi-value in with numeric literals as bare XPath numbers", () => {
@@ -312,10 +337,10 @@ describe("emitCaseListFilter — when-input-present", () => {
 		// exclude every case on input-unset.
 		const p = whenInput(
 			input("name_query"),
-			eq(prop("patient", "name"), input("name_query")),
+			eq(prop("patient", "full_name"), input("name_query")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"if(count(instance('search-input:results')/input/field[@name='name_query']), name = instance('search-input:results')/input/field[@name='name_query'], true())",
+			"if(count(instance('search-input:results')/input/field[@name='name_query']), full_name = instance('search-input:results')/input/field[@name='name_query'], true())",
 		);
 	});
 
@@ -335,8 +360,8 @@ describe("emitCaseListFilter — when-input-present", () => {
 
 describe("emitCaseListFilter — is-blank", () => {
 	it("emits is-blank against a property reference as prop = ''", () => {
-		const p = isBlank(prop("patient", "name"));
-		expect(emitCaseListFilter(p)).toBe("name = ''");
+		const p = isBlank(prop("patient", "full_name"));
+		expect(emitCaseListFilter(p)).toBe("full_name = ''");
 	});
 
 	it("emits is-blank against a search-input reference as input = ''", () => {
@@ -479,22 +504,33 @@ describe("emitCaseListFilter — multi-select-contains", () => {
 		const p = multiSelectAny(prop("patient", "status"), literal("vip"));
 		expect(emitCaseListFilter(p)).toBe("selected(@status, 'vip')");
 	});
+
+	it("quantifies a related property once so all tokens stay on one case", () => {
+		const p = multiSelectAll(
+			prop("household", "tags", subcasePath("parent", "patient")),
+			literal("vip"),
+			literal("frequent"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and ((selected(tags, 'vip') and selected(tags, 'frequent')))]/index/parent), @case_id)",
+		);
+	});
 });
 
 describe("emitCaseListFilter — match", () => {
 	it("emits mode=starts-with as starts-with(prop, 'v')", () => {
-		const p = match(prop("patient", "name"), "Ali", "starts-with");
-		expect(emitCaseListFilter(p)).toBe("starts-with(name, 'Ali')");
+		const p = match(prop("patient", "full_name"), "Ali", "starts-with");
+		expect(emitCaseListFilter(p)).toBe("starts-with(full_name, 'Ali')");
 	});
 
 	it("emits mode=fuzzy as fuzzy-match(prop, 'v')", () => {
-		const p = match(prop("patient", "name"), "alice", "fuzzy");
-		expect(emitCaseListFilter(p)).toBe("fuzzy-match(name, 'alice')");
+		const p = match(prop("patient", "full_name"), "alice", "fuzzy");
+		expect(emitCaseListFilter(p)).toBe("fuzzy-match(full_name, 'alice')");
 	});
 
 	it("emits mode=phonetic as phonetic-match(prop, 'v')", () => {
-		const p = match(prop("patient", "name"), "alice", "phonetic");
-		expect(emitCaseListFilter(p)).toBe("phonetic-match(name, 'alice')");
+		const p = match(prop("patient", "full_name"), "alice", "phonetic");
+		expect(emitCaseListFilter(p)).toBe("phonetic-match(full_name, 'alice')");
 	});
 
 	it("emits mode=fuzzy-date as fuzzy-date(prop, 'v')", () => {
@@ -503,28 +539,50 @@ describe("emitCaseListFilter — match", () => {
 	});
 
 	it("routes the match value through quoteLiteral for embedded quote escape", () => {
-		const p = match(prop("patient", "name"), "O'Brien", "starts-with");
+		const p = match(prop("patient", "full_name"), "O'Brien", "starts-with");
 		expect(emitCaseListFilter(p)).toBe(
-			`starts-with(name, concat('O', "'", 'Brien'))`,
+			`starts-with(full_name, concat('O', "'", 'Brien'))`,
+		);
+	});
+
+	it("emits a pure derived expression as the match value", () => {
+		const p = match(
+			prop("patient", "full_name"),
+			ifExpr(matchAll(), term(literal("Ali")), term(literal("Al"))),
+			"starts-with",
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"starts-with(full_name, if(true(), 'Ali', 'Al'))",
+		);
+	});
+
+	it("quantifies a related match subject before calling starts-with", () => {
+		const p = match(
+			prop("household", "full_name", subcasePath("parent", "patient")),
+			"Ali",
+			"starts-with",
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (starts-with(full_name, 'Ali'))]/index/parent), @case_id)",
 		);
 	});
 });
 
 describe("emitCaseListFilter — within-distance", () => {
 	it("emits within-distance with a literal center and miles", () => {
-		// Wire signature: `within-distance(prop, '<lat,lon>', <distance>,
-		// '<unit>')` per `corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`.
-		// Arg 2 is the coord string; arg 3 is a bare numeric literal;
-		// arg 4 is the schema-validated unit enum.
+		// Core's on-device `distance()` returns meters. The center is
+		// normalized from comma to space form before GeoPointData parses it.
 		const p = within(
 			prop("clinic", "location"),
 			literal("40.7,-74.0"),
 			50,
 			"miles",
 		);
-		expect(emitCaseListFilter(p)).toBe(
-			"within-distance(location, '40.7,-74.0', 50, 'miles')",
-		);
+		expectGuardedDistance(emitCaseListFilter(p), {
+			property: "location",
+			rawCenter: "'40.7,-74.0'",
+			meters: "80467.2",
+		});
 	});
 
 	it("emits within-distance with an input center and kilometers", () => {
@@ -534,9 +592,12 @@ describe("emitCaseListFilter — within-distance", () => {
 			25,
 			"kilometers",
 		);
-		expect(emitCaseListFilter(p)).toBe(
-			"within-distance(location, instance('search-input:results')/input/field[@name='user_loc'], 25, 'kilometers')",
-		);
+		expectGuardedDistance(emitCaseListFilter(p), {
+			property: "location",
+			rawCenter:
+				"instance('search-input:results')/input/field[@name='user_loc']",
+			meters: "25000",
+		});
 	});
 
 	it("emits within-distance distances without scientific notation", () => {
@@ -546,21 +607,33 @@ describe("emitCaseListFilter — within-distance", () => {
 			0.0000001,
 			"miles",
 		);
-		expect(emitCaseListFilter(p)).toBe(
-			"within-distance(location, '40.7,-74.0', 0.0000001, 'miles')",
-		);
+		expectGuardedDistance(emitCaseListFilter(p), {
+			property: "location",
+			rawCenter: "'40.7,-74.0'",
+			meters: "0.0001609344",
+		});
 	});
 
-	it("emits within-distance with distance 0 as a bare zero literal", () => {
+	it("quantifies a related location before evaluating distance", () => {
 		const p = within(
-			prop("clinic", "location"),
+			prop(
+				"patient",
+				"location",
+				ancestorPath(relationStep("parent", "clinic")),
+			),
 			literal("40.7,-74.0"),
-			0,
+			50,
 			"miles",
 		);
-		expect(emitCaseListFilter(p)).toBe(
-			"within-distance(location, '40.7,-74.0', 0, 'miles')",
-		);
+		const wire = emitCaseListFilter(p);
+		expect(wire).toContain("count(index/parent) > 0 and selected(join(' '");
+		expect(wire).toContain("@case_type='clinic'");
+		expect(wire).toContain("/@case_id), index/parent)");
+		expectGuardedDistance(wire, {
+			property: "location",
+			rawCenter: "'40.7,-74.0'",
+			meters: "80467.2",
+		});
 	});
 });
 
@@ -572,12 +645,12 @@ describe("emitCaseListFilter — is-null", () => {
 	// CCHQ wire string.
 
 	it("emits is-null against a property reference as prop = ''", () => {
-		const p = isNull(prop("patient", "name"));
-		expect(emitCaseListFilter(p)).toBe("name = ''");
+		const p = isNull(prop("patient", "full_name"));
+		expect(emitCaseListFilter(p)).toBe("full_name = ''");
 	});
 
 	it("emits is-null identically to is-blank for the same operand", () => {
-		const left = prop("patient", "name");
+		const left = prop("patient", "full_name");
 		expect(emitCaseListFilter(isNull(left))).toBe(
 			emitCaseListFilter(isBlank(left)),
 		);
@@ -591,11 +664,11 @@ describe("emitCaseListFilter — is-null", () => {
 	});
 });
 
-describe("emitCaseListFilter — prop term with non-self via (inline relational read)", () => {
-	// The bare `prop` term carries an optional `via` walk that emits
-	// as an inline relational path expression. Existence checks
-	// remain `exists(via, where: ...)`; this pinning covers the
-	// VALUE-read shape.
+describe("emitCaseListFilter — relational property node sets", () => {
+	// JavaRosa cannot unpack a multi-node value for a general comparison. Nova
+	// lowers each scalar leaf to immediate-scope membership instead: all values
+	// in one leaf evaluate on one related row, while the two `between` bounds
+	// remain independently quantified by the AST's contract.
 
 	it("emits an ancestor walk as an inline relational path", () => {
 		const p = eq(
@@ -603,7 +676,7 @@ describe("emitCaseListFilter — prop term with non-self via (inline relational 
 			literal("south"),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"instance('casedb')/casedb/case[@case_id=current()/index/parent]/region = 'south'",
+			"count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south']/@case_id), index/parent)",
 		);
 	});
 
@@ -617,7 +690,7 @@ describe("emitCaseListFilter — prop term with non-self via (inline relational 
 			literal("south"),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/parent]/index/host]/region = 'south'",
+			"count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[count(index/host) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south']/@case_id), index/host)]/@case_id), index/parent)",
 		);
 	});
 
@@ -627,7 +700,26 @@ describe("emitCaseListFilter — prop term with non-self via (inline relational 
 			literal("open"),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"instance('casedb')/casedb/case[index/parent=current()/@case_id]/case_status = 'open'",
+			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[case_status = 'open']/index/parent), @case_id)",
+		);
+	});
+
+	it("emits related between as two independent node-set comparisons", () => {
+		const p = between(
+			prop("household", "age", subcasePath("parent", "patient")),
+			{ lower: literal(20), upper: literal(25) },
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age >= 20)]/index/parent), @case_id) and count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (age <= 25)]/index/parent), @case_id)",
+		);
+	});
+
+	it("emits related is-null as node-set equality with the empty string", () => {
+		const p = isNull(
+			prop("household", "nickname", subcasePath("parent", "patient")),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='patient' and (nickname = '')]/index/parent), @case_id)",
 		);
 	});
 
@@ -639,37 +731,26 @@ describe("emitCaseListFilter — prop term with non-self via (inline relational 
 			literal("open"),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"instance('casedb')/casedb/case[@case_id=current()/index/parent]/@status = 'open'",
+			"count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[@status = 'open']/@case_id), index/parent)",
 		);
 	});
 
-	it("emits an any-relation walk as a node-set union of both directions", () => {
-		// XPath's `|` is the node-set union operator; the result is
-		// one node-set containing every node from either direction.
-		// `(set) = 'south'` then returns true when any member of the
-		// set equals the RHS — XPath's existential equality semantics
-		// over a node-set. Boolean `or` would coerce each path to a
-		// boolean (non-empty → true) before string comparison and
-		// always be false; the union form is the only correct shape.
+	it("emits any-relation as a node-set union of both directions", () => {
 		const p = eq(
 			prop("any", "region", anyRelationPath("parent")),
 			literal("south"),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"(instance('casedb')/casedb/case[@case_id=current()/index/parent]/region | instance('casedb')/casedb/case[index/parent=current()/@case_id]/region) = 'south'",
+			"(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south']/@case_id), index/parent) or count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south']/index/parent), @case_id))",
 		);
 	});
 });
 
 describe("emitCaseListFilter — exists / missing (relational quantifiers)", () => {
-	// Ancestor walks anchor on `current()/index/<rel>` per the CCHQ
-	// hashtag-replacement pattern at
-	// `corehq/apps/app_manager/xpath.py::interpolate_xpath` (`#parent` /
-	// `#host` build
-	// `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
-	// Subcase walks reverse direction per the canonical example at
-	// `corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`
-	// (`[index/parent = <case-id>]` on a subcase nodeset).
+	// Each direction emits immediate-scope ID membership. This avoids both
+	// JavaRosa's multi-node comparison throw and nested `current()` rebinding:
+	// the current row's eager index/@case_id value is checked against the IDs
+	// produced by the destination filter.
 
 	it("emits ancestor exists as count(.../case[@case_id=current()/index/<rel>][filter]) > 0", () => {
 		const p = exists(
@@ -677,14 +758,14 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			eq(prop("household", "region"), literal("south")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent][region = 'south']) > 0",
+			"count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south']/@case_id), index/parent)",
 		);
 	});
 
 	it("emits ancestor exists with no filter as a presence test only", () => {
 		const p = exists(ancestorPath(relationStep("parent")));
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent]) > 0",
+			"count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/parent)",
 		);
 	});
 
@@ -694,7 +775,7 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			eq(prop("household", "region"), literal("south")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/parent]/index/host][region = 'south']) > 0",
+			"count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[count(index/host) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south']/@case_id), index/host)]/@case_id), index/parent)",
 		);
 	});
 
@@ -704,7 +785,7 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			eq(prop("child", "case_status"), literal("open")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[index/parent=current()/@case_id][case_status = 'open']) > 0",
+			"count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[case_status = 'open']/index/parent), @case_id)",
 		);
 	});
 
@@ -714,14 +795,14 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			eq(prop("household", "region"), literal("south")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent][region = 'south']) = 0",
+			"not(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south']/@case_id), index/parent))",
 		);
 	});
 
 	it("emits missing with no filter as the no-related-case form", () => {
 		const p = missing(ancestorPath(relationStep("parent")));
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent]) = 0",
+			"not(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/parent))",
 		);
 	});
 
@@ -734,24 +815,19 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent][region = 'south' and size > 3]) > 0",
+			"count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[region = 'south' and size > 3]/@case_id), index/parent)",
 		);
 	});
 
 	it("emits missing with a `> 0` substring inside the filter without comparator collision", () => {
-		// Regression pin: a naive `String.replace('> 0', '= 0')` on
-		// the count-comparison wire form would corrupt the FIRST
-		// occurrence in the string — and an inner filter clause like
-		// `gt(prop, literal(0))` produces a `> 0` substring inside
-		// the bracketed predicate. The trailing comparator MUST be
-		// the one flipped from `> 0` to `= 0` for the `missing` form;
-		// the inner filter is opaque to the count-comparator choice.
+		// Regression pin: missing negates the complete membership test. An inner
+		// `> 0` comparison must remain opaque rather than being string-rewritten.
 		const p = missing(
 			ancestorPath(relationStep("parent")),
 			gt(prop("household", "size"), literal(0)),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"count(instance('casedb')/casedb/case[@case_id=current()/index/parent][size > 0]) = 0",
+			"not(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[size > 0]/@case_id), index/parent))",
 		);
 	});
 
@@ -762,8 +838,11 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 	it("emits exists(self, filter) as the filter alone", () => {
 		// An existence check with no traversal is just the filter
 		// running against the current case.
-		const p = exists(selfPath(), eq(prop("patient", "name"), literal("Alice")));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = exists(
+			selfPath(),
+			eq(prop("patient", "full_name"), literal("Alice")),
+		);
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 
 	it("emits exists(self) with no filter as true()", () => {
@@ -784,9 +863,9 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 		// of <filter> evaluated on the current case.
 		const p = missing(
 			selfPath(),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "full_name"), literal("Alice")),
 		);
-		expect(emitCaseListFilter(p)).toBe("not(name = 'Alice')");
+		expect(emitCaseListFilter(p)).toBe("not(full_name = 'Alice')");
 	});
 
 	// ----------------------------------------------------------
@@ -803,14 +882,14 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			eq(prop("related", "case_status"), literal("open")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"(count(instance('casedb')/casedb/case[@case_id=current()/index/parent][case_status = 'open']) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id][case_status = 'open']) > 0)",
+			"(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[case_status = 'open']/@case_id), index/parent) or count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[case_status = 'open']/index/parent), @case_id))",
 		);
 	});
 
 	it("emits exists(any-relation) with no filter as the OR of both presence tests", () => {
 		const p = exists(anyRelationPath("parent"));
 		expect(emitCaseListFilter(p)).toBe(
-			"(count(instance('casedb')/casedb/case[@case_id=current()/index/parent]) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id]) > 0)",
+			"(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/parent) or count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/index/parent), @case_id))",
 		);
 	});
 
@@ -822,14 +901,14 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 			eq(prop("related", "case_status"), literal("open")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"not((count(instance('casedb')/casedb/case[@case_id=current()/index/parent][case_status = 'open']) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id][case_status = 'open']) > 0))",
+			"not((count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[case_status = 'open']/@case_id), index/parent) or count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[case_status = 'open']/index/parent), @case_id)))",
 		);
 	});
 
 	it("emits missing(any-relation) with no filter as not((presence-or-presence))", () => {
 		const p = missing(anyRelationPath("parent"));
 		expect(emitCaseListFilter(p)).toBe(
-			"not((count(instance('casedb')/casedb/case[@case_id=current()/index/parent]) > 0 or count(instance('casedb')/casedb/case[index/parent=current()/@case_id]) > 0))",
+			"not((count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/parent) or count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/index/parent), @case_id)))",
 		);
 	});
 });
@@ -878,8 +957,8 @@ describe("emitCaseListFilter — defensive throws on structural-bypass shapes", 
 
 describe("emitCaseListFilter — term-arm operand (happy path)", () => {
 	it("emits a property reference in a comparison's left operand", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toMatch(/^name = /);
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toMatch(/^full_name = /);
 	});
 
 	it("emits a search-input reference in a comparison's right operand", () => {
@@ -914,9 +993,11 @@ describe("emitCaseListFilter — non-term ValueExpression operands delegate to e
 		// expression emitter handles every arm of the union, so a
 		// `now()` constant flows through cleanly.
 		const p = within(prop("clinic", "location"), now(), 50, "miles");
-		expect(emitCaseListFilter(p)).toBe(
-			`within-distance(location, now(), 50, 'miles')`,
-		);
+		expectGuardedDistance(emitCaseListFilter(p), {
+			property: "location",
+			rawCenter: "now()",
+			meters: "80467.2",
+		});
 	});
 
 	it("emits BOTH coercions as date(...) — the filter slot's evaluator has no datetime()", () => {

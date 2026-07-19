@@ -56,6 +56,28 @@ describe("applyDefaults", () => {
 		expect(result.label).toBe("Full Name");
 	});
 
+	it("applies legacy alias metadata to a newly canonical field id", () => {
+		const result = applyDefaults(
+			{ id: "external_id", case_property_on: "patient" },
+			[
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "external-id",
+							label: "Enrollment number",
+							hint: "Printed on the card",
+						},
+					],
+				},
+			],
+		);
+
+		expect(result.kind).toBe("text");
+		expect(result.label).toBe("Enrollment number");
+		expect(result.hint).toBe("Printed on the card");
+	});
+
 	it("preserves explicit label when provided", () => {
 		const result = applyDefaults(
 			{

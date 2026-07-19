@@ -92,6 +92,40 @@ describe("mutationCommitVerdict", () => {
 		expect(updated && "label" in updated && updated.label).toBe("Home village");
 	});
 
+	it("rejects removing the final Results field but allows empty Details", () => {
+		const doc = minDoc();
+		const moduleUuid = doc.moduleOrder[0];
+		const column = doc.modules[moduleUuid].caseListConfig?.columns[0];
+		if (!column) throw new Error("fixture must have a case-list column");
+
+		const noResults = mutationCommitVerdict(doc, [
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: column.uuid,
+				column: { ...column, visibleInList: false },
+				visibilityPatch: { surface: "list", visible: false },
+			},
+		]);
+		expect(noResults.ok).toBe(false);
+		if (!noResults.ok) {
+			expect(noResults.introduced.map((finding) => finding.code)).toContain(
+				"MISSING_CASE_LIST_COLUMNS",
+			);
+		}
+
+		const noDetails = mutationCommitVerdict(doc, [
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: column.uuid,
+				column: { ...column, visibleInDetail: false },
+				visibilityPatch: { surface: "detail", visible: false },
+			},
+		]);
+		expect(noDetails.ok).toBe(true);
+	});
+
 	it("rejects a soundness introduction, with the finding attached", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");

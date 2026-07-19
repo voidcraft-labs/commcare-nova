@@ -79,28 +79,20 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 		onChange(builder(next));
 	};
 
-	const description =
-		value.kind === "date-coerce"
-			? "Coerce a text value to a typed date."
-			: "Coerce a text value to a typed datetime.";
-
 	return (
-		<div className="space-y-2">
-			<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-				{description}
+		<div>
+			<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
+				{value.kind === "date-coerce"
+					? "Text to read as a date"
+					: "Text to read as a date and time"}
 			</div>
-			<div>
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-					Source value
-				</div>
-				<ExpressionPicker
-					value={value.value}
-					onChange={setOperand}
-					path={appendSlot(path, "value")}
-					constraint={OPERAND_CONSTRAINT}
-					variant="nested"
-				/>
-			</div>
+			<ExpressionPicker
+				value={value.value}
+				onChange={setOperand}
+				path={appendSlot(path, "value")}
+				constraint={OPERAND_CONSTRAINT}
+				variant="nested"
+			/>
 		</div>
 	);
 }

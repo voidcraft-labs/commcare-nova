@@ -29,7 +29,7 @@ import { formatRelativeDate } from "@/lib/utils/format";
 /** How often to re-render for the relative timestamp (ms). */
 const TICK_MS = 15_000;
 
-export function SaveIndicator() {
+export function SaveIndicator({ compact = false }: { compact?: boolean }) {
 	const { status, savedAt } = useAutoSave();
 
 	/* Tick on a fixed interval to keep the relative timestamp current.
@@ -74,10 +74,15 @@ export function SaveIndicator() {
 					animate={{ opacity: 1 }}
 					exit={{ opacity: 0 }}
 					transition={{ duration: 0.2 }}
-					className={`flex items-center gap-1.5 pl-[13px] pr-2 text-xs select-none ${colorClass}`}
+					className={`flex items-center text-xs select-none ${
+						compact ? "px-1" : "gap-1.5 pl-[13px] pr-2"
+					} ${colorClass}`}
+					aria-label={compact ? label : undefined}
 				>
 					<Icon icon={icon} width="14" height="14" />
-					<span className="whitespace-nowrap">{label}</span>
+					<span className={compact ? "sr-only" : "whitespace-nowrap"}>
+						{label}
+					</span>
 				</motion.div>
 			)}
 		</AnimatePresence>

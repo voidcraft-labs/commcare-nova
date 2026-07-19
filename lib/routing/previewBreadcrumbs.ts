@@ -3,7 +3,7 @@
  *
  * In preview the trail follows the RUNNING APP, not the editor: a case-list
  * URL is the case-selection step for a case-loading form, so its trailing
- * crumb names that FORM (never "Case List" / "Search" / "Case Detail") and
+ * crumb names that FORM (never "Search" / "Results" / "Details") and
  * the picked case appends after it; a form URL names the form and, when the
  * session's case target binds THIS form, the bound case.
  *

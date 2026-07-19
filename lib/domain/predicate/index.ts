@@ -80,16 +80,17 @@
 //   - On-device XPath dialect via `lib/commcare/predicate` and
 //     `lib/commcare/expression`'s `emitOnDeviceExpression`.
 //   - CSQL dialect via the same packages' `emitCsql` /
-//     `emitCsqlExpressionSegments`, with a hoist pass at
-//     `lib/commcare/predicate/csqlHoist.ts` that lifts non-CSQL-
-//     grammar nodes into on-device wrappers.
+//     `emitCsqlExpressionSegments`.
 //   - Postgres SQL via `lib/case-store/sql`'s compiler stack
 //     (`compilePredicate` / `compileExpression` / `compileTerm` /
 //     `compileRelationPath`).
 //
-// All three wire targets consume the same AST. The type checker runs
-// against the AST before any wire emission, so a typed AST is the
-// single contract every consumer trusts.
+// All three targets consume `normalizeRelationPredicateSubjects` for the
+// dedicated match / multi-select / distance property slots. General on-device
+// comparisons retain XPath node-set operands, Postgres compiles their pairwise
+// existential semantics directly, and only CSQL additionally consumes
+// `normalizeRelationPropertyReads` as its query-grammar adapter. The type
+// checker runs against the authored AST before target lowering.
 //
 // ## File map
 //
@@ -97,6 +98,7 @@
 //                        operand constant, validation patterns
 //   - `./builders`     — typed construction helpers (auto-wrap
 //                        Term-vs-ValueExpression at widened slots)
+//   - `./distance`     — distance units, meter conversion, radius validity
 //   - `./typeChecker`  — `checkPredicate` / `checkExpression` /
 //                        `checkRelationPath` / `checkInDestinationScope`
 //                        / `resolveTermType` / `literalType` /
@@ -128,12 +130,17 @@
 // curation.
 
 export * from "./builders";
+export * from "./dateSearch";
+export * from "./distance";
 export * from "./errors";
 export * from "./jsonSchema";
+export * from "./normalizeRelationEvaluationScopes";
+export * from "./normalizeRelationReads";
 export * from "./reduction";
 export * from "./rewrite";
 export * from "./simplify";
 export * from "./slotConstraints";
+export * from "./temporalType";
 export * from "./typeChecker";
 export * from "./types";
 export * from "./walk";

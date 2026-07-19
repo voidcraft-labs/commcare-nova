@@ -22,8 +22,9 @@
 // cleanly.
 
 "use client";
-import { nodeId } from "@/components/builder/shared/nodeIdentity";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
+import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
 import {
 	type Column,
 	type IdMappingEntry,
@@ -37,6 +38,7 @@ import {
 	MappingEmptyNotice,
 	MappingRowShell,
 	MappingSectionLabel,
+	useMappingRemovalFocus,
 } from "./mappingChrome";
 
 interface IdMappingCardProps {
@@ -47,10 +49,14 @@ interface IdMappingCardProps {
 }
 
 export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
+	const { rootRef, removeWithFocus } = useMappingRemovalFocus();
+	const rowIdentity = useStableListIdentity(value.mapping);
 	const slots = {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -66,14 +72,22 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 		);
 
 	const updateEntry = (index: number, patch: Partial<IdMappingEntry>) => {
-		const next = value.mapping.map((entry, i) =>
-			i === index ? { ...entry, ...patch } : entry,
+		const next = value.mapping.map((entry, entryIndex) =>
+			entryIndex === index ? { ...entry, ...patch } : entry,
 		);
+		rowIdentity.stage(next, { kind: "replace" });
 		setMapping(next);
 	};
 
 	const removeEntry = (index: number) => {
-		setMapping(value.mapping.filter((_, i) => i !== index));
+		const next = value.mapping.filter((_, i) => i !== index);
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index,
+			deleteCount: 1,
+			insertCount: 0,
+		});
+		setMapping(next);
 	};
 
 	const moveEntry = (from: number, to: number) => {
@@ -84,15 +98,27 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 		const next = [...value.mapping];
 		const [moved] = next.splice(from, 1);
 		next.splice(to, 0, moved);
+		rowIdentity.stage(next, {
+			kind: "move",
+			fromIndex: from,
+			toIndex: to,
+		});
 		setMapping(next);
 	};
 
 	const appendEntry = () => {
-		setMapping([...value.mapping, idMappingEntry("", "")]);
+		const next = [...value.mapping, idMappingEntry("", "")];
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index: value.mapping.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
+		setMapping(next);
 	};
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-4">
 			<ColumnFieldRow
 				field={value.field}
 				onFieldChange={setField}
@@ -100,33 +126,25 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 				onHeaderChange={setHeader}
 				errors={errors}
 			/>
-			<div className="space-y-1.5">
+			<div ref={rootRef} className="space-y-3 [&_input]:!text-[14px]">
 				<MappingSectionLabel />
 				{value.mapping.length === 0 && (
 					<MappingEmptyNotice>
-						No entries yet — values show exactly as they're stored.
+						Without replacements, values appear as saved
 					</MappingEmptyNotice>
 				)}
 				{value.mapping.map((entry, i) => (
 					<MappingRow
-						// Per-entry identity from `nodeId(entry)` —
-						// `nodeIdentity.ts` keeps a `WeakMap<object, string>`
-						// allocating a stable id on first lookup. The reorder
-						// path produces new arrays whose entry references are
-						// reused verbatim (the spread + splice on
-						// `value.mapping` keeps each entry's reference identity);
-						// remove drops the reference and the WeakMap entry is
-						// collected. Each row's local draft state is keyed by
-						// the entry's reference identity, so a remove of an
-						// earlier row doesn't shift another row's draft into
-						// its slot.
-						key={nodeId(entry)}
+						// Clone-safe sidecar identity preserves same-slot edits,
+						// moves with reorders, and mints only for true inserts. Row
+						// drafts follow their authored entry, not array position.
+						key={rowIdentity.keys[i]}
 						index={i}
 						entry={entry}
 						isFirst={i === 0}
 						isLast={i === value.mapping.length - 1}
 						onUpdate={(patch) => updateEntry(i, patch)}
-						onRemove={() => removeEntry(i)}
+						onRemove={() => removeWithFocus(i, () => removeEntry(i))}
 						onMoveUp={() => moveEntry(i, i - 1)}
 						onMoveDown={() => moveEntry(i, i + 1)}
 					/>
@@ -170,34 +188,23 @@ function MappingRow({
 			onMoveDown={onMoveDown}
 			onRemove={onRemove}
 		>
-			<div className="grid grid-cols-2 gap-2">
+			<div className="grid grid-cols-1 gap-3">
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Value
-					</div>
+					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Saved value</div>
 					<BlurCommitTextInput
 						value={entry.value}
 						onCommit={(next) => onUpdate({ value: next })}
-						placeholder="Property value"
-						ariaLabel={`Mapping ${index + 1} value`}
-						monospace
+						ariaLabel={`Value ${index + 1} saved value`}
 					/>
 				</div>
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Label
-					</div>
-					{/* The `value` cell holds the wire-form code (monospace
-					 *  matches the case-list-runtime's per-row value rendering);
-					 *  the `label` cell holds display text rendered in the
-					 *  case list's proportional font. Dropping `monospace`
-					 *  here keeps the authoring surface visually congruent
-					 *  with what the user sees at runtime. */}
+					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Label shown</div>
+					{/* Both sides use ordinary body type. A stored value can be
+					 *  human-readable data, so Nova does not style it like code. */}
 					<BlurCommitTextInput
 						value={entry.label}
 						onCommit={(next) => onUpdate({ label: next })}
-						placeholder="Display label"
-						ariaLabel={`Mapping ${index + 1} label`}
+						ariaLabel={`Value ${index + 1} display label`}
 					/>
 				</div>
 			</div>

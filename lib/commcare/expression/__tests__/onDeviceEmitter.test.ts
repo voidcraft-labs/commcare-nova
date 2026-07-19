@@ -4,9 +4,9 @@
 // dialect that produces XPath value strings usable in any on-device
 // expression slot (calculated columns, sort keys, late-flag arguments,
 // the source of an ID-mapping column, search-input defaults). The
-// emitter is total: every `ValueExpression` AST node produces a wire
-// string. Every well-formed AST produces a well-formed wire
-// emission with no structural rejection.
+// emitter is total over validator-admitted device expressions. Schema-valid
+// CSQL-only list expansion and multi-valued scalar relation reads throw as
+// defensive tripwires instead of shipping a runtime failure.
 //
 // Each test pins the exact wire string the emitter produces against
 // CCHQ HQ's wire grammar. Source citations live in the source file
@@ -34,9 +34,12 @@ import {
 	count,
 	dateAdd,
 	dateCoerce,
+	dateLiteral,
 	datetimeCoerce,
+	datetimeLiteral,
 	double,
 	eq,
+	exists,
 	formatDate,
 	gt,
 	ifExpr,
@@ -151,10 +154,12 @@ describe("emitOnDeviceExpression — concat / coalesce", () => {
 	it("emits concat with comma-joined args", () => {
 		const expr = concat(
 			term(literal("Hello, ")),
-			term(prop("p", "name")),
+			term(prop("p", "full_name")),
 			term(literal("!")),
 		);
-		expect(emitOnDeviceExpression(expr)).toBe(`concat('Hello, ', name, '!')`);
+		expect(emitOnDeviceExpression(expr)).toBe(
+			`concat('Hello, ', full_name, '!')`,
+		);
 	});
 
 	it("emits a single-arg concat as concat('X')", () => {
@@ -213,9 +218,13 @@ describe("emitOnDeviceExpression — if / switch (cross-family)", () => {
 });
 
 describe("emitOnDeviceExpression — format-date", () => {
-	it("emits format-date(<value>, '<preset>') with the preset name quoted", () => {
-		const expr = formatDate(term(prop("p", "dob")), "iso");
-		expect(emitOnDeviceExpression(expr)).toBe(`format-date(dob, 'iso')`);
+	it.each([
+		["short", "%m/%d/%Y"],
+		["long", "%B %e, %Y"],
+		["iso", "%Y-%m-%d"],
+	] as const)("lowers the %s preset to JavaRosa's supported pattern", (preset, pattern) => {
+		const expr = formatDate(term(prop("p", "dob")), preset);
+		expect(emitOnDeviceExpression(expr)).toBe(`format-date(dob, '${pattern}')`);
 	});
 
 	it("emits format-date with a custom pattern", () => {
@@ -225,22 +234,23 @@ describe("emitOnDeviceExpression — format-date", () => {
 });
 
 describe("emitOnDeviceExpression — date-add", () => {
-	// CCHQ's wire signature: `date-add(date, interval, quantity)` —
-	// three separate arguments. Source: `value_functions.py::date_add`
-	// (`date-add('2022-01-01', 'days', -1) => '2021-12-31'`).
-	it("emits date-add(<date>, '<interval>', <quantity>)", () => {
-		const expr = dateAdd(today(), "days", term(literal(-1)));
-		expect(emitOnDeviceExpression(expr)).toBe(`date-add(today(), 'days', -1)`);
+	it.each([
+		["seconds", 43200, "(43200 div 86400)"],
+		["minutes", -720, "(-720 div 1440)"],
+		["hours", 12.5, "(12.5 div 24)"],
+		["days", -0.5, "-0.5"],
+		["weeks", 0.5, "(0.5 * 7)"],
+	] as const)("scales fractional %s to epoch days and floors the date result", (interval, quantity, scaled) => {
+		const expr = dateAdd(today(), interval, term(literal(quantity)));
+		expect(emitOnDeviceExpression(expr)).toBe(
+			`date(floor(today() + ${scaled}))`,
+		);
+		expect(emitOnDeviceExpression(expr)).not.toContain("date-add(");
 	});
 
-	it("emits a months interval", () => {
-		const expr = dateAdd(today(), "months", term(literal(3)));
-		expect(emitOnDeviceExpression(expr)).toBe(`date-add(today(), 'months', 3)`);
-	});
-
-	it("emits with a property reference as the date base", () => {
-		const expr = dateAdd(term(prop("p", "dob")), "years", term(literal(18)));
-		expect(emitOnDeviceExpression(expr)).toBe(`date-add(dob, 'years', 18)`);
+	it("lowers a property base without inventing an unsupported function", () => {
+		const expr = dateAdd(term(prop("p", "dob")), "days", term(literal(18)));
+		expect(emitOnDeviceExpression(expr)).toBe("date(floor(dob + 18))");
 	});
 
 	it("composes recursively in the date and quantity slots", () => {
@@ -252,27 +262,171 @@ describe("emitOnDeviceExpression — date-add", () => {
 			arith("+", term(prop("p", "offset")), term(literal(7))),
 		);
 		expect(emitOnDeviceExpression(expr)).toBe(
-			`date-add(dob, 'days', (offset + 7))`,
+			"date(floor(dob + (offset + 7)))",
+		);
+	});
+
+	it.each([
+		"months",
+		"years",
+	] as const)("rejects the calendar-relative %s interval instead of inventing fixed-day semantics", (interval) => {
+		const expr = dateAdd(today(), interval, term(literal(1)));
+		expect(() => emitOnDeviceExpression(expr)).toThrow(
+			new RegExp(
+				`calendar-relative date-add interval '${interval}'.*epoch days`,
+				"s",
+			),
+		);
+	});
+
+	it.each([
+		["now", now()],
+		["datetime-coerce", datetimeCoerce(term(literal("2020-01-01T12:00:00")))],
+		["typed datetime literal", term(datetimeLiteral("2020-01-01T12:00:00"))],
+		["nested datetime date-add", dateAdd(now(), "days", term(literal(1)))],
+		["null-neutral coalesce", coalesce(now(), term(literal(null)))],
+		[
+			"null-neutral conditional",
+			ifExpr(eq(literal(1), literal(1)), now(), term(literal(null))),
+		],
+		[
+			"null-neutral switch",
+			switchExpr(
+				term(literal("x")),
+				[switchCase(literal("x"), now())],
+				term(literal(null)),
+			),
+		],
+	] as const)("rejects an obvious %s base before losing its time", (_label, base) => {
+		expect(() =>
+			emitOnDeviceExpression(dateAdd(base, "days", term(literal(1)))),
+		).toThrow(/structurally datetime-typed base.*discard the time-of-day/s);
+	});
+
+	it("admits an explicit date coercion as a date-only base", () => {
+		const expr = dateAdd(
+			dateCoerce(term(literal("2020-01-01"))),
+			"days",
+			term(literal(1)),
+		);
+		expect(emitOnDeviceExpression(expr)).toBe(
+			"date(floor(date('2020-01-01') + 1))",
+		);
+	});
+
+	it("keeps floor semantics explicit for fractional arithmetic before the Unix epoch", () => {
+		const expr = dateAdd(
+			term(dateLiteral("1969-12-31")),
+			"days",
+			term(literal(-0.5)),
+		);
+		expect(emitOnDeviceExpression(expr)).toBe(
+			"date(floor('1969-12-31' + -0.5))",
 		);
 	});
 });
 
 describe("emitOnDeviceExpression — unwrap-list", () => {
-	it("emits unwrap-list(<value>) literally", () => {
+	it("rejects the CSQL-only function instead of emitting an unknown Core call", () => {
 		const expr = unwrapList(term(prop("p", "tags")));
-		expect(emitOnDeviceExpression(expr)).toBe("unwrap-list(tags)");
+		expect(() => emitOnDeviceExpression(expr)).toThrow(
+			/unwrap-list.*server-side/i,
+		);
+	});
+});
+
+describe("emitOnDeviceExpression — scalar relation cardinality", () => {
+	it("rejects a subcase property read that can return several values", () => {
+		const expression = term(
+			prop("patient", "visit_date", subcasePath("parent", "visit")),
+		);
+		expect(() => emitOnDeviceExpression(expression)).toThrow(
+			/several values.*scalar/i,
+		);
+	});
+
+	it("rejects an any-relation property nested in a scalar calculation", () => {
+		const expression = concat(
+			term(literal("Status: ")),
+			term(prop("patient", "status", anyRelationPath("parent", "visit"))),
+		);
+		expect(() => emitOnDeviceExpression(expression)).toThrow(
+			/several values.*scalar/i,
+		);
+	});
+
+	it("keeps a single-valued ancestor property read", () => {
+		const expression = term(
+			prop(
+				"patient",
+				"district",
+				ancestorPath(relationStep("parent", "household")),
+			),
+		);
+		expect(() => emitOnDeviceExpression(expression)).not.toThrow();
+	});
+
+	it("narrows a graph-proven parent-only any-relation to a scalar ancestor read", () => {
+		const expression = term(
+			prop("patient", "district", anyRelationPath("parent", "household")),
+		);
+		const emitted = emitOnDeviceExpression(expression, "casedb", {
+			currentCaseType: "patient",
+			caseTypes: [
+				{ name: "patient", parent_type: "household", properties: [] },
+				{ name: "household", properties: [] },
+			],
+		});
+		expect(emitted).toContain("index/parent");
+		expect(emitted).toContain("@case_type='household'");
+		expect(emitted).not.toContain(" | ");
+	});
+
+	it("adds the inferred parent case type to a scalar ancestor read", () => {
+		const expression = term(
+			prop("patient", "district", ancestorPath(relationStep("parent"))),
+		);
+		const emitted = emitOnDeviceExpression(expression, "casedb", {
+			currentCaseType: "patient",
+			caseTypes: [
+				{ name: "patient", parent_type: "household", properties: [] },
+				{ name: "household", properties: [] },
+			],
+		});
+		expect(emitted).toContain("@case_type='household'");
+	});
+
+	it("preserves an explicit custom-index target on a scalar ancestor read", () => {
+		const expression = term(
+			prop(
+				"patient",
+				"rating",
+				ancestorPath(relationStep("guardian_link", "guardian")),
+			),
+		);
+		const emitted = emitOnDeviceExpression(expression, "casedb", {
+			currentCaseType: "patient",
+			caseTypes: [
+				{ name: "patient", parent_type: "household", properties: [] },
+				{ name: "household", properties: [] },
+				{ name: "guardian", properties: [] },
+			],
+		});
+		expect(emitted).toContain("index/guardian_link");
+		expect(emitted).toContain("@case_type='guardian'");
 	});
 });
 
 describe("emitOnDeviceExpression — count", () => {
-	// `count` expansion mirrors `exists`'s relational join shape; the
-	// emission is the bare `count(<nodeset>)` call, NOT the `count(...)
-	// > 0` presence test the predicate emitter wraps.
+	// `count` expansion mirrors `exists`'s immediate-scope relation semantics.
+	// A subcase relation can count a nodeset directly. An ancestor index is a
+	// singleton reference, so it emits 1/0 after confirming both that the index is
+	// present and that its id belongs to the filtered destination set.
 
 	it("emits count() with an ancestor walk and no filter", () => {
 		const expr = count(ancestorPath(relationStep("parent")));
 		expect(emitOnDeviceExpression(expr)).toBe(
-			`count(instance('casedb')/casedb/case[@case_id=current()/index/parent])`,
+			`if(count(index/parent) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/parent), 1, 0)`,
 		);
 	});
 
@@ -314,12 +468,11 @@ describe("emitOnDeviceExpression — count", () => {
 	});
 
 	it("emits count(any-relation) as the sum of ancestor and subcase counts", () => {
-		// Direction-agnostic count: cardinality summed across both
-		// directions. Each side computes a directed count
-		// independently; their sum is the total reachable count.
+		// Direction-agnostic count sums the ancestor singleton's 1/0 presence and
+		// the subcase nodeset cardinality.
 		const expr = count(anyRelationPath("rel"));
 		expect(emitOnDeviceExpression(expr)).toBe(
-			`(count(instance('casedb')/casedb/case[@case_id=current()/index/rel]) + count(instance('casedb')/casedb/case[index/rel=current()/@case_id]))`,
+			`(if(count(index/rel) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/@case_id), index/rel), 1, 0) + count(instance('casedb')/casedb/case[index/rel=current()/@case_id]))`,
 		);
 	});
 
@@ -329,14 +482,46 @@ describe("emitOnDeviceExpression — count", () => {
 			eq(term(prop("p", "state")), term(literal("open"))),
 		);
 		expect(emitOnDeviceExpression(expr)).toBe(
-			`(count(instance('casedb')/casedb/case[@case_id=current()/index/rel][state = 'open']) + count(instance('casedb')/casedb/case[index/rel=current()/@case_id][state = 'open']))`,
+			`(if(count(index/rel) > 0 and selected(join(' ', instance('casedb')/casedb/case[state = 'open']/@case_id), index/rel), 1, 0) + count(instance('casedb')/casedb/case[index/rel=current()/@case_id][state = 'open']))`,
+		);
+	});
+
+	it("anchors a child count to the singleton ancestor currently being filtered", () => {
+		const expression = ifExpr(
+			exists(
+				ancestorPath(relationStep("parent", "household")),
+				gt(count(subcasePath("parent", "visit")), term(literal(0))),
+			),
+			term(literal("yes")),
+			term(literal("no")),
+		);
+		const emitted = emitOnDeviceExpression(expression);
+		expect(emitted).toContain(
+			"index/parent=instance('casedb')/casedb/case[@case_id=current()/index/parent and @case_type='household']/@case_id",
+		);
+		expect(emitted).toContain("@case_type='visit'");
+	});
+
+	it("fails closed when a child count is nested under a multi-case child scope", () => {
+		const expression = ifExpr(
+			exists(
+				subcasePath("parent", "visit"),
+				gt(count(subcasePath("parent", "followup")), term(literal(0))),
+			),
+			term(literal("yes")),
+			term(literal("no")),
+		);
+		expect(() => emitOnDeviceExpression(expression)).toThrow(
+			/child-case count is nested under a relation scope that CommCare Core cannot name/i,
 		);
 	});
 });
 
 describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	it("emits a property reference via the term arm", () => {
-		expect(emitOnDeviceExpression(term(prop("patient", "name")))).toBe("name");
+		expect(emitOnDeviceExpression(term(prop("patient", "full_name")))).toBe(
+			"full_name",
+		);
 	});
 
 	it("emits a literal via the term arm", () => {
@@ -370,11 +555,11 @@ describe("emitOnDeviceExpression — recursive composition", () => {
 	it("composes if + arith + concat in a single tree", () => {
 		const expr = ifExpr(
 			gt(term(prop("p", "age")), term(literal(18))),
-			concat(term(literal("adult: ")), term(prop("p", "name"))),
+			concat(term(literal("adult: ")), term(prop("p", "full_name"))),
 			arith("+", term(prop("p", "age")), term(literal(1))),
 		);
 		expect(emitOnDeviceExpression(expr)).toBe(
-			`if(age > 18, concat('adult: ', name), (age + 1))`,
+			`if(age > 18, concat('adult: ', full_name), (age + 1))`,
 		);
 	});
 

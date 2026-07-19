@@ -106,16 +106,19 @@ export const FieldRow = memo(function FieldRow({
 		: null;
 
 	return (
-		<motion.div
+		<motion.li
 			initial={{ opacity: 0, x: -5 }}
 			animate={{ opacity: 1, x: 0 }}
 			transition={{ delay, duration: 0.2 }}
 		>
 			<TreeItemRow
 				data-tree-field={fieldPath}
-				className={`flex items-center gap-1 py-2.5 pr-3 transition-colors text-xs ${
+				label={displayText}
+				disabled={locked}
+				selected={isSelected}
+				className={`flex min-h-11 items-center gap-1 py-1.5 pr-3 text-xs transition-colors ${
 					locked
-						? "pointer-events-none text-nova-text-secondary"
+						? "text-nova-text-secondary"
 						: isSelected
 							? "cursor-pointer bg-nova-violet/[0.08] text-nova-text shadow-[inset_2px_0_0_var(--nova-violet)]"
 							: "cursor-pointer hover:bg-nova-violet/[0.06] text-nova-text-secondary"
@@ -144,7 +147,7 @@ export const FieldRow = memo(function FieldRow({
 					/* Spacer preserves chevron column width so leaf rows align
 					 * with sibling group headers — without it, children of a
 					 * group appear less indented than the group itself. */
-					<span className="w-4 shrink-0" aria-hidden />
+					<span className="size-11 shrink-0" aria-hidden />
 				)}
 				<span className="w-4 text-center text-nova-text-muted shrink-0 flex items-center justify-center">
 					<Icon icon={iconData} width="12" height="12" />
@@ -160,7 +163,7 @@ export const FieldRow = memo(function FieldRow({
 								chipContent
 							)}
 						</span>
-						<span className="truncate shrink-0 max-w-[45%] font-mono text-[10px] text-nova-text-muted">
+						<span className="max-w-[45%] shrink-0 truncate font-mono text-xs text-nova-text-muted">
 							(
 							<HighlightedText text={field.id} indices={idIndices} />)
 						</span>
@@ -183,7 +186,7 @@ export const FieldRow = memo(function FieldRow({
 					</span>
 				)}
 				{hasChildren && isCollapsed && (
-					<span className="text-[10px] text-nova-text-muted shrink-0">
+					<span className="shrink-0 text-xs text-nova-text-muted">
 						{childUuids.length}
 					</span>
 				)}
@@ -195,7 +198,7 @@ export const FieldRow = memo(function FieldRow({
 
 			{/* Nested children for groups/repeats — self-recursive */}
 			{hasChildren && !isCollapsed && (
-				<div>
+				<ul aria-label={`${displayText} fields`} className="m-0 list-none p-0">
 					{childUuids.map((childUuid, cIdx) => (
 						<FieldRow
 							key={childUuid}
@@ -212,8 +215,8 @@ export const FieldRow = memo(function FieldRow({
 							parentPath={fieldPath}
 						/>
 					))}
-				</div>
+				</ul>
 			)}
-		</motion.div>
+		</motion.li>
 	);
 });

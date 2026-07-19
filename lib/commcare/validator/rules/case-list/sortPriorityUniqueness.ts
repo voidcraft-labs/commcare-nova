@@ -4,14 +4,14 @@
  *
  * Sort directives live per-column, keyed by an integer priority.
  * The wire emitter orders the emission by priority ascending and
- * tie-breaks to source-array index when two columns share a
+ * tie-breaks to Results order when two columns share a
  * priority — so collisions never produce malformed XML. But the
  * authored intent ("two primary sorts" / "two secondary sorts") is
  * structurally undefined: the editor maintains uniqueness on
  * save, but SA tool calls / MCP API / recovery scripts bypass the
  * editor and can persist colliding priorities. The runtime would
- * silently order by source-array index, picking up whichever
- * column happens to land first in `columns`.
+ * silently order by Results position, picking up whichever
+ * column the worker sees first on that screen.
  *
  * Short-circuits cleanly when fewer than two columns carry a
  * `sort` slot — collisions are trivially absent.

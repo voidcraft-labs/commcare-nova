@@ -20,12 +20,16 @@ import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSelect from "@iconify-icons/tabler/select";
+import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
 import {
 	applicableSearchModes,
+	authorableCaseProperties,
 	type CaseProperty,
+	type CasePropertyDataType,
 	type CaseType,
-	DEFAULT_SEARCH_MODE_KIND,
+	canonicalCasePropertyName,
 	effectiveDataType,
+	effectiveSimpleSearchModeKind,
 	exactMode,
 	fuzzyDateMode,
 	fuzzyMode,
@@ -33,6 +37,7 @@ import {
 	multiSelectContainsMode,
 	phoneticMode,
 	rangeMode,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
 	type SearchInputDef,
@@ -47,6 +52,7 @@ import {
 	eq,
 	input,
 	literal,
+	match,
 	matchAll,
 	type Predicate,
 	prop,
@@ -59,6 +65,8 @@ import {
 	type ValueExpression,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { MATCH_MODE_VOCABULARY } from "../shared/matchModeVocabulary";
+import type { EditorSearchInputDecl } from "../shared/searchInputPresentation";
 
 // ── Forbids-input-ref slots ───────────────────────────────────────
 
@@ -83,10 +91,10 @@ export const NO_SEARCH_INPUTS: readonly SearchInputDecl[] = Object.freeze([]);
 // ── Display labels ────────────────────────────────────────────────
 
 export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
-	text: "Text Box",
-	select: "Choice List",
-	date: "Date Picker",
-	"date-range": "Date Range",
+	text: "Text box",
+	select: "Choice list",
+	date: "Date picker",
+	"date-range": "Date range",
 	barcode: "Barcode",
 };
 
@@ -101,27 +109,27 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 /** Plain-words explanation per field type — what the field looks
  *  like in the running app. Shown in the picker beside each label. */
 export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
-	text: "A box to type into.",
-	select: "Pick one of the property's options.",
-	date: "A calendar for a single date.",
-	"date-range": "From and to dates, searched as a span.",
-	barcode: "Scan a barcode instead of typing.",
+	text: "A box to type into",
+	select: "Choose another field type before Preview can run",
+	date: "A calendar for one date",
+	"date-range": "Two calendars for a start and end date",
+	barcode: "A field for scanning a barcode",
 };
 
 /**
- * Authoring-layer mode names. "Fuzzy" stays — it's the term every
- * search box on the internet taught people, at every technical
- * level. The descriptions carry the precision; the labels stay
- * short and familiar.
+ * Outcome-first names for match behavior. Storage keeps its exact mode names,
+ * but the authoring surface describes what people can expect from each choice.
+ * The four forgiving-match names come from the shared match-mode vocabulary
+ * (`shared/matchModeVocabulary`), which the condition verb menu also reads.
  */
 export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
-	exact: "Exact",
-	fuzzy: "Fuzzy",
-	"starts-with": "Starts With",
-	phonetic: "Sounds Like",
-	"fuzzy-date": "Fuzzy Date",
-	range: "Range",
-	"multi-select-contains": "Contains",
+	exact: "Exact value",
+	fuzzy: MATCH_MODE_VOCABULARY.fuzzy.pickerLabel,
+	"starts-with": MATCH_MODE_VOCABULARY["starts-with"].pickerLabel,
+	phonetic: MATCH_MODE_VOCABULARY.phonetic.pickerLabel,
+	"fuzzy-date": MATCH_MODE_VOCABULARY["fuzzy-date"].pickerLabel,
+	range: "Between dates",
+	"multi-select-contains": "Includes options",
 };
 
 /**
@@ -131,31 +139,40 @@ export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
  * value, because the gap between "Exact" and "Fuzzy" is the gap
  * between "search looks broken" and "search works": exact is
  * letter-for-letter including capitalization, which surprises
- * everyone the first time.
- *
- * Behavioral ground truth (mirrored by the case store's Postgres
- * compiler and CommCare HQ's Elasticsearch layer):
- *   - exact: whole-value term match, case-sensitive.
- *   - fuzzy: per-word — a word matches if it equals a word of the
- *     value (ignoring case), or sits within 1 edit (words of 3–5
- *     letters) / 2 edits (6+) of one sharing its first two letters.
- *     It does NOT match partial words: "bo" never finds "bob".
- *   - starts-with: prefix of the whole value, case-sensitive.
- *   - phonetic: Soundex per word — same spoken shape, any spelling.
- *   - fuzzy-date: the typed date plus its digit-permutation set
- *     (swapped day/month, reversed digit pairs).
+ * everyone the first time. The forgiving-match claims (and their
+ * behavioral ground truth) live in the shared match-mode vocabulary;
+ * exact's ground truth is a whole-value term match, case-sensitive
+ * (mirrored by the case store's Postgres compiler and CommCare HQ's
+ * Elasticsearch layer).
  */
 export const SEARCH_MODE_DESCRIPTIONS: Record<SearchInputMode["kind"], string> =
 	{
-		exact: "The whole value, letter for letter — capitalization counts.",
-		fuzzy: "Forgives a typo or two per word, and ignores capitalization.",
-		"starts-with":
-			"Values that begin with the typed text — capitalization counts.",
-		phonetic: "Names that sound alike when spoken — Smith finds Smyth.",
-		"fuzzy-date": "Forgives swapped day and month, and mistyped digits.",
-		range: "Anything between the two ends, inclusive.",
-		"multi-select-contains": "Cases whose list includes the chosen options.",
+		exact: "Finds only the same complete value, including capitalization",
+		fuzzy: MATCH_MODE_VOCABULARY.fuzzy.description,
+		"starts-with": MATCH_MODE_VOCABULARY["starts-with"].description,
+		phonetic: MATCH_MODE_VOCABULARY.phonetic.description,
+		"fuzzy-date": MATCH_MODE_VOCABULARY["fuzzy-date"].description,
+		range: "Finds dates between the From and To values",
+		"multi-select-contains": "Finds cases that include the selected options",
 	};
+
+const PROPERTY_TYPE_NAMES: Record<CasePropertyDataType, string> = {
+	text: "text",
+	int: "number",
+	decimal: "number",
+	date: "date",
+	time: "time",
+	datetime: "date and time",
+	single_select: "single-choice",
+	multi_select: "multiple-choice",
+	geopoint: "location",
+};
+
+function friendlyPropertyTypes(types: readonly CasePropertyDataType[]): string {
+	return [...new Set(types.map((type) => PROPERTY_TYPE_NAMES[type]))].join(
+		" or ",
+	);
+}
 
 /** The mode a row actually runs with — its explicit mode, or the
  *  per-type default when the slot is absent. */
@@ -163,7 +180,7 @@ export function effectiveModeKind(
 	input: SearchInputDef,
 ): SearchInputMode["kind"] {
 	if (input.kind === "advanced") return "exact";
-	return input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+	return effectiveSimpleSearchModeKind(input);
 }
 
 // ── Per-mode builder lookup ───────────────────────────────────────
@@ -302,7 +319,10 @@ export function resolveProperty(
 		currentCaseType,
 	);
 	const ct = caseTypes.find((c) => c.name === destinationCaseType);
-	return ct?.properties.find((p) => p.name === row.property);
+	const propertyName = canonicalCasePropertyName(row.property);
+	return authorableCaseProperties(ct?.properties ?? []).find(
+		(property) => property.name === propertyName,
+	);
 }
 
 /**
@@ -354,9 +374,9 @@ export function computeTypeCouplingErrors(
 		if (!applicable.includes(modeKind)) {
 			const allowedLabels = applicable
 				.map((m) => SEARCH_MODE_LABELS[m])
-				.join(", ");
+				.join(" or ");
 			errors.push(
-				`${SEARCH_MODE_LABELS[modeKind]} mode is not valid for ${SEARCH_INPUT_TYPE_LABELS[row.type]} inputs; pick ${allowedLabels}.`,
+				`“${SEARCH_MODE_LABELS[modeKind]}” doesn’t work with ${SEARCH_INPUT_TYPE_LABELS[row.type]}. Choose ${allowedLabels}.`,
 			);
 		}
 	}
@@ -368,7 +388,7 @@ export function computeTypeCouplingErrors(
 	const typeAllowList = SEARCH_INPUT_TYPE_PROPERTY_TYPES[row.type];
 	if (typeAllowList !== undefined && !typeAllowList.includes(dataType)) {
 		errors.push(
-			`${SEARCH_INPUT_TYPE_LABELS[row.type]} input is not valid for ${dataType} property "${row.property}"; pick a ${typeAllowList.join(" / ")} property.`,
+			`${SEARCH_INPUT_TYPE_LABELS[row.type]} can’t search ${propertyDisplayLabel(property)}. Choose ${friendlyPropertyTypes(typeAllowList)} information.`,
 		);
 	}
 
@@ -376,7 +396,7 @@ export function computeTypeCouplingErrors(
 		const modeAllowList = SEARCH_MODE_PROPERTY_TYPES[row.mode.kind];
 		if (modeAllowList !== undefined && !modeAllowList.includes(dataType)) {
 			errors.push(
-				`${SEARCH_MODE_LABELS[row.mode.kind]} mode is not valid for ${dataType} property "${row.property}"; pick a ${modeAllowList.join(" / ")} property.`,
+				`“${SEARCH_MODE_LABELS[row.mode.kind]}” can’t match ${propertyDisplayLabel(property)}. Choose ${friendlyPropertyTypes(modeAllowList)} information.`,
 			);
 		}
 	}
@@ -413,46 +433,21 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 
 export function deriveSearchInputDecl(
 	row: SearchInputDef,
-	caseTypes: readonly CaseType[],
-	currentCaseType: string,
-): SearchInputDecl {
-	switch (row.type) {
-		case "text":
-		case "barcode":
-			return { name: row.name, data_type: "text" };
-		case "date":
-		case "date-range":
-			return { name: row.name, data_type: "date" };
-		case "select": {
-			// Selects derive the declared `data_type` from the targeted
-			// property when resolvable; falls back to `text`. Only the
-			// simple arm has a property to consult; advanced rows fall
-			// straight through to text.
-			if (row.kind !== "simple") {
-				return { name: row.name, data_type: "text" };
-			}
-			const property = resolveProperty(caseTypes, row, currentCaseType);
-			if (property === undefined) {
-				return { name: row.name, data_type: "text" };
-			}
-			const dataType = effectiveDataType(property);
-			if (dataType === "single_select" || dataType === "multi_select") {
-				return { name: row.name, data_type: dataType };
-			}
-			return { name: row.name, data_type: "text" };
-		}
-	}
+): EditorSearchInputDecl {
+	return {
+		name: row.name,
+		label: row.label,
+		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[row.type],
+	};
 }
 
 export function searchInputDecls(
 	rows: readonly SearchInputDef[],
-	caseTypes: readonly CaseType[],
-	currentCaseType: string,
-): readonly SearchInputDecl[] {
-	const decls: SearchInputDecl[] = [];
+): readonly EditorSearchInputDecl[] {
+	const decls: EditorSearchInputDecl[] = [];
 	for (const row of rows) {
 		if (row.name === "") continue;
-		decls.push(deriveSearchInputDecl(row, caseTypes, currentCaseType));
+		decls.push(deriveSearchInputDecl(row));
 	}
 	return decls;
 }
@@ -467,8 +462,9 @@ export function expectedTypeForDefault(
 		case "barcode":
 			return "text";
 		case "date":
-		case "date-range":
 			return "date";
+		case "date-range":
+			return undefined;
 		case "select":
 			return undefined;
 	}
@@ -485,22 +481,32 @@ export function expectedTypeForDefault(
  * constraint identity stays stable across renders (the editor memoizes
  * on it).
  */
-const CONSTRAINT_FOR_DEFAULT: Record<SearchInputType, SlotConstraint> = {
+export type ScalarDefaultSearchInputType = Exclude<
+	SearchInputType,
+	"date-range"
+>;
+
+const CONSTRAINT_FOR_DEFAULT: Record<
+	ScalarDefaultSearchInputType,
+	SlotConstraint
+> = {
 	text: { accepts: compatibleTypesFor("text") },
 	barcode: { accepts: compatibleTypesFor("text") },
 	date: { accepts: compatibleTypesFor("date") },
-	"date-range": { accepts: compatibleTypesFor("date") },
 	select: ANY_CONSTRAINT,
 };
 
-export function constraintForDefault(type: SearchInputType): SlotConstraint {
+export function constraintForDefault(
+	type: ScalarDefaultSearchInputType,
+): SlotConstraint {
 	return CONSTRAINT_FOR_DEFAULT[type];
 }
 
-export function seedDefaultExpression(type: SearchInputType): ValueExpression {
+export function seedDefaultExpression(
+	type: ScalarDefaultSearchInputType,
+): ValueExpression {
 	switch (type) {
 		case "date":
-		case "date-range":
 			return today();
 		case "text":
 		case "barcode":
@@ -516,10 +522,40 @@ export function seedDefaultExpression(type: SearchInputType): ValueExpression {
 // halves — the forward seed and the round-trip recovery.
 
 /**
- * Seed the custom condition with the behavior the row already has:
- * `property = typed value`. The author edits forward from something
- * working instead of starting from a blank. Rows with no property
- * yet seed `match-all()` — the canonical always-true starting point.
+ * Whether the simple row's effective match behavior has an equivalent
+ * Predicate AST shape that can keep reading this row's runtime input.
+ *
+ * Equality and the four text/date match functions accept a runtime
+ * `input(...)` value, so their simple-arm semantics can move into a custom
+ * condition without changing. A range input is two runtime bindings while
+ * the Predicate AST has no range-input term, and multi-select containment's
+ * values are deliberately literal-only. Those two modes therefore need an
+ * explicit consequence confirmation before the UI calls
+ * `seedCustomCondition`'s exact-match recovery seed.
+ */
+export function canSeedCustomConditionFaithfully(
+	row: SimpleSearchInputDef,
+): boolean {
+	switch (effectiveModeKind(row)) {
+		case "exact":
+		case "fuzzy":
+		case "starts-with":
+		case "phonetic":
+		case "fuzzy-date":
+			return true;
+		case "range":
+		case "multi-select-contains":
+			return false;
+	}
+}
+
+/**
+ * Seed the custom condition with the row's effective behavior. Exact mode
+ * becomes `property = typed value`; fuzzy, starts-with, phonetic, and
+ * fuzzy-date become the corresponding `match` Predicate. The author edits
+ * forward from something working instead of starting from a blank. Rows with
+ * no property yet seed `match-all()` — the canonical always-true starting
+ * point.
  *
  * The comparison against the typed value rides inside a
  * `when-input-present` envelope keyed to the input — the same shape
@@ -549,7 +585,27 @@ export function seedCustomCondition(
 		row.via === undefined || row.via.kind === "self" ? undefined : row.via;
 	const propertyRef = prop(currentCaseType, row.property, viaForRef);
 	if (row.name === "") return eq(propertyRef, literal(""));
-	return whenInput(input(row.name), eq(propertyRef, input(row.name)));
+	const inputRef = input(row.name);
+	const modeKind = effectiveModeKind(row);
+	const clause = (() => {
+		switch (modeKind) {
+			case "exact":
+				return eq(propertyRef, inputRef);
+			case "fuzzy":
+			case "starts-with":
+			case "phonetic":
+			case "fuzzy-date":
+				return match(propertyRef, inputRef, modeKind);
+			case "range":
+			case "multi-select-contains":
+				// Neither mode can carry its runtime value(s) into the current
+				// Predicate AST. The caller must gate this branch with
+				// `canSeedCustomConditionFaithfully` and confirm that the custom
+				// condition will begin as an exact comparison.
+				return eq(propertyRef, inputRef);
+		}
+	})();
+	return whenInput(inputRef, clause);
 }
 
 /**

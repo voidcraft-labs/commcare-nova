@@ -24,7 +24,7 @@
 //     (`<detail id>`, locale-id substring, calc-xpath instance
 //     reference) — every other byte is identical.
 
-import type { Uuid } from "@/lib/domain";
+import type { CaseProperty, CaseType, Uuid } from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ResolvedSortDirective } from "./sortKeys";
 
@@ -146,6 +146,18 @@ export interface CaseListEmitContext {
 	readonly sortByUuid: ReadonlyMap<Uuid, ResolvedSortDirective>;
 	readonly detailKind: DetailKind;
 	readonly target: DetailTarget;
+	/** Effective property catalog for the module's case type. Plain select
+	 * columns derive worker-facing option labels from this metadata; other plain
+	 * fields remain raw. */
+	readonly caseProperties: readonly CaseProperty[];
+	/** Case graph used to canonicalize inferred relation destinations while
+	 * lowering predicate carriers nested in calculated expressions. */
+	readonly caseTypes?: readonly CaseType[];
+	/** Case type of the row rendered by this detail. Relation qualifiers that
+	 * are unique in the graph are materialized from this anchor before wire
+	 * emission, so an unqualified path cannot widen to a same-named edge on a
+	 * different case type. */
+	readonly currentCaseType?: string;
 	/**
 	 * Resolved media manifest, for image-map columns to resolve their
 	 * per-value `AssetId` → `jr://file/...` path. `undefined` when media

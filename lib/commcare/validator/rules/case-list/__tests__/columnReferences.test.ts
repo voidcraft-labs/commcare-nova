@@ -49,6 +49,56 @@ describe("columnReferences", () => {
 		).toBe(true);
 	});
 
+	it("still validates an off-screen column that supplies Default order", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(
+								asUuid("col-sort"),
+								"missing_sort_property",
+								"Old sort",
+								{
+									visibleInList: false,
+									visibleInDetail: false,
+									sort: { direction: "asc", priority: 0 },
+								},
+							),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		expect(
+			runValidation(doc).some(
+				(error) =>
+					error.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
+					error.details?.columnUuid === "col-sort",
+			),
+		).toBe(true);
+	});
+
 	it("does not fire when every column resolves to a known property", () => {
 		const doc = buildDoc({
 			appName: "Test",

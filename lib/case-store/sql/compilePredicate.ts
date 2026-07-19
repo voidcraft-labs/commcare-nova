@@ -41,27 +41,31 @@ import type {
 	Expression,
 	SqlBool,
 } from "kysely";
-import { expressionBuilder } from "kysely";
+import { expressionBuilder, sql } from "kysely";
+import { distanceToMeters } from "@/lib/domain/predicate/distance";
 import {
 	compilerBugMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
+import {
+	canonicalizeRelationPath,
+	normalizeRelationEvaluationScopes,
+} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type {
 	ComparisonKind,
-	DistanceUnit,
 	MultiSelectQuantifier,
 	Predicate,
 	PropertyRef,
 	Term,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import { walkPropertyRefs } from "@/lib/domain/predicate/walk";
 import {
 	type CompilePredicateThunk,
 	compileExpression,
 	type ExpressionCompileContext,
 } from "./compileExpression";
-import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
 import { compileTerm, type TermCompileContext } from "./compileTerm";
 import type { Database } from "./database";
@@ -92,21 +96,29 @@ const COMPARISON_OPS: Record<ComparisonKind, ComparisonOperator> = {
 	lte: "<=",
 };
 
-/**
- * `DistanceUnit` → meters. PostGIS's `ST_DWithin` takes meters.
- * `1609.344` is the international mile (NIST handbook 44, the
- * 1959 definition); km → m is unambiguous SI.
- */
-const METERS_PER_UNIT: Record<DistanceUnit, number> = {
-	miles: 1609.344,
-	kilometers: 1000,
-};
+const GEOPOINT_NUMBER_PATTERN = String.raw`-?(?:[0-9]{1,32}(?:\.[0-9]{0,32})?|\.[0-9]{1,32})`;
+const GEOPOINT_METADATA_NUMBER_PATTERN = String.raw`[+-]?(?:[0-9]{1,32}(?:\.[0-9]{0,32})?|\.[0-9]{1,32})(?:[eE][+-]?[0-9]{1,3})?`;
+const GEOPOINT_METADATA_PATTERN = `(?:${GEOPOINT_METADATA_NUMBER_PATTERN}|NaN)`;
+const GEOPOINT_PROPERTY_PATTERN = `^${GEOPOINT_NUMBER_PATTERN} ${GEOPOINT_NUMBER_PATTERN}(?: ${GEOPOINT_METADATA_PATTERN} ${GEOPOINT_METADATA_PATTERN})?$`;
+const GEOPOINT_CENTER_PATTERN = `^${GEOPOINT_NUMBER_PATTERN} ${GEOPOINT_NUMBER_PATTERN}(?: ${GEOPOINT_METADATA_PATTERN} ${GEOPOINT_METADATA_PATTERN})?$`;
+const SQL_ASCII_WHITESPACE = "[ \t\n\u000b\f\r]";
+const GEOPOINT_RAW_CENTER_PATTERN = `^(?:${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_NUMBER_PATTERN}(?:${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN})?${SQL_ASCII_WHITESPACE}*|${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*,${SQL_ASCII_WHITESPACE}*${GEOPOINT_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*)$`;
 
 /** Compile a `Predicate` to a Kysely `Expression<SqlBool>`. */
 export function compilePredicate(
 	pred: Predicate,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	const normalizedSubject = normalizeRelationEvaluationScopes(pred, {
+		caseTypes: [...ctx.caseTypeSchemas.values()],
+		...(ctx.currentCaseType === undefined
+			? {}
+			: { currentCaseType: ctx.currentCaseType }),
+	});
+	if (normalizedSubject !== pred) {
+		return compilePredicate(normalizedSubject, ctx);
+	}
+	assertNoUnnormalizedRelationPropertyRefs(pred);
 	switch (pred.kind) {
 		case "match-all":
 			// `eb.lit(true)` emits the SQL `true` keyword; binding
@@ -182,6 +194,36 @@ export function compilePredicate(
 			);
 		}
 	}
+}
+
+/**
+ * Relation-valued property reads must have been converted to an explicit
+ * one-row `exists(via, where: ...)` scope before SQL emission. Keeping this
+ * defense at the compiler boundary prevents a future normalizer regression
+ * from falling back to an arbitrary scalar subquery row or inventing
+ * cross-product semantics that CommCare Core does not implement.
+ */
+function assertNoUnnormalizedRelationPropertyRefs(pred: Predicate): void {
+	let survivingProperty: PropertyRef | undefined;
+	walkPropertyRefs(pred, (property) => {
+		if (
+			survivingProperty === undefined &&
+			property.via !== undefined &&
+			property.via.kind !== "self"
+		) {
+			survivingProperty = property;
+		}
+	});
+	if (survivingProperty === undefined) return;
+
+	throw new Error(
+		compilerBugMessage({
+			where: "compilePredicate",
+			invariant:
+				"relation-valued PropertyRefs are normalized into explicit exists scopes before SQL emission",
+			detail: `Property '${survivingProperty.property}' retained a '${survivingProperty.via?.kind}' relation path after normalizeRelationEvaluationScopes. Extend that pass instead of compiling the read as a scalar or cross-product.`,
+		}),
+	);
 }
 
 /**
@@ -271,28 +313,27 @@ function compileComparison(
 	pred: Extract<Predicate, { kind: ComparisonKind }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const left = compileValueExprOperand(pred.left, ctx);
-	const right = compileValueExprOperand(pred.right, ctx);
-	const opToken = COMPARISON_OPS[pred.kind];
-	return eb(left, opToken, right);
+	return eb(
+		compileValueExprOperand(pred.left, ctx),
+		COMPARISON_OPS[pred.kind],
+		compileValueExprOperand(pred.right, ctx),
+	);
 }
 
 /**
- * `<left> IN (<value>, ...)`. Schema rejects empty value lists at
- * parse time (tuple-with-rest); `.refine` also rejects all-null
- * lists. Mixed null + non-null lists are accepted and compile to
- * `IN (NULL, 'value', ...)` — Postgres's three-valued logic
- * returns `NULL` for `NULL`-left rows, indistinguishable from
- * non-matching in `WHERE` context, so the SQL behaves as authors
- * expect.
+ * `in` compiles as an OR of scalar equalities. A relation-valued left side has
+ * already become `exists(via, where: in(prop(self), ...))`, so every equality
+ * here evaluates against one related row at a time.
  */
 function compileIn(
 	pred: Extract<Predicate, { kind: "in" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const left = compileValueExprOperand(pred.left, ctx);
-	const compiledValues = pred.values.map((v) => compileLiteral(v));
-	return eb(left, "in", compiledValues);
+	return eb.or(
+		pred.values.map((value) =>
+			eb(compileValueExprOperand(pred.left, ctx), "=", compileTerm(value, ctx)),
+		),
+	);
 }
 
 /**
@@ -305,22 +346,38 @@ function compileBetween(
 	pred: Extract<Predicate, { kind: "between" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const left = compileValueExprOperand(pred.left, ctx);
 	const lowerOp: ComparisonOperator = pred.lowerInclusive ? ">=" : ">";
 	const upperOp: ComparisonOperator = pred.upperInclusive ? "<=" : "<";
 
 	if (pred.lower !== undefined && pred.upper !== undefined) {
-		const lower = compileValueExprOperand(pred.lower, ctx);
-		const upper = compileValueExprOperand(pred.upper, ctx);
-		return eb.and([eb(left, lowerOp, lower), eb(left, upperOp, upper)]);
+		// Relation normalization deliberately splits related two-bound ranges into
+		// two independently quantified comparisons before this scalar helper runs.
+		return eb.and([
+			eb(
+				compileValueExprOperand(pred.left, ctx),
+				lowerOp,
+				compileValueExprOperand(pred.lower, ctx),
+			),
+			eb(
+				compileValueExprOperand(pred.left, ctx),
+				upperOp,
+				compileValueExprOperand(pred.upper, ctx),
+			),
+		]);
 	}
 	if (pred.lower !== undefined) {
-		const lower = compileValueExprOperand(pred.lower, ctx);
-		return eb(left, lowerOp, lower);
+		return eb(
+			compileValueExprOperand(pred.left, ctx),
+			lowerOp,
+			compileValueExprOperand(pred.lower, ctx),
+		);
 	}
 	if (pred.upper !== undefined) {
-		const upper = compileValueExprOperand(pred.upper, ctx);
-		return eb(left, upperOp, upper);
+		return eb(
+			compileValueExprOperand(pred.left, ctx),
+			upperOp,
+			compileValueExprOperand(pred.upper, ctx),
+		);
 	}
 	// Schema's `.refine(...)` rejects this shape at parse; the
 	// runtime branch defends against a directly-constructed bypass.
@@ -442,25 +499,17 @@ function compileMatch(
 ): Expression<SqlBool> {
 	const propRead = compilePropertyAsText(pred.property, ctx);
 
-	// `checkMatch` (the type checker) rejects non-term `value`
-	// shapes; this is a type-checker-bypass guard.
-	if (pred.value.kind !== "term") {
-		throw new Error(
-			typeCheckerBypassMessage({
-				where: "compilePredicate.compileMatch",
-				summary:
-					"`match` requires a term-arm `ValueExpression` for `value`, but received a non-term arm",
-				expected:
-					"`pred.value.kind === 'term'` (a `Term` lifted via `term(...)`, or a literal / property / input / session reference)",
-				received: `\`pred.value.kind === '${pred.value.kind}'\``,
-				hint: "see `checkMatch` in `lib/domain/predicate/typeChecker.ts` for the term-arm rule. Wrap the value in `term(...)` if it is a `Term`, or replace the `match` predicate with a different operator that accepts the wider expression family.",
-			}),
-		);
-	}
-	// `::text` lifts whatever type the term resolved to into the
+	// `checkMatch` admits the full ValueExpression family: authored search can
+	// normalize a prefix with `concat`, choose one with `if`, or read the
+	// authenticated session. Route the whole value through the shared operand
+	// dispatcher so SQL has the same admission surface as the domain and wire
+	// compilers. `::text` then lifts whatever type the expression resolved to into the
 	// text domain `starts_with`, the tokenizer (`lower` /
 	// `regexp_split_to_array`), and fuzzystrmatch all expect.
-	const valueRead = eb.cast<string>(compileTerm(pred.value.term, ctx), "text");
+	const valueRead = eb.cast<string>(
+		compileValueExprOperand(pred.value, ctx),
+		"text",
+	);
 
 	switch (pred.mode) {
 		case "starts-with":
@@ -475,39 +524,18 @@ function compileMatch(
 		case "phonetic":
 			return compilePhoneticMatch(propRead, valueRead, ctx);
 		case "fuzzy-date":
-			// fuzzy-date generates the permutation set at compile
-			// time, which requires a literal text value. Dynamic
-			// values (search-input / session / property refs) need a
-			// Postgres-side permutation function the runtime doesn't
-			// yet provide. CSQL and on-device emitters accept dynamic
-			// values; only the Postgres path is constrained.
+			// Keep the literal fast path: it validates the authoring-time value and
+			// binds only the surviving permutations. Dynamic expressions use the
+			// SQL lowering below, where the same 16 candidates are constructed and
+			// calendar-validated per request.
 			if (
-				pred.value.term.kind !== "literal" ||
-				typeof pred.value.term.value !== "string"
+				pred.value.kind === "term" &&
+				pred.value.term.kind === "literal" &&
+				typeof pred.value.term.value === "string"
 			) {
-				throw new Error(
-					[
-						"`compilePredicate` — `match` (mode `fuzzy-date`) requires a literal text value on the Postgres runtime path.",
-						"",
-						`    expected: a \`literal\` term whose \`value\` is a string`,
-						`    got:      a \`${pred.value.term.kind}\` term`,
-						"",
-						"`fuzzy-date` generates the digit-permutation set at compile time, which",
-						"requires the input value to be known at compile time. Dynamic values",
-						"(search-input refs, session refs, property refs) cannot pre-compute the",
-						"set and need a Postgres-side permutation function the runtime does not",
-						"yet provide.",
-						"",
-						"The CSQL and on-device wire emitters accept the dynamic value; only",
-						"the Postgres runtime path is constrained.",
-						"",
-						"Hint: pass a literal `YYYY-MM-DD` string for the value, or use a",
-						"different `match` mode (`fuzzy` / `phonetic` / `starts-with`) that",
-						"accepts dynamic values.",
-					].join("\n"),
-				);
+				return compileLiteralFuzzyDate(propRead, pred.value.term.value);
 			}
-			return compileFuzzyDate(propRead, pred.value.term.value);
+			return compileDynamicFuzzyDate(propRead, valueRead);
 		default: {
 			const _exhaustive: never = pred.mode;
 			throw new Error(
@@ -687,7 +715,7 @@ function compilePhoneticMatch(
  * permutation set never produces `<prop> IN ()` (a Postgres syntax
  * error).
  */
-function compileFuzzyDate(
+function compileLiteralFuzzyDate(
 	propRead: AliasableExpression<unknown>,
 	value: string,
 ): Expression<SqlBool> {
@@ -715,6 +743,113 @@ function compileFuzzyDate(
 		"in",
 		permutations.map((p) => eb.val(p)),
 	);
+}
+
+/**
+ * Runtime `fuzzy-date` lowering for computed/input/session values. CCHQ's
+ * `date_permutations` builds sixteen strings by swapping month/day digits and
+ * the last two year digits, then drops candidates that do not parse as a
+ * strict `%Y-%m-%d` calendar date. This is that same algorithm expressed as
+ * SQL, so a valid non-literal ValueExpression never reaches a compiler-only
+ * literal guard.
+ *
+ * The outer source value and every generated candidate are calendar-gated.
+ * That matters for candidates such as `2024-31-01`: including the raw string
+ * in the OR would let malformed stored text match even though HQ filters it
+ * out. `isValidDynamicIsoDate` uses nested CASE arms before integer casts, so
+ * an arbitrary computed string resolves to false rather than a Postgres cast
+ * error.
+ */
+function compileDynamicFuzzyDate(
+	propRead: AliasableExpression<unknown>,
+	valueRead: AliasableExpression<string>,
+): Expression<SqlBool> {
+	const year = sqlSubstring(valueRead, 1, 4);
+	const month = sqlSubstring(valueRead, 6, 2);
+	const day = sqlSubstring(valueRead, 9, 2);
+	const reverseDecade = sql<string>`${sqlSubstring(year, 1, 2)} || ${sqlSubstring(year, 4, 1)} || ${sqlSubstring(year, 3, 1)}`;
+	const reverseMonth = reverseTwoDigits(month);
+	const reverseDay = reverseTwoDigits(day);
+	const date = (
+		yearPart: AliasableExpression<string>,
+		monthPart: AliasableExpression<string>,
+		dayPart: AliasableExpression<string>,
+	) => sql<string>`${yearPart} || '-' || ${monthPart} || '-' || ${dayPart}`;
+
+	const candidates = [
+		valueRead,
+		date(year, day, month),
+		date(year, reverseMonth, day),
+		date(year, day, reverseMonth),
+		date(year, month, reverseDay),
+		date(year, reverseDay, month),
+		date(year, reverseMonth, reverseDay),
+		date(year, reverseDay, reverseMonth),
+		date(reverseDecade, month, day),
+		date(reverseDecade, day, month),
+		date(reverseDecade, reverseMonth, day),
+		date(reverseDecade, day, reverseMonth),
+		date(reverseDecade, month, reverseDay),
+		date(reverseDecade, reverseDay, month),
+		date(reverseDecade, reverseMonth, reverseDay),
+		date(reverseDecade, reverseDay, reverseMonth),
+	];
+
+	return eb.and([
+		isValidDynamicIsoDate(valueRead),
+		eb.or(
+			candidates.map((candidate) =>
+				eb.and([
+					isValidDynamicIsoDate(candidate),
+					eb(propRead, "=", candidate),
+				]),
+			),
+		),
+	]);
+}
+
+function sqlSubstring(
+	value: AliasableExpression<string>,
+	start: number,
+	length: number,
+): AliasableExpression<string> {
+	return eb.fn<string>("substr", [value, eb.lit(start), eb.lit(length)]);
+}
+
+function reverseTwoDigits(
+	value: AliasableExpression<string>,
+): AliasableExpression<string> {
+	return sql<string>`${sqlSubstring(value, 2, 1)} || ${sqlSubstring(value, 1, 1)}`;
+}
+
+const ISO_DATE_TEXT_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
+
+/** Strict Gregorian `%Y-%m-%d` check without a throwing `to_date` cast. */
+function isValidDynamicIsoDate(
+	value: AliasableExpression<string>,
+): Expression<SqlBool> {
+	const year = sql<number>`(${sqlSubstring(value, 1, 4)})::integer`;
+	const month = sql<number>`(${sqlSubstring(value, 6, 2)})::integer`;
+	const day = sql<number>`(${sqlSubstring(value, 9, 2)})::integer`;
+	const daysInMonth = sql<number>`case
+		when ${month} in (1, 3, 5, 7, 8, 10, 12) then 31
+		when ${month} in (4, 6, 9, 11) then 30
+		when ${month} = 2 then case
+			when (${year} % 400 = 0 or (${year} % 4 = 0 and ${year} % 100 != 0)) then 29
+			else 28
+		end
+		else 0
+	end`;
+
+	return sql<SqlBool>`case
+		when ${value} ~ ${ISO_DATE_TEXT_PATTERN} then
+			case
+				when ${year} between 1 and 9999 and ${month} between 1 and 12 and ${day} >= 1
+					then ${day} <= ${daysInMonth}
+				else false
+			end
+		else false
+	end`;
 }
 
 /**
@@ -787,7 +922,10 @@ function isValidDate(year: string, month: string, day: string): boolean {
 	const y = Number(year);
 	const m = Number(month);
 	const d = Number(day);
-	if (m < 1 || m > 12 || d < 1) return false;
+	// Python's `datetime.strptime(..., "%Y-%m-%d")` admits years 1–9999.
+	// The four-digit regex alone would otherwise let year 0000 diverge from
+	// both HQ and the dynamic SQL guard above.
+	if (y < 1 || y > 9999 || m < 1 || m > 12 || d < 1) return false;
 	const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 	const monthLengths = [
 		31,
@@ -821,7 +959,7 @@ function isValidDate(year: string, month: string, day: string): boolean {
  * below feed `(lon, lat)` to the WKT builder.
  *
  * Distance unit converts to meters at compile time via
- * `METERS_PER_UNIT`; `ST_DWithin` takes meters directly.
+ * the domain's shared conversion; `ST_DWithin` takes meters directly.
  *
  * `pred.center` is a `ValueExpression` — `compileValueExprOperand`
  * dispatches term-arm vs expression-arm so a literal, search-input
@@ -839,22 +977,78 @@ function compileWithinDistance(
 	const propLat = splitNumericComponent(propText, 1);
 	const propLon = splitNumericComponent(propText, 2);
 
-	const centerText = eb.cast<string>(
+	const rawCenterText = eb.cast<string>(
 		compileValueExprOperand(pred.center, ctx),
 		"text",
 	);
+	const centerText = normalizeGeopointText(rawCenterText);
 	const centerLat = splitNumericComponent(centerText, 1);
 	const centerLon = splitNumericComponent(centerText, 2);
 
-	const distanceMeters = pred.distance * unitToMeters(pred.unit);
-
-	const propPoint = geographyPoint(propLon, propLat);
-	const centerPoint = geographyPoint(centerLon, centerLat);
-	return eb.fn<boolean>("st_dwithin", [
-		propPoint,
-		centerPoint,
+	const distanceMeters = distanceToMeters(pred.distance, pred.unit);
+	const validShapes = eb.and([
+		eb(propText, "~", eb.val(GEOPOINT_PROPERTY_PATTERN)),
+		eb(rawCenterText, "~", eb.val(GEOPOINT_RAW_CENTER_PATTERN)),
+		eb(centerText, "~", eb.val(GEOPOINT_CENTER_PATTERN)),
+	]);
+	const validRanges = eb.and([
+		eb(propLat, ">=", eb.lit(-90)),
+		eb(propLat, "<=", eb.lit(90)),
+		eb(propLon, ">=", eb.lit(-180)),
+		eb(propLon, "<=", eb.lit(180)),
+		eb(centerLat, ">=", eb.lit(-90)),
+		eb(centerLat, "<=", eb.lit(90)),
+		eb(centerLon, ">=", eb.lit(-180)),
+		eb(centerLon, "<=", eb.lit(180)),
+	]);
+	const distanceMatches = eb.fn<boolean>("st_dwithin", [
+		geographyPoint(propLon, propLat),
+		geographyPoint(centerLon, centerLat),
 		eb.val(distanceMeters),
-	]) as unknown as Expression<SqlBool>;
+		// Core and Elasticsearch use a spherical distance model. PostGIS
+		// geography defaults to the WGS-84 spheroid, so pass `false` explicitly
+		// for cross-target threshold parity.
+		eb.lit(false),
+	]);
+
+	// Keep casts and PostGIS parsing behind nested CASE arms. PostgreSQL may
+	// reorder boolean AND terms, so one flat `shape AND range AND distance`
+	// expression would still be allowed to evaluate `::numeric` on malformed
+	// text. CASE evaluates only the selected result arm.
+	const rangeGuarded = eb
+		.case()
+		.when(validRanges)
+		.then(distanceMatches)
+		.else(false)
+		.end();
+	return eb
+		.case()
+		.when(validShapes)
+		.then(rangeGuarded)
+		.else(false)
+		.end() as Expression<SqlBool>;
+}
+
+/** Canonical CCHQ geopoint text: commas to spaces, whitespace collapsed. */
+function normalizeGeopointText(
+	text: AliasableExpression<string>,
+): AliasableExpression<string> {
+	const commaNormalized = eb.fn<string>("replace", [
+		text,
+		textConstant(","),
+		textConstant(" "),
+	]);
+	const whitespaceNormalized = eb.fn<string>("regexp_replace", [
+		commaNormalized,
+		textConstant("[[:space:]]+"),
+		textConstant(" "),
+		textConstant("g"),
+	]);
+	return eb.fn<string>("btrim", [whitespaceNormalized]);
+}
+
+function textConstant(value: string): AliasableExpression<string> {
+	return eb.cast<string>(eb.val(value), "text");
 }
 
 /**
@@ -902,37 +1096,23 @@ function splitNumericComponent(
 	return eb.cast<number>(part, "numeric");
 }
 
-function unitToMeters(unit: DistanceUnit): number {
-	switch (unit) {
-		case "miles":
-			return METERS_PER_UNIT.miles;
-		case "kilometers":
-			return METERS_PER_UNIT.kilometers;
-		default: {
-			const _exhaustive: never = unit;
-			throw new Error(
-				unhandledKindMessage({
-					where: "compilePredicate.unitToMeters",
-					family: "DistanceUnit",
-					received: _exhaustive,
-					knownKinds: ["miles", "kilometers"],
-				}),
-			);
-		}
-	}
-}
-
 /** Compile `exists` / `missing`. See file header for strategy + collapse cases. */
 function compileExistsOrMissing(
 	pred: Extract<Predicate, { kind: "exists" | "missing" }>,
 	ctx: PredicateCompileContext,
 	mode: "exists" | "missing",
 ): Expression<SqlBool> {
-	if (pred.via.kind === "self") {
+	const relation = canonicalizeRelationPath(pred.via, {
+		caseTypes: [...ctx.caseTypeSchemas.values()],
+		...(ctx.currentCaseType === undefined
+			? {}
+			: { currentCaseType: ctx.currentCaseType }),
+	});
+	if (relation.via.kind === "self") {
 		return compileSelfViaQuantifier(pred.where, ctx, mode);
 	}
 
-	const compiledPath = compileRelationPath(pred.via, ctx);
+	const compiledPath = compileRelationPath(relation.via, ctx);
 	if (compiledPath.kind !== "joined") {
 		// `self` branched out above; this throw exists for the
 		// narrowing — the runtime branch is dead.
@@ -957,6 +1137,9 @@ function compileExistsOrMissing(
 					...ctx,
 					anchorAlias: compiledPath.leafAlias,
 					relationPathDepth: nextDepth,
+					...(relation.destinationCaseType === undefined
+						? {}
+						: { currentCaseType: relation.destinationCaseType }),
 				})
 			: undefined;
 
@@ -1046,16 +1229,8 @@ function compileAbsenceCheck(
 }
 
 /**
- * Property-ref absence check. Four shapes: self-via reserved
- * scalar (`<col> IS NULL`), self-via JSONB (`?`-existence
- * negation), non-self-via reserved scalar / JSONB (correlated
- * scalar subquery via `compileTerm` then `IS NULL`).
- *
- * Non-self via reads: a no-matching-row case propagates as SQL
- * `NULL` from the scalar subquery, which `IS NULL` reads as
- * absent — "no related case has the property" reads as "the
- * property is null on the related case", matching the term
- * compiler's value-bearing read of the same shape.
+ * Property-ref absence check for the current row. Relation-valued absence
+ * checks are normalized to an explicit exists scope before reaching here.
  */
 function compilePropertyAbsenceCheck(
 	property: Extract<Term, { kind: "prop" }>,
@@ -1069,14 +1244,15 @@ function compilePropertyAbsenceCheck(
 	// `is-blank` to plain `IS NULL` — `''` isn't a value the column
 	// can hold, and comparing a timestamp to `''` is a Postgres type
 	// error, not `false`.
-	const blankApplies = reserved === undefined || reserved.blankable;
-
 	if (!isSelfVia) {
-		const valueRead = compileTerm(property, ctx);
-		if (op === "is-null" || !blankApplies) {
-			return eb(valueRead, "is", null);
-		}
-		return eb.or([eb(valueRead, "is", null), eb(valueRead, "=", eb.val(""))]);
+		throw new Error(
+			compilerBugMessage({
+				where: "compilePredicate.compilePropertyAbsenceCheck",
+				invariant:
+					"relation-valued absence checks are normalized into explicit exists scopes",
+				detail: `Property '${property.property}' retained a '${property.via?.kind}' relation path.`,
+			}),
+		);
 	}
 
 	// Reserved scalars live outside the JSONB document, so `?`

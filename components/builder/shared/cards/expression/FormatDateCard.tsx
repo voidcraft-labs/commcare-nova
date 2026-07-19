@@ -5,13 +5,13 @@
 //
 //   - `date` — `ValueExpression` resolving to date or datetime.
 //   - `pattern` — `"short" | "long" | "iso" | string` (a closed
-//     enum or an arbitrary pattern string per CommCare's
+//     enum or a validated JavaRosa pattern string per CommCare's
 //     `format-date(date, pattern)` value function).
 //
 // The pattern slot's two-branch union (preset enum vs. free-string)
 // surfaces through the shared `CustomDatePatternInput` primitive
 // (`primitives/CustomDatePatternInput.tsx`): segmented preset
-// toggle row + free-text custom input + empty-pattern signal. The
+// toggle row + free-text custom input + pattern-validity signal. The
 // primitive is mounted by both this card and the column-side
 // `DateColumnCard` so polish-passes apply once.
 //
@@ -20,17 +20,17 @@
 // preset (enum branch) from custom (string branch) and downstream
 // consumers (wire emitter, type checker) read the discriminator.
 // The column-side commits wire-form patterns instead since its
-// schema flattens the union to `z.string().min(1)`.
+// schema flattens the union to one validated string.
 //
 // Type-checker rules (per `checkExpression`'s `case "format-date":`):
 // the `date` operand must resolve to `date` or `datetime`. Errors
 // land at `[..., "date"]`. Result type is always `text`.
 
 "use client";
+import { DATE_FORMAT_PRESET_DEFINITIONS } from "@/lib/domain";
 import {
 	dateOperandConstraint,
 	FORMAT_DATE_PRESETS,
-	type FormatDatePreset,
 	formatDate,
 	today,
 	type ValueExpression,
@@ -47,12 +47,6 @@ import { ExpressionPicker } from "../../primitives/ExpressionPicker";
  *  a stable identity across renders. */
 const DATE_CONSTRAINT = dateOperandConstraint();
 
-const PRESET_LABELS: Record<FormatDatePreset, string> = {
-	short: "Short",
-	long: "Long",
-	iso: "ISO",
-};
-
 /**
  * Preset table for the format-date AST. Each preset commits the
  * enum value verbatim (`"short"` / `"long"` / `"iso"`) — the AST
@@ -62,7 +56,7 @@ const PRESET_LABELS: Record<FormatDatePreset, string> = {
 const FORMAT_DATE_PRESET_TABLE: readonly DatePatternPreset[] =
 	FORMAT_DATE_PRESETS.map((preset) => ({
 		id: preset,
-		label: PRESET_LABELS[preset],
+		label: DATE_FORMAT_PRESET_DEFINITIONS[preset].label,
 		pattern: preset,
 	}));
 
@@ -95,10 +89,10 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 	};
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-3">
 			<div>
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-					Date / datetime
+				<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
+					Date to format
 				</div>
 				<ExpressionPicker
 					value={value.date}
@@ -110,8 +104,8 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 			</div>
 
 			<div className="space-y-1.5">
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-					Pattern
+				<div className="text-[13px] font-medium text-nova-text-secondary">
+					Date style
 				</div>
 				<CustomDatePatternInput
 					value={value.pattern}

@@ -20,15 +20,20 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
+import type { ValueExpression } from "@/lib/domain/predicate";
 import {
+	loadCaseCountAction,
 	loadCaseDataAction,
 	loadCasesAction,
 	populateSampleCasesAction,
 	resetSampleCasesAction,
 } from "@/lib/preview/engine/caseDataBinding";
+import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
+	CaseQueryConstraintContext,
+	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
 	PopulateSampleCasesResult,
@@ -37,6 +42,11 @@ import {
 	type SearchInputValues,
 	searchInputValuesToWire,
 } from "@/lib/preview/engine/runtimeBindings";
+import {
+	invalidateCaseData,
+	useCaseDataReplacementRevision,
+	useCaseDataRevision,
+} from "@/lib/preview/hooks/caseDataInvalidation";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 
 /**
@@ -51,9 +61,9 @@ type LoadingState<T extends { kind: string }> =
 
 /**
  * Subscribe to case-list rows for `(appId, caseType)`. `reload`
- * re-runs the action without changing dependencies (consumers
- * call it after `populateSampleCasesAction` returns to refresh
- * the table). `undefined` for either id keeps the hook in `idle`
+ * re-runs the action without changing dependencies; successful case-data
+ * writes also refresh it through the shared per-type revision signal.
+ * `undefined` for either id keeps the hook in `idle`
  * — same shape `useFormEngine` uses for `formUuid`.
  *
  * Optional `caseListConfig` threads through to the Server Action so
@@ -81,15 +91,29 @@ type LoadingState<T extends { kind: string }> =
  * to the existing filter-only path. It is a `Map` here and crosses
  * the wire as a plain object (`searchInputValuesToWire`) so the
  * Server Action call stays a plain-JSON body rather than multipart.
+ *
+ * Optional `excludedOwnerIdsExpression` remains a typed expression until the
+ * authenticated Server Action so session-backed values (notably the current
+ * worker id) resolve authoritatively before the local query is composed.
  */
 export function useCases(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValues;
+	excludedOwnerIdsExpression?: ValueExpression;
 	caseTypes?: readonly CaseType[];
+	/** Optional bounded server window for a real Results surface. */
+	page?: { readonly offset: number; readonly limit: number };
+	/** Stable caller identity for surfaces that may query the same case type
+	 * with different modules/configuration. Rows stay stale only within this
+	 * scope while prompt edits revalidate. */
+	requestScopeKey?: string;
 }): {
 	state: LoadingState<LoadCasesResult>;
+	/** Server-derived cause of the effective query's narrowing. Blank prompt
+	 *  values and empty evaluated owner expressions remain unconstrained. */
+	queryConstraintSource: CaseQueryConstraintContext;
 	/** A reload is in flight while settled data stays on screen.
 	 *  Render the stale rows dimmed (or with an inline spinner)
 	 *  rather than unmounting them. */
@@ -100,14 +124,66 @@ export function useCases(args: {
 	 *  not merely until the write returned. */
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType, caseListConfig, inputValues, caseTypes } = args;
-	return useReloadableResource<LoadingState<LoadCasesResult>>({
+	const {
+		appId,
+		caseType,
+		caseListConfig,
+		inputValues,
+		excludedOwnerIdsExpression,
+		caseTypes,
+		page,
+		requestScopeKey = "",
+	} = args;
+	const pageOffset = page?.offset;
+	const pageLimit = page?.limit;
+	const caseDataRevision = useCaseDataRevision(appId, caseType);
+	const replacementRevision = useCaseDataReplacementRevision(appId, caseType);
+	const ready = Boolean(appId && caseType);
+	/* Query edits within one case type deliberately keep settled rows visible,
+	 * but an app/case-type change is an identity boundary. Keep that identity
+	 * beside the result so the render that precedes the refetch effect can never
+	 * project old rows through the new module's columns or row actions. */
+	const requestIdentity = ready
+		? `${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}`
+		: "";
+	const reloadToken = useMemo(
+		() => [
+			requestIdentity,
+			caseListConfig,
+			inputValues,
+			excludedOwnerIdsExpression,
+			caseTypes,
+			caseDataRevision,
+		],
+		[
+			requestIdentity,
+			caseListConfig,
+			inputValues,
+			excludedOwnerIdsExpression,
+			caseTypes,
+			caseDataRevision,
+		],
+	);
+	interface KeyedCasesState {
+		readonly kind: "cases";
+		readonly key: string;
+		readonly value: LoadingState<LoadCasesResult>;
+	}
+	const resource = useReloadableResource<KeyedCasesState>({
 		prepare: () =>
 			!appId || !caseType
-				? { notReady: { kind: "idle" } }
+				? {
+						notReady: {
+							kind: "cases",
+							key: "",
+							value: { kind: "idle" },
+						},
+					}
 				: {
-						fetch: () =>
-							loadCasesAction({
+						fetch: async () => ({
+							kind: "cases" as const,
+							key: requestIdentity,
+							value: await loadCasesAction({
 								appId,
 								caseType,
 								caseListConfig,
@@ -115,24 +191,134 @@ export function useCases(args: {
 								inputValues: inputValues
 									? searchInputValuesToWire(inputValues)
 									: undefined,
+								excludedOwnerIdsExpression,
+								page:
+									pageOffset === undefined || pageLimit === undefined
+										? undefined
+										: { offset: pageOffset, limit: pageLimit },
+								viewerTimeZone: viewerTimeZone(),
 							}),
+						}),
 					},
-		loading: { kind: "loading" },
+		loading: {
+			kind: "cases",
+			key: requestIdentity,
+			value: { kind: "loading" },
+		},
 		toError: (err) => ({
-			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to load cases.",
+			kind: "cases",
+			key: requestIdentity,
+			value: {
+				kind: "error",
+				message: err instanceof Error ? err.message : "Failed to load cases.",
+			},
 		}),
-		keepStale: (prev) => prev.kind === "rows" || prev.kind === "empty",
-		deps: [appId, caseType, caseListConfig, inputValues, caseTypes],
+		keepStale: (prev) =>
+			prev.key === requestIdentity &&
+			(prev.value.kind === "rows" || prev.value.kind === "empty"),
+		reloadToken,
 	});
+	const state: LoadingState<LoadCasesResult> = !ready
+		? { kind: "idle" }
+		: resource.state.key === requestIdentity
+			? resource.state.value
+			: { kind: "loading" };
+	const queryConstraintSource =
+		state.kind === "rows" || state.kind === "empty"
+			? (state.constraintSource ?? "unknown")
+			: "unconstrained";
+	return {
+		state,
+		fetching: resource.fetching,
+		reload: resource.reload,
+		queryConstraintSource,
+	};
+}
+
+/**
+ * Subscribe to the complete, unfiltered population size for one case type.
+ * Unlike a Results query, this count never carries the module's authored
+ * filter, so the case-data manager can safely distinguish "no cases exist"
+ * from "no cases match this view."
+ */
+export function useCaseCount(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): {
+	state: LoadingState<LoadCaseCountResult>;
+	fetching: boolean;
+	reload: () => Promise<void>;
+} {
+	const { appId, caseType } = args;
+	const caseDataRevision = useCaseDataRevision(appId, caseType);
+	const ready = Boolean(appId && caseType);
+	const requestIdentity = ready ? `${appId}\u0000${caseType}` : "";
+	const reloadToken = useMemo(
+		() => [requestIdentity, caseDataRevision],
+		[requestIdentity, caseDataRevision],
+	);
+	interface KeyedCaseCountState {
+		readonly kind: "case-count";
+		readonly key: string;
+		readonly value: LoadingState<LoadCaseCountResult>;
+	}
+	const resource = useReloadableResource<KeyedCaseCountState>({
+		prepare: () =>
+			!appId || !caseType
+				? {
+						notReady: {
+							kind: "case-count",
+							key: "",
+							value: { kind: "idle" },
+						},
+					}
+				: {
+						fetch: async () => ({
+							kind: "case-count" as const,
+							key: requestIdentity,
+							value: await loadCaseCountAction({ appId, caseType }),
+						}),
+					},
+		loading: {
+			kind: "case-count",
+			key: requestIdentity,
+			value: { kind: "loading" },
+		},
+		toError: (err) => ({
+			kind: "case-count",
+			key: requestIdentity,
+			value: {
+				kind: "error",
+				message: err instanceof Error ? err.message : "Failed to count cases.",
+			},
+		}),
+		keepStale: (prev) =>
+			prev.key === requestIdentity && prev.value.kind === "count",
+		reloadToken,
+	});
+	return {
+		state: !ready
+			? { kind: "idle" }
+			: resource.state.key === requestIdentity
+				? resource.state.value
+				: { kind: "loading" },
+		fetching: resource.fetching,
+		reload: resource.reload,
+	};
 }
 
 /**
  * Subscribe to a single case row — plus its ancestor chain, walked
- * server-side — for case-loading forms. `idle` for any undefined id
+ * server-side — for case-loading forms and canonical Details URLs. `idle` for any undefined id
  * (URL not yet parsed; registration / survey /
  * followup-without-case) — `idle` reads cleaner than `loading`
  * because the action is simply not applicable.
+ *
+ * A Details caller supplies `caseListConfig` and the live `caseTypes`
+ * catalog to request calculated display projections for this one row.
+ * Form callers omit them. Projection references are part of the keyed
+ * result identity so a live config/catalog edit cannot render an older
+ * calculated map for one frame while the replacement read starts.
  */
 export function useCaseData(args: {
 	appId: string | undefined;
@@ -142,38 +328,96 @@ export function useCaseData(args: {
 	 *  `reachableCaseTypes(...).length - 1`. Bounds the server-side
 	 *  ancestor walk. */
 	ancestorDepth: number;
-}): { state: LoadingState<LoadCaseDataResult> } {
-	const { appId, caseType, caseId, ancestorDepth } = args;
-	const [state, setState] = useState<LoadingState<LoadCaseDataResult>>({
-		kind: "idle",
+	/** Optional one-row display projection for canonical Details URLs. */
+	caseListConfig?: CaseListConfig;
+	/** Live compiler catalog paired with `caseListConfig`. */
+	caseTypes?: readonly CaseType[];
+}): {
+	state: LoadingState<LoadCaseDataResult>;
+	reload: () => Promise<void>;
+} {
+	const { appId, caseType, caseId, ancestorDepth, caseListConfig, caseTypes } =
+		args;
+	const caseDataRevision = useCaseDataRevision(appId, caseType);
+	const ready = Boolean(appId && caseType && caseId);
+	/* Keep the request identity beside its result. A dependency change renders
+	 * before this hook's effect can set `loading`; returning a row from the prior
+	 * case/revision for that one render would let a case-loading form submit an
+	 * identity that has already been replaced. */
+	const requestKey = ready
+		? `${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${caseDataRevision}`
+		: "";
+	const reloadToken = useMemo(
+		() => [requestKey, caseListConfig, caseTypes],
+		[requestKey, caseListConfig, caseTypes],
+	);
+	interface KeyedCaseDataState {
+		readonly kind: "case-data";
+		readonly key: string;
+		readonly caseListConfig: CaseListConfig | undefined;
+		readonly caseTypes: readonly CaseType[] | undefined;
+		readonly value: LoadingState<LoadCaseDataResult>;
+	}
+	const resource = useReloadableResource<KeyedCaseDataState>({
+		prepare: () =>
+			!appId || !caseType || !caseId
+				? {
+						notReady: {
+							kind: "case-data",
+							key: "",
+							caseListConfig,
+							caseTypes,
+							value: { kind: "idle" },
+						},
+					}
+				: {
+						fetch: async () => ({
+							kind: "case-data" as const,
+							key: requestKey,
+							caseListConfig,
+							caseTypes,
+							value: await loadCaseDataAction(
+								appId,
+								caseType,
+								caseId,
+								ancestorDepth,
+								caseListConfig,
+								caseTypes,
+								viewerTimeZone(),
+							),
+						}),
+					},
+		loading: {
+			kind: "case-data",
+			key: requestKey,
+			caseListConfig,
+			caseTypes,
+			value: { kind: "loading" },
+		},
+		toError: (err) => ({
+			kind: "case-data",
+			key: requestKey,
+			caseListConfig,
+			caseTypes,
+			value: {
+				kind: "error",
+				message: err instanceof Error ? err.message : "Failed to load case.",
+			},
+		}),
+		keepStale: () => false,
+		reloadToken,
 	});
 
-	useEffect(() => {
-		if (!appId || !caseType || !caseId) {
-			setState({ kind: "idle" });
-			return;
-		}
-		let cancelled = false;
-		setState({ kind: "loading" });
-		/* See `useCases` for the wire-rejection rationale. */
-		loadCaseDataAction(appId, caseType, caseId, ancestorDepth)
-			.then((result) => {
-				if (cancelled) return;
-				setState(result);
-			})
-			.catch((err: unknown) => {
-				if (cancelled) return;
-				setState({
-					kind: "error",
-					message: err instanceof Error ? err.message : "Failed to load case.",
-				});
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [appId, caseType, caseId, ancestorDepth]);
-
-	return { state };
+	if (!ready) return { state: { kind: "idle" }, reload: resource.reload };
+	return {
+		state:
+			resource.state.key === requestKey &&
+			resource.state.caseListConfig === caseListConfig &&
+			resource.state.caseTypes === caseTypes
+				? resource.state.value
+				: { kind: "loading" },
+		reload: resource.reload,
+	};
 }
 
 /**
@@ -199,7 +443,9 @@ export function usePopulateSampleCases(args: {
 				message: "App or case type not yet available.",
 			};
 		}
-		return populateSampleCasesAction(appId, caseType);
+		const result = await populateSampleCasesAction(appId, caseType);
+		if (result.kind === "ok") invalidateCaseData(appId, caseType.name);
+		return result;
 	};
 }
 
@@ -229,6 +475,9 @@ export function useResetSampleCases(args: {
 				message: "App or case type not yet available.",
 			};
 		}
-		return resetSampleCasesAction(appId, caseType);
+		const result = await resetSampleCasesAction(appId, caseType);
+		if (result.kind === "ok")
+			invalidateCaseData(appId, caseType.name, "replacement");
+		return result;
 	};
 }

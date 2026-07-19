@@ -46,7 +46,8 @@
 // plays the role of the superuser provisioning; `runCaseStoreMigrations`
 // plays the role of the per-deploy migration Job.
 
-import type { Kysely } from "kysely";
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Pool } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
 	BlueprintDoc,
@@ -57,7 +58,7 @@ import type {
 import { casePropertyDataTypes } from "@/lib/domain";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";
-import { CasePropertiesValidationError } from "../../errors";
+import { CaseNotFoundError, CasePropertiesValidationError } from "../../errors";
 import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { POSTGRES_CAST_FOR_DATA_TYPE } from "../../sql";
@@ -1930,6 +1931,214 @@ describe("PostgresCaseStore — creation stamps", () => {
 // validation rejects.
 
 describe("PostgresCaseStore — resetSampleData atomicity", () => {
+	it("preserves surviving children while detaching every edge to replaced parents", async () => {
+		const householdType: CaseType = {
+			name: "household",
+			properties: [],
+		};
+		const patientType: CaseType = {
+			name: "patient",
+			parent_type: "household",
+			properties: [],
+		};
+		const schemas = buildCaseTypeMap(
+			buildSimpleBlueprint([householdType, patientType], APP_ID),
+		);
+		const store = makeStore(OWNER_A);
+		for (const caseType of [householdType, patientType]) {
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: caseType.name,
+				caseTypeSchemas: schemas,
+			});
+		}
+
+		const oldParentId = "70000000-0000-0000-0000-000000000001";
+		const childId = "70000000-0000-0000-0000-000000000002";
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: oldParentId,
+				case_type: "household",
+				case_name: "Old household",
+				status: "open",
+				properties: {},
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: childId,
+				case_type: "patient",
+				case_name: "Surviving child",
+				status: "open",
+				parent_case_id: oldParentId,
+				properties: {},
+			},
+		});
+
+		await store.resetSampleData({
+			appId: APP_ID,
+			caseType: householdType,
+			count: 1,
+		});
+
+		const [child] = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(child?.case_id).toBe(childId);
+		expect(child?.parent_case_id).toBeNull();
+		const edges = await (dbHandle.db as unknown as Kysely<Database>)
+			.selectFrom("case_indices")
+			.selectAll()
+			.execute();
+		expect(edges).toEqual([]);
+	});
+
+	it("serializes a concurrent child insert and rejects its deleted parent after reset", async () => {
+		const householdType: CaseType = {
+			name: "household",
+			properties: [],
+		};
+		const patientType: CaseType = {
+			name: "patient",
+			parent_type: "household",
+			properties: [],
+		};
+		const schemas = buildCaseTypeMap(
+			buildSimpleBlueprint([householdType, patientType], APP_ID),
+		);
+		const seedingStore = makeStore(OWNER_A);
+		for (const caseType of [householdType, patientType]) {
+			await seedingStore.applySchemaChange({
+				appId: APP_ID,
+				caseType: caseType.name,
+				caseTypeSchemas: schemas,
+			});
+		}
+
+		const oldParentId = "71000000-0000-0000-0000-000000000001";
+		await seedingStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: oldParentId,
+				case_type: "household",
+				case_name: "Parent being replaced",
+				status: "open",
+				properties: {},
+			},
+		});
+
+		/* Hold reset inside its DELETE trigger after it has acquired the
+		 * production relationship lock. This makes the racing child insert
+		 * deterministic: it must queue behind reset, then re-check the parent
+		 * only after the old id has disappeared. */
+		const resetGate = 912_407_311;
+		await dbHandle.pool.query(`
+			CREATE FUNCTION wait_on_case_reset_gate() RETURNS trigger AS $$
+			BEGIN
+				PERFORM pg_advisory_xact_lock(${resetGate});
+				RETURN OLD;
+			END;
+			$$ LANGUAGE plpgsql;
+			CREATE TRIGGER wait_on_case_reset_gate_trigger
+			BEFORE DELETE ON cases
+			FOR EACH ROW WHEN (OLD.case_type = 'household')
+			EXECUTE FUNCTION wait_on_case_reset_gate();
+		`);
+
+		const concurrentPool = new Pool({
+			connectionString: dbHandle.uri,
+			max: 4,
+		});
+		concurrentPool.on("error", () => {});
+		const concurrentDb = new Kysely<Database>({
+			dialect: new PostgresDialect({
+				pool: concurrentPool as unknown as PostgresPool,
+			}),
+		});
+		const resetStore = new PostgresCaseStore({
+			projectId: OWNER_A,
+			actorUserId: OWNER_A,
+			db: concurrentDb,
+			sampleGenerator: new HeuristicCaseGenerator(),
+		});
+		const childStore = new PostgresCaseStore({
+			projectId: OWNER_A,
+			actorUserId: OWNER_A,
+			db: concurrentDb,
+			sampleGenerator: new HeuristicCaseGenerator(),
+		});
+		const gateClient = await concurrentPool.connect();
+		let gateHeld = false;
+		try {
+			await gateClient.query("select pg_advisory_lock($1)", [resetGate]);
+			gateHeld = true;
+			const resetPromise = resetStore.resetSampleData({
+				appId: APP_ID,
+				caseType: householdType,
+				count: 1,
+			});
+
+			const waitForAdvisoryWaiters = async (minimum: number) => {
+				const deadline = Date.now() + 5_000;
+				while (Date.now() < deadline) {
+					const result = await concurrentPool.query<{ count: number }>(`
+						SELECT count(*)::int AS count
+						FROM pg_locks
+						WHERE locktype = 'advisory'
+							AND NOT granted
+							AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+					`);
+					if ((result.rows[0]?.count ?? 0) >= minimum) return;
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				}
+				throw new Error(`Timed out waiting for ${minimum} advisory waiter(s)`);
+			};
+
+			await waitForAdvisoryWaiters(1);
+			const childPromise = childStore
+				.insert({
+					appId: APP_ID,
+					row: {
+						case_type: "patient",
+						case_name: "Racing child",
+						status: "open",
+						parent_case_id: oldParentId,
+						properties: {},
+					},
+				})
+				.then(
+					() => ({ error: undefined }),
+					(error: unknown) => ({ error }),
+				);
+			await waitForAdvisoryWaiters(2);
+			await gateClient.query("select pg_advisory_unlock($1)", [resetGate]);
+			gateHeld = false;
+
+			await resetPromise;
+			const childResult = await childPromise;
+			expect(childResult.error).toBeInstanceOf(CaseNotFoundError);
+			const children = await seedingStore.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(children).toEqual([]);
+			const dangling = await dbHandle.pool.query(
+				"select 1 from case_indices where ancestor_id = $1",
+				[oldParentId],
+			);
+			expect(dangling.rowCount).toBe(0);
+		} finally {
+			if (gateHeld) {
+				await gateClient.query("select pg_advisory_unlock($1)", [resetGate]);
+			}
+			gateClient.release();
+			await concurrentDb.destroy();
+		}
+	});
+
 	it("rolls back the deletion alongside the failed regeneration so the pre-call population is preserved", async () => {
 		// Phase 1: seed the case-type with a clean population using
 		// the heuristic generator.

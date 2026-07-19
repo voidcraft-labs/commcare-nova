@@ -37,11 +37,13 @@
 //     `commcare-hq/corehq/apps/app_manager/tests/data/suite/normal-suite.xml::<detail id="m0_case_long">`'s
 //     phone field.
 //
-// Position counter convention: the 1-based position passed to the
-// per-column header-locale composer is the column's source-array
-// index plus one. The visibility filter affects which fields render,
-// not their position numbers — toggling `visibleInDetail` doesn't
-// churn locale ids. Mirrors CCHQ's
+// Fields walk independent Details order (`detailOrder ?? order`, then uuid),
+// so rearranging Results cannot disturb the confirmation screen. Position
+// counter convention: the 1-based position passed to the per-column header-
+// locale composer is the column's index in the complete Details-ordered source
+// sequence plus one. The visibility filter affects which fields render, not
+// their position numbers — toggling `visibleInDetail` doesn't churn locale ids.
+// Mirrors CCHQ's
 // `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
 // `column.id`-keyed numbering convention.
 //
@@ -56,8 +58,13 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import { bySortKey } from "@/lib/doc/order/compare";
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import { byDetailColumnOrder } from "@/lib/doc/order/compare";
+import {
+	type BlueprintDoc,
+	effectiveCaseTypes,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildColumnField } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
@@ -127,24 +134,28 @@ export function buildLongDetail(args: {
 	}
 
 	const config = mod.caseListConfig;
+	const caseProperties =
+		effectiveCaseTypes(args.doc).find((type) => type.name === mod.caseType)
+			?.properties ?? [];
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
 		target,
+		caseProperties,
+		caseTypes: effectiveCaseTypes(args.doc),
+		currentCaseType: mod.caseType,
 		...(args.assets && { assets: args.assets }),
 	};
 
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
 
-	// Walk every column in DISPLAY order (`sort-by-(order, uuid)`, not array
-	// position). Position is 1-based against that sequence; the SAME sort runs
-	// in `shortDetail` + `sortKeys`, so the per-column index — and the
-	// header-locale suffix it keys (CCHQ's
-	// `id_strings.py::detail_column_header_locale`) — is consistent across the
-	// three emitters.
-	const sortedColumns = [...config.columns].sort(bySortKey);
+	// Walk every column in Details order (`detailOrder ?? order`, then uuid),
+	// independently of Results. Position is 1-based against the complete long-
+	// detail sequence, including fields hidden from this surface, because CCHQ's
+	// header-locale suffix keys off the column's position in that array.
+	const sortedColumns = [...config.columns].sort(byDetailColumnOrder);
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		// Visibility filter: absent slot ≡ visible. The schema

@@ -21,6 +21,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	byDetailColumnOrder,
+	byListColumnOrder,
+	bySortKey,
+} from "@/lib/doc/order/compare";
+import {
 	asUuid,
 	type BlueprintDoc,
 	type Module,
@@ -184,6 +189,61 @@ describe("addCaseListColumns", () => {
 		expect(final?.columns).toHaveLength(2);
 		expect(final?.columns[0]).toEqual(existing);
 		expect(final?.columns[1]?.kind).toBe("phone");
+	});
+
+	it("appends after independently arranged Results and Details", async () => {
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const first = {
+			...plainColumn(
+				asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+				"first",
+				"First",
+				{ listOrder: "z", detailOrder: "a" },
+			),
+			order: "a",
+		};
+		const second = {
+			...plainColumn(
+				asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+				"second",
+				"Second",
+				{ listOrder: "a", detailOrder: "z" },
+			),
+			order: "b",
+		};
+		const docWithConfig: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...baseDoc.modules[MOD_A],
+					caseListConfig: {
+						columns: [first, second],
+						searchInputs: [],
+					},
+				},
+			},
+		};
+
+		const result = await addCaseListColumnsTool.execute(
+			{
+				moduleIndex: 0,
+				columns: [{ kind: "phone", field: "phone", header: "Phone" }],
+			},
+			ctx,
+			docWithConfig,
+		);
+		const columns = result.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
+		const added = columns.find(
+			(column) => column.uuid !== first.uuid && column.uuid !== second.uuid,
+		);
+
+		expect([...columns].sort(bySortKey).at(-1)?.uuid).toBe(added?.uuid);
+		expect([...columns].sort(byListColumnOrder).at(-1)?.uuid).toBe(added?.uuid);
+		expect([...columns].sort(byDetailColumnOrder).at(-1)?.uuid).toBe(
+			added?.uuid,
+		);
+		expect(added?.listOrder).toBeTruthy();
+		expect(added?.detailOrder).toBeTruthy();
 	});
 
 	it("round-trips every Column kind without corruption", async () => {

@@ -59,7 +59,9 @@
  *
  * Slots in scope (verified by reading the CSQL wire emitters):
  *
- *   - `caseListConfig.filter` — composed into `_xpath_query`.
+ *   - `caseListConfig.filter` — composed into `_xpath_query` only when case
+ *     search is enabled. An ordinary case list uses this predicate solely in
+ *     on-device XPath and is not subject to CCHQ's server grammar restriction.
  *   - `caseListConfig.searchInputs[i].predicate` (advanced arm) —
  *     also composed into `_xpath_query`.
  *
@@ -69,14 +71,25 @@
  * evaluator which has no equivalent restriction.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveCaseSearchConfig,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type {
 	Predicate,
 	RelationPath,
+	TypeContext,
 	ValueExpression,
 } from "@/lib/domain/predicate";
-import { liftPropertyVias } from "../../../predicate";
+import {
+	normalizeRelationEvaluationScopes,
+	RelationEvaluationScopeError,
+} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import { normalizeRelationPropertyReads as liftPropertyVias } from "@/lib/domain/predicate/normalizeRelationReads";
 import { type ValidationError, validationError } from "../../errors";
+import { moduleTypeContext } from "./shared";
 
 type AncestorEnvelopeKind = "exists" | "missing";
 
@@ -98,13 +111,15 @@ interface NestedWalkFinding {
 export function ancestorExistsCannotNestSubcase(
 	mod: Module,
 	moduleUuid: Uuid,
-	_doc: BlueprintDoc,
+	doc: BlueprintDoc,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const ctx = moduleTypeContext(mod, doc);
+	if (effectiveCaseSearchConfig(mod) === undefined) return errors;
 
 	const filter = mod.caseListConfig?.filter;
 	if (filter !== undefined) {
-		const findings = scanPredicate(filter);
+		const findings = scanPredicate(filter, ctx);
 		for (const finding of findings) {
 			errors.push(
 				buildError({
@@ -122,7 +137,7 @@ export function ancestorExistsCannotNestSubcase(
 	for (let i = 0; i < inputs.length; i++) {
 		const input = inputs[i];
 		if (input.kind !== "advanced") continue;
-		const findings = scanPredicate(input.predicate);
+		const findings = scanPredicate(input.predicate, ctx);
 		for (const finding of findings) {
 			errors.push(
 				buildError({
@@ -151,23 +166,46 @@ export function ancestorExistsCannotNestSubcase(
  * level (sibling to an ancestor walk) is fine; only the nested case
  * trips the rule.
  */
-function scanPredicate(predicate: Predicate): NestedWalkFinding[] {
-	const lifted = liftPropertyVias(predicate);
+function scanPredicate(
+	predicate: Predicate,
+	ctx: TypeContext,
+): NestedWalkFinding[] {
+	let normalized: Predicate;
+	try {
+		normalized = normalizeRelationEvaluationScopes(predicate, ctx);
+	} catch (error) {
+		// The on-device/relation-scope compatibility rule owns the friendlier
+		// repair for mixed or unrebasable row scopes. Do not turn one authored
+		// problem into a second, less-specific nested-CSQL finding.
+		if (error instanceof RelationEvaluationScopeError) return [];
+		throw error;
+	}
+	const lifted = liftPropertyVias(normalized, {
+		caseTypes: ctx.caseTypes,
+		unsupportedPropertyOperands: "throw",
+	});
 	const findings: NestedWalkFinding[] = [];
 	walkOuter(lifted, findings);
 	return findings;
 }
 
 /**
- * Outer walker — descends until it enters an ancestor `exists` /
- * `missing` envelope, then hands off to `walkInsideAncestor` to
- * scan the envelope's filter for subcase walks.
+ * Outer walker — descends until it enters an ancestor-bearing `exists` /
+ * `missing` envelope, then hands off to `walkInsideAncestor` to scan the
+ * envelope's filter for subcase walks. Any `any-relation` that remains after
+ * shared canonicalization counts as ancestor-bearing because the CSQL emitter
+ * expands it to an ancestor arm OR a subcase arm. Canonical `parent` walks with
+ * one graph-proven direction have already become `ancestor` or `subcase`, so
+ * this does not reject a child-only predicate because of an impossible arm.
  */
 function walkOuter(p: Predicate, findings: NestedWalkFinding[]): void {
 	switch (p.kind) {
 		case "exists":
 		case "missing": {
-			if (p.via.kind === "ancestor" && p.where !== undefined) {
+			if (
+				(p.via.kind === "ancestor" || p.via.kind === "any-relation") &&
+				p.where !== undefined
+			) {
 				// Scan the filter for any subcase walk. Recurse into
 				// nested ancestor envelopes too — a deeper level might
 				// re-enter this branch and surface its own nested-walk
@@ -368,14 +406,12 @@ function scanExpressionInsideAncestor(
 }
 
 /**
- * `liftPropertyVias` expands `any-relation` into
- * `or(exists(ancestor), exists(subcase))`, so by the time the AST
- * reaches this walker every envelope's `via` is either `ancestor`,
- * `subcase`, or `self`. `self` envelopes have no wire form and never
- * reach the CSQL emitter — they're noise here.
+ * CSQL expands `any-relation` into ancestor and subcase arms at emission time,
+ * so it contains a forbidden subcase direction whenever it appears inside an
+ * ancestor filter even though the domain AST still carries one envelope.
  */
 function isSubcaseDirection(via: RelationPath): boolean {
-	return via.kind === "subcase";
+	return via.kind === "subcase" || via.kind === "any-relation";
 }
 
 function buildError(args: {
@@ -394,7 +430,7 @@ function buildError(args: {
 	return validationError(
 		"CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK",
 		"module",
-		`Module "${mod.name}" has ${outerVerb} wrapping ${innerVerb} in ${slot}. CCHQ's CSQL evaluator rejects cross-direction relation walks nested inside an ancestor walk — when the search request runs, the server raises an XPath error rather than returning results. Open ${adviceSlotName} and either restructure the predicate so the ancestor and child walks are siblings rather than nested (AND-composed at the top level), or move one of the walks to a separate advanced search input so each walk lands in its own _xpath_query slot.`,
+		`Module "${mod.name}" has ${outerVerb} wrapping ${innerVerb} in ${slot}. CommCare's server cannot run a child-case lookup from inside an ancestor lookup. Open ${adviceSlotName} and make the ancestor and child checks separate top-level conditions when that matches your intent. If the child truly belongs to the ancestor, save the needed value on the listed case during data collection and filter that value directly.`,
 		{ moduleUuid, moduleName: mod.name },
 		{
 			slot,

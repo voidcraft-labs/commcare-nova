@@ -82,6 +82,23 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig?.filter).toEqual(filter);
 	});
 
+	it("persists Nova's canonical standard-property names", async () => {
+		const { doc, ctx } = docWithConfig();
+		const filter = eq(prop("patient", "name"), literal("Ada"));
+
+		const result = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter },
+			ctx,
+			doc,
+		);
+
+		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.filter).toEqual(
+			eq(prop("patient", "case_name"), literal("Ada")),
+		);
+		// Tool normalization must not rewrite its caller's object in place.
+		expect(filter).toEqual(eq(prop("patient", "name"), literal("Ada")));
+	});
+
 	it("surfaces the predicate kind in the structured result on a set", async () => {
 		// Mirrors the atomic-op family's `{ message, uuid }` contract:
 		// the SA reads the predicate's discriminator off `result.kind`
@@ -134,6 +151,41 @@ describe("setCaseListFilter", () => {
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
+		expect(result.result.kind).toBe("cleared");
+	});
+
+	it("keeps an intentional zero-input Search action when its availability rule is cleared", async () => {
+		const { doc: baseDoc, ctx } = docWithConfig();
+		const doc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				...baseDoc.modules,
+				[MOD_A]: {
+					...baseDoc.modules[MOD_A],
+					caseListConfig: {
+						...(baseDoc.modules[MOD_A].caseListConfig ?? {
+							columns: [],
+							searchInputs: [],
+						}),
+						filter: eq(prop("patient", "status"), literal("active")),
+					},
+					caseSearchConfig: {},
+				},
+			},
+		};
+
+		const result = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter: null },
+			ctx,
+			doc,
+		);
+
+		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
+			"setCaseListMeta",
+		]);
+		expect(result.newDoc.modules[MOD_A].caseListConfig?.filter).toBeUndefined();
+		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toEqual({});
+		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.kind).toBe("cleared");
 	});
 
@@ -250,7 +302,7 @@ describe("setCaseListFilter", () => {
 		// (`caseListConfigWithName`), so a `setCaseListFilter` landing on a
 		// config-less module means a peer concurrently cleared the whole case
 		// list. The `setCaseListMeta` reducer edits an EXISTING config and no
-		// longer runs `ensureCaseListConfig`, so the config stays absent rather
+		// longer runs the semantic case-list ensure, so the config stays absent rather
 		// than reappearing empty-but-present with the filter stranded on it. The
 		// guarded commit turns this into a 409 reload (batchTargetsMissing); the
 		// tool's own reducer run just no-ops.
@@ -301,7 +353,7 @@ describe("setCaseListFilter", () => {
 	it("clearing (filter=null) on a config-less module is a no-op, not a config birth", async () => {
 		// The dual of the resurrection guard: clearing a filter on a module with
 		// no config must NOT materialize an empty config either. `setCaseListMeta`
-		// edits an existing config; absent → absent (no `ensureCaseListConfig`).
+		// edits an existing config; absent → absent (no semantic ensure).
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const baseMod = baseDoc.modules[MOD_A];
 		const docWithoutConfig: BlueprintDoc = {

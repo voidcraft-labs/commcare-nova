@@ -39,6 +39,19 @@
 export type WireDialect = "case-list-filter" | "csql" | "search-filter";
 
 /**
+ * Whether a compile-time string can be represented as one CSQL string
+ * literal without changing its bytes. CSQL accepts either quote delimiter but
+ * has no escape syntax (and does not whitelist `concat()` as a value
+ * function), so a value containing both delimiters has no faithful wire form.
+ *
+ * Exported so the authoring validator and the defensive emitter consult the
+ * same lexical predicate rather than maintaining parallel quote rules.
+ */
+export function isCsqlStringLiteralRepresentable(value: string): boolean {
+	return !(value.includes("'") && value.includes('"'));
+}
+
+/**
  * Compile a string value to its wire-form string literal for the
  * named dialect. Three branches:
  *
@@ -83,8 +96,7 @@ export function quoteLiteral(value: string, dialect: WireDialect): string {
 	const hasSingleQuote = value.includes("'");
 	if (!hasSingleQuote) return `'${value}'`;
 	if (dialect === "csql") {
-		const hasDoubleQuote = value.includes('"');
-		if (hasDoubleQuote) {
+		if (!isCsqlStringLiteralRepresentable(value)) {
 			throw new Error(
 				`stringQuoting: CSQL has no portable escape for a string literal containing both ' and ". Got: ${JSON.stringify(value)}.`,
 			);

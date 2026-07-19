@@ -211,3 +211,29 @@ export function keysForSlot(
 export function deriveKeyAtIndex(orderedKeys: string[], index: number): string {
 	return keysForSlot(orderedKeys, index, 1)[0];
 }
+
+/**
+ * The single fractional key for a direct move to `toIndex` among
+ * `siblingKeys` — the resolved order keys of the OTHER rows in display order,
+ * with the moved row already removed. A row that resolves no key contributes
+ * `undefined`.
+ *
+ * Hydration normally backfills every generic key, so each resolved key is
+ * present. Counting only the DEFINED keys before the requested slot is a
+ * defensive legacy fallback: a keyed row sorts ahead of a keyless one, so this
+ * lands the moved row at the closest representable slot without resequencing
+ * the keyless siblings. Both the Search-input and the Results/Details column
+ * move planners share this one edge-case home.
+ */
+export function plannedMoveSlotKey(
+	siblingKeys: readonly (string | undefined)[],
+	toIndex: number,
+): string {
+	const definedKeys = siblingKeys.filter(
+		(order): order is string => order !== undefined,
+	);
+	const keySlot = siblingKeys
+		.slice(0, toIndex)
+		.filter((order): order is string => order !== undefined).length;
+	return deriveKeyAtIndex(definedKeys, keySlot);
+}

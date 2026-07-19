@@ -2,10 +2,8 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import { useSampleData } from "@/components/builder/case-list-config/useSampleData";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
@@ -30,6 +28,7 @@ import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import { caseRowsToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -38,6 +37,8 @@ import {
 	useBuilderIsReady,
 	useCanEdit,
 	useEditMode,
+	useSetPreviewCaseTarget,
+	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
@@ -131,11 +132,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * (Distinct from the `canEdit` below, which is preview-vs-edit MODE.) */
 	const mayWriteCaseData = useCanEdit();
 	/* The MATERIALIZABLE view — the exact shape `case_type_schemas`
-	 * validates against. Submission coercion and sample-data
-	 * generation both feed real row writes, so both must agree with
-	 * the insert schema's writer-DERIVED property types; the raw
-	 * catalog would coerce a derived-int value as text and fail AJV
-	 * at the write. */
+	 * validates against. Submission coercion must agree with the insert
+	 * schema's writer-derived property types. */
 	const caseTypes = useMaterializableCaseTypes();
 
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
@@ -162,11 +160,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const autoCases = useCases({
 		appId,
 		caseType: autoSelectCase ? mod?.caseType : undefined,
-	});
-	const { generate: autoGenerate } = useSampleData({
-		appId: appId ?? "",
-		caseType: caseTypes.find((ct) => ct.name === mod?.caseType),
-		onDone: autoCases.reload,
+		requestScopeKey: `${moduleUuid ?? ""}\u0000${formUuid ?? ""}`,
 	});
 	const autoRow =
 		autoSelectCase && autoCases.state.kind === "rows"
@@ -177,6 +171,27 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  directly-previewed case-loading form behaves exactly like one reached
 	 *  through the case list. */
 	const effectiveCaseId = caseId ?? autoRow?.case_id;
+	const replacementRevision = useCaseDataReplacementRevision(
+		appId,
+		mod?.caseType,
+	);
+	/* A form retained by Activity may outlive the case population it was
+	 * opened from. Associate the replacement revision with the current case
+	 * identity; a new selection establishes a new baseline, while a replacement
+	 * of the SAME identity invalidates it synchronously on the next render. */
+	const bindingRevisionRef = useRef({
+		caseId: effectiveCaseId,
+		revision: replacementRevision,
+	});
+	if (bindingRevisionRef.current.caseId !== effectiveCaseId) {
+		bindingRevisionRef.current = {
+			caseId: effectiveCaseId,
+			revision: replacementRevision,
+		};
+	}
+	const caseBindingReplaced =
+		effectiveCaseId !== undefined &&
+		bindingRevisionRef.current.revision !== replacementRevision;
 
 	/* The form's readable case-type chain — which `#<type>/<prop>`
 	 * namespace binds to which parent-hop depth, and how deep the
@@ -279,6 +294,46 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const [submitStatus, setSubmitStatus] = useState<SubmitStatus>({
 		kind: "idle",
 	});
+	const setPreviewCaseTarget = useSetPreviewCaseTarget();
+	const setPreviewSelectedCase = useSetPreviewSelectedCase();
+
+	/* Replacing all rows destroys the identity this navigation frame carries.
+	 * Leave the stale form with `replace` (so browser Back cannot re-enter it),
+	 * but preserve the destination form as the Results screen's continue target.
+	 * The render-time `caseBindingReplaced` guard disables Submit before this
+	 * effect runs. */
+	useEffect(() => {
+		if (
+			!caseBindingReplaced ||
+			caseId === undefined ||
+			!moduleUuid ||
+			!formUuid
+		)
+			return;
+		setSubmitStatus({ kind: "idle" });
+		setPreviewSelectedCase(undefined);
+		setPreviewCaseTarget({ formUuid });
+		navigate.replace({ kind: "cases", moduleUuid });
+	}, [
+		caseBindingReplaced,
+		caseId,
+		moduleUuid,
+		formUuid,
+		navigate,
+		setPreviewCaseTarget,
+		setPreviewSelectedCase,
+	]);
+
+	const needsBoundCase =
+		mode === "preview" &&
+		form !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(form.type);
+	const caseBindingReady =
+		!needsBoundCase ||
+		(effectiveCaseId !== undefined &&
+			!caseBindingReplaced &&
+			caseDataState.kind === "row" &&
+			caseDataState.row.case_id === effectiveCaseId);
 
 	const dispatchPostSubmit = useCallback((): void => {
 		if (!form) return;
@@ -328,6 +383,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 *   2. A second submit after a server error must replace, not
 		 *      augment — the alert always reflects the latest attempt. */
 		setSubmitStatus({ kind: "idle" });
+
+		/* This repeats the disabled-button condition at the mutation boundary.
+		 * A queued click or stale event handler must never submit after a case-data
+		 * replacement, while the row is reloading, or after it resolved missing. */
+		if (!caseBindingReady) {
+			setSubmitStatus({
+				kind: "error",
+				message:
+					"This case is no longer available. Return to Results and choose a case.",
+			});
+			return;
+		}
 
 		const valid = controller.validateAll();
 		if (!valid) {
@@ -437,14 +504,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * (that multi-stage flash is the antithesis of the flipbook). The only
 	 * thing a directly-previewed case-loading form gates on a bound case is
 	 * the submit action — `computeSubmissionMutation` needs the caseId — so
-	 * `caseMissing` drives the submit row below, not the whole screen. When
-	 * the store is genuinely empty, the submit row offers the same Generate
-	 * Sample Data affordance the case list uses, in place, so a case can be
-	 * created and its data flips straight into the standing form. */
-	const caseMissing =
-		mode === "preview" &&
-		CASE_LOADING_FORM_TYPES.has(form.type) &&
-		effectiveCaseId === undefined;
+	 * `caseMissing` drives the submit row below, not the whole screen. */
+	const caseMissing = needsBoundCase && effectiveCaseId === undefined;
 	const noSampleCases = caseMissing && autoCases.state.kind === "empty";
 
 	const canEdit = mode === "edit" && editable;
@@ -465,6 +526,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					{canEdit ? (
 						<EditableTitle
 							value={form.name}
+							ariaLabel="Form name"
 							/* Forward the gated dispatch's outcome — a refused rename
 							 * keeps the editor open with the draft and surfaces the
 							 * finding inline; the saved checkmark only fires on a
@@ -474,7 +536,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							}
 						/>
 					) : (
-						<EditableTitle value={form.name} readOnly />
+						<EditableTitle value={form.name} readOnly ariaLabel="Form name" />
 					)}
 					{canEdit && (
 						<FormSettingsButton
@@ -501,41 +563,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			{mode === "preview" && (
 				<div className="border-t border-pv-input-border bg-pv-surface">
 					{noSampleCases ? (
-						/* No case to load into this case-loading form — offer to
-						 *  generate sample data right here, so the standing form's
-						 *  fields fill in once a case exists rather than bouncing
-						 *  the user away to make one. */
-						<div className="flex items-center gap-3 px-6 py-3">
-							<span className="flex-1 min-w-0 text-xs text-nova-text-muted">
-								This form opens an existing case — generate sample data to try
-								it.
-							</span>
-							<button
-								type="button"
-								onClick={autoGenerate.run}
-								disabled={
-									autoGenerate.status.kind === "running" || !mayWriteCaseData
-								}
-								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white not-disabled:hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-							>
-								<Icon
-									icon={
-										autoGenerate.status.kind === "running"
-											? tablerLoader2
-											: tablerSparkles
-									}
-									width="14"
-									height="14"
-									className={
-										autoGenerate.status.kind === "running"
-											? "animate-spin"
-											: undefined
-									}
-								/>
-								{autoGenerate.status.kind === "running"
-									? "Generating…"
-									: "Generate Sample Data"}
-							</button>
+						<div className="px-6 py-4 text-xs leading-relaxed text-nova-text-muted">
+							This form opens an existing case. Start from Results and choose a
+							case before continuing.
 						</div>
 					) : (
 						<div className="flex items-center justify-between px-6 py-3">
@@ -544,7 +574,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 								onClick={handleSubmit}
 								disabled={
 									submitStatus.kind === "running" ||
-									caseMissing ||
+									!caseBindingReady ||
 									!mayWriteCaseData
 								}
 								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white not-disabled:hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
@@ -582,14 +612,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							className="px-6 pb-3 text-sm text-nova-rose whitespace-pre-line"
 						>
 							{submitStatus.message}
-						</p>
-					)}
-					{noSampleCases && autoGenerate.status.kind === "error" && (
-						<p
-							role="alert"
-							className="px-6 pb-3 text-sm text-nova-rose whitespace-pre-line"
-						>
-							{autoGenerate.status.message}
 						</p>
 					)}
 				</div>

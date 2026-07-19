@@ -24,6 +24,7 @@ import { asUuid } from "@/lib/doc/types";
 import type { Location } from "@/lib/routing/types";
 
 const MODULE_UUID = asUuid("mod-1");
+const setPreviewingMock = vi.fn();
 
 // Mutable location state so the test can flip between module and
 // cases URLs without remounting the provider. `useLocation` is
@@ -77,16 +78,15 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "edit" as const,
 		useAppId: () => "app-integration-test",
 		useBuilderIsReady: () => true,
+		useSetPreviewing: () => setPreviewingMock,
 		usePreviewCaseTarget: () => undefined,
 		useSetPreviewCaseTarget: () => vi.fn(),
 	};
 });
 
-// Stub the case-store Server Actions the workspace's live preview
-// fires on mount — a vitest render has no session or case store.
-// The empty arm exercises the canvas's no-data notice path.
+// The filter inspector imports the authoring query module even when closed, so
+// keep its action inert in this routing test.
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
-	loadCaseListPreviewAction: vi.fn(async () => ({ kind: "empty" as const })),
 	loadFilterPreviewAction: vi.fn(async () => ({ kind: "empty" as const })),
 }));
 
@@ -154,38 +154,31 @@ describe("PreviewShell — case-list-authoring integration", () => {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
 		};
-		// The real workspace fires `loadCaseListPreviewAction` (stubbed) in a
-		// mount effect; its resolution sets state after the synchronous
-		// render. Render inside `act(async)` so that settle happens in scope —
-		// otherwise React warns the update was not wrapped in act(...).
 		await act(async () => {
 			renderShell();
 		});
 
 		// The three config tabs are present…
 		expect(screen.getByRole("button", { name: /Search/ })).toBeDefined();
-		expect(screen.getByRole("button", { name: /Case List/ })).toBeDefined();
-		expect(screen.getByRole("button", { name: /Case Detail/ })).toBeDefined();
+		expect(screen.getByRole("button", { name: "Results" })).toBeDefined();
+		expect(screen.getByRole("button", { name: "Details" })).toBeDefined();
 		// …the workspace carries no Preview button of its own (the
 		// global toggle lives in the subheader, outside PreviewShell)…
 		expect(screen.queryByRole("button", { name: /Preview/ })).toBeNull();
-		// …and the case-list canvas renders the module name as the
-		// artifact's title.
-		expect(screen.getByText("Patient module")).toBeDefined();
+		// …and the direct-composition Results canvas is active.
+		expect(screen.getByRole("heading", { name: "Results" })).toBeDefined();
 	});
 
-	it("the Case Detail tab fires navigate.openDetailConfig", async () => {
+	it("the Details tab fires navigate.openDetailConfig", async () => {
 		currentLocation = {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
 		};
 		navigateMock.openDetailConfig.mockClear();
-		// Settle the mount-effect preview load inside act() before
-		// interacting — see the sibling test above.
 		await act(async () => {
 			renderShell();
 		});
-		fireEvent.click(screen.getByRole("button", { name: /Case Detail/ }));
+		fireEvent.click(screen.getByRole("button", { name: "Details" }));
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledOnce();
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledWith(MODULE_UUID);
 	});

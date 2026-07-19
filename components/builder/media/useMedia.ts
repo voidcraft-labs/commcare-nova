@@ -69,6 +69,8 @@ export interface UseMediaLibrary {
 	error: string | null;
 	hasMore: boolean;
 	loadMore: () => void;
+	/** Repeat the current page request after an error. */
+	retry: () => void;
 	/** Prepend a just-uploaded asset so it shows immediately (deduped by id). */
 	addUploaded: (asset: MediaAssetView) => void;
 	/** Drop a just-deleted asset from the list so it disappears immediately. */
@@ -81,15 +83,16 @@ export interface UseMediaLibrary {
 
 /**
  * One library fetch request: which kinds (as a stable comma-joined KEY, not the
- * array — see below), from which `cursor`, and whether the result appends (next
- * page) or replaces (fresh page). A single effect keys off this object, so each
- * request maps to exactly one fetch — a kinds change and a `loadMore` both
- * produce one new request, never the double-fire two keyed effects would cause.
+ * array — see below), which authoritative name query, from which `cursor`, and
+ * whether the result appends (next page) or replaces (fresh page). A single
+ * effect keys off this object, so each state change maps to exactly one fetch.
  */
 interface LibraryRequest {
 	/** The allowed kinds, sorted + comma-joined (`""` = every kind). A primitive
 	 *  so `request` object identity only changes when we deliberately reset it. */
 	kindsKey: string;
+	/** Trimmed server-side name search; absent means unfiltered. */
+	query: string | undefined;
 	cursor: string | undefined;
 	append: boolean;
 }
@@ -101,10 +104,11 @@ function kindsFromKey(key: string): AssetKind[] | undefined {
 
 /**
  * Paginated view of the Project's `ready` assets, optionally filtered to a SET of
- * `kinds`. Fetches the first page on mount and whenever the kinds change;
- * `loadMore` appends the next page via the opaque cursor. `appId` (when set)
- * resolves the app's Project as the tenant; absent, the server falls back to the
- * caller's active Project — so the standalone file manager browses the latter.
+ * `kinds` and searched by visible name. Fetches the first page on mount and
+ * whenever kinds, query, or app scope changes; `loadMore` appends the next
+ * server-filtered page via the opaque cursor. Search is deliberately part of the
+ * server request, not an in-memory filter over one loaded page: only then can an
+ * empty result truthfully mean there is no match in the authorized library.
  *
  * Keying is by a STABLE STRING, not the `kinds` array: the picker computes a
  * fresh `[filter]` array each render, so a reference compare would reset the
@@ -112,36 +116,53 @@ function kindsFromKey(key: string): AssetKind[] | undefined {
  * a primitive that's identical across renders for the same set (and order-
  * independent, so `["pdf","image"]` and `["image","pdf"]` are one page).
  *
- * The kinds reset is done by deriving a fresh page-0 request DURING render (the
- * `trackedKey` compare) rather than in a second effect — that keeps it to one
- * fetch per change with no mount double-fetch. The fetch effect guards
+ * The scope reset is done by deriving a fresh page-0 request DURING render (the
+ * `trackedScopeKey` compare) rather than in a second effect — that keeps it to
+ * one fetch per change with no mount double-fetch. The fetch effect guards
  * setState-after-unmount with a per-run `cancelled` flag so a fetch resolving
  * after the picker closes doesn't leak a state update (or trip the leak gate).
  */
 export function useMediaLibrary(
 	kinds?: readonly AssetKind[],
 	appId?: string,
+	query?: string,
 ): UseMediaLibrary {
 	const kindsKey = kinds && kinds.length > 0 ? [...kinds].sort().join(",") : "";
+	const normalizedQuery = query?.trim() || undefined;
+	const scopeKey = JSON.stringify([
+		kindsKey,
+		normalizedQuery ?? "",
+		appId ?? "",
+	]);
 
 	const [assets, setAssets] = useState<MediaAssetView[]>([]);
 	const [nextCursor, setNextCursor] = useState<string | null>(null);
-	const [isLoading, setIsLoading] = useState(false);
+	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [request, setRequest] = useState<LibraryRequest>({
 		kindsKey,
+		query: normalizedQuery,
 		cursor: undefined,
 		append: false,
 	});
 
-	// Derived-state-during-render: when the kinds key changes, issue a fresh
-	// page-0 request synchronously (no separate effect, so no double-fetch).
-	// React re-renders before commit when setState fires during render, so the
-	// fetch effect sees only the new request.
-	const [trackedKey, setTrackedKey] = useState(kindsKey);
-	if (trackedKey !== kindsKey) {
-		setTrackedKey(kindsKey);
-		setRequest({ kindsKey, cursor: undefined, append: false });
+	// Derived-state-during-render: when the Project/kinds/query scope changes,
+	// clear the old page and issue a fresh page-0 request synchronously. React
+	// restarts this render before commit, so the UI never labels or exposes stale
+	// results from the previous search while the authoritative request is loading.
+	const [trackedScopeKey, setTrackedScopeKey] = useState(scopeKey);
+	if (trackedScopeKey !== scopeKey) {
+		setTrackedScopeKey(scopeKey);
+		setAssets([]);
+		setNextCursor(null);
+		setIsLoading(true);
+		setError(null);
+		setRequest({
+			kindsKey,
+			query: normalizedQuery,
+			cursor: undefined,
+			append: false,
+		});
 	}
 
 	useEffect(() => {
@@ -151,6 +172,7 @@ export function useMediaLibrary(
 		fetchMediaLibrary({
 			kinds: kindsFromKey(request.kindsKey),
 			cursor: request.cursor,
+			...(request.query ? { query: request.query } : {}),
 			appId,
 		})
 			.then((page) => {
@@ -180,10 +202,16 @@ export function useMediaLibrary(
 		if (isLoading || !nextCursor) return;
 		setRequest((r) => ({
 			kindsKey: r.kindsKey,
+			query: r.query,
 			cursor: nextCursor,
 			append: true,
 		}));
 	}, [isLoading, nextCursor]);
+
+	const retry = useCallback(() => {
+		if (isLoading) return;
+		setRequest((current) => ({ ...current }));
+	}, [isLoading]);
 
 	const addUploaded = useCallback((asset: MediaAssetView) => {
 		setAssets((prev) =>
@@ -210,6 +238,7 @@ export function useMediaLibrary(
 		error,
 		hasMore: nextCursor !== null,
 		loadMore,
+		retry,
 		addUploaded,
 		removeAsset,
 		updateAsset,

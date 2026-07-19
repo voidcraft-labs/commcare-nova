@@ -23,7 +23,7 @@ import {
 	caseSearchConfigSchema,
 	type Module,
 } from "@/lib/domain";
-import { matchAll, term } from "@/lib/domain/predicate";
+import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 import {
 	MOD_A,
@@ -44,6 +44,29 @@ beforeEach(() => {
 });
 
 describe("setCaseSearchDisplay", () => {
+	it("canonicalizes standard-property aliases in the button condition", async () => {
+		const { doc, ctx } = makeCaseSearchFixture();
+		const result = await setCaseSearchDisplayTool.execute(
+			{
+				moduleIndex: 0,
+				searchScreenTitle: null,
+				searchScreenSubtitle: null,
+				searchButtonLabel: null,
+				searchButtonDisplayCondition: eq(
+					prop("patient", "external-id"),
+					literal("abc"),
+				),
+			},
+			ctx,
+			doc,
+		);
+
+		expect(
+			result.newDoc.modules[MOD_A]?.caseSearchConfig
+				?.searchButtonDisplayCondition,
+		).toEqual(eq(prop("patient", "external_id"), literal("abc")));
+	});
+
 	it("sets every display slot on the module's caseSearchConfig", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const buttonCondition = matchAll();
@@ -184,6 +207,39 @@ describe("setCaseSearchDisplay", () => {
 		expect(config?.excludedOwnerIds).toEqual(seededOwners);
 		// Display update landed.
 		expect(config?.searchScreenTitle).toBe("Find patients");
+	});
+
+	it("turns an owner-only config into explicit Search when action copy is set", async () => {
+		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const owner = term({ kind: "literal", value: "owner-a" });
+		const ownerOnlyDoc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...baseDoc.modules[MOD_A],
+					caseListConfig: { columns: [], searchInputs: [] },
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						excludedOwnerIds: owner,
+					},
+				},
+			},
+		};
+		const result = await setCaseSearchDisplayTool.execute(
+			{
+				moduleIndex: 0,
+				searchScreenTitle: null,
+				searchScreenSubtitle: null,
+				searchButtonLabel: "Refresh cases",
+				searchButtonDisplayCondition: null,
+			},
+			ctx,
+			ownerOnlyDoc,
+		);
+		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toEqual({
+			excludedOwnerIds: owner,
+			searchButtonLabel: "Refresh cases",
+		});
 	});
 
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {

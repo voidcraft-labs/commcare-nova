@@ -14,13 +14,16 @@
 //
 // ## Non-self via reads as scalar subqueries
 //
-// When `prop` carries a non-self `via`, the compiler builds the
+// When a scalar-expression `prop` carries a non-self `via`, the compiler builds the
 // relation-path leaf and emits a correlated scalar subquery:
 // `(select cast(<leaf>.properties ->> 'name' as <type>) from
 // <leaf> where <leaf>.anchor_case_id = <anchor>.case_id limit 1)`.
-// `LIMIT 1` keeps the result scalar — the AST authoring surface
-// for term-level non-self vias targets 1-to-1 walks (parent /
-// host); a many-to-one walk returns the first matching row.
+// `LIMIT 1` keeps the result scalar. `compilePredicate` first normalizes every
+// relational scalar leaf to an explicit one-row `exists` scope and then
+// defensively rejects surviving non-self properties, so predicate compilation
+// never reaches this arbitrary-row fallback. The path remains available to
+// standalone expression compilation, whose scalar contract predates predicate
+// relation-scope normalization.
 //
 // ## Tenant scoping
 //
@@ -43,6 +46,7 @@ import {
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
+import { canonicalizeRelationPath } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
 import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
@@ -89,10 +93,29 @@ export interface TermBindings {
 	sessionUser?: ReadonlyMap<string, TermBindingValue>;
 
 	/**
+	 * Device-compatible fallback for an absent open-namespace user-data field.
+	 * Preview supplies the empty string because CommCare exposes a missing
+	 * worker-data field as blank; compiler callers that omit this keep the
+	 * fail-closed missing-binding error.
+	 */
+	sessionUserFallback?: TermBindingValue;
+
+	/**
 	 * Closed-namespace context fields (`userid` / `username` /
 	 * `deviceid` / `appversion` per `SESSION_CONTEXT_FIELDS`).
 	 */
 	sessionContext?: ReadonlyMap<string, TermBindingValue>;
+
+	/**
+	 * The viewer's IANA timezone (`Intl.DateTimeFormat().resolvedOptions()
+	 * .timeZone`), supplied by the preview client. `format-date` renders
+	 * wall-clock tokens in this zone — the device formats in ITS local
+	 * zone, and in Preview the author's browser stands in for the device.
+	 * Absent (non-preview compile sites, older callers) falls back to UTC,
+	 * which is at least deterministic where the unpinned session zone was
+	 * not. Validated at the compile site, never trusted raw.
+	 */
+	viewerTimeZone?: string;
 }
 
 /**
@@ -108,6 +131,10 @@ export interface TermCompileContext {
 	projectId: string;
 	/** The outer query's alias for `cases`. Property reads emit `<anchorAlias>.<col>`. */
 	anchorAlias: string;
+	/** Case type represented by `anchorAlias`. Relation-path qualifiers are
+	 * canonicalized from this scope before SQL compilation so same-identifier
+	 * edges to another case type cannot enter the row set. */
+	currentCaseType?: string;
 	/**
 	 * Relation-walk nesting depth. Forwarded to `compileRelationPath`
 	 * so leaf subqueries pick unique aliases (`rp_leaf_<depth>`) that
@@ -159,6 +186,7 @@ export function compileTerm(
 				term.field,
 				ctx.bindings.sessionUser,
 				`session user field '${term.field}'`,
+				ctx.bindings.sessionUserFallback,
 			);
 		case "session-context":
 			return compileBoundRef(
@@ -260,14 +288,20 @@ function compileNonSelfViaPropertyRef(args: {
 	ctx: TermCompileContext;
 }): AliasableExpression<unknown> {
 	const { via, anchorAlias, caseType, property, ctx } = args;
+	const canonical = canonicalizeRelationPath(via, {
+		caseTypes: [...ctx.caseTypeSchemas.values()],
+		currentCaseType: ctx.currentCaseType ?? caseType,
+	});
 
-	const lookupCaseType = resolveDestinationCaseType(
-		via,
-		caseType,
-		ctx.caseTypeSchemas,
-	);
+	const lookupCaseType =
+		canonical.destinationCaseType ??
+		resolveDestinationCaseType(
+			canonical.via,
+			ctx.currentCaseType ?? caseType,
+			ctx.caseTypeSchemas,
+		);
 
-	const compiledPath = compileRelationPath(via, {
+	const compiledPath = compileRelationPath(canonical.via, {
 		db: ctx.db,
 		appId: ctx.appId,
 		projectId: ctx.projectId,
@@ -395,6 +429,33 @@ function resolveDestinationCaseType(
 			let current = originCaseType;
 			for (let i = 0; i < via.via.length; i++) {
 				const step = via.via[i];
+				if (step.identifier !== "parent") {
+					if (step.throughCaseType === undefined) {
+						throw new Error(
+							typeCheckerBypassMessage({
+								where: "compileTerm.resolveDestinationCaseType",
+								summary: `custom ancestor index \`${step.identifier}\` has no declared destination at hop ${i}`,
+								expected:
+									"an explicit `throughCaseType` on every custom ancestor step",
+								received: "`throughCaseType` is unset",
+								hint: "set `throughCaseType` to the declared case type reached through this saved index name.",
+							}),
+						);
+					}
+					if (!schemas.has(step.throughCaseType)) {
+						throw new Error(
+							typeCheckerBypassMessage({
+								where: "compileTerm.resolveDestinationCaseType",
+								summary: `custom ancestor index \`${step.identifier}\` names unknown destination \`${step.throughCaseType}\` at hop ${i}`,
+								expected: "a case type registered in the compiler schema set",
+								received: `\`${step.throughCaseType}\``,
+								hint: "declare the destination case type or correct `throughCaseType`.",
+							}),
+						);
+					}
+					current = step.throughCaseType;
+					continue;
+				}
 				const ct = schemas.get(current);
 				if (ct === undefined) {
 					throw new Error(
@@ -441,7 +502,29 @@ function resolveDestinationCaseType(
 		case "subcase":
 		case "any-relation": {
 			if (via.ofCaseType !== undefined) {
+				if (!schemas.has(via.ofCaseType)) {
+					throw new Error(
+						typeCheckerBypassMessage({
+							where: "compileTerm.resolveDestinationCaseType",
+							summary: `\`${via.kind}\` walk names unknown destination \`${via.ofCaseType}\``,
+							expected: "a case type registered in the compiler schema set",
+							received: `\`${via.ofCaseType}\``,
+							hint: "declare the destination case type or correct `ofCaseType`.",
+						}),
+					);
+				}
 				return via.ofCaseType;
+			}
+			if (via.identifier !== "parent") {
+				throw new Error(
+					typeCheckerBypassMessage({
+						where: "compileTerm.resolveDestinationCaseType",
+						summary: `custom \`${via.kind}\` index \`${via.identifier}\` has no declared destination`,
+						expected: "an explicit `ofCaseType` on a custom relation",
+						received: "`ofCaseType` is unset",
+						hint: "set `ofCaseType` to the declared case type reached through this saved index name.",
+					}),
+				);
 			}
 			// No qualifier: ambiguous and zero-candidate cases are
 			// type-checker bypasses — the SQL compiler can't
@@ -450,6 +533,12 @@ function resolveDestinationCaseType(
 			for (const ct of schemas.values()) {
 				if (ct.parent_type === originCaseType) {
 					candidates.push(ct.name);
+				}
+			}
+			if (via.kind === "any-relation") {
+				const parent = schemas.get(originCaseType)?.parent_type;
+				if (parent !== undefined && !candidates.includes(parent)) {
+					candidates.unshift(parent);
 				}
 			}
 			if (candidates.length === 1) {
@@ -548,8 +637,10 @@ function compileBoundRef(
 	key: string,
 	bindings: ReadonlyMap<string, TermBindingValue> | undefined,
 	descriptor: string,
+	missingFallback?: TermBindingValue,
 ): AliasableExpression<unknown> {
 	if (bindings === undefined || !bindings.has(key)) {
+		if (missingFallback !== undefined) return eb.val(missingFallback);
 		// Caller-setup error voiced as direct "what to fix" — the
 		// caller is the only audience. These arms can't be
 		// type-checked into existence at the term layer; the

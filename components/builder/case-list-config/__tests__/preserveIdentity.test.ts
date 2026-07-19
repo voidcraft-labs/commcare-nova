@@ -12,10 +12,12 @@ import { describe, expect, it } from "vitest";
 import { withPreservedIdentity } from "../preserveIdentity";
 
 describe("withPreservedIdentity", () => {
-	it("carries the existing uuid + order onto a rebuilt body that dropped them", () => {
+	it("carries identity and every surface position onto a rebuilt body", () => {
 		const existing = {
 			uuid: "col-1",
 			order: "V",
+			listOrder: "b",
+			detailOrder: "x",
 			kind: "plain",
 			field: "a",
 			header: "A",
@@ -29,6 +31,8 @@ describe("withPreservedIdentity", () => {
 		const result = withPreservedIdentity(existing, rebuilt);
 		expect(result.uuid).toBe("col-1"); // identity preserved
 		expect(result.order).toBe("V"); // display position preserved
+		expect(result.listOrder).toBe("b");
+		expect(result.detailOrder).toBe("x");
 		expect(result.field).toBe("b"); // body actually updated
 		expect(result.header).toBe("B");
 	});

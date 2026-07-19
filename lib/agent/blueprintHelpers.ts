@@ -20,6 +20,18 @@
  * server/client boundary.
  */
 
+import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import {
+	columnAddMutation,
+	columnContentEqualIgnoringGranularSlots,
+	columnSortMutations,
+	columnVisibilityMutations,
+	legacyCompatibleColumnSnapshot,
+} from "@/lib/doc/caseListColumnMutations";
+import {
+	cleanupCaseSearchAfterFinalInputMutation,
+	enableCaseSearchMutation,
+} from "@/lib/doc/caseSearchConfigMutations";
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import {
 	buildFieldTree,
@@ -28,16 +40,27 @@ import {
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
+import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
 import { sequenceOrderKeys, sortedOrderKeys } from "@/lib/doc/order/append";
+import {
+	type ColumnSurface,
+	columnSurfaceOrderMutation,
+	resolvedColumnSurfaceOrder,
+} from "@/lib/doc/order/columnSurface";
+import {
+	byDetailColumnOrder,
+	byListColumnOrder,
+} from "@/lib/doc/order/compare";
 import { keysBetween } from "@/lib/doc/order/keys";
 import {
 	formOrderKeyAtIndex,
 	moduleOrderKeyAtIndex,
 } from "@/lib/doc/scaffolds";
+import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	AssetId,
@@ -56,6 +79,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -427,13 +451,7 @@ export function addModuleMutations(
 			caseListConfig: input.caseListConfig,
 		}),
 	};
-	return [
-		{
-			kind: "addModule",
-			module,
-			...(opts?.index !== undefined && { index: opts.index }),
-		},
-	];
+	return [addModuleMutation(module, opts?.index)];
 }
 
 /** Remove a module (cascades forms + fields via the reducer). No-op when
@@ -452,11 +470,21 @@ export function removeModuleMutations(
  *  module up out of the doc to derive its uuid + read sibling fields, so
  *  re-resolving inside the helper would just repeat the same map lookup.
  *  The "module not found" defense lives at each tool's call boundary. */
+type ModuleMutationPatch = Omit<
+	Partial<Omit<Module, "uuid">>,
+	"caseSearchConfig"
+> & {
+	/** Explicit null survives JSON and clears the optional search config. */
+	caseSearchConfig?: Module["caseSearchConfig"] | null;
+};
+
 export function updateModuleMutations(
 	mod: Module,
-	patch: Partial<Omit<Module, "uuid">>,
+	patch: ModuleMutationPatch,
 ): Mutation[] {
-	return [{ kind: "updateModule", uuid: mod.uuid, patch }];
+	return modulePatchMutations(mod, patch, {
+		nullCaseSearchConfig: "settings",
+	});
 }
 
 /**
@@ -584,23 +612,42 @@ export function addColumnsMutation(
 	mod: Module,
 	columns: readonly Column[],
 ): CaseListMutationOk {
-	const keys = sortedOrderKeys(mod.caseListConfig?.columns ?? []);
+	const existing = mod.caseListConfig?.columns ?? [];
+	const keys = sortedOrderKeys(existing);
+	const listKeys = [...existing]
+		.sort(byListColumnOrder)
+		.map((column) => resolvedColumnSurfaceOrder(column, "list"))
+		.filter((order): order is string => order !== undefined);
+	const detailKeys = [...existing]
+		.sort(byDetailColumnOrder)
+		.map((column) => resolvedColumnSurfaceOrder(column, "detail"))
+		.filter((order): order is string => order !== undefined);
 	// One ascending run of fractional keys after the last existing column
 	// (`hi = null` ≡ a clean append), minted in one call by the shared
 	// `keysBetween` primitive rather than a hand-rolled place-after chain.
 	const orders = keysBetween(keys.at(-1) ?? null, null, columns.length);
-	const mutations: Mutation[] = columns.map((column, i) => ({
-		kind: "addColumn",
-		moduleUuid: mod.uuid,
-		column: { ...column, order: orders[i] },
-	}));
+	const listOrders = keysBetween(listKeys.at(-1) ?? null, null, columns.length);
+	const detailOrders = keysBetween(
+		detailKeys.at(-1) ?? null,
+		null,
+		columns.length,
+	);
+	const mutations: Mutation[] = columns.map((column, i) =>
+		columnAddMutation(mod.uuid, {
+			...column,
+			order: orders[i],
+			listOrder: listOrders[i],
+			detailOrder: detailOrders[i],
+		}),
+	);
 	return { ok: true, mutations };
 }
 
 /**
  * Replace one column on a module's case list, keyed by `columnUuid` — a
- * granular `updateColumn` (the reducer preserves the column's current
- * `order`).
+ * granular `updateColumn` plus any per-surface visibility deltas (the reducer
+ * preserves the column's current order + visibility slots while replaying the
+ * content replacement).
  *
  * Failure arm: columnUuid not in the module's columns array.
  */
@@ -616,16 +663,31 @@ export function updateColumnMutation(
 		"case list column",
 	);
 	if ("error" in op) return { error: op.error };
+	const current = mod.caseListConfig?.columns.find(
+		(column) => column.uuid === columnUuid,
+	);
+	if (!current) {
+		return {
+			error: `Tried to update case list column ${columnUuid}. Found no entry with that uuid in the module's case list. Look at getModule's projection or run searchBlueprint to surface the current uuids.`,
+		};
+	}
+	const nextColumn = { ...replacement, uuid: columnUuid };
+	const mutations: Mutation[] = [];
+	if (!columnContentEqualIgnoringGranularSlots(current, nextColumn)) {
+		mutations.push({
+			kind: "updateColumn",
+			moduleUuid: mod.uuid,
+			uuid: columnUuid,
+			column: legacyCompatibleColumnSnapshot(nextColumn),
+			preserveVisibility: true,
+			preserveSort: true,
+		});
+	}
+	mutations.push(...columnVisibilityMutations(current, nextColumn, mod.uuid));
+	mutations.push(...columnSortMutations(current, nextColumn, mod.uuid));
 	return {
 		ok: true,
-		mutations: [
-			{
-				kind: "updateColumn",
-				moduleUuid: mod.uuid,
-				uuid: columnUuid,
-				column: { ...replacement, uuid: columnUuid },
-			},
-		],
+		mutations,
 	};
 }
 
@@ -654,31 +716,46 @@ export function removeColumnMutation(
 }
 
 /**
- * Reorder a module's case-list columns to match the supplied uuid sequence —
- * one `moveColumn` per column, each assigned a fresh ascending fractional
- * `order` (a wholesale reorder).
+ * Reorder the visible fields on ONE user-facing case screen. Results and
+ * Details are independent compositions, so this changes only the selected
+ * surface key and leaves generic/legacy order plus the other screen untouched.
  *
  * Failure arms: length mismatch, duplicate uuid, unknown uuid in the request.
  */
 export function reorderColumnsMutation(
 	mod: Module,
 	order: readonly Uuid[],
+	surface: ColumnSurface,
 ): CaseListMutationResult {
+	const columns = mod.caseListConfig?.columns ?? [];
+	const visible = columns.filter((column) =>
+		surface === "list"
+			? column.visibleInList !== false
+			: column.visibleInDetail !== false,
+	);
 	const op = reorderByUuid(
-		mod.caseListConfig?.columns ?? [],
+		visible,
 		order,
-		"case list column",
+		`${surface === "list" ? "Results" : "Details"} field`,
 	);
 	if ("error" in op) return { error: op.error };
 	const keys = sequenceOrderKeys(order.length);
+	const visibleByUuid = new Map(visible.map((column) => [column.uuid, column]));
+	const mutations: Mutation[] = order.map((uuid, i) => {
+		const column = visibleByUuid.get(uuid);
+		if (column === undefined) {
+			throw new Error("Validated column reorder lost a visible field.");
+		}
+		return columnSurfaceOrderMutation({
+			moduleUuid: mod.uuid,
+			column,
+			surface,
+			order: keys[i],
+		});
+	});
 	return {
 		ok: true,
-		mutations: order.map((uuid, i) => ({
-			kind: "moveColumn",
-			moduleUuid: mod.uuid,
-			uuid,
-			order: keys[i],
-		})),
+		mutations,
 	};
 }
 
@@ -697,6 +774,12 @@ export function addSearchInputsMutation(
 		moduleUuid: mod.uuid,
 		searchInput: { ...searchInput, order: orders[i] },
 	}));
+	if (
+		mod.caseSearchConfig === undefined ||
+		mod.caseSearchConfig.searchActionEnabled === false
+	) {
+		mutations.unshift(enableCaseSearchMutation(mod.uuid, mod.caseSearchConfig));
+	}
 	return { ok: true, mutations };
 }
 
@@ -713,16 +796,15 @@ export function updateSearchInputMutation(
 		"search input",
 	);
 	if ("error" in op) return { error: op.error };
+	const current = mod.caseListConfig?.searchInputs.find(
+		(input) => input.uuid === searchInputUuid,
+	);
+	if (current === undefined) {
+		return { error: `Search input ${searchInputUuid} no longer exists.` };
+	}
 	return {
 		ok: true,
-		mutations: [
-			{
-				kind: "updateSearchInput",
-				moduleUuid: mod.uuid,
-				uuid: searchInputUuid,
-				searchInput: { ...replacement, uuid: searchInputUuid },
-			},
-		],
+		mutations: [planSearchInputUpdate(mod.uuid, current, replacement)],
 	};
 }
 
@@ -737,6 +819,7 @@ export function removeSearchInputMutation(
 		"search input",
 	);
 	if ("error" in op) return { error: op.error };
+	const removesFinalInput = op.items.length === 0;
 	return {
 		ok: true,
 		mutations: [
@@ -745,6 +828,17 @@ export function removeSearchInputMutation(
 				moduleUuid: mod.uuid,
 				uuid: searchInputUuid,
 			},
+			...(removesFinalInput && mod.caseSearchConfig !== undefined
+				? ([
+						cleanupCaseSearchAfterFinalInputMutation({
+							uuid: mod.uuid,
+							config: mod.caseSearchConfig,
+							hasCasesAvailableCondition:
+								effectiveFilterForEmission(mod.caseListConfig?.filter) !==
+								undefined,
+						}),
+					] satisfies Mutation[])
+				: []),
 		],
 	};
 }

@@ -1,21 +1,27 @@
-// Pins the smart-seed contract: a freshly-added search input or
-// column must WORK the moment it lands — bound to a real property,
-// labeled in human words, named legally and uniquely, widget matched
-// to the property's data type, and (text search) matching forgivingly.
+// Pins the creation contract: a freshly-added search field or display field
+// must work immediately. Search gets a useful automatic seed; display creation
+// builds from the exact property the author chose in the canvas.
 
 import { describe, expect, it } from "vitest";
+import { mutationSchema } from "@/lib/doc/types";
 import type {
 	CaseListConfig,
 	CaseProperty,
 	CaseType,
 	SearchInputDef,
 } from "@/lib/domain";
-import { simpleSearchInputDef } from "@/lib/domain";
+import { asUuid, simpleSearchInputDef } from "@/lib/domain";
+import { eq, literal, prop as propertyTerm } from "@/lib/domain/predicate";
 import {
 	labelFromProperty,
+	representedColumnProperties,
+	seedCalculatedColumn,
 	seedColumn,
+	seedColumnForProperty,
+	seededColumnAddMutation,
 	seedSearchInput,
 	uniqueInputName,
+	unrepresentedColumnProperties,
 	widgetTypeForProperty,
 	xmlNameFromProperty,
 } from "../seeds";
@@ -32,9 +38,7 @@ function prop(
 	return { name, label: name, ...(data_type ? { data_type } : {}) };
 }
 
-function config(
-	overrides: Partial<Pick<CaseListConfig, "columns" | "searchInputs">> = {},
-): CaseListConfig {
+function config(overrides: Partial<CaseListConfig> = {}): CaseListConfig {
 	return { columns: [], searchInputs: [], ...overrides };
 }
 
@@ -49,6 +53,14 @@ describe("labelFromProperty", () => {
 	it("humanizes snake_case into a sentence-cased label", () => {
 		expect(labelFromProperty("rash_onset_date")).toBe("Rash onset date");
 		expect(labelFromProperty("case_name")).toBe("Case name");
+	});
+
+	it.each([
+		["name", "Case name"],
+		["external-id", "External ID"],
+		["date-opened", "Date opened"],
+	])("uses the canonical label for legacy %s", (property, label) => {
+		expect(labelFromProperty(property)).toBe(label);
 	});
 });
 
@@ -114,6 +126,62 @@ describe("seedSearchInput", () => {
 		expect(second && second.kind === "simple" ? second.property : "").not.toBe(
 			"case_name",
 		);
+	});
+
+	it("does not treat the always-on rule as occupying a search field", () => {
+		const seed = seedSearchInput(
+			config({
+				filter: eq(propertyTerm("client", "case_name"), literal("Alice")),
+			}),
+			CLIENT,
+		);
+		expect(seed && seed.kind === "simple" ? seed.property : "").toBe(
+			"case_name",
+		);
+	});
+
+	it("never seeds a second row from a CCHQ alias of an already-used value", () => {
+		const withAliases = caseType("client", [
+			prop("case_name"),
+			prop("name"),
+			prop("external_id"),
+			prop("external-id"),
+		]);
+		const first = seedSearchInput(config(), withAliases);
+		const second = seedSearchInput(
+			config({ searchInputs: first ? [first] : [] }),
+			withAliases,
+		);
+		expect(first && first.kind === "simple" ? first.property : "").toBe(
+			"case_name",
+		);
+		expect(second && second.kind === "simple" ? second.property : "").toBe(
+			"external_id",
+		);
+	});
+
+	it.each([
+		["name", "external_id"],
+		["external-id", "case_name"],
+		["date-opened", "case_name"],
+	])("treats legacy search target %s as its canonical property when seeding", (legacy, expected) => {
+		const properties = caseType("client", [
+			prop("case_name"),
+			prop("external_id"),
+			prop("date_opened", "datetime"),
+		]);
+		const existing = simpleSearchInputDef(
+			newUuid(),
+			"legacy",
+			"Legacy",
+			"text",
+			legacy,
+		);
+		const seed = seedSearchInput(
+			config({ searchInputs: [existing] }),
+			properties,
+		);
+		expect(seed && seed.kind === "simple" ? seed.property : "").toBe(expected);
 	});
 
 	it("seeds non-text widgets without a fuzzy mode", () => {
@@ -189,7 +257,131 @@ describe("seedColumn", () => {
 		expect(seed?.visibleInList).toBe(false);
 	});
 
+	it.each([
+		["name", "external_id"],
+		["external-id", "case_name"],
+		["date-opened", "case_name"],
+	])("treats legacy column field %s as its canonical property when seeding", (legacy, expected) => {
+		const properties = caseType("client", [
+			prop("case_name"),
+			prop("external_id"),
+			prop("date_opened", "datetime"),
+		]);
+		const seed = seedColumn(
+			config({
+				columns: [
+					{
+						uuid: newUuid(),
+						kind: "plain",
+						field: legacy,
+						header: "Legacy",
+					},
+				],
+			}),
+			properties,
+		);
+		expect(seed && seed.kind !== "calculated" ? seed.field : "").toBe(expected);
+	});
+
 	it("returns undefined for a propertyless case type", () => {
 		expect(seedColumn(config(), caseType("empty", []))).toBeUndefined();
+	});
+});
+
+describe("chooser-first display fields", () => {
+	it.each([
+		["list", "listOrder"],
+		["detail", "detailOrder"],
+	] as const)("encodes a center-canvas %s add outside the strict nested fallback", (surface, orderKey) => {
+		const moduleUuid = asUuid("10000000-0000-4000-8000-000000000000");
+		const seed = seedColumnForProperty(prop("case_name"));
+		const mutation = seededColumnAddMutation(
+			moduleUuid,
+			config({
+				columns: [
+					{
+						uuid: asUuid("20000000-0000-4000-8000-000000000000"),
+						kind: "plain",
+						field: "external_id",
+						header: "External ID",
+						order: "generic-a",
+						listOrder: "list-a",
+						detailOrder: "detail-a",
+					},
+				],
+			}),
+			surface,
+			seed,
+		);
+
+		expect(mutation.column).not.toHaveProperty("listOrder");
+		expect(mutation.column).not.toHaveProperty("detailOrder");
+		expect(mutation.surfaceOrders?.[orderKey]).toEqual(expect.any(String));
+		expect(mutationSchema.safeParse(mutation).success).toBe(true);
+	});
+
+	it("builds the exact property selected by the author", () => {
+		const selected = prop("visit_date", "datetime");
+		expect(
+			seedColumnForProperty(selected, { visibleInList: false }),
+		).toMatchObject({
+			kind: "date",
+			field: "visit_date",
+			header: "Visit date",
+			visibleInList: false,
+		});
+	});
+
+	it("builds a valid calculated starting point without guessing a property", () => {
+		expect(seedCalculatedColumn({ visibleInDetail: false })).toMatchObject({
+			kind: "calculated",
+			header: "Calculated value",
+			expression: { kind: "term", term: { kind: "literal", value: "" } },
+			visibleInDetail: false,
+		});
+	});
+
+	it("offers only properties without an existing display definition", () => {
+		const result = unrepresentedColumnProperties(
+			config({
+				columns: [
+					{
+						uuid: newUuid(),
+						kind: "plain",
+						field: "name",
+						header: "Client",
+					},
+				],
+			}),
+			caseType("client", [
+				prop("name"),
+				prop("case_name"),
+				prop("phone_number"),
+			]),
+		);
+		expect(result.map((property) => property.name)).toEqual(["phone_number"]);
+	});
+
+	it("offers represented properties only through the second-view path", () => {
+		const appCaseType = caseType("client", [
+			prop("name"),
+			prop("case_name"),
+			prop("phone_number"),
+		]);
+		const current = config({
+			columns: [
+				{
+					uuid: newUuid(),
+					kind: "plain",
+					field: "name",
+					header: "Client",
+				},
+			],
+		});
+		expect(
+			representedColumnProperties(current, appCaseType).map(
+				(property) => property.name,
+			),
+		).toEqual(["case_name"]);
 	});
 });

@@ -96,14 +96,21 @@ describe("resolveRelationDestination", () => {
 		).toBe("sibling_visit");
 	});
 
-	it("treats any-relation walks the same as subcase for destination resolution", () => {
+	it("resolves any-relation across the parent-and-children union", () => {
 		expect(
 			resolveRelationDestination(
 				anyRelationPath("parent"),
 				"patient",
 				CASE_TYPES,
 			),
-		).toBe("visit");
+		).toBe("household");
+		expect(
+			resolveRelationDestination(
+				anyRelationPath("parent", "household"),
+				"patient",
+				CASE_TYPES,
+			),
+		).toBe("household");
 		expect(
 			resolveRelationDestination(
 				anyRelationPath("parent", "sibling_visit"),
@@ -113,12 +120,33 @@ describe("resolveRelationDestination", () => {
 		).toBe("sibling_visit");
 	});
 
-	it("returns undefined when no case type points back at the origin", () => {
-		// `household` has no children pointing at it via `parent_type`
-		// — `subcase` / `any-relation` walks from a leaf case type
-		// resolve to undefined.
+	it("returns undefined for a child walk from a leaf but finds its parent in either direction", () => {
 		expect(
 			resolveRelationDestination(subcasePath("parent"), "visit", CASE_TYPES),
 		).toBeUndefined();
+		expect(
+			resolveRelationDestination(
+				anyRelationPath("parent"),
+				"visit",
+				CASE_TYPES,
+			),
+		).toBe("patient");
+	});
+
+	it("requires an explicit declared target for custom indexes", () => {
+		expect(
+			resolveRelationDestination(
+				ancestorPath(relationStep("guardian_link")),
+				"patient",
+				CASE_TYPES,
+			),
+		).toBeUndefined();
+		expect(
+			resolveRelationDestination(
+				ancestorPath(relationStep("guardian_link", "household")),
+				"patient",
+				CASE_TYPES,
+			),
+		).toBe("household");
 	});
 });

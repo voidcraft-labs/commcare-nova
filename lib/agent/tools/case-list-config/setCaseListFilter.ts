@@ -44,6 +44,7 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult } from "./shared";
 
@@ -121,9 +122,19 @@ export const setCaseListFilterTool = {
 			// concurrent column edit on the guarded re-apply): `null` clears the
 			// slot, a Predicate sets it. The reducer maps `null → delete`, so a
 			// clear crosses the JSON wire intact.
+			const canonicalFilter =
+				filter === null ? null : canonicalizePredicateCaseProperties(filter);
 			const mutations: Mutation[] = [
-				{ kind: "setCaseListMeta", uuid: mod.uuid, patch: { filter } },
+				{
+					kind: "setCaseListMeta",
+					uuid: mod.uuid,
+					patch: { filter: canonicalFilter },
+				},
 			];
+			// Cases available and Search intent are independent. An empty
+			// caseSearchConfig is an intentional zero-input manual action, not a
+			// synthetic by-product of this filter, so clearing the filter must leave
+			// that action in place.
 			const commit = await guardedMutate(
 				ctx,
 				doc,

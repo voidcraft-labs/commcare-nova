@@ -72,7 +72,7 @@ export function StartBlankApp({
 					<div className="flex flex-col items-center gap-3 pt-3">
 						<div className="flex w-full items-center gap-3">
 							<span className="h-px flex-1 bg-nova-border" />
-							<span className="font-mono text-[10px] uppercase leading-none tracking-[0.18em] text-nova-text-muted">
+							<span className="text-xs leading-none text-nova-text-muted">
 								or
 							</span>
 							<span className="h-px flex-1 bg-nova-border" />
@@ -87,7 +87,7 @@ export function StartBlankApp({
 						 *  props, so anything keyed on it can't change during the exit. */}
 						<Button
 							variant="outline"
-							size="lg"
+							size="xl"
 							onClick={onCreate}
 							aria-busy={creating || undefined}
 						>
@@ -96,7 +96,7 @@ export function StartBlankApp({
 						</Button>
 
 						<p className="text-xs text-nova-text-muted">
-							Skip the chat and build it yourself.
+							Skip chat and build the app yourself
 						</p>
 					</div>
 				</motion.div>

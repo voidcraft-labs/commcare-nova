@@ -1,8 +1,7 @@
 /**
- * Rule: `caseSearchConfig.excludedOwnerIds` (the value
- * expression evaluating to a space-separated list of owner ids
- * excluded from search results) type-checks against the module's
- * case-type schema map AND resolves to a text-typed result.
+ * Rule: `caseSearchConfig.excludedOwnerIds` (the value expression evaluating
+ * to a space-separated list of owner ids excluded from Results) is global and
+ * text-typed.
  *
  * Mirrors the case-list `calculatedColumnTypeCheck` pattern —
  * dispatches `checkValueExpression(expression, ctx, expectedType)`
@@ -11,26 +10,29 @@
  * consumes the value-expression entry point rather than
  * `checkPredicate`.
  *
- * The slot's authoring contract is "evaluates to a space-separated
- * list of owner ids" — text-typed by the AST-strict null /
- * representability invariant. The validator enforces that contract
- * at authoring time by passing `expectedType: "text"`. Authors who
- * need a non-text-typed property to seed the excluded-owners list
- * must explicitly coerce — `concat(prop("patient", "owner_id"))`
- * lifts any property to text via the concatenation operator's
- * text-resolution semantics.
+ * CommCare Search and Nova Preview both resolve this value before a case is
+ * selected. The ordinary case-list wire then reuses the resolved global intent
+ * while filtering rows. Admitting a case property or relationship read would
+ * make that lifecycle context-dependent: Preview has no row and resolves it
+ * blank, while a suite nodeset can accidentally evaluate it per row. The
+ * shared domain walker therefore rejects property, count, exists, and missing
+ * reads at the gate before the ordinary/Search paths can diverge.
  *
- * `typesCompatible` widens `single_select` and `multi_select` to
- * `text`, so select-typed property references resolve cleanly
- * without explicit coercion; `int` / `decimal` / `date` / etc.
- * resolutions surface as authoring errors.
+ * Row-independent expressions still pass through the normal type checker with
+ * `expectedType: "text"`: literals, session/current-user values, Search input
+ * refs, and pure calculations over those values remain available.
  *
  * Short-circuits cleanly when `caseSearchConfig` is absent OR
  * the `excludedOwnerIds` slot itself is omitted — no expression
  * to check, no error.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	excludedOwnerIdsReadsCaseData,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { checkValueExpression } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 import { formatPath, moduleTypeContext } from "../case-list/shared";
@@ -42,6 +44,20 @@ export function excludedOwnerIdsTypeCheck(
 ): ValidationError[] {
 	const expression = mod.caseSearchConfig?.excludedOwnerIds;
 	if (!expression) return [];
+	if (excludedOwnerIdsReadsCaseData(expression)) {
+		return [
+			validationError(
+				"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
+				"module",
+				`Module "${mod.name}" has an assigned-cases expression that reads a case property or relationship, but \`caseSearchConfig.excludedOwnerIds\` is resolved once before a case is selected. Use a fixed owner-id list, a current-user/session value, a Search answer, or a calculation composed only from those global values; otherwise clear the assigned-cases setting.`,
+				{ moduleUuid, moduleName: mod.name },
+				{
+					slot: "caseSearchConfig.excludedOwnerIds",
+					surface: "excluded-owner-ids",
+				},
+			),
+		];
+	}
 
 	const ctx = moduleTypeContext(mod, doc);
 	const result = checkValueExpression(expression, ctx, "text");
@@ -53,9 +69,13 @@ export function excludedOwnerIdsTypeCheck(
 		return validationError(
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"module",
-			`Module "${mod.name}" case-search excluded owner ids expression has a type error${suffix}: ${err.message}. The slot must resolve to a text-typed value (the runtime parses it as a space-separated list of owner ids). Open \`caseSearchConfig.excludedOwnerIds\` and either pick a property whose \`data_type\` widens to text (\`text\` / \`single_select\` / \`multi_select\`), wrap the existing expression in \`concat(...)\` to coerce to text, or remove the slot entirely (the wire layer omits the excluded-owners filter when absent).`,
+			`Module "${mod.name}" assigned-cases expression has a type error${suffix}: ${err.message}. The value must resolve to text because it is parsed as a space-separated list of owner ids. Open \`caseSearchConfig.excludedOwnerIds\` and use a text literal, current-user/session value, Search answer, or text calculation over those global values; otherwise remove the slot.`,
 			{ moduleUuid, moduleName: mod.name },
-			{ path: at },
+			{
+				path: at,
+				slot: "caseSearchConfig.excludedOwnerIds",
+				surface: "excluded-owner-ids",
+			},
 		);
 	});
 }

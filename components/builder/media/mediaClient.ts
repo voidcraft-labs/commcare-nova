@@ -176,16 +176,14 @@ export async function uploadMediaAsset(
 	if (initiate.deduplicated) {
 		if (!initiate.asset) {
 			throw new Error(
-				"The server reported this file is already in your library but didn't return it. Try refreshing the library.",
+				"This file is already in your library, but Nova couldn't open it. Refresh the library, then try again.",
 			);
 		}
 		return initiate.asset;
 	}
 
 	if (!initiate.uploadUrl || !initiate.uploadContentType) {
-		throw new Error(
-			"The upload couldn't start — the server didn't return a storage URL. Try again.",
-		);
+		throw new Error("Nova couldn't prepare the upload. Try again.");
 	}
 
 	// PUT the bytes straight to GCS. The `Content-Type` MUST match the
@@ -212,7 +210,7 @@ export async function uploadMediaAsset(
 		});
 		if (!putRes.ok) {
 			throw new Error(
-				`The file couldn't be uploaded to storage (status ${putRes.status}). Check your connection and try again.`,
+				"The upload didn't finish. Check your connection, then try again.",
 			);
 		}
 	}
@@ -269,7 +267,7 @@ function putBytesWithProgress(
 			} else {
 				reject(
 					new Error(
-						`The file couldn't be uploaded to storage (status ${xhr.status}). Check your connection and try again.`,
+						"The upload didn't finish. Check your connection, then try again.",
 					),
 				);
 			}
@@ -278,7 +276,7 @@ function putBytesWithProgress(
 			cleanup();
 			reject(
 				new Error(
-					"The file couldn't be uploaded to storage. Check your connection and try again.",
+					"The upload didn't finish. Check your connection, then try again.",
 				),
 			);
 		};
@@ -415,7 +413,9 @@ export interface MediaLibraryPage {
  * Optionally filtered to a SET of `kinds` (repeated `?kind=` on the
  * wire) — a picker passes its carrier's allowed kinds so the server
  * returns only attachable assets; `cursor` resumes from a prior
- * page's `nextCursor`. An empty/omitted `kinds` fetches every kind.
+ * page's `nextCursor`. `query` is an authoritative server-side name search
+ * applied before pagination, so matches are not limited to pages the client has
+ * already loaded. An empty/omitted `kinds` fetches every kind.
  * `appId` (when set) resolves the app's Project as the tenant; absent,
  * the server falls back to the caller's active Project.
  */
@@ -423,12 +423,14 @@ export async function fetchMediaLibrary(
 	options: {
 		kinds?: readonly AssetKind[];
 		cursor?: string;
+		query?: string;
 		appId?: string;
 	} = {},
 ): Promise<MediaLibraryPage> {
 	const params = new URLSearchParams();
 	for (const kind of options.kinds ?? []) params.append("kind", kind);
 	if (options.cursor) params.set("cursor", options.cursor);
+	if (options.query?.trim()) params.set("q", options.query.trim());
 	if (options.appId) params.set("appId", options.appId);
 	const res = await fetch(`/api/media/library?${params.toString()}`);
 	if (!res.ok) {

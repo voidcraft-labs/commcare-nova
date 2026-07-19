@@ -10,25 +10,28 @@
 //
 // The form is fully controlled. `value` flows in from the parent's
 // `useState<SearchInputValues>`; local typing buffers in `draft`
-// and emits to `onChange` debounced at 300 ms so the parent's
-// case-list reload trigger fires once per type-burst rather than
-// once per keystroke.
+// and emits to `onChange` debounced at 300 ms so parent draft state
+// stays current without a render per keystroke. When `onSubmit` is
+// supplied, the authored button (or Enter) submits the latest local
+// draft immediately; the running list does not race the debounce.
 //
 // Per-type widget dispatch:
 //
 //   text     → `<Input>` (shadcn Input — Base UI Input under the hood)
-//   barcode  → `<Input>` — barcodes scan as plain strings on the
-//              wire side; the text input mirrors that shape and
-//              accepts pasted scanner output.
+//   barcode  → `<Input>` + progressively enhanced camera scanner.
+//              Manual entry and paste always remain available. Scan
+//              appears only when this secure browser exposes both
+//              BarcodeDetector and camera capture; unsupported
+//              browsers get truthful fallback copy, not a dead button.
 //   date     → `<Popover>` + `<Calendar mode="single">` —
 //              value emits as ISO `YYYY-MM-DD` to match the
 //              runtime-bindings layer's `parseDateBound` shape.
 //   date-range → two `<Popover>` + `<Calendar mode="single">`
 //                pickers (one per bound). Values emit under
-//                `<name>:from` / `<name>:to`. Bounds are
-//                independent — clearing one leaves the other
-//                intact, mirroring the runtime-bindings layer's
-//                per-bound short-circuit.
+//                `<name>:from` / `<name>:to`. Either bound may remain
+//                as a draft while the worker edits, but Search requires
+//                a complete, ordered pair because CommCare serializes
+//                daterange as one indivisible answer.
 //   select   → `<Select>` populated from the targeted property's
 //              declared options. Options resolve only when the
 //              input is on the simple arm AND the property exists
@@ -41,13 +44,31 @@
 
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
+import tablerScan from "@iconify-icons/tabler/scan";
+import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { format, isValid, parseISO } from "date-fns";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Calendar } from "@/components/shadcn/calendar";
-import { Field, FieldLabel } from "@/components/shadcn/field";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/shadcn/dialog";
+import {
+	Field,
+	FieldDescription,
+	FieldError,
+	FieldLabel,
+} from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import {
 	Popover,
@@ -58,37 +79,60 @@ import {
 	Select,
 	SelectContent,
 	SelectItem,
+	SelectSeparator,
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { Spinner } from "@/components/shadcn/spinner";
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
+import type { Predicate } from "@/lib/domain/predicate";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import {
 	ISO_DATE_PATTERN,
 	type SearchInputValues,
 } from "@/lib/preview/engine/runtimeBindings";
+import type { PreviewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { searchInputSubmissionErrors } from "@/lib/preview/engine/searchInputValidation";
 
 // ── Public surface ──────────────────────────────────────────────────
 
 interface SearchInputFormProps {
+	/** Accessible name for the search landmark. The running case list passes
+	 * the same authored title its visible heading shows. */
+	readonly landmarkLabel?: string;
+	/** Stable surface identity. Validation feedback belongs to one module and
+	 * must not appear pre-emptively after the retained form switches modules. */
+	readonly scopeKey?: string;
 	/** The module's authored search inputs. Iteration order drives the
 	 *  rendered field order; sibling uniqueness is enforced upstream
 	 *  at the schema layer. */
 	readonly searchInputs: ReadonlyArray<SearchInputDef>;
+	/** The always-on filter joins the input predicates in exported CSQL. It is
+	 * needed only to derive which prompt values require quote validation. */
+	readonly filter?: Predicate;
 	/** The module's case type — needed to resolve a select-typed
 	 *  input's option list off the property's declaration. May be
 	 *  undefined during blueprint hydration; select-typed inputs
 	 *  fall back to text in that case. */
 	readonly caseType: CaseType | undefined;
+	/** Session-backed values used by computed search expressions in the exact
+	 * exported runtime validation condition. */
+	readonly session?: PreviewSearchSessionValues;
+	/** Full schema context keeps date/datetime expression emission identical to
+	 * the compiler when the search predicate crosses case relations. */
+	readonly typeContext?: TypeContext;
 	/** Controlled per-input value bag. `<name>:from` / `<name>:to`
 	 *  for range bounds; bare `<name>` otherwise. Mirrors the
 	 *  runtime-bindings layer's input-value contract verbatim. */
 	readonly value: SearchInputValues;
-	/** Fired with the new value bag 300 ms after the user pauses
-	 *  typing. The parent's case-list reload trigger keys off this
-	 *  reference; debounce in the form keeps the action-call
-	 *  cadence sane. */
+	/** Fired with the new draft bag 300 ms after the user pauses typing. */
 	readonly onChange: (next: SearchInputValues) => void;
+	/** Optional running-app submit action. When present, the form owns the
+	 *  button so pressing Enter or clicking submits its latest local draft
+	 *  immediately, without waiting for the typing debounce. */
+	readonly onSubmit?: (value: SearchInputValues) => void;
+	readonly submitLabel?: string;
 }
 
 const DEBOUNCE_MS = 300;
@@ -99,6 +143,25 @@ const DEBOUNCE_MS = 300;
  *  and the pattern would silently drop bounds at parsing. */
 const ISO_DATE_FORMAT = "yyyy-MM-dd";
 
+/** Human-facing calendar-date format. Nova's authored interface copy is
+ * currently English, so pinning the formatter to `en-US` keeps the server and
+ * browser projection hydration-stable while long month names avoid exposing
+ * the wire representation as interface copy. */
+const READABLE_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+	day: "numeric",
+	month: "long",
+	year: "numeric",
+};
+
+const READABLE_DATE_FORMATTER = new Intl.DateTimeFormat(
+	"en-US",
+	READABLE_DATE_FORMAT_OPTIONS,
+);
+
+function formatReadableDate(date: Date): string {
+	return READABLE_DATE_FORMATTER.format(date);
+}
+
 /**
  * Running-app search-input form. Mounts at the top of the case-list
  * screen when the module declares any search inputs; the form is the
@@ -106,17 +169,46 @@ const ISO_DATE_FORMAT = "yyyy-MM-dd";
  * query.
  */
 export function SearchInputForm({
+	landmarkLabel = "Search",
+	scopeKey = "",
 	searchInputs,
+	filter,
 	caseType,
+	session,
+	typeContext,
 	value,
 	onChange,
+	onSubmit,
+	submitLabel = "Search",
 }: SearchInputFormProps) {
-	const titleId = useId();
+	const [validationState, setValidationState] = useState({
+		scopeKey,
+		attempted: false,
+	});
+	const validationAttempted =
+		validationState.scopeKey === scopeKey && validationState.attempted;
+	const setValidationAttempted = (attempted: boolean) =>
+		setValidationState({ scopeKey, attempted });
 
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
 	// responsive; one debounced effect emits upward.
 	const [draft, setDraft] = useState<SearchInputValues>(value);
+	const submissionErrors = useMemo(
+		() =>
+			searchInputSubmissionErrors(
+				{
+					columns: [],
+					searchInputs: [...searchInputs],
+					...(filter !== undefined ? { filter } : {}),
+				},
+				caseType?.name,
+				draft,
+				session,
+				typeContext,
+			),
+		[caseType?.name, draft, filter, searchInputs, session, typeContext],
+	);
 
 	// `lastEmittedRef` carries the value most recently treated as
 	// "already emitted" by the form. Two writes land here:
@@ -189,6 +281,7 @@ export function SearchInputForm({
 			return updated;
 		});
 	};
+	const submitAvailable = onSubmit !== undefined;
 
 	// Zero-input modules render nothing — the caller is the
 	// case-list screen, which already guards on
@@ -199,24 +292,51 @@ export function SearchInputForm({
 	if (searchInputs.length === 0) return null;
 
 	return (
-		<search
-			aria-labelledby={titleId}
-			className="rounded-lg border border-border bg-card/30 p-4"
-		>
-			<h3 id={titleId} className="sr-only">
-				Search inputs
-			</h3>
-			<div className="flex flex-col gap-4">
-				{[...searchInputs].sort(bySortKey).map((input) => (
-					<SearchInputRow
-						key={input.uuid}
-						input={input}
-						caseType={caseType}
-						draft={draft}
-						setKey={setKey}
-					/>
-				))}
-			</div>
+		<search aria-label={landmarkLabel}>
+			<form
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (!submitAvailable) return;
+					if (submissionErrors.size > 0) {
+						setValidationAttempted(true);
+						return;
+					}
+					setValidationAttempted(false);
+					onSubmit?.(draft);
+				}}
+			>
+				<div
+					data-search-input-card
+					className="rounded-lg border border-border bg-card/30 p-4"
+				>
+					<div className="flex flex-col gap-4">
+						{[...searchInputs].sort(bySortKey).map((input) => (
+							<SearchInputRow
+								key={input.uuid}
+								input={input}
+								caseType={caseType}
+								draft={draft}
+								setKey={setKey}
+								error={
+									validationAttempted
+										? submissionErrors.get(input.name)
+										: undefined
+								}
+							/>
+						))}
+					</div>
+				</div>
+				{submitAvailable && (
+					<Button
+						type="submit"
+						data-search-submit
+						className="mt-4 h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					>
+						<Icon icon={tablerSearch} width="15" height="15" />
+						{submitLabel}
+					</Button>
+				)}
+			</form>
 		</search>
 	);
 }
@@ -228,6 +348,7 @@ interface SearchInputRowProps {
 	readonly caseType: CaseType | undefined;
 	readonly draft: SearchInputValues;
 	readonly setKey: (key: string, next: string) => void;
+	readonly error: string | undefined;
 }
 
 /**
@@ -242,6 +363,7 @@ function SearchInputRow({
 	caseType,
 	draft,
 	setKey,
+	error,
 }: SearchInputRowProps) {
 	const widget = resolveWidget(input, caseType);
 
@@ -253,6 +375,17 @@ function SearchInputRow({
 					label={input.label}
 					value={draft.get(input.name) ?? ""}
 					onChange={(next) => setKey(input.name, next)}
+					error={error}
+				/>
+			);
+		case "barcode":
+			return (
+				<BarcodeRow
+					name={input.name}
+					label={input.label}
+					value={draft.get(input.name) ?? ""}
+					onChange={(next) => setKey(input.name, next)}
+					error={error}
 				/>
 			);
 		case "date":
@@ -261,6 +394,7 @@ function SearchInputRow({
 					label={input.label}
 					value={draft.get(input.name) ?? ""}
 					onChange={(next) => setKey(input.name, next)}
+					error={error}
 				/>
 			);
 		case "date-range":
@@ -271,6 +405,7 @@ function SearchInputRow({
 					toValue={draft.get(`${input.name}:to`) ?? ""}
 					onChangeFrom={(next) => setKey(`${input.name}:from`, next)}
 					onChangeTo={(next) => setKey(`${input.name}:to`, next)}
+					error={error}
 				/>
 			);
 		case "select":
@@ -281,6 +416,7 @@ function SearchInputRow({
 					options={widget.options}
 					value={draft.get(input.name) ?? ""}
 					onChange={(next) => setKey(input.name, next)}
+					error={error}
 				/>
 			);
 	}
@@ -291,10 +427,11 @@ function SearchInputRow({
 /** Discriminated widget shape. The select arm carries the resolved
  *  options inline so the renderer doesn't re-walk the case type;
  *  text is the unified fallback for every "can't resolve a select"
- *  branch. Barcode collapses into the text arm at this layer — they
- *  share the same control. */
+ *  branch. Barcode keeps its own arm so Preview can progressively
+ *  enhance the same editable string with a real camera scanner. */
 type ResolvedWidget =
 	| { readonly kind: "text" }
+	| { readonly kind: "barcode" }
 	| { readonly kind: "date" }
 	| { readonly kind: "date-range" }
 	| {
@@ -322,8 +459,9 @@ function resolveWidget(
 ): ResolvedWidget {
 	switch (input.type) {
 		case "text":
-		case "barcode":
 			return { kind: "text" };
+		case "barcode":
+			return { kind: "barcode" };
 		case "date":
 			return { kind: "date" };
 		case "date-range":
@@ -355,19 +493,19 @@ interface TextRowProps {
 	readonly label: string;
 	readonly value: string;
 	readonly onChange: (next: string) => void;
+	readonly error?: string;
 }
 
 /**
- * Text-input row. Used for both `type: text` and `type: barcode`
- * inputs (barcodes scan as plain strings) AND for every fallback
- * arm of the select dispatch. The single shape keeps the running-
- * app form layout uniform across the various ways a string-typed
- * value can land here.
+ * Text-input row. Used for text inputs and every fallback arm of the
+ * select dispatch. Barcode has a separate row because it adds a
+ * feature-detected scanner without changing the underlying string value.
  */
-function TextRow({ name, label, value, onChange }: TextRowProps) {
+function TextRow({ name, label, value, onChange, error }: TextRowProps) {
 	const id = useId();
+	const errorId = `${id}-error`;
 	return (
-		<Field>
+		<Field data-invalid={error !== undefined}>
 			<FieldLabel htmlFor={id}>{label}</FieldLabel>
 			<Input
 				id={id}
@@ -375,10 +513,416 @@ function TextRow({ name, label, value, onChange }: TextRowProps) {
 				type="text"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
+				aria-invalid={error !== undefined}
+				aria-describedby={error !== undefined ? errorId : undefined}
+				className="min-h-11"
 				autoComplete="off"
 				data-1p-ignore
 			/>
+			<FieldError id={errorId}>{error}</FieldError>
 		</Field>
+	);
+}
+
+type BarcodeRowProps = TextRowProps;
+
+interface DetectedBarcodeLike {
+	readonly rawValue: string;
+}
+
+interface BarcodeDetectorLike {
+	detect(source: HTMLVideoElement): Promise<ReadonlyArray<DetectedBarcodeLike>>;
+}
+
+interface BarcodeDetectorConstructorLike {
+	new (options?: {
+		readonly formats?: ReadonlyArray<string>;
+	}): BarcodeDetectorLike;
+	getSupportedFormats(): Promise<ReadonlyArray<string>>;
+}
+
+type BarcodeScanSupport =
+	| { readonly kind: "checking" }
+	| { readonly kind: "unsupported" }
+	| {
+			readonly kind: "supported";
+			readonly detector: BarcodeDetectorLike;
+	  };
+
+type BarcodeScanStatus =
+	| { readonly kind: "starting"; readonly retry: boolean }
+	| { readonly kind: "scanning" }
+	| {
+			readonly kind: "error";
+			readonly title: string;
+			readonly message: string;
+	  };
+
+function barcodeDetectorConstructor():
+	| BarcodeDetectorConstructorLike
+	| undefined {
+	const candidate = (
+		globalThis as typeof globalThis & {
+			readonly BarcodeDetector?: unknown;
+		}
+	).BarcodeDetector;
+	if (typeof candidate !== "function") return undefined;
+	if (
+		typeof (candidate as { readonly getSupportedFormats?: unknown })
+			.getSupportedFormats !== "function"
+	) {
+		return undefined;
+	}
+	return candidate as unknown as BarcodeDetectorConstructorLike;
+}
+
+/** BarcodeDetector is experimental and absent in many browsers. Keep the
+ * first render hydration-safe, then expose Scan only after verifying a secure
+ * camera-capable context and at least one detector format. */
+function useBarcodeScanSupport(): BarcodeScanSupport {
+	const [support, setSupport] = useState<BarcodeScanSupport>({
+		kind: "checking",
+	});
+
+	useEffect(() => {
+		let active = true;
+		const Detector = barcodeDetectorConstructor();
+		const hasCamera =
+			typeof navigator.mediaDevices?.getUserMedia === "function";
+		if (
+			globalThis.isSecureContext === false ||
+			Detector === undefined ||
+			!hasCamera
+		) {
+			setSupport({ kind: "unsupported" });
+			return;
+		}
+
+		void Detector.getSupportedFormats()
+			.then((formats) => {
+				if (!active) return;
+				const usableFormats = formats.filter((format) => format !== "unknown");
+				if (usableFormats.length === 0) {
+					setSupport({ kind: "unsupported" });
+					return;
+				}
+				try {
+					setSupport({
+						kind: "supported",
+						detector: new Detector({ formats: usableFormats }),
+					});
+				} catch {
+					setSupport({ kind: "unsupported" });
+				}
+			})
+			.catch(() => {
+				if (active) setSupport({ kind: "unsupported" });
+			});
+
+		return () => {
+			active = false;
+		};
+	}, []);
+
+	return support;
+}
+
+function stopCamera(stream: MediaStream | undefined): void {
+	for (const track of stream?.getTracks() ?? []) track.stop();
+}
+
+function scanErrorMessage(
+	error: unknown,
+): Extract<BarcodeScanStatus, { kind: "error" }> {
+	const name =
+		typeof error === "object" && error !== null && "name" in error
+			? String(error.name)
+			: "";
+	switch (name) {
+		case "NotAllowedError":
+		case "SecurityError":
+			return {
+				kind: "error",
+				title: "Your browser blocked camera access",
+				message:
+					"Allow camera access in your browser, then try scanning again or enter the barcode",
+			};
+		case "NotFoundError":
+			return {
+				kind: "error",
+				title: "No camera is connected",
+				message: "Connect a camera or enter the barcode",
+			};
+		case "NotReadableError":
+		case "AbortError":
+			return {
+				kind: "error",
+				title: "Your camera isn't available",
+				message: "Close other apps using your camera, then try scanning again",
+			};
+		default:
+			return {
+				kind: "error",
+				title: "Barcode scanning stopped",
+				message: "Try scanning again or enter the barcode",
+			};
+	}
+}
+
+function isTransientDetectionError(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"name" in error &&
+		error.name === "InvalidStateError"
+	);
+}
+
+/** Manual entry remains the primary durable control. Camera scanning is a
+ * capability-gated enhancement, never a replacement or an inert promise. */
+function BarcodeRow({ name, label, value, onChange, error }: BarcodeRowProps) {
+	const id = useId();
+	const supportDescriptionId = `${id}-scan-support`;
+	const errorId = `${id}-error`;
+	const support = useBarcodeScanSupport();
+	const describedBy = [
+		support.kind === "unsupported" ? supportDescriptionId : undefined,
+		error !== undefined ? errorId : undefined,
+	]
+		.filter((candidate): candidate is string => candidate !== undefined)
+		.join(" ");
+	return (
+		<Field data-invalid={error !== undefined}>
+			<FieldLabel htmlFor={id}>{label}</FieldLabel>
+			<div className="flex items-start gap-2">
+				<Input
+					id={id}
+					name={name}
+					type="text"
+					value={value}
+					onChange={(event) => onChange(event.target.value)}
+					aria-invalid={error !== undefined}
+					aria-describedby={describedBy !== "" ? describedBy : undefined}
+					className="min-h-11 min-w-0 flex-1"
+					autoComplete="off"
+					data-1p-ignore
+				/>
+				{support.kind === "supported" && (
+					<BarcodeScannerDialog
+						label={label}
+						support={support}
+						onScan={onChange}
+					/>
+				)}
+			</div>
+			{support.kind === "unsupported" && (
+				<FieldDescription id={supportDescriptionId}>
+					Your browser doesn&apos;t support camera scanning. Enter or paste the
+					barcode
+				</FieldDescription>
+			)}
+			<FieldError id={errorId}>{error}</FieldError>
+		</Field>
+	);
+}
+
+function BarcodeScannerDialog({
+	label,
+	support,
+	onScan,
+}: {
+	readonly label: string;
+	readonly support: Extract<BarcodeScanSupport, { kind: "supported" }>;
+	readonly onScan: (value: string) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const [attempt, setAttempt] = useState(0);
+	const [status, setStatus] = useState<BarcodeScanStatus>({
+		kind: "starting",
+		retry: false,
+	});
+	const videoRef = useRef<HTMLVideoElement>(null);
+	const onScanRef = useRef(onScan);
+	useEffect(() => {
+		onScanRef.current = onScan;
+	}, [onScan]);
+
+	useEffect(() => {
+		if (!open) return;
+		let disposed = false;
+		let frameId: number | undefined;
+		let stream: MediaStream | undefined;
+
+		const dispose = () => {
+			if (disposed) return;
+			disposed = true;
+			if (frameId !== undefined) cancelAnimationFrame(frameId);
+			stopCamera(stream);
+			const video = videoRef.current;
+			if (video !== null) video.srcObject = null;
+		};
+		const fail = (error: unknown) => {
+			if (disposed) return;
+			if (frameId !== undefined) cancelAnimationFrame(frameId);
+			frameId = undefined;
+			stopCamera(stream);
+			stream = undefined;
+			const video = videoRef.current;
+			if (video !== null) video.srcObject = null;
+			setStatus(scanErrorMessage(error));
+		};
+
+		setStatus({ kind: "starting", retry: attempt > 0 });
+		const scheduleScan = () => {
+			if (!disposed) frameId = requestAnimationFrame(scanFrame);
+		};
+		const scanFrame = async () => {
+			frameId = undefined;
+			if (disposed) return;
+			const video = videoRef.current;
+			if (video === null) return;
+			try {
+				const detected = await support.detector.detect(video);
+				if (disposed) return;
+				const result = detected.find((item) => item.rawValue.length > 0);
+				if (result === undefined) {
+					scheduleScan();
+					return;
+				}
+				dispose();
+				onScanRef.current(result.rawValue);
+				setOpen(false);
+			} catch (error) {
+				if (isTransientDetectionError(error)) {
+					scheduleScan();
+					return;
+				}
+				fail(error);
+			}
+		};
+
+		const mediaDevices = navigator.mediaDevices;
+		if (typeof mediaDevices?.getUserMedia !== "function") {
+			fail({ name: "NotFoundError" });
+			return dispose;
+		}
+		void mediaDevices
+			.getUserMedia({
+				audio: false,
+				video: { facingMode: { ideal: "environment" } },
+			})
+			.then(async (nextStream) => {
+				if (disposed) {
+					stopCamera(nextStream);
+					return;
+				}
+				stream = nextStream;
+				const video = videoRef.current;
+				if (video === null) {
+					fail(new Error("Camera preview was unavailable"));
+					return;
+				}
+				video.srcObject = nextStream;
+				await video.play();
+				if (disposed) return;
+				setStatus({ kind: "scanning" });
+				scheduleScan();
+			})
+			.catch(fail);
+
+		return dispose;
+	}, [attempt, open, support.detector]);
+
+	const description =
+		status.kind === "starting"
+			? status.retry
+				? "Restarting your camera…"
+				: "Starting your camera…"
+			: status.kind === "scanning"
+				? "Point your camera at the barcode"
+				: "Enter the barcode manually or try scanning again";
+
+	return (
+		<Dialog open={open} onOpenChange={setOpen}>
+			<DialogTrigger
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						aria-label={`Scan ${label}`}
+						className="shrink-0"
+					/>
+				}
+			>
+				<Icon icon={tablerScan} aria-hidden="true" />
+				Scan
+			</DialogTrigger>
+			<DialogContent className="sm:max-w-xl">
+				<DialogHeader>
+					<DialogTitle>Scan barcode</DialogTitle>
+					<DialogDescription aria-live="polite">
+						{description}
+					</DialogDescription>
+				</DialogHeader>
+				<div className="relative grid aspect-video overflow-hidden rounded-lg border border-nova-border bg-nova-void">
+					{status.kind !== "error" && (
+						<video
+							ref={videoRef}
+							autoPlay
+							muted
+							playsInline
+							aria-label="Barcode camera preview"
+							className="size-full object-cover"
+						/>
+					)}
+					{status.kind === "starting" && (
+						<div className="absolute inset-0 grid place-items-center bg-nova-void">
+							<Spinner className="size-6 text-nova-text-secondary" />
+						</div>
+					)}
+					{status.kind === "scanning" && (
+						<div
+							aria-hidden="true"
+							className="pointer-events-none absolute inset-[16%] rounded-lg border-2 border-nova-violet-bright ring-[999px] ring-nova-void/60"
+						/>
+					)}
+					{status.kind === "error" && (
+						<div
+							role="alert"
+							className="grid place-items-center gap-2 p-6 text-center"
+						>
+							<Icon
+								icon={tablerAlertCircle}
+								className="size-8 text-nova-rose"
+							/>
+							<p className="text-sm font-semibold text-nova-text">
+								{status.title}
+							</p>
+							<p className="max-w-sm text-sm text-nova-text-secondary">
+								{status.message}
+							</p>
+						</div>
+					)}
+				</div>
+				<DialogFooter>
+					<DialogClose
+						render={<Button type="button" variant="outline" size="xl" />}
+					>
+						Cancel
+					</DialogClose>
+					{status.kind === "error" && (
+						<Button
+							type="button"
+							size="xl"
+							onClick={() => setAttempt((value) => value + 1)}
+						>
+							Try again
+						</Button>
+					)}
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -386,6 +930,11 @@ interface DatePopoverFieldProps {
 	readonly label: string;
 	readonly value: string;
 	readonly onChange: (next: string) => void;
+	readonly error?: string;
+	/** Group-owned invalid state (date range) without duplicating the same
+	 * message beneath both bound controls. */
+	readonly invalid?: boolean;
+	readonly describedBy?: string;
 	/** Optional override for the `FieldLabel`'s className — date-range
 	 *  bounds shrink their per-bound label so the parent legend reads
 	 *  as the primary heading. Top-level single-date pickers omit the
@@ -403,13 +952,14 @@ interface DatePopoverFieldProps {
 
 /**
  * Date picker — Popover trigger + `mode="single"` Calendar. The
- * trigger button reads the ISO-formatted value or a placeholder;
- * the popover hosts the Calendar that emits the picked `Date`.
- * `date-fns` `format(..., "yyyy-MM-dd")` lands at local-time
- * midnight — matching the runtime-bindings layer's `parseDateBound`
- * ISO-pattern gate without timezone drift (`new Date("2024-01-01")`
- * would parse as UTC midnight and shift negative offsets back a
- * day).
+ * trigger button reads a locale-formatted calendar date or a
+ * placeholder; the popover hosts the Calendar that emits the picked
+ * `Date`. The display format is intentionally separate from the wire
+ * format: `date-fns` `format(..., "yyyy-MM-dd")` lands at local-time
+ * midnight for `onChange`, matching the runtime-bindings layer's
+ * `parseDateBound` ISO-pattern gate without timezone drift (`new
+ * Date("2024-01-01")` would parse as UTC midnight and shift negative
+ * offsets back a day).
  *
  * Inbound values flow through two gates before reaching `format`:
  *
@@ -437,10 +987,15 @@ function DatePopoverField({
 	label,
 	value,
 	onChange,
+	error,
+	invalid = false,
+	describedBy,
 	labelClassName,
 	ariaLabel,
 }: DatePopoverFieldProps) {
 	const id = useId();
+	const errorId = `${id}-error`;
+	const isInvalid = invalid || error !== undefined;
 	const parsed = ISO_DATE_PATTERN.test(value) ? parseISO(value) : undefined;
 	const selected = parsed !== undefined && isValid(parsed) ? parsed : undefined;
 	// `open` is lifted into local state so a day-pick or Clear can
@@ -454,7 +1009,7 @@ function DatePopoverField({
 	// inside the relevant handlers.
 	const [open, setOpen] = useState(false);
 	return (
-		<Field>
+		<Field className="min-w-0" data-invalid={isInvalid}>
 			<FieldLabel htmlFor={id} className={labelClassName}>
 				{label}
 			</FieldLabel>
@@ -462,19 +1017,21 @@ function DatePopoverField({
 				<PopoverTrigger
 					id={id}
 					aria-label={ariaLabel}
+					aria-invalid={isInvalid}
+					aria-describedby={error !== undefined ? errorId : describedBy}
 					render={
 						<Button
 							variant="outline"
 							size="sm"
-							className="w-full justify-between font-normal data-placeholder:text-muted-foreground"
+							className="min-h-11 min-w-0 w-full justify-between whitespace-normal text-left text-[14px] font-normal leading-snug data-placeholder:text-muted-foreground"
 							data-placeholder={selected === undefined ? "" : undefined}
 						/>
 					}
 				>
-					<span className="truncate">
+					<span className="min-w-0 break-words">
 						{selected === undefined
 							? "Pick a date"
-							: format(selected, ISO_DATE_FORMAT)}
+							: formatReadableDate(selected)}
 					</span>
 					<Icon
 						icon={tablerCalendar}
@@ -482,7 +1039,11 @@ function DatePopoverField({
 						aria-hidden="true"
 					/>
 				</PopoverTrigger>
-				<PopoverContent align="start" className="w-auto p-0">
+				<PopoverContent
+					align="start"
+					collisionPadding={8}
+					className="max-h-[var(--available-height)] w-auto overflow-y-auto overscroll-contain p-0"
+				>
 					<Calendar
 						mode="single"
 						selected={selected}
@@ -497,7 +1058,7 @@ function DatePopoverField({
 							<Button
 								type="button"
 								variant="ghost"
-								size="xs"
+								size="xl"
 								onClick={() => {
 									onChange("");
 									setOpen(false);
@@ -510,6 +1071,7 @@ function DatePopoverField({
 					)}
 				</PopoverContent>
 			</Popover>
+			<FieldError id={errorId}>{error}</FieldError>
 		</Field>
 	);
 }
@@ -520,6 +1082,7 @@ interface DateRangeRowProps {
 	readonly toValue: string;
 	readonly onChangeFrom: (next: string) => void;
 	readonly onChangeTo: (next: string) => void;
+	readonly error?: string;
 }
 
 /**
@@ -544,34 +1107,47 @@ function DateRangeRow({
 	toValue,
 	onChangeFrom,
 	onChangeTo,
+	error,
 }: DateRangeRowProps) {
 	const groupId = useId();
+	const errorId = `${groupId}-error`;
 	const fromLabel = `${label} from`;
 	const toLabel = `${label} to`;
 	return (
 		<fieldset
 			aria-labelledby={groupId}
-			className="flex w-full flex-col gap-2 border-0 p-0 m-0"
+			aria-describedby={error !== undefined ? errorId : undefined}
+			data-date-range
+			data-invalid={error !== undefined}
+			className="@container/date-range m-0 flex min-w-0 w-full flex-col gap-2 border-0 p-0"
 		>
 			<legend id={groupId} className="text-sm leading-none font-medium">
 				{label}
 			</legend>
-			<div className="grid grid-cols-2 gap-2">
+			<div
+				data-date-range-fields
+				className="grid min-w-0 grid-cols-1 gap-2 @sm/date-range:grid-cols-2"
+			>
 				<DatePopoverField
 					label={fromLabel}
 					value={fromValue}
 					onChange={onChangeFrom}
-					labelClassName="text-xs font-normal text-muted-foreground"
+					labelClassName="text-[13px] font-normal text-muted-foreground"
 					ariaLabel={fromLabel}
+					invalid={error !== undefined}
+					describedBy={error !== undefined ? errorId : undefined}
 				/>
 				<DatePopoverField
 					label={toLabel}
 					value={toValue}
 					onChange={onChangeTo}
-					labelClassName="text-xs font-normal text-muted-foreground"
+					labelClassName="text-[13px] font-normal text-muted-foreground"
 					ariaLabel={toLabel}
+					invalid={error !== undefined}
+					describedBy={error !== undefined ? errorId : undefined}
 				/>
 			</div>
+			<FieldError id={errorId}>{error}</FieldError>
 		</fieldset>
 	);
 }
@@ -585,14 +1161,16 @@ interface SelectRowProps {
 	}>;
 	readonly value: string;
 	readonly onChange: (next: string) => void;
+	readonly error?: string;
 }
 
 /**
  * Option-dropdown row. Renders a shadcn Select (Base UI Select
  * primitive) — keyboard navigation, ARIA combobox semantics, and
- * scroll arrows come from the underlying primitive. Empty-string
- * value renders the placeholder; selecting an option emits the
- * option's wire-form `value`.
+ * scroll arrows come from the underlying primitive. The absent value is a
+ * real, visible "Any" selection rather than placeholder copy: it is a valid
+ * semantic default, not missing input. Selecting an authored option emits its
+ * wire-form `value`.
  *
  * Base UI's `Select.onValueChange` is
  * `(value: Value | null, ...) => void` in single-mode — `null`
@@ -602,27 +1180,65 @@ interface SelectRowProps {
  * form coalesces `null` to "" so the binding layer's empty-input
  * short-circuit handles both states uniformly.
  */
-function SelectRow({ name, label, options, value, onChange }: SelectRowProps) {
+function SelectRow({
+	name,
+	label,
+	options,
+	value,
+	onChange,
+	error,
+}: SelectRowProps) {
 	const id = useId();
+	const errorId = `${id}-error`;
+	/* Base UI documents `null` as the clearable Select item. Give that valid
+	 * default a visible label, and disambiguate it when imported/authored option
+	 * copy is also "Any" so the menu never exposes two identical choices. */
+	const clearLabel = useMemo(() => {
+		const authoredLabels = new Set(
+			options.map((option) => option.label.trim().toLocaleLowerCase("en-US")),
+		);
+		if (!authoredLabels.has("any")) return "Any";
+		let candidate = `Any ${label.trim().toLocaleLowerCase("en-US")}`;
+		let suffix = 2;
+		while (authoredLabels.has(candidate.toLocaleLowerCase("en-US"))) {
+			candidate = `Any ${label.trim().toLocaleLowerCase("en-US")} (${suffix})`;
+			suffix += 1;
+		}
+		return candidate;
+	}, [label, options]);
+	const selectItems = useMemo(
+		() => [{ value: null, label: clearLabel }, ...options],
+		[clearLabel, options],
+	);
 	return (
-		<Field>
+		<Field className="min-w-0" data-invalid={error !== undefined}>
 			<FieldLabel htmlFor={id}>{label}</FieldLabel>
 			<Select
 				name={name}
-				value={value}
+				items={selectItems}
+				value={value === "" ? null : value}
 				onValueChange={(next) => onChange(next ?? "")}
 			>
-				<SelectTrigger id={id} className="w-full">
-					<SelectValue placeholder="Select…" />
+				<SelectTrigger
+					id={id}
+					wrapValue
+					aria-invalid={error !== undefined}
+					aria-describedby={error !== undefined ? errorId : undefined}
+					className="min-h-11 min-w-0 w-full"
+				>
+					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
+					<SelectItem value={null}>{clearLabel}</SelectItem>
+					<SelectSeparator />
 					{options.map((opt) => (
-						<SelectItem key={opt.value} value={opt.value}>
+						<SelectItem key={opt.value} value={opt.value} wrap>
 							{opt.label}
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
+			<FieldError id={errorId}>{error}</FieldError>
 		</Field>
 	);
 }

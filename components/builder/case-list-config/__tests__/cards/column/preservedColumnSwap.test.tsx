@@ -8,7 +8,7 @@
 //
 //   - **Universal header + uuid + common slots** — every kind
 //     transition threads `header`, `uuid`, and the optional common
-//     slots (`sort`, `visibleInList`, `visibleInDetail`) through
+//     slots (`sort`, visibility, and independent Results/Details order) through
 //     verbatim. They're identity / surface-visibility shape, not
 //     kind-specific.
 //   - **Field preservation** — the five non-calc kinds all carry
@@ -141,8 +141,9 @@ describe("preservedColumnSwap — calc transitions", () => {
 		if (next.kind !== "plain") throw new Error("expected plain");
 		expect(next.header).toBe("Computed");
 		expect(next.uuid).toBe(TEST_UUID);
-		// The seed picks the case type's first property — `name`.
-		expect(next.field).toBe("name");
+		// The legacy `name` catalog entry is exposed through Nova's one
+		// canonical standard name.
+		expect(next.field).toBe("case_name");
 	});
 });
 

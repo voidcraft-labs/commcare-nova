@@ -23,10 +23,10 @@
 
 "use client";
 import type { CaseType } from "@/lib/domain";
-import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { OptionalSlotCard } from "./OptionalSlotCard";
 import { PredicateCardEditor } from "./PredicateCardEditor";
+import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ export interface PredicateSlotCardProps {
 	readonly currentCaseType: string;
 	/** Search-input declarations from the parent screen. Threaded
 	 *  into the predicate editor so `input(...)` terms resolve. */
-	readonly knownInputs?: readonly SearchInputDecl[];
+	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/** Aggregated validity verdict. `true` when the slot is
 	 *  undefined OR the predicate type-checks; `false` when a
 	 *  defined predicate fails its type-check pass. */

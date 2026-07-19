@@ -50,6 +50,7 @@
 //     `CASE_SEARCH_XPATH_QUERY_KEY` — wire-key constants.
 
 import AdmZip from "adm-zip";
+import { decodeXML } from "entities";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { makeCaseSearchFixture } from "@/lib/agent/tools/case-search-config/__tests__/fixtures";
@@ -68,11 +69,13 @@ import {
 } from "@/lib/domain";
 import {
 	eq,
+	input,
 	literal,
 	matchAll,
 	prop,
 	term,
 	toValueExpression,
+	whenInput,
 } from "@/lib/domain/predicate";
 import { compileForPlatform } from "../compileForPlatform";
 
@@ -127,11 +130,10 @@ const SI_STATUS_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0002");
  * rather than rebuilding the spec inline — drift in the spec
  * surfaces across those sections.
  *
- * Filter and simple input target distinct runtime paths so the
- * `filterSearchInputConflict` rule admits the pair. The filter walks
- * `region` directly on `patient`; the simple input targets a
- * different property (`case_name`) on the same case type. The
- * advanced input is a free-form predicate over `status`.
+ * The always-on filter and both search-input arms compose into one
+ * query. The filter walks `region` directly on `patient`; the simple
+ * input targets `case_name`; the advanced input is a free-form
+ * predicate over `status`.
  */
 function buildSearchBlueprint(): BlueprintDoc {
 	return buildDoc({
@@ -149,9 +151,7 @@ function buildSearchBlueprint(): BlueprintDoc {
 					// Filter on `region` — a self-walk on the patient case.
 					filter: eq(prop("patient", "region"), literal("North")),
 					searchInputs: [
-						// Simple input on `case_name` — distinct destination
-						// from the filter's `region` so the filter/simple-
-						// input conflict rule admits the pair.
+						// Simple input on `case_name`.
 						simpleSearchInputDef(
 							SI_NAME_UUID,
 							"name_search",
@@ -294,10 +294,10 @@ describe("case-search integration — validator surface", () => {
 		const errors = runValidation(doc);
 		const caseSearchCodes = new Set([
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
-			"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 		]);
 		expect(errors.filter((e) => caseSearchCodes.has(e.code))).toEqual([]);
 	});
@@ -333,14 +333,10 @@ describe("case-search integration — validator surface", () => {
 		).toBe(true);
 	});
 
-	it("fires CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR when the value expression references an unknown property", () => {
-		// Pins that the rule fires when `excludedOwnerIds` references
-		// a property absent from the module's case-type schema. The
-		// type checker's `resolveTermType` arm surfaces the orphan
-		// reference as an "Unknown property" error, which the rule
-		// lifts into the structured validation code. The non-text-
-		// typed-resolution failure mode is covered separately in the
-		// per-rule unit test file.
+	it("rejects property reads in the globally-resolved excluded-owner value", () => {
+		// The expression resolves before a case is selected. A property read
+		// would be blank in Preview but row-scoped in an ordinary suite list,
+		// so the shared validator rejects it before either wire is emitted.
 		const doc = buildSearchBlueprint();
 		const broken: BlueprintDoc = {
 			...doc,
@@ -358,7 +354,8 @@ describe("case-search integration — validator surface", () => {
 		const errors = runValidation(broken);
 		expect(
 			errors.some(
-				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
+				(e) =>
+					e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
 			),
 		).toBe(true);
 	});
@@ -560,7 +557,18 @@ describe("case-search integration — suite XML wire emission", () => {
 		// the advanced arm contributes both a prompt AND a clause
 		// inside `_xpath_query`.
 		expect(suite).toContain('<prompt key="name_search"');
-		expect(suite).toContain('<prompt key="status_search"');
+		expect(suite).toContain('<prompt key="status_search" exclude="true()">');
+		// The simple name input is explicitly composed into `_xpath_query`
+		// (`name_search !== case_name`), so its prompt blocks the one CSQL
+		// value shape that cannot preserve both quote delimiters.
+		expect(suite).toContain(
+			'<locale id="search_property.m0.name_search.validation.0.text"/>',
+		);
+		// The advanced fixture predicate is literal-only and never consumes
+		// `status_search`; `advanced` alone must not add a needless rule.
+		expect(suite).not.toContain(
+			'<locale id="search_property.m0.status_search.validation.0.text"/>',
+		);
 	});
 
 	it("emits a <datum> referencing m{N}_search_short / m{N}_search_long detail ids", () => {
@@ -675,6 +683,67 @@ describe("case-search integration — suite XML wire emission", () => {
 		expect(xpathBlock).toContain(" and ");
 		expect(xpathBlock).toContain("region = &apos;North&apos;");
 		expect(xpathBlock).toContain("status = &apos;active&apos;");
+	});
+
+	it("emits a same-property always-on filter and exact search input as cumulative query criteria", () => {
+		// This is intentionally one property on both authoring surfaces:
+		// the always-on rule narrows every request to Alice, while the
+		// exact input lets the user narrow that already-filtered set. CCHQ
+		// carries those criteria in separate, cumulative query slots: the
+		// rule in `_xpath_query`, and the exact input as a bare prompt whose
+		// key names the same case property.
+		const doc = buildSearchBlueprint();
+		const searchModule = doc.modules[MOD_UUID];
+		if (searchModule?.caseListConfig === undefined) {
+			throw new Error("Expected the search fixture module and its case list.");
+		}
+		const samePropertyDoc: BlueprintDoc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[MOD_UUID]: {
+					...searchModule,
+					caseListConfig: {
+						...searchModule.caseListConfig,
+						filter: eq(prop("patient", "case_name"), literal("Alice")),
+						searchInputs: [
+							simpleSearchInputDef(
+								SI_NAME_UUID,
+								"case_name",
+								"Search by name",
+								"text",
+								"case_name",
+							),
+						],
+					},
+				},
+			},
+		};
+
+		// The shared fixture deliberately carries an unrelated legacy
+		// form-level `status` property. Scope this assertion to the module
+		// whose case-search configuration is under test.
+		expect(
+			runValidation(samePropertyDoc).filter(
+				(finding) => finding.scope === "module",
+			),
+		).toEqual([]);
+		const suite = compileSuiteXml(samePropertyDoc);
+		const queryOpenIdx = suite.indexOf("<query ");
+		const queryCloseIdx = suite.indexOf("</query>", queryOpenIdx);
+		if (queryOpenIdx === -1 || queryCloseIdx === -1) {
+			throw new Error("Expected the compiled suite to contain a search query.");
+		}
+		const queryBlock = suite.slice(queryOpenIdx, queryCloseIdx);
+
+		expect(queryBlock).toContain(
+			'<data key="_xpath_query" ref="concat(&quot;case_name = &apos;Alice&apos;&quot;)"/>',
+		);
+		expect(queryBlock).toContain('<prompt key="case_name">');
+		// Exact self-property prompts are the native CCHQ auto-match
+		// route. They must remain active alongside `_xpath_query` rather
+		// than being excluded as an explicitly-derived predicate would be.
+		expect(queryBlock).not.toContain('<prompt key="case_name" exclude=');
 	});
 
 	it("emits <description> + the case_search.m{N}.description app-strings entry when searchScreenSubtitle is authored", () => {
@@ -879,22 +948,88 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		const doc = buildSearchBlueprint();
 		const searchConfig = expandDoc(doc).modules[0].search_config;
 		// `excludedOwnerIds: toValueExpression(literal("excluded-owner-id"))`
-		// lowers to the on-device string literal.
+		// lowers to the shared normalized on-device value.
 		expect(searchConfig.blacklisted_owner_ids_expression).toBe(
-			"'excluded-owner-id'",
+			"normalize-space('excluded-owner-id')",
 		);
 	});
 
-	it("projects simple-arm search inputs to search_config.properties", () => {
+	it("projects both search-input arms to search_config.properties with advanced auto-match suppression", () => {
 		const doc = buildSearchBlueprint();
 		const properties = expandDoc(doc).modules[0].search_config.properties;
-		// The fixture has one simple-arm input (`name_search`) and one
-		// advanced-arm input (`status_search`). Only the simple one
-		// surfaces as a `CaseSearchProperty`; the advanced one
-		// contributes via `_xpath_query` instead.
-		expect(properties).toHaveLength(1);
+		// CCHQ only creates prompt bindings from `properties`, so the
+		// advanced row must remain present as well as contributing its
+		// predicate to `_xpath_query`. `exclude` keeps Core from also
+		// treating its prompt key as an implicit case-property query.
+		expect(properties).toHaveLength(2);
 		expect(properties[0].name).toBe("name_search");
 		expect(properties[0].label).toEqual({ en: "Search by name" });
+		// `name_search !== case_name`, so this simple input also rides on
+		// `_xpath_query` and suppresses Core's wrong-key auto-match.
+		expect(properties[0].exclude).toBe(true);
+		expect(properties[0].validations).toEqual([
+			{
+				test: `not(count(instance('search-input:results')/input/field[@name='name_search']) and (contains(instance('search-input:results')/input/field[@name='name_search'], "'") and contains(instance('search-input:results')/input/field[@name='name_search'], '"')))`,
+				text: {
+					en: "This search can't use both single and double quotation marks. Remove one kind and try again",
+				},
+			},
+		]);
+		expect(properties[1]).toEqual(
+			expect.objectContaining({
+				name: "status_search",
+				label: { en: "Status" },
+				exclude: true,
+			}),
+		);
+		expect(properties[1].validations).toBeUndefined();
+	});
+
+	it("keeps filter-derived prompt validation identical in suite XML and HQ JSON", () => {
+		const base = buildSearchBlueprint();
+		const module = base.modules[MOD_UUID];
+		if (module?.caseListConfig === undefined) {
+			throw new Error("search fixture must carry a case-list config");
+		}
+		const doc: BlueprintDoc = {
+			...base,
+			modules: {
+				...base.modules,
+				[MOD_UUID]: {
+					...module,
+					caseListConfig: {
+						...module.caseListConfig,
+						filter: whenInput(
+							input("status_search"),
+							eq(prop("patient", "region"), input("status_search")),
+						),
+					},
+				},
+			},
+		};
+
+		const statusProperty = expandDoc(
+			doc,
+		).modules[0].search_config.properties.find(
+			(property) => property.name === "status_search",
+		);
+		expect(statusProperty?.validations).toHaveLength(1);
+		const hqValidation = statusProperty?.validations?.[0];
+		expect(hqValidation?.test).toContain("@name='status_search'");
+
+		const suite = compileSuiteXml(doc);
+		const promptStart = suite.indexOf('<prompt key="status_search"');
+		const promptEnd = suite.indexOf("</prompt>", promptStart);
+		const promptXml = suite.slice(promptStart, promptEnd);
+		expect(promptStart).toBeGreaterThan(-1);
+		expect(promptEnd).toBeGreaterThan(promptStart);
+		expect(promptXml.match(/<validation /g)).toHaveLength(1);
+		expect(promptXml).toContain(
+			'<locale id="search_property.m0.status_search.validation.0.text"/>',
+		);
+		const suiteValidation = promptXml.match(/<validation test="([^"]+)">/);
+		expect(suiteValidation).not.toBeNull();
+		expect(decodeXML(suiteValidation?.[1] ?? "")).toBe(hqValidation?.test);
 	});
 
 	it("AND-composes the filter + advanced-arm predicate into _xpath_query on default_properties", () => {
@@ -911,14 +1046,16 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		expect(xpathEntry?.defaultValue).toContain(" and ");
 	});
 
-	it("projects caseListConfig.filter to case_details.short.filter as on-device XPath", () => {
+	it("combines case-list and owner availability rules in case_details.short.filter", () => {
 		// CCHQ's `case_list_filter` getter reads through to
 		// `case_details.short.filter`; the wire form is the bare
 		// on-device XPath (CCHQ wraps it as `[...]` at suite-XML
 		// emission time).
 		const doc = buildSearchBlueprint();
 		const filter = expandDoc(doc).modules[0].case_details.short.filter;
-		expect(filter).toBe("region = 'North'");
+		expect(filter).toBe(
+			"(region = 'North') and (normalize-space('excluded-owner-id') = '' or not(selected(normalize-space('excluded-owner-id'), @owner_id)))",
+		);
 	});
 
 	it("projects authored column kinds to their matching CCHQ format token", () => {

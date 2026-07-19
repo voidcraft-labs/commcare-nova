@@ -14,13 +14,13 @@ The work splits into three coordinated layers that ship together:
 
 1. **Foundation** — typed Predicate AST + typed Expression AST, schema-driven type checker, JSON Schema generator, three wire emitters (one per dialect), Postgres compiler.
 2. **Case list config** — columns, filters, sorts, calculated columns. Full builder UI.
-3. **Search config** — display labels, an "Advanced" cluster for niche search-side filters (excluded owner ids), platform-aware compilation. Search inputs and the search default filter live on `caseListConfig` (one source for both case-list and search) — `caseSearchConfig` carries only the search-specific authoring concerns that have no case-list parallel. There is no claim-flow authoring affordance: CCHQ's runtime fires the case-claim step automatically on every case-search-enabled module, so the wire `<post>` claim element is hard-coded by the export adapter rather than author-controlled.
+3. **Search config** — display labels, an "Advanced" cluster for niche search-side filters (excluded owner ids), platform-aware compilation. Search fields and the always-on available-case rule live on `caseListConfig` — `caseSearchConfig` carries only the search-specific authoring concerns that have no case-list parallel. There is no claim-flow authoring affordance: CCHQ's runtime fires the case-claim step automatically on every case-search-enabled module, so the wire `<post>` claim element is hard-coded by the export adapter rather than author-controlled.
 
 These ship together because the foundation gates both. Shipping case list filters and search filters with different expression dialects would re-create the cross-surface footguns CommCare has lived with for a decade.
 
 ## Goals
 
-- Author writes one expression system (typed Predicate AST + typed Expression AST) for every filter, sort, calculated column, search input default, and default search filter.
+- Author writes one expression system (typed Predicate AST + typed Expression AST) for every available-case rule, sort, calculated column, search-field default, and advanced search condition.
 - Author never writes a predicate or expression as a string. Every node is composed in the UI as typed cards or via the SA's typed tool surface.
 - Type errors are caught at the editor — comparing an `int` property to a string literal fails at construction, not at runtime.
 - Case data is typed end-to-end. Property types declared in the blueprint flow into the database write boundary, the predicate type checker, and the UI surface for editing.
@@ -54,7 +54,7 @@ The two stores share no record identity. Blueprint mutations don't reference cas
 
 CommCare authoring requires two distinct AST families that share Term shapes but produce different result types:
 
-- **Predicate AST** — produces a boolean. Used in case-list filter, default search filter, post-ES search filter, search-button display condition, the `required` assertion on a search input.
+- **Predicate AST** — produces a boolean. Used for the always-on available-case rule (emitted into the necessary case-list and search slots), post-ES search filters, search-button display conditions, and the `required` assertion on a search field.
 - **Expression AST** — produces a typed value. Used in calculated columns (display values), sort calculations (sort key derivation), search-input default values, the interval column's date argument (the kind covers both relative-display and threshold-flag UX), ID Mapping's source value.
 
 The v1 of this spec collapsed calculated columns onto the Predicate AST. That was a category error: calculated columns return values, not booleans. Splitting into two families lets each carry the operators that make sense for it (`if` / `switch` / `concat` / `arith` / `count` are Expression-only; `compare` / `exists` / `match-all` are Predicate-only) and lets the type checker validate that an expression appears where an expression is expected.
@@ -439,7 +439,7 @@ The Predicate and Expression ASTs are persisted in Firestore alongside the bluep
 
 CommCare exposes four workflow modes (Normal / Search First / See More / Skip to Default Results) controlled by two orthogonal booleans on the wire (`auto_launch`, `default_search`). The booleans only meaningfully affect Web Apps; Android always shows the case list first regardless. The four modes are CCHQ's compromise between two backends and 25 years of accumulated UX choices; they are not a primitive Nova authoring should reproduce.
 
-Nova does not expose workflow modes to the author. There is no mode picker, no escape hatch, no toggle. The author configures one coherent surface (case list with optional filter, columns + per-column sort, and search inputs; plus an optional case-search config carrying display labels and a niche "Advanced" cluster for excluded owner ids); the export adapter compiles per-platform from the configured content. The case-claim `<post>` element is hard-coded by the export adapter — there is no claim authoring affordance. The case-list filter and the search default filter share one source by construction; the case-list display sort projects identically onto both wire detail blocks.
+Nova does not expose workflow modes to the author. There is no mode picker, no escape hatch, no toggle. The author configures one coherent Search surface (the fields people use to narrow cases first, then the less-common rule defining which cases are available at all), a Results surface (information shown and default order), and a Details surface; an optional case-search config carries screen copy plus a niche "Advanced" cluster for excluded owner ids. The export adapter compiles per-platform from that configured content. The case-claim `<post>` element is hard-coded by the export adapter — there is no claim authoring affordance. The always-on available-case rule is emitted as a baseline query, search inputs narrow it cumulatively, and the Results sort projects identically onto both wire detail blocks.
 
 **The principle:** Nova owns the authoring layer; the export layer translates to CCHQ's wire shape. CCHQ's mode picker is a CCHQ authoring-UX problem — solving it correctly there is CCHQ's job. Importing the picker into Nova replicates the underlying confusion. If a Nova-authored app produces a different (sometimes worse) UX on Web Apps than a hand-authored CCHQ app would, that's a CCHQ-side UX cost we accept rather than degrade Nova's authoring experience to match.
 
@@ -467,7 +467,7 @@ The author never makes a per-platform decision. The compiler picks the closest C
 2. **Filters** — always-on filter, expressed as a single Predicate AST.
    - Authored via composable cards: AND/OR groups, comparison cards, set-membership cards, distance cards, relational cards (`exists`/`missing`/`count`).
    - Cards type-check against the case-type schema at construction.
-   - The same Predicate compiles to both the case-list filter and the search default filter at wire emission time. The author writes it once; the two surfaces cannot diverge by construction.
+   - The same Cases available Predicate compiles to both the case-list filter and the baseline search query at wire emission time. The author writes it once; the two wire slots cannot diverge by construction.
 3. **Search inputs** — discriminated `simple` / `advanced` union.
    - Common slots on every arm: `uuid`, `name`, `label`, `type` (text / select / date / date-range / barcode), optional `default` ValueExpression.
    - `kind: "simple"` carries `(property, mode?, via?)` — the wire layer builds the predicate from the targeted property + mode + optional relation walk. `property` is required on this arm.
@@ -511,7 +511,7 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 - Case list sort (multi-key; per-column `sort: { direction, priority }`; comparator types Plain / Date / Integer / Decimal derived at wire emission from each column's data type or calculated expression's result type)
 - Case detail long-detail columns over the same six kinds, filtered by `visibleInDetail`
 - Search inputs over both arms: `kind: "simple"` (property + mode + via) and `kind: "advanced"` (free-form predicate); widget types text / select / date / date-range / barcode
-- Search default filter — `caseListConfig.filter` (the unified Predicate AST) projects onto the search side at wire emission as `<data key="_xpath_query">` (CSQL). No separate authoring slot for "search-only filter"; the case-list filter and search default filter share one source by construction. Multiple CSQL contributions (the unified filter + every advanced-arm `searchInputs[i].predicate`) AND-compose into one `<data key="_xpath_query">` element.
+- Baseline search query — `caseListConfig.filter` (the Cases available Predicate AST) projects onto the search side at wire emission as `<data key="_xpath_query">` (CSQL). There is no separate authoring slot for a search-only baseline. Multiple CSQL contributions (the always-on rule + every advanced-arm `searchInputs[i].predicate`) AND-compose into one `<data key="_xpath_query">` element.
 - Search-results display sort — `caseListConfig.columns[*].sort` (the unified column-mounted sort) projects onto BOTH the case-list `<detail id="m{N}_case_short">` and the search-results `<detail id="m{N}_search_short">` as identical `<sort>` blocks. No separate "custom sort properties" authoring slot; "from the user's perspective there is only one case list" is the structural principle. Nova never emits the `<data key="commcare_sort">` ES retrieval-sort override; ES default `_score` ranking is in effect for fuzzy / phonetic / starts-with match results, ensuring those queries surface their best matches in the 500-result cap regardless of display sort.
 - Search-screen display labels — `searchScreenTitle`, `searchScreenSubtitle`, `searchButtonLabel`. All free-text strings; the subtitle renders through CCHQ's runtime markdown formatter, the rest as plain text. CCHQ has no wire field for "no search results" copy (the search-results screen renders a hardcoded message), and `search_again_label` was removed in the Feb 2026 SSCS migration, so neither has a Nova counterpart.
 - Search-button display condition — `searchButtonDisplayCondition`, an optional Predicate AST gating whether the search button renders. Hides the button when the predicate evaluates false (typical use: a "search" button that disappears once the form has executed once). Type-checks against the module's case-type schema.
@@ -554,7 +554,7 @@ The validator's per-module rule set surfaces one structured `ValidationError` pe
 
 - **`searchButtonDisplayCondition` (`Predicate`) type-checks against the module's case-type schema**, with the same orphan-input-ref coverage every other predicate-slot rule gets through `checkPredicate`.
 - **`excludedOwnerIds` (`ValueExpression`) type-checks against the module's case-type schema and resolves to a `text`-typed result.** Authors who need a non-text-typed property as the source coerce explicitly via `concat(...)`. `typesCompatible` widens `single_select` and `multi_select` into `text`, so select-typed property references resolve cleanly.
-- **Same property in both `caseListConfig.filter` and a simple-arm `caseListConfig.searchInputs[i].property` is a config error.** `filterSearchInputConflict` fires only when `caseSearchConfig` is present (i.e., the module emits a `<remote-request>`). Both contributions AND-compose into one `<data key="_xpath_query">`; CCHQ's runtime treats the duplicate-property case as a config error. The dedup key is `(destinationCaseType, property)` — NOT bare property name — so distinct `via` walks resolving to distinct runtime paths compose fine.
+- **The always-on filter and search inputs may narrow the same property.** Nova emits the always-on condition in `_xpath_query` and combines an entered search value with it as an ordinary intersection. An empty search input contributes no additional condition; a disagreeing value legitimately returns no cases. CCHQ accepts this wire shape, so Nova does not turn the possibility of zero matches into a configuration error.
 
 **Cross-cutting rule:**
 

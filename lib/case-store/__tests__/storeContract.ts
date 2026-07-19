@@ -414,7 +414,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// close — closed_on transitions to non-null
 		// -----------------------------------------------------------
 
-		it("close marks closed_on without deleting the row", async () => {
+		it("close owns the canonical closed lifecycle status without deleting the row", async () => {
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
@@ -432,28 +432,102 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await store.close({
 				appId: APP_ID,
 				caseId: PATIENT_ALICE_ID,
-				status: "closed",
 			});
 
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
 			});
-			// Row still present (close is not delete) but closed_on
-			// stamped and status updated.
+			// Row still present (close is not delete), while one storage
+			// operation owns both halves of the lifecycle transition. No
+			// caller-provided status is needed (or accepted), so the preview
+			// path cannot accidentally leave an `open` @status behind.
 			expect(rows).toHaveLength(1);
 			expect(rows[0]?.closed_on).not.toBeNull();
 			expect(rows[0]?.status).toBe("closed");
 		});
 
+		it("an explicit recovery update can reopen a closed case", async () => {
+			const store = await options.factory(TENANT_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+			await store.close({ appId: APP_ID, caseId: PATIENT_ALICE_ID });
+
+			// Reopening is deliberately explicit rather than an option on
+			// `close`: import/recovery code writes the paired lifecycle
+			// fields it means to restore.
+			await store.update({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				patch: { status: "open", closed_on: null },
+			});
+
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.closed_on).toBeNull();
+			expect(rows[0]?.status).toBe("open");
+		});
+
+		it("re-closing repairs a legacy closed row whose status was left open", async () => {
+			const store = await options.factory(TENANT_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			const originalClosedOn = new Date("2026-04-03T10:30:00.000Z");
+			const originalModifiedOn = new Date("2026-04-03T10:30:00.000Z");
+
+			// This is the exact row shape the former preview close path left:
+			// it stamped `closed_on` but passed no status into the optional
+			// store slot, so the registration-time `open` value survived.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					closed_on: originalClosedOn,
+					modified_on: originalModifiedOn,
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			await store.close({ appId: APP_ID, caseId: PATIENT_ALICE_ID });
+
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.status).toBe("closed");
+			// Repair completes the original lifecycle write; it must not
+			// manufacture a new close event or advance its modification time.
+			expect(rows[0]?.closed_on).toEqual(originalClosedOn);
+			expect(rows[0]?.modified_on).toEqual(originalModifiedOn);
+		});
+
 		it("close is idempotent on row state — re-closing preserves the original closed_on timestamp", async () => {
-			// `close` filters on `closed_on IS NULL` so an
-			// already-closed row is excluded from the UPDATE; the
-			// original closure timestamp + the `modified_on` from that
-			// first close stay intact under repeated calls. Pins the
-			// idempotent-on-row-state contract: a duplicate close from
-			// a retry path or a re-issued submission doesn't advance
-			// either timestamp.
+			// A consistent closed row matches neither close-write arm:
+			// `closed_on` is present and status is already `closed`. The
+			// original closure timestamp + the `modified_on` from that first
+			// close therefore stay intact under repeated calls. Pins the
+			// idempotent-on-row-state contract: a duplicate close from a
+			// retry path or re-issued submission doesn't advance either
+			// timestamp, while the sibling legacy-row test proves a stale
+			// status still gets repaired.
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
@@ -474,7 +548,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await store.close({
 				appId: APP_ID,
 				caseId: PATIENT_ALICE_ID,
-				status: "closed",
 			});
 			const afterFirst = await store.query({
 				appId: APP_ID,
@@ -492,13 +565,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// value if the second UPDATE actually fired.
 			await new Promise((resolve) => setTimeout(resolve, 10));
 
-			// Second close on the same case is a no-op. The WHERE
-			// clause filters out the already-closed row; both
-			// timestamps are preserved.
+			// Second close on the same consistent case is a no-op. Both
+			// lifecycle predicates filter it out, preserving the timestamps.
 			await store.close({
 				appId: APP_ID,
 				caseId: PATIENT_ALICE_ID,
-				status: "closed",
 			});
 			const afterSecond = await store.query({
 				appId: APP_ID,
@@ -1374,7 +1445,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await storeB.close({
 				appId: APP_ID,
 				caseId: PATIENT_ALICE_ID,
-				status: "closed",
 			});
 
 			const rows = await storeA.query({

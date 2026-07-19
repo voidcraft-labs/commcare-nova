@@ -226,6 +226,38 @@ export class PostgresCaseStore implements CaseStore {
 		return this.actorUserId;
 	}
 
+	/**
+	 * Serialize the small set of operations that create, replace, or change
+	 * parent relationships within one app + Project. `case_indices` cannot use
+	 * a conventional FK because it also models CommCare relationship semantics,
+	 * so reset and relationship writers share this transaction-level advisory
+	 * lock instead. Unrelated, parentless case writes remain concurrent.
+	 */
+	private async lockRelationshipWrites(
+		trx: Transaction<Database>,
+		appId: string,
+	): Promise<void> {
+		const scope = `nova:case-relationships:${this.requireProjectId()}:${appId}`;
+		await sql`select pg_advisory_xact_lock(hashtextextended(${scope}, 0::bigint))`.execute(
+			trx,
+		);
+	}
+
+	/** Validate a relationship target after acquiring the shared lock. */
+	private async assertParentExists(
+		trx: Transaction<Database>,
+		args: { appId: string; parentCaseId: string },
+	): Promise<void> {
+		const parent = await trx
+			.selectFrom("cases as parent")
+			.select("parent.case_id")
+			.where("parent.app_id", "=", args.appId)
+			.where("parent.case_id", "=", args.parentCaseId)
+			.where("parent.project_id", "=", this.requireProjectId())
+			.executeTakeFirst();
+		if (parent === undefined) throw new CaseNotFoundError(args.parentCaseId);
+	}
+
 	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
 		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
 
@@ -234,6 +266,7 @@ export class PostgresCaseStore implements CaseStore {
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
+			bindings: args.bindings ?? {},
 		});
 		const exprCtx = expressionContextFor(ctx);
 
@@ -446,6 +479,7 @@ export class PostgresCaseStore implements CaseStore {
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
+			bindings: args.bindings ?? {},
 		});
 
 		// `eb.fn.countAll<string>()` matches the existing usage at
@@ -506,6 +540,16 @@ export class PostgresCaseStore implements CaseStore {
 		// One transaction across cases + case_indices so a derived
 		// edge insert can't observe a partial cases-row commit.
 		return await this.db.transaction().execute(async (trx) => {
+			if (
+				args.row.parent_case_id !== null &&
+				args.row.parent_case_id !== undefined
+			) {
+				await this.lockRelationshipWrites(trx, args.appId);
+				await this.assertParentExists(trx, {
+					appId: args.appId,
+					parentCaseId: args.row.parent_case_id,
+				});
+			}
 			const inserted = await trx
 				.insertInto("cases")
 				.values(insertRow)
@@ -567,6 +611,22 @@ export class PostgresCaseStore implements CaseStore {
 		// derived edge. A failure anywhere rolls the entire
 		// registration back.
 		return await this.db.transaction().execute(async (trx) => {
+			const primaryParentCaseId = args.primary.parent_case_id ?? null;
+			// Only a relationship-bearing registration serializes — the same
+			// conditional `insert` / `update` apply, honoring
+			// `lockRelationshipWrites`'s parentless-writes-stay-concurrent
+			// contract. Unconditional locking would block every Preview form
+			// submission behind `resetSampleData`'s whole replace
+			// transaction, even for forms that create no relationships.
+			if (primaryParentCaseId !== null || args.children.length > 0) {
+				await this.lockRelationshipWrites(trx, args.appId);
+			}
+			if (primaryParentCaseId !== null) {
+				await this.assertParentExists(trx, {
+					appId: args.appId,
+					parentCaseId: primaryParentCaseId,
+				});
+			}
 			// Primary id generated up-front so child `parent_case_id`
 			// resolves before the bulk-insert lands. UUID v7's
 			// timestamp prefix matches `DEFAULT uuidv7()`'s B-tree
@@ -799,6 +859,15 @@ export class PostgresCaseStore implements CaseStore {
 		// Read inside the transaction so merge + validate + write is
 		// atomic against a concurrent updater of the same row.
 		await this.db.transaction().execute(async (trx) => {
+			if (args.patch.parent_case_id !== undefined) {
+				await this.lockRelationshipWrites(trx, args.appId);
+				if (args.patch.parent_case_id !== null) {
+					await this.assertParentExists(trx, {
+						appId: args.appId,
+						parentCaseId: args.patch.parent_case_id,
+					});
+				}
+			}
 			const existing = await trx
 				.selectFrom("cases as c")
 				.select(["c.case_type", "c.parent_case_id", "c.properties"])
@@ -868,27 +937,32 @@ export class PostgresCaseStore implements CaseStore {
 		});
 	}
 
-	async close(args: {
-		appId: string;
-		caseId: string;
-		status?: string;
-	}): Promise<void> {
-		// `closed_on IS NULL` makes close idempotent on row state:
-		// an already-closed row is excluded so its `closed_on` keeps
-		// the original timestamp. The same filter also prevents a
-		// stray `status` patch on an already-closed row from sliding
-		// through — status changes on closed rows go through `update`.
+	async close(args: { appId: string; caseId: string }): Promise<void> {
+		// Lifecycle status is NOT caller input: CCHQ's built-in `@status`
+		// is exactly `open` / `closed`, so close owns the canonical
+		// `closed` write alongside the timestamp. `coalesce` preserves an
+		// existing closure timestamp while the second WHERE arm lets a
+		// re-close repair rows written by the old close path (`closed_on`
+		// present but status still `open`). `modified_on` advances only for
+		// a genuinely open row; status-only repair preserves the original
+		// close event's timestamp. Import/reopen flows go through `update`
+		// with both lifecycle fields.
 		await this.db
 			.updateTable("cases as c")
 			.set({
-				closed_on: sql<Date>`now()`,
-				modified_on: sql<Date>`now()`,
-				...(args.status !== undefined ? { status: args.status } : {}),
+				closed_on: sql<Date>`coalesce(c.closed_on, now())`,
+				modified_on: sql<Date>`case when c.closed_on is null then now() else c.modified_on end`,
+				status: "closed",
 			})
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_id", "=", args.caseId)
 			.where("c.project_id", "=", this.requireProjectId())
-			.where("c.closed_on", "is", null)
+			.where((eb) =>
+				eb.or([
+					eb("c.closed_on", "is", null),
+					eb("c.status", "is distinct from", "closed"),
+				]),
+			)
 			.execute();
 	}
 
@@ -1209,6 +1283,7 @@ export class PostgresCaseStore implements CaseStore {
 		// so `resetSampleData` can pass its own `trx` and the full
 		// delete + regenerate runs as one Postgres transaction.
 		return await this.db.transaction().execute(async (trx) => {
+			await this.lockRelationshipWrites(trx, args.appId);
 			return await this.generateSampleDataInTransaction(trx, args);
 		});
 	}
@@ -1261,19 +1336,46 @@ export class PostgresCaseStore implements CaseStore {
 		// regeneration so the user never lands on an empty case type.
 		const caseTypeName = args.caseType.name;
 		return await this.db.transaction().execute(async (trx) => {
-			// `case_indices` references are caller-managed (no FK
-			// constraint) — delete first so orphan edges don't
-			// accumulate.
+			await this.lockRelationshipWrites(trx, args.appId);
+			const resetCaseIds = () =>
+				trx
+					.selectFrom("cases as reset_cases")
+					.select("reset_cases.case_id")
+					.where("reset_cases.app_id", "=", args.appId)
+					.where("reset_cases.case_type", "=", caseTypeName)
+					.where("reset_cases.project_id", "=", this.requireProjectId());
+			const tenantCaseIds = () =>
+				trx
+					.selectFrom("cases as tenant_cases")
+					.select("tenant_cases.case_id")
+					.where("tenant_cases.app_id", "=", args.appId)
+					.where("tenant_cases.project_id", "=", this.requireProjectId());
+
+			/* Replacing a parent population cannot preserve its children's
+			 * exact relationships: every referenced parent is about to receive a
+			 * new id. Preserve the surviving child cases and detach them rather
+			 * than cascading an unexpected delete or assigning a random new
+			 * parent. `case_indices` has no FK, so remove both outgoing edges from
+			 * reset rows and tenant-local incoming/derived edges to those rows
+			 * before the parent rows disappear. */
 			await trx
 				.deleteFrom("case_indices")
-				.where("case_id", "in", (eb) =>
-					eb
-						.selectFrom("cases")
-						.select("case_id")
-						.where("app_id", "=", args.appId)
-						.where("case_type", "=", caseTypeName)
-						.where("project_id", "=", this.requireProjectId()),
+				.where((eb) =>
+					eb.or([
+						eb("case_id", "in", resetCaseIds()),
+						eb.and([
+							eb("ancestor_id", "in", resetCaseIds()),
+							eb("case_id", "in", tenantCaseIds()),
+						]),
+					]),
 				)
+				.execute();
+			await trx
+				.updateTable("cases")
+				.set({ parent_case_id: null, modified_on: new Date() })
+				.where("app_id", "=", args.appId)
+				.where("project_id", "=", this.requireProjectId())
+				.where("parent_case_id", "in", resetCaseIds())
 				.execute();
 			const deleteResult = await trx
 				.deleteFrom("cases")
@@ -1733,14 +1835,16 @@ export class PostgresCaseStore implements CaseStore {
 		appId: string;
 		caseType: string;
 		schemas: ReadonlyMap<string, CaseType>;
+		bindings: PredicateCompileContext["bindings"];
 	}): PredicateCompileContext {
 		return {
 			db: args.db,
 			appId: args.appId,
 			projectId: this.requireProjectId(),
 			anchorAlias: "c",
+			currentCaseType: args.caseType,
 			caseTypeSchemas: args.schemas,
-			bindings: {},
+			bindings: args.bindings,
 		};
 	}
 

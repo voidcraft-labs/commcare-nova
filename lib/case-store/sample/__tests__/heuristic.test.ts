@@ -226,6 +226,72 @@ describe("HeuristicCaseGenerator", () => {
 		expect(thirty).toHaveLength(30);
 	});
 
+	it("fills every row with a deterministic, unique top-level external ID", () => {
+		const args = {
+			appId: "app-1",
+			caseType: PATIENT_CASE_TYPE,
+			count: 30,
+			seed: "external-id-regression",
+		};
+		const first = generator.generate(args);
+		const second = generator.generate(args);
+		const externalIds = first.map((row) => row.external_id);
+
+		expect(externalIds).toEqual(second.map((row) => row.external_id));
+		expect(new Set(externalIds).size).toBe(first.length);
+		expect(externalIds[0]).toBe("PAT-5777");
+		expect(externalIds.at(-1)).toBe("PAT-5806");
+		for (const row of first) {
+			expect(row.external_id).toMatch(/^PAT-\d{4,}$/);
+			expect(row.properties).not.toHaveProperty("external_id");
+		}
+	});
+
+	it("does not consume the existing property, name, or parent PRNG stream", () => {
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType: {
+				name: "patient",
+				properties: [
+					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "dob", label: "DOB", data_type: "date" },
+				],
+			},
+			count: 2,
+			seed: "external-id-regression",
+		});
+
+		// These are the generator's values from before `external_id` was
+		// added. Keeping its PRNG on a separate seed stream preserves them.
+		expect(
+			rows.map((row) => ({
+				case_name: row.case_name,
+				properties: row.properties,
+				parent_case_id: row.parent_case_id,
+			})),
+		).toEqual([
+			{
+				case_name: "Kofi Hassan",
+				properties: {
+					name: "Mei Reddy",
+					age: 68,
+					dob: "1952-03-22",
+				},
+				parent_case_id: null,
+			},
+			{
+				case_name: "Gita Tran",
+				properties: {
+					name: "Rashid Zhang",
+					age: 19,
+					dob: "1963-06-29",
+				},
+				parent_case_id: null,
+			},
+		]);
+	});
+
 	it("generated rows validate against the case-type JSON Schema", () => {
 		// Pin every row against the same schema validator the case
 		// store uses at insert time. A heuristic that emits an
@@ -308,6 +374,52 @@ describe("HeuristicCaseGenerator", () => {
 
 describe("HeuristicCaseGenerator property-name heuristic", () => {
 	const generator = new HeuristicCaseGenerator();
+	const medicationExamples = new Set([
+		"Amoxicillin",
+		"Paracetamol",
+		"Metformin",
+		"Oral rehydration salts",
+		"Iron and folic acid",
+		"Artemether-lumefantrine",
+	]);
+	const facilityExamples = new Set([
+		"Riverside Health Centre",
+		"Central Community Clinic",
+		"North District Hospital",
+		"Hillview Medical Centre",
+		"Lakeside Health Post",
+		"Green Valley Clinic",
+	]);
+	const genericTextExamples = new Set([
+		"Follow-up needed",
+		"Ready for review",
+		"Information confirmed",
+		"No concerns reported",
+		"Details updated",
+		"Awaiting confirmation",
+	]);
+	const medicationDoseExamples = new Set([
+		"500 mg",
+		"250 mg",
+		"10 mL",
+		"1 tablet",
+		"2 tablets",
+		"5 mg once daily",
+	]);
+	const medicationStatusExamples = new Set([
+		"Active",
+		"Completed",
+		"Paused",
+		"Stopped",
+		"Awaiting refill",
+	]);
+	const medicationNoteExamples = new Set([
+		"Take with food",
+		"Morning dose confirmed",
+		"No side effects reported",
+		"Review at next visit",
+		"Refill requested",
+	]);
 
 	it("'age' produces ints uniformly in [15, 80)", () => {
 		const caseType: CaseType = {
@@ -406,6 +518,155 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			const value = (row.properties as JsonObject).first_name as string;
 			expect(value).not.toContain(" ");
 			expect(value.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("medication, drug, and treatment fields use readable medication examples", () => {
+		const caseType: CaseType = {
+			name: "prescription",
+			properties: [
+				{
+					name: "medication_name",
+					label: "Medication",
+					data_type: "text",
+				},
+				{ name: "drug_given", label: "Drug", data_type: "text" },
+				{ name: "treatment", label: "Treatment", data_type: "text" },
+			],
+		};
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType,
+			count: 30,
+			seed: "medication-examples",
+		});
+
+		for (const row of rows) {
+			const props = row.properties as JsonObject;
+			expect(medicationExamples.has(props.medication_name as string)).toBe(
+				true,
+			);
+			expect(medicationExamples.has(props.drug_given as string)).toBe(true);
+			expect(medicationExamples.has(props.treatment as string)).toBe(true);
+		}
+	});
+
+	it("does not mistake medication dose, status, or notes for a medicine name", () => {
+		const caseType: CaseType = {
+			name: "prescription",
+			properties: [
+				{ name: "medication_dose", label: "Dose", data_type: "text" },
+				{ name: "drug_status", label: "Status", data_type: "text" },
+				{ name: "treatment_notes", label: "Notes", data_type: "text" },
+			],
+		};
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType,
+			count: 30,
+			seed: "medication-roles",
+		});
+
+		for (const row of rows) {
+			const props = row.properties as JsonObject;
+			expect(medicationDoseExamples.has(props.medication_dose as string)).toBe(
+				true,
+			);
+			expect(medicationStatusExamples.has(props.drug_status as string)).toBe(
+				true,
+			);
+			expect(medicationNoteExamples.has(props.treatment_notes as string)).toBe(
+				true,
+			);
+			expect(medicationExamples.has(props.medication_dose as string)).toBe(
+				false,
+			);
+		}
+	});
+
+	it("gives identifiers compact realistic values instead of prose", () => {
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "patient_id", label: "Patient ID", data_type: "text" },
+				{ name: "record_number", label: "Record number", data_type: "text" },
+				{ name: "external_code", label: "External code", data_type: "text" },
+			],
+		};
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType,
+			count: 30,
+			seed: "identifier-examples",
+		});
+
+		for (const row of rows) {
+			const props = row.properties as JsonObject;
+			expect(props.patient_id).toMatch(/^PAT-\d{4}$/);
+			expect(props.record_number).toMatch(/^REC-\d{4}$/);
+			expect(props.external_code).toMatch(/^EXT-\d{4}$/);
+			expect(genericTextExamples.has(props.patient_id as string)).toBe(false);
+		}
+	});
+
+	it("clinic, facility, and site fields use readable facility examples", () => {
+		const caseType: CaseType = {
+			name: "visit",
+			properties: [
+				{ name: "clinic_name", label: "Clinic", data_type: "text" },
+				{ name: "facility", label: "Facility", data_type: "text" },
+				{ name: "site", label: "Site", data_type: "text" },
+			],
+		};
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType,
+			count: 30,
+			seed: "facility-examples",
+		});
+
+		for (const row of rows) {
+			const props = row.properties as JsonObject;
+			expect(facilityExamples.has(props.clinic_name as string)).toBe(true);
+			expect(facilityExamples.has(props.facility as string)).toBe(true);
+			expect(facilityExamples.has(props.site as string)).toBe(true);
+		}
+	});
+
+	it("generic text fallbacks are readable, deterministic, and schema-valid", () => {
+		const caseType: CaseType = {
+			name: "follow_up",
+			properties: [
+				{ name: "notes", label: "Notes", data_type: "text" },
+				{
+					name: "clinical_notes",
+					label: "Clinical notes",
+					data_type: "text",
+				},
+			],
+		};
+		const args = {
+			appId: "app-1",
+			caseType,
+			count: 30,
+			seed: "generic-text-examples",
+		};
+		const first = generator.generate(args);
+		const second = generator.generate(args);
+		expect(first).toEqual(second);
+
+		const ajv = new Ajv2020({ strict: false });
+		addFormats(ajv);
+		const validate = ajv.compile(caseTypeToJsonSchema(caseType));
+		for (const row of first) {
+			const props = row.properties as JsonObject;
+			const notes = props.notes as string;
+			const clinicalNotes = props.clinical_notes as string;
+			expect(genericTextExamples.has(notes)).toBe(true);
+			expect(genericTextExamples.has(clinicalNotes)).toBe(true);
+			expect(facilityExamples.has(clinicalNotes)).toBe(false);
+			expect(notes).not.toMatch(/^notes_\d{4}$/);
+			expect(validate(row.properties)).toBe(true);
 		}
 	});
 });

@@ -87,16 +87,31 @@
 //     (XPath's boolean coercion of `''` is `false`, which would
 //     silently exclude every case on input-unset).
 
+import { distanceToMeters } from "@/lib/domain/predicate/distance";
+import {
+	canonicalizeRelationPath,
+	normalizeRelationEvaluationScopes,
+	type RelationEvaluationScopeContext,
+} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type {
 	ComparisonKind,
 	Predicate,
 	RelationPath,
 } from "@/lib/domain/predicate/types";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
-import { formatNumeric, quoteLiteral } from "./stringQuoting";
 import {
-	buildAncestorJoinNodeset,
-	buildSubcaseJoinNodeset,
+	GEOPOINT_PROPERTY_PATTERN,
+	normalizeOnDeviceGeopoint,
+	validOnDeviceGeopointCenter,
+} from "./geopoint";
+import {
+	descendOnDeviceCaseAnchor,
+	emitImmediateRelationPresence,
+	type OnDeviceCaseAnchor,
+	ROOT_ON_DEVICE_CASE_ANCHOR,
+} from "./relationPresenceEmitter";
+import { formatNumeric } from "./stringQuoting";
+import {
 	DEFAULT_INSTANCE_ROOT,
 	emitOnDeviceLiteralValue,
 	emitTerm,
@@ -155,8 +170,16 @@ const PREC_AND = 2;
 export function emitCaseListFilter(
 	predicate: Predicate,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+	context: RelationEvaluationScopeContext = {},
+	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
 ): string {
-	return emitPredicate(predicate, 0, root);
+	return emitPredicate(
+		normalizeRelationEvaluationScopes(predicate, context),
+		0,
+		root,
+		context,
+		anchor,
+	);
 }
 
 /**
@@ -175,6 +198,8 @@ function emitPredicate(
 	p: Predicate,
 	parentPrec: number,
 	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
 	switch (p.kind) {
 		case "match-all":
@@ -197,7 +222,7 @@ function emitPredicate(
 			// shape. Operands are `ValueExpression`; the on-device
 			// expression emitter handles every arm of the union (term,
 			// arith, conditional, count, etc.).
-			return `${emitOnDeviceExpression(p.left, root)} ${COMPARISON_OPS[p.kind]} ${emitOnDeviceExpression(p.right, root)}`;
+			return `${emitOnDeviceExpression(p.left, root, context, anchor)} ${COMPARISON_OPS[p.kind]} ${emitOnDeviceExpression(p.right, root, context, anchor)}`;
 		case "and": {
 			// `and` recurses with `PREC_AND` as parent precedence so any
 			// `or` nested inside an `and` clause wraps itself in parens.
@@ -205,7 +230,7 @@ function emitPredicate(
 			// re-associate to `A or (B and C)` rather than `(A or B) and
 			// C` if grouping were dropped.
 			const inner = p.clauses
-				.map((c) => emitPredicate(c, PREC_AND, root))
+				.map((c) => emitPredicate(c, PREC_AND, root, context, anchor))
 				.join(" and ");
 			return parentPrec > PREC_AND ? `(${inner})` : inner;
 		}
@@ -215,7 +240,7 @@ function emitPredicate(
 			// beneath an `or` — XPath's precedence already resolves them
 			// correctly.
 			const inner = p.clauses
-				.map((c) => emitPredicate(c, PREC_OR, root))
+				.map((c) => emitPredicate(c, PREC_OR, root, context, anchor))
 				.join(" or ");
 			return parentPrec > PREC_OR ? `(${inner})` : inner;
 		}
@@ -224,21 +249,35 @@ function emitPredicate(
 			// the parens around the inner are the function-call argument
 			// list. Pass `parentPrec` of `0` so the inner never adds
 			// redundant grouping.
-			return `not(${emitPredicate(p.clause, 0, root)})`;
+			return `not(${emitPredicate(p.clause, 0, root, context, anchor)})`;
 		case "in":
-			return emitIn(p, root);
+			return emitIn(p, root, context, anchor);
 		case "between":
-			return emitBetween(p, root);
+			return emitBetween(p, root, context, anchor);
 		case "match":
-			return emitMatch(p, root);
+			return emitMatch(p, root, context, anchor);
 		case "multi-select-contains":
 			return emitMultiSelectContains(p, root);
 		case "exists":
-			return emitExistsOrMissing(p.via, p.where, "exists", root);
+			return emitExistsOrMissing(
+				p.via,
+				p.where,
+				"exists",
+				root,
+				context,
+				anchor,
+			);
 		case "missing":
-			return emitExistsOrMissing(p.via, p.where, "missing", root);
+			return emitExistsOrMissing(
+				p.via,
+				p.where,
+				"missing",
+				root,
+				context,
+				anchor,
+			);
 		case "when-input-present":
-			return emitWhenInputPresent(p, root);
+			return emitWhenInputPresent(p, root, context, anchor);
 		case "is-blank":
 		case "is-null":
 			// Both the absent-or-empty operator and the strict-absent
@@ -246,26 +285,9 @@ function emitPredicate(
 			// absent / cleared / empty alike, and the equality form is
 			// the closest available CCHQ shape for both. The AST
 			// distinction is preserved at the Postgres runtime.
-			return `${emitOnDeviceExpression(p.left, root)} = ''`;
+			return `${emitOnDeviceExpression(p.left, root, context, anchor)} = ''`;
 		case "within-distance":
-			// CCHQ wire signature:
-			// `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
-			// per `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`
-			// (`confirm_args_count(node, 4)` with arg order
-			// property / coords / distance / unit).
-			//
-			// `p.center` is a `ValueExpression`; the on-device expression
-			// emitter handles every arm. Distance routes through
-			// `formatNumeric` for the scientific-notation guard. The
-			// unit routes through `quoteLiteral` for the per-dialect
-			// string-literal escape, mirroring the CSQL emitter's
-			// quoting path; the schema-layer enum constrains values to
-			// the safe `miles` / `kilometers` set so the alternating-
-			// quote fallback never fires here, but keeping both dialects
-			// on the same lexical helper preserves the centralised
-			// per-dialect escape rule that `stringQuoting.ts` exists to
-			// enforce.
-			return `within-distance(${emitTerm(p.property, root)}, ${emitOnDeviceExpression(p.center, root)}, ${formatNumeric(p.distance)}, ${quoteLiteral(p.unit, "case-list-filter")})`;
+			return emitOnDeviceWithinDistance(p, root, context, anchor);
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
@@ -273,6 +295,38 @@ function emitPredicate(
 			);
 		}
 	}
+}
+
+/**
+ * Core registers `distance(a, b)`, not CSQL's server-only
+ * `within-distance(property, center, distance, unit)`. GeoPointData throws on
+ * malformed text, so regex and coordinate-range guards run first. JavaRosa's
+ * `and` short-circuits; invalid/missing values therefore resolve false without
+ * reaching `selected-at`, `double`, or `distance`. `translate` accepts both
+ * the canonical space form and CSQL examples' comma form.
+ */
+function emitOnDeviceWithinDistance(
+	p: Extract<Predicate, { kind: "within-distance" }>,
+	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
+): string {
+	// Stored case data follows CommCare's exact space-separated form. Only the
+	// author/search-input center gets Nova's comma + whitespace convenience;
+	// normalizing stored data here would diverge from HQ's case-search indexer.
+	const property = emitTerm(p.property, root);
+	const rawCenter = emitOnDeviceExpression(p.center, root, context, anchor);
+	const center = normalizeOnDeviceGeopoint(rawCenter);
+	const validShapes = `regex(${property}, '${GEOPOINT_PROPERTY_PATTERN}') and ${validOnDeviceGeopointCenter(rawCenter, center)}`;
+	const validRanges = [
+		`double(selected-at(${property}, 0)) >= -90`,
+		`double(selected-at(${property}, 0)) <= 90`,
+		`double(selected-at(${property}, 1)) >= -180`,
+		`double(selected-at(${property}, 1)) <= 180`,
+	].join(" and ");
+	const distance = `distance(${property}, ${center})`;
+	const meters = formatNumeric(distanceToMeters(p.distance, p.unit));
+	return `(${validShapes} and ${validRanges} and ${distance} >= 0 and ${distance} <= ${meters})`;
 }
 
 /**
@@ -303,8 +357,10 @@ function emitPredicate(
 function emitIn(
 	p: Extract<Predicate, { kind: "in" }>,
 	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
-	const left = emitOnDeviceExpression(p.left, root);
+	const left = emitOnDeviceExpression(p.left, root, context, anchor);
 	if (p.values.length === 1) {
 		return `${left} = ${emitOnDeviceLiteralValue(p.values[0].value)}`;
 	}
@@ -329,17 +385,19 @@ function emitIn(
 function emitBetween(
 	p: Extract<Predicate, { kind: "between" }>,
 	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
-	const left = emitOnDeviceExpression(p.left, root);
+	const left = emitOnDeviceExpression(p.left, root, context, anchor);
 	const lowerOp = p.lowerInclusive ? ">=" : ">";
 	const upperOp = p.upperInclusive ? "<=" : "<";
 	const lowerClause =
 		p.lower !== undefined
-			? `${left} ${lowerOp} ${emitOnDeviceExpression(p.lower, root)}`
+			? `${left} ${lowerOp} ${emitOnDeviceExpression(p.lower, root, context, anchor)}`
 			: undefined;
 	const upperClause =
 		p.upper !== undefined
-			? `${left} ${upperOp} ${emitOnDeviceExpression(p.upper, root)}`
+			? `${left} ${upperOp} ${emitOnDeviceExpression(p.upper, root, context, anchor)}`
 			: undefined;
 	if (lowerClause !== undefined && upperClause !== undefined) {
 		return `(${lowerClause} and ${upperClause})`;
@@ -374,28 +432,18 @@ function emitBetween(
  * The wire syntax is the same well-formed function-call shape
  * regardless of slot.
  *
- * `match.value` is a `term`-arm `ValueExpression` (per the type
- * checker's restriction at `typeChecker.ts:checkMatch`); the on-
- * device XPath grammar accepts any term shape — a quoted literal
- * for `term(literal("..."))`, an `instance(...)` path expression for
- * `term(input(...))` / `term(sessionUser(...))` / `term(sessionContext(...))`
- * — through the shared term emitter, which composes naturally with
- * the function-call syntax.
+ * `match.value` is a full `ValueExpression`. The on-device expression
+ * emitter handles literal/input/session terms as well as pure derived values,
+ * and its result composes directly into the function-call argument.
  */
 function emitMatch(
 	p: Extract<Predicate, { kind: "match" }>,
 	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
 	const wireFunction = matchModeToWireFunction(p.mode);
-	// `match.value` is a term-arm `ValueExpression` (per the type
-	// checker's `checkMatch` rule). Non-term arms are rejected at
-	// type-check time; reaching this throw indicates a bypass.
-	if (p.value.kind !== "term") {
-		throw new Error(
-			`caseListFilterEmitter: 'match' requires a term-arm value (per typeChecker.checkMatch); received '${p.value.kind}'.`,
-		);
-	}
-	return `${wireFunction}(${emitTerm(p.property, root)}, ${emitTerm(p.value.term, root)})`;
+	return `${wireFunction}(${emitTerm(p.property, root)}, ${emitOnDeviceExpression(p.value, root, context, anchor)})`;
 }
 
 /**
@@ -505,50 +553,40 @@ function emitExistsOrMissing(
 	where: Predicate | undefined,
 	kind: "exists" | "missing",
 	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
-	switch (via.kind) {
+	const relation = canonicalizeRelationPath(via, context);
+	const childContext =
+		relation.destinationCaseType === undefined
+			? context
+			: { ...context, currentCaseType: relation.destinationCaseType };
+	const childAnchor = descendOnDeviceCaseAnchor(anchor, relation.via);
+	switch (relation.via.kind) {
 		case "self":
-			return emitSelfRelationalCollapse(where, kind, root);
-		case "any-relation": {
-			// Direction-agnostic walk: build presence tests on both
-			// directions independently and OR them together. Each
-			// inner test uses `count(...) > 0` regardless of the
-			// outer `kind` — the negation for `missing` wraps the
-			// whole disjunction with `not(...)` rather than flipping
-			// the inner comparator (which would AND-of-`= 0` rather
-			// than the equivalent `not(or-of->-0)`; the chosen shape
-			// is shorter and reads more naturally).
-			const ancestorClause = emitCountPresenceTest(
-				buildAncestorJoinNodeset([{ identifier: via.identifier }], root),
+			return emitSelfRelationalCollapse(
 				where,
-				"exists",
+				kind,
 				root,
+				childContext,
+				childAnchor,
 			);
-			const subcaseClause = emitCountPresenceTest(
-				buildSubcaseJoinNodeset(via.identifier, root),
-				where,
-				"exists",
-				root,
-			);
-			const disjunction = `(${ancestorClause} or ${subcaseClause})`;
-			return kind === "exists" ? disjunction : `not(${disjunction})`;
-		}
 		case "ancestor":
-			return emitCountPresenceTest(
-				buildAncestorJoinNodeset(via.via, root),
-				where,
-				kind,
-				root,
-			);
 		case "subcase":
-			return emitCountPresenceTest(
-				buildSubcaseJoinNodeset(via.identifier, root),
-				where,
-				kind,
+		case "any-relation": {
+			const whereText =
+				where === undefined
+					? undefined
+					: emitPredicate(where, 0, root, childContext, childAnchor);
+			const presence = emitImmediateRelationPresence(
+				relation.via,
+				whereText,
 				root,
 			);
+			return kind === "exists" ? presence : `not(${presence})`;
+		}
 		default: {
-			const _exhaustive: never = via;
+			const _exhaustive: never = relation.via;
 			throw new Error(
 				`caseListFilterEmitter: unhandled RelationPath kind ${String(_exhaustive)}`,
 			);
@@ -565,37 +603,14 @@ function emitSelfRelationalCollapse(
 	where: Predicate | undefined,
 	kind: "exists" | "missing",
 	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
 	if (where === undefined) {
 		return kind === "exists" ? "true()" : "false()";
 	}
-	const inner = emitPredicate(where, 0, root);
+	const inner = emitPredicate(where, 0, root, context, anchor);
 	return kind === "exists" ? inner : `not(${inner})`;
-}
-
-/**
- * Build the `count(<nodeset>[<filter>]) <comparator> 0` shape for a
- * directed walk, picking `> 0` for `exists` and `= 0` for
- * `missing`. Threading the comparator at the build site (rather
- * than string-replacing it after the fact) keeps the comparator
- * trailing the count call — important because the inner filter may
- * itself contain `> 0` substrings (e.g. `gt(prop, literal(0))`)
- * that a post-hoc string replace would corrupt.
- *
- * The optional filter appends as another bracketed predicate on the
- * nodeset; when absent, the predicate degenerates to a presence
- * test on the relation alone.
- */
-function emitCountPresenceTest(
-	nodeset: string,
-	where: Predicate | undefined,
-	kind: "exists" | "missing",
-	root: InstanceRoot,
-): string {
-	const filter =
-		where !== undefined ? `[${emitPredicate(where, 0, root)}]` : "";
-	const comparator = kind === "exists" ? "> 0" : "= 0";
-	return `count(${nodeset}${filter}) ${comparator}`;
 }
 
 /**
@@ -617,8 +632,10 @@ function emitCountPresenceTest(
 function emitWhenInputPresent(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 	root: InstanceRoot,
+	context: RelationEvaluationScopeContext,
+	anchor: OnDeviceCaseAnchor,
 ): string {
 	const inputPath = emitTerm(p.input, root);
-	const inner = emitPredicate(p.clause, 0, root);
+	const inner = emitPredicate(p.clause, 0, root, context, anchor);
 	return `if(count(${inputPath}), ${inner}, true())`;
 }

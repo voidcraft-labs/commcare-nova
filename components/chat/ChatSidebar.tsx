@@ -9,7 +9,6 @@ import { motion } from "motion/react";
 import {
 	type ReactNode,
 	useCallback,
-	useContext,
 	useEffect,
 	useRef,
 	useState,
@@ -22,22 +21,19 @@ import {
 	ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent } from "@/components/ai-elements/message";
+import {
+	ChatActivityStatus,
+	deriveChatActivity,
+} from "@/components/chat/ChatActivityStatus";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { SignalGrid } from "@/components/chat/SignalGrid";
-import { SignalPanel } from "@/components/chat/SignalPanel";
 import { ThreadList } from "@/components/chat/ThreadList";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import type { ThreadMeta } from "@/lib/db/types";
-import {
-	BlueprintDocContext,
-	type BlueprintDocStore,
-} from "@/lib/doc/provider";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
-	derivePhase,
 	useAgentError,
 	useAgentStage,
 	useAttachmentPrep,
@@ -45,22 +41,10 @@ import {
 	usePostBuildEdit,
 	useSessionEventsEmpty,
 	useSetSidebarOpen,
-	useStatusMessage,
 } from "@/lib/session/hooks";
-import { deriveAgentStage } from "@/lib/session/lifecycle";
-import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { signalGrid } from "@/lib/signalGrid/store";
-import {
-	defaultLabel,
-	SignalGridController,
-	type SignalMode,
-} from "@/lib/signalGridController";
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { INSPECTOR_RAIL_WIDTH, useInspectorContext } from "@/lib/ui/inspector";
-import {
-	computeScaffoldProgress,
-	deriveGenerationSignalMode,
-} from "./scaffoldProgress";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
@@ -70,39 +54,6 @@ import {
  *  click reads as a glitch), so the chat's resting width IS the
  *  inspector rail's width. */
 export const CHAT_SIDEBAR_WIDTH = INSPECTOR_RAIL_WIDTH;
-
-/** Create a SignalGridController whose energy callbacks drain the module-level
- *  signalGrid nanostore. Scaffold progress is computed on each poll from the
- *  live session + doc store states — callers pass refs so the controller always
- *  reads the current instances even if the builder is remounted. */
-function createGridController(
-	sessionRef: { current: BuilderSessionStoreApi },
-	docStoreRef: { current: BlueprintDocStore | null },
-): SignalGridController {
-	return new SignalGridController({
-		consumeEnergy: () => signalGrid.drainEnergy(),
-		consumeThinkEnergy: () => signalGrid.drainThinkEnergy(),
-		consumeScaffoldProgress: () => {
-			const s = sessionRef.current.getState();
-			const doc = docStoreRef.current?.getState();
-			const hasData = (doc?.moduleOrder.length ?? 0) > 0;
-			const phase = derivePhase(
-				{
-					loading: s.loading,
-					runCompletedAt: s.runCompletedAt,
-					events: s.events,
-					runStartedWithData: s.runStartedWithData,
-				},
-				hasData,
-			);
-			return computeScaffoldProgress(
-				phase,
-				deriveAgentStage(s.events),
-				(doc?.caseTypes?.length ?? 0) > 0,
-			);
-		},
-	});
-}
 
 interface ChatSidebarProps {
 	centered: boolean;
@@ -141,6 +92,43 @@ interface ChatSidebarProps {
 	onNewChat?: () => void;
 }
 
+interface ShortChatFallbackOptions {
+	readonly centered: boolean;
+	readonly docked: boolean;
+	readonly veryShortViewport: boolean;
+}
+
+/** Keep the composer subtree alive while another short-height surface needs its
+ * room. ChatInput and PromptInput own unsent text and staged attachments; hiding
+ * this region must never reset either one. */
+export function PersistentChatComposer({
+	hidden,
+	children,
+}: {
+	readonly hidden: boolean;
+	readonly children: ReactNode;
+}) {
+	return (
+		<div
+			className={hidden ? "hidden" : "shrink-0"}
+			aria-hidden={hidden || undefined}
+			inert={hidden}
+		>
+			{children}
+		</div>
+	);
+}
+
+/** The centered welcome and inspector dock already have their own short-height
+ * contracts. Only an expanded, standalone chat needs the deliberate fallback. */
+export function shouldShowShortChatFallback({
+	centered,
+	docked,
+	veryShortViewport,
+}: ShortChatFallbackOptions): boolean {
+	return !centered && !docked && veryShortViewport;
+}
+
 export function ChatSidebar({
 	centered,
 	heroLogo,
@@ -159,12 +147,11 @@ export function ChatSidebar({
 	onNewChat,
 }: ChatSidebarProps) {
 	const sessionApi = useBuilderSessionApi();
-	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
 
 	/* Inspector dock — when a builder surface claims the rail, the chat
-	 * condenses to a strip (signal panel + composer) beneath the
+	 * condenses to a compact status row + composer beneath the
 	 * inspector slot. `setPortalEl` registers the slot node the active
 	 * `InspectorSurface` portals into; `closeInspector` asks the claim's
 	 * owner to clear its selection. */
@@ -174,78 +161,34 @@ export function ChatSidebar({
 		requestClose: closeInspector,
 	} = useInspectorContext();
 	const docked = inspectorActive && !centered;
-	const railWidth = docked ? INSPECTOR_RAIL_WIDTH : CHAT_SIDEBAR_WIDTH;
+	const shortViewport = useIsBreakpoint("max", 700, "height");
+	const veryShortViewport = useIsBreakpoint("max", 360, "height");
+	const shortInspectorDock = docked && shortViewport;
+	const shortChatFallback = shouldShowShortChatFallback({
+		centered,
+		docked,
+		veryShortViewport,
+	});
 	const agentError = useAgentError();
 	const agentStage = useAgentStage();
 	const postBuildEdit = usePostBuildEdit();
-	const statusMessage = useStatusMessage();
 	const attachmentPrep = useAttachmentPrep();
 	const isGenerating = phase === BuilderPhase.Generating;
-	/* `isLoading` and `streamOpen` are the same derived value from the
-	 * transport status — the "the SSE stream is open right now" signal.
-	 * Both names exist for readability: `isLoading` reads naturally in
-	 * UI gating (inputs disabled, empty state hidden), while
-	 * `streamOpen` is what the signal grid's desiredMode logic reasons
-	 * about. Kept as one constant to avoid drift. */
+	/* `isLoading` and `streamOpen` are the same transport fact. Both names
+	 * stay for readability at their call sites. */
 	const streamOpen = status === "submitted" || status === "streaming";
 	const isLoading = streamOpen;
 
-	// ── Welcome intro timer ──────────────────────────────────────────────
-	// The welcome screen plays a 3.5s "reasoning" animation on mount, then
-	// settles to the quiet idle twinkle while the user reads. This is the
-	// duration of the intro — after it elapses, desiredMode below falls
-	// through to "idle". Lives in ChatSidebar (not WelcomeIntro) so the
-	// mode flows through the normal desiredMode pipeline instead of
-	// WelcomeIntro bypassing it with direct controller calls (which the
-	// parent's desiredMode effect would clobber — child effects fire
-	// before parent effects).
-	const [introFinished, setIntroFinished] = useState(false);
-	useEffect(() => {
-		const id = setTimeout(() => setIntroFinished(true), 3500);
-		return () => clearTimeout(id);
-	}, []);
-
 	// True while the composer has a staged document still being read (extracted),
-	// reported up from ChatInput. Drives the same "Reading your documents" signal
+	// reported up from ChatInput. Drives the same "Reading your documents" status
 	// the post-send resolve shows (`attachmentPrep`), so the pre-send wait isn't a
 	// silent minute behind a lone "Reading…" chip.
 	const [composerReading, setComposerReading] = useState(false);
 
-	// ── Signal Grid — controller scoped to the builder instance ──────────
-	// ChatSidebar is always-mounted (width animated to 0 when "closed"), so
-	// refs persist across sidebar open/close. When the legacy store identity
-	// changes (new app via BuilderProvider), we destroy the old controller's
-	// animation loop and create a fresh one. Callbacks close over refs so
-	// they always read the latest store instances — safe across the
-	// teardown gap.
-	const sessionApiRef = useRef(sessionApi);
-	sessionApiRef.current = sessionApi;
-	const docStoreRef = useRef(docStore);
-	docStoreRef.current = docStore;
-	const sessionIdentityRef = useRef(sessionApi);
-	const gridControllerRef = useRef<SignalGridController | null>(null);
-	if (sessionApi !== sessionIdentityRef.current || !gridControllerRef.current) {
-		gridControllerRef.current?.destroy();
-		sessionIdentityRef.current = sessionApi;
-		gridControllerRef.current = createGridController(
-			sessionApiRef,
-			docStoreRef,
-		);
-	}
-	const gridController = gridControllerRef.current;
-
-	// Destroy the controller's animation loop on unmount (page navigation away)
-	useEffect(
-		() => () => {
-			gridControllerRef.current?.destroy();
-		},
-		[],
-	);
-
 	// Build-scoped abort for in-flight document reads. A composer chip's extraction
 	// stream must SURVIVE the chip unmounting on send (the doc is still streaming
-	// into the grid, and only that original request carries the tokens) but must NOT
-	// outlive the build (one build's extraction feeding another build's grid). It is
+	// and only that original request carries the tokens) but must NOT outlive the
+	// build. It is
 	// created in this effect and aborted in its cleanup — symmetric under React's
 	// mount→unmount→remount. A render-phase controller aborted by an unmount cleanup
 	// would stay dead (nothing re-creates it, and no re-render follows), and in dev
@@ -254,7 +197,7 @@ export function ChatSidebar({
 	// `setState` re-renders with a live signal before any chip can mount.
 	const [extractionAbort, setExtractionAbort] =
 		useState<AbortController | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi is the dep on PURPOSE — recreate (+ abort the prior) build-scoped controller when the store identity changes, mirroring the grid controller, even though the body doesn't read it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi is the dep on PURPOSE — recreate and abort the prior build-scoped controller when the store identity changes, even though the body doesn't read it.
 	useEffect(() => {
 		const controller = new AbortController();
 		setExtractionAbort(controller);
@@ -262,37 +205,14 @@ export function ChatSidebar({
 	}, [sessionApi]);
 	const extractionAbortSignal = extractionAbort?.signal;
 
-	// Initialize from the controller's live state so remounts don't flash
-	// from 'SYS:IDLE' to the real label. On first mount the controller is
-	// in 'idle' mode, which matches the default anyway.
-	const [activeMode, setActiveMode] = useState<SignalMode>(
-		() => gridController.currentMode,
-	);
-	const [activeLabel, setActiveLabel] = useState(
-		() => gridController.currentModeLabel,
-	);
-
-	// Wire mode-applied callback to React state — ref indirection so the
-	// callback closure doesn't go stale across renders.
-	const activeStateRef = useRef({ setActiveMode, setActiveLabel });
-	activeStateRef.current = { setActiveMode, setActiveLabel };
-
-	useEffect(() => {
-		gridController.setOnModeApplied((mode, label) => {
-			activeStateRef.current.setActiveMode(mode);
-			activeStateRef.current.setActiveLabel(label);
-		});
-		return () => gridController.setOnModeApplied(null);
-	}, [gridController]);
-
 	/* True while the current `submitted` window was opened by a LOCAL send —
-	 * a typed message or an answered question round (the two `triggerSendWave`
-	 * callers). A refresh-resume (`resumeStream`) and the instance-death
+	 * a typed message or an answered question round. A refresh-resume and the
+	 * instance-death
 	 * re-drive (`regenerate`) ALSO pass through `submitted` while they
-	 * reconnect, but nothing is transmitting there — mapping that window to
-	 * the send wave replayed the one-shot "Transmitting" state on every
+	 * reconnect, but no new message is being sent there. Mapping that window to
+	 * "Sending message" would replay an action that never happened on every
 	 * refresh of a live run. Cleared when the status moves off `submitted`
-	 * (derive-during-render, the same pattern as the elapsed timer below). */
+	 * using React's derive-during-render pattern. */
 	const localSendRef = useRef(false);
 	const prevStatusRef = useRef(status);
 	if (prevStatusRef.current !== status) {
@@ -300,75 +220,18 @@ export function ChatSidebar({
 		if (status !== "submitted") localSendRef.current = false;
 	}
 
-	// Desired mode + label from builder state — sent to controller, which queues if busy.
-	// Gate reasoning/editing on `status === 'streaming'` so the send wave keeps looping
-	// during the 'submitted' wait period (server hasn't started responding yet).
-	const desiredMode = ((): SignalMode => {
-		// Generation errors — phase stays Generating, error is metadata
-		if (agentError) {
-			return agentError.severity === "recovering"
-				? "error-recovering"
-				: "error-fatal";
-		}
-		// Initial-build milestones own the scaffold/build visuals. The phase gate
-		// keeps the same tags in a post-build edit on the editing visual below.
-		const generationMode = deriveGenerationSignalMode(isGenerating, agentStage);
-		if (generationMode) return generationMode;
-		// Completed = celebration after generation finishes. Takes priority over
-		// the streaming branches below because data-done fires mid-stream (the
-		// LLM's wrap-up text keeps the stream open). Without this, the grid
-		// shows "Thinking" for 5–15s after generation is already complete.
-		if (phase === BuilderPhase.Completed) return "done";
-		// Reading document attachments — a pre-SA step. `attachmentPrep` is the
-		// SEND-time resolve (server waits on the extract); `composerReading` is the
-		// PRE-send eager extraction of a staged doc. Both reuse the reasoning
-		// animation (label set below) and sit after error/generation/completed so a
-		// real run always wins, but before `streamOpen` (which would otherwise show
-		// the generic "Transmitting"/"Thinking" during the read).
-		if (attachmentPrep || composerReading) return "reasoning";
-		if (streamOpen) {
-			// Keep the send wave looping until the server actually starts streaming.
-			// During 'submitted', no tokens are flowing so reasoning/editing would
-			// look dead — the whole point of the signal grid is to show activity.
-			// Only a LOCAL send shows the send wave: a resume/re-drive reconnect
-			// also sits in 'submitted', and replaying "Transmitting" there would
-			// narrate a send that never happened (see `localSendRef`).
-			if (status === "submitted") {
-				return localSendRef.current
-					? "sending"
-					: postBuildEdit
-						? "editing"
-						: "reasoning";
-			}
-			return postBuildEdit ? "editing" : "reasoning";
-		}
-		// Welcome screen intro — the first 3.5s on a fresh build shows the
-		// reasoning animation while the heading/subtitle stagger in. After the
-		// timer elapses (introFinished), falls through to idle like any other
-		// resting state. The centered+empty+!isLoading conditions match the
-		// exact window WelcomeIntro is mounted for.
-		if (centered && messages.length === 0 && !isLoading && !introFinished) {
-			return "reasoning";
-		}
-		if (phase === BuilderPhase.Ready) return "idle";
-		return "idle";
-	})();
+	const activity = deriveChatActivity({
+		agentError,
+		agentStage,
+		attachmentReading: attachmentPrep || composerReading,
+		isGenerating,
+		phase,
+		postBuildEdit,
+		streamOpen,
+		submittedLocally: status === "submitted" && localSendRef.current,
+	});
 
-	const desiredLabel =
-		attachmentPrep || composerReading
-			? "Reading your documents"
-			: isGenerating && statusMessage
-				? statusMessage
-				: defaultLabel(desiredMode);
-
-	useEffect(() => {
-		gridController.setMode(desiredMode, desiredLabel);
-	}, [desiredMode, desiredLabel, gridController]);
-
-	// Auto-decay Completed → Ready after the done celebration finishes.
-	//
-	// The 3.5s delay covers the 2s celebration burst + 1.5s of the resting
-	// emerald pulse so the transition feels unhurried.
+	// Auto-decay Completed → Ready after the confirmation has remained visible.
 	//
 	// Gate on `bufferEmpty` — the timer must not arm until the SSE stream
 	// has actually closed (endRun cleared the events buffer). `data-done`
@@ -380,8 +243,8 @@ export function ChatSidebar({
 	// Completed straight to Generating (foundation + stage) for a
 	// fraction of a second until stream-close cleared the buffer,
 	// flashing the GenerationProgress card back on screen. Waiting for
-	// the buffer to empty first means the celebration lingers until the
-	// stream is genuinely done, then a clean 3.5s delay to Ready.
+	// the buffer to empty first keeps the state forward-only, then leaves the
+	// confirmation visible for 3.5 seconds before returning to rest.
 	const bufferEmpty = useSessionEventsEmpty();
 	useEffect(() => {
 		if (phase !== BuilderPhase.Completed) return;
@@ -392,45 +255,6 @@ export function ChatSidebar({
 		);
 		return () => clearTimeout(id);
 	}, [phase, bufferEmpty, sessionApi]);
-
-	// Elapsed timer — resets when the controller's active label or mode changes.
-	// Label changes (e.g. "Setting up app" → "Building app content") reset the timer during
-	// render via React's "derive state from props" pattern, so the interval continues
-	// with the new base time. Mode changes are handled by the effect (start/stop).
-	const [elapsed, setElapsed] = useState(0);
-	const modeStartRef = useRef(0);
-	const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
-
-	const prevLabelRef = useRef(activeLabel);
-	if (prevLabelRef.current !== activeLabel) {
-		prevLabelRef.current = activeLabel;
-		setElapsed(0);
-		modeStartRef.current = Date.now();
-	}
-
-	useEffect(() => {
-		clearInterval(timerRef.current);
-		setElapsed(0);
-		if (
-			activeMode === "idle" ||
-			activeMode === "sending" ||
-			activeMode === "done" ||
-			activeMode === "error-recovering" ||
-			activeMode === "error-fatal"
-		)
-			return;
-		modeStartRef.current = Date.now();
-		timerRef.current = setInterval(() => {
-			const secs = Math.floor((Date.now() - modeStartRef.current) / 1000);
-			setElapsed(secs);
-		}, 1000);
-		return () => clearInterval(timerRef.current);
-	}, [activeMode]);
-
-	const gridSuffix =
-		elapsed >= 30
-			? `(${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`})`
-			: undefined;
 
 	// Only enable layout animation during centered↔sidebar morph, not toolbar resizes
 	const [morphing, setMorphing] = useState(false);
@@ -515,13 +339,11 @@ export function ChatSidebar({
 		[],
 	);
 
-	const triggerSendWave = useCallback(() => {
-		/* Mark the coming `submitted` window as a real send so desiredMode
-		 * sustains the wave — the flag is what separates it from a
-		 * resume/re-drive reconnect, which must never show "Transmitting". */
+	const markLocalSend = useCallback(() => {
+		/* Mark the coming `submitted` window as a real send. A resume or re-drive
+		 * reconnect must continue to describe the app work already in progress. */
 		localSendRef.current = true;
-		gridController.setMode("sending");
-	}, [gridController]);
+	}, []);
 
 	// Route typed messages as question answers when an AskQuestionsCard is waiting.
 	// Answers are text-only (the question UI is multiple-choice); any staged
@@ -533,20 +355,20 @@ export function ChatSidebar({
 			if (pendingAnswerRef.current) {
 				pendingAnswerRef.current(message.text);
 			} else {
-				triggerSendWave();
+				markLocalSend();
 				onSend(message);
 			}
 		},
-		[onSend, triggerSendWave],
+		[markLocalSend, onSend],
 	);
 
-	// Wrap addToolOutput to trigger send animation when a question block completes
+	// An answered question starts the same outgoing-message status as the composer.
 	const handleToolOutput = useCallback(
 		(params: { tool: string; toolCallId: string; output: unknown }) => {
-			if (params.tool === "askQuestions") triggerSendWave();
+			if (params.tool === "askQuestions") markLocalSend();
 			addToolOutput(params);
 		},
-		[addToolOutput, triggerSendWave],
+		[addToolOutput, markLocalSend],
 	);
 
 	// ── Auto-scroll question cards into view when they appear ──
@@ -594,7 +416,7 @@ export function ChatSidebar({
 			transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
 			className={
 				centered
-					? "absolute inset-0 z-raised flex flex-col items-center justify-center gap-6 pointer-events-none"
+					? "absolute inset-0 z-raised flex flex-col items-center justify-center gap-6 px-4 pointer-events-none"
 					: "shrink-0 h-full"
 			}
 		>
@@ -602,7 +424,7 @@ export function ChatSidebar({
 			<motion.div
 				layout={morphing ? "position" : false}
 				data-inspector-rail={centered ? undefined : true}
-				style={centered ? undefined : { width: railWidth }}
+				style={centered ? undefined : { width: "100%" }}
 				className={`pointer-events-auto flex flex-col overflow-hidden transition-[width,max-width,max-height,height,border-radius,border-color] duration-[450ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${
 					centered
 						? "w-full max-w-2xl max-h-[min(700px,80vh)] rounded-2xl border border-nova-border bg-nova-deep"
@@ -615,24 +437,32 @@ export function ChatSidebar({
 				 *  ambiguous icon-only controls in this title bar. */}
 				{!centered && !docked && (
 					<>
-						<div className="flex items-center gap-2 pl-4 pr-2 h-12 border-b border-nova-border shrink-0">
+						<div
+							className={`flex shrink-0 items-center gap-2 border-b border-nova-border pl-4 pr-2 ${
+								shortChatFallback ? "h-[52px]" : "h-16"
+							}`}
+							data-builder-secondary-header="chat"
+						>
 							<span className="flex-1 min-w-0 text-sm font-medium text-nova-text">
 								{listVisible ? "Conversations" : "Chat"}
 							</span>
-							<SimpleTooltip content="Collapse chat" side="left">
-								<Button
-									type="button"
-									onClick={() => setSidebarOpen("chat", false)}
-									aria-label="Collapse chat sidebar"
-									variant="ghost"
-									size="icon-lg"
-									className="text-nova-text-muted hover:text-nova-text"
-								>
-									<Icon icon={tablerLayoutSidebarRightCollapse} />
-								</Button>
-							</SimpleTooltip>
+							{!shortChatFallback && (
+								<SimpleTooltip content="Collapse chat" side="left">
+									<Button
+										type="button"
+										onClick={() => setSidebarOpen("chat", false)}
+										aria-label="Collapse chat sidebar"
+										data-builder-sidebar-toggle="collapse-chat"
+										variant="ghost"
+										size="icon-lg"
+										className="size-11 text-nova-text-muted not-disabled:hover:text-nova-text"
+									>
+										<Icon icon={tablerLayoutSidebarRightCollapse} />
+									</Button>
+								</SimpleTooltip>
+							)}
 						</div>
-						{showThreadAffordances && (
+						{showThreadAffordances && !shortChatFallback && (
 							<div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-nova-border shrink-0">
 								{!readOnly && (
 									<Button
@@ -641,7 +471,7 @@ export function ChatSidebar({
 										disabled={openingThreadId !== null}
 										variant="ghost"
 										size="lg"
-										className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
+										className="min-h-11 justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
 									>
 										<Icon icon={tablerMessagePlus} />
 										New chat
@@ -654,7 +484,7 @@ export function ChatSidebar({
 									aria-pressed={listVisible}
 									variant="ghost"
 									size="lg"
-									className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright"
+									className="min-h-11 justify-start text-nova-text-secondary not-disabled:hover:text-nova-text aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright"
 								>
 									<Icon
 										icon={listVisible ? tablerMessageCircle : tablerHistory}
@@ -681,21 +511,25 @@ export function ChatSidebar({
 						 *  unmissable and the target spans the rail at full height.
 						 *  Clicking it closes the properties panel and gives the
 						 *  rail back to the conversation. */}
-						<SimpleTooltip
-							content="Back to the conversation — closes properties"
-							side="left"
-						>
-							<button
+						<SimpleTooltip content="Close properties and open chat" side="left">
+							<Button
 								type="button"
-								onClick={closeInspector}
-								aria-label="Expand chat"
-								className="group w-full flex items-center gap-2 px-4 min-h-11 border-t border-nova-border shrink-0 text-left hover:bg-white/[0.03] transition-colors cursor-pointer"
+								variant="ghost"
+								onClick={() => {
+									// The inspector can remain visible after chat was collapsed.
+									// Restore the conversation's open state before releasing the
+									// rail so this action always does what its label promises.
+									setSidebarOpen("chat", true);
+									closeInspector();
+								}}
+								aria-label="Close properties and open chat"
+								className="group h-auto min-h-11 w-full shrink-0 justify-start gap-2 rounded-none border-t border-nova-border px-4 text-left not-disabled:hover:bg-white/[0.03]"
 							>
-								<span className="text-[9px] font-mono tracking-[0.18em] text-nova-text-muted">
-									CHAT
+								<span className="text-sm font-medium text-nova-text-secondary">
+									Chat
 								</span>
 								{messages.length > 0 && (
-									<span className="px-1.5 py-px rounded-full bg-nova-violet/15 border border-nova-violet/25 text-[10px] leading-none text-nova-violet-bright">
+									<span className="rounded-full border border-nova-violet/25 bg-nova-violet/15 px-1.5 py-px text-xs leading-none text-nova-violet-bright">
 										{messages.length}
 									</span>
 								)}
@@ -705,15 +539,15 @@ export function ChatSidebar({
 									height="14"
 									className="ml-auto text-nova-text-muted group-hover:text-nova-text transition-colors"
 								/>
-							</button>
+							</Button>
 						</SimpleTooltip>
 					</>
 				)}
 
 				{/* Conversations list — swapped in over the conversation region
-				 *  while open. The signal panel + composer below stay; sending
+				 *  while open. The active status + composer below stay; sending
 				 *  returns to the conversation (handleSend closes the list). */}
-				{!docked && listVisible && (
+				{!docked && listVisible && !shortChatFallback && (
 					<ThreadList
 						threads={threads ?? []}
 						activeThreadId={activeThreadId ?? ""}
@@ -731,7 +565,7 @@ export function ChatSidebar({
 				 *  MutationObserver/ResizeObserver pinning. contextRef hands us the
 				 *  scroll context so the question-card autoscroll can reach the
 				 *  content element. */}
-				{/* The card is `overflow-hidden`; the signal panel + composer below are
+				{/* The card is `overflow-hidden`; the activity status + composer below are
 				 *  `shrink-0` and must NEVER be clipped, so the Conversation absorbs all
 				 *  flex pressure (it's the scroll region).
 				 *  - Sidebar: a definite-height (`h-full`) parent, so `flex-1` distributes
@@ -743,7 +577,7 @@ export function ChatSidebar({
 				 *    is the fix: its basis is the CONTENT height (welcome intro sizes
 				 *    naturally), and `min-h-0` lets it shrink + scroll once content exceeds
 				 *    `max-h`, keeping the composer on-screen. */}
-				{!docked && !listVisible && (
+				{!docked && !listVisible && !shortChatFallback && (
 					<Conversation
 						key={activeThreadId}
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
@@ -764,7 +598,7 @@ export function ChatSidebar({
 										description={
 											isExistingApp
 												? "What changes would you like to make?"
-												: "Describe the CommCare app you want to build."
+												: "Describe the app you want to build"
 										}
 									/>
 								))}
@@ -787,32 +621,35 @@ export function ChatSidebar({
 					</Conversation>
 				)}
 
-				{/* Nova's thinking panel — permanent status display */}
-				<div className="shrink-0">
-					<SignalPanel
-						active={activeMode !== "idle"}
-						label={activeLabel}
-						suffix={gridSuffix}
-						error={activeMode === "error-fatal"}
-						recovering={activeMode === "error-recovering"}
-						done={activeMode === "done"}
-					>
-						<SignalGrid controller={gridController} messages={messages} />
-					</SignalPanel>
-				</div>
+				{/* Resting chat has no status chrome. Work in progress uses one compact,
+				 * plain-language row that yields entirely in a short inspector dock. */}
+				{!shortInspectorDock && !shortChatFallback && (
+					<ChatActivityStatus state={activity.state} label={activity.label} />
+				)}
 
 				{/* A view-only member sees why they can't send, where the composer
 				 *  would be — only when a notice is supplied for the
 				 *  read-only-access case. */}
-				{readOnly && readOnlyNotice && (
-					<div className="shrink-0 px-4 py-3 text-sm text-nova-text-muted border-t border-nova-border">
-						{readOnlyNotice}
-					</div>
+				{!shortInspectorDock &&
+					!shortChatFallback &&
+					readOnly &&
+					readOnlyNotice && (
+						<div className="shrink-0 px-4 py-3 text-sm text-nova-text-muted border-t border-nova-border">
+							{readOnlyNotice}
+						</div>
+					)}
+
+				{shortChatFallback && (
+					<ShortChatFallback onCollapse={() => setSidebarOpen("chat", false)} />
 				)}
 
-				{/* Input — hidden in readOnly mode */}
+				{/* Input — absent only in read-only mode. Short layouts keep its
+				 * subtree mounted so opening an inspector cannot erase a draft or
+				 * staged attachment. */}
 				{!readOnly && (
-					<div className="shrink-0">
+					<PersistentChatComposer
+						hidden={shortInspectorDock || shortChatFallback}
+					>
 						<ChatInput
 							onSend={handleSend}
 							disabled={isLoading || isGenerating || composerBusy}
@@ -825,18 +662,17 @@ export function ChatSidebar({
 							// preserves any staged files instead of dropping them.
 							answerPending={activeQuestionCount > 0}
 							centered={centered}
-							// "Tell me about the app" fits only the opening prompt of a
+							// "Describe the app" fits only the opening prompt of a
 							// brand-new build; the moment a message exists (sent or
 							// streaming) it becomes an edit conversation, so flip to the
-							// "ask for changes" copy then — not when the layout docks.
+							// change-oriented copy then, not when the layout docks.
 							openingPrompt={centered && messages.length === 0}
-							// Lift "a staged doc is still being read" into the signal panel.
+							// Lift "a staged doc is still being read" into the status row.
 							onReadingChange={setComposerReading}
-							// Build-scoped abort so a staged doc's read keeps feeding the grid
-							// after the chip unmounts on send, until extraction finishes.
+							// Build-scoped abort keeps the read alive after its chip unmounts.
 							extractionAbortSignal={extractionAbortSignal}
 						/>
-					</div>
+					</PersistentChatComposer>
 				)}
 			</motion.div>
 
@@ -848,51 +684,46 @@ export function ChatSidebar({
 	);
 }
 
-/** Staggered welcome text with a coordinated burst on the signal grid.
- *
- * Pure visual component — the grid's mode is driven by the parent's
- * `desiredMode` derivation, not by this component. WelcomeIntro's only
- * grid-related job is injecting energy into the signal store: tapering
- * 150ms pulses for the first 3.5s plus two larger bursts coinciding
- * with the heading (1.5s) and subtitle (2s) reveals. The parent's
- * `desiredMode` returns "reasoning" while WelcomeIntro is mounted and
- * the 3.5s timer hasn't elapsed, so the energy bursts land on the
- * right visual. If the user sends a message early (component unmounts)
- * or the timer elapses, the parent naturally transitions the grid. */
+/** A complete replacement for an unusable composer fragment. ChatContainer
+ * stays mounted behind it, so an active stream continues uninterrupted. */
+export function ShortChatFallback({
+	onCollapse,
+}: {
+	readonly onCollapse: () => void;
+}) {
+	return (
+		<section
+			aria-labelledby="short-chat-fallback-title"
+			data-short-chat-fallback
+			className="flex min-h-0 flex-1 flex-col justify-center gap-2 p-2"
+		>
+			<div className="px-1">
+				<h2
+					id="short-chat-fallback-title"
+					className="text-sm font-semibold text-nova-text"
+				>
+					Chat needs more room
+				</h2>
+				<p className="text-xs leading-5 text-nova-text-muted">
+					Make the window taller to continue
+				</p>
+			</div>
+			<Button
+				type="button"
+				variant="outline"
+				size="xl"
+				onClick={onCollapse}
+				className="w-full"
+			>
+				<Icon icon={tablerLayoutSidebarRightCollapse} />
+				Collapse chat
+			</Button>
+		</section>
+	);
+}
+
+/** Friendly opening copy with a brief, non-blocking entrance transition. */
 function WelcomeIntro() {
-	const [stage, setStage] = useState(0); // 0: nothing, 1: heading, 2: subtitle
-
-	useEffect(() => {
-		const t0 = performance.now();
-		const pulse = setInterval(() => {
-			const elapsed = performance.now() - t0;
-			const scale =
-				elapsed < 2000 ? 1 : Math.max(0, 1 - (elapsed - 2000) / 1500);
-			signalGrid.injectEnergy((10 + Math.random() * 20) * scale);
-		}, 150);
-
-		const t1 = setTimeout(() => {
-			setStage(1);
-			signalGrid.injectEnergy(120);
-		}, 1500);
-
-		const t2 = setTimeout(() => {
-			setStage(2);
-			signalGrid.injectEnergy(120);
-		}, 2000);
-
-		const t3 = setTimeout(() => {
-			clearInterval(pulse);
-		}, 3500);
-
-		return () => {
-			clearInterval(pulse);
-			clearTimeout(t1);
-			clearTimeout(t2);
-			clearTimeout(t3);
-		};
-	}, []);
-
 	return (
 		// Render through the same message shell every reply uses so the opening turn
 		// sits in the same column. Heading + subtitle are ONE unit, so they share a
@@ -904,20 +735,24 @@ function WelcomeIntro() {
 				<div className="flex flex-col gap-1.5">
 					<motion.h1
 						initial={{ opacity: 0, y: 6 }}
-						animate={stage >= 1 ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
-						transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
 						className="text-lg font-display font-medium text-nova-text"
 					>
 						What do you want to build?
 					</motion.h1>
 					<motion.p
 						initial={{ opacity: 0, y: 8 }}
-						animate={stage >= 2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
-						transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+						animate={{ opacity: 1, y: 0 }}
+						transition={{
+							delay: 0.08,
+							duration: 0.35,
+							ease: [0.4, 0, 0.2, 1],
+						}}
 						className="text-nova-text-secondary text-sm leading-relaxed"
 					>
-						Describe your CommCare app — workflows, data collection, and who
-						will use it.
+						Describe the workflows, information, and people your app needs to
+						support
 					</motion.p>
 				</div>
 			</MessageContent>

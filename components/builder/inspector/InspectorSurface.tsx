@@ -24,13 +24,14 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useInspectorContext } from "@/lib/ui/inspector";
 
 interface InspectorSurfaceProps {
-	/** Mono eyebrow above the title — entity context like
+	/** Friendly context above the title — for example,
 	 *  "Column 2 of 5" or "Search input". */
 	readonly kicker: string;
 	/** Entity title — the column header, input label, etc. */
@@ -48,6 +49,7 @@ export function InspectorSurface({
 	children,
 }: InspectorSurfaceProps) {
 	const { portalEl, activeClaimId, claim, release } = useInspectorContext();
+	const titleId = useId();
 
 	/* `onClose` identity changes with the owner's renders; the claim's
 	 * close callback reads through a ref so the claim itself is
@@ -70,25 +72,50 @@ export function InspectorSurface({
 	}
 
 	return createPortal(
-		<div className="flex-1 min-h-0 flex flex-col">
-			<div className="flex items-center gap-3 px-4 pt-3 pb-2.5 border-b border-nova-border shrink-0">
-				<div className="min-w-0 flex-1">
-					<div className="text-[9px] font-mono uppercase tracking-[0.15em] text-nova-text-muted mb-0.5 truncate">
-						{kicker}
+		<aside aria-labelledby={titleId} className="flex-1 min-h-0 flex flex-col">
+			<div
+				className="flex h-16 shrink-0 items-center gap-3 border-b border-nova-border px-4"
+				data-builder-secondary-header="inspector"
+			>
+				<SimpleTooltip
+					content={
+						<span className="grid gap-0.5">
+							<span>{kicker}</span>
+							<span className="font-semibold">{title}</span>
+						</span>
+					}
+					side="bottom"
+				>
+					{/* The fixed-height rail header clamps imported names visually. The
+					 * complete text remains in the accessibility tree, while the tooltip
+					 * helps pointer users without inventing a dead button or tab stop. */}
+					<div
+						data-inspector-identity
+						className="flex min-h-11 min-w-0 flex-1 flex-col justify-center text-left"
+					>
+						<div className="mb-1 truncate text-xs font-medium leading-4 text-nova-text-secondary">
+							{kicker}
+						</div>
+						<h2
+							id={titleId}
+							className="truncate font-display text-[16px] font-semibold leading-5 text-nova-text"
+						>
+							{title}
+						</h2>
 					</div>
-					<div className="text-[15px] font-display font-semibold text-nova-text truncate">
-						{title}
-					</div>
-				</div>
-				<SimpleTooltip content="Close (Esc)" side="left">
-					<button
+				</SimpleTooltip>
+				<SimpleTooltip content="Close properties" side="left">
+					<Button
 						type="button"
+						variant="outline"
+						size="icon-lg"
 						onClick={onClose}
-						aria-label="Close inspector"
-						className="shrink-0 size-11 grid place-items-center rounded-lg border border-nova-border text-nova-text-muted hover:text-nova-text hover:border-nova-border-bright transition-colors cursor-pointer"
+						aria-label="Close properties"
+						aria-keyshortcuts="Escape"
+						className="size-11 shrink-0 border-nova-border bg-transparent text-nova-text-muted hover:border-nova-border-bright hover:text-nova-text dark:bg-transparent"
 					>
 						<Icon icon={tablerX} width="16" height="16" />
-					</button>
+					</Button>
 				</SimpleTooltip>
 			</div>
 			{/* `@container` so editor bodies can adapt to the rail's width —
@@ -97,7 +124,7 @@ export function InspectorSurface({
 			<div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 @container">
 				{children}
 			</div>
-		</div>,
+		</aside>,
 		portalEl,
 	);
 }

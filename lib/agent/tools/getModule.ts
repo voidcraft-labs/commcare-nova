@@ -28,11 +28,16 @@
 
 import { z } from "zod";
 import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
+import {
+	byDetailColumnOrder,
+	byListColumnOrder,
+} from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
 	CaseSearchConfig,
 	FormType,
+	Uuid,
 } from "@/lib/domain";
 import { resolveModuleUuid } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -80,13 +85,16 @@ export type GetModuleResult =
 			icon: string | null;
 			audio_label: string | null;
 			case_list_config: CaseListConfig | null;
+			/** Visible field uuids in the exact order each screen renders them. */
+			results_column_order: Uuid[];
+			details_column_order: Uuid[];
 			case_search_config: CaseSearchConfig | null;
 			forms: GetModuleFormSummary[];
 	  };
 
 export const getModuleTool = {
 	description:
-		"Get a module by index: metadata, menu media, the case-list config (columns + filter + search inputs, each with its uuid for edits), the case-search config, and a form summary.",
+		"Get a module by index: metadata, menu media, case-list definitions plus the independent visible Results and Details uuid orders, case-search config, and a form summary.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,
@@ -109,6 +117,7 @@ export const getModuleTool = {
 			};
 		}
 		const formUuids = orderedFormUuids(doc, moduleUuid);
+		const columns = mod.caseListConfig?.columns ?? [];
 		return {
 			kind: "read",
 			data: {
@@ -118,6 +127,14 @@ export const getModuleTool = {
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				case_list_config: mod.caseListConfig ?? null,
+				results_column_order: [...columns]
+					.filter((column) => column.visibleInList !== false)
+					.sort(byListColumnOrder)
+					.map((column) => column.uuid),
+				details_column_order: [...columns]
+					.filter((column) => column.visibleInDetail !== false)
+					.sort(byDetailColumnOrder)
+					.map((column) => column.uuid),
 				case_search_config: mod.caseSearchConfig ?? null,
 				forms: formUuids.map((fUuid, i) => {
 					const f = doc.forms[fUuid];

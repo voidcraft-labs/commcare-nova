@@ -158,7 +158,7 @@ describe("emitShortDetail — empty cases", () => {
 		// gates non-empty configs against case-type presence.
 		const mod = makeModule({
 			caseListConfig: makeConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const out = emitShortDetail({
@@ -195,7 +195,7 @@ describe("emitShortDetail — single-kind goldens", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const out = emitShortDetail({
@@ -210,13 +210,13 @@ describe("emitShortDetail — single-kind goldens", () => {
 			`<detail id="m0_case_short">` +
 				`<title><text><locale id="cchq.case"/></text></title>` +
 				`<field>` +
-				`<header><text><locale id="m0.case_short.case_name_1.header"/></text></header>` +
-				`<template><text><xpath function="name"/></text></template>` +
+				`<header><text><locale id="m0.case_short.case_full_name_1.header"/></text></header>` +
+				`<template><text><xpath function="full_name"/></text></template>` +
 				`</field>` +
 				`</detail>`,
 		);
 		expect(out.strings).toEqual({
-			"m0.case_short.case_name_1.header": "Name",
+			"m0.case_short.case_full_name_1.header": "Name",
 		});
 	});
 
@@ -225,7 +225,7 @@ describe("emitShortDetail — single-kind goldens", () => {
 			caseType: "patient",
 			caseListConfig: makeConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name"),
+					plainColumn(COL(1), "full_name", "Name"),
 					phoneColumn(COL(2), "phone", "Phone"),
 				],
 			}),
@@ -236,7 +236,7 @@ describe("emitShortDetail — single-kind goldens", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		expect(out.strings).toEqual({
-			"m2.case_short.case_name_1.header": "Name",
+			"m2.case_short.case_full_name_1.header": "Name",
 			"m2.case_short.case_phone_2.header": "Phone",
 		});
 	});
@@ -246,7 +246,7 @@ describe("emitShortDetail — single-kind goldens", () => {
 			caseType: "patient",
 			caseListConfig: makeConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name"),
+					plainColumn(COL(1), "full_name", "Name"),
 					calculatedColumn(COL(2), "My Calc", term(prop("patient", "phone"))),
 				],
 			}),
@@ -257,7 +257,7 @@ describe("emitShortDetail — single-kind goldens", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		// Calc lives at source index 1 → position 2.
-		expect(out.xml).toContain("case_name_1");
+		expect(out.xml).toContain("case_full_name_1");
 		expect(out.xml).toContain("case_calculated_property_2");
 		// `$calculated_property` serializes verbatim — `$` is not a special
 		// XML character, matching CCHQ's own bare-`$` suite.xml.
@@ -365,7 +365,7 @@ describe("emitShortDetail — sort emission", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const out = emitShortDetail({
@@ -412,7 +412,7 @@ describe("emitShortDetail — sort emission", () => {
 
 describe("emitShortDetail — visibility filter", () => {
 	it("hides columns with visibleInList: false from the field list", () => {
-		const visible = plainColumn(COL(1), "name", "Name");
+		const visible = plainColumn(COL(1), "full_name", "Name");
 		const hidden = plainColumn(COL(2), "external_id", "External ID", {
 			visibleInList: false,
 		});
@@ -425,17 +425,42 @@ describe("emitShortDetail — visibility filter", () => {
 			moduleIndex: 0,
 			doc: buildDoc({ module: mod }),
 		});
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		expect(out.xml).not.toContain('<xpath function="external_id"/>');
 		// Visible field's locale id stays at its source-array
 		// position (1) — visibility filter doesn't churn locale ids.
 		expect(out.strings).toEqual({
-			"m0.case_short.case_name_1.header": "Name",
+			"m0.case_short.case_full_name_1.header": "Name",
 		});
 	});
 
+	it("keeps an off-screen Default-order field as a zero-width sort carrier", () => {
+		const visible = plainColumn(COL(1), "full_name", "Name");
+		const sortOnly = plainColumn(COL(2), "external_id", "External ID", {
+			visibleInList: false,
+			visibleInDetail: false,
+			sort: { direction: "asc", priority: 0 },
+		});
+		const mod = makeModule({
+			caseType: "patient",
+			caseListConfig: makeConfig({ columns: [visible, sortOnly] }),
+		});
+		const out = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({ module: mod }),
+		});
+
+		expect(out.xml).toContain('<header width="0">');
+		expect(out.xml).toContain('<template width="0">');
+		expect(out.xml).toContain('<xpath function="external_id"/>');
+		expect(out.xml).toMatch(
+			/<sort type="string" order="1" direction="ascending">/,
+		);
+	});
+
 	it("renders columns with visibleInList: true (or absent) — absent ≡ visible", () => {
-		const explicit = plainColumn(COL(1), "name", "Name", {
+		const explicit = plainColumn(COL(1), "full_name", "Name", {
 			visibleInList: true,
 		});
 		const implicit = plainColumn(COL(2), "phone", "Phone");
@@ -448,18 +473,18 @@ describe("emitShortDetail — visibility filter", () => {
 			moduleIndex: 0,
 			doc: buildDoc({ module: mod }),
 		});
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		expect(out.xml).toContain('<xpath function="phone"/>');
 	});
 
 	it("keeps hidden columns at their source-array position so subsequent locale ids don't shift", () => {
 		// `external_id` at source index 0 carries `visibleInList: false`
-		// — its locale id slot (`_1`) stays unused. `name` at source
+		// — its locale id slot (`_1`) stays unused. `full_name` at source
 		// index 1 lands at `_2`.
 		const hidden = plainColumn(COL(1), "external_id", "External ID", {
 			visibleInList: false,
 		});
-		const visible = plainColumn(COL(2), "name", "Name");
+		const visible = plainColumn(COL(2), "full_name", "Name");
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeConfig({ columns: [hidden, visible] }),
@@ -470,7 +495,7 @@ describe("emitShortDetail — visibility filter", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		expect(out.strings).toEqual({
-			"m0.case_short.case_name_2.header": "Name",
+			"m0.case_short.case_full_name_2.header": "Name",
 		});
 		expect(out.strings).not.toHaveProperty(
 			"m0.case_short.case_external_id_1.header",
@@ -481,7 +506,7 @@ describe("emitShortDetail — visibility filter", () => {
 describe("emitShortDetail — multi-kind integration", () => {
 	it("emits a populated detail with every kind + a calc + a sort directive", () => {
 		const columns: Column[] = [
-			plainColumn(COL(1), "name", "Name", {
+			plainColumn(COL(1), "full_name", "Name", {
 				sort: { direction: "asc", priority: 0 },
 			}),
 			dateColumn(COL(2), "birthdate", "Birthdate", "%d/%m/%y"),
@@ -500,7 +525,7 @@ describe("emitShortDetail — multi-kind integration", () => {
 				idMappingEntry("S", "South"),
 			]),
 			intervalColumn(COL(6), "last_visit", "Late", 4, "weeks", "flag", "!"),
-			calculatedColumn(COL(7), "My Calc", term(prop("patient", "name"))),
+			calculatedColumn(COL(7), "My Calc", term(prop("patient", "full_name"))),
 		];
 		const mod = makeModule({
 			caseType: "patient",
@@ -512,7 +537,7 @@ describe("emitShortDetail — multi-kind integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", data_type: "text" },
+						{ name: "full_name", data_type: "text" },
 						{ name: "birthdate", data_type: "date" },
 						{ name: "last_visit", data_type: "date" },
 						{ name: "phone", data_type: "text" },
@@ -530,7 +555,7 @@ describe("emitShortDetail — multi-kind integration", () => {
 		expect(out.xml).toContain('<locale id="cchq.case"/>');
 
 		// Plain field.
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		// Date field. XPath single-quote literals round-trip as
 		// `&apos;` inside the double-quoted attribute value.
 		expect(out.xml).toContain(
@@ -556,16 +581,16 @@ describe("emitShortDetail — multi-kind integration", () => {
 		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 
-		// Sort attached to the name column at order=1.
+		// Sort attached to the full_name column at order=1.
 		expect(out.xml).toMatch(
-			/<sort type="string" order="1" direction="ascending">[\s\S]*?<xpath function="name"\/>/,
+			/<sort type="string" order="1" direction="ascending">[\s\S]*?<xpath function="full_name"\/>/,
 		);
 
 		// Locale ids registered in app_strings — every column
 		// renders so the source-array position 1..7 maps directly to
 		// locale-id suffixes.
 		expect(out.strings).toEqual({
-			"m0.case_short.case_name_1.header": "Name",
+			"m0.case_short.case_full_name_1.header": "Name",
 			"m0.case_short.case_birthdate_2.header": "Birthdate",
 			"m0.case_short.case_last_visit_3.header": "Weeks since visit",
 			"m0.case_short.case_phone_4.header": "Phone",
@@ -579,7 +604,7 @@ describe("emitShortDetail — multi-kind integration", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const out = emitShortDetail({
@@ -588,9 +613,11 @@ describe("emitShortDetail — multi-kind integration", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		expect(out.xml).toContain('<detail id="m5_case_short">');
-		expect(out.xml).toContain('locale id="m5.case_short.case_name_1.header"');
+		expect(out.xml).toContain(
+			'locale id="m5.case_short.case_full_name_1.header"',
+		);
 		expect(out.strings).toEqual({
-			"m5.case_short.case_name_1.header": "Name",
+			"m5.case_short.case_full_name_1.header": "Name",
 		});
 	});
 });
@@ -613,7 +640,7 @@ describe("emitShortDetail — search-action emission", () => {
 		makeModule({
 			caseType,
 			caseListConfig: {
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 				searchInputs: [],
 			},
 		});

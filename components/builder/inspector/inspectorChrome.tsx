@@ -1,44 +1,45 @@
 // components/builder/inspector/inspectorChrome.tsx
 //
-// The console chrome every right-rail inspector body is built from —
+// The shared chrome every right-rail inspector body is built from —
 // the case-list/search bodies and the form-field inspector alike.
-// One place owns the rail's sizing and voice so every editor reads
-// the same way: etched mono section labels, recessed input wells,
-// generous calm spacing, and full-size targets — every interactive
-// control in the rail is at least 44px tall.
+// One place owns the rail's sizing and voice so every editor feels
+// like the same calm, approachable surface: readable labels, recessed
+// input wells, generous spacing, and full-size targets. Every
+// interactive control in the rail is at least 44px tall.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId } from "react";
+import { Button } from "@/components/shadcn/button";
 import { Switch } from "@/components/shadcn/switch";
 
 /** Full-width picker trigger — the recessed well every dropdown in
  *  the rail uses. Pair with `CONSOLE_MENU_ITEM_CLS` for the items. */
 export const CONSOLE_TRIGGER_CLS =
-	"group w-full flex items-center gap-2.5 px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30";
+	"group w-full flex items-center gap-2.5 px-3 py-2.5 min-h-11 text-[14px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30";
 
 /** Menu item sizing for the rail's pickers — full-size targets even
  *  for single-line items. */
-export const CONSOLE_MENU_ITEM_MIN = "min-h-11";
+export const CONSOLE_MENU_ITEM_MIN = "min-h-11 text-[14px]";
 
-/** The mono micro-label that titles a single control inside a section —
- *  the section header's etched voice, one step quieter. Every rail editor
- *  labels its control with this so the inspector reads as one surface. */
+/** The friendly label that titles a single control inside a section.
+ *  Sentence case and ordinary type keep configuration readable instead
+ *  of making common choices feel like technical instrumentation. */
 export const INSPECTOR_LABEL_CLS =
-	"font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted";
+	"text-[13px] font-medium leading-5 text-nova-text-secondary";
 
 /** The recessed single-line input well every text field in the rail uses.
  *  Pure `focus:` ring — for inputs that also carry a refusable state, build
  *  the focused class by hand (see EditableText) so a rejection border isn't
  *  overridden by the focus pseudo-class. */
 export const INSPECTOR_INPUT_CLS =
-	"w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
+	"w-full min-h-11 px-3 text-[14px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 
 /**
- * One titled cluster of controls. The etched label is console
- * instrumentation — mono, uppercase, wide tracking — and the body
- * below it breathes.
+ * One titled cluster of controls. The heading is deliberately plain-language
+ * and readable; visual hierarchy comes from weight and spacing, not a
+ * technical-looking all-caps treatment.
  */
 export function InspectorSection({
 	label,
@@ -48,8 +49,8 @@ export function InspectorSection({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<section className="pt-4 first:pt-0 border-t border-nova-border first:border-t-0 space-y-2.5">
-			<h3 className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
+		<section className="space-y-4 border-t border-nova-border pt-5 first:border-t-0 first:pt-0">
+			<h3 className="text-[14px] font-semibold leading-5 text-nova-text">
 				{label}
 			</h3>
 			{children}
@@ -64,9 +65,7 @@ export function InspectorHint({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<p className="text-[11px] leading-relaxed text-nova-text-muted">
-			{children}
-		</p>
+		<p className="text-[13px] leading-5 text-nova-text-muted">{children}</p>
 	);
 }
 
@@ -90,12 +89,14 @@ export function ToggleRow({
 	return (
 		<label
 			htmlFor={id}
-			className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.04] bg-nova-deep/30 cursor-pointer hover:border-white/[0.08] transition-colors"
+			className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 px-3 py-2.5 transition-colors hover:border-white/[0.08]"
 		>
 			<span className="flex-1 min-w-0">
-				<span className="block text-[13px] text-nova-text">{label}</span>
+				<span className="block text-[14px] leading-5 text-nova-text">
+					{label}
+				</span>
 				{description !== undefined && (
-					<span className="block text-[11px] text-nova-text-muted leading-snug">
+					<span className="mt-0.5 block text-[13px] leading-5 text-nova-text-muted">
 						{description}
 					</span>
 				)}
@@ -108,27 +109,44 @@ export function ToggleRow({
 /**
  * The inspector's standard footer action for taking the inspected
  * thing out of the app — "Remove column", "Remove filter", "Remove
- * search field". Quiet until hovered, when the rose tint says what a
- * click costs. One shape across every body so removal always lives in
- * the same place: last.
+ * search field". Its persistent rose treatment communicates the cost before
+ * hover; a later confirmation is an additional safeguard, not the first cue.
+ * One shape across every body so removal always lives in the same place: last.
  */
 export function RemoveRow({
 	label,
 	onClick,
+	disabledReason,
 }: {
 	readonly label: string;
 	readonly onClick: () => void;
+	/** When present, keep the destructive action visible but unavailable and
+	 * explain which prerequisite protects the document. */
+	readonly disabledReason?: string;
 }) {
+	const reasonId = useId();
 	return (
-		<div className="pt-3 border-t border-nova-border">
-			<button
+		<div className="border-t border-nova-border pt-4">
+			<Button
 				type="button"
+				variant="destructive"
+				size="xl"
 				onClick={onClick}
-				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
+				disabled={disabledReason !== undefined}
+				aria-describedby={disabledReason === undefined ? undefined : reasonId}
+				className="w-full rounded-lg px-3 text-[14px]"
 			>
 				<Icon icon={tablerTrash} width="14" height="14" />
 				<span>{label}</span>
-			</button>
+			</Button>
+			{disabledReason !== undefined && (
+				<p
+					id={reasonId}
+					className="mt-2.5 text-[13px] leading-5 text-nova-text-muted"
+				>
+					{disabledReason}
+				</p>
+			)}
 		</div>
 	);
 }
@@ -160,19 +178,21 @@ export function SegmentedRow<T extends string>({
 			{options.map((opt) => {
 				const active = opt.value === value;
 				return (
-					<button
+					<Button
 						key={opt.value}
 						type="button"
+						variant="ghost"
+						size="xl"
 						onClick={() => onChange(opt.value)}
 						aria-pressed={active}
-						className={`flex-1 min-h-11 px-2 text-[13px] rounded-md transition-colors cursor-pointer ${
+						className={`min-w-0 flex-1 rounded-md px-2 text-[14px] active:translate-y-0 ${
 							active
 								? "bg-nova-violet/[0.18] text-nova-violet-bright font-medium shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
-								: "text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]"
+								: "text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.04]"
 						}`}
 					>
 						{opt.label}
-					</button>
+					</Button>
 				);
 			})}
 		</fieldset>

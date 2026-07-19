@@ -10,6 +10,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import type { ReactNode } from "react";
+import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
 	PopoverContent,
@@ -18,35 +19,36 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
-import { cn } from "@/lib/utils";
 
 /**
- * `className` sizes the trigger (the icon fills it via `size-full`), so callers
- * can shrink it to fit a tight host — e.g. `size-3` to sit inside a Badge
- * without widening it. Defaults to `size-4`. `ariaLabel` names the affordance
- * for screen readers (e.g. "Why won't my logo appear?").
+ * The glyph stays visually quiet inside a full 44px target. Callers cannot
+ * shrink the hit area to make a tight layout work; the host must leave enough
+ * room for the same accessible control used everywhere else in the builder.
+ * `ariaLabel` names the affordance for screen readers.
  */
 export function InfoPopover({
 	title,
 	ariaLabel,
-	className,
 	children,
 }: {
 	title: string;
 	ariaLabel: string;
-	className?: string;
 	children: ReactNode;
 }) {
 	return (
 		<Popover>
 			<PopoverTrigger
-				className={cn(
-					"inline-flex size-4 items-center justify-center rounded-full text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
-					className,
-				)}
+				render={
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						className="size-11 shrink-0 rounded-full text-nova-text-muted not-disabled:hover:text-nova-text"
+					/>
+				}
 				aria-label={ariaLabel}
 			>
-				<Icon icon={tablerInfoCircle} className="size-full" />
+				<Icon icon={tablerInfoCircle} className="size-4" />
 			</PopoverTrigger>
 			<PopoverContent className="w-80">
 				<PopoverHeader>

@@ -32,6 +32,7 @@ import {
 	type CheckError,
 	checkExpression,
 	checkPredicate,
+	coalesce,
 	dateLiteral,
 	datetimeLiteral,
 	eq,
@@ -48,6 +49,7 @@ import {
 	not,
 	or,
 	type Predicate,
+	predicateSchema,
 	prop,
 	type ResolvedType,
 	relationStep,
@@ -66,6 +68,7 @@ import {
 import {
 	type PredicateEditContext,
 	predicateCardSchemaList,
+	predicateCardSchemas,
 } from "../editorSchemas";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
@@ -139,6 +142,18 @@ function eqValue(dt: CasePropertyDataType) {
 // of every predicate shape on a fitting subject.
 const CURRENTS: Predicate[] = [
 	...casePropertyDataTypes.map((dt) => eq(P(dt), eqValue(dt))),
+	// Null can sit opposite every scalar type, but list-shaped transitions
+	// must replace an all-null candidate because the persisted schemas reject
+	// lists with no non-null value.
+	eq(P("text"), literal(null)),
+	eq(P("multi_select"), literal(null)),
+	// A calculated null-only subject resolves to `_any`. Ordered verbs are
+	// admitted for it, but their carried object must still be reseeded to an
+	// ordered type rather than preserving this text value.
+	eq(coalesce(term(literal(null)), term(literal(null))), literal("unordered")),
+	// Equality between literals is valid, but absence checks over a direct
+	// literal are not meaningful and must stay out of the verb menu.
+	eq(literal("same"), literal("same")),
 	match(P("text"), term(literal("x")), "fuzzy"),
 	match(P("date"), term(literal("x")), "fuzzy-date"),
 	isIn(P("int"), literal(1), literal(2)),
@@ -163,8 +178,8 @@ const ALL_ENTRIES = [...VERB_ENTRIES, ...STRUCTURE_ENTRIES];
 function isCompletenessOnly(errors: readonly CheckError[]): boolean {
 	return errors.every(
 		(e) =>
-			/cannot be the empty string/.test(e.message) || // empty match value
-			/Unknown property ''/.test(e.message), // empty property name
+			e.code === "match-value-empty" || // empty match value
+			e.code === "unknown-property", // empty property name in these seeds
 	);
 }
 
@@ -184,7 +199,12 @@ describe("valid by construction — every admitted verb build type-checks", () =
 	it("no admitted verb pick yields a soundness-invalid AST", () => {
 		for (const current of CURRENTS) {
 			// The editor only ever opens a valid tree — pin that the
-			// fixtures are themselves valid before transitioning from them.
+			// fixtures are themselves schema-valid and type-valid before
+			// transitioning from them.
+			expect(
+				predicateSchema.safeParse(current).success,
+				`fixture current does not parse: ${current.kind}`,
+			).toBe(true);
 			expect(
 				checkPredicate(current, TYPE_CTX).ok,
 				`fixture current is invalid: ${current.kind}`,
@@ -193,6 +213,10 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			for (const entry of ALL_ENTRIES) {
 				if (!verbEntryAdmitted(entry, current, subjectType, EDIT_CTX)) continue;
 				const next = entry.build(current, EDIT_CTX);
+				expect(
+					predicateSchema.safeParse(next).success,
+					`${entry.id} from ${current.kind} produced a schema-invalid AST`,
+				).toBe(true);
 				const result = checkPredicate(next, TYPE_CTX);
 				if (result.ok) continue;
 				expect(
@@ -201,6 +225,102 @@ describe("valid by construction — every admitted verb build type-checks", () =
 				).toBe(true);
 			}
 		}
+	});
+
+	it("admits verbs from a related-property subject by its destination type", () => {
+		const origin: CaseType = {
+			name: "child",
+			parent_type: "parent",
+			properties: [{ name: "rank", label: "Rank", data_type: "int" }],
+		};
+		const destination: CaseType = {
+			name: "parent",
+			properties: [
+				{ name: "name", label: "Name", data_type: "text" },
+				{
+					name: "tags",
+					label: "Tags",
+					data_type: "multi_select",
+					options: [{ value: "a", label: "A" }],
+				},
+				{ name: "place", label: "Place", data_type: "geopoint" },
+			],
+		};
+		const editCtx: PredicateEditContext = {
+			caseTypes: [origin, destination],
+			currentCaseType: "child",
+			knownInputs: [],
+		};
+		const typeCtx: TypeContext = {
+			caseTypes: [origin, destination],
+			currentCaseType: "child",
+			knownInputs: [],
+		};
+		const via = ancestorPath(relationStep("parent", "parent"));
+		const cases: ReadonlyArray<{
+			current: Predicate;
+			entryId: string;
+			expectedKind: Predicate["kind"];
+		}> = [
+			{
+				current: eq(prop("child", "name", via), literal("A")),
+				entryId: "match:starts-with",
+				expectedKind: "match",
+			},
+			{
+				current: eq(prop("child", "tags", via), literal("a")),
+				entryId: "msc:any",
+				expectedKind: "multi-select-contains",
+			},
+			{
+				current: eq(prop("child", "place", via), literal(null)),
+				entryId: "within-distance",
+				expectedKind: "within-distance",
+			},
+		];
+
+		for (const fixture of cases) {
+			const entry = VERB_ENTRIES.find(
+				(candidate) => candidate.id === fixture.entryId,
+			);
+			if (entry === undefined) throw new Error(`Missing ${fixture.entryId}`);
+			const subject = subjectOf(fixture.current);
+			if (subject === undefined) throw new Error("Expected a sentence subject");
+			const subjectType = checkExpression(subject, typeCtx, [], []);
+			expect(
+				verbEntryAdmitted(entry, fixture.current, subjectType, editCtx),
+				fixture.entryId,
+			).toBe(true);
+			const next = entry.build(fixture.current, editCtx);
+			expect(next.kind).toBe(fixture.expectedKind);
+			expect(predicateSchema.safeParse(next).success).toBe(true);
+			expect(checkPredicate(next, typeCtx).ok).toBe(true);
+		}
+	});
+
+	it("keeps strict absence recovery-only instead of authoring an unexportable edit", () => {
+		const entry = VERB_ENTRIES.find((candidate) => candidate.id === "is-null");
+		if (entry === undefined) throw new Error("Missing strict absence verb");
+		const current = isNull(P("text"));
+		const ordinary = eq(P("text"), literal("saved"));
+
+		expect(
+			verbEntryAdmitted(entry, current, subjectTypeOf(current), EDIT_CTX),
+		).toBe(true);
+		expect(
+			verbEntryAdmitted(entry, ordinary, subjectTypeOf(ordinary), EDIT_CTX),
+		).toBe(false);
+		expect(predicateCardSchemas["is-null"].authoring).toBe("roundTripOnly");
+	});
+
+	it("does not admit an absence check for a direct literal subject", () => {
+		const entry = VERB_ENTRIES.find((candidate) => candidate.id === "is-blank");
+		if (entry === undefined) throw new Error("Missing blank verb");
+		const current = eq(literal("same"), literal("same"));
+
+		expect(
+			verbEntryAdmitted(entry, current, subjectTypeOf(current), EDIT_CTX),
+		).toBe(false);
 	});
 });
 
@@ -234,8 +354,14 @@ describe("valid by construction — every registry default seeds a valid AST", (
 			};
 			for (const schema of predicateCardSchemaList) {
 				// Only the kinds the editor would actually offer here.
-				if (!schema.applicable(editCtx)) continue;
+				if (schema.authoring !== "authorable" || !schema.applicable(editCtx)) {
+					continue;
+				}
 				const seed = schema.defaultValue(editCtx);
+				expect(
+					predicateSchema.safeParse(seed).success,
+					`${schema.kind} default (first=${firstType}) does not parse`,
+				).toBe(true);
 				const result = checkPredicate(seed, typeCtx);
 				if (result.ok) continue;
 				expect(

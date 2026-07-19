@@ -59,6 +59,7 @@ const emptyCtx: CaseListEmitContext = {
 	sortByUuid: new Map(),
 	detailKind: "short",
 	target: "case",
+	caseProperties: [],
 };
 
 /** Build a single-entry sort map keyed under a column's uuid. */
@@ -75,29 +76,131 @@ function singleSort(
 
 describe("emitColumnField — plain", () => {
 	it("emits a bare property reference inside the template", () => {
-		const col = plainColumn(COL_UUIDS.a, "name", "Name");
+		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain("<field>");
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		// The header references the CCHQ-canonical locale id shape.
-		expect(out.xml).toContain('locale id="m0.case_short.case_name_1.header"');
+		expect(out.xml).toContain(
+			'locale id="m0.case_short.case_full_name_1.header"',
+		);
 		// app_strings entry registers the column header.
 		expect(out.strings).toEqual({
-			"m0.case_short.case_name_1.header": "Name",
+			"m0.case_short.case_full_name_1.header": "Name",
 		});
 	});
 
 	it("uses the 1-based position to disambiguate two columns on the same property", () => {
-		const colA = plainColumn(COL_UUIDS.a, "name", "Name A");
-		const colB = plainColumn(COL_UUIDS.b, "name", "Name B");
+		const colA = plainColumn(COL_UUIDS.a, "full_name", "Name A");
+		const colB = plainColumn(COL_UUIDS.b, "full_name", "Name B");
 		const a = emitColumnField({ column: colA, position: 1, ctx: emptyCtx });
 		const b = emitColumnField({ column: colB, position: 2, ctx: emptyCtx });
-		expect(a.xml).toContain("m0.case_short.case_name_1.header");
-		expect(b.xml).toContain("m0.case_short.case_name_2.header");
+		expect(a.xml).toContain("m0.case_short.case_full_name_1.header");
+		expect(b.xml).toContain("m0.case_short.case_full_name_2.header");
+	});
+
+	it("labels a plain single-select while preserving an unknown raw value", () => {
+		const col = plainColumn(COL_UUIDS.a, "priority", "Priority");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "priority",
+					label: "Priority",
+					data_type: "single_select",
+					options: [
+						{ value: "routine", label: "Routine" },
+						{ value: "urgent", label: "Urgent" },
+					],
+				},
+			],
+		};
+		const out = emitColumnField({ column: col, position: 1, ctx });
+
+		// Exact equality per arm — `selected()` is space-token membership,
+		// so it would let a value like "routine" shadow a later multi-word
+		// option ("routine check") by chain order, diverging from
+		// Preview's exact-match projection.
+		expect(out.xml).toContain(
+			"if(priority = &apos;routine&apos;, &apos;Routine&apos;, if(priority = &apos;urgent&apos;, &apos;Urgent&apos;, priority))",
+		);
+	});
+
+	it("labels a multi-word single-select value exactly, never by token prefix", () => {
+		const col = plainColumn(COL_UUIDS.a, "region", "Region");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "region",
+					label: "Region",
+					data_type: "single_select",
+					options: [
+						{ value: "north", label: "North" },
+						{ value: "north region", label: "North Region" },
+					],
+				},
+			],
+		};
+		const out = emitColumnField({ column: col, position: 1, ctx });
+
+		// A stored "north region" must render "North Region": the equality
+		// chain's first arm (region = 'north') is false for it, unlike the
+		// old selected() membership which was true and won by chain order.
+		expect(out.xml).toContain(
+			"if(region = &apos;north&apos;, &apos;North&apos;, if(region = &apos;north region&apos;, &apos;North Region&apos;, region))",
+		);
+	});
+
+	it("labels known multi-select tokens and leaves imported tokens visible", () => {
+		const col = plainColumn(COL_UUIDS.a, "tags", "Tags");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "tags",
+					label: "Tags",
+					data_type: "multi_select",
+					options: [
+						{ value: "vip", label: "VIP" },
+						{ value: "follow.up", label: "Needs follow-up" },
+					],
+				},
+			],
+		};
+		const out = emitColumnField({ column: col, position: 1, ctx });
+
+		// Known labels use selected() in catalog order. The independent raw-value
+		// remainder removes known tokens with escaped regex literals, so an
+		// unknown historical token survives the final normalize-space(concat()).
+		expect(out.xml).toContain(
+			"if(selected(tags, &apos;vip&apos;), &apos;VIP&apos;, &apos;&apos;)",
+		);
+		expect(out.xml).toContain(
+			"if(selected(tags, &apos;follow.up&apos;), &apos;Needs follow-up&apos;, &apos;&apos;)",
+		);
+		expect(out.xml).toContain("&apos; follow\\.up &apos;");
+		expect(out.xml).toContain("normalize-space(concat(");
+		// The remainder double-spaces the normalized value so every token owns
+		// both flanking spaces: Java regex matching is non-overlapping, and
+		// single-space delimiters would let the second copy of a duplicated
+		// known token escape removal (` vip vip ` shares the middle space) and
+		// render as a bogus unknown on device while Preview hides it.
+		expect(out.xml).toContain(
+			"concat(&apos;  &apos;, replace(normalize-space(tags), &apos; &apos;, &apos;  &apos;), &apos;  &apos;)",
+		);
 	});
 });
 
 describe("emitColumnField — date", () => {
+	it("lowers a semantic preset to the same supported pattern as Preview", () => {
+		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "long");
+		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		expect(out.xml).toContain(
+			"format-date(date(opened_on), &apos;%B %e, %Y&apos;)",
+		);
+	});
+
 	it("wraps the property in CCHQ's empty-string-guarded format-date shape", () => {
 		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "%d/%m/%Y");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
@@ -308,13 +411,13 @@ describe("emitColumnField — id-mapping", () => {
 
 describe("emitColumnField — calculated", () => {
 	it("emits the CCHQ inline-variable template shape with a calc-property locale id", () => {
-		// `term(prop("patient", "name"))` lowers to a bare `name`
+		// `term(prop("patient", "full_name"))` lowers to a bare `full_name`
 		// XPath via the on-device emitter — sufficient to pin the
 		// surrounding template structure.
 		const calc = calculatedColumn(
 			COL_UUIDS.a,
 			"My Calc",
-			term(prop("patient", "name")),
+			term(prop("patient", "full_name")),
 		);
 		const out = emitColumnField({
 			column: calc,
@@ -332,7 +435,7 @@ describe("emitColumnField — calculated", () => {
 		// bare-`$` suite.xml.
 		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		// The strings map carries the calc's authored header text.
 		expect(out.strings).toEqual({
 			"m0.case_short.case_calculated_property_1.header": "My Calc",
@@ -349,6 +452,7 @@ describe("emitColumnField — calculated", () => {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(calc.uuid, {
 				kind: "calculated",
 				order: 1,
@@ -394,17 +498,18 @@ describe("emitColumnField — calculated", () => {
 
 describe("emitColumnField — sort integration", () => {
 	it("attaches a sort block when ctx.sortByUuid carries a directive keyed by the column uuid", () => {
-		const col = plainColumn(COL_UUIDS.a, "name", "Name");
+		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
 				direction: "asc",
 				type: "plain",
-				xpath: "name",
+				xpath: "full_name",
 			}),
 		};
 		const out = emitColumnField({ column: col, position: 1, ctx });
@@ -413,7 +518,7 @@ describe("emitColumnField — sort integration", () => {
 		expect(out.xml).toContain('direction="ascending"');
 		// Sort xpath = bare property for plain columns.
 		const sortMatches = out.xml.match(/<sort[\s\S]*?<\/sort>/);
-		expect(sortMatches?.[0]).toContain('<xpath function="name"/>');
+		expect(sortMatches?.[0]).toContain('<xpath function="full_name"/>');
 	});
 
 	it("uses the raw property as sort xpath for date columns even when display is formatted", () => {
@@ -427,6 +532,7 @@ describe("emitColumnField — sort integration", () => {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -444,12 +550,13 @@ describe("emitColumnField — sort integration", () => {
 	});
 
 	it("does not attach a sort block when the column's uuid has no directive in ctx.sortByUuid", () => {
-		const col = plainColumn(COL_UUIDS.a, "name", "Name");
+		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
 		const otherUuid = asUuid("00000000-0000-4000-8000-cccc99999999");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(otherUuid, {
 				kind: "property",
 				order: 1,

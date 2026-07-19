@@ -11,7 +11,9 @@
 //     here. Each column carries its own `uuid` (UI identity, drag /
 //     reorder handle, AST references), an optional `sort` (per-
 //     column direction + priority on the column itself), and optional
-//     `visibleInList` / `visibleInDetail` flags (absent ≡ visible).
+//     `visibleInList` / `visibleInDetail` flags (absent ≡ visible),
+//     plus independent `listOrder` / `detailOrder` fractional keys for
+//     the two display surfaces (each falls back to the legacy `order`).
 //   - `filter?: Predicate` — single optional always-on predicate
 //     applied to every row before display.
 //   - `searchInputs: SearchInputDef[]` — discriminated union of
@@ -28,6 +30,7 @@
 
 import { z } from "zod";
 import type { CasePropertyDataType } from "./casePropertyTypes";
+import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
 import { assetIdSchema } from "./multimedia";
 import type {
 	Predicate,
@@ -41,6 +44,11 @@ import {
 	valueExpressionSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "./predicate/types";
+import {
+	walkExpressionNodes,
+	walkExpressionPredicateNodes,
+	walkExpressionTerms,
+} from "./predicate/walk";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Sort + visibility — common column slots ──────────────────────
@@ -52,7 +60,7 @@ import { type Uuid, uuidSchema } from "./uuid";
 //
 // `priority` is a non-negative integer (the schema's `int().min(0)`
 // rejects negatives at parse). Two columns at the same priority
-// tie-break to display order in `caseListConfig.columns` — that
+// tie-break to Results display order (`listOrder ?? order`) — that
 // rule binds at the saga, preview, and wire-emission layers; the
 // editor maintains uniqueness on save, but the tie-break exists for
 // transient (undo / partial-save) editor states. No layer assumes
@@ -79,7 +87,7 @@ export type SortType = (typeof SORT_TYPES)[number];
  * Per-column sort directive. Carries direction + priority only —
  * the comparator type is derived at wire emission, not authored.
  *
- * `priority` is a non-negative integer; tie-break to column display
+ * `priority` is a non-negative integer; tie-break to Results display
  * order is uniform across saga / preview / wire layers (no layer
  * assumes uniqueness).
  */
@@ -106,11 +114,23 @@ export const TIME_SINCE_UNITS = ["days", "weeks", "months", "years"] as const;
 export type TimeSinceUnit = (typeof TIME_SINCE_UNITS)[number];
 
 /**
+ * Days-equivalent divisor used by CommCare's time-ago and late-flag formats.
+ * CCHQ defines a year as 365.25 days, a month as one twelfth of that, and a
+ * week as seven days. Keeping this beside `TimeSinceUnit` makes the domain
+ * unit mean the same thing in Preview, suite.xml, and HQ JSON emission.
+ */
+export const TIME_SINCE_UNIT_DAYS: Readonly<Record<TimeSinceUnit, number>> = {
+	days: 1,
+	weeks: 7,
+	months: 365.25 / 12,
+	years: 365.25,
+};
+
+/**
  * Display dispatch for `interval` columns:
  *
- *   - `"always"` — always show the relative interval (e.g. "3
- *     days ago"). The threshold + unit drive an "is this overdue?"
- *     decision the runtime can surface in the cell.
+ *   - `"always"` — show the whole number of authored units until the
+ *     threshold is crossed, then replace it with `text`.
  *   - `"flag"` — only show `text` when the threshold is exceeded;
  *     otherwise the cell is empty. Used for "overdue" / "follow-up
  *     needed" signal columns where the absence-of-flag is itself
@@ -124,21 +144,24 @@ export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
 // Every column kind carries the same base slots: `uuid` for UI
 // identity, optional `sort` for column-level sort directive,
 // optional `visibleInList` / `visibleInDetail` for surface
-// filtering. Centralized here so every per-kind schema below
-// extends the same base.
+// filtering, and optional `listOrder` / `detailOrder` fractional keys for
+// independent Results / Details sequencing. Centralized here so every
+// per-kind schema below extends the same base.
 
 /**
- * Optional surface-visibility + sort slots shared by every column
- * kind. Absent slots default to "visible" at the wire layer; the
- * schema preserves the slot's presence so the editor can
- * distinguish "user explicitly toggled off" from "user never
- * toggled".
+ * Optional surface-visibility, sort, and surface-order slots shared by every
+ * column kind. Absent visibility defaults to "visible" at the wire layer;
+ * absent surface order falls back to the generic `order`. The schema preserves
+ * slot presence so the editor can distinguish an explicit override from an
+ * inherited default.
  */
 const columnCommonSlots = z
 	.object({
 		sort: columnSortSchema.optional(),
 		visibleInList: z.boolean().optional(),
 		visibleInDetail: z.boolean().optional(),
+		listOrder: z.string().optional(),
+		detailOrder: z.string().optional(),
 	})
 	.strict();
 
@@ -149,10 +172,11 @@ const columnCommonSlots = z
  *  so per-kind schemas reject unknown keys without restating
  *  `.strict()` on each arm.
  *
- *  `order` is the column's absolute fractional sort key
- *  (`lib/doc/order`): column sequence is `sort-by-(order, uuid)`, not
- *  `columns` array position. Optional (legacy columns predate it,
- *  backfilled at hydration); never reaches CommCare. */
+ *  `order` is the column's legacy/generic absolute fractional sort key
+ *  (`lib/doc/order`). `listOrder` and `detailOrder` independently sequence
+ *  the Results and Details surfaces, each falling back to `order` when its
+ *  surface key is absent. All three are optional (legacy columns predate
+ *  them; `order` is backfilled at hydration) and never reach CommCare. */
 const columnBase = z
 	.object({ uuid: uuidSchema, order: z.string().optional() })
 	.extend(columnCommonSlots.shape)
@@ -180,18 +204,18 @@ const plainColumnSchema = columnBase.extend({
  * `data_type` (validator rule); the runtime formatter consumes
  * `pattern` to produce the displayed string.
  *
- * `pattern` rejects empty strings — symmetric with `formatDateSchema.pattern`
- * on the ValueExpression side. Both fields drive the same CCHQ
- * format-date runtime; an empty pattern would render the property's
- * raw ISO string at the wire boundary, defeating the column's
- * purpose. Backed at the editor by an inline empty-pattern signal
- * in the shared `CustomDatePatternInput` primitive.
+ * `pattern` rejects empty strings and unsupported JavaRosa escapes — symmetric
+ * with `formatDateSchema.pattern` on the ValueExpression side. Backed at the
+ * editor by inline validation in the shared `CustomDatePatternInput`.
  */
 const dateColumnSchema = columnBase.extend({
 	kind: z.literal("date"),
 	field: z.string(),
 	header: z.string(),
-	pattern: z.string().min(1),
+	pattern: z
+		.string()
+		.min(1)
+		.regex(COMMCARE_DATE_PATTERN_REGEX, "Use a supported date format"),
 });
 
 /**
@@ -295,13 +319,12 @@ const imageMapColumnSchema = columnBase.extend({
 });
 
 /**
- * Interval column — renders a relative interval against the
+ * Interval column — renders a whole-unit interval against the
  * property's date value. The `display` slot dispatches the cell
  * shape:
  *
- *   - `"always"` — always show the relative interval (e.g. "3
- *     days ago"). `text` is the runtime label that decorates
- *     "overdue" cells when the threshold is exceeded.
+ *   - `"always"` — show the whole-unit count until the threshold is crossed,
+ *     then replace it with `text`.
  *   - `"flag"` — only show `text` when the threshold is exceeded;
  *     otherwise the cell renders empty.
  *
@@ -353,6 +376,17 @@ export const columnSchema = z.discriminatedUnion("kind", [
 export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
 
+/** Whether a column contributes to any running-app behavior. Fully off-screen,
+ * unsorted legacy definitions are tolerated for recovery but ignored by
+ * preview/wire work until an author adds them back to a screen. */
+export function caseListColumnHasRuntimeRole(column: Column): boolean {
+	return (
+		column.visibleInList !== false ||
+		column.visibleInDetail !== false ||
+		column.sort !== undefined
+	);
+}
+
 /** Single id-mapping entry — value-to-label pair surfaced by the
  *  id-mapping column's lookup table. Constructing through the
  *  matching builder pins the key order and keeps ad-hoc literals
@@ -366,7 +400,7 @@ export type IdMappingEntry = z.infer<typeof idMappingEntrySchema>;
 // per-kind config — mirrors the explicit-uuid stance the field
 // schemas take (`{ uuid, id, ... }` on every Field arm).
 //
-// Common optional slots (`sort`, `visibleInList`, `visibleInDetail`)
+// Common optional slots (`sort`, visibility, and per-surface order keys)
 // are passed via a `slots` object. Builders OMIT keys whose values
 // are undefined so the constructed shape round-trips through the
 // schema's strip-mode parse — equality assertions like
@@ -383,6 +417,8 @@ export interface ColumnCommonSlots {
 	readonly sort?: ColumnSort;
 	readonly visibleInList?: boolean;
 	readonly visibleInDetail?: boolean;
+	readonly listOrder?: string;
+	readonly detailOrder?: string;
 }
 
 /**
@@ -398,12 +434,16 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		sort?: ColumnSort;
 		visibleInList?: boolean;
 		visibleInDetail?: boolean;
+		listOrder?: string;
+		detailOrder?: string;
 	} = { ...base };
 	if (slots.sort !== undefined) out.sort = slots.sort;
 	if (slots.visibleInList !== undefined)
 		out.visibleInList = slots.visibleInList;
 	if (slots.visibleInDetail !== undefined)
 		out.visibleInDetail = slots.visibleInDetail;
+	if (slots.listOrder !== undefined) out.listOrder = slots.listOrder;
+	if (slots.detailOrder !== undefined) out.detailOrder = slots.detailOrder;
 	return out;
 }
 
@@ -527,8 +567,8 @@ export function imageMapEntry(value: string, assetId: string): ImageMapEntry {
  * Constructs an interval column. `display` selects between the two
  * cell shapes:
  *
- *   - `"always"` — always show the relative interval; `text`
- *     decorates the cell when the threshold is exceeded.
+ *   - `"always"` — show the whole-unit count until the threshold is crossed,
+ *     then replace it with `text`.
  *   - `"flag"` — only show `text` when the threshold is exceeded;
  *     otherwise empty cell.
  *
@@ -595,7 +635,10 @@ export function calculatedColumn(
 //     a `PredicateCardEditor` in this arm.
 //
 // Common slots (`uuid`, `name`, `label`, `type`, `default?`) appear
-// on both arms.
+// on both arms. The schema keeps `default?` on `date-range` inputs so
+// imported legacy documents can be loaded and repaired, but Nova does not
+// author or emit that combination: one scalar expression cannot represent
+// the widget's required start-and-end pair faithfully.
 
 /**
  * Search-input authoring widget kinds. Single source of truth for
@@ -926,7 +969,7 @@ export const APPLICABLE_SEARCH_MODES: Readonly<
 		"multi-select-contains",
 	],
 	select: ["exact", "multi-select-contains"],
-	date: ["exact", "range"],
+	date: ["exact"],
 	"date-range": ["range"],
 	barcode: ["exact"],
 };
@@ -1018,7 +1061,7 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 };
 
 /**
- * The resolved type each `SearchInputType` widget expects its
+ * The resolved type each scalar-default-capable widget expects its
  * `default` value-expression to produce. Used by the validator's
  * per-input default type-check (`searchInputDefaultTypeCheck`)
  * to gate the seed expression's resolution against the widget's
@@ -1033,10 +1076,11 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
  *     seed. `typesCompatible` does NOT widen `datetime` to `date`,
  *     so authors needing a datetime seed for a date widget must
  *     coerce explicitly via `dateCoerce(...)`.
- *   - `date-range` → `"date"` — same as `date`. The single
- *     value-expression default seeds the range's start (or both
- *     ends, runtime-composed); per CCHQ, `daterange` widgets
- *     render a calendar picker (not datetime).
+ * Date-range is intentionally absent. CommCare's daterange answer is one
+ * paired value, while the domain's historical `default` slot holds only one
+ * scalar expression. Treating that scalar as From-only made Preview diverge
+ * from Core/HQ, so authoring and emission reject the combination until the
+ * domain grows a real `{ from, to }` default shape.
  *   - `barcode` → `"text"` — barcode-scanned values surface as
  *     plain strings.
  *
@@ -1045,12 +1089,41 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
  * read from this table.
  */
 export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
+	Record<Exclude<SearchInputType, "date-range">, CasePropertyDataType>
+> = {
+	text: "text",
+	select: "text",
+	date: "date",
+	barcode: "text",
+};
+
+/**
+ * The scalar type produced by each search widget at runtime when an
+ * `input(name)` term reads its bound value.
+ *
+ * This is deliberately separate from both the target property's type and
+ * `SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES`: those describe what the widget
+ * may search and what may seed it, while this table describes the actual wire
+ * value downstream predicates consume.
+ *
+ *   - Text, select, and barcode prompts bind strings.
+ *   - A date prompt binds one calendar date, even when its simple arm targets
+ *     a datetime property.
+ *   - A date-range prompt binds CCHQ's encoded
+ *     `__range__<from>__<to>` scalar, not one of its date endpoints, so the
+ *     bare `input(name)` value is text. Consumers needing either endpoint must
+ *     decode the range rather than treating the whole binding as a date.
+ *
+ * Both simple and advanced inputs use this map. Advanced inputs have no target
+ * property, and a simple input's target cannot change what its widget emits.
+ */
+export const SEARCH_INPUT_RUNTIME_VALUE_TYPES: Readonly<
 	Record<SearchInputType, CasePropertyDataType>
 > = {
 	text: "text",
 	select: "text",
 	date: "date",
-	"date-range": "date",
+	"date-range": "text",
 	barcode: "text",
 };
 
@@ -1089,6 +1162,29 @@ export const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	"date-range": "range",
 	barcode: "exact",
 };
+
+/** The effective mode for a simple input after applying its widget default. */
+export function effectiveSimpleSearchModeKind(
+	input: SimpleSearchInputDef,
+): SearchInputMode["kind"] {
+	return input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+}
+
+/**
+ * Whether a simple input's widget can collect the value its mode consumes.
+ * Range is one indivisible two-date answer on CommCare, so it requires the
+ * date-range widget; every single-value mode requires a single-value widget.
+ * The domain remains tolerant of legacy mismatches so they can load, while
+ * validators, authoring surfaces, Preview, and emitters share this verdict.
+ */
+export function simpleSearchInputHasCoherentRangeWidget(
+	input: SimpleSearchInputDef,
+): boolean {
+	return (
+		(effectiveSimpleSearchModeKind(input) === "range") ===
+		(input.type === "date-range")
+	);
+}
 
 // ── CaseListConfig ───────────────────────────────────────────────
 //
@@ -1132,19 +1228,22 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
 // ── CaseSearchConfig ─────────────────────────────────────────────
 //
-// The structured case-search configuration. Carries two
-// search-only authoring concerns:
+// Search-action configuration plus one legacy owner-availability slot:
 //
 //   - The display cluster — the search-screen labels (title /
 //     subtitle / button labels / empty state) and the optional
 //     `searchButtonDisplayCondition` predicate that gates the search
 //     button.
-//   - The advanced cluster — niche search-side filters. The cluster
-//     carries `excludedOwnerIds`, a `ValueExpression` that evaluates
-//     to a space-separated list of owner ids whose cases are excluded
-//     from the search-results scope. Framed abstractly so the cluster
-//     name describes its role (niche filters), not its contents.
+//   - `excludedOwnerIds` — a rare availability rule that evaluates to a
+//     space-separated list of owner ids. It constrains ordinary Results,
+//     Preview, direct suite case-loading, and remote Search alike; its storage
+//     remains here only because CCHQ persists the corresponding legacy wire
+//     expression on CaseSearch.
 //
+/** Friendly Nova defaults shared by authoring, flipbook, and both wire paths. */
+export const DEFAULT_CASE_SEARCH_TITLE = "Search";
+export const DEFAULT_CASE_SEARCH_BUTTON_LABEL = "Search";
+
 // The runtime case-claim step (which fires when an author picks a
 // case from search results) runs unconditionally on the CCHQ
 // runtime — there is no authoring affordance for it. Display sort,
@@ -1154,12 +1253,25 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
 export const caseSearchConfigSchema = z
 	.object({
-		// Advanced cluster.
-		// `excludedOwnerIds` evaluates to a space-separated list of
-		// owner ids whose cases are excluded from the search-results
-		// scope. Rare in practice; the case-search-config UI collapses
-		// this affordance into a dedicated "Advanced" section that
-		// hosts niche search-side filters.
+		/**
+		 * Internal provenance for an owner-availability rule that was authored
+		 * without authoring a Search action. Only `false` is persisted: ordinary
+		 * explicit search keeps the long-standing `{}` marker, while absence still
+		 * means there is no case-search configuration at all. The flag never reaches
+		 * CommCare wire output and is cleared as soon as an input or Search-action
+		 * setting is authored.
+		 */
+		searchActionEnabled: z.literal(false).optional(),
+
+		// Legacy owner-availability slot.
+		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
+		// space-separated list of owner ids whose cases are excluded from every
+		// Results path. It may use literals, session/current-user values, Search
+		// answers, and pure calculations over those values. It cannot read a case
+		// property or relationship because no case row exists in this global
+		// evaluation context. The schema stays tolerant so imported invalid docs
+		// can load and be repaired; `excludedOwnerIdsTypeCheck` gates the contract.
+		// Rare in practice; the builder owns it beside Cases available.
 		//
 		// Wire-name continuity: at suite-XML emission time the slot
 		// translates to CCHQ's literal wire field
@@ -1172,19 +1284,18 @@ export const caseSearchConfigSchema = z
 
 		// Display labels for the search screen. The runtime renders the
 		// subtitle through a markdown formatter; the others are plain
-		// text. `searchButtonDisplayCondition` hides the search button
-		// when the predicate evaluates false (used for "search" buttons
-		// that should disappear once the form has executed once).
+		// text. `searchButtonDisplayCondition` controls whether the case
+		// list's Search action is relevant. When the web wire auto-launches
+		// an input-free filtered search, an irrelevant action cannot launch;
+		// otherwise the same predicate simply hides the manual Search action.
+		// It never filters Results rows itself.
 		//
 		// Empty strings are rejected — every text input on the editor
 		// drops the slot to `undefined` when the user clears it, so
 		// "presence with empty body" is a structurally invalid state.
-		// The two wire emitters (local suite-XML, HQ JSON) diverge on
-		// empty: the suite-XML emitter falls back to a case-type /
-		// CCHQ-default; the HQ JSON projection writes `{ en: "" }` and
-		// the runtime renders blank text. Rejecting empty at the
-		// schema collapses both surfaces onto the same shape — present
-		// means non-empty.
+		// Both wire emitters and preview share Nova's friendly defaults.
+		// Rejecting empty keeps the contract simple: present means useful
+		// authored copy; clearing a control removes the override.
 		searchScreenTitle: z.string().min(1).optional(),
 		searchScreenSubtitle: z.string().min(1).optional(),
 		searchButtonLabel: z.string().min(1).optional(),
@@ -1192,6 +1303,125 @@ export const caseSearchConfigSchema = z
 	})
 	.strict();
 export type CaseSearchConfig = z.infer<typeof caseSearchConfigSchema>;
+
+/**
+ * Whether an assigned-case exclusion expression needs a selected case row.
+ *
+ * This is the shared semantic guard for the validator and SA/MCP authoring
+ * boundary. Property terms read the current or a related case directly;
+ * `count`, `exists`, and `missing` read the relationship graph even when they
+ * carry no property term. All other expression/predicate operators are pure
+ * compositions over their descendants and remain available when those
+ * descendants are global values.
+ */
+export function excludedOwnerIdsReadsCaseData(
+	expression: ValueExpression,
+): boolean {
+	let readsCaseData = false;
+	walkExpressionTerms(expression, (value) => {
+		if (value.kind === "prop") readsCaseData = true;
+	});
+	walkExpressionNodes(expression, (value) => {
+		if (value.kind === "count") readsCaseData = true;
+	});
+	walkExpressionPredicateNodes(expression, (predicate) => {
+		if (predicate.kind === "exists" || predicate.kind === "missing") {
+			readsCaseData = true;
+		}
+	});
+	return readsCaseData;
+}
+
+/** Whether the optional search-settings bag contains a real authored
+ * override. Explicit `undefined` keys can survive legacy/editor objects, so
+ * `Object.keys(config).length` is not a semantic emptiness check. */
+export function caseSearchConfigHasAuthoredSettings(
+	config: CaseSearchConfig | undefined,
+): boolean {
+	return (
+		config?.excludedOwnerIds !== undefined ||
+		config?.searchScreenTitle !== undefined ||
+		config?.searchScreenSubtitle !== undefined ||
+		config?.searchButtonLabel !== undefined ||
+		config?.searchButtonDisplayCondition !== undefined
+	);
+}
+
+/** Whether the shared bag explicitly carries Nova's owner-only provenance.
+ *
+ * Only the private `searchActionEnabled:false` bit proves this intent. A
+ * `match-none` button condition is valid authoring in its own right, so it must
+ * never be reinterpreted or stripped merely because an owner rule is present.
+ */
+export function isOwnerOnlyCaseSearchConfig(
+	config: CaseSearchConfig | undefined,
+): boolean {
+	return config?.searchActionEnabled === false;
+}
+
+/** Canonicalize a config that carries Nova's explicit private provenance. */
+export function normalizeOwnerOnlyCaseSearchConfig(
+	config: CaseSearchConfig,
+): CaseSearchConfig {
+	if (!isOwnerOnlyCaseSearchConfig(config)) return config;
+	const {
+		searchButtonDisplayCondition: _disabledActionCondition,
+		searchActionEnabled: _currentIntent,
+		...ownerOnly
+	} = config;
+	return { ...ownerOnly, searchActionEnabled: false };
+}
+
+/**
+ * Behavior-safe projection understood by a pre-deploy strict schema.
+ *
+ * This shape is deliberately NOT provenance. An author can legitimately pair
+ * an assigned-case rule with a Never action condition, so callers may use this
+ * predicate only to determine zero-input runtime behavior. They must retain
+ * the raw condition and may not normalize it into Nova's private false bit.
+ */
+function isZeroInputOwnerOnlyCompatibilityProjection(
+	config: CaseSearchConfig,
+): boolean {
+	return (
+		config.searchActionEnabled === undefined &&
+		config.excludedOwnerIds !== undefined &&
+		config.searchButtonDisplayCondition?.kind === "match-none" &&
+		config.searchScreenTitle === undefined &&
+		config.searchScreenSubtitle === undefined &&
+		config.searchButtonLabel === undefined
+	);
+}
+
+/**
+ * Project Search configuration after its final input is removed.
+ *
+ * Title and subtitle belong to the input screen and therefore disappear with
+ * that screen. Action settings remain valid on a zero-input manual action, and
+ * an effective Cases available rule retains the action for automatic Results.
+ * Assigned-case availability alone remains independent and carries the
+ * internal no-action marker instead of manufacturing Search.
+ */
+export function caseSearchConfigAfterFinalInputRemoval(
+	config: CaseSearchConfig | undefined,
+	hasCasesAvailableCondition: boolean,
+): CaseSearchConfig | undefined {
+	if (config === undefined) return undefined;
+	const {
+		searchScreenTitle: _title,
+		searchScreenSubtitle: _subtitle,
+		searchActionEnabled: _previousIntent,
+		...action
+	} = config;
+	const hasSearchActionSetting =
+		action.searchButtonLabel !== undefined ||
+		action.searchButtonDisplayCondition !== undefined;
+	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
+	if (action.excludedOwnerIds !== undefined) {
+		return { ...action, searchActionEnabled: false };
+	}
+	return undefined;
+}
 
 // ── Module ───────────────────────────────────────────────────────
 
@@ -1222,6 +1452,48 @@ export const moduleSchema = z
 	})
 	.strict();
 export type Module = z.infer<typeof moduleSchema>;
+
+/**
+ * The search configuration that governs the running app and both wire paths.
+ *
+ * A stored `caseSearchConfig` normally enables search, including an intentional
+ * zero-input action. The internal false marker is the one exception: it records
+ * that the shared bag exists only for assigned-case availability. Search inputs
+ * also make search unambiguous, so legacy documents that predate the explicit
+ * config marker receive Nova's friendly defaults instead of showing search in
+ * the builder while silently omitting it from preview/export. A case-list
+ * filter by itself does NOT turn on search; it remains the always-on "Cases
+ * available" rule.
+ */
+export function effectiveCaseSearchConfig(
+	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
+): CaseSearchConfig | undefined {
+	const hasInputs = (module.caseListConfig?.searchInputs.length ?? 0) > 0;
+	const storedRaw = module.caseSearchConfig;
+	const stored =
+		storedRaw === undefined
+			? undefined
+			: normalizeOwnerOnlyCaseSearchConfig(storedRaw);
+	if (stored === undefined) return hasInputs ? {} : undefined;
+	// During a rolling deploy, an older strict-schema receiver projects an
+	// owner-only edit as an ordinary Never condition. With no prompts this is
+	// behavior-identical to no Search action, but the raw condition remains
+	// untouched because it may be legitimate authoring. Once an input exists,
+	// the authored/projection ambiguity resolves conservatively in favor of
+	// preserving the condition rather than silently enabling an action the
+	// author may explicitly have hidden.
+	if (!hasInputs && isZeroInputOwnerOnlyCompatibilityProjection(stored)) {
+		return undefined;
+	}
+	if (stored.searchActionEnabled !== false) return stored;
+	if (!hasInputs) return undefined;
+
+	// Inputs are an unambiguous Search surface even for a malformed/imported
+	// document whose internal provenance flag was not cleared by its writer.
+	// Strip the Nova-only flag at this boundary so no wire consumer can emit it.
+	const { searchActionEnabled: _disabled, ...effective } = stored;
+	return effective;
+}
 
 export type ModuleKindMetadata = {
 	icon: string;

@@ -65,6 +65,32 @@ Playwright (which builds + starts the production server, `next build && next sta
 It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth creds — never production
 secrets.
 
+## Review the case workspace by hand
+
+`seed.ts` also installs a stable patient workspace specifically for Search / Results /
+Details visual QA: five Results fields, two Details-only fields, four search inputs,
+and eight realistic patient rows written through the real schema materializer and
+case store. It authors only Nova's canonical standard names (`case_name` and
+`external_id`), never the legacy CCHQ aliases.
+
+```bash
+npm run case:manual
+```
+
+That command opens Results in a headed Chromium session using the same forged local
+session cookie as the smoke suite—no Google account or OAuth flow. Search, Results,
+Details, and the first live case-record URL are printed in the terminal; close the
+window (or Ctrl-C) to finish. It serves on `localhost:3100`, so the normal dev server
+can keep running on `localhost:3000`. The exact app, module, column, search-input, and
+case ids plus all four routes are also emitted after every run:
+
+```bash
+jq '.caseWorkspace' e2e/.auth/seed.json
+```
+
+As with the multiplayer manual harness, an unchanged production build can be reused
+with `SMOKE_REUSE_BUILD=1 npm run case:manual`.
+
 ## See multiplayer in action (tiled windows, live)
 
 Both modes ride the same hermetic stack and seed as the smoke suite — no real GCP,

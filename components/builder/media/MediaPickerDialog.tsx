@@ -1,11 +1,12 @@
 // components/builder/media/MediaPickerDialog.tsx
 //
-// The pick-or-upload dialog the media slots open. Two tabs:
+// The pick-or-upload dialog the media slots open. Source tabs:
 //
 //  - Upload — drag-and-drop or browse; runs the client upload flow
 //    (hash → initiate → PUT → confirm), then commits the asset.
 //  - Library — the owner's existing `ready` assets, newest first,
 //    paginated; click one to pick it.
+//  - Icons — the optional curated icon collection for menu-tile slots.
 //
 // The dialog serves slots that allow ONE kind (a module icon, the app
 // logo) and slots that allow several (a question's display media can
@@ -23,7 +24,7 @@ import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -39,13 +40,19 @@ import {
 	Dialog,
 	DialogClose,
 	DialogContent,
+	DialogDescription,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import { Input } from "@/components/shadcn/input";
+import { Label } from "@/components/shadcn/label";
+import { Spinner } from "@/components/shadcn/spinner";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/shadcn/tooltip";
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@/components/shadcn/tabs";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import {
 	builtinIconPublicPath,
 	builtinIconRef,
@@ -178,7 +185,7 @@ export function MediaPickerDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				showCloseButton={false}
-				className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-lg"
+				className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
 			>
 				<PickerBody
 					manage={manage}
@@ -260,11 +267,18 @@ function PickerBody({
 	const title = manage
 		? "Your files"
 		: multiKind
-			? "Attach Media"
-			: `Attach ${ASSET_KIND_META[kinds[0]].label}`;
+			? "Attach media"
+			: `Attach ${ASSET_KIND_META[kinds[0]].label.toLowerCase()}`;
+	const { nounPhrase } = describeKinds(kinds);
+	const description = manage
+		? "Upload, preview, or remove files in this project"
+		: showIcons
+			? "Choose an icon, upload an image, or use a file you already added"
+			: `Choose a file you already added, or upload ${nounPhrase}`;
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
+	const [query, setQuery] = useState("");
 	// "All" → fetch exactly THIS picker's allowed kinds, so the server returns
 	// only attachable assets rather than a page of irrelevant kinds (e.g. a chat
 	// picker's audio/video) the client would then have to hide — which buried the
@@ -281,10 +295,11 @@ function PickerBody({
 		error,
 		hasMore,
 		loadMore,
+		retry,
 		addUploaded,
 		removeAsset,
 		updateAsset,
-	} = useMediaLibrary(libraryKinds, appId);
+	} = useMediaLibrary(libraryKinds, appId, query);
 
 	// Surface each loaded page to the caller (the builder slots record the
 	// rows for the attach budget check). The consumer's merge is
@@ -334,6 +349,7 @@ function PickerBody({
 	const onManagedUpload = (asset: MediaAssetView) => {
 		addUploaded(asset);
 		setFilter("all");
+		setQuery("");
 		setTab("library");
 	};
 
@@ -362,7 +378,7 @@ function PickerBody({
 			showToast(
 				"warning",
 				"Couldn't delete file",
-				err instanceof Error ? err.message : "Please try again.",
+				err instanceof Error ? err.message : "Try again",
 			);
 			setDeleteTarget(null);
 		} finally {
@@ -372,51 +388,85 @@ function PickerBody({
 
 	return (
 		<>
-			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
-				<DialogTitle className="font-display">{title}</DialogTitle>
+			<header className="flex shrink-0 items-start justify-between gap-4 border-b border-nova-border px-5 py-4">
+				<div className="min-w-0 space-y-1">
+					<DialogTitle className="font-display">{title}</DialogTitle>
+					<DialogDescription>{description}</DialogDescription>
+				</div>
 				<DialogClose
-					render={<Button variant="ghost" size="icon-sm" />}
-					aria-label="Close"
+					render={
+						<Button
+							variant="ghost"
+							className="h-11 shrink-0 px-3 text-nova-text-secondary"
+						/>
+					}
 				>
 					<Icon icon={tablerX} className="size-4" />
+					Close
 				</DialogClose>
 			</header>
 
-			<div
-				role="tablist"
-				aria-label="Media source"
-				className="flex gap-1 border-b border-nova-border px-4 pt-3"
+			<Tabs
+				value={tab}
+				onValueChange={(value) => setTab(value as Tab)}
+				className="min-h-0 flex-1 gap-0 overflow-hidden"
 			>
-				{showIcons && (
-					<TabButton active={tab === "icons"} onClick={() => setTab("icons")}>
-						Icon Library
-					</TabButton>
-				)}
-				<TabButton active={tab === "upload"} onClick={() => setTab("upload")}>
-					Upload
-				</TabButton>
-				<TabButton active={tab === "library"} onClick={() => setTab("library")}>
-					Library
-				</TabButton>
-			</div>
+				<TabsList
+					variant="line"
+					aria-label="Media source"
+					className="h-12 w-full shrink-0 justify-start rounded-none border-b border-nova-border px-5"
+				>
+					{showIcons && (
+						<TabsTrigger value="icons" className="min-h-11 flex-none px-3">
+							Icons
+						</TabsTrigger>
+					)}
+					<TabsTrigger value="upload" className="min-h-11 flex-none px-3">
+						Upload
+					</TabsTrigger>
+					<TabsTrigger value="library" className="min-h-11 flex-none px-3">
+						Library
+					</TabsTrigger>
+				</TabsList>
 
-			<div className="min-h-0 flex-1 overflow-y-auto p-4">
-				{tab === "icons" ? (
-					<IconLibraryTab icons={iconEntries} onPickIcon={pickIcon} />
-				) : tab === "upload" ? (
+				{showIcons && (
+					<TabsContent
+						value="icons"
+						className="min-h-0 overflow-y-auto overscroll-contain p-5"
+					>
+						<IconLibraryTab
+							icons={iconEntries}
+							onPickIcon={pickIcon}
+							primaryAction={manage ? "Preview" : "Choose"}
+						/>
+					</TabsContent>
+				)}
+				<TabsContent
+					value="upload"
+					className="min-h-0 overflow-y-auto overscroll-contain p-5"
+				>
 					<UploadTab
 						kinds={kinds}
 						onUploaded={manage ? onManagedUpload : commit}
 						onUploadStart={onUploadStart}
 						appId={appId}
 					/>
-				) : (
+				</TabsContent>
+				<TabsContent
+					value="library"
+					className="min-h-0 overflow-y-auto overscroll-contain p-5"
+				>
 					<LibraryTab
 						assets={assets}
+						query={query}
+						onQueryChange={setQuery}
 						isLoading={isLoading}
 						error={error}
 						hasMore={hasMore}
 						loadMore={loadMore}
+						retry={retry}
+						onUpload={() => setTab("upload")}
+						primaryAction={manage ? "Preview" : "Choose"}
 						// In the manager a click previews (nothing to pick into); in a
 						// picker it commits the choice and closes.
 						onPick={manage ? openPreview : commit}
@@ -435,8 +485,8 @@ function PickerBody({
 						kinds={kinds}
 						onFilterChange={setFilter}
 					/>
-				)}
-			</div>
+				</TabsContent>
+			</Tabs>
 
 			{/* Preview opens OVER the picker (its portal mounts after, so it
 			 *  stacks on top); closing it returns to the library. */}
@@ -462,32 +512,6 @@ function PickerBody({
 				}}
 			/>
 		</>
-	);
-}
-
-function TabButton({
-	active,
-	onClick,
-	children,
-}: {
-	active: boolean;
-	onClick: () => void;
-	children: React.ReactNode;
-}) {
-	return (
-		<button
-			type="button"
-			role="tab"
-			aria-selected={active}
-			onClick={onClick}
-			className={`-mb-px border-b-2 px-3 pb-2 text-sm transition-colors focus-visible:outline-1 focus-visible:outline-nova-violet-bright ${
-				active
-					? "border-nova-violet text-nova-text"
-					: "border-transparent text-nova-text-muted hover:text-nova-text"
-			}`}
-		>
-			{children}
-		</button>
 	);
 }
 
@@ -562,7 +586,7 @@ function UploadTab({
 				)
 				.join(", ");
 			setKindError(
-				`That file isn't ${nounPhrase}. This slot takes ${supported}.`,
+				`That file can't be used here. Choose ${nounPhrase}: ${supported}.`,
 			);
 			return;
 		}
@@ -580,21 +604,26 @@ function UploadTab({
 	};
 
 	return (
-		<div className="flex flex-col gap-3">
+		<div className="flex flex-col gap-5">
 			{/* PHI guardrail — Nova reads documents and stores the extract, so real
 			 *  patient data must not ride along. Shown only where documents are
 			 *  accepted (the chat file manager), not on media-only carriers. */}
 			{kinds.some(isDocumentKind) && (
-				<p className="flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
+				<div className="flex items-start gap-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-4 py-3 text-left text-sm leading-relaxed text-nova-text-secondary">
 					<Icon
 						icon={tablerAlertTriangle}
-						className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
+						className="mt-0.5 size-5 shrink-0 text-nova-amber"
 					/>
-					<span>
-						Don't upload real patient data (PHI). Use sample or de-identified
-						documents — Nova reads them and stores the extract.
-					</span>
-				</p>
+					<div className="space-y-1">
+						<p className="font-medium text-nova-text">
+							Protect patient information
+						</p>
+						<p>
+							Don't upload real patient information. Use sample or de-identified
+							documents. Nova reads and stores the extracted text.
+						</p>
+					</div>
+				</div>
 			)}
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: drop zone wraps a real file input + button for keyboard/AT access */}
 			<div
@@ -608,7 +637,7 @@ function UploadTab({
 					setDragging(false);
 					void handleFile(e.dataTransfer.files[0]);
 				}}
-				className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors ${
+				className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors ${
 					dragging
 						? "border-nova-violet bg-nova-violet/[0.06]"
 						: "border-nova-border"
@@ -616,70 +645,89 @@ function UploadTab({
 			>
 				<Icon
 					icon={tablerCloudUpload}
-					className="size-8 text-nova-text-muted"
+					className="size-9 text-nova-text-muted"
 				/>
-				<p className="text-sm text-nova-text-muted">
-					Drag {nounPhrase} here, or
-				</p>
+				<div className="space-y-1">
+					<p className="text-base font-medium text-nova-text">
+						Drop {nounPhrase} here
+					</p>
+					<p className="text-[13px] text-nova-text-secondary">
+						Or choose a file from your device
+					</p>
+				</div>
 				<Button
 					type="button"
-					size="sm"
+					className="h-11 px-4"
 					onClick={() => inputRef.current?.click()}
 					disabled={status.state === "uploading"}
 				>
-					{status.state === "uploading" ? "Uploading…" : "Browse files"}
+					{status.state === "uploading" ? (
+						<>
+							<Spinner />
+							Uploading
+						</>
+					) : (
+						"Choose file"
+					)}
 				</Button>
-				<input
+				<Input
 					ref={inputRef}
 					type="file"
 					accept={accept}
 					autoComplete="off"
 					data-1p-ignore
-					className="hidden"
+					className="sr-only"
 					onChange={(e) => void handleFile(e.target.files?.[0])}
 				/>
-				{/* Spell out exactly what this slot takes — one row per allowed
-			    kind with its extensions — so the user knows before they
-			    browse, not after a rejection. This is the only set the slot
-			    accepts; anything else is filtered out here and in the
-			    library. */}
-				<div className="flex flex-col gap-1 pt-1">
-					<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted">
-						{kinds.length === 1 ? "Supported format" : "Supported formats"}
-					</span>
+				{(kindError ?? (status.state === "error" ? status.message : null)) && (
+					<p role="alert" className="max-w-md text-sm text-nova-rose">
+						{kindError ?? (status.state === "error" ? status.message : "")}
+					</p>
+				)}
+			</div>
+			<section aria-labelledby="supported-file-types" className="space-y-3">
+				<h3
+					id="supported-file-types"
+					className="text-sm font-medium text-nova-text"
+				>
+					{kinds.length === 1 ? "Supported file type" : "Supported file types"}
+				</h3>
+				<div className="flex flex-wrap gap-2">
 					{kinds.map((kind) => {
 						const meta = ASSET_KIND_META[kind];
 						return (
 							<div
 								key={kind}
-								className="flex items-center justify-center gap-1.5 text-xs"
+								className="flex min-h-9 items-center gap-2 rounded-lg border border-nova-border bg-nova-surface px-3 text-[13px]"
 							>
 								<Icon
 									icon={meta.icon}
-									className="size-3.5 shrink-0 text-nova-text-muted"
+									className="size-4 shrink-0 text-nova-text-muted"
 								/>
-								<span className="text-nova-text-secondary">{meta.label}</span>
+								<span className="font-medium text-nova-text-secondary">
+									{meta.label}
+								</span>
 								<span className="text-nova-text-muted">{meta.extLabel}</span>
 							</div>
 						);
 					})}
 				</div>
-				{(kindError ?? (status.state === "error" ? status.message : null)) && (
-					<p className="text-xs text-nova-rose">
-						{kindError ?? (status.state === "error" ? status.message : "")}
-					</p>
-				)}
-			</div>
+			</section>
 		</div>
 	);
 }
 
 function LibraryTab({
 	assets,
+	query,
+	onQueryChange,
 	isLoading,
 	error,
 	hasMore,
 	loadMore,
+	retry,
+	onUpload,
+	primaryAction,
 	onPick,
 	onPreview,
 	onDelete,
@@ -689,10 +737,16 @@ function LibraryTab({
 	onFilterChange,
 }: {
 	assets: MediaAssetView[];
+	/** Search text sent to the server before pagination. */
+	query: string;
+	onQueryChange: (query: string) => void;
 	isLoading: boolean;
 	error: string | null;
 	hasMore: boolean;
 	loadMore: () => void;
+	retry: () => void;
+	onUpload: () => void;
+	primaryAction: "Choose" | "Preview";
 	onPick: (asset: MediaAssetView) => void;
 	/** Open the preview for an asset without picking it. */
 	onPreview: (asset: MediaAssetView) => void;
@@ -705,63 +759,111 @@ function LibraryTab({
 	kinds: readonly AssetKind[];
 	onFilterChange: (filter: LibraryFilter) => void;
 }) {
-	const [query, setQuery] = useState("");
-	const filtered = useMemo(() => {
-		// Kind scoping now happens server-side: the fetch requests exactly this
-		// picker's allowed kinds (see `libraryKinds`), so every loaded asset is
-		// already attachable here — no client-side kind filter needed. Only the
-		// name search narrows the in-hand page.
-		const q = query.trim().toLowerCase();
-		if (!q) return assets;
-		return assets.filter((a) =>
-			(a.displayName ?? a.originalFilename).toLowerCase().includes(q),
-		);
-	}, [assets, query]);
+	const searchId = useId();
+	const normalizedQuery = query.trim();
+	// Both kind and name filtering already happened server-side before this page
+	// was selected. Never filter `assets` in memory: that would make an empty
+	// loaded page look like an authoritative no-match while older pages remain.
+	const showInitialLoading = isLoading && assets.length === 0;
+	const showInitialError = error !== null && assets.length === 0;
 
 	return (
-		<div className="flex flex-col gap-3">
+		<div className="flex flex-col gap-5">
 			{filter !== null && (
-				<div
-					role="tablist"
-					aria-label="Filter by type"
-					className="flex flex-wrap gap-1"
-				>
-					<FilterChip
-						active={filter === "all"}
-						onClick={() => onFilterChange("all")}
-					>
-						All
-					</FilterChip>
-					{kinds.map((kind) => (
+				<fieldset className="space-y-2">
+					<legend className="text-sm font-medium text-nova-text">
+						File type
+					</legend>
+					<div className="flex flex-wrap gap-2">
 						<FilterChip
-							key={kind}
-							active={filter === kind}
-							onClick={() => onFilterChange(kind)}
+							active={filter === "all"}
+							onClick={() => onFilterChange("all")}
 						>
-							{ASSET_KIND_META[kind].label}
+							All
 						</FilterChip>
-					))}
+						{kinds.map((kind) => (
+							<FilterChip
+								key={kind}
+								active={filter === kind}
+								onClick={() => onFilterChange(kind)}
+							>
+								{ASSET_KIND_META[kind].label}
+							</FilterChip>
+						))}
+					</div>
+				</fieldset>
+			)}
+			<div className="space-y-2">
+				<Label htmlFor={searchId}>Search files</Label>
+				<Input
+					id={searchId}
+					type="search"
+					value={query}
+					onChange={(e) => onQueryChange(e.target.value)}
+					maxLength={200}
+					autoComplete="off"
+					data-1p-ignore
+					className="h-11 px-3 text-sm"
+				/>
+			</div>
+
+			{error && !showInitialError && (
+				<div
+					role="alert"
+					className="flex items-center justify-between gap-3 rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
+				>
+					<p className="text-sm text-nova-rose">{error}</p>
+					<Button
+						type="button"
+						variant="outline"
+						className="h-11 shrink-0"
+						onClick={retry}
+					>
+						Retry
+					</Button>
 				</div>
 			)}
-			<input
-				type="text"
-				value={query}
-				onChange={(e) => setQuery(e.target.value)}
-				placeholder="Search by name"
-				autoComplete="off"
-				data-1p-ignore
-				className="w-full rounded-md border border-nova-border bg-nova-surface px-3 py-1.5 text-sm text-nova-text outline-none placeholder:text-nova-text-muted focus:border-nova-violet"
-			/>
-			{error && <p className="text-xs text-nova-rose">{error}</p>}
-			{filtered.length === 0 && !isLoading ? (
-				<p className="py-6 text-center text-sm text-nova-text-muted">
-					{assets.length === 0
-						? "Nothing here yet — upload one from the Upload tab."
-						: "No matches."}
-				</p>
+
+			{showInitialLoading ? (
+				<div
+					role="status"
+					className="flex min-h-44 flex-col items-center justify-center gap-3 text-sm text-nova-text-secondary"
+				>
+					<Spinner className="size-5" />
+					{normalizedQuery ? "Searching files" : "Loading files"}
+				</div>
+			) : showInitialError ? (
+				<LibraryState
+					title={
+						normalizedQuery
+							? "Search couldn't be completed"
+							: "Your files couldn't be loaded"
+					}
+					description={error ?? "Try again"}
+					action="Retry"
+					onAction={retry}
+					error
+				/>
+			) : assets.length === 0 ? (
+				<LibraryState
+					title={
+						normalizedQuery
+							? "No files match your search"
+							: filter && filter !== "all"
+								? `No ${ASSET_KIND_META[filter].label.toLowerCase()} files yet`
+								: "No files yet"
+					}
+					description={
+						normalizedQuery
+							? "Try a different name or clear your search"
+							: "Upload a file to use it here"
+					}
+					action={normalizedQuery ? "Clear search" : "Upload file"}
+					onAction={normalizedQuery ? () => onQueryChange("") : onUpload}
+				/>
 			) : (
-				<ul className="grid grid-cols-3 gap-2">
-					{filtered.map((asset) => {
+				<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+					{assets.map((asset) => {
 						const fileName = asset.displayName ?? asset.originalFilename;
 						// Documents gain an extracted title once extraction succeeds;
 						// show it as a subtitle so the library reads as human names. Skip
@@ -778,52 +880,65 @@ function LibraryTab({
 								 *  the square and not to the taller li (which now also holds
 								 *  the caption below). */}
 								<div className="relative">
-									<button
-										type="button"
-										onClick={() => onPick(asset)}
-										className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+									<SimpleTooltip
+										content={
+											<span className="block max-w-xs [overflow-wrap:anywhere]">
+												<span className="block">{fileName}</span>
+												{docTitle && (
+													<span className="mt-1 block font-normal text-nova-text-secondary">
+														{docTitle}
+													</span>
+												)}
+											</span>
+										}
 									>
-										<LibraryThumb asset={asset} />
-									</button>
+										<Button
+											type="button"
+											variant="outline"
+											onClick={() => onPick(asset)}
+											aria-label={
+												docTitle
+													? `${primaryAction} ${docTitle}, file ${fileName}`
+													: `${primaryAction} ${fileName}`
+											}
+											className="block aspect-square h-auto w-full overflow-hidden rounded-lg p-0 not-disabled:hover:border-nova-violet"
+										>
+											<LibraryThumb asset={asset} />
+										</Button>
+									</SimpleTooltip>
 									{/* Preview without picking — a sibling of the pick button
 									 *  (not nested), revealed on hover/focus. Lets a user check
 									 *  a document's "What Nova reads" extract before attaching.
 									 *  Tooltip.Root emits no DOM, so the button stays an absolute
 									 *  sibling anchored to the relative wrapper. */}
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<button
-													type="button"
-													onClick={() => onPreview(asset)}
-													aria-label={`Preview ${fileName}`}
-													className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-text focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-violet-bright group-hover:opacity-100"
-												>
-													<Icon icon={tablerEye} className="size-3.5" />
-												</button>
-											}
-										/>
-										<TooltipContent>Preview</TooltipContent>
-									</Tooltip>
+									<SimpleTooltip content="Preview">
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon"
+											onClick={() => onPreview(asset)}
+											aria-label={`Preview ${fileName}`}
+											className="pointer-events-none absolute top-1 right-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+										>
+											<Icon icon={tablerEye} className="size-4" />
+										</Button>
+									</SimpleTooltip>
 									{/* Delete — a sibling of the pick button (not nested),
 									 *  top-left so it doesn't collide with the preview
 									 *  affordance. Opens a confirmation before removing the
 									 *  asset from the library. */}
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<button
-													type="button"
-													onClick={() => onDelete(asset)}
-													aria-label={`Delete ${fileName}`}
-													className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-rose focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-rose group-hover:opacity-100"
-												>
-													<Icon icon={tablerTrash} className="size-3.5" />
-												</button>
-											}
-										/>
-										<TooltipContent>Delete</TooltipContent>
-									</Tooltip>
+									<SimpleTooltip content="Delete">
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon"
+											onClick={() => onDelete(asset)}
+											aria-label={`Delete ${fileName}`}
+											className="pointer-events-none absolute top-1 left-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+										>
+											<Icon icon={tablerTrash} className="size-4" />
+										</Button>
+									</SimpleTooltip>
 									{/* Extraction indicator for documents — a sibling of the
 									 *  pick button (not nested), so the failed-state retry
 									 *  control isn't interactive content inside a button.
@@ -839,31 +954,18 @@ function LibraryTab({
 										</div>
 									)}
 								</div>
-								{/* Caption — the filename is always visible, with the extracted
-								 *  title beneath it for documents. Both single-line-clamp; a hover
-								 *  tooltip reveals the full value when it's truncated. */}
+								{/* The dense grid keeps captions to one line. The existing 44px+
+								 *  thumbnail action discloses both full values through the shared
+								 *  tooltip on hover and keyboard focus; its accessible name also
+								 *  contains the complete filename. */}
 								<div className="mt-1.5 space-y-0.5">
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<p className="truncate text-xs leading-tight text-nova-text">
-													{fileName}
-												</p>
-											}
-										/>
-										<TooltipContent>{fileName}</TooltipContent>
-									</Tooltip>
+									<p className="truncate text-[13px] leading-tight text-nova-text">
+										{fileName}
+									</p>
 									{docTitle && (
-										<Tooltip>
-											<TooltipTrigger
-												render={
-													<p className="truncate text-[11px] leading-tight text-nova-text-muted">
-														{docTitle}
-													</p>
-												}
-											/>
-											<TooltipContent>{docTitle}</TooltipContent>
-										</Tooltip>
+										<p className="truncate text-xs leading-tight text-nova-text-muted">
+											{docTitle}
+										</p>
 									)}
 								</div>
 							</li>
@@ -875,12 +977,18 @@ function LibraryTab({
 				<Button
 					type="button"
 					variant="outline"
-					size="xs"
-					className="self-center"
+					className="h-11 self-center px-4"
 					onClick={loadMore}
 					disabled={isLoading}
 				>
-					{isLoading ? "Loading…" : "Load more"}
+					{isLoading ? (
+						<>
+							<Spinner />
+							Loading
+						</>
+					) : (
+						"Load more"
+					)}
 				</Button>
 			)}
 		</div>
@@ -898,19 +1006,49 @@ function FilterChip({
 	children: React.ReactNode;
 }) {
 	return (
-		<button
+		<Button
 			type="button"
-			role="tab"
-			aria-selected={active}
+			variant={active ? "secondary" : "outline"}
+			aria-pressed={active}
 			onClick={onClick}
-			className={`rounded-full px-2.5 py-0.5 text-xs transition-colors focus-visible:outline-1 focus-visible:outline-nova-violet-bright ${
-				active
-					? "bg-nova-action text-white"
-					: "bg-nova-surface text-nova-text-muted hover:text-nova-text"
-			}`}
+			className="h-11 rounded-full px-4 text-sm"
 		>
 			{children}
-		</button>
+		</Button>
+	);
+}
+
+function LibraryState({
+	title,
+	description,
+	action,
+	onAction,
+	error = false,
+}: {
+	title: string;
+	description: string;
+	action: string;
+	onAction: () => void;
+	error?: boolean;
+}) {
+	return (
+		<div
+			role={error ? "alert" : "status"}
+			className="flex min-h-44 flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-nova-border px-5 py-8 text-center"
+		>
+			<div className="space-y-1">
+				<p className="text-base font-medium text-nova-text">{title}</p>
+				<p className="text-[13px] text-nova-text-secondary">{description}</p>
+			</div>
+			<Button
+				type="button"
+				variant="outline"
+				className="h-11 px-4"
+				onClick={onAction}
+			>
+				{action}
+			</Button>
+		</div>
 	);
 }
 
@@ -945,11 +1083,14 @@ function builtinIconAssetView(entry: IconCatalogEntry): MediaAssetView {
 function IconLibraryTab({
 	icons,
 	onPickIcon,
+	primaryAction,
 }: {
 	icons: readonly IconCatalogEntry[];
 	onPickIcon: (entry: IconCatalogEntry) => void;
+	primaryAction: "Choose" | "Preview";
 }) {
 	const [query, setQuery] = useState("");
+	const searchId = useId();
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
 		if (!q) return icons;
@@ -960,28 +1101,36 @@ function IconLibraryTab({
 	}, [icons, query]);
 
 	return (
-		<div className="flex flex-col gap-3">
-			<input
-				type="text"
-				value={query}
-				onChange={(e) => setQuery(e.target.value)}
-				placeholder="Search icons"
-				autoComplete="off"
-				data-1p-ignore
-				className="w-full rounded-md border border-nova-border bg-nova-surface px-3 py-1.5 text-sm text-nova-text outline-none placeholder:text-nova-text-muted focus:border-nova-violet"
-			/>
+		<div className="flex flex-col gap-5">
+			<div className="space-y-2">
+				<Label htmlFor={searchId}>Search icons</Label>
+				<Input
+					id={searchId}
+					type="search"
+					value={query}
+					onChange={(e) => setQuery(e.target.value)}
+					autoComplete="off"
+					data-1p-ignore
+					className="h-11 px-3 text-sm"
+				/>
+			</div>
 			{filtered.length === 0 ? (
-				<p className="py-6 text-center text-sm text-nova-text-muted">
-					No matching icons.
-				</p>
+				<LibraryState
+					title="No icons match your search"
+					description="Try a different name or clear your search"
+					action="Clear search"
+					onAction={() => setQuery("")}
+				/>
 			) : (
-				<ul className="grid grid-cols-4 gap-2">
+				<ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">
 					{filtered.map((entry) => (
 						<li key={entry.slug}>
-							<button
+							<Button
 								type="button"
+								variant="outline"
 								onClick={() => onPickIcon(entry)}
-								className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+								aria-label={`${primaryAction} ${entry.label}`}
+								className="block aspect-square h-auto w-full overflow-hidden rounded-lg p-0 not-disabled:hover:border-nova-violet"
 							>
 								{/* biome-ignore lint/performance/noImgElement: a tiny fixed static PNG from /nova-icons; next/image adds no value */}
 								<img
@@ -989,17 +1138,10 @@ function IconLibraryTab({
 									alt={entry.label}
 									className="size-full object-contain p-1.5"
 								/>
-							</button>
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<p className="mt-1.5 truncate text-center text-xs leading-tight text-nova-text">
-											{entry.label}
-										</p>
-									}
-								/>
-								<TooltipContent>{entry.label}</TooltipContent>
-							</Tooltip>
+							</Button>
+							<p className="mt-2 text-center text-[13px] leading-tight text-nova-text [overflow-wrap:anywhere]">
+								{entry.label}
+							</p>
 						</li>
 					))}
 				</ul>
@@ -1044,37 +1186,43 @@ function MediaDeleteConfirmDialog({
 			<AlertDialogContent className="text-left">
 				<AlertDialogHeader>
 					<AlertDialogTitle className="font-display">
-						Delete file?
+						This file will be deleted
 					</AlertDialogTitle>
 					<AlertDialogDescription>
 						<span className="font-medium text-nova-text-secondary">{name}</span>{" "}
-						will be removed from your library. This can't be undone.
+						will be deleted from your library and can't be recovered
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				{attached && (
-					<p className="flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
+					<div className="flex items-start gap-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-4 py-3 text-left text-sm leading-relaxed text-nova-text-secondary">
 						<Icon
 							icon={tablerAlertTriangle}
-							className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
+							className="mt-0.5 size-5 shrink-0 text-nova-amber"
 						/>
 						<span>
-							It's attached to your current message — deleting it will also
-							remove it from the chat.
+							This file is attached to your current message. Deleting it also
+							removes it from the message.
 						</span>
-					</p>
+					</div>
 				)}
 				<AlertDialogFooter>
-					<AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-					{/* Solid rose with dark text (light accents carry dark text) —
-					 * the confirm side of a destructive alert is the one place the
-					 * fill is full-strength rather than the tinted `destructive`
-					 * button variant. */}
+					<AlertDialogCancel className="h-11" disabled={deleting}>
+						Cancel
+					</AlertDialogCancel>
 					<AlertDialogAction
+						variant="destructive"
 						onClick={onConfirm}
 						disabled={deleting}
-						className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
+						className="h-11"
 					>
-						{deleting ? "Deleting…" : "Delete"}
+						{deleting ? (
+							<>
+								<Spinner />
+								Deleting
+							</>
+						) : (
+							"Delete"
+						)}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

@@ -12,32 +12,49 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLayoutSidebarRightExpand from "@iconify-icons/tabler/layout-sidebar-right-expand";
 import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
 export function ChatRail({ onExpand }: { onExpand: () => void }) {
 	return (
-		<aside className="w-14 shrink-0 h-full border-l border-nova-border-bright bg-nova-deep flex flex-col items-center gap-1 py-2">
-			<SimpleTooltip content="Expand chat" side="left">
-				<button
-					type="button"
-					onClick={onExpand}
-					aria-label="Expand chat sidebar"
-					className="size-11 grid place-items-center rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
-				>
-					<Icon icon={tablerLayoutSidebarRightExpand} width="18" height="18" />
-				</button>
-			</SimpleTooltip>
-			<div className="w-7 h-px bg-nova-border my-1" aria-hidden="true" />
-			<SimpleTooltip content="Chat with Nova" side="left">
-				<button
-					type="button"
-					onClick={onExpand}
-					aria-label="Open chat"
-					className="size-11 grid place-items-center rounded-lg text-nova-text-muted hover:text-nova-text-secondary hover:bg-white/[0.05] transition-colors cursor-pointer"
-				>
-					<Icon icon={tablerMessageChatbot} width="17" height="17" />
-				</button>
-			</SimpleTooltip>
+		<aside className="flex h-full w-14 shrink-0 flex-col items-center border-l border-nova-border-bright bg-nova-deep">
+			<div
+				className="grid h-16 w-full shrink-0 place-items-center border-b border-nova-border"
+				data-builder-secondary-header="chat-rail"
+			>
+				<SimpleTooltip content="Expand chat" side="left">
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-lg"
+						onClick={onExpand}
+						aria-label="Expand chat sidebar"
+						data-builder-sidebar-toggle="expand-chat"
+						className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
+					>
+						<Icon
+							icon={tablerLayoutSidebarRightExpand}
+							width="18"
+							height="18"
+						/>
+					</Button>
+				</SimpleTooltip>
+			</div>
+			<div className="flex flex-col items-center gap-1 py-2">
+				<SimpleTooltip content="Chat with Nova" side="left">
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-lg"
+						onClick={onExpand}
+						aria-label="Open chat"
+						data-builder-sidebar-toggle="expand-chat"
+						className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text-secondary"
+					>
+						<Icon icon={tablerMessageChatbot} width="17" height="17" />
+					</Button>
+				</SimpleTooltip>
+			</div>
 		</aside>
 	);
 }

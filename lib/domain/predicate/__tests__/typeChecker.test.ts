@@ -66,6 +66,7 @@ import {
 	within,
 } from "../builders";
 import {
+	type CheckError,
 	checkExpression,
 	checkPredicate,
 	checkValueExpression,
@@ -164,6 +165,7 @@ describe("checkPredicate — comparison operators", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].message).toMatch(/type mismatch/i);
+			expect(result.errors[0].code).toBe("incompatible-values");
 		}
 	});
 
@@ -178,6 +180,7 @@ describe("checkPredicate — comparison operators", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].message).toMatch(/not ordered/i);
+			expect(result.errors[0].code).toBe("ordered-values");
 			// Pin the path-tracking contract for the comparison-level
 			// verdict: ordered-types rejection attaches to the predicate's
 			// own path (not the operand's), so a top-level `gt(...)` with
@@ -224,6 +227,7 @@ describe("checkPredicate — comparison operators", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].message).toMatch(/unknown property/i);
+			expect(result.errors[0].code).toBe("unknown-property");
 			// Operand-resolution errors carry the operand's own path so
 			// the editor highlights the failing operand card. Top-level
 			// `eq`'s left operand resolves at `["left"]`.
@@ -255,6 +259,7 @@ describe("checkPredicate — comparison operators", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].message).toMatch(/unknown search input/i);
+			expect(result.errors[0].code).toBe("unknown-search-input");
 		}
 	});
 
@@ -672,6 +677,15 @@ describe("checkPredicate — match property-shape requirement", () => {
 		expect(checkPredicate(p, ctx).ok).toBe(true);
 	});
 
+	it("accepts a pure derived text expression as the match value", () => {
+		const p = match(
+			prop("patient", "name"),
+			concat(term(literal("Al")), term(literal("ice"))),
+			"starts-with",
+		);
+		expect(checkPredicate(p, ctx)).toEqual({ ok: true });
+	});
+
 	// `fuzzy-date` widens the allow-list to additionally accept date /
 	// datetime properties. CCHQ's `fuzzy_date` (verified at
 	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::fuzzy_date`)
@@ -691,6 +705,19 @@ describe("checkPredicate — match property-shape requirement", () => {
 	it("accepts fuzzy-date match on a datetime property", () => {
 		const p = match(prop("patient", "last_seen"), "2024-12-03", "fuzzy-date");
 		expect(checkPredicate(p, ctx).ok).toBe(true);
+	});
+
+	it("classifies an empty match value as a completeness finding", () => {
+		const p = match(prop("patient", "name"), "", "fuzzy");
+		const result = checkPredicate(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0]).toMatchObject({
+				code: "match-value-empty",
+				path: ["value"],
+			});
+		}
 	});
 
 	it.each([
@@ -738,6 +765,7 @@ describe("checkPredicate — match property-shape requirement", () => {
 		if (!result.ok) {
 			expect(result.errors).toHaveLength(1);
 			expect(result.errors[0].path).toEqual(["property"]);
+			expect(result.errors[0].code).toBe("match-value");
 			// Error message names the offending mode and the
 			// allow-list contents — both load-bearing for the
 			// editor's per-mode highlighting.
@@ -1228,6 +1256,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 			expect(result.errors[0].message).toMatch(
 				/throughCaseType|parent_type|household/i,
 			);
+			expect(result.errors[0].code).toBe("relation-path");
 		}
 	});
 
@@ -1297,6 +1326,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 			expect(result.errors[0].message).toMatch(
 				/ambiguous|ofCaseType|multiple/i,
 			);
+			expect(result.errors[0].code).toBe("relation-ambiguous");
 		}
 	});
 
@@ -1312,6 +1342,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
 			expect(result.errors[0].message).toMatch(/unknown case type|ghost/i);
+			expect(result.errors[0].code).toBe("relation-destination");
 		}
 	});
 
@@ -1353,12 +1384,7 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		}
 	});
 
-	it("accepts any-relation walk with ofCaseType", () => {
-		// Direction-agnostic kind — the resolution semantics mirror
-		// `subcase` (find candidates whose `parent_type` matches the
-		// origin) because the current `CaseType` schema models only
-		// one direction. The ofCaseType qualifier disambiguates exactly
-		// as it does for `subcase`.
+	it("accepts an either-direction walk explicitly targeting a child", () => {
 		const p = exists(
 			anyRelationPath("parent", "visit"),
 			eq(prop("visit", "kind"), literal("intake")),
@@ -1368,6 +1394,107 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 			currentCaseType: "patient",
 		});
 		expect(result.ok).toBe(true);
+	});
+
+	it("accepts an either-direction walk explicitly targeting the parent", () => {
+		const p = exists(
+			anyRelationPath("parent", "household"),
+			eq(prop("household", "region"), literal("north")),
+		);
+		expect(
+			checkPredicate(p, {
+				...ctxRelations,
+				currentCaseType: "patient",
+			}).ok,
+		).toBe(true);
+	});
+
+	it("infers the parent when it is the only either-direction target", () => {
+		const p = exists(
+			anyRelationPath("parent"),
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+		expect(
+			checkPredicate(p, {
+				...ctxRelations,
+				currentCaseType: "visit",
+			}).ok,
+		).toBe(true);
+	});
+
+	it("infers the child when it is the only either-direction target", () => {
+		const p = exists(
+			anyRelationPath("parent"),
+			eq(prop("patient", "name"), literal("Alice")),
+		);
+		expect(
+			checkPredicate(p, {
+				caseTypes: [HOUSEHOLD, PATIENT_WITH_PARENT],
+				knownInputs: [],
+				currentCaseType: "household",
+			}).ok,
+		).toBe(true);
+	});
+
+	it("deduplicates a recursive case type in the either-direction union", () => {
+		const node: CaseType = {
+			name: "node",
+			parent_type: "node",
+			properties: [{ name: "label", label: "Label", data_type: "text" }],
+		};
+		const p = exists(
+			anyRelationPath("parent"),
+			eq(prop("node", "label"), literal("Root")),
+		);
+		expect(
+			checkPredicate(p, {
+				caseTypes: [node],
+				knownInputs: [],
+				currentCaseType: "node",
+			}).ok,
+		).toBe(true);
+	});
+
+	it("requires a case-type choice when either direction reaches different types", () => {
+		const result = checkPredicate(exists(anyRelationPath("parent")), {
+			...ctxRelations,
+			currentCaseType: "patient",
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ code: "relation-ambiguous" }),
+				]),
+			);
+		}
+	});
+
+	it("requires an explicit destination for a custom index", () => {
+		const result = checkPredicate(
+			exists(ancestorPath(relationStep("guardian_link"))),
+			{ ...ctxRelations, currentCaseType: "patient" },
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0]).toMatchObject({
+				code: "relation-destination",
+			});
+			expect(result.errors[0].message).toMatch(/custom|throughCaseType/i);
+		}
+	});
+
+	it("accepts an explicit custom destination outside the parent graph", () => {
+		const p = exists(
+			ancestorPath(relationStep("guardian_link", "visit")),
+			eq(prop("visit", "kind"), literal("intake")),
+		);
+		expect(
+			checkPredicate(p, {
+				...ctxRelations,
+				currentCaseType: "patient",
+			}).ok,
+		).toBe(true);
 	});
 
 	it("rejects exists at top-level with via: self (meaningless self-relation)", () => {
@@ -1790,7 +1917,7 @@ describe("checkPredicate — prop.via destination-scope resolution", () => {
 // is checked separately for the negative cases.
 
 function resolve(expr: ValueExpressionLike, contextOverride = ctx) {
-	const errors: { path: (string | number)[]; message: string }[] = [];
+	const errors: CheckError[] = [];
 	const type = checkExpression(expr, contextOverride, errors, []);
 	return { type, errors };
 }

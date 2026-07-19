@@ -10,20 +10,23 @@
 // surfaced inline rather than only as a toast.
 
 "use client";
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerClipboardText from "@iconify-icons/tabler/clipboard-text";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useState } from "react";
 import { CaseTypePickerContent } from "@/components/builder/shared/CaseTypePicker";
+import { Button } from "@/components/shadcn/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
-import {
-	POPOVER_POPUP_CLS,
-	POPOVER_POSITIONER_ELEVATED_CLS,
-} from "@/lib/styles";
 import {
 	INSERTION_TRIGGER_CLS,
 	insertionTriggerStyle,
@@ -34,9 +37,14 @@ import {
 interface AddModulePopoverProps {
 	/** Insertion index in `moduleOrder`. */
 	readonly atIndex: number;
+	/** The final insertion point is the one persistent keyboard/AT action. */
+	readonly prominent?: boolean;
 }
 
-export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
+export function AddModulePopover({
+	atIndex,
+	prominent = false,
+}: AddModulePopoverProps) {
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"choose" | "caselist">("choose");
 	const [error, setError] = useState<string | null>(null);
@@ -92,72 +100,76 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 	if (!canEdit) return null;
 
 	return (
-		<Popover.Root open={open} onOpenChange={handleOpenChange}>
-			<Popover.Trigger
-				ref={ref}
-				className={INSERTION_TRIGGER_CLS}
-				style={insertionTriggerStyle(revealed)}
-				aria-label="Add module"
-			>
-				<TreeInsertionLine
-					revealed={revealed}
-					progress={progress}
-					label="Module"
-				/>
-			</Popover.Trigger>
-			<Popover.Portal>
-				<Popover.Positioner
+		<li>
+			<Popover open={open} onOpenChange={handleOpenChange}>
+				<PopoverTrigger
+					ref={ref}
+					className={`${INSERTION_TRIGGER_CLS} ${prominent ? "h-11" : "h-2"}`}
+					style={insertionTriggerStyle(revealed, prominent)}
+					tabIndex={prominent ? 0 : -1}
+					aria-hidden={prominent ? undefined : true}
+					aria-label="Add module"
+				>
+					<TreeInsertionLine
+						revealed={prominent || revealed}
+						progress={progress}
+						label={prominent ? "Add module" : "Module"}
+					/>
+				</PopoverTrigger>
+				<PopoverContent
 					side="bottom"
 					align="center"
 					sideOffset={6}
-					className={POPOVER_POSITIONER_ELEVATED_CLS}
+					className="w-64 gap-0 p-1.5"
 				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
-						<div className="w-64 p-1.5">
-							{step === "choose" ? (
-								<>
-									<ArchetypeRow
-										icon={tablerTable}
-										title="Case List"
-										subtitle="Manages a case type"
-										onClick={() => {
-											setError(null);
-											setStep("caselist");
-										}}
-									/>
-									<ArchetypeRow
-										icon={tablerClipboardText}
-										title="Survey"
-										subtitle="Forms only — no cases"
-										onClick={handleSurvey}
-									/>
-								</>
-							) : (
-								<>
-									<button
-										type="button"
-										onClick={() => {
-											setStep("choose");
-											setError(null);
-										}}
-										className="w-full flex items-center gap-1 px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-									>
-										<Icon icon={tablerChevronLeft} width="12" height="12" />
-										Case list
-									</button>
-									<CaseTypePickerContent onChange={handleCaseList} />
-								</>
-							)}
-							{error && (
-								<p className="mt-1 px-2.5 pb-1 text-[11px] text-nova-rose">
-									{error}
-								</p>
-							)}
-						</div>
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+					<PopoverTitle className="sr-only">Add module</PopoverTitle>
+					<PopoverDescription className="sr-only">
+						Choose the kind of module to add
+					</PopoverDescription>
+					<div>
+						{step === "choose" ? (
+							<>
+								<ArchetypeRow
+									icon={tablerTable}
+									title="Case list"
+									subtitle="Manages a case type"
+									onClick={() => {
+										setError(null);
+										setStep("caselist");
+									}}
+								/>
+								<ArchetypeRow
+									icon={tablerClipboardText}
+									title="Survey"
+									subtitle="Forms without cases"
+									onClick={handleSurvey}
+								/>
+							</>
+						) : (
+							<>
+								<Button
+									type="button"
+									variant="ghost"
+									size="xl"
+									onClick={() => {
+										setStep("choose");
+										setError(null);
+									}}
+									className="h-11 w-full justify-start gap-1 px-2 text-sm text-nova-text-muted hover:text-nova-text"
+								>
+									<Icon icon={tablerChevronLeft} width="12" height="12" />
+									Back to module choices
+								</Button>
+								<CaseTypePickerContent onChange={handleCaseList} />
+							</>
+						)}
+						{error && (
+							<p className="mt-1 px-2.5 pb-1 text-xs text-nova-rose">{error}</p>
+						)}
+					</div>
+				</PopoverContent>
+			</Popover>
+		</li>
 	);
 }
 
@@ -173,10 +185,12 @@ function ArchetypeRow({
 	onClick: () => void;
 }) {
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
+			size="xl"
 			onClick={onClick}
-			className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-white/[0.06] transition-colors cursor-pointer"
+			className="h-auto min-h-14 w-full justify-start gap-2.5 whitespace-normal px-2.5 py-2 text-left hover:bg-white/[0.06]"
 		>
 			<div className="w-7 h-7 shrink-0 rounded-lg bg-nova-violet/10 flex items-center justify-center">
 				<Icon
@@ -187,11 +201,11 @@ function ArchetypeRow({
 				/>
 			</div>
 			<div className="min-w-0">
-				<div className="text-[13px] font-medium text-nova-text">{title}</div>
-				<div className="text-[11px] text-nova-text-muted truncate">
+				<div className="text-sm font-medium text-nova-text">{title}</div>
+				<div className="truncate text-xs font-normal text-nova-text-muted">
 					{subtitle}
 				</div>
 			</div>
-		</button>
+		</Button>
 	);
 }

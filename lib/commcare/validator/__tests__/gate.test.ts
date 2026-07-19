@@ -200,8 +200,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(4);
 		expect(byClass.get("oracle")).toHaveLength(95);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(77);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(192);
+		expect(byClass.get("soundness")).toHaveLength(81);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(196);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -310,6 +310,19 @@ describe("errorIdentity", () => {
 		// Two empty rows in ONE column share an identity — fixing the first
 		// must not make the second (its index now shifted) look introduced.
 		expect(errorIdentity(err("1"))).toBe(errorIdentity(err("4")));
+	});
+
+	it("keeps distinct case-list expression repairs distinct", () => {
+		const finding = (reason: string): ValidationError => ({
+			code: "CASE_LIST_EXPRESSION_NOT_ON_DEVICE",
+			scope: "module",
+			message: reason,
+			location: { moduleUuid: asUuid("m-1") },
+			details: { surface: "filter", reason },
+		});
+		expect(errorIdentity(finding("mixed-property-scopes"))).not.toBe(
+			errorIdentity(finding("invalid-geopoint-center")),
+		);
 	});
 
 	it("is total over lone UTF-16 surrogates in authored discriminators", () => {

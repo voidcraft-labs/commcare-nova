@@ -99,9 +99,11 @@ export interface CasesTable {
 	owner_id: string | null;
 
 	/**
-	 * Open/closed status string. Distinct from `closed_on` so
-	 * domain status vocabularies (CCHQ's `open` / `closed` tokens)
-	 * round-trip without lossy derivation from a timestamp.
+	 * CommCare's built-in open/closed lifecycle status (`@status` on the
+	 * wire). Distinct from `closed_on` because both values are part of the
+	 * case model; `CaseStore.close()` writes `closed` and the closure timestamp
+	 * together. Nullable/wide at the database boundary so historical imports
+	 * and pre-invariant rows remain readable for explicit convergence.
 	 */
 	status: string | null;
 
@@ -146,8 +148,9 @@ export interface CasesTable {
 	/**
 	 * CommCare's standard `external_id` case metadata — a cross-system
 	 * traceability slot beside `case_name` / `status`, never a JSONB
-	 * key. Nothing writes it yet (HQ import / future features will);
-	 * it exists so the standard-name reads
+	 * key. Nova's sample generator fills it with a deterministic,
+	 * readable identifier; imports and other create flows may supply
+	 * their own. The column also ensures standard-name reads
 	 * (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`'s `external_id` /
 	 * `external-id` entries) resolve to an honest column instead of
 	 * throwing.

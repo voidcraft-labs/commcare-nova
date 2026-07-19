@@ -1,21 +1,14 @@
 // components/builder/case-list-config/columnCellRenderer.tsx
 //
-// Shared per-cell render helpers for both case-list authoring-
-// surface previews. The Display section's preview AND the Filters
-// section's preview render the same column shapes against the
-// same `CaseRow`/`CalculatedValue` data; centralizing the
-// per-kind switch keeps the two previews visually consistent and
-// avoids the kind-by-kind drift that copy-paste would invite.
+// Shared per-cell render helpers for the running case-list Preview. Edit mode
+// composes labels and reading order without inventing a sample row; real case
+// values reach this renderer only in Preview, where their full row context is
+// available.
 //
-// Each column kind has its own render path. The runtime / wire-
-// emit layers handle the same logic against the live engine; the
-// preview reads off the already-loaded `CaseRow` and applies a
-// best-effort formatter that mirrors the runtime's intent.
-// Date / phone / id-mapping / interval formatting is intentionally
-// simple here — the goal is "what does this look like", not
-// "exact wire parity". The preview pins the column's authored
-// shape; small format drift against CCHQ's runtime is acceptable
-// for an authoring-time preview.
+// Each column kind has its own render path. This is the running Preview, so
+// interactions and formatting follow the same authored semantics Nova emits:
+// phone values are actionable, date patterns use JavaRosa's supported tokens,
+// and interval thresholds share the emitter's exact unit divisors.
 //
 // Calculated columns project their result through the case-store's
 // `query` SELECT slot (under the optional `calculated` projection
@@ -25,13 +18,37 @@
 
 "use client";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { Button } from "@/components/shadcn/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverHeader,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import type { Column } from "@/lib/domain";
-import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingClient";
+import {
+	type CaseProperty,
+	type Column,
+	TIME_SINCE_UNIT_DAYS,
+} from "@/lib/domain";
+import {
+	type CheckError,
+	checkExpression,
+	type TypeContext,
+} from "@/lib/domain/predicate";
+import {
+	caseRowDisplaySourceValue,
+	caseRowDisplayValue,
+} from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CalculatedValue,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { toDate } from "@/lib/preview/xpath/coerce";
+import { formatCommCareDate } from "@/lib/preview/xpath/dateFormatting";
+import { XPathDate } from "@/lib/preview/xpath/types";
 
 /**
  * Render one column's cell for one row. Dispatches on the
@@ -50,57 +67,248 @@ import type {
 export function renderColumnCell(
 	column: Column,
 	row: CaseRowWithCalculated,
+	context: ColumnDisplayContext,
 ): React.ReactNode {
-	switch (column.kind) {
-		case "plain": {
-			const raw = caseRowDisplayValue(row, column.field);
-			return <span>{raw || "—"}</span>;
-		}
-		case "phone": {
-			// Phone column renders as a tappable link in the runtime.
-			// The preview shows the raw value with monospace styling
-			// to communicate "this is a phone-typed column" without
-			// pretending to format an arbitrary international number.
-			const raw = caseRowDisplayValue(row, column.field);
-			return raw ? <span className="font-mono">{raw}</span> : <span>—</span>;
-		}
-		case "date": {
-			// The runtime applies the column's `pattern` via CCHQ's
-			// format-date function. The preview tries an ISO parse
-			// and renders the JS-formatted local date as a best-
-			// effort fallback; un-parseable values show raw.
-			const raw = caseRowDisplayValue(row, column.field);
-			return <span>{formatDateBestEffort(raw)}</span>;
-		}
-		case "interval": {
-			const raw = caseRowDisplayValue(row, column.field);
-			return <span>{formatIntervalBestEffort(raw, column)}</span>;
-		}
-		case "id-mapping": {
-			const raw = caseRowDisplayValue(row, column.field);
-			const match = column.mapping.find((entry) => entry.value === raw);
-			return <span>{match?.label ?? raw ?? "—"}</span>;
-		}
-		case "image-map": {
-			const raw = caseRowDisplayValue(row, column.field);
-			const match = column.mapping.find((entry) => entry.value === raw);
-			if (match !== undefined) {
-				return (
-					<SimpleTooltip content={raw}>
-						{/* biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth */}
-						<img
-							src={mediaSrc(match.assetId)}
-							alt={raw}
-							className="size-5 rounded object-cover inline-block"
-						/>
-					</SimpleTooltip>
-				);
-			}
-			return <span>{raw || "—"}</span>;
-		}
-		case "calculated":
-			return renderCalculatedCell(row.calculated[column.uuid]);
+	const displayed = projectColumnDisplay(column, row, context);
+	if (column.kind === "phone") {
+		const phoneNumber = displayed.text.trim();
+		return phoneNumber ? (
+			<a
+				href={`tel:${phoneNumber}`}
+				aria-label={`Call ${phoneNumber}`}
+				className="inline-flex min-h-11 min-w-11 items-center text-nova-violet-bright underline decoration-current/50 underline-offset-2 [overflow-wrap:anywhere]"
+			>
+				{displayed.text}
+			</a>
+		) : (
+			renderEmptyCell()
+		);
 	}
+	return renderPreviewValue(displayed);
+}
+
+export type CalculatedTemporalType = "date" | "datetime";
+
+/**
+ * Context that changes a column's human display without changing its stored
+ * value. Results rendering and Quick Filter both consume this exact object so
+ * option labels, calculated temporal semantics, and the current interval date
+ * can never drift between what a worker sees and what they can search for.
+ */
+export type ColumnDisplayContext = {
+	readonly caseProperties: readonly CaseProperty[];
+	readonly calculatedTemporalTypes: ReadonlyMap<
+		Column["uuid"],
+		CalculatedTemporalType
+	>;
+	readonly today: Date;
+};
+
+/** Resolve the authored expression type once per calculated column. */
+export function resolveCalculatedTemporalType(
+	column: Column,
+	context: TypeContext,
+): CalculatedTemporalType | undefined {
+	if (column.kind !== "calculated") return undefined;
+	const errors: CheckError[] = [];
+	const resolved = checkExpression(column.expression, context, errors, []);
+	return errors.length === 0 && (resolved === "date" || resolved === "datetime")
+		? resolved
+		: undefined;
+}
+
+/**
+ * Pure semantic projection for a case-list cell. This is the sole source for
+ * both visible cell text and Quick Filter matching; consumers never scrape a
+ * React node or fall back to a different raw-value coercion.
+ */
+export function projectColumnDisplay(
+	column: Column,
+	row: CaseRowWithCalculated,
+	context: ColumnDisplayContext,
+): PreviewFormattedValue {
+	switch (column.kind) {
+		case "plain":
+			return projectPlainValue(
+				row,
+				column.field,
+				context.caseProperties.find(
+					(property) => property.name === column.field,
+				),
+			);
+		case "phone":
+			return {
+				kind: "value",
+				text: caseRowDisplayValue(row, column.field),
+			};
+		case "date":
+			return formatDateForPreview(
+				caseRowDisplayValue(row, column.field),
+				column.pattern,
+			);
+		case "interval":
+			return formatIntervalForPreview(
+				caseRowDisplayValue(row, column.field),
+				column,
+				context.today,
+			);
+		case "id-mapping": {
+			const source = caseRowDisplaySourceValue(row, column.field);
+			return projectMappedValue(source, column.mapping);
+		}
+		case "image-map":
+			return projectImageMappedValue(
+				caseRowDisplaySourceValue(row, column.field),
+				column.mapping,
+				context.caseProperties.find(
+					(property) => property.name === column.field,
+				),
+			);
+		case "calculated":
+			return projectCalculatedValue(
+				row.calculated[column.uuid],
+				context.calculatedTemporalTypes.get(column.uuid),
+			);
+	}
+}
+
+function projectPlainValue(
+	row: CaseRowWithCalculated,
+	field: string,
+	property: CaseProperty | undefined,
+): PreviewFormattedValue {
+	const source = caseRowDisplaySourceValue(row, field);
+	if (
+		property?.data_type === "multi_select" &&
+		(Array.isArray(source) || typeof source === "string")
+	) {
+		const rawTokens = Array.isArray(source)
+			? source.map((item) => projectStoredScalar(item, undefined))
+			: source.split(/\s+/).filter(Boolean);
+		if (rawTokens.some((token) => token === undefined)) {
+			return unsupportedStoredValue();
+		}
+		const tokens = rawTokens as string[];
+		const selected = new Set(tokens);
+		const knownValues = new Set(
+			(property.options ?? []).map((option) => option.value),
+		);
+		return {
+			kind: "value",
+			text: [
+				...(property.options ?? [])
+					.filter((option) => selected.has(option.value))
+					.map((option) => option.label),
+				...tokens.filter((token) => !knownValues.has(token)),
+			].join(" "),
+		};
+	}
+	if (Array.isArray(source)) {
+		const labels: string[] = [];
+		for (const item of source) {
+			const label = projectStoredScalar(item, property);
+			if (label === undefined) return unsupportedStoredValue();
+			if (label !== "") labels.push(label);
+		}
+		return { kind: "value", text: labels.join(" ") };
+	}
+	if (
+		source !== null &&
+		source !== undefined &&
+		typeof source === "object" &&
+		!(source instanceof Date)
+	) {
+		return unsupportedStoredValue();
+	}
+	if (source instanceof Date) {
+		return projectCalculatedValue(
+			source,
+			property?.data_type === "date" ? "date" : "datetime",
+		);
+	}
+	return {
+		kind: "value",
+		text: projectStoredScalar(source, property) ?? "",
+	};
+}
+
+function projectMappedValue(
+	source: ReturnType<typeof caseRowDisplaySourceValue>,
+	mapping: readonly { readonly value: string; readonly label: string }[],
+): PreviewFormattedValue {
+	const selected = selectedTokens(source);
+	if (selected === undefined) return unsupportedStoredValue();
+	return {
+		kind: "value",
+		// Wire uses mapping order and drops every unmapped token via the empty
+		// arm of selected(...), then collapses the join to single spaces.
+		text: mapping
+			.filter((entry) => selected.has(entry.value))
+			.map((entry) => entry.label)
+			.join(" "),
+	};
+}
+
+function projectImageMappedValue(
+	source: ReturnType<typeof caseRowDisplaySourceValue>,
+	mapping: Extract<Column, { kind: "image-map" }>["mapping"],
+	property: CaseProperty | undefined,
+): PreviewFormattedValue {
+	const selected = selectedTokens(source);
+	if (selected === undefined) return unsupportedStoredValue();
+	const match = mapping.find((entry) => selected.has(entry.value));
+	return match === undefined
+		? { kind: "value", text: "" }
+		: {
+				kind: "image",
+				text:
+					property?.options?.find((option) => option.value === match.value)
+						?.label ?? match.value,
+				assetId: match.assetId,
+			};
+}
+
+function selectedTokens(
+	source: ReturnType<typeof caseRowDisplaySourceValue>,
+): ReadonlySet<string> | undefined {
+	if (source === null || source === undefined) return new Set();
+	if (Array.isArray(source)) {
+		const tokens = new Set<string>();
+		for (const item of source) {
+			if (typeof item === "object") return undefined;
+			tokens.add(String(item));
+		}
+		return tokens;
+	}
+	if (typeof source === "object") return undefined;
+	return new Set(String(source).split(/\s+/).filter(Boolean));
+}
+
+function projectStoredScalar(
+	value: unknown,
+	property: CaseProperty | undefined,
+): string | undefined {
+	if (value === null || value === undefined) return "";
+	if (
+		typeof value === "object" ||
+		typeof value === "symbol" ||
+		typeof value === "function"
+	) {
+		return undefined;
+	}
+	const raw = String(value);
+	const option = property?.options?.find((entry) => entry.value === raw);
+	if (option !== undefined) return option.label;
+	if (typeof value === "boolean") return value ? "Yes" : "No";
+	return raw;
+}
+
+function unsupportedStoredValue(): PreviewFormattedValue {
+	return {
+		kind: "fallback",
+		text: "Unavailable",
+		message: "Preview can’t display this saved value in a case list",
+	};
 }
 
 /**
@@ -119,11 +327,12 @@ export function renderColumnCell(
  *   - **jsonb** → JS object / array (pg's JSONB deserializer
  *     parses the wire payload)
  *
- * The Date arm needs an explicit branch because `JSON.stringify(date)`
- * emits a quoted ISO string (`"2026-05-06T00:00:00.000Z"`) — visible
- * quotes in the rendered cell. Routing Dates through `toISOString()`
- * and stripping the time when present gives the user a clean
- * authoring-time hint of the value's shape.
+ * The Date arm needs an explicit branch because an ISO wire value is not
+ * worker-facing display copy. Date-shaped values render on their authored UTC
+ * calendar day; datetime-shaped values render in the worker's local timezone.
+ * Both use the browser locale with a long month name, matching the running
+ * search date controls. The machine-readable ISO value stays on `<time>`'s
+ * `dateTime` attribute rather than leaking into visible text.
  *
  * The contract test
  * `lib/case-store/__tests__/storeContract.ts → "returns a Date object
@@ -133,99 +342,242 @@ export function renderColumnCell(
  */
 export function renderCalculatedCell(
 	value: CalculatedValue | undefined,
+	temporalType?: CalculatedTemporalType,
 ): React.ReactNode {
-	if (value === undefined || value === null) return <span>—</span>;
+	return renderPreviewValue(projectCalculatedValue(value, temporalType));
+}
+
+function projectCalculatedValue(
+	value: CalculatedValue | undefined,
+	temporalType?: CalculatedTemporalType,
+): PreviewFormattedValue {
+	if (value === undefined || value === null) {
+		return { kind: "value", text: "" };
+	}
 	if (value instanceof Date) {
-		// `toISOString()` always produces `YYYY-MM-DDTHH:MM:SS.sssZ`.
-		// Date-typed columns lose the time component on the wire
-		// boundary; the resulting Date in JS lands at midnight UTC,
-		// so trimming `T...Z` gives the calendar-date display the
-		// authoring preview wants. Datetime-typed columns keep the
-		// full ISO string so the user sees the time component too.
+		if (Number.isNaN(value.getTime())) {
+			return {
+				kind: "fallback",
+				text: "Invalid date",
+				message: "Preview can’t display this calculated date",
+			};
+		}
 		const iso = value.toISOString();
-		// Heuristic: midnight UTC means a date-shaped value (the wire
-		// `date` -> JS Date adapter zeroes the time component); any
-		// non-midnight time means the column carries time-of-day.
-		const isMidnight = iso.endsWith("T00:00:00.000Z");
-		return <span>{isMidnight ? iso.slice(0, 10) : iso}</span>;
+		// The authored expression type disambiguates a date from a datetime at
+		// midnight. An absent type defaults to datetime; guessing from the clock
+		// value would misclassify a real midnight instant as a calendar-only date.
+		const isDate = temporalType === "date";
+		const text = isDate
+			? value.toLocaleDateString(undefined, CALCULATED_DATE_FORMAT_OPTIONS)
+			: value.toLocaleString(undefined, CALCULATED_DATETIME_FORMAT_OPTIONS);
+		return { kind: "value", text, dateTime: iso };
 	}
-	if (typeof value === "string") return <span>{value || "—"}</span>;
-	if (typeof value === "number" || typeof value === "boolean") {
-		return <span>{String(value)}</span>;
+	if (typeof value === "string") {
+		return { kind: "value", text: value };
 	}
-	// Arrays / objects — JSONB columns. Stringify for inspection;
-	// the preview's calculated-column cell is monospace by default
-	// so the JSON shape stays readable.
-	return <span>{JSON.stringify(value)}</span>;
+	if (typeof value === "boolean") {
+		return { kind: "value", text: value ? "Yes" : "No" };
+	}
+	if (typeof value === "number") {
+		return { kind: "value", text: String(value) };
+	}
+	// Structured storage values have no truthful scalar case-list rendering.
+	// Name the limitation instead of leaking a serialized data structure.
+	return {
+		kind: "fallback",
+		text: "Unavailable",
+		message: "Preview can’t display this calculated value in a case list",
+	};
 }
 
-// ── Best-effort formatters ────────────────────────────────────────
+const CALCULATED_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+	day: "numeric",
+	month: "long",
+	timeZone: "UTC",
+	year: "numeric",
+};
+
+const CALCULATED_DATETIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+	month: "long",
+	year: "numeric",
+};
+
+// ── Runtime-aligned formatters ────────────────────────────────────
 
 /**
- * Best-effort ISO-string parser + locale-formatted renderer. The
- * authoring preview prioritizes "this looks date-shaped" over exact
- * CCHQ wire-format parity — the wire emitter applies the column's
- * `pattern` via Postgres's `to_char`. Falls back to the raw value
- * when the parse fails so authoring continues unimpeded.
+ * Parse a stored date and apply the column's authored JavaRosa pattern. A
+ * malformed value or unsupported legacy style stays visible as raw data with
+ * a plain-language explanation; Preview never substitutes a locale default.
  */
-function formatDateBestEffort(raw: string): string {
-	if (!raw) return "—";
-	const parsed = new Date(raw);
-	if (Number.isNaN(parsed.getTime())) return raw;
-	return parsed.toLocaleDateString();
+export type PreviewFormattedValue =
+	| {
+			readonly kind: "value";
+			readonly text: string;
+			readonly dateTime?: string;
+	  }
+	| {
+			readonly kind: "image";
+			readonly text: string;
+			readonly assetId: Extract<
+				Column,
+				{ kind: "image-map" }
+			>["mapping"][number]["assetId"];
+	  }
+	| {
+			readonly kind: "fallback";
+			readonly text: string;
+			readonly message: string;
+	  };
+
+export function formatDateForPreview(
+	raw: string,
+	pattern: string,
+): PreviewFormattedValue {
+	if (!raw) return { kind: "value", text: "" };
+	const parsed = toDate(raw);
+	if (parsed === null) {
+		return {
+			kind: "fallback",
+			text: raw,
+			message: "Showing the original value because it isn’t a valid date",
+		};
+	}
+	const formatted = formatCommCareDate(parsed, pattern);
+	if (formatted.kind === "unsupported-pattern") {
+		return {
+			kind: "fallback",
+			text: raw,
+			message:
+				"Showing the original value because Preview can’t use this saved date style",
+		};
+	}
+	return { kind: "value", text: formatted.text };
 }
 
 /**
- * Best-effort interval renderer. Dispatches on the column's
+ * Runtime-aligned interval renderer. Dispatches on the column's
  * `display` discriminator:
  *
- *   - `"always"` — render the relative interval ("3 days ago").
- *     The `text` slot's runtime decoration on threshold-exceeded
- *     rows is omitted in the preview — "this is an interval column"
- *     is the communication goal.
+ *   - `"always"` — render the integer unit count until the threshold is
+ *     crossed, then replace it with the authored text.
  *   - `"flag"` — render the `text` slot when the interval has
  *     crossed the threshold; otherwise empty cell.
  *
- * The threshold is interpreted in the column's unit; the preview
- * uses approximate calendar conversions (1 week = 7 days, 1 month
- * = 30 days, 1 year = 365 days) so the user sees the row's
- * approximate state. The wire layer's exact calendar arithmetic is
- * the runtime authority.
+ * Empty values and future dates intentionally follow the emitted XPath shape.
+ * Unit conversion uses the domain's exact CCHQ divisors (including 30.4375-day
+ * months and 365.25-day years), and `Math.trunc` mirrors XPath `int(...)`.
  */
-function formatIntervalBestEffort(
+export function formatIntervalForPreview(
 	raw: string,
 	column: Extract<Column, { kind: "interval" }>,
-): string {
-	if (!raw) return column.display === "flag" ? "" : "—";
-	const parsed = new Date(raw);
-	if (Number.isNaN(parsed.getTime())) {
-		return column.display === "flag" ? "" : raw;
+	today: Date = new Date(),
+): PreviewFormattedValue {
+	if (!raw) {
+		return {
+			kind: "value",
+			text: column.display === "flag" ? column.text : "",
+		};
 	}
-	const now = new Date();
-	const diffMs = now.getTime() - parsed.getTime();
-	const dayMs = 1000 * 60 * 60 * 24;
-	const diffDaysAbs = Math.floor(Math.abs(diffMs) / dayMs);
-	const thresholdDays =
-		column.unit === "weeks"
-			? column.threshold * 7
-			: column.unit === "months"
-				? column.threshold * 30
-				: column.unit === "years"
-					? column.threshold * 365
-					: column.threshold;
+	const parsed = toDate(raw);
+	if (parsed === null) {
+		return {
+			kind: "fallback",
+			text: raw,
+			message:
+				"Preview can’t calculate this interval because the value isn’t a valid date",
+		};
+	}
+	// Both sides of the difference must sit on the LOCAL calendar-day axis:
+	// device `date(@prop)` truncates a datetime in the device-local zone
+	// (commcare-core `DateUtils.roundDate` uses the default-timezone
+	// calendar) and `today()` is the local calendar day. A date-only value
+	// already IS a calendar day; a datetime instant converts to the viewer's
+	// local day first — reading its UTC fields instead would shift the count
+	// by one near midnight for non-UTC viewers.
+	const baseDays =
+		parsed.time === null ? parsed.days : localCalendarDate(parsed.time).days;
+	const diffDays = localCalendarDate(today).days - baseDays;
+	const divisor = TIME_SINCE_UNIT_DAYS[column.unit];
+	const thresholdDays = column.threshold * divisor;
 	if (column.display === "flag") {
-		return Math.floor(diffMs / dayMs) > thresholdDays ? column.text : "";
+		return {
+			kind: "value",
+			text: diffDays > thresholdDays ? column.text : "",
+		};
 	}
-	// `display === "always"` — render the relative interval.
-	const sign = diffMs < 0 ? "in " : "";
-	const past = diffMs >= 0 ? " ago" : "";
-	const value =
-		column.unit === "weeks"
-			? Math.floor(diffDaysAbs / 7)
-			: column.unit === "months"
-				? Math.floor(diffDaysAbs / 30)
-				: column.unit === "years"
-					? Math.floor(diffDaysAbs / 365)
-					: diffDaysAbs;
-	return `${sign}${value} ${column.unit}${past}`;
+	return {
+		kind: "value",
+		text:
+			diffDays > thresholdDays
+				? column.text
+				: String(Math.trunc(diffDays / divisor)),
+	};
+}
+
+/** Device `today()` is the worker's local calendar day. Construct a UTC
+ * midnight from local fields before handing it to XPathDate, whose JS-Date
+ * adapter intentionally reads UTC fields for deterministic date arithmetic. */
+function localCalendarDate(value: Date): XPathDate {
+	return XPathDate.fromJSDateOnly(
+		new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate())),
+	);
+}
+
+function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
+	if (value.kind === "image") {
+		return (
+			<SimpleTooltip content={value.text}>
+				{/* biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth */}
+				<img
+					src={mediaSrc(value.assetId)}
+					alt={value.text}
+					className="inline-block size-5 rounded object-cover"
+				/>
+			</SimpleTooltip>
+		);
+	}
+	if (value.kind === "value") {
+		if (!value.text) return renderEmptyCell();
+		return value.dateTime === undefined ? (
+			<span>{value.text}</span>
+		) : (
+			<time dateTime={value.dateTime}>{value.text}</time>
+		);
+	}
+	return (
+		<Popover>
+			<PopoverTrigger
+				render={
+					<Button
+						type="button"
+						variant="link"
+						className="h-auto min-h-11 min-w-11 max-w-full justify-start whitespace-normal rounded-sm p-0 text-left font-normal text-inherit underline decoration-dotted decoration-nova-text-muted underline-offset-4 [overflow-wrap:anywhere]"
+					/>
+				}
+				aria-label={`${value.text}. More information`}
+			>
+				{value.text}
+			</PopoverTrigger>
+			<PopoverContent align="start" className="w-64">
+				<PopoverHeader>
+					<PopoverTitle>Why this value is shown</PopoverTitle>
+				</PopoverHeader>
+				<PopoverDescription>{value.message}</PopoverDescription>
+			</PopoverContent>
+		</Popover>
+	);
+}
+
+function renderEmptyCell(): React.ReactNode {
+	return (
+		<span>
+			<span aria-hidden="true" className="text-nova-text-muted">
+				—
+			</span>
+			<span className="sr-only">No value</span>
+		</span>
+	);
 }
