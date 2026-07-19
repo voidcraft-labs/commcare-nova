@@ -178,6 +178,28 @@ export function unwrittenPropertiesReadBy(
 
 // ── Person-readable rendering ───────────────────────────────────────
 
+/**
+ * Read phrases render for two audiences that deliberately speak
+ * different vocabularies:
+ *
+ *   - `agent` — the `<system_reminder>` channel. Names things the way
+ *     the SA's tool surface does (`addCaseListColumns`,
+ *     `addSearchInputs`, `setCaseListFilter`), so a phrase points at
+ *     the thing the model would edit.
+ *   - `builder` — the app-settings dialog. Speaks the case workspace's
+ *     authoring vocabulary (search fields, case information, Cases
+ *     available, Assigned cases) and quotes authored names with the
+ *     builder's curly quotes.
+ *
+ * The fork covers only the module slots — those are the concepts the
+ * case-workspace redesign renamed for people; field and form slots
+ * carry one plain-language phrasing for both audiences.
+ */
+export type ReadPhraseAudience = "agent" | "builder";
+
+const quoted = (name: string, audience: ReadPhraseAudience) =>
+	audience === "builder" ? `“${name}”` : `"${name}"`;
+
 /** Field-slot phrasing: what the slot DOES with the value. Slots not
  *  named here fall back to the generic expression phrase. Each map is
  *  `satisfies`-pinned to the reference-slot registry
@@ -199,29 +221,50 @@ const FIELD_SLOT_NOUNS: Readonly<Record<string, string>> = {
 	option_label: "the display text",
 } satisfies Partial<Record<FieldSlotId, string>>;
 
-const MODULE_SLOT_PHRASES: Readonly<Record<string, string>> = {
-	case_list_filter: "the case-list filter on module",
-	case_list_column_field: "a case-list column of module",
-	case_list_column_expression: "a case-list column of module",
-	search_input_property: "a search input of module",
-	search_input_via: "a search input of module",
-	search_input_default: "a search input of module",
-	search_input_predicate: "a search input of module",
-	search_button_display_condition: "the search-button condition on module",
-	excluded_owner_ids: "the owner filter on module",
-} satisfies Partial<Record<ModuleSlotId, string>>;
+/** Module-slot phrasing per audience. The builder column phrases stay
+ *  visibility-neutral ("case information", not "information shown") —
+ *  a saved display setup can be off both Results and Details, and the
+ *  reference index records only the slot, so the copy must not claim
+ *  more than the index checks. */
+const MODULE_SLOT_PHRASES: Readonly<
+	Record<ReadPhraseAudience, Readonly<Record<string, string>>>
+> = {
+	agent: {
+		case_list_filter: "the case-list filter on module",
+		case_list_column_field: "a case-list column of module",
+		case_list_column_expression: "a case-list column of module",
+		search_input_property: "a search input of module",
+		search_input_via: "a search input of module",
+		search_input_default: "a search input of module",
+		search_input_predicate: "a search input of module",
+		search_button_display_condition: "the search-button condition on module",
+		excluded_owner_ids: "the owner filter on module",
+	} satisfies Partial<Record<ModuleSlotId, string>>,
+	builder: {
+		case_list_filter: "a Cases available condition in module",
+		case_list_column_field: "case information in module",
+		case_list_column_expression: "a calculated value in module",
+		search_input_property: "a search field in module",
+		search_input_via: "a search field in module",
+		search_input_default: "a search field's starting value in module",
+		search_input_predicate: "a search field's condition in module",
+		search_button_display_condition:
+			"the Search button's display condition in module",
+		excluded_owner_ids: "the Assigned cases setting in module",
+	} satisfies Partial<Record<ModuleSlotId, string>>,
+};
 
 const FORM_SLOT_PHRASES: Readonly<Record<string, string>> = {
 	form_link_condition: "a form link condition on",
 	form_link_datum_xpath: "a form link datum on",
-	assessment_user_score: "the Connect config of",
-	deliver_entity_id: "the Connect config of",
-	deliver_entity_name: "the Connect config of",
+	assessment_user_score: "the Connect settings of",
+	deliver_entity_id: "the Connect settings of",
+	deliver_entity_name: "the Connect settings of",
 } satisfies Partial<Record<FormSlotId, string>>;
 
 /**
  * One read as a human surface ("the visibility of "dose" in form
- * "Administer Medication"", "a case-list column of module "Orders"").
+ * "Administer Medication"", "a search field in module “Orders”").
  * Total over the slot vocabulary — an unmapped slot phrases
  * generically rather than dropping. `undefined` only when the carrier
  * vanished from the doc between derivation and rendering (unreachable
@@ -230,26 +273,31 @@ const FORM_SLOT_PHRASES: Readonly<Record<string, string>> = {
 export function describePropertyRead(
 	doc: BlueprintDoc,
 	read: UnwrittenPropertyRead,
+	audience: ReadPhraseAudience,
 ): string | undefined {
 	if (read.entity === "field") {
 		const field = doc.fields[read.carrier];
 		if (!field) return undefined;
 		const formUuid = findContainingForm(doc, read.carrier);
 		const form = formUuid !== undefined ? doc.forms[formUuid] : undefined;
-		const where = form ? ` in form "${form.name}"` : "";
+		const where = form ? ` in form ${quoted(form.name, audience)}` : "";
 		const noun = FIELD_SLOT_NOUNS[read.slot] ?? "an expression";
-		return `${noun} of "${field.id}"${where}`;
+		return `${noun} of ${quoted(field.id, audience)}${where}`;
 	}
 	if (read.entity === "form") {
 		const form = doc.forms[read.carrier];
 		if (!form) return undefined;
 		const phrase = FORM_SLOT_PHRASES[read.slot] ?? "an expression on form";
-		return `${phrase} "${form.name}"`;
+		return `${phrase} ${quoted(form.name, audience)}`;
 	}
 	const mod = doc.modules[read.carrier];
 	if (!mod) return undefined;
-	const phrase = MODULE_SLOT_PHRASES[read.slot] ?? "an expression on module";
-	return `${phrase} "${mod.name}"`;
+	const phrase =
+		MODULE_SLOT_PHRASES[audience][read.slot] ??
+		(audience === "builder"
+			? "a setting in module"
+			: "an expression on module");
+	return `${phrase} ${quoted(mod.name, audience)}`;
 }
 
 /**
@@ -263,7 +311,7 @@ export function describeUnwrittenProperty(
 	doc: BlueprintDoc,
 	entry: UnwrittenProperty,
 ): string {
-	const deduped = describedReadsOf(doc, entry);
+	const deduped = describedReadsOf(doc, entry, "agent");
 	const shown =
 		deduped.length > 4
 			? [...deduped.slice(0, 3), `${deduped.length - 3} more`]
@@ -274,9 +322,10 @@ export function describeUnwrittenProperty(
 function describedReadsOf(
 	doc: BlueprintDoc,
 	entry: UnwrittenProperty,
+	audience: ReadPhraseAudience,
 ): readonly string[] {
 	const surfaces = entry.reads
-		.map((read) => describePropertyRead(doc, read))
+		.map((read) => describePropertyRead(doc, read, audience))
 		.filter((s): s is string => typeof s === "string");
 	return [...new Set(surfaces)];
 }
@@ -306,7 +355,7 @@ export function unwrittenPropertyCards(
 	const built = unwrittenProperties(doc).map((entry) => ({
 		caseType: entry.caseType,
 		property: entry.property,
-		reads: describedReadsOf(doc, entry),
+		reads: describedReadsOf(doc, entry, "builder"),
 	}));
 	CARDS_CACHE.set(doc, built);
 	return built;

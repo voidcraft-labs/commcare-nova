@@ -123,4 +123,4 @@ Edits are checked as they happen, and exports are checked again at the door. A t
 
 ## System reminders
 
-A few read results (`get_app`, `get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent — for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or generated sample data). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.
+A few read results (`get_app`, `get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent — for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.

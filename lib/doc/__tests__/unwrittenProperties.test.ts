@@ -401,8 +401,49 @@ describe("carrier lookup + rendering", () => {
 		expect(cards).toHaveLength(1);
 		expect(cards[0].property).toBe("order_status");
 		expect(cards[0].reads).toEqual([
-			'the visibility of "med_given" in form "Administer Medication"',
+			"the visibility of “med_given” in form “Administer Medication”",
 		]);
+	});
+
+	it("the two audiences fork on the case-workspace vocabulary", () => {
+		// One property read by a Cases available condition and a search
+		// field: the SA reminder names the tool surface's nouns, the
+		// dialog names the workspace's.
+		const doc = buildDoc({
+			caseTypes: ORDER_CATALOG,
+			modules: [
+				{
+					name: "Orders",
+					caseType: "medication_order",
+					caseListOnly: true,
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						filter: ORDER_STATUS_IS_BLANK,
+						searchInputs: [
+							{
+								uuid: asUuid("si-status"),
+								kind: "simple",
+								name: "order_status",
+								label: "Status",
+								type: "text",
+								property: "order_status",
+							},
+						],
+					},
+				},
+			],
+		});
+		const [entry] = unwrittenProperties(doc);
+		const agentText = describeUnwrittenProperty(doc, entry);
+		expect(agentText).toContain('the case-list filter on module "Orders"');
+		expect(agentText).toContain('a search input of module "Orders"');
+		const [card] = unwrittenPropertyCards(doc);
+		expect(card.reads).toEqual(
+			expect.arrayContaining([
+				"a Cases available condition in module “Orders”",
+				"a search field in module “Orders”",
+			]),
+		);
 	});
 
 	it("both derivations are memoized per doc reference", () => {

@@ -33,15 +33,16 @@ export function UnwrittenPropertiesDialog({
 				<DialogTitle>Data written outside this app</DialogTitle>
 				<DialogDescription>
 					No form in this app writes these case properties, though the app reads
-					them. That's often intentional — the values may come from another app
-					on the same case type, an integration, or generated sample data.
+					them. That's often intentional: the values can come from another app
+					on the same case type, an integration, or sample cases created for
+					testing.
 				</DialogDescription>
 				{cards.length === 0 ? (
 					<p className="text-xs text-nova-text-muted">
-						Every case property this app reads is now also written here.
+						Every case property this app reads is now written by a form here
 					</p>
 				) : (
-					<ul className="-mr-1 max-h-[50vh] space-y-3 overflow-y-auto pr-1">
+					<ul className="grid gap-2">
 						{cards.map((card) => (
 							<li
 								key={`${card.caseType}/${card.property}`}

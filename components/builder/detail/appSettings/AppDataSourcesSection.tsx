@@ -26,7 +26,7 @@ export function AppDataSourcesSection() {
 					<div className="flex items-center justify-between">
 						<div className="flex items-center gap-2">
 							<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
-								Data Sources
+								Data sources
 							</span>
 							<span className="flex h-[18px] items-center rounded border border-nova-border/60 bg-nova-surface px-1.5 text-[10px] font-medium text-nova-text-muted">
 								{cards.length}
@@ -42,8 +42,8 @@ export function AppDataSourcesSection() {
 					</div>
 					<p className="mt-1.5 text-xs text-nova-text-muted">
 						{cards.length === 1
-							? "1 case property is read in this app but not written by any form here."
-							: `${cards.length} case properties are read in this app but not written by any form here.`}
+							? "1 case property is read in this app but not written by any form here"
+							: `${cards.length} case properties are read in this app but not written by any form here`}
 					</p>
 				</div>
 			)}
