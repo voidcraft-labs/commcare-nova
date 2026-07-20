@@ -316,10 +316,7 @@ export function PropertyPicker({
 							</div>
 						</div>
 
-						<div
-							className="min-h-0 flex-1 overflow-y-auto p-1"
-							style={{ scrollbarGutter: "stable" }}
-						>
+						<div className="min-h-0 flex-1 overflow-y-auto p-1">
 							{properties.length === 0 ? (
 								<div className="px-3 py-4 text-center text-[13px] leading-5 text-nova-text-muted">
 									No information is available yet
