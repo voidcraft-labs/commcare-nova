@@ -6,9 +6,9 @@
  * `better-call`'s cookie signing. None of those are covered by the unit suite,
  * which mocks `auth.api.*` at the boundary.
  *
- * It pins the exact thing the Playwright smoke suite (and the documented
- * "mint a cookie from a session row" recipe) depends on: a cookie forged by
- * `e2e/lib/session.ts::signSessionCookie` is accepted by `auth.api.getSession`
+ * It pins the exact thing the Playwright smoke suite and the local-dev agent
+ * login route (`app/api/dev/login`) depend on: a cookie forged by
+ * `lib/auth/sessionCookie.ts::signSessionCookie` is accepted by `auth.api.getSession`
  * running on the SAME adapter stack production uses — Better Auth's built-in
  * Kysely adapter over the shared Postgres pool, with the SAME schema config
  * (`authMigrateOptions`, the table-name map shared with `lib/auth.ts`). If a
@@ -23,8 +23,8 @@
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { beforeEach, describe, expect, it } from "vitest";
-import { signSessionCookie } from "@/e2e/lib/session";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
+import { signSessionCookie } from "@/lib/auth/sessionCookie";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 

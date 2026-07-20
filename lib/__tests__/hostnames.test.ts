@@ -134,6 +134,17 @@ describe("isPathAllowedOnHost", () => {
 			true,
 		);
 	});
+	it("keeps /api/dev/login off every host allowlist", () => {
+		/* The local-dev login backdoor (`app/api/dev/login/route.ts`) must stay
+		 * OFF the allowlists so the proxy 404s it on every production host
+		 * before the route module even loads — the outer layer of its
+		 * defense-in-depth (the inner is the handler's own NODE_ENV gate).
+		 * Whoever "fixes" a prod 404 on this path by adding an allowlist
+		 * entry is disabling that layer — don't. */
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/dev/login")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/api/dev/login")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/dev/login")).toBe(false);
+	});
 });
 
 /**
