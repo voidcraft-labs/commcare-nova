@@ -95,12 +95,18 @@ describe("dateAddOnDeviceCompatibility", () => {
 		["hours", term(prop("patient", "partial_days"))],
 		["days", term(prop("patient", "day_offset"))],
 		["weeks", arith("div", term(literal(1)), term(literal(2)))],
-	] as const)("admits fractional and negative %s quantities for a date base", (interval, quantity) => {
-		const hits = errorsFor({
-			filter: eq(prop("patient", "dob"), dateAdd(today(), interval, quantity)),
-		});
-		expect(hits).toEqual([]);
-	});
+	] as const)(
+		"admits fractional and negative %s quantities for a date base",
+		(interval, quantity) => {
+			const hits = errorsFor({
+				filter: eq(
+					prop("patient", "dob"),
+					dateAdd(today(), interval, quantity),
+				),
+			});
+			expect(hits).toEqual([]);
+		},
+	);
 
 	it("rejects a calendar-relative interval in the effective case-list filter", () => {
 		const hits = errorsFor({

@@ -346,19 +346,15 @@ describe("predicate builders", () => {
 	// parameterized test pins each kind's `kind` discriminator and
 	// round-trip parse without restating six near-identical bodies.
 
-	it.each([
-		"eq",
-		"neq",
-		"gt",
-		"gte",
-		"lt",
-		"lte",
-	] as const)("constructs a %s comparison that round-trips", (opName) => {
-		const op = { eq, neq, gt, gte, lt, lte }[opName];
-		const p = op(prop("patient", "age"), literal(18));
-		expect(p.kind).toBe(opName);
-		expect(predicateSchema.parse(p)).toEqual(p);
-	});
+	it.each(["eq", "neq", "gt", "gte", "lt", "lte"] as const)(
+		"constructs a %s comparison that round-trips",
+		(opName) => {
+			const op = { eq, neq, gt, gte, lt, lte }[opName];
+			const p = op(prop("patient", "age"), literal(18));
+			expect(p.kind).toBe(opName);
+			expect(predicateSchema.parse(p)).toEqual(p);
+		},
+	);
 
 	// Variadic-with-required-first boundary check. The single-clause
 	// case is the smallest valid input; verifying it parses confirms
@@ -1240,18 +1236,15 @@ describe("valueExpression builders — date / coercion arms", () => {
 });
 
 describe("valueExpression builders — arithmetic + text arms", () => {
-	it.each([
-		"+",
-		"-",
-		"*",
-		"div",
-		"mod",
-	] as const)("arith(%s) constructs the matching arith expression", (op) => {
-		const v = arith(op, term(prop("patient", "age")), term(literal(1)));
-		expect(v.kind).toBe("arith");
-		expect(v.op).toBe(op);
-		expect(valueExpressionSchema.parse(v)).toEqual(v);
-	});
+	it.each(["+", "-", "*", "div", "mod"] as const)(
+		"arith(%s) constructs the matching arith expression",
+		(op) => {
+			const v = arith(op, term(prop("patient", "age")), term(literal(1)));
+			expect(v.kind).toBe("arith");
+			expect(v.op).toBe(op);
+			expect(valueExpressionSchema.parse(v)).toEqual(v);
+		},
+	);
 
 	it("concat / coalesce construct variadic-with-required-first lists", () => {
 		const c = concat(term(literal("hello, ")), term(prop("patient", "name")));

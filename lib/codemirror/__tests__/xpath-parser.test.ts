@@ -111,13 +111,12 @@ describe("CommCare XPath Parser", () => {
 	// to distinguish keyword from identifier when no whitespace is present.
 	// Not supported — CommCare expressions always use spaces around operators.
 	describe("context-sensitive (unsupported)", () => {
-		it.each([
-			"3mod4",
-			"3 mod6",
-			"4andfunc()",
-		])("does not cleanly parse %s", (expr) => {
-			expect(parsesClean(expr)).toBe(false);
-		});
+		it.each(["3mod4", "3 mod6", "4andfunc()"])(
+			"does not cleanly parse %s",
+			(expr) => {
+				expect(parsesClean(expr)).toBe(false);
+			},
+		);
 	});
 
 	// --------------- Operator associativity ---------------

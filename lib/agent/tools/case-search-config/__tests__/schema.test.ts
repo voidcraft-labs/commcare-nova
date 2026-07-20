@@ -120,19 +120,20 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 				ofCaseType: "visit",
 			}),
 		},
-	])("setCaseSearchAdvanced: rejects a $name read before tool execution", ({
-		expression,
-	}) => {
-		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			excludedOwnerIds: expression,
-		});
-		expect(result.success).toBe(false);
-		if (result.success) return;
-		expect(result.error.issues[0]?.message).toContain(
-			"before a case is selected",
-		);
-	});
+	])(
+		"setCaseSearchAdvanced: rejects a $name read before tool execution",
+		({ expression }) => {
+			const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
+				moduleIndex: 0,
+				excludedOwnerIds: expression,
+			});
+			expect(result.success).toBe(false);
+			if (result.success) return;
+			expect(result.error.issues[0]?.message).toContain(
+				"before a case is selected",
+			);
+		},
+	);
 
 	it("setCaseSearchAdvanced: accepts pure calculations over session and Search values", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({

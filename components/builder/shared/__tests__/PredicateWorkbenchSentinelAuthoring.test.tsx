@@ -83,37 +83,40 @@ describe("PredicateWorkbench special-condition authoring", () => {
 	it.each([
 		["Always match", "match-all"],
 		["Never match", "match-none"],
-	] as const)("replaces a root comparison with %s after consequence confirmation", async (label, expectedKind) => {
-		render(<ControlledWorkbench initial={NORTH} />);
-		const originalTrigger = screen.getByRole("button", {
-			name: "Condition is",
-		});
+	] as const)(
+		"replaces a root comparison with %s after consequence confirmation",
+		async (label, expectedKind) => {
+			render(<ControlledWorkbench initial={NORTH} />);
+			const originalTrigger = screen.getByRole("button", {
+				name: "Condition is",
+			});
 
-		let dialog = await chooseSpecialCondition(originalTrigger, label);
-		expect(savedCondition().kind).toBe("eq");
-		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-		await waitFor(() => {
-			expect(screen.queryByRole("alertdialog")).toBeNull();
-			expect(document.activeElement).toBe(originalTrigger);
-		});
-		expect(savedCondition().kind).toBe("eq");
+			let dialog = await chooseSpecialCondition(originalTrigger, label);
+			expect(savedCondition().kind).toBe("eq");
+			fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+			await waitFor(() => {
+				expect(screen.queryByRole("alertdialog")).toBeNull();
+				expect(document.activeElement).toBe(originalTrigger);
+			});
+			expect(savedCondition().kind).toBe("eq");
 
-		dialog = await chooseSpecialCondition(originalTrigger, label);
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Change condition" }),
-		);
+			dialog = await chooseSpecialCondition(originalTrigger, label);
+			fireEvent.click(
+				within(dialog).getByRole("button", { name: "Change condition" }),
+			);
 
-		await waitFor(() => {
-			expect(savedCondition().kind).toBe(expectedKind);
-			expect(screen.queryByRole("alertdialog")).toBeNull();
-		});
-		const replacementTrigger = screen.getByRole("button", {
-			name: `Condition ${label}`,
-		});
-		await waitFor(() =>
-			expect(document.activeElement).toBe(replacementTrigger),
-		);
-	});
+			await waitFor(() => {
+				expect(savedCondition().kind).toBe(expectedKind);
+				expect(screen.queryByRole("alertdialog")).toBeNull();
+			});
+			const replacementTrigger = screen.getByRole("button", {
+				name: `Condition ${label}`,
+			});
+			await waitFor(() =>
+				expect(document.activeElement).toBe(replacementTrigger),
+			);
+		},
+	);
 
 	it("authors a special condition inside a recursive wrapper", async () => {
 		render(<ControlledWorkbench initial={whenInput(input("query"), NORTH)} />);

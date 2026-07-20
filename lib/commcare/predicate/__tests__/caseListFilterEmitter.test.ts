@@ -184,15 +184,13 @@ describe("emitCaseListFilter — term emission", () => {
 });
 
 describe("emitCaseListFilter — reserved case attributes", () => {
-	it.each([
-		"case_id",
-		"case_type",
-		"owner_id",
-		"status",
-	] as const)("prefixes '%s' with @", (attr) => {
-		const p = eq(prop("patient", attr), literal("X"));
-		expect(emitCaseListFilter(p)).toBe(`@${attr} = 'X'`);
-	});
+	it.each(["case_id", "case_type", "owner_id", "status"] as const)(
+		"prefixes '%s' with @",
+		(attr) => {
+			const p = eq(prop("patient", attr), literal("X"));
+			expect(emitCaseListFilter(p)).toBe(`@${attr} = 'X'`);
+		},
+	);
 
 	it("leaves user-defined properties bare", () => {
 		const p = eq(prop("patient", "full_name"), literal("Alice"));

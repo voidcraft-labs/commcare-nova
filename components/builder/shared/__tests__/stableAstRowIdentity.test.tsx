@@ -229,19 +229,20 @@ describe("stable AST row identity", () => {
 				term(dateLiteral("2026-06-06")),
 			),
 		},
-	])("keeps a $name row mounted across an immutable leaf edit", ({
-		initial,
-	}) => {
-		const { container } = render(<ControlledExpression initial={initial} />);
-		const input = dateInputWithin(container);
+	])(
+		"keeps a $name row mounted across an immutable leaf edit",
+		({ initial }) => {
+			const { container } = render(<ControlledExpression initial={initial} />);
+			const input = dateInputWithin(container);
 
-		expectDateCommitPreservesDomIdentity({
-			input,
-			nextValue: "2026-07-07",
-			currentInput: () => dateInputWithin(container),
-			stateTestId: "expression-state",
-		});
-	});
+			expectDateCommitPreservesDomIdentity({
+				input,
+				nextValue: "2026-07-07",
+				currentInput: () => dateInputWithin(container),
+				stateTestId: "expression-state",
+			});
+		},
+	);
 
 	it("keeps a switch choice mounted while its matching date is edited", () => {
 		const initial = switchExpr(

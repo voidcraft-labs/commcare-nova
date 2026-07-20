@@ -63,21 +63,24 @@ describe("mapping row UI identity", () => {
 				{ value: "open", assetId: "asset-open" },
 			]),
 		],
-	] as const)("keeps the focused saved-value input mounted after an Enter commit for %s", (_label, initial) => {
-		render(<ControlledColumnEditor initial={initial} />);
-		const input = screen.getByLabelText(
-			"Value 1 saved value",
-		) as HTMLInputElement;
+	] as const)(
+		"keeps the focused saved-value input mounted after an Enter commit for %s",
+		(_label, initial) => {
+			render(<ControlledColumnEditor initial={initial} />);
+			const input = screen.getByLabelText(
+				"Value 1 saved value",
+			) as HTMLInputElement;
 
-		input.focus();
-		fireEvent.change(input, { target: { value: "closed" } });
-		fireEvent.keyDown(input, { key: "Enter" });
+			input.focus();
+			fireEvent.change(input, { target: { value: "closed" } });
+			fireEvent.keyDown(input, { key: "Enter" });
 
-		expect(input.isConnected).toBe(true);
-		expect(screen.getByLabelText("Value 1 saved value")).toBe(input);
-		expect(document.activeElement).toBe(input);
-		expect(input.value).toBe("closed");
-	});
+			expect(input.isConnected).toBe(true);
+			expect(screen.getByLabelText("Value 1 saved value")).toBe(input);
+			expect(document.activeElement).toBe(input);
+			expect(input.value).toBe("closed");
+		},
+	);
 
 	it("keeps an image picker's trigger mounted when the selected asset commits", () => {
 		render(

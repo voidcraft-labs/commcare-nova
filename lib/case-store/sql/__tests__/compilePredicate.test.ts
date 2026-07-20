@@ -452,20 +452,21 @@ describe("compilePredicate — multi-select-contains", () => {
 // ---------------------------------------------------------------
 
 describe("compilePredicate — match", () => {
-	it.each([
-		"starts-with",
-		"fuzzy",
-		"phonetic",
-	] as const)("compiles a computed ValueExpression for %s mode", (mode) => {
-		const pred = match(
-			prop("patient", "nickname"),
-			concat(term(literal("Ali")), term(literal("ce"))),
-			mode,
-		);
-		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain("concat(");
-		expect(compiled.parameters).toEqual(expect.arrayContaining(["Ali", "ce"]));
-	});
+	it.each(["starts-with", "fuzzy", "phonetic"] as const)(
+		"compiles a computed ValueExpression for %s mode",
+		(mode) => {
+			const pred = match(
+				prop("patient", "nickname"),
+				concat(term(literal("Ali")), term(literal("ce"))),
+				mode,
+			);
+			const compiled = compileWith(compilePredicate(pred, makeCtx()));
+			expect(compiled.sql.toLowerCase()).toContain("concat(");
+			expect(compiled.parameters).toEqual(
+				expect.arrayContaining(["Ali", "ce"]),
+			);
+		},
+	);
 
 	it("emits starts_with for starts-with mode", () => {
 		const pred = match(prop("patient", "nickname"), "Ali", "starts-with");

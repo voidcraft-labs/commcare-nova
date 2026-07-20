@@ -222,10 +222,15 @@ describe("emitOnDeviceExpression — format-date", () => {
 		["short", "%m/%d/%Y"],
 		["long", "%B %e, %Y"],
 		["iso", "%Y-%m-%d"],
-	] as const)("lowers the %s preset to JavaRosa's supported pattern", (preset, pattern) => {
-		const expr = formatDate(term(prop("p", "dob")), preset);
-		expect(emitOnDeviceExpression(expr)).toBe(`format-date(dob, '${pattern}')`);
-	});
+	] as const)(
+		"lowers the %s preset to JavaRosa's supported pattern",
+		(preset, pattern) => {
+			const expr = formatDate(term(prop("p", "dob")), preset);
+			expect(emitOnDeviceExpression(expr)).toBe(
+				`format-date(dob, '${pattern}')`,
+			);
+		},
+	);
 
 	it("emits format-date with a custom pattern", () => {
 		const expr = formatDate(term(prop("p", "dob")), "%Y-%m-%d");
@@ -240,13 +245,16 @@ describe("emitOnDeviceExpression — date-add", () => {
 		["hours", 12.5, "(12.5 div 24)"],
 		["days", -0.5, "-0.5"],
 		["weeks", 0.5, "(0.5 * 7)"],
-	] as const)("scales fractional %s to epoch days and floors the date result", (interval, quantity, scaled) => {
-		const expr = dateAdd(today(), interval, term(literal(quantity)));
-		expect(emitOnDeviceExpression(expr)).toBe(
-			`date(floor(today() + ${scaled}))`,
-		);
-		expect(emitOnDeviceExpression(expr)).not.toContain("date-add(");
-	});
+	] as const)(
+		"scales fractional %s to epoch days and floors the date result",
+		(interval, quantity, scaled) => {
+			const expr = dateAdd(today(), interval, term(literal(quantity)));
+			expect(emitOnDeviceExpression(expr)).toBe(
+				`date(floor(today() + ${scaled}))`,
+			);
+			expect(emitOnDeviceExpression(expr)).not.toContain("date-add(");
+		},
+	);
 
 	it("lowers a property base without inventing an unsupported function", () => {
 		const expr = dateAdd(term(prop("p", "dob")), "days", term(literal(18)));
@@ -266,18 +274,18 @@ describe("emitOnDeviceExpression — date-add", () => {
 		);
 	});
 
-	it.each([
-		"months",
-		"years",
-	] as const)("rejects the calendar-relative %s interval instead of inventing fixed-day semantics", (interval) => {
-		const expr = dateAdd(today(), interval, term(literal(1)));
-		expect(() => emitOnDeviceExpression(expr)).toThrow(
-			new RegExp(
-				`calendar-relative date-add interval '${interval}'.*epoch days`,
-				"s",
-			),
-		);
-	});
+	it.each(["months", "years"] as const)(
+		"rejects the calendar-relative %s interval instead of inventing fixed-day semantics",
+		(interval) => {
+			const expr = dateAdd(today(), interval, term(literal(1)));
+			expect(() => emitOnDeviceExpression(expr)).toThrow(
+				new RegExp(
+					`calendar-relative date-add interval '${interval}'.*epoch days`,
+					"s",
+				),
+			);
+		},
+	);
 
 	it.each([
 		["now", now()],
@@ -297,11 +305,14 @@ describe("emitOnDeviceExpression — date-add", () => {
 				term(literal(null)),
 			),
 		],
-	] as const)("rejects an obvious %s base before losing its time", (_label, base) => {
-		expect(() =>
-			emitOnDeviceExpression(dateAdd(base, "days", term(literal(1)))),
-		).toThrow(/structurally datetime-typed base.*discard the time-of-day/s);
-	});
+	] as const)(
+		"rejects an obvious %s base before losing its time",
+		(_label, base) => {
+			expect(() =>
+				emitOnDeviceExpression(dateAdd(base, "days", term(literal(1)))),
+			).toThrow(/structurally datetime-typed base.*discard the time-of-day/s);
+		},
+	);
 
 	it("admits an explicit date coercion as a date-only base", () => {
 		const expr = dateAdd(

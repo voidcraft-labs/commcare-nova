@@ -30,16 +30,19 @@ describe("deriveChatActivity", () => {
 		[GenerationStage.Build, "Building your app"],
 		[GenerationStage.Fix, "Finishing your app"],
 		[null, "Building your app"],
-	] as const)("describes the %s build stage in plain language", (stage, label) => {
-		expect(
-			deriveChatActivity({
-				...resting,
-				agentStage: stage,
-				isGenerating: true,
-				phase: BuilderPhase.Generating,
-			}),
-		).toEqual({ state: "progress", label });
-	});
+	] as const)(
+		"describes the %s build stage in plain language",
+		(stage, label) => {
+			expect(
+				deriveChatActivity({
+					...resting,
+					agentStage: stage,
+					isGenerating: true,
+					phase: BuilderPhase.Generating,
+				}),
+			).toEqual({ state: "progress", label });
+		},
+	);
 
 	it("prioritizes recovery and fatal errors over build progress", () => {
 		expect(

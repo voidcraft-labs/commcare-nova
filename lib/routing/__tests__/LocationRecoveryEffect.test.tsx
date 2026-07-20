@@ -134,21 +134,24 @@ describe("LocationRecoveryEffect", () => {
 		["cases", "results"],
 		["search-config", "search"],
 		["detail-config", "details"],
-	] as const)("canonicalizes the legacy /%s authoring alias to /%s", async (legacySegment, canonicalSegment) => {
-		const store = makeStore();
-		const moduleUuid = store.getState().moduleOrder[0];
-		mockSegments.current = [moduleUuid, legacySegment];
+	] as const)(
+		"canonicalizes the legacy /%s authoring alias to /%s",
+		async (legacySegment, canonicalSegment) => {
+			const store = makeStore();
+			const moduleUuid = store.getState().moduleOrder[0];
+			mockSegments.current = [moduleUuid, legacySegment];
 
-		renderEffect(store);
+			renderEffect(store);
 
-		await waitFor(() => {
-			expect(replaceStateSpy).toHaveBeenCalledWith(
-				null,
-				"",
-				`${pathname}/${moduleUuid}/${canonicalSegment}`,
-			);
-		});
-	});
+			await waitFor(() => {
+				expect(replaceStateSpy).toHaveBeenCalledWith(
+					null,
+					"",
+					`${pathname}/${moduleUuid}/${canonicalSegment}`,
+				);
+			});
+		},
+	);
 
 	it("strips stale selectedUuid and keeps the form", async () => {
 		const store = makeStore();

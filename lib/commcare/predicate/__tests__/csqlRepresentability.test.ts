@@ -76,9 +76,12 @@ describe("checkCsqlRepresentability", () => {
 		],
 		["unwrap-list", unwrapList(term(literal('["a"]')))],
 		["format-date", formatDate(today(), "iso")],
-	] as const)("accepts a pure %s expression on the value side", (_name, value) => {
-		expect(checkCsqlRepresentability(eq(field("target"), value))).toEqual([]);
-	});
+	] as const)(
+		"accepts a pure %s expression on the value side",
+		(_name, value) => {
+			expect(checkCsqlRepresentability(eq(field("target"), value))).toEqual([]);
+		},
+	);
 
 	it("accepts every query-predicate envelope when its value slots are portable", () => {
 		const portable = and(

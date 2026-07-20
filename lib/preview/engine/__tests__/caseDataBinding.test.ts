@@ -2123,26 +2123,29 @@ describe("caseRowDisplayValue", () => {
 		["owner_id", "real-owner", "shadow-owner"],
 		["status", "open", "shadow-status"],
 		["case_name", "Real Name", "Shadow Name"],
-	])("caseRowDisplayValue resolves %s from the column, not from properties", (field, columnValue, shadowValue) => {
-		// Construct a row whose JSONB document declares the same
-		// key the column carries; the reserved-column dispatch
-		// must read the column verbatim and ignore the JSONB shadow.
-		const row: CaseRow = {
-			case_id: field === "case_id" ? columnValue : "test-id",
-			app_id: APP_ID,
-			case_type: field === "case_type" ? columnValue : "patient",
-			owner_id: field === "owner_id" ? columnValue : OWNER_A,
-			status: field === "status" ? columnValue : "open",
-			opened_on: null,
-			modified_on: null,
-			closed_on: null,
-			case_name: field === "case_name" ? columnValue : "Synthetic Case",
-			external_id: null,
-			parent_case_id: null,
-			properties: { [field]: shadowValue },
-		};
-		expect(caseRowDisplayValue(row, field)).toBe(columnValue);
-	});
+	])(
+		"caseRowDisplayValue resolves %s from the column, not from properties",
+		(field, columnValue, shadowValue) => {
+			// Construct a row whose JSONB document declares the same
+			// key the column carries; the reserved-column dispatch
+			// must read the column verbatim and ignore the JSONB shadow.
+			const row: CaseRow = {
+				case_id: field === "case_id" ? columnValue : "test-id",
+				app_id: APP_ID,
+				case_type: field === "case_type" ? columnValue : "patient",
+				owner_id: field === "owner_id" ? columnValue : OWNER_A,
+				status: field === "status" ? columnValue : "open",
+				opened_on: null,
+				modified_on: null,
+				closed_on: null,
+				case_name: field === "case_name" ? columnValue : "Synthetic Case",
+				external_id: null,
+				parent_case_id: null,
+				properties: { [field]: shadowValue },
+			};
+			expect(caseRowDisplayValue(row, field)).toBe(columnValue);
+		},
+	);
 
 	it("resolves the CCHQ field aliases onto their columns (name / external-id / date-opened / last_modified)", () => {
 		// HQ's own detail-screen generator aliases these field names
@@ -2180,31 +2183,31 @@ describe("caseRowDisplayValue", () => {
 		);
 	});
 
-	it.each([
-		["owner_id"],
-		["status"],
-	])("caseRowDisplayValue surfaces null for nullable reserved column %s", (field) => {
-		// `owner_id` and `status` are nullable on `cases`; the
-		// helper coerces a `null` column read to the empty string
-		// (consistent with `jsonValueToString`'s `null` arm) so
-		// case-list table cells render empty rather than the literal
-		// "null".
-		const row: CaseRow = {
-			case_id: "test-id",
-			app_id: APP_ID,
-			case_type: "patient",
-			owner_id: field === "owner_id" ? null : OWNER_A,
-			status: field === "status" ? null : "open",
-			opened_on: null,
-			modified_on: null,
-			closed_on: null,
-			case_name: "Synthetic Case",
-			external_id: null,
-			parent_case_id: null,
-			properties: {},
-		};
-		expect(caseRowDisplayValue(row, field)).toBe("");
-	});
+	it.each([["owner_id"], ["status"]])(
+		"caseRowDisplayValue surfaces null for nullable reserved column %s",
+		(field) => {
+			// `owner_id` and `status` are nullable on `cases`; the
+			// helper coerces a `null` column read to the empty string
+			// (consistent with `jsonValueToString`'s `null` arm) so
+			// case-list table cells render empty rather than the literal
+			// "null".
+			const row: CaseRow = {
+				case_id: "test-id",
+				app_id: APP_ID,
+				case_type: "patient",
+				owner_id: field === "owner_id" ? null : OWNER_A,
+				status: field === "status" ? null : "open",
+				opened_on: null,
+				modified_on: null,
+				closed_on: null,
+				case_name: "Synthetic Case",
+				external_id: null,
+				parent_case_id: null,
+				properties: {},
+			};
+			expect(caseRowDisplayValue(row, field)).toBe("");
+		},
+	);
 });
 
 // ---------------------------------------------------------------

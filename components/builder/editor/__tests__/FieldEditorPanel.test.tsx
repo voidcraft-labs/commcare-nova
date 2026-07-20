@@ -129,21 +129,22 @@ describe("required entry — valueOnAdd contract", () => {
 		valueOnAdd?: unknown;
 	}
 
-	it.each(
-		fieldKinds,
-	)("%s schema's `required` entries (any section) write ALWAYS_REQUIRED on pill click", (kind) => {
-		const schema = fieldEditorSchemas[kind] as unknown as {
-			data: readonly ContractEntry[];
-			logic: readonly ContractEntry[];
-			ui: readonly ContractEntry[];
-		};
-		const sections = [schema.data, schema.logic, schema.ui];
-		for (const section of sections) {
-			for (const entry of section) {
-				if (entry.key === "required") {
-					expect(entry.valueOnAdd).toBe(ALWAYS_REQUIRED_EXPRESSION);
+	it.each(fieldKinds)(
+		"%s schema's `required` entries (any section) write ALWAYS_REQUIRED on pill click",
+		(kind) => {
+			const schema = fieldEditorSchemas[kind] as unknown as {
+				data: readonly ContractEntry[];
+				logic: readonly ContractEntry[];
+				ui: readonly ContractEntry[];
+			};
+			const sections = [schema.data, schema.logic, schema.ui];
+			for (const section of sections) {
+				for (const entry of section) {
+					if (entry.key === "required") {
+						expect(entry.valueOnAdd).toBe(ALWAYS_REQUIRED_EXPRESSION);
+					}
 				}
 			}
-		}
-	});
+		},
+	);
 });

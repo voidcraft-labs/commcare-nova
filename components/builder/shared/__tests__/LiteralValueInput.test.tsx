@@ -143,36 +143,36 @@ describe("LiteralValueInput decimal validation", () => {
 		expect(input.placeholder).toBe("");
 	});
 
-	it.each([
-		"12oops",
-		"1e",
-	])("preserves the malformed %s draft and commits only its correction", (malformedDraft) => {
-		const { input, onChange } = renderLiteralInput({
-			value: literal(7.5),
-			propertyName: "weight",
-			ariaLabel: "Decimal value",
-		});
+	it.each(["12oops", "1e"])(
+		"preserves the malformed %s draft and commits only its correction",
+		(malformedDraft) => {
+			const { input, onChange } = renderLiteralInput({
+				value: literal(7.5),
+				propertyName: "weight",
+				ariaLabel: "Decimal value",
+			});
 
-		input.focus();
-		fireEvent.change(input, { target: { value: malformedDraft } });
-		fireEvent.blur(input);
+			input.focus();
+			fireEvent.change(input, { target: { value: malformedDraft } });
+			fireEvent.blur(input);
 
-		expect(input.value).toBe(malformedDraft);
-		expect(input.getAttribute("aria-invalid")).toBe("true");
-		const error = screen.getByRole("alert");
-		expect(error.textContent).toBe("Enter a number");
-		expect(input.getAttribute("aria-describedby")).toBe(error.id);
-		expect(onChange).not.toHaveBeenCalled();
+			expect(input.value).toBe(malformedDraft);
+			expect(input.getAttribute("aria-invalid")).toBe("true");
+			const error = screen.getByRole("alert");
+			expect(error.textContent).toBe("Enter a number");
+			expect(input.getAttribute("aria-describedby")).toBe(error.id);
+			expect(onChange).not.toHaveBeenCalled();
 
-		input.focus();
-		fireEvent.change(input, { target: { value: "12.25" } });
-		expect(input.getAttribute("aria-invalid")).toBeNull();
-		expect(screen.queryByText("Enter a number")).toBeNull();
-		fireEvent.blur(input);
+			input.focus();
+			fireEvent.change(input, { target: { value: "12.25" } });
+			expect(input.getAttribute("aria-invalid")).toBeNull();
+			expect(screen.queryByText("Enter a number")).toBeNull();
+			fireEvent.blur(input);
 
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange).toHaveBeenCalledWith(literal(12.25));
-	});
+			expect(onChange).toHaveBeenCalledTimes(1);
+			expect(onChange).toHaveBeenCalledWith(literal(12.25));
+		},
+	);
 
 	it("keeps the existing optional empty-number commit", () => {
 		const { input, onChange } = renderLiteralInput({

@@ -48,54 +48,50 @@ const CONCAT_FALLBACK_DIALECTS: readonly WireDialect[] = [
 ];
 
 describe("quoteLiteral — quote-free values", () => {
-	it.each([
-		"case-list-filter",
-		"csql",
-		"search-filter",
-	] as const)("wraps a quote-free value in single quotes (%s)", (dialect) => {
-		expect(quoteLiteral("Alice", dialect)).toBe("'Alice'");
-	});
+	it.each(["case-list-filter", "csql", "search-filter"] as const)(
+		"wraps a quote-free value in single quotes (%s)",
+		(dialect) => {
+			expect(quoteLiteral("Alice", dialect)).toBe("'Alice'");
+		},
+	);
 
-	it.each([
-		"case-list-filter",
-		"csql",
-		"search-filter",
-	] as const)("wraps an empty string in single quotes (%s)", (dialect) => {
-		// Empty literal is admitted across every dialect because the
-		// underlying XPath 1.0 string-literal grammar permits it. The
-		// AST surface emits an empty-string literal for the `null`
-		// arm and for is-blank's RHS, so this test pins a wire-side
-		// shape both surfaces depend on.
-		expect(quoteLiteral("", dialect)).toBe("''");
-	});
+	it.each(["case-list-filter", "csql", "search-filter"] as const)(
+		"wraps an empty string in single quotes (%s)",
+		(dialect) => {
+			// Empty literal is admitted across every dialect because the
+			// underlying XPath 1.0 string-literal grammar permits it. The
+			// AST surface emits an empty-string literal for the `null`
+			// arm and for is-blank's RHS, so this test pins a wire-side
+			// shape both surfaces depend on.
+			expect(quoteLiteral("", dialect)).toBe("''");
+		},
+	);
 
-	it.each([
-		"case-list-filter",
-		"csql",
-		"search-filter",
-	] as const)("passes whitespace, tabs, newlines, and unicode through unchanged (%s)", (dialect) => {
-		// XPath 1.0 string literals admit any character that isn't
-		// the wrapping quote — no escape sequences in the grammar.
-		// The helper threads the value through verbatim; only the
-		// quote characters themselves drive the escape branches.
-		expect(quoteLiteral("a b\tc\nd", dialect)).toBe("'a b\tc\nd'");
-		expect(quoteLiteral("naïve café 日本語", dialect)).toBe(
-			"'naïve café 日本語'",
-		);
-	});
+	it.each(["case-list-filter", "csql", "search-filter"] as const)(
+		"passes whitespace, tabs, newlines, and unicode through unchanged (%s)",
+		(dialect) => {
+			// XPath 1.0 string literals admit any character that isn't
+			// the wrapping quote — no escape sequences in the grammar.
+			// The helper threads the value through verbatim; only the
+			// quote characters themselves drive the escape branches.
+			expect(quoteLiteral("a b\tc\nd", dialect)).toBe("'a b\tc\nd'");
+			expect(quoteLiteral("naïve café 日本語", dialect)).toBe(
+				"'naïve café 日本語'",
+			);
+		},
+	);
 
-	it.each([
-		"case-list-filter",
-		"csql",
-		"search-filter",
-	] as const)("single-quote-wraps a value containing only a double quote (%s)", (dialect) => {
-		// A value with embedded double quotes but no single quotes
-		// fits inside single-quoted wire syntax in every dialect; no
-		// escape pass runs. Pinning this asymmetry against the
-		// embedded-single-quote path locks the fact that csql's
-		// quote-style swap fires only on single quotes.
-		expect(quoteLiteral('say "hello"', dialect)).toBe(`'say "hello"'`);
-	});
+	it.each(["case-list-filter", "csql", "search-filter"] as const)(
+		"single-quote-wraps a value containing only a double quote (%s)",
+		(dialect) => {
+			// A value with embedded double quotes but no single quotes
+			// fits inside single-quoted wire syntax in every dialect; no
+			// escape pass runs. Pinning this asymmetry against the
+			// embedded-single-quote path locks the fact that csql's
+			// quote-style swap fires only on single quotes.
+			expect(quoteLiteral('say "hello"', dialect)).toBe(`'say "hello"'`);
+		},
+	);
 });
 
 describe("quoteLiteral — case-list-filter / search-filter concat fallback", () => {
@@ -108,61 +104,68 @@ describe("quoteLiteral — case-list-filter / search-filter concat fallback", ()
 	// segments. Both dialects share the same wire output for every
 	// input.
 
-	it.each(
-		CONCAT_FALLBACK_DIALECTS,
-	)("splits a single embedded quote into a 3-segment concat (%s)", (dialect) => {
-		expect(quoteLiteral("O'Brien", dialect)).toBe(`concat('O', "'", 'Brien')`);
-	});
+	it.each(CONCAT_FALLBACK_DIALECTS)(
+		"splits a single embedded quote into a 3-segment concat (%s)",
+		(dialect) => {
+			expect(quoteLiteral("O'Brien", dialect)).toBe(
+				`concat('O', "'", 'Brien')`,
+			);
+		},
+	);
 
-	it.each(
-		CONCAT_FALLBACK_DIALECTS,
-	)("emits empty boundary segments for a quote-only value (%s)", (dialect) => {
-		// A value of `'` produces two empty halves around a single
-		// quote separator. Emitting the empty boundary segments
-		// keeps the segment count at `n + 1` for `n` quotes,
-		// matching the multi-quote case below — the alternative
-		// (collapsing empty segments) would force a special branch
-		// that fires only on quote-bookended values.
-		expect(quoteLiteral("'", dialect)).toBe(`concat('', "'", '')`);
-	});
+	it.each(CONCAT_FALLBACK_DIALECTS)(
+		"emits empty boundary segments for a quote-only value (%s)",
+		(dialect) => {
+			// A value of `'` produces two empty halves around a single
+			// quote separator. Emitting the empty boundary segments
+			// keeps the segment count at `n + 1` for `n` quotes,
+			// matching the multi-quote case below — the alternative
+			// (collapsing empty segments) would force a special branch
+			// that fires only on quote-bookended values.
+			expect(quoteLiteral("'", dialect)).toBe(`concat('', "'", '')`);
+		},
+	);
 
-	it.each(
-		CONCAT_FALLBACK_DIALECTS,
-	)("emits one segment per split for multiple consecutive embedded quotes (%s)", (dialect) => {
-		// Two quotes in a row produce three string segments
-		// separated by two literal-quote separators; the middle
-		// segment is empty. Pinning the segment count locks the
-		// `n + 1` segment / `n` separator invariant that the
-		// concat-fallback path relies on.
-		expect(quoteLiteral("a''b", dialect)).toBe(
-			`concat('a', "'", '', "'", 'b')`,
-		);
-	});
+	it.each(CONCAT_FALLBACK_DIALECTS)(
+		"emits one segment per split for multiple consecutive embedded quotes (%s)",
+		(dialect) => {
+			// Two quotes in a row produce three string segments
+			// separated by two literal-quote separators; the middle
+			// segment is empty. Pinning the segment count locks the
+			// `n + 1` segment / `n` separator invariant that the
+			// concat-fallback path relies on.
+			expect(quoteLiteral("a''b", dialect)).toBe(
+				`concat('a', "'", '', "'", 'b')`,
+			);
+		},
+	);
 
-	it.each(
-		CONCAT_FALLBACK_DIALECTS,
-	)("interleaves literal-quote separators for non-adjacent embedded quotes (%s)", (dialect) => {
-		// Three non-adjacent quotes produce four segments and three
-		// separators. This pins the same invariant against a
-		// regression that miscounted the separator interleaving for
-		// quotes scattered across the value rather than adjacent.
-		expect(quoteLiteral("a'b'c'd", dialect)).toBe(
-			`concat('a', "'", 'b', "'", 'c', "'", 'd')`,
-		);
-	});
+	it.each(CONCAT_FALLBACK_DIALECTS)(
+		"interleaves literal-quote separators for non-adjacent embedded quotes (%s)",
+		(dialect) => {
+			// Three non-adjacent quotes produce four segments and three
+			// separators. This pins the same invariant against a
+			// regression that miscounted the separator interleaving for
+			// quotes scattered across the value rather than adjacent.
+			expect(quoteLiteral("a'b'c'd", dialect)).toBe(
+				`concat('a', "'", 'b', "'", 'c', "'", 'd')`,
+			);
+		},
+	);
 
-	it.each(
-		CONCAT_FALLBACK_DIALECTS,
-	)("keeps embedded double quotes inside single-quoted segments unchanged (%s)", (dialect) => {
-		// A value carrying both quote styles still emits a portable
-		// `concat()` form because `concat()` is available: the
-		// double quote sits inside its single-quoted segment with
-		// no further escape, and the split-on-single-quote produces
-		// the segment count.
-		expect(quoteLiteral(`it's "quoted"`, dialect)).toBe(
-			`concat('it', "'", 's "quoted"')`,
-		);
-	});
+	it.each(CONCAT_FALLBACK_DIALECTS)(
+		"keeps embedded double quotes inside single-quoted segments unchanged (%s)",
+		(dialect) => {
+			// A value carrying both quote styles still emits a portable
+			// `concat()` form because `concat()` is available: the
+			// double quote sits inside its single-quoted segment with
+			// no further escape, and the split-on-single-quote produces
+			// the segment count.
+			expect(quoteLiteral(`it's "quoted"`, dialect)).toBe(
+				`concat('it', "'", 's "quoted"')`,
+			);
+		},
+	);
 });
 
 describe("quoteLiteral — case-list-filter and search-filter share output", () => {
@@ -180,13 +183,13 @@ describe("quoteLiteral — case-list-filter and search-filter share output", () 
 			value: `it's "quoted"`,
 			expected: `concat('it', "'", 's "quoted"')`,
 		},
-	])("emits identically across both dialects for $value", ({
-		value,
-		expected,
-	}) => {
-		expect(quoteLiteral(value, "case-list-filter")).toBe(expected);
-		expect(quoteLiteral(value, "search-filter")).toBe(expected);
-	});
+	])(
+		"emits identically across both dialects for $value",
+		({ value, expected }) => {
+			expect(quoteLiteral(value, "case-list-filter")).toBe(expected);
+			expect(quoteLiteral(value, "search-filter")).toBe(expected);
+		},
+	);
 });
 
 describe("quoteLiteral — csql per-quote-style swap", () => {

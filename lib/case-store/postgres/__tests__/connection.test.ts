@@ -69,39 +69,41 @@ describe("readCaseStoreEnvConfig", () => {
 		});
 	});
 
-	it.each(
-		REQUIRED_ENV_VARS,
-	)("throws an error naming the missing variable when %s is absent", (missingVar) => {
-		// Build an env with everything except the named variable.
-		// Ensures each variable is exercised in isolation rather
-		// than in combination with other gaps. The Elm-style throw
-		// emits a `missing: <names>` line with the named variable
-		// present; pin the contract via two cheap substring checks
-		// rather than a brittle full-message regex.
-		const env: Record<string, string> = { ...completeEnv };
-		delete env[missingVar];
-		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			/missing required environment variables/,
-		);
-		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			new RegExp(`missing:[^\\n]*${missingVar}`),
-		);
-	});
+	it.each(REQUIRED_ENV_VARS)(
+		"throws an error naming the missing variable when %s is absent",
+		(missingVar) => {
+			// Build an env with everything except the named variable.
+			// Ensures each variable is exercised in isolation rather
+			// than in combination with other gaps. The Elm-style throw
+			// emits a `missing: <names>` line with the named variable
+			// present; pin the contract via two cheap substring checks
+			// rather than a brittle full-message regex.
+			const env: Record<string, string> = { ...completeEnv };
+			delete env[missingVar];
+			expect(() => readCaseStoreEnvConfig(env)).toThrowError(
+				/missing required environment variables/,
+			);
+			expect(() => readCaseStoreEnvConfig(env)).toThrowError(
+				new RegExp(`missing:[^\\n]*${missingVar}`),
+			);
+		},
+	);
 
-	it.each(
-		REQUIRED_ENV_VARS,
-	)("throws an error naming the empty variable when %s is set to an empty string", (emptyVar) => {
-		// Cloud Run's `--update-env-vars` accepts an empty string
-		// silently, so the validator must treat empty-string the
-		// same as absent. This test pins that contract.
-		const env: Record<string, string> = { ...completeEnv, [emptyVar]: "" };
-		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			/missing required environment variables/,
-		);
-		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
-			new RegExp(`missing:[^\\n]*${emptyVar}`),
-		);
-	});
+	it.each(REQUIRED_ENV_VARS)(
+		"throws an error naming the empty variable when %s is set to an empty string",
+		(emptyVar) => {
+			// Cloud Run's `--update-env-vars` accepts an empty string
+			// silently, so the validator must treat empty-string the
+			// same as absent. This test pins that contract.
+			const env: Record<string, string> = { ...completeEnv, [emptyVar]: "" };
+			expect(() => readCaseStoreEnvConfig(env)).toThrowError(
+				/missing required environment variables/,
+			);
+			expect(() => readCaseStoreEnvConfig(env)).toThrowError(
+				new RegExp(`missing:[^\\n]*${emptyVar}`),
+			);
+		},
+	);
 
 	it("aggregates every missing variable into one error message", () => {
 		// All three variables missing — the error names every one in

@@ -142,24 +142,24 @@ describe("case workspace chrome", () => {
 		});
 	});
 
-	it.each([
-		false,
-		true,
-	])("keeps zero-input Search action settings with Cases available=%s", (hasCasesAvailableCondition) => {
-		expect(
-			caseSearchConfigAfterFinalInputRemoval(
-				{
-					searchScreenTitle: "Find a client",
-					searchButtonLabel: "Find",
-					searchButtonDisplayCondition: FIRST_SEARCH_CONDITION,
-				},
-				hasCasesAvailableCondition,
-			),
-		).toEqual({
-			searchButtonLabel: "Find",
-			searchButtonDisplayCondition: FIRST_SEARCH_CONDITION,
-		});
-	});
+	it.each([false, true])(
+		"keeps zero-input Search action settings with Cases available=%s",
+		(hasCasesAvailableCondition) => {
+			expect(
+				caseSearchConfigAfterFinalInputRemoval(
+					{
+						searchScreenTitle: "Find a client",
+						searchButtonLabel: "Find",
+						searchButtonDisplayCondition: FIRST_SEARCH_CONDITION,
+					},
+					hasCasesAvailableCondition,
+				),
+			).toEqual({
+				searchButtonLabel: "Find",
+				searchButtonDisplayCondition: FIRST_SEARCH_CONDITION,
+			});
+		},
+	);
 
 	it("drops copy that belonged only to the removed Search screen", () => {
 		expect(

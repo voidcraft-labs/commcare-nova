@@ -206,18 +206,18 @@ describe("owner exclusion on the ordinary case-list nodeset", () => {
 		);
 	});
 
-	it.each([
-		"",
-		"   \t  ",
-	])("emits no fragment when the exclusion value is statically blank (%j)", (value) => {
-		// Blank means "exclude nobody" — the runtime guard's identity arm,
-		// resolved statically. Emitting the guarded `selected()` test for a
-		// literal blank would be a tautological bracket on every row.
-		expect(emitExcludedOwnerFilterExpression(term(literal(value)))).toBe(
-			undefined,
-		);
-		expect(emitExcludedOwnerNodesetFilter(term(literal(value)))).toBe("");
-	});
+	it.each(["", "   \t  "])(
+		"emits no fragment when the exclusion value is statically blank (%j)",
+		(value) => {
+			// Blank means "exclude nobody" — the runtime guard's identity arm,
+			// resolved statically. Emitting the guarded `selected()` test for a
+			// literal blank would be a tautological bracket on every row.
+			expect(emitExcludedOwnerFilterExpression(term(literal(value)))).toBe(
+				undefined,
+			);
+			expect(emitExcludedOwnerNodesetFilter(term(literal(value)))).toBe("");
+		},
+	);
 
 	it("normalizes repeated, trailing, and tab whitespace before membership", () => {
 		const value = "owner-a  owner-b\t ";

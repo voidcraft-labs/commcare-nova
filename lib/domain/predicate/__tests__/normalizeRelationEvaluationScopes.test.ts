@@ -181,10 +181,10 @@ describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => 
 			"within distance",
 			within(relatedPatient("location"), literal("42 -71"), 5, "miles"),
 		],
-	] satisfies ReadonlyArray<
-		readonly [string, Predicate]
-	>)("normalizes the %s operator's dedicated property/value slots", (_name, authored) =>
-		expectOnePatientScope(authored));
+	] satisfies ReadonlyArray<readonly [string, Predicate]>)(
+		"normalizes the %s operator's dedicated property/value slots",
+		(_name, authored) => expectOnePatientScope(authored),
+	);
 
 	it.each([
 		[
@@ -221,10 +221,11 @@ describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => 
 			"format-date",
 			formatDate(dateCoerce(term(relatedPatient("status"))), "iso"),
 		],
-	] satisfies ReadonlyArray<
-		readonly [string, ValueExpression]
-	>)("finds and rebases relation reads nested in %s expressions", (_name, expression) =>
-		expectOnePatientScope(eq(expression, term(literal("result")))));
+	] satisfies ReadonlyArray<readonly [string, ValueExpression]>)(
+		"finds and rebases relation reads nested in %s expressions",
+		(_name, expression) =>
+			expectOnePatientScope(eq(expression, term(literal("result")))),
+	);
 
 	it("leaves via-free predicates unchanged by identity", () => {
 		const authored = eq(prop("household", "region"), literal("north"));

@@ -100,22 +100,25 @@ function emitFromEdit(
 }
 
 describe("display-item edits preserve independent screen positions", () => {
-	it.each(
-		ORDERED_COLUMN_KINDS.map((column) => [column.kind, column] as const),
-	)("%s label edits retain Results and Details order", (_kind, value) => {
-		const next = emitFromEdit(value, () => {
-			const input = screen.getByLabelText("Display label") as HTMLInputElement;
-			input.focus();
-			fireEvent.change(input, { target: { value: "Updated label" } });
-			fireEvent.blur(input);
-		});
+	it.each(ORDERED_COLUMN_KINDS.map((column) => [column.kind, column] as const))(
+		"%s label edits retain Results and Details order",
+		(_kind, value) => {
+			const next = emitFromEdit(value, () => {
+				const input = screen.getByLabelText(
+					"Display label",
+				) as HTMLInputElement;
+				input.focus();
+				fireEvent.change(input, { target: { value: "Updated label" } });
+				fireEvent.blur(input);
+			});
 
-		expect(next.listOrder).toBe(SURFACE_SLOTS.listOrder);
-		expect(next.detailOrder).toBe(SURFACE_SLOTS.detailOrder);
-		expect(next.sort).toEqual(SURFACE_SLOTS.sort);
-		expect(next.visibleInList).toBe(true);
-		expect(next.visibleInDetail).toBe(true);
-	});
+			expect(next.listOrder).toBe(SURFACE_SLOTS.listOrder);
+			expect(next.detailOrder).toBe(SURFACE_SLOTS.detailOrder);
+			expect(next.sort).toEqual(SURFACE_SLOTS.sort);
+			expect(next.visibleInList).toBe(true);
+			expect(next.visibleInDetail).toBe(true);
+		},
+	);
 });
 
 describe("DateColumnCard — pattern edits", () => {

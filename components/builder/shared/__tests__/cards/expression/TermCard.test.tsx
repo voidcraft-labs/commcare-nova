@@ -145,66 +145,64 @@ describe("TermCard required literal recovery", () => {
 			corrected: "10:45",
 			expected: term(timeLiteral("10:45")),
 		},
-	])("keeps a cleared required $name draft visible until it is corrected", ({
-		label,
-		initial,
-		corrected,
-		expected,
-	}) => {
-		const onChange = renderRequiredTerm(initial);
-		const input = screen.getByLabelText(label);
+	])(
+		"keeps a cleared required $name draft visible until it is corrected",
+		({ label, initial, corrected, expected }) => {
+			const onChange = renderRequiredTerm(initial);
+			const input = screen.getByLabelText(label);
 
-		(input as HTMLInputElement).focus();
-		fireEvent.change(input, { target: { value: "" } });
+			(input as HTMLInputElement).focus();
+			fireEvent.change(input, { target: { value: "" } });
 
-		expect((input as HTMLInputElement).value).toBe("");
-		expect(input.getAttribute("aria-invalid")).toBe("true");
-		expect(screen.getByRole("alert").textContent).toBe("Enter a value");
-		expect(onChange).not.toHaveBeenCalled();
+			expect((input as HTMLInputElement).value).toBe("");
+			expect(input.getAttribute("aria-invalid")).toBe("true");
+			expect(screen.getByRole("alert").textContent).toBe("Enter a value");
+			expect(onChange).not.toHaveBeenCalled();
 
-		fireEvent.change(input, { target: { value: corrected } });
+			fireEvent.change(input, { target: { value: corrected } });
 
-		expect(screen.queryByRole("alert")).toBeNull();
-		expect(onChange).toHaveBeenLastCalledWith(expected);
-	});
+			expect(screen.queryByRole("alert")).toBeNull();
+			expect(onChange).toHaveBeenLastCalledWith(expected);
+		},
+	);
 });
 
 describe("TermCard number literal recovery", () => {
-	it.each([
-		"12oops",
-		"1e",
-	])("preserves the malformed %s draft and commits only its correction", (malformedDraft) => {
-		const onChange = vi.fn();
-		render(
-			<ExpressionCardEditor
-				value={term(literal(7.5))}
-				onChange={onChange}
-				caseTypes={[PATIENT]}
-				currentCaseType="patient"
-			/>,
-		);
-		const input = screen.getByLabelText("Number value") as HTMLInputElement;
+	it.each(["12oops", "1e"])(
+		"preserves the malformed %s draft and commits only its correction",
+		(malformedDraft) => {
+			const onChange = vi.fn();
+			render(
+				<ExpressionCardEditor
+					value={term(literal(7.5))}
+					onChange={onChange}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>,
+			);
+			const input = screen.getByLabelText("Number value") as HTMLInputElement;
 
-		input.focus();
-		fireEvent.change(input, { target: { value: malformedDraft } });
-		fireEvent.blur(input);
+			input.focus();
+			fireEvent.change(input, { target: { value: malformedDraft } });
+			fireEvent.blur(input);
 
-		expect(input.value).toBe(malformedDraft);
-		expect(input.getAttribute("aria-invalid")).toBe("true");
-		const error = screen.getByRole("alert");
-		expect(error.textContent).toBe("Enter a number");
-		expect(input.getAttribute("aria-describedby")).toBe(error.id);
-		expect(onChange).not.toHaveBeenCalled();
+			expect(input.value).toBe(malformedDraft);
+			expect(input.getAttribute("aria-invalid")).toBe("true");
+			const error = screen.getByRole("alert");
+			expect(error.textContent).toBe("Enter a number");
+			expect(input.getAttribute("aria-describedby")).toBe(error.id);
+			expect(onChange).not.toHaveBeenCalled();
 
-		input.focus();
-		fireEvent.change(input, { target: { value: "12.25" } });
-		expect(input.getAttribute("aria-invalid")).toBeNull();
-		expect(screen.queryByText("Enter a number")).toBeNull();
-		fireEvent.blur(input);
+			input.focus();
+			fireEvent.change(input, { target: { value: "12.25" } });
+			expect(input.getAttribute("aria-invalid")).toBeNull();
+			expect(screen.queryByText("Enter a number")).toBeNull();
+			fireEvent.blur(input);
 
-		expect(onChange).toHaveBeenCalledTimes(1);
-		expect(onChange).toHaveBeenCalledWith(term(literal(12.25)));
-	});
+			expect(onChange).toHaveBeenCalledTimes(1);
+			expect(onChange).toHaveBeenCalledWith(term(literal(12.25)));
+		},
+	);
 });
 
 describe("TermCard source transitions", () => {
@@ -381,33 +379,33 @@ describe("TermCard source transitions", () => {
 			title: "Use user information instead?",
 			back: "App information",
 		},
-	])("keeps saved $name while trying another source", async ({
-		initial,
-		target,
-		title,
-		back,
-	}) => {
-		const onChange = renderStatefulTerm(initial);
-		await chooseSource(target);
-		expect(screen.getByRole("alertdialog", { name: title })).toBeDefined();
-		if (target === "User information") {
-			fireEvent.change(
-				screen.getByRole("textbox", { name: "User field name" }),
-				{ target: { value: "assigned_region" } },
-			);
-		}
-		fireEvent.click(screen.getByRole("button", { name: "Replace" }));
-		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-
-		await chooseSource(back);
-		if (target === "User information") {
+	])(
+		"keeps saved $name while trying another source",
+		async ({ initial, target, title, back }) => {
+			const onChange = renderStatefulTerm(initial);
+			await chooseSource(target);
+			expect(screen.getByRole("alertdialog", { name: title })).toBeDefined();
+			if (target === "User information") {
+				fireEvent.change(
+					screen.getByRole("textbox", { name: "User field name" }),
+					{ target: { value: "assigned_region" } },
+				);
+			}
 			fireEvent.click(screen.getByRole("button", { name: "Replace" }));
 			await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-		} else {
-			expect(screen.queryByRole("alertdialog")).toBeNull();
-		}
-		expect(onChange).toHaveBeenLastCalledWith(initial);
-	});
+
+			await chooseSource(back);
+			if (target === "User information") {
+				fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+				await waitFor(() =>
+					expect(screen.queryByRole("alertdialog")).toBeNull(),
+				);
+			} else {
+				expect(screen.queryByRole("alertdialog")).toBeNull();
+			}
+			expect(onChange).toHaveBeenLastCalledWith(initial);
+		},
+	);
 
 	it("collects a valid user field before leaving an empty generated value", async () => {
 		const onChange = renderStatefulTerm(term(literal("")));
@@ -537,24 +535,24 @@ describe("TermCard literal type transitions", () => {
 	it.each([
 		{ name: "number", initial: term(literal(0)), back: "Number" },
 		{ name: "boolean", initial: term(literal(false)), back: "Yes or no" },
-	])("confirms and retains an authored $name value", async ({
-		initial,
-		back,
-	}) => {
-		const onChange = renderStatefulTerm(initial);
-		await chooseLiteralShape("Text");
-		expect(
-			screen.getByRole("alertdialog", {
-				name: "Change this value to text?",
-			}),
-		).toBeDefined();
-		fireEvent.click(screen.getByRole("button", { name: "Change value" }));
-		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	])(
+		"confirms and retains an authored $name value",
+		async ({ initial, back }) => {
+			const onChange = renderStatefulTerm(initial);
+			await chooseLiteralShape("Text");
+			expect(
+				screen.getByRole("alertdialog", {
+					name: "Change this value to text?",
+				}),
+			).toBeDefined();
+			fireEvent.click(screen.getByRole("button", { name: "Change value" }));
+			await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 
-		await chooseLiteralShape(back);
-		expect(screen.queryByRole("alertdialog")).toBeNull();
-		expect(onChange).toHaveBeenLastCalledWith(initial);
-	});
+			await chooseLiteralShape(back);
+			expect(screen.queryByRole("alertdialog")).toBeNull();
+			expect(onChange).toHaveBeenLastCalledWith(initial);
+		},
+	);
 
 	it("does not warn for empty typed dates or untouched generated values", async () => {
 		const emptyDateChange = renderStatefulTerm(term(dateLiteral("")));

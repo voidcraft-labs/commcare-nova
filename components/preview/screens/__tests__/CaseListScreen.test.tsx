@@ -754,34 +754,37 @@ describe("CaseListScreen — empty case type", () => {
 			false,
 			"Try different Search information or ask an app editor to review Cases available",
 		],
-	] as const)("keeps uncertain worker-search guidance permission-aware (canEdit=%s)", async (canEdit, expectedDescription) => {
-		canEditMock = canEdit;
-		vi.mocked(loadCaseCountAction).mockResolvedValue({
-			kind: "count",
-			count: 3,
-		});
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "empty",
-			constraintSource: "worker-search",
-		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			searchInputs: [
-				simpleSearchInputDef(
-					asDomainUuid("00000000-0000-0000-0000-000000000d92"),
-					"name",
-					"Name",
-					"text",
-					"name",
-				),
-			],
-		});
+	] as const)(
+		"keeps uncertain worker-search guidance permission-aware (canEdit=%s)",
+		async (canEdit, expectedDescription) => {
+			canEditMock = canEdit;
+			vi.mocked(loadCaseCountAction).mockResolvedValue({
+				kind: "count",
+				count: 3,
+			});
+			vi.mocked(loadCasesAction).mockResolvedValue({
+				kind: "empty",
+				constraintSource: "worker-search",
+			});
+			renderCaseListScreen({
+				columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+				searchInputs: [
+					simpleSearchInputDef(
+						asDomainUuid("00000000-0000-0000-0000-000000000d92"),
+						"name",
+						"Name",
+						"text",
+						"name",
+					),
+				],
+			});
 
-		expect(
-			await screen.findByText("No cases are available for this search"),
-		).toBeDefined();
-		expect(screen.getByText(expectedDescription)).toBeDefined();
-	});
+			expect(
+				await screen.findByText("No cases are available for this search"),
+			).toBeDefined();
+			expect(screen.getByText(expectedDescription)).toBeDefined();
+		},
+	);
 
 	it("offers case creation when no underlying cases exist, even with availability conditions", async () => {
 		vi.mocked(loadCaseCountAction).mockResolvedValue({
@@ -1197,37 +1200,40 @@ describe("CaseListScreen — responsive results", () => {
 		[5, "@3xl/results:grid"],
 		[6, "@4xl/results:grid"],
 		[7, null],
-	] as const)("uses the count-aware responsive threshold for %i fields", async (count, expectedClass) => {
-		const columns = Array.from({ length: count }, (_, index) =>
-			plainColumn(
-				asDomainUuid(
-					`00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+	] as const)(
+		"uses the count-aware responsive threshold for %i fields",
+		async (count, expectedClass) => {
+			const columns = Array.from({ length: count }, (_, index) =>
+				plainColumn(
+					asDomainUuid(
+						`00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+					),
+					`field_${index + 1}`,
+					`Field ${index + 1}`,
 				),
-				`field_${index + 1}`,
-				`Field ${index + 1}`,
-			),
-		);
-		const properties = Object.fromEntries(
-			columns.map((column, index) => [
-				column.kind === "plain" ? column.field : `field_${index + 1}`,
-				`Value ${index + 1}`,
-			]),
-		);
-		vi.mocked(loadCasesAction).mockResolvedValueOnce({
-			kind: "rows",
-			rows: [makeRow(SELECTED_CASE_ID, properties)],
-		});
-		renderCaseListScreen({ columns });
+			);
+			const properties = Object.fromEntries(
+				columns.map((column, index) => [
+					column.kind === "plain" ? column.field : `field_${index + 1}`,
+					`Value ${index + 1}`,
+				]),
+			);
+			vi.mocked(loadCasesAction).mockResolvedValueOnce({
+				kind: "rows",
+				rows: [makeRow(SELECTED_CASE_ID, properties)],
+			});
+			renderCaseListScreen({ columns });
 
-		const row = caseResultRowFor(
-			await screen.findByRole("button", { name: /Value 1/ }),
-		);
-		if (expectedClass === null) {
-			expect(row.className).not.toContain("/results:grid");
-		} else {
-			expect(row.className).toContain(expectedClass);
-		}
-	});
+			const row = caseResultRowFor(
+				await screen.findByRole("button", { name: /Value 1/ }),
+			);
+			if (expectedClass === null) {
+				expect(row.className).not.toContain("/results:grid");
+			} else {
+				expect(row.className).toContain(expectedClass);
+			}
+		},
+	);
 });
 
 describe("CaseListScreen — bounded result pages", () => {
