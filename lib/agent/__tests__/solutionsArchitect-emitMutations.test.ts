@@ -46,37 +46,46 @@ import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
 
-/* The SA commits every batch through `commitGuardedBatch` (kind:'chat'). Mock
- * it to re-apply the batch onto a TRACKED server doc so the SA's working doc
- * advances across tool calls exactly as it would against the real writer, and
- * expose `loadApp` for `wrapMutating`'s conflict-reload path. `seedServerDoc`
- * seeds the tracked doc to the SA's initial doc per test. */
-const { commitGuardedBatchMock, loadAppMock, seedServerDoc } = vi.hoisted(
-	() => {
-		let serverDoc: unknown = null;
-		let seq = 0;
-		return {
-			seedServerDoc: (doc: unknown) => {
-				serverDoc = doc;
-				seq = 0;
+/* The SA commits every batch through `commitGuardedBatch` (kind:'chat') —
+ * except rename-carrying batches, which detour through the cross-store saga
+ * (`applyBlueprintChange`). Mock both to re-apply the batch onto ONE TRACKED
+ * server doc so the SA's working doc advances across tool calls exactly as it
+ * would against the real writers, and expose `loadApp` for `wrapMutating`'s
+ * conflict-reload path. `seedServerDoc` seeds the tracked doc to the SA's
+ * initial doc per test. */
+const {
+	commitGuardedBatchMock,
+	applyBlueprintChangeMock,
+	loadAppMock,
+	seedServerDoc,
+} = vi.hoisted(() => {
+	let serverDoc: unknown = null;
+	let seq = 0;
+	const applyBatch = (mutations: unknown[]) => {
+		// biome-ignore lint/suspicious/noExplicitAny: test re-applies onto the tracked doc.
+		serverDoc = produce(serverDoc as any, (draft: any) => {
+			// biome-ignore lint/suspicious/noExplicitAny: mutation union threaded verbatim.
+			applyMutations(draft, mutations as any);
+		});
+		seq += 1;
+		return { seq, committedDoc: serverDoc };
+	};
+	return {
+		seedServerDoc: (doc: unknown) => {
+			serverDoc = doc;
+			seq = 0;
+		},
+		loadAppMock: vi.fn(),
+		commitGuardedBatchMock: vi.fn(async (args: { mutations: unknown[] }) => {
+			return { ...applyBatch(args.mutations), deduped: false };
+		}),
+		applyBlueprintChangeMock: vi.fn(
+			async (args: { guard?: { mutations: unknown[] } }) => {
+				return applyBatch(args.guard?.mutations ?? []);
 			},
-			loadAppMock: vi.fn(),
-			commitGuardedBatchMock: vi.fn(async (args: { mutations: unknown[] }) => {
-				// biome-ignore lint/suspicious/noExplicitAny: test re-applies onto the tracked doc.
-				serverDoc = produce(serverDoc as any, (draft: any) => {
-					// biome-ignore lint/suspicious/noExplicitAny: mutation union threaded verbatim.
-					applyMutations(draft, args.mutations as any);
-				});
-				seq += 1;
-				return {
-					seq,
-					committedDoc: serverDoc,
-					deduped: false,
-				};
-			}),
-		};
-	},
-);
+		),
+	};
+});
 
 /** Seed the tracked server doc + build the SA against it. Every test uses this
  *  instead of `createSolutionsArchitect` directly so the guarded-writer mock
@@ -619,12 +628,16 @@ describe("solutionsArchitect — emitMutations migration", () => {
 // set carries no completeBuild on either mode, and no tool emits
 // `data-done` (that signal is the route's).
 
-/* Every mutating tool call commits through `commitGuardedBatch`; the hoisted
- * mock re-applies the batch onto a tracked doc so no save reaches Postgres.
- * `loadApp` backs `wrapMutating`'s conflict-reload path. */
+/* Every mutating tool call commits through `commitGuardedBatch` — rename
+ * batches through `applyBlueprintChange` — and the hoisted mocks re-apply
+ * each batch onto one tracked doc so no save reaches Postgres. `loadApp`
+ * backs `wrapMutating`'s conflict-reload path. */
 vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,
 	loadApp: loadAppMock,
+}));
+vi.mock("@/lib/db/applyBlueprintChange", () => ({
+	applyBlueprintChange: applyBlueprintChangeMock,
 }));
 
 describe("solutionsArchitect — no finishing tool", () => {

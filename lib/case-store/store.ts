@@ -269,7 +269,13 @@ export type CaseRowWithCalculated = CaseRow & {
  * The three change-shape arms `applySchemaChange` runs per-row
  * migrations for.
  *
- *   - `rename(from, to)` — JSONB key rename in one UPDATE.
+ *   - `rename(renames)` — one or more JSONB key renames applied
+ *     SIMULTANEOUSLY per row (each destination reads the row's
+ *     pre-migration value), so same-batch chains, swaps, and
+ *     name-reuse (A→B while B→C) resolve with no ordering
+ *     hazard. Values cast into the destination declaration;
+ *     blank/uncastable values drop with the old key (reported,
+ *     never a whole-row quarantine).
  *   - `retype(fromType, toType)` — per-row cast attempt; cast
  *     failures move to `cases_quarantine` with the original value
  *     preserved.
@@ -278,7 +284,7 @@ export type CaseRowWithCalculated = CaseRow & {
  *     failure rather than silent acceptance).
  */
 export type SchemaChangeKind =
-	| { kind: "rename"; from: string; to: string }
+	| { kind: "rename"; renames: ReadonlyArray<{ from: string; to: string }> }
 	| {
 			kind: "retype";
 			fromType: CasePropertyDataType;
@@ -296,8 +302,9 @@ export type SchemaChangeKind =
  * runs a compensating `applySchemaChange(previousState)` on
  * blueprint-commit failure.
  *
- * `property` is required when `change` is present and ignored
- * otherwise.
+ * `property` is required for the `retype` / `narrow-options`
+ * change arms (they target one property) and ignored otherwise —
+ * a `rename` change carries its own targets in `renames`.
  *
  * `syncedSeq` (the `mutation_seq` this schema state derives from)
  * arms the monotone `synced_seq` guard: a sync whose `syncedSeq`
@@ -350,11 +357,12 @@ export interface ApplySchemaChangeArgs {
  * rewrote — summing them counts such a row twice, so consumers
  * report the axes side by side instead. `quarantined` rows moved to
  * `cases_quarantine`; `skipped` rows untouched by a `change`
- * migration (for `rename`, rows lacking the `from` key; for the
+ * migration (for `rename`, rows lacking every renamed key; for the
  * others, rows lacking the targeted property). `failureReasons`
- * carries the exact `quarantine_reason` text per quarantined row in
- * row-iteration order — author-facing review UI reads these
- * directly.
+ * carries per-row failure text in row-iteration order — the exact
+ * `quarantine_reason` for quarantined rows, and the dropped-value
+ * explanation for a rename whose value could not live under the
+ * destination declaration (the row itself stays).
  */
 export interface MigrationReport {
 	migrated: number;

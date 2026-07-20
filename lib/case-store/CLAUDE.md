@@ -109,6 +109,22 @@ BEFORE the write reaches Postgres. The schema row is fetched on
 demand and the compiled validator is cached per
 `(appId, caseType, schemaContent)`.
 
+`update` merges the patch over the row's existing document and,
+before validating, SHEDS inherited keys the current schema no
+longer declares: any key in a row but not in the stored schema is
+provably an orphan (every write validated against the then-stored
+schema, so a fresher-than-schema key cannot exist), left behind by
+a property removal or a pre-migration rename. The one schema
+REGRESSION path — the saga's compensate after a failed
+blueprint commit — upholds the proof by INVERTING its rename's
+row migration first, so a value legitimately written under the
+briefly-live prospective schema travels back to a declared key
+instead of becoming an orphan the shed would eat. Shedding with
+the write is what keeps orphan-carrying rows writable instead of
+failing `additionalProperties` forever. Only the INHERITED half is
+shed — an unknown key in the caller's PATCH is still a validation
+error.
+
 The API route is the trust boundary; the database is internal.
 There is no in-database trigger and no `pg_jsonschema` dependency
 — Cloud SQL doesn't allowlist that extension and the validator
@@ -127,7 +143,7 @@ architecture.
    `detectShapeFlips` diffs the stored schema against the derived
    one; a property whose JSON type flips between plain string and
    array (the select single↔multi conversion — which reaches the
-   store as a plain additive sync, no hint) has its old-shape rows
+   store as a plain additive sync) has its old-shape rows
    rewritten in the same transaction: string scalar → one-element
    array, array → space-joined string (XForms convention) into an
    UNCONSTRAINED string target. Both rewrites are total AND
@@ -145,13 +161,29 @@ architecture.
    schema row → `cases` rows), so no write validated against the
    old schema can land after the reshape's scan.
 3. **Per-row migration** — only when `change` is supplied. The
-   three arms are `rename(from, to)`, `retype(fromType, toType)`,
-   and `narrow-options(removedOptions)`. Cast / option-set
-   failures move to `cases_quarantine` with the original value +
-   failure reason. The `change`-targeted property is excluded from
-   step 2's detection, and the reshape reports on its own
-   `reshaped` axis so one row rewritten by both is never
-   double-counted.
+   three arms are `rename(renames[])`, `retype(fromType, toType)`,
+   and `narrow-options(removedOptions)`. The retype / narrow-options
+   arms move cast / option-set failures to `cases_quarantine` with
+   the original value + failure reason. The rename arm applies ALL
+   its pairs SIMULTANEOUSLY per row (every destination reads the
+   row's pre-migration value), so same-batch chains, swaps, and
+   name-reuse (A→B while B→C) land every value at its true
+   destination; values cast into the DESTINATION declaration's type
+   (a MERGE-rename adopts the surviving entry's type), a conflict
+   row keeps the destination's already-valid value, and a
+   blank/uncastable value DROPS with its old key (reported in
+   `failureReasons`) — never a whole-row quarantine, because a
+   rename is a first-class authoring gesture and vanishing a case
+   over one bad value is worse than shedding it loudly. The
+   `rename` change is synthesized by `classifyCaseTypeChanges` from
+   field-uuid evidence — no surface threads a hint — and the
+   guarded commit re-proves the pairs against the FRESH doc pair
+   in-transaction (`renameExpectations`), rejecting a batch whose
+   trailing prior migrated a different rename than the commit would
+   apply. Only a retype/narrow-options-targeted property is
+   excluded from step 2's detection (a rename's destinations still
+   reshape); the reshape reports on its own `reshaped` axis so one
+   row rewritten by both is never double-counted.
 
 Phase A commits when the steps succeed and rolls back atomically
 on failure. The schema row + data are always consistent.

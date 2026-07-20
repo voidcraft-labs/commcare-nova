@@ -716,3 +716,45 @@ describe("appendSyntheticBatch (Postgres)", () => {
 		});
 	});
 });
+
+describe("commitGuardedBatch — rename-expectation gate", () => {
+	it("rejects a fresh-proven rename the caller's migration did not cover, and admits a covered one", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc, { projectId: null });
+		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
+		if (!village) throw new Error("fixture is missing the village field");
+		const mutations: Mutation[] = [
+			{ kind: "renameField", uuid: village.uuid, newId: "hamlet" },
+		];
+
+		// The batch's fresh re-apply renames village→hamlet, but the caller
+		// claims NO pairs were case-store-migrated (the trailing-prior
+		// shape: the migration ran for a different pair, or not at all).
+		// Committing would strand row values with the rename evidence
+		// expired, so the in-transaction gate rejects and writes nothing.
+		await expect(
+			commitGuardedBatch({
+				appId,
+				batchId: crypto.randomUUID(),
+				mutations,
+				actorUserId: OWNER,
+				kind: "autosave",
+				renameExpectations: [],
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		expect(await readSeq(appId)).toBe(0);
+
+		// The same batch with its pair covered commits normally.
+		const result = await commitGuardedBatch({
+			appId,
+			batchId: crypto.randomUUID(),
+			mutations,
+			actorUserId: OWNER,
+			kind: "autosave",
+			renameExpectations: [
+				{ caseType: "patient", from: "village", to: "hamlet" },
+			],
+		});
+		expect(result.seq).toBe(1);
+	});
+});

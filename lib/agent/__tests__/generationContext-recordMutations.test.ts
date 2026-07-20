@@ -16,6 +16,7 @@
 import type { LanguageModelUsage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import {
 	BlueprintCommitRejectedError,
@@ -36,6 +37,13 @@ vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: vi.fn(),
 	refreshEditLease: vi.fn(() => Promise.resolve()),
 	refreshBuildLiveness: vi.fn(() => Promise.resolve()),
+}));
+
+/* Rename-carrying batches detour through the cross-store saga so the
+ * case-store row migration runs with the commit — mock it as its own
+ * seam. */
+vi.mock("@/lib/db/applyBlueprintChange", () => ({
+	applyBlueprintChange: vi.fn(),
 }));
 
 /* Mock the logger so `emitError`'s server-side cause-logging is silent in
@@ -107,6 +115,61 @@ describe("GenerationContext.recordMutations", () => {
 		});
 		// A fresh uuid batchId per commit.
 		expect(args?.batchId).toEqual(expect.any(String));
+	});
+
+	it("routes a rename-carrying batch through the cross-store saga instead of the bare writer", async () => {
+		// A `renameField` batch must run the classifier-proven rename's
+		// row migration WITH the commit — committing it bare would leave
+		// the rename's diff evidence expired for every later sync and
+		// strand the rows on the old key.
+		vi.mocked(applyBlueprintChange).mockResolvedValue({
+			seq: 3,
+			committedDoc: committedDocFor("saga-committed"),
+		});
+		const rename: Mutation = {
+			kind: "renameField",
+			uuid: asUuid("field-uuid"),
+			newId: "patient_full_name",
+		};
+
+		const result = await ctx.recordMutations([rename], DOC);
+
+		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
+		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
+		const args = vi.mocked(applyBlueprintChange).mock.calls[0]?.[0];
+		expect(args).toMatchObject({
+			appId: "test-app",
+			runId: "run-1",
+			userId: "user-1",
+			kind: "chat",
+			guard: { mutations: [rename] },
+		});
+		expect(args?.batchId).toEqual(expect.any(String));
+		// The SA adopts the saga's committed doc, and the SSE frame
+		// carries the saga's seq.
+		expect(result.committedDoc?.appName).toBe("saga-committed");
+		const frame = writer.write.mock.calls[0]?.[0] as {
+			data: { seq: number };
+		};
+		expect(frame.data.seq).toBe(3);
+	});
+
+	it("routes a moveField batch through the saga too — a cross-parent dedup can rename a property", async () => {
+		vi.mocked(applyBlueprintChange).mockResolvedValue({
+			seq: 4,
+			committedDoc: committedDocFor("saga-committed"),
+		});
+		const move: Mutation = {
+			kind: "moveField",
+			uuid: asUuid("field-uuid"),
+			toParentUuid: asUuid("form-uuid"),
+			order: "a0",
+		};
+
+		await ctx.recordMutations([move], DOC);
+
+		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
+		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 	});
 
 	it("emits data-mutations AFTER the commit, carrying raw mutations + envelopes + seq + batchId", async () => {

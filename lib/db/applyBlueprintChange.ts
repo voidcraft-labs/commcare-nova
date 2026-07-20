@@ -9,15 +9,18 @@
  * without either losing a per-row migration. The sync splits
  * `classifyCaseTypeChanges`'s entries by change kind:
  *
- *   - **Migration-bearing** entries (a `change` hint — a rename /
- *     retype / narrow-options reshape, single-actor by nature):
+ *   - **Migration-bearing** entries (a `change` shape — a
+ *     classifier-proven rename, single-actor by nature):
  *     run Postgres-first + `compensate()` BEFORE the commit,
  *     derived from the client prospective. The per-row migration
- *     is recoverable — a failure runs a compensating
- *     `applySchemaChange` derived from the CURRENT committed doc
- *     (a fresh `loadApp`), seq-guarded, so it restores the schema
- *     row + index DDL without dropping a concurrent peer's
- *     committed property.
+ *     is recoverable — a failure inverts the rename's row moves
+ *     and re-syncs from the CURRENT committed doc (a fresh
+ *     `loadApp`), seq-guarded, so it restores the schema row +
+ *     index DDL + row keys without dropping a concurrent peer's
+ *     committed property. The commit itself holds the last gate:
+ *     `renameExpectations` makes it re-prove the batch's renames
+ *     against the FRESH doc pair and reject when its trailing
+ *     prior migrated a different pair than the re-apply commits.
  *   - **Additive** entries (a property/type add, no `change`):
  *     run a single POST-COMMIT sweep against the COMMITTED doc.
  *     After `commitGuardedBatch` returns, sync every case type the
@@ -67,11 +70,16 @@
  *   - `app/api/apps/[id]/route.ts` PUT (auto-save).
  *   - `lib/mcp/context.ts` `recordMutations` (MCP tool calls).
  *
- * The chat surface does NOT route through this saga: each tool batch
- * commits inline through `commitGuardedBatch` directly (awaited), and
- * the chat route's drain-end finalize re-syncs the case-store schemas
- * in one pass for whatever the run persisted — so the chat path needs
- * no per-save saga.
+ * The chat surface routes only its RENAME-capable batches here
+ * (`GenerationContext.commitBatch` detects `renameField` and
+ * `moveField` — the latter's cross-parent dedup can rename): a rename's
+ * row migration must run while the snapshots still prove it — once the
+ * batch commits bare, both sides of every later diff hold the new name
+ * and the drain-end additive materialize would strand the rows. Every
+ * other chat batch commits inline through `commitGuardedBatch` directly
+ * (awaited), and the chat route's drain-end finalize re-syncs the
+ * case-store schemas in one pass for whatever the run persisted — so
+ * the common chat path needs no per-save saga.
  *
  * ## Loading the prior state
  *
@@ -102,7 +110,7 @@ import { commitGuardedBatch, loadApp, loadAppProjectId } from "./apps";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
-	type SchemaChangeHint,
+	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
 import { reauthorizeActorForCommit } from "./commitGuard";
 import { getAppDb } from "./pg";
@@ -117,11 +125,11 @@ import type { AcceptedMutationDoc } from "./types";
  * guarded commit ({@link commitGuardedBatch}) — the transactional
  * read-evaluate-write below — after the case-store schema saga.
  *
- * `hint` carries optional explicit per-row migration intent —
- * rename / retype / narrow-options. The classifier emits the
- * matching `change` shape on the `applySchemaChange` call so the
- * schema sync + per-row migration run in one Postgres
- * transaction.
+ * Per-row migration intent is NOT a caller input: the classifier
+ * proves renames itself from the two snapshots (field-uuid
+ * evidence — see `classifyCaseTypeChanges`) and emits the matching
+ * `change` entry, so the schema sync + per-row migration run in
+ * one Postgres transaction with no caller threading a hint.
  *
  * `priorBlueprint` lets a caller that already loaded the app
  * document (the auto-save PUT route does so for ownership) skip
@@ -148,7 +156,6 @@ export interface ApplyBlueprintChangeArgs {
 	readonly batchId: string;
 	/** Which write path is committing — stamped on the durable stream entry. */
 	readonly kind: AcceptedMutationDoc["kind"];
-	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
 	/**
 	 * Guarded MUTATION commit: the blueprint write is a transactional
@@ -241,14 +248,17 @@ export async function applyBlueprintChange(
 	const entries = classifyCaseTypeChanges({
 		prior: priorBlueprint,
 		prospective: prospectiveBlueprint,
-		hint: args.hint,
 	});
 
 	// Fast path — pure non-case-type mutation, skip the case-store entirely and
 	// commit the blueprint directly. `commitGuardedBatch`'s own reauth is the
-	// single gate here (no pre-commit DDL to protect).
+	// single gate here (no pre-commit DDL to protect). The empty
+	// rename-expectation list still arms the commit's rename gate: a batch
+	// classified as rename-free against a TRAILING prior can re-apply as a
+	// rename against the fresh doc, and committing that bare would strand
+	// rows with the evidence expired.
 	if (entries.length === 0) {
-		return (await persistBlueprint(args)).result;
+		return (await persistBlueprint(args, [])).result;
 	}
 
 	// Tenant-free schema store: the saga only ever calls
@@ -259,23 +269,15 @@ export async function applyBlueprintChange(
 
 	// The migration-bearing entries run Postgres-first + compensate; the
 	// additive ones ride the post-commit sweep. `change !== undefined` is the
-	// discriminator the classifier stamps for an explicit per-row reshape. A
-	// hint whose `caseType` isn't in the prospective (a stale / retired-type
-	// hint) is dropped — running it would throw `CaseTypeNotInBlueprintError`
-	// and abort an otherwise-valid write; the sweep (or the next save) still
-	// covers whatever the committed doc holds.
+	// discriminator the classifier stamps for a proven per-row reshape. A
+	// change entry's case type is always present in the prospective — the
+	// classifier synthesizes it FROM the prospective's materializable view,
+	// the same view `buildCaseTypeMap` builds — so no absent-type filter is
+	// needed before Phase 1.
 	const prospectiveSchemas = buildCaseTypeMap(prospectiveBlueprint);
-	const migrationEntries = entries.filter((entry) => {
-		if (entry.change === undefined) return false;
-		if (!prospectiveSchemas.has(entry.caseType)) {
-			log.warn(
-				"[applyBlueprintChange] migration hint targets a case type absent from the prospective blueprint — skipping",
-				{ appId: args.appId, caseType: entry.caseType },
-			);
-			return false;
-		}
-		return true;
-	});
+	const migrationEntries = entries.filter(
+		(entry) => entry.change !== undefined,
+	);
 
 	// Reauthorize BEFORE the migration-bearing Phase-1 DDL — ONLY when there is
 	// such DDL to protect. The saga applies that DDL before
@@ -295,6 +297,25 @@ export async function applyBlueprintChange(
 		await reauthorizeActorForCommit(projectId, args.userId);
 		preauthorized = { projectId };
 	}
+
+	// Every rename pair the classifier proved, flattened for the guarded
+	// commit's rename-expectation gate: inside the commit transaction the
+	// gate RE-proves the pairs against the FRESH doc pair and rejects when
+	// the fresh evidence names a pair Phase 1 did not migrate — the
+	// trailing-prior race where a concurrent commit changed what this
+	// batch's re-apply renames. Passed even when EMPTY (the fresh re-apply
+	// of a batch classified as rename-free can still produce a rename
+	// against a doc that moved under it).
+	const renameExpectations: RenameExpectation[] = migrationEntries.flatMap(
+		(entry) =>
+			entry.change?.kind === "rename"
+				? entry.change.renames.map((pair) => ({
+						caseType: entry.caseType,
+						from: pair.from,
+						to: pair.to,
+					}))
+				: [],
+	);
 
 	// Phase 1: forward-apply each MIGRATION-BEARING change against Postgres,
 	// derived from the client prospective. The additive entries are NOT applied
@@ -327,7 +348,11 @@ export async function applyBlueprintChange(
 	let result: ApplyBlueprintChangeResult;
 	let deduped: boolean;
 	try {
-		({ result, deduped } = await persistBlueprint(args, preauthorized));
+		({ result, deduped } = await persistBlueprint(
+			args,
+			renameExpectations,
+			preauthorized,
+		));
 	} catch (commitErr) {
 		await compensate(args.appId, store, migrationEntries);
 		throw commitErr;
@@ -395,6 +420,7 @@ async function resolvePriorBlueprint(
  */
 async function persistBlueprint(
 	args: ApplyBlueprintChangeArgs,
+	renameExpectations: readonly RenameExpectation[],
 	preauthorized?: { projectId: string | null },
 ): Promise<{ result: ApplyBlueprintChangeResult; deduped: boolean }> {
 	if (args.guard === undefined) {
@@ -408,6 +434,7 @@ async function persistBlueprint(
 		mutations,
 		actorUserId: args.userId,
 		kind: args.kind,
+		renameExpectations,
 		...(mediaExpectations !== undefined && { mediaExpectations }),
 		...(preauthorized !== undefined && { preauthorized }),
 	});
@@ -519,12 +546,25 @@ async function sweepCommittedSchemas(
  * dropped by a failed migration and a still-newer concurrent write isn't
  * clobbered either.
  *
- * Schema-sync-only (no `change`): the per-row migration already ran in Phase 1
- * and is NOT inverted — rows already retyped stay in their new JSONB shape,
- * rows already quarantined stay quarantined. That eventual-consistency is
- * acceptable: the fresh-doc schema mirrors what's stored, and a subsequent
- * successful write re-syncs against the migrated rows. The "apps are always
- * valid" lock holds at the schema-row + index layer.
+ * A rename entry's Phase-1 per-row migration IS inverted — before the type's
+ * re-sync, the pairs run through `applySchemaChange` again with from/to
+ * swapped, so values return to the keys the restored schema declares (this
+ * includes a value a concurrent writer legitimately landed under the
+ * prospective schema mid-window: it travels back with the inversion instead
+ * of becoming an orphan the merged-update strip would shed). Only PLAIN
+ * renames invert: a pair whose forward destination is still declared in the
+ * current committed doc was a MERGE-rename, and moving ALL of the merged
+ * key's values back would relocate the destination's own pre-merge data —
+ * so merge pairs are skipped, leaving the moved values valid and visible
+ * under the (still-declared) destination. A pair whose old name the current
+ * doc no longer declares is likewise skipped (nothing valid to restore to).
+ * The inversion is simultaneous like the forward pass, so chains reverse
+ * correctly; dropped uncastable/blank values are gone either way (reported
+ * in the forward call's `failureReasons`).
+ *
+ * The `retype` / `narrow-options` arms (drift-script-only) have no inversion
+ * — rows already retyped stay in their new JSONB shape, rows already
+ * quarantined stay quarantined; the fresh-doc schema mirrors what's stored.
  *
  * If the fresh `loadApp` returns null (the app was concurrently deleted) there
  * is nothing to reconcile. Per-call try/catch isolation: one compensation
@@ -551,13 +591,53 @@ async function compensate(
 	}
 	const currentSchemas = buildCaseTypeMap(current.blueprint);
 	const currentSeq = current.mutation_seq;
+	// The forward rename pairs per type — inverted below so row values
+	// return to the keys the restored schema declares.
+	const renamesByType = new Map<
+		string,
+		ReadonlyArray<{ from: string; to: string }>
+	>();
+	for (const entry of entries) {
+		if (entry.change?.kind === "rename") {
+			renamesByType.set(entry.caseType, entry.change.renames);
+		}
+	}
 	// Distinct types only — the classifier can emit several entries per type.
 	const touched = new Set(entries.map((entry) => entry.caseType));
 	for (const caseType of touched) {
 		// A type dropped from the current committed doc (a concurrent retire)
 		// has no schema to derive — skip. Otherwise re-sync it seq-guarded so a
 		// peer's committed property survives and a stale re-sync no-ops.
-		if (!currentSchemas.has(caseType)) continue;
+		const currentType = currentSchemas.get(caseType);
+		if (currentType === undefined) continue;
+		const forward = renamesByType.get(caseType);
+		if (forward !== undefined) {
+			const currentProps = new Set(
+				currentType.properties.map((prop) => prop.name),
+			);
+			// Invert only PLAIN renames — see the docblock's merge-pair rule.
+			const inverse = forward
+				.filter(
+					(pair) => currentProps.has(pair.from) && !currentProps.has(pair.to),
+				)
+				.map((pair) => ({ from: pair.to, to: pair.from }));
+			if (inverse.length > 0) {
+				try {
+					await store.applySchemaChange({
+						appId,
+						caseType,
+						caseTypeSchemas: currentSchemas,
+						change: { kind: "rename", renames: inverse },
+					});
+				} catch (invertErr) {
+					log.error(
+						`[applyBlueprintChange] rename inversion failed for caseType=${caseType}`,
+						invertErr,
+						{ appId },
+					);
+				}
+			}
+		}
 		try {
 			await store.applySchemaChange({
 				appId,
