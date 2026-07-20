@@ -388,6 +388,47 @@ export interface MigrationReport {
 }
 
 /**
+ * One set-aside value as the review surface reads it — a
+ * `parked_case_values` row joined to its live case, with the
+ * restore verdict computed server-side against the property's
+ * CURRENT declaration (never promised from staleness):
+ *
+ *   - `restorable` — the original value conforms to the currently-
+ *     stored schema AND the case's key holds no real value. Exactly
+ *     the conditions `restoreParkedValues` re-proves at write time,
+ *     so an enabled Restore can only fail by losing a race.
+ *   - `blockedBy: "type"` — the value doesn't fit the property's
+ *     current declaration; converting the property back is the way
+ *     out (the disabled-Restore tooltip names it).
+ *   - `blockedBy: "occupied"` — a real value holds the case's key
+ *     (a concurrent write, a narrow-options survivor set, or a
+ *     replacement); restoring would clobber it.
+ *   - `fitsOriginalType` — whether the value still conforms to
+ *     `fromType`'s schema shape: the convert-back callout's honesty
+ *     condition ("all N still fit text").
+ */
+export interface ParkedValueEntry {
+	id: string;
+	caseId: string;
+	/** The case's display name (`cases.case_name`). */
+	caseName: string;
+	caseType: string;
+	property: string;
+	originalValue: JsonValue;
+	/** Person-readable — the same voice as `MigrationReport.failureReasons`. */
+	reason: string;
+	/** The transition captured at park time (a narrow-options park carries its select type on both sides). */
+	fromType: CasePropertyDataType;
+	toType: CasePropertyDataType;
+	createdAt: Date;
+	/** Soft archive — non-null when the user dismissed the entry. Dismissed entries stay listed (and explicitly restorable) under the Dismissed filter. */
+	dismissedAt: Date | null;
+	restorable: boolean;
+	blockedBy: "type" | "occupied" | null;
+	fitsOriginalType: boolean;
+}
+
+/**
  * Arguments for `CaseStore.generateSampleData`. Same `(appId,
  * caseType.name, seed)` tuple yields the same row sequence on
  * every call. `caseType` is the full definition — the heuristic
@@ -623,6 +664,60 @@ export interface CaseStore extends SchemaCaseStore {
 		deleted: number;
 		inserted: number;
 	}>;
+
+	/**
+	 * Every set-aside value of the case type, newest first, with the
+	 * restore verdict computed against the CURRENTLY-stored schema —
+	 * see {@link ParkedValueEntry}. Tenant-bound through the `cases`
+	 * join (an entry is only as visible as its case row).
+	 */
+	listParkedValues(args: {
+		appId: string;
+		caseType: string;
+	}): Promise<ParkedValueEntry[]>;
+
+	/**
+	 * The user-driven restore: write the named entries' values back
+	 * under their keys and delete the restored entries. Same safety
+	 * core as {@link SchemaCaseStore.unparkValues} — row exists, key
+	 * free, value conforms to the currently-stored schema; a blocked
+	 * entry is KEPT — plus the tenant gate: an id whose case row sits
+	 * outside the bound Project counts as `kept`, never touched.
+	 */
+	restoreParkedValues(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+	}): Promise<{ restored: number; kept: number }>;
+
+	/**
+	 * Toggle the soft archive on the named entries. Dismissing never
+	 * deletes — the entry leaves the active list (and the discovery
+	 * badge count, and the winning-sync auto-restore's candidate set)
+	 * but stays findable and restorable under the Dismissed filter;
+	 * `dismissed: false` is the undo. Returns the toggled count;
+	 * tenant-gated like {@link CaseStore.restoreParkedValues}.
+	 */
+	setParkedValuesDismissed(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+		dismissed: boolean;
+	}): Promise<number>;
+
+	/**
+	 * The "Fix" path: write `value` to the entry's case property
+	 * through the standard validated `update` (schema validation,
+	 * orphan shed, `modified_on` stamp), then dismiss the entry — the
+	 * original value stays readable under the Dismissed filter rather
+	 * than deleting. Throws `ParkedValueNotFoundError` when the bound
+	 * Project cannot see the entry and
+	 * `CasePropertiesValidationError` when the value doesn't fit the
+	 * property's current declaration.
+	 */
+	replaceParkedValue(args: {
+		appId: string;
+		id: string;
+		value: JsonValue;
+	}): Promise<void>;
 }
 
 /**

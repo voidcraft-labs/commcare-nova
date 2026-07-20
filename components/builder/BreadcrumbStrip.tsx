@@ -196,10 +196,11 @@ export function BreadcrumbStrip() {
 					parts={breadcrumbParts}
 					compactWorkspaceBreadcrumb={compactWorkspaceBreadcrumb}
 				/>
-				{appId && caseType && (
+				{appId && caseType && moduleUuid && (
 					<CaseDataManager
 						key={`${appId}\u0000${caseType.name}`}
 						appId={appId}
+						moduleUuid={moduleUuid}
 						caseType={caseType}
 						canEdit={canEdit}
 						hasLinkedChildren={hasLinkedChildren}

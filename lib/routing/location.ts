@@ -61,6 +61,8 @@ export function serializePath(loc: Location): string[] {
 			return [loc.moduleUuid, "search"];
 		case "detail-config":
 			return [loc.moduleUuid, "details"];
+		case "set-aside":
+			return [loc.moduleUuid, "set-aside"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -223,6 +225,14 @@ export function parsePathToLocation(
 		return { kind: "detail-config", moduleUuid: first };
 	}
 
+	if (second === "set-aside") {
+		/* The set-aside values review screen — a case-workspace sibling
+		 * reached from the Case data popover, the conversion toast, and
+		 * teammate-shared deep links. */
+		if (doc.modules[first] === undefined) return { kind: "home" };
+		return { kind: "set-aside", moduleUuid: first };
+	}
+
 	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
 	const secondUuid = second as Uuid;
 
@@ -269,7 +279,8 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "search-config":
 		case "detail-config":
-			// The workspace's sibling tabs open against the same module
+		case "set-aside":
+			// The workspace's sibling screens open against the same module
 			// reference shape as `cases`; only that uuid needs to resolve.
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "form": {
@@ -312,14 +323,16 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 
 	if (loc.kind === "module") return loc;
 
-	/* The three case-list workspace URLs require a case type — the workspace
-	 * renders nothing without one. If the module has no case type (e.g. it was
+	/* The case-list workspace URLs (and the set-aside review, which
+	 * lists per case type) require a case type — the screens render
+	 * nothing without one. If the module has no case type (e.g. it was
 	 * cleared, which also drops the caseListOnly viewer flag), fall back to the
 	 * module screen rather than stranding the user on a blank workspace. */
 	if (
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
-		loc.kind === "detail-config"
+		loc.kind === "detail-config" ||
+		loc.kind === "set-aside"
 	) {
 		if (doc.modules[loc.moduleUuid]?.caseType === undefined) {
 			return { kind: "module", moduleUuid: loc.moduleUuid };

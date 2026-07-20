@@ -48,6 +48,7 @@ import {
 	type Insertable,
 	type InsertObject,
 	type Kysely,
+	type Selectable,
 	sql,
 	type Transaction,
 } from "kysely";
@@ -71,6 +72,7 @@ import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	ParkedValueNotFoundError,
 	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
 } from "../errors";
@@ -88,6 +90,7 @@ import type {
 	Database,
 	JsonObject,
 	JsonValue,
+	ParkedCaseValuesTable,
 } from "../sql/database";
 import type {
 	ApplySchemaChangeArgs,
@@ -101,6 +104,7 @@ import type {
 	CountArgs,
 	GenerateSampleDataArgs,
 	MigrationReport,
+	ParkedValueEntry,
 	QueryArgs,
 	ResetSampleDataArgs,
 	SchemaChangeKind,
@@ -1300,6 +1304,7 @@ export class PostgresCaseStore implements CaseStore {
 							property: args.property,
 							change: args.change,
 							caseTypeDecl: caseType,
+							storedSchema: priorRow?.schema,
 						});
 
 			// Step 4: restore previously-parked values whose property's
@@ -1666,6 +1671,8 @@ export class PostgresCaseStore implements CaseStore {
 			property: string | undefined;
 			change: SchemaChangeKind;
 			caseTypeDecl: CaseType;
+			/** The stored (pre-sync) schema document — the rename arm reads each SOURCE property's type off it for its parks' `from_type`. */
+			storedSchema: unknown;
 		},
 	): Promise<MigrationReport> {
 		switch (args.change.kind) {
@@ -1674,10 +1681,21 @@ export class PostgresCaseStore implements CaseStore {
 				// per-row cast. A plain rename carried its declaration with
 				// it (identity cast); a merge-rename adopted the surviving
 				// entry's type. An undeclared `data_type` derives a plain
-				// string schema, so it casts as `text`.
+				// string schema, so it casts as `text`. The SOURCE type
+				// comes off the STORED schema (the declaration the parked
+				// value was last valid under) with the same plain-string
+				// fallback.
+				const storedProps =
+					typeof args.storedSchema === "object" && args.storedSchema !== null
+						? ((args.storedSchema as { properties?: unknown }).properties as
+								| Record<string, unknown>
+								| undefined)
+						: undefined;
 				const renames = args.change.renames.map((pair) => ({
 					from: pair.from,
 					to: pair.to,
+					fromType:
+						dataTypeTokenOf(storedProps?.[pair.from]) ?? ("text" as const),
 					toType:
 						args.caseTypeDecl.properties.find((p) => p.name === pair.to)
 							?.data_type ?? ("text" as const),
@@ -1868,6 +1886,8 @@ export class PostgresCaseStore implements CaseStore {
 			renames: ReadonlyArray<{
 				from: string;
 				to: string;
+				/** The SOURCE property's type in the stored (pre-migration) schema — a park's `from_type`. */
+				fromType: CasePropertyDataType;
 				toType: CasePropertyDataType;
 			}>;
 		},
@@ -1940,6 +1960,8 @@ export class PostgresCaseStore implements CaseStore {
 						property: pair.from,
 						value,
 						reason,
+						fromType: pair.fromType,
+						toType: pair.toType,
 					});
 					failureReasons.push(reason);
 					continue;
@@ -1955,6 +1977,8 @@ export class PostgresCaseStore implements CaseStore {
 						property: pair.from,
 						value,
 						reason,
+						fromType: pair.fromType,
+						toType: pair.toType,
 					});
 					failureReasons.push(reason);
 				}
@@ -2059,6 +2083,8 @@ export class PostgresCaseStore implements CaseStore {
 						property: retype.property,
 						value,
 						reason,
+						fromType: retype.fromType,
+						toType: retype.toType,
 					});
 					failureReasons.push(reason);
 					next = withoutKey(source, retype.property);
@@ -2142,12 +2168,19 @@ export class PostgresCaseStore implements CaseStore {
 			}
 
 			const reason = `option '${conflict}' removed from property '${args.property}'; case ${row.case_id}'s value was set aside`;
+			// Not a type change — the park's transition carries the select
+			// type (read off the value's own shape) on both sides.
+			const selectType = Array.isArray(rawValue)
+				? ("multi_select" as const)
+				: ("single_select" as const);
 			parks.push({
 				caseId: row.case_id,
 				caseType: row.case_type,
 				property: args.property,
 				value: rawValue,
 				reason,
+				fromType: selectType,
+				toType: selectType,
 			});
 			failureReasons.push(reason);
 
@@ -2239,6 +2272,8 @@ export class PostgresCaseStore implements CaseStore {
 					property: entry.property,
 					original_value: JSON.stringify(entry.value),
 					reason: entry.reason,
+					from_type: entry.fromType,
+					to_type: entry.toType,
 				})),
 			)
 			.returning("id")
@@ -2271,12 +2306,16 @@ export class PostgresCaseStore implements CaseStore {
 			properties: ReadonlySet<string>;
 		},
 	): Promise<number> {
+		// Dismissed entries stay put: the user reviewed them and chose
+		// the archive, so a later convert-back doesn't resurrect them —
+		// the review surface's explicit Restore is their only way back.
 		const entries = await trx
 			.selectFrom("parked_case_values as p")
 			.selectAll("p")
 			.where("p.app_id", "=", args.appId)
 			.where("p.case_type", "=", args.caseType)
 			.where("p.property", "in", [...args.properties])
+			.where("p.dismissed_at", "is", null)
 			.execute();
 		if (entries.length === 0) return 0;
 
@@ -2389,81 +2428,251 @@ export class PostgresCaseStore implements CaseStore {
 			if (entries.length === 0) {
 				return { restored: 0, kept: args.ids.length };
 			}
-			const rows = await trx
-				.selectFrom("cases as c")
-				.select(["c.case_id", "c.properties"])
-				.where("c.app_id", "=", args.appId)
-				.where(
-					"c.case_id",
-					"in",
-					entries.map((entry) => entry.case_id),
-				)
-				.forUpdate()
+			return await this.restoreEntries(trx, args.appId, entries);
+		});
+	}
+
+	/**
+	 * The shared restore core `unparkValues` (the saga's compensation)
+	 * and `restoreParkedValues` (the review surface) both run on their
+	 * ALREADY-FETCHED entries: lock the case rows `FOR UPDATE`, prove
+	 * each entry safe on every axis (row exists, key free, value
+	 * conforms to the CURRENTLY-stored schema), write the safe values
+	 * back grouped per row, and delete exactly the restored entries. A
+	 * blocked entry is KEPT — lossless beats tidy; the review surface
+	 * settles it.
+	 */
+	private async restoreEntries(
+		trx: Transaction<Database>,
+		appId: string,
+		entries: ReadonlyArray<Selectable<ParkedCaseValuesTable>>,
+	): Promise<{ restored: number; kept: number }> {
+		const rows = await trx
+			.selectFrom("cases as c")
+			.select(["c.case_id", "c.properties"])
+			.where("c.app_id", "=", appId)
+			.where(
+				"c.case_id",
+				"in",
+				entries.map((entry) => entry.case_id),
+			)
+			.forUpdate()
+			.execute();
+		const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
+		const conformance = await this.parkedValueConformance(
+			trx,
+			appId,
+			new Set(entries.map((entry) => entry.case_type)),
+		);
+
+		// Group per row so several restored properties on one case
+		// compose into a single rewrite.
+		const nextByCaseId = new Map<string, JsonObject>();
+		const restoredIds: string[] = [];
+		let kept = 0;
+		for (const entry of entries) {
+			const row = rowByCaseId.get(entry.case_id);
+			if (row === undefined) {
+				// The row vanished (cascade would have removed the entry
+				// with it inside one transaction, but the id list can span
+				// operations) — nothing to restore into.
+				kept++;
+				continue;
+			}
+			const current = nextByCaseId.get(entry.case_id) ?? row.properties;
+			if (
+				Object.hasOwn(current, entry.property) &&
+				current[entry.property] !== null &&
+				current[entry.property] !== ""
+			) {
+				// A concurrent writer landed a real value under the key
+				// after the park. Keep the entry rather than clobber the
+				// newer value or delete the older one.
+				kept++;
+				continue;
+			}
+			if (!conformance(entry.case_type, entry.property, entry.original_value)) {
+				kept++;
+				continue;
+			}
+			nextByCaseId.set(entry.case_id, {
+				...current,
+				[entry.property]: entry.original_value,
+			});
+			restoredIds.push(entry.id);
+		}
+
+		if (nextByCaseId.size > 0) {
+			await this.bulkUpdateProperties(trx, {
+				appId,
+				rows: [...nextByCaseId.entries()].map(([caseId, newProperties]) => ({
+					caseId,
+					newProperties,
+				})),
+			});
+		}
+		if (restoredIds.length > 0) {
+			await trx
+				.deleteFrom("parked_case_values")
+				.where("parked_case_values.app_id", "=", appId)
+				.where("parked_case_values.id", "in", restoredIds)
 				.execute();
-			const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
+		}
+		return { restored: restoredIds.length, kept };
+	}
+
+	async listParkedValues(args: {
+		appId: string;
+		caseType: string;
+	}): Promise<ParkedValueEntry[]> {
+		const projectId = this.requireProjectId();
+		// One transaction so the entries, their case rows, and the
+		// schema the verdicts are computed against are a single
+		// consistent snapshot. The `cases` join is the tenant gate — an
+		// entry is only as visible as its row.
+		return await this.db.transaction().execute(async (trx) => {
+			const rows = await trx
+				.selectFrom("parked_case_values as p")
+				.innerJoin("cases as c", "c.case_id", "p.case_id")
+				.selectAll("p")
+				.select(["c.case_name", "c.properties as case_properties"])
+				.where("p.app_id", "=", args.appId)
+				.where("p.case_type", "=", args.caseType)
+				.where("c.project_id", "=", projectId)
+				.orderBy("p.created_at", "desc")
+				.orderBy("p.id", "desc")
+				.execute();
+			if (rows.length === 0) return [];
 			const conformance = await this.parkedValueConformance(
 				trx,
 				args.appId,
-				new Set(entries.map((entry) => entry.case_type)),
+				new Set(rows.map((row) => row.case_type)),
 			);
-
-			// Group per row so several restored properties on one case
-			// compose into a single rewrite.
-			const nextByCaseId = new Map<string, JsonObject>();
-			const restoredIds: string[] = [];
-			let kept = 0;
-			for (const entry of entries) {
-				const row = rowByCaseId.get(entry.case_id);
-				if (row === undefined) {
-					// The row vanished (cascade would have removed the entry
-					// with it inside one transaction, but the id list can span
-					// operations) — nothing to restore into.
-					kept++;
-					continue;
-				}
-				const current = nextByCaseId.get(entry.case_id) ?? row.properties;
-				if (
-					Object.hasOwn(current, entry.property) &&
-					current[entry.property] !== null &&
-					current[entry.property] !== ""
-				) {
-					// A concurrent writer landed a real value under the key
-					// after the park. Keep the entry rather than clobber the
-					// newer value or delete the older one.
-					kept++;
-					continue;
-				}
-				if (
-					!conformance(entry.case_type, entry.property, entry.original_value)
-				) {
-					kept++;
-					continue;
-				}
-				nextByCaseId.set(entry.case_id, {
-					...current,
-					[entry.property]: entry.original_value,
-				});
-				restoredIds.push(entry.id);
-			}
-
-			if (nextByCaseId.size > 0) {
-				await this.bulkUpdateProperties(trx, {
-					appId: args.appId,
-					rows: [...nextByCaseId.entries()].map(([caseId, newProperties]) => ({
-						caseId,
-						newProperties,
-					})),
-				});
-			}
-			if (restoredIds.length > 0) {
-				await trx
-					.deleteFrom("parked_case_values")
-					.where("parked_case_values.app_id", "=", args.appId)
-					.where("parked_case_values.id", "in", restoredIds)
-					.execute();
-			}
-			return { restored: restoredIds.length, kept };
+			return rows.map((row) => {
+				const conforms = conformance(
+					row.case_type,
+					row.property,
+					row.original_value,
+				);
+				const held = row.case_properties[row.property];
+				const occupied =
+					Object.hasOwn(row.case_properties, row.property) &&
+					held !== null &&
+					held !== "";
+				// `from_type`/`to_type` were written from typed tokens by
+				// `bulkPark` — the only writer — so the read-side narrowing
+				// trusts the column the same way `original_value` trusts
+				// its jsonb shape.
+				const fromType = row.from_type as CasePropertyDataType;
+				return {
+					id: row.id,
+					caseId: row.case_id,
+					caseName: row.case_name,
+					caseType: row.case_type,
+					property: row.property,
+					originalValue: row.original_value,
+					reason: row.reason,
+					fromType,
+					toType: row.to_type as CasePropertyDataType,
+					createdAt: row.created_at,
+					dismissedAt: row.dismissed_at,
+					restorable: conforms && !occupied,
+					blockedBy: conforms ? (occupied ? "occupied" : null) : "type",
+					fitsOriginalType:
+						castConformance(fromType)(row.original_value) === true,
+				};
+			});
 		});
+	}
+
+	async restoreParkedValues(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+	}): Promise<{ restored: number; kept: number }> {
+		const projectId = this.requireProjectId();
+		if (args.ids.length === 0) return { restored: 0, kept: 0 };
+		return await this.db.transaction().execute(async (trx) => {
+			// The `cases` join is the tenant gate; an id it filters out
+			// (vanished row, foreign Project) counts as `kept`, exactly
+			// like every other blocked entry — never touched, never
+			// distinguished (the boundary stays structural).
+			const entries = await trx
+				.selectFrom("parked_case_values as p")
+				.innerJoin("cases as c", "c.case_id", "p.case_id")
+				.selectAll("p")
+				.where("p.app_id", "=", args.appId)
+				.where("p.id", "in", [...args.ids])
+				.where("c.project_id", "=", projectId)
+				.execute();
+			if (entries.length === 0) {
+				return { restored: 0, kept: args.ids.length };
+			}
+			const result = await this.restoreEntries(trx, args.appId, entries);
+			return {
+				restored: result.restored,
+				kept: result.kept + (args.ids.length - entries.length),
+			};
+		});
+	}
+
+	async setParkedValuesDismissed(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+		dismissed: boolean;
+	}): Promise<number> {
+		const projectId = this.requireProjectId();
+		if (args.ids.length === 0) return 0;
+		const result = await this.db
+			.updateTable("parked_case_values as p")
+			.set({ dismissed_at: args.dismissed ? new Date() : null })
+			.where("p.app_id", "=", args.appId)
+			.where("p.id", "in", [...args.ids])
+			.where(({ exists, selectFrom }) =>
+				exists(
+					selectFrom("cases as c")
+						.select("c.case_id")
+						.whereRef("c.case_id", "=", "p.case_id")
+						.where("c.project_id", "=", projectId),
+				),
+			)
+			.executeTakeFirst();
+		return Number(result.numUpdatedRows);
+	}
+
+	async replaceParkedValue(args: {
+		appId: string;
+		id: string;
+		value: JsonValue;
+	}): Promise<void> {
+		const projectId = this.requireProjectId();
+		const entry = await this.db
+			.selectFrom("parked_case_values as p")
+			.innerJoin("cases as c", "c.case_id", "p.case_id")
+			.select(["p.id", "p.case_id", "p.property"])
+			.where("p.app_id", "=", args.appId)
+			.where("p.id", "=", args.id)
+			.where("c.project_id", "=", projectId)
+			.executeTakeFirst();
+		if (entry === undefined) {
+			throw new ParkedValueNotFoundError(args.id);
+		}
+		// The write goes through the standard validated `update` (schema
+		// validation, orphan shed, `modified_on` stamp) FIRST; the
+		// dismiss follows in its own statement. A crash between the two
+		// leaves the entry active with its key occupied — the list then
+		// shows it blocked (`occupied`), which is honest and settled by
+		// hand, whereas the inverse order could archive an entry whose
+		// replacement never landed.
+		await this.update({
+			appId: args.appId,
+			caseId: entry.case_id,
+			patch: { properties: { [entry.property]: args.value } },
+		});
+		await this.db
+			.updateTable("parked_case_values")
+			.set({ dismissed_at: new Date() })
+			.where("id", "=", entry.id)
+			.execute();
 	}
 
 	/**
@@ -2933,6 +3142,13 @@ interface ParkEntry {
 	property: string;
 	value: JsonValue;
 	reason: string;
+	/**
+	 * The transition the park happened under, captured here because
+	 * nothing else records the FROM side once the schema has moved on.
+	 * A narrow-options park carries its select type on both sides.
+	 */
+	fromType: CasePropertyDataType;
+	toType: CasePropertyDataType;
 }
 
 /** A shallow copy of `source` without `key` — the row-side half of a park/drop. */

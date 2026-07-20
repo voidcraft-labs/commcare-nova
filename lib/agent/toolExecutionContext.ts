@@ -133,7 +133,8 @@ export function describeParkedOutcome(outcome: {
 	return (
 		`Data note: ${outcome.parked} saved case value${outcome.parked === 1 ? "" : "s"} ` +
 		`could not convert to the new type and ${outcome.parked === 1 ? "was" : "were"} set aside — ` +
-		`the cases themselves are intact. ${detail}${more}`
+		`the cases themselves are intact, and the values can be reviewed and restored ` +
+		`under Case data in the builder. ${detail}${more}`
 	);
 }
 

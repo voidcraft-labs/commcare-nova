@@ -1174,6 +1174,18 @@ export function schemaHealingCaseStore(
 		// (migrations are the trusted writer layer), so the heal's
 		// missing/stale-schema remedy has nothing to catch here.
 		unparkValues: (a) => store.unparkValues(a),
+		// Un-healed for the same reason: the restore verdicts and the
+		// restore writes gate on conformance against the STORED schema
+		// row (answering "blocked"/false on an absent one), and the
+		// dismiss toggle touches only the park table — none of the
+		// three can throw the heal's missing/stale-schema signal.
+		listParkedValues: (a) => store.listParkedValues(a),
+		restoreParkedValues: (a) => store.restoreParkedValues(a),
+		setParkedValuesDismissed: (a) => store.setParkedValuesDismissed(a),
+		// Healed: the replacement flows through the standard validated
+		// `update`, whose per-case-type validator acquisition is exactly
+		// what a missing/stale schema row makes throw.
+		replaceParkedValue: (a) => heal(() => store.replaceParkedValue(a)),
 		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
 		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
 	};

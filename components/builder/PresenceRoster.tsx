@@ -61,6 +61,8 @@ function whereLabel(location: Location): string {
 		case "search-config":
 		case "detail-config":
 			return "in the case list";
+		case "set-aside":
+			return "reviewing set-aside values";
 		case "form":
 			return location.selectedUuid !== undefined
 				? "editing a field"

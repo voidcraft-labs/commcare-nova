@@ -9,6 +9,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Uuid } from "@/lib/doc/types";
 import type { CaseType } from "@/lib/domain";
 import type {
 	LoadCaseCountResult,
@@ -20,10 +21,12 @@ const mocks = vi.hoisted(() => ({
 		| LoadCaseCountResult
 		| { kind: "idle" }
 		| { kind: "loading" },
+	parkedState: { kind: "entries", entries: [] } as unknown,
 	populate: vi.fn(),
 	reset: vi.fn(),
 	reloadCount: vi.fn(),
 	showToast: vi.fn(),
+	openSetAside: vi.fn(),
 }));
 
 vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
@@ -32,8 +35,17 @@ vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
 		fetching: false,
 		reload: mocks.reloadCount,
 	}),
+	useParkedValues: () => ({
+		state: mocks.parkedState,
+		fetching: false,
+		reload: vi.fn(),
+	}),
 	usePopulateSampleCases: () => mocks.populate,
 	useResetSampleCases: () => mocks.reset,
+}));
+
+vi.mock("@/lib/routing/hooks", () => ({
+	useNavigate: () => ({ openSetAside: mocks.openSetAside }),
 }));
 
 vi.mock("@/lib/ui/toastStore", () => ({
@@ -67,6 +79,7 @@ function renderManager(
 	return render(
 		<CaseDataManager
 			appId="app-case-manager"
+			moduleUuid={"00000000-0000-7000-8000-000000000001" as Uuid}
 			caseType={caseType}
 			canEdit={canEdit}
 			hasLinkedChildren={hasLinkedChildren}

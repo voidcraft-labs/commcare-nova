@@ -19,6 +19,7 @@ export {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	ParkedValueNotFoundError,
 	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
 } from "./errors";
@@ -45,6 +46,7 @@ export type {
 	CountArgs,
 	GenerateSampleDataArgs,
 	MigrationReport,
+	ParkedValueEntry,
 	QueryArgs,
 	ResetSampleDataArgs,
 	SchemaCaseStore,

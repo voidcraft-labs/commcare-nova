@@ -34,6 +34,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderHeader } from "@/components/builder/BuilderHeader";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
@@ -398,26 +399,35 @@ export function BuilderLayout({
 
 	return (
 		<BuilderReferenceProvider>
-			<div className="h-full flex flex-col overflow-hidden">
-				{/* Builder header — logo, centered Preview toggle, doc tools, account.
-				 *  Always rendered: it replaces the site AppHeader inside /build. */}
-				<BuilderHeader
-					commcareConfigured={commcareConfigured}
-					commcareAvailableDomains={commcareAvailableDomains}
-					onSetPreviewing={handleSetPreviewing}
-					impersonating={impersonating ?? null}
-				/>
+			{/* The chat composer's state lifts to this provider so canvas
+			 *  surfaces can prefill it — the set-aside review's "Ask Nova to
+			 *  convert it back" hands its prompt to the SA through
+			 *  `usePromptInputController` instead of inventing a second
+			 *  conversion surface. PromptInput detects the provider and runs
+			 *  controlled; without new consumers the composer behaves as
+			 *  before. */}
+			<PromptInputProvider>
+				<div className="h-full flex flex-col overflow-hidden">
+					{/* Builder header — logo, centered Preview toggle, doc tools, account.
+					 *  Always rendered: it replaces the site AppHeader inside /build. */}
+					<BuilderHeader
+						commcareConfigured={commcareConfigured}
+						commcareAvailableDomains={commcareAvailableDomains}
+						onSetPreviewing={handleSetPreviewing}
+						impersonating={impersonating ?? null}
+					/>
 
-				{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
-				<BuilderContentArea
-					isCentered={isCentered}
-					isExistingApp={!!isExistingApp}
-					threads={threads}
-					initialThread={initialThread}
-					appGenerating={appGenerating}
-					currentUserId={currentUserId}
-				/>
-			</div>
+					{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
+					<BuilderContentArea
+						isCentered={isCentered}
+						isExistingApp={!!isExistingApp}
+						threads={threads}
+						initialThread={initialThread}
+						appGenerating={appGenerating}
+						currentUserId={currentUserId}
+					/>
+				</div>
+			</PromptInputProvider>
 		</BuilderReferenceProvider>
 	);
 }

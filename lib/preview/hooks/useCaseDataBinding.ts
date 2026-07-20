@@ -27,16 +27,25 @@ import {
 	loadCaseCountAction,
 	loadCaseDataAction,
 	loadCasesAction,
+	loadParkedValuesAction,
 	populateSampleCasesAction,
+	replaceParkedValueAction,
 	resetSampleCasesAction,
+	restoreParkedValuesAction,
+	setParkedValuesDismissedAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CaseQueryConstraintContext,
+	JsonValue,
 	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
+	LoadParkedValuesResult,
 	PopulateSampleCasesResult,
+	ReplaceParkedValueResult,
+	RestoreParkedValuesResult,
+	SetParkedValuesDismissedResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	type SearchInputValues,
@@ -478,6 +487,155 @@ export function useResetSampleCases(args: {
 		const result = await resetSampleCasesAction(appId, caseType);
 		if (result.kind === "ok")
 			invalidateCaseData(appId, caseType.name, "replacement");
+		return result;
+	};
+}
+
+/**
+ * Subscribe to a case type's set-aside values. One list serves every
+ * representation — the review screen renders the entries; the Case
+ * data badge + popover section derive their active count and property
+ * names from the same state — and all of them ride the shared
+ * per-type revision, so a restore/replace/dismiss (or any case-data
+ * write, including a schema conversion's park) refreshes each
+ * surface without manual reloads. Mirrors `useCaseCount`'s
+ * keyed-state shape: a stale settle for a different `(app, type)`
+ * renders as `loading`, never as the wrong list.
+ */
+export function useParkedValues(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): {
+	state: LoadingState<LoadParkedValuesResult>;
+	fetching: boolean;
+	reload: () => Promise<void>;
+} {
+	const { appId, caseType } = args;
+	const caseDataRevision = useCaseDataRevision(appId, caseType);
+	const ready = Boolean(appId && caseType);
+	const requestIdentity = ready ? `${appId}\u0000${caseType}` : "";
+	const reloadToken = useMemo(
+		() => [requestIdentity, caseDataRevision],
+		[requestIdentity, caseDataRevision],
+	);
+	interface KeyedParkedValuesState {
+		readonly kind: "parked-values";
+		readonly key: string;
+		readonly value: LoadingState<LoadParkedValuesResult>;
+	}
+	const resource = useReloadableResource<KeyedParkedValuesState>({
+		prepare: () =>
+			!appId || !caseType
+				? {
+						notReady: {
+							kind: "parked-values",
+							key: "",
+							value: { kind: "idle" },
+						},
+					}
+				: {
+						fetch: async () => ({
+							kind: "parked-values" as const,
+							key: requestIdentity,
+							value: await loadParkedValuesAction({ appId, caseType }),
+						}),
+					},
+		loading: {
+			kind: "parked-values",
+			key: requestIdentity,
+			value: { kind: "loading" },
+		},
+		toError: (err) => ({
+			kind: "parked-values",
+			key: requestIdentity,
+			value: {
+				kind: "error",
+				message:
+					err instanceof Error
+						? err.message
+						: "Failed to load set-aside values.",
+			},
+		}),
+		keepStale: (prev) =>
+			prev.key === requestIdentity && prev.value.kind === "entries",
+		reloadToken,
+	});
+	return {
+		state: !ready
+			? { kind: "idle" }
+			: resource.state.key === requestIdentity
+				? resource.state.value
+				: { kind: "loading" },
+		fetching: resource.fetching,
+		reload: resource.reload,
+	};
+}
+
+/**
+ * Curried action callback for the review screen's Restore (single
+ * and restore-all). Any success invalidates the shared per-type
+ * revision — restored values changed case rows AND the entry list.
+ * The consuming component owns pressed-state and toast UX, like the
+ * sample-data hooks.
+ */
+export function useRestoreParkedValues(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): (ids: string[]) => Promise<RestoreParkedValuesResult> {
+	const { appId, caseType } = args;
+	return async (ids) => {
+		if (!appId || !caseType) {
+			return { kind: "error", message: "App or case type not yet available." };
+		}
+		const result = await restoreParkedValuesAction({ appId, ids });
+		if (result.kind === "restored") invalidateCaseData(appId, caseType);
+		return result;
+	};
+}
+
+/**
+ * Curried action callback for Dismiss / bulk dismiss and the undo
+ * toast's un-dismiss. Invalidation keeps the badge count and the
+ * Dismissed filter's tallies honest everywhere at once.
+ */
+export function useSetParkedValuesDismissed(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): (
+	ids: string[],
+	dismissed: boolean,
+) => Promise<SetParkedValuesDismissedResult> {
+	const { appId, caseType } = args;
+	return async (ids, dismissed) => {
+		if (!appId || !caseType) {
+			return { kind: "error", message: "App or case type not yet available." };
+		}
+		const result = await setParkedValuesDismissedAction({
+			appId,
+			ids,
+			dismissed,
+		});
+		if (result.kind === "toggled") invalidateCaseData(appId, caseType);
+		return result;
+	};
+}
+
+/**
+ * Curried action callback for the Fix editor's "Save to case". The
+ * typed `invalid-value` arm stays with the caller for inline
+ * rendering; only a successful replacement invalidates.
+ */
+export function useReplaceParkedValue(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): (id: string, value: JsonValue) => Promise<ReplaceParkedValueResult> {
+	const { appId, caseType } = args;
+	return async (id, value) => {
+		if (!appId || !caseType) {
+			return { kind: "error", message: "App or case type not yet available." };
+		}
+		const result = await replaceParkedValueAction({ appId, id, value });
+		if (result.kind === "replaced") invalidateCaseData(appId, caseType);
 		return result;
 	};
 }

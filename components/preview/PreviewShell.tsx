@@ -41,6 +41,7 @@ import {
 	CaseListConfigWorkspace,
 	type CaseListWorkspaceTab,
 } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { SetAsideValuesScreen } from "@/components/builder/set-aside/SetAsideValuesScreen";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -91,6 +92,10 @@ function locationToScreen(
 
 	if (loc.kind === "detail-config") {
 		return { type: "detailConfig", moduleIndex };
+	}
+
+	if (loc.kind === "set-aside") {
+		return { type: "setAside", moduleIndex };
 	}
 
 	/* Form screen — resolve formUuid to index within the module's form list. */
@@ -199,6 +204,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			tab: "detail",
 		};
 	}
+	/** The set-aside review screen's identity — uuid-shaped like the
+	 *  workspace ref above, for the same reason (a builder surface
+	 *  mounted off the URL, not the integer-indexed preview shape). */
+	const setAsideRef = useRef<{ moduleUuid: Uuid }>(undefined);
+	if (loc.kind === "set-aside") {
+		setAsideRef.current = { moduleUuid: loc.moduleUuid };
+	}
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
 	const homeVisitedRef = useRef(false);
@@ -215,7 +227,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			break;
 		case "searchConfig":
 		case "detailConfig":
-			/* In preview mode all three case-list URLs render the same
+		case "setAside":
+			/* In preview mode these case-workspace URLs render the same
 			 * running-app `CaseListScreen` (the composed search +
 			 * list experience), so the sibling kinds synthesize the
 			 * integer-indexed caseList identity. */
@@ -339,12 +352,25 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						/>
 					</Activity>
 				)}
+				{setAsideRef.current && (
+					<Activity
+						mode={
+							screen.type === "setAside" && mode === "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="SetAsideValuesScreen"
+					>
+						<SetAsideValuesScreen moduleUuid={setAsideRef.current.moduleUuid} />
+					</Activity>
+				)}
 				{caseListScreenRef.current && (
 					<Activity
 						mode={
 							(screen.type === "caseList" ||
 								screen.type === "searchConfig" ||
-								screen.type === "detailConfig") &&
+								screen.type === "detailConfig" ||
+								screen.type === "setAside") &&
 							(mode !== "edit" || atCaseRecord)
 								? "visible"
 								: "hidden"

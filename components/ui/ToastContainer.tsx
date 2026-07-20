@@ -128,6 +128,18 @@ function ToastItem({
 						))}
 					</ul>
 				)}
+				{toast.action && (
+					<button
+						type="button"
+						onClick={() => {
+							toast.action?.onPress();
+							onDismiss(toast.id);
+						}}
+						className="mt-2 min-h-9 cursor-pointer rounded-md px-0.5 text-xs font-semibold text-nova-violet-bright hover:text-nova-text"
+					>
+						{toast.action.label}
+					</button>
+				)}
 			</div>
 
 			<button

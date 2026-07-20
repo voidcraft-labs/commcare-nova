@@ -176,6 +176,20 @@ architecture.
    `getValidator`; uniform lock order: relationship advisory →
    schema row → `cases` rows), so no write validated against the
    old schema can land after the detection's scan.
+
+   Every park captures its transition (`from_type` / `to_type` — a
+   narrow-options park carries its select type on both sides), and
+   the winning sync's closing auto-restore (Phase A step 4) skips
+   DISMISSED entries — the review surface's soft archive
+   (`dismissed_at`) means "reviewed, chose not to restore", so a
+   later convert-back doesn't resurrect them. The tenant-bound
+   review slice on `CaseStore` (`listParkedValues` — verdicts
+   computed against the currently-stored schema —
+   `restoreParkedValues` / `setParkedValuesDismissed` /
+   `replaceParkedValue`) reaches tenancy by joining through
+   `cases`; the schema store's `unparkValues` stays the saga's
+   compensation half, and both restores share one conformance-
+   gated core.
 3. **Per-row migration** — only when `change` is supplied. The
    three arms are `rename(renames[])`, `retype(fromType, toType)`,
    and `narrow-options(removedOptions)`. NO arm removes a row — a

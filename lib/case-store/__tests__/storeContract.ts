@@ -65,6 +65,7 @@ import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	ParkedValueNotFoundError,
 	SchemaNotSyncedError,
 } from "../errors";
 import { buildCaseTypeMap, type CaseStore } from "../store";
@@ -1200,6 +1201,22 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({ years: 1 });
 			// Carol's row survives, writable, minus the uncastable value.
 			expect(byId.get(PATIENT_CAROL_ID)?.properties).toEqual({});
+
+			// Both parks captured the rename's transition: the SOURCE
+			// declaration's type (`age` was text in the stored schema) to
+			// the surviving destination's (`years: int`) — the review
+			// surface's group chip reads these, and nothing else records
+			// the from side once the schema has moved on.
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed).toHaveLength(2);
+			for (const entry of listed) {
+				expect(entry.property).toBe("age");
+				expect(entry.fromType).toBe("text");
+				expect(entry.toType).toBe("int");
+			}
 		});
 
 		it("applySchemaChange (rename) drops blank values instead of quarantining, and reshapes destination-only rows on a same-batch select flip", async () => {
@@ -2032,6 +2049,425 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// faithful rather than a merge puzzle.
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			expect(rows[0]?.properties).toEqual({ symptoms: ["fever"] });
+		});
+
+		// -----------------------------------------------------------
+		// The review surface — list / restore / dismiss / replace
+		// -----------------------------------------------------------
+		//
+		// The tenant-bound reader + the three writes the set-aside
+		// review screen runs on `parked_case_values`. The verdicts are
+		// computed server-side against the CURRENTLY-stored schema —
+		// never promised from park-time state — and every write
+		// re-proves what the verdict claimed.
+
+		it("listParkedValues reports the transition, the verdict, and stays tenant-scoped", async () => {
+			const store = await options.factory(TENANT_A);
+			const initialCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			await seedSchema(store, buildBlueprint([initialCaseType]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const retyped: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([retyped])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			expect(report.parkedIds).toHaveLength(1);
+
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed).toHaveLength(1);
+			const entry = listed[0];
+			expect(entry).toMatchObject({
+				id: report.parkedIds[0],
+				caseId: PATIENT_BOB_ID,
+				caseName: DEFAULT_CASE_NAME,
+				caseType: "patient",
+				property: "age",
+				originalValue: "abc",
+				fromType: "text",
+				toType: "int",
+				dismissedAt: null,
+				// "abc" fits text but not the CURRENT int declaration, and
+				// the key is free — blocked by type, with the convert-back
+				// callout's condition (`fitsOriginalType`) true.
+				restorable: false,
+				blockedBy: "type",
+				fitsOriginalType: true,
+			});
+			expect(entry?.reason).toContain("age");
+			expect(entry?.createdAt).toBeInstanceOf(Date);
+
+			// The `cases` join is the tenant gate: another Project's store
+			// sees no entries and every write collapses to the same
+			// not-found shape — never touched, never distinguished.
+			const foreign = await options.factory(TENANT_B);
+			expect(
+				await foreign.listParkedValues({ appId: APP_ID, caseType: "patient" }),
+			).toEqual([]);
+			expect(
+				await foreign.setParkedValuesDismissed({
+					appId: APP_ID,
+					ids: report.parkedIds,
+					dismissed: true,
+				}),
+			).toBe(0);
+			expect(
+				await foreign.restoreParkedValues({
+					appId: APP_ID,
+					ids: report.parkedIds,
+				}),
+			).toEqual({ restored: 0, kept: 1 });
+			await expect(
+				foreign.replaceParkedValue({
+					appId: APP_ID,
+					id: report.parkedIds[0] as string,
+					value: 42,
+				}),
+			).rejects.toBeInstanceOf(ParkedValueNotFoundError);
+		});
+
+		it("a dismissed entry survives a convert-back; the explicit restore is its only way home", async () => {
+			const store = await options.factory(TENANT_A);
+			const textAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const intAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			await seedSchema(store, buildBlueprint([textAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intAge])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			expect(report.parkedIds).toHaveLength(1);
+			expect(
+				await store.setParkedValuesDismissed({
+					appId: APP_ID,
+					ids: report.parkedIds,
+					dismissed: true,
+				}),
+			).toBe(1);
+
+			// Convert back to text. The winning sync's closing restore
+			// SKIPS the dismissed entry — the user reviewed it and chose
+			// the archive, so a later type change doesn't resurrect it.
+			const revert = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([textAge])),
+			});
+			expect(revert.restored).toBe(0);
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({});
+
+			// The archived entry now shows fully restorable (fits text,
+			// key free) — and the review surface's explicit restore is
+			// what brings it home.
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
+			expect(listed[0]?.restorable).toBe(true);
+			expect(listed[0]?.blockedBy).toBeNull();
+			expect(
+				await store.restoreParkedValues({
+					appId: APP_ID,
+					ids: report.parkedIds,
+				}),
+			).toEqual({ restored: 1, kept: 0 });
+			const restoredRows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(restoredRows[0]?.properties).toEqual({ age: "abc" });
+			expect(
+				await store.listParkedValues({ appId: APP_ID, caseType: "patient" }),
+			).toEqual([]);
+
+			// An id that no longer exists counts as kept — the honest
+			// nothing-to-restore, not an error.
+			expect(
+				await store.restoreParkedValues({
+					appId: APP_ID,
+					ids: report.parkedIds,
+				}),
+			).toEqual({ restored: 0, kept: 1 });
+		});
+
+		it("un-dismissing re-arms the convert-back auto-restore", async () => {
+			const store = await options.factory(TENANT_A);
+			const textAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const intAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			await seedSchema(store, buildBlueprint([textAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intAge])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			await store.setParkedValuesDismissed({
+				appId: APP_ID,
+				ids: report.parkedIds,
+				dismissed: true,
+			});
+			// The undo half of the toggle: back to active…
+			expect(
+				await store.setParkedValuesDismissed({
+					appId: APP_ID,
+					ids: report.parkedIds,
+					dismissed: false,
+				}),
+			).toBe(1);
+			// …and the next convert-back restores it automatically again.
+			const revert = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([textAge])),
+			});
+			expect(revert.restored).toBe(1);
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ age: "abc" });
+		});
+
+		it("replaceParkedValue writes through validation and archives the entry", async () => {
+			const store = await options.factory(TENANT_A);
+			const textAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const intAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			await seedSchema(store, buildBlueprint([textAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intAge])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			const parkedId = report.parkedIds[0] as string;
+
+			// A replacement that fails the property's CURRENT declaration
+			// is rejected by the standard validated update — and the entry
+			// stays ACTIVE (nothing archived on a failed write).
+			await expect(
+				store.replaceParkedValue({
+					appId: APP_ID,
+					id: parkedId,
+					value: "still not a number",
+				}),
+			).rejects.toBeInstanceOf(CasePropertiesValidationError);
+			const afterFailed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(afterFailed[0]?.dismissedAt).toBeNull();
+
+			await store.replaceParkedValue({
+				appId: APP_ID,
+				id: parkedId,
+				value: 42,
+			});
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ age: 42 });
+			// The entry archives rather than deletes — the original value
+			// stays readable under the Dismissed filter, now doubly
+			// blocked ("abc" no longer fits the int declaration AND the
+			// replacement occupies its key; the deeper type block is what
+			// reports).
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
+			expect(listed[0]?.restorable).toBe(false);
+			expect(listed[0]?.blockedBy).toBe("type");
+
+			await expect(
+				store.replaceParkedValue({
+					appId: APP_ID,
+					id: "00000000-0000-7000-8000-0000000000ff",
+					value: 1,
+				}),
+			).rejects.toBeInstanceOf(ParkedValueNotFoundError);
+		});
+
+		it("narrow-options parks carry the select type on both sides; survivors block, a dropped key restores", async () => {
+			const store = await options.factory(TENANT_A);
+			const wide: CaseType = {
+				name: "patient",
+				properties: [
+					{
+						name: "color",
+						label: "Color",
+						data_type: "single_select",
+						options: [
+							{ value: "red", label: "Red" },
+							{ value: "blue", label: "Blue" },
+						],
+					},
+					{
+						name: "symptoms",
+						label: "Symptoms",
+						data_type: "multi_select",
+						options: [
+							{ value: "fever", label: "Fever" },
+							{ value: "chills", label: "Chills" },
+						],
+					},
+				],
+			};
+			await seedSchema(store, buildBlueprint([wide]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({
+						color: "red",
+						symptoms: ["fever", "chills"],
+					}),
+				},
+			});
+			const narrowed: CaseType = {
+				name: "patient",
+				properties: [
+					{
+						name: "color",
+						label: "Color",
+						data_type: "single_select",
+						options: [{ value: "blue", label: "Blue" }],
+					},
+					{
+						name: "symptoms",
+						label: "Symptoms",
+						data_type: "multi_select",
+						options: [{ value: "fever", label: "Fever" }],
+					},
+				],
+			};
+			const narrowedMap = buildCaseTypeMap(buildBlueprint([narrowed]));
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: narrowedMap,
+				property: "color",
+				change: { kind: "narrow-options", removedOptions: ["red"] },
+			});
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: narrowedMap,
+				property: "symptoms",
+				change: { kind: "narrow-options", removedOptions: ["chills"] },
+			});
+
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed).toHaveLength(2);
+			const colorEntry = listed.find((e) => e.property === "color");
+			const symptomsEntry = listed.find((e) => e.property === "symptoms");
+			// Not a type change — the transition carries the select type
+			// on both sides, and the flushed single's key dropped so the
+			// entry is explicitly restorable (a select schema carries no
+			// enum; the deliberate flush stays undone-able by hand).
+			expect(colorEntry).toMatchObject({
+				fromType: "single_select",
+				toType: "single_select",
+				restorable: true,
+				blockedBy: null,
+			});
+			// The multi kept its SURVIVING elements on the row — the full
+			// pre-flush original parked, blocked by those survivors.
+			expect(symptomsEntry).toMatchObject({
+				originalValue: ["fever", "chills"],
+				fromType: "multi_select",
+				toType: "multi_select",
+				restorable: false,
+				blockedBy: "occupied",
+			});
+
+			// Restore proves the verdicts: the blocked entry is KEPT, the
+			// free one lands.
+			const result = await store.restoreParkedValues({
+				appId: APP_ID,
+				ids: listed.map((e) => e.id),
+			});
+			expect(result).toEqual({ restored: 1, kept: 1 });
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({
+				color: "red",
+				symptoms: ["fever"],
+			});
 		});
 
 		// -----------------------------------------------------------

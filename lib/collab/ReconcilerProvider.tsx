@@ -38,6 +38,8 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
+import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import { notifyPathChange } from "@/lib/routing/useClientPath";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
 
@@ -245,6 +247,7 @@ function buildRuntime(
 				seq?: number;
 				migration?: {
 					parked?: number;
+					parkedCaseTypes?: string[];
 					failureReasons?: string[];
 				};
 			};
@@ -259,17 +262,43 @@ function buildRuntime(
 				return { ok: false, kind: "network", detail: "200 without seq" };
 			}
 			// A commit whose row migration SET VALUES ASIDE must be loud — the
-			// values left the case rows (recoverable in the saved-values store,
-			// but invisible until the review surface ships). A fully-successful
-			// migration stays silent: the conversion did exactly what was asked.
+			// values left the case rows into the review surface's store. A
+			// fully-successful migration stays silent: the conversion did
+			// exactly what was asked. The per-type invalidation is what
+			// lights the Case data badge and refreshes any mounted list.
 			const parked = body.migration?.parked ?? 0;
+			const parkedCaseTypes = body.migration?.parkedCaseTypes ?? [];
 			if (parked > 0) {
+				for (const caseType of parkedCaseTypes) {
+					invalidateCaseData(id, caseType);
+				}
 				showToast(
 					"warning",
-					parked === 1
-						? "1 saved value couldn't convert"
-						: `${parked} saved values couldn't convert`,
-					"The affected cases were kept; the values were set aside because they don't fit the field's new type.",
+					parked === 1 ? "1 value set aside" : `${parked} values set aside`,
+					"They didn't fit the property's new type. Nothing was deleted — review them anytime in Case data.",
+					{
+						action: {
+							label: "Review set-aside values",
+							onPress: () => {
+								// Resolve the destination at PRESS time from the live
+								// doc — a module bound to the first affected case type
+								// (the doc may have moved since the commit).
+								const doc = docStore.getState();
+								const moduleEntry = Object.entries(doc.modules).find(
+									([, module]) =>
+										module.caseType !== undefined &&
+										parkedCaseTypes.includes(module.caseType),
+								);
+								if (moduleEntry === undefined) return;
+								window.history.pushState(
+									null,
+									"",
+									`/build/${id}/${moduleEntry[0]}/set-aside`,
+								);
+								notifyPathChange();
+							},
+						},
+					},
 				);
 			}
 			return { ok: true, seq: body.seq };

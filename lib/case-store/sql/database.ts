@@ -261,6 +261,25 @@ export interface ParkedCaseValuesTable {
 	original_value: ColumnType<JsonValue, string, string>;
 	/** Person-readable — the same text the report's `failureReasons` carries. */
 	reason: string;
+	/**
+	 * The transition captured at park time — the data-type tokens the
+	 * failed cast ran between. A `narrow-options` park carries its
+	 * select type on both sides (the "conversion" was an option
+	 * removal, not a type change).
+	 */
+	from_type: string;
+	to_type: string;
+	/**
+	 * The soft archive: a reviewed entry the user chose not to restore.
+	 * NULL = active (counted by the discovery badge; candidate for the
+	 * winning-sync auto-restore). A dismissed entry stays findable and
+	 * explicitly restorable on the review surface.
+	 */
+	dismissed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
 	/** Defaulted server-side via `now()`; application code omits on INSERT. */
 	created_at: ColumnType<Date, Date | string | undefined, Date | string>;
 }
