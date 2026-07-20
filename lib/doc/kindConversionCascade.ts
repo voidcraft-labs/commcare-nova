@@ -31,11 +31,15 @@
  *     that peer to text first, then convert the property.
  *   - Value-RESHAPING flips (`single_select` ↔ `multi_select`, whose
  *     stored values change between scalar string and JSONB array) get
- *     NO cascade — no peer carry, no re-declare. The agreement gate
- *     keeps blocking them on declared or multi-writer properties
- *     exactly as before, because escorting them through would strand
- *     every existing row against the regenerated write schema with no
- *     per-row migration running on any conversion surface.
+ *     NO cascade — no peer carry, no re-declare. Stored rows are the
+ *     case store's business: `applySchemaChange` detects the
+ *     string↔array schema flip and rewrites old-shape rows in the
+ *     same transaction as the schema write, so the flip the gate
+ *     admits (undeclared entry, single writer) lands with its data
+ *     intact. The agreement gate still blocks the flip on declared or
+ *     multi-writer properties because the escort work (peer carry +
+ *     re-declare) is a separate feature, not because rows would
+ *     strand.
  *   - A conversion to `hidden` — whose writers the agreement rules
  *     exempt (`caseDataTypeForFieldKind` returns undefined) — converts
  *     ONLY the addressed field, and when it was the property's LAST
@@ -109,7 +113,9 @@ export type KindConversionPlanResult =
 
 /** The flips whose stored case values are identical in both types —
  *  plain scalar strings. `multi_select` is deliberately absent: its
- *  values are JSONB arrays, a reshape no conversion surface migrates. */
+ *  values are JSONB arrays, so that flip is a value reshape (the case
+ *  store rewrites rows when the schema flips string↔array) and its
+ *  gate escort is separate work — see the header. */
 const STRING_SCALAR_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	"text",
 	"single_select",

@@ -315,6 +315,19 @@ export type SchemaChangeKind =
  * carries a seq and no migration. The implementation throws when
  * both are set, because the coarse gate's whole-call no-op could
  * otherwise silently skip a migration's per-row work on a stale seq.
+ *
+ * Independent of `change`, EVERY winning sync also runs the
+ * string↔array shape reshape: when a property's stored JSON type
+ * flips between scalar and array against the newly-derived schema
+ * (the select single↔multi conversion), existing rows are rewritten
+ * in the same transaction as the schema write — a scalar lifts to a
+ * one-element array, an array space-joins into an unconstrained
+ * string target. Both rewrites are total, so no quarantine; failable
+ * shape transitions (format-carrying strings, integer bounds) are
+ * deliberately not auto-rewritten. This is detection over stored
+ * state, not caller intent, so it composes with the additive gate: a
+ * stale-seq no-op is safe because the fresher writer ran the same
+ * detection against the same stored row in its own transaction.
  */
 export interface ApplySchemaChangeArgs {
 	appId: string;
@@ -326,13 +339,16 @@ export interface ApplySchemaChangeArgs {
 }
 
 /**
- * Per-row outcome from a `change`-driven migration. `migrated`
- * rows updated in place; `quarantined` rows moved to
- * `cases_quarantine`; `skipped` rows untouched (for `rename`, rows
- * lacking the `from` key; for the others, rows lacking the
- * targeted property). `failureReasons` carries the exact
- * `quarantine_reason` text per quarantined row in row-iteration
- * order — author-facing review UI reads these directly.
+ * Per-row outcome of a sync's row rewrites. `migrated` counts rows
+ * updated in place — by a `change`-driven migration and/or the
+ * shape reshape (a given row is never double-counted; the
+ * migration's property is excluded from detection). `quarantined`
+ * rows moved to `cases_quarantine`; `skipped` rows untouched by a
+ * `change` migration (for `rename`, rows lacking the `from` key;
+ * for the others, rows lacking the targeted property).
+ * `failureReasons` carries the exact `quarantine_reason` text per
+ * quarantined row in row-iteration order — author-facing review UI
+ * reads these directly.
  */
 export interface MigrationReport {
 	migrated: number;

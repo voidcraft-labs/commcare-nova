@@ -618,9 +618,11 @@ describe("editField — demotions", () => {
 	});
 
 	it("does NOT escort the value-reshaping single→multi flip past a declared type", async () => {
-		// multi_select stores JSONB arrays; no conversion surface migrates
-		// rows, so the plan must not re-declare the property — the gate
-		// keeps blocking the flip exactly as it always did.
+		// The plan carries no re-declare for this flip, so the agreement
+		// gate keeps blocking it on a DECLARED property — the escort work
+		// (peer carry + re-declare) is a separate feature. Stored rows are
+		// not the blocker: the case store reshapes them when the schema
+		// flips string↔array.
 		const doc = buildDoc({
 			caseTypes: [
 				{

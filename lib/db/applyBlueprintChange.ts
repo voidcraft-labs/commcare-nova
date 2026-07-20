@@ -28,9 +28,11 @@
  *     property is picked up rather than clobbered, and a stale
  *     lower-seq sync fully no-ops.
  *
- * The additive sweep is additive-only (no per-row migration,
- * nothing to compensate). A sweep failure logs at `warn` and
- * returns success — it is idempotent and re-derivable via the
+ * The additive sweep carries no caller-intent migration and
+ * nothing to compensate. (The store's own string↔array reshape may
+ * still rewrite rows inside a sweep's sync — total, idempotent,
+ * atomic with the schema write.) A sweep failure logs at `warn`
+ * and returns success — it is idempotent and re-derivable via the
  * next save / the point-of-use heal.
  *
  * ## Saga shape
@@ -430,7 +432,9 @@ async function persistBlueprint(
  * `synced_seq` guard: a peer's concurrently-committed property survives the
  * merge, and a stale lower-seq sync of the same type fully no-ops.
  *
- * Additive-only — no per-row migration. It re-derives EVERY touched type,
+ * No caller-intent migration rides this sweep (the store's own
+ * string↔array reshape may still rewrite flipped rows inside the
+ * sync). It re-derives EVERY touched type,
  * including a migration-bearing one: Phase 1 synced that type from the
  * PROSPECTIVE (pre-commit, un-versioned), so the sweep is what advances its
  * `synced_seq` AND picks up a property a peer concurrently added to the same

@@ -1082,11 +1082,16 @@ export class PostgresCaseStore implements CaseStore {
 		// concurrent writer already superseded, so the ENTIRE call no-ops
 		// (schema UPSERT + Phase-B index reconciliation both skipped). A
 		// `syncedSeq` call never carries a `change` (they're mutually exclusive
-		// — the throw above fires first), so there's no per-row migration to
-		// skip here. An absent row means "proceed" (first sync). node-postgres
-		// returns `bigint`/`int8` as a string, so coerce with `Number(...)`. The
-		// fine half is the guarded UPSERT SET below — a lost SELECT→UPSERT race
-		// re-converges on the next sync (perf-only, not a correctness gate).
+		// — the throw above fires first), so there's no caller-intent migration
+		// to skip here. The DETECTED string↔array reshape (Phase A step 2) can
+		// be skipped by this no-op, and that is safe by construction: the
+		// reshape derives from the stored row itself, so the fresher writer
+		// that advanced the row already ran its own detection against the same
+		// stored state in its own transaction. An absent row means "proceed"
+		// (first sync). node-postgres returns `bigint`/`int8` as a string, so
+		// coerce with `Number(...)`. The fine half is the guarded UPSERT SET
+		// below — a lost SELECT→UPSERT race re-converges on the next sync
+		// (perf-only, not a correctness gate).
 		if (args.syncedSeq !== undefined) {
 			const existing = await this.db
 				.selectFrom("case_type_schemas")
@@ -1104,12 +1109,27 @@ export class PostgresCaseStore implements CaseStore {
 
 		const incomingSeq = args.syncedSeq;
 
-		// Phase A: schema sync + per-row migration in one transaction. `won`
-		// records whether THIS call actually advanced the row — false only when
-		// the versioned fine-gate WHERE suppressed the UPSERT (a monotone
-		// loser). Phase B is gated on it below.
+		// Phase A: schema sync + per-row work in one transaction. `won` records
+		// whether THIS call actually advanced the row — false only when the
+		// versioned fine-gate WHERE suppressed the UPSERT (a monotone loser).
+		// Phase B and the step-2 reshape are both gated on it.
 		let won = true;
 		const report = await this.db.transaction().execute(async (trx) => {
+			// Read the stored schema BEFORE the UPSERT overwrites it — the
+			// string↔array reshape (step 2) diffs stored vs desired per
+			// property. `FOR UPDATE` serializes concurrent syncs of the same
+			// type, so a second syncer blocks here, then reads the winner's
+			// committed schema and detects no remaining flip — the reshape
+			// scan runs once per transition, not once per racer. An absent
+			// row locks nothing: first sync, nothing to reshape.
+			const priorRow = await trx
+				.selectFrom("case_type_schemas")
+				.select("schema")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", args.caseType)
+				.forUpdate()
+				.executeTakeFirst();
+
 			// Step 1: schema regen + UPSERT. Always runs. `RETURNING synced_seq`
 			// is the win signal: Postgres emits a row only when the statement
 			// actually inserted or updated, so a versioned loser (the DO UPDATE
@@ -1147,13 +1167,43 @@ export class PostgresCaseStore implements CaseStore {
 			// a suppressing WHERE, so it always returns a row (always a winner).
 			won = upserted !== undefined;
 
-			// Step 2: per-row migration. Additive blueprint mutations
-			// (no `change`) skip this — adding a property still emits
-			// its expression index in Phase B, but the row population
-			// doesn't need migrating.
+			// Step 2: the stored↔desired shape reshape. When a property's
+			// stored JSON type flips between scalar and array (the select
+			// single↔multi conversion as seen from the store), every
+			// existing row is rewritten in the SAME transaction as the
+			// schema write — so the schema row and the row population can
+			// never disagree on this axis, whichever caller synced (the
+			// saga's sweep, the drain-end materialize, the point-of-use
+			// heal, the compensate path, the drift scripts). Without it,
+			// the regenerated schema stranded every pre-conversion row:
+			// the merged-document write validation rejected the old-shape
+			// value on the row's NEXT write of ANY property. Scoped to the
+			// TOTAL rewrites only (`detectShapeFlips`); a fine-gate loser
+			// skips it — the winner's schema is what's stored, and the
+			// winner ran its own detection.
+			let reshaped = 0;
+			if (won) {
+				const flips = detectShapeFlips(
+					priorRow?.schema,
+					schema,
+					args.change !== undefined ? args.property : undefined,
+				);
+				if (flips.length > 0) {
+					reshaped = await this.runShapeReshape(trx, {
+						appId: args.appId,
+						caseType: args.caseType,
+						flips,
+					});
+				}
+			}
+
+			// Step 3: caller-intent per-row migration. Additive blueprint
+			// mutations (no `change`) skip this — adding a property still
+			// emits its expression index in Phase B, but the row
+			// population doesn't need migrating.
 			if (args.change === undefined) {
 				return {
-					migrated: 0,
+					migrated: reshaped,
 					quarantined: 0,
 					skipped: 0,
 					failureReasons: [],
@@ -1170,13 +1220,21 @@ export class PostgresCaseStore implements CaseStore {
 					}),
 				);
 			}
-			return await this.runPerRowMigration(trx, {
+			const migration = await this.runPerRowMigration(trx, {
 				appId: args.appId,
 				caseType: args.caseType,
 				property: args.property,
 				change: args.change,
 				schema,
 			});
+			// The reshape's rewrites fold into `migrated` — the report is
+			// "rows this call rewrote", whatever drove each rewrite. The
+			// migration's own property was excluded from detection, so no
+			// row is double-counted.
+			return {
+				...migration,
+				migrated: migration.migrated + reshaped,
+			};
 		});
 
 		// Phase B: per-property expression-index DDL. Runs against
@@ -1467,6 +1525,68 @@ export class PostgresCaseStore implements CaseStore {
 					removedOptions: args.change.removedOptions,
 				});
 		}
+	}
+
+	/**
+	 * Rewrite every row whose value for a flipped property still holds
+	 * the OLD shape (Phase A step 2). Row classification runs in
+	 * TypeScript, mirroring the retype arm; the writes flow through
+	 * `bulkUpdateProperties` — two round-trips regardless of row count.
+	 * Rows already in the target shape are untouched (no write, no
+	 * `modified_on` stamp), which is also what makes a re-detection of
+	 * the same transition a no-op. Both rewrite arms are TOTAL
+	 * (`tryCastValue` cannot fail for them — see `detectShapeFlips`),
+	 * so unlike the retype arm there is no quarantine path here.
+	 *
+	 * App-scoped, not tenant-scoped — the same rule as every per-row
+	 * migration: a schema change reshapes EVERY member's rows of the
+	 * case type, so the filter is `(app_id, case_type)` only.
+	 *
+	 * Returns the number of rows rewritten.
+	 */
+	private async runShapeReshape(
+		trx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseType: string;
+			flips: readonly ShapeFlip[];
+		},
+	): Promise<number> {
+		const rows = await trx
+			.selectFrom("cases as c")
+			.select(["c.case_id", "c.properties"])
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_type", "=", args.caseType)
+			.execute();
+
+		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
+		for (const row of rows) {
+			let next: JsonObject | undefined;
+			for (const flip of args.flips) {
+				const source = next ?? row.properties;
+				const value = source[flip.property];
+				if (value === undefined || value === null) continue;
+				const conforms =
+					flip.toType === "multi_select"
+						? Array.isArray(value)
+						: !Array.isArray(value);
+				if (conforms) continue;
+				const cast = tryCastValue(value, flip.toType);
+				if (!cast.ok) continue; // unreachable — both arms are total
+				next = { ...source, [flip.property]: cast.value as JsonValue };
+			}
+			if (next !== undefined) {
+				migratedRows.push({ caseId: row.case_id, newProperties: next });
+			}
+		}
+
+		if (migratedRows.length > 0) {
+			await this.bulkUpdateProperties(trx, {
+				appId: args.appId,
+				rows: migratedRows,
+			});
+		}
+		return migratedRows.length;
 	}
 
 	/**
@@ -1969,6 +2089,71 @@ function parseJsonbInput(value: unknown): Record<string, unknown> {
 				"Hint: the `CaseInsert.properties` / `CaseUpdate.properties` slot widens to `JsonObject | string | undefined`; reaching this throw means a runtime value bypassed the type system (e.g., an array or a primitive at the JSONB document root).",
 		}),
 	);
+}
+
+/**
+ * One property whose stored value shape must flip to match a
+ * newly-derived schema. `toType` names the `tryCastValue` arm that
+ * performs the TOTAL rewrite: `multi_select` lifts a scalar into a
+ * one-element string array; `single_select` space-joins an array (the
+ * XForms convention — the same total rewrite for any unconstrained
+ * string target).
+ */
+interface ShapeFlip {
+	property: string;
+	toType: "multi_select" | "single_select";
+}
+
+/**
+ * Diff the stored schema document against the newly-derived one and
+ * name every property whose value SHAPE flips between scalar and
+ * array — the select single↔multi conversion as the case store sees
+ * it. Only the two TOTAL rewrites are reported:
+ *
+ *   - anything → array: any stored scalar lifts to a one-element
+ *     string array.
+ *   - array → UNCONSTRAINED string: the stored array space-joins. A
+ *     `format`- or `pattern`-carrying string target is excluded — the
+ *     joined value could fail the constraint, and a failable rewrite
+ *     is quarantine-policy work (the derived-type-flip reconciliation
+ *     feature), not this opportunistic reshape.
+ *
+ * `exclude` names the property a caller-intent `change` migration
+ * already owns in the same call, so its rows aren't rewritten twice.
+ * Matching is same-name only: a rename is indistinguishable from
+ * remove+add at this layer and never reports. A malformed or absent
+ * stored schema yields no flips — detection fails open to "no
+ * reshape", the behavior every sync had before detection existed.
+ */
+function detectShapeFlips(
+	stored: unknown,
+	next: CaseTypeJsonSchema,
+	exclude: string | undefined,
+): ShapeFlip[] {
+	if (typeof stored !== "object" || stored === null) return [];
+	const storedProps = (stored as { properties?: unknown }).properties;
+	if (typeof storedProps !== "object" || storedProps === null) return [];
+	const storedByName = storedProps as Record<string, unknown>;
+
+	const flips: ShapeFlip[] = [];
+	for (const [name, nextProp] of Object.entries(next.properties)) {
+		if (name === exclude) continue;
+		const storedProp = storedByName[name];
+		if (typeof storedProp !== "object" || storedProp === null) continue;
+		const storedType = (storedProp as { type?: unknown }).type;
+		if (typeof storedType !== "string") continue;
+		if (nextProp.type === "array" && storedType !== "array") {
+			flips.push({ property: name, toType: "multi_select" });
+		} else if (
+			storedType === "array" &&
+			nextProp.type === "string" &&
+			nextProp.format === undefined &&
+			nextProp.pattern === undefined
+		) {
+			flips.push({ property: name, toType: "single_select" });
+		}
+	}
+	return flips;
 }
 
 /** Cast result for a retype migration's per-row attempt. */
