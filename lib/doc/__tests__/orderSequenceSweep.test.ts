@@ -92,12 +92,13 @@ const SORTS =
 	/by(?:SortKey|ListColumnOrder|DetailColumnOrder)|ordered(?:Field|Form|Module)Uuids|useFormIds|projectCaseWorkspaceColumns|readOptions|sortedOrderKeys/;
 
 describe("order-sequence sweep", () => {
-	it.each(
-		SEQUENCE_CONSUMERS,
-	)("%s derives its sequence through an order comparator/helper, not array position", (relativePath) => {
-		const source = readFileSync(join(process.cwd(), relativePath), "utf8");
-		expect(source).toMatch(SORTS);
-	});
+	it.each(SEQUENCE_CONSUMERS)(
+		"%s derives its sequence through an order comparator/helper, not array position",
+		(relativePath) => {
+			const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+			expect(source).toMatch(SORTS);
+		},
+	);
 
 	it("keeps the case-workspace projection helper backed by both surface comparators", () => {
 		const source = readFileSync(
@@ -319,13 +320,14 @@ const FORBIDDEN_POSITIONAL =
 	/\bmoduleOrder\[[A-Za-z_$]|\b(?:formOrder|fieldOrder)\[[^\]]+\]\??\.?\[|=\s*[\w.]*\.(?:moduleOrder\b|formOrder\[[^\]]*\]|fieldOrder\[[^\]]*\])/;
 
 describe("SA tools resolve positional indices through sorted helpers", () => {
-	it.each(
-		toolSourceFiles(),
-	)("%s never indexes or binds moduleOrder/formOrder by raw array position", (absPath) => {
-		const source = readFileSync(absPath, "utf8");
-		const offending = source
-			.split("\n")
-			.filter((line) => FORBIDDEN_POSITIONAL.test(line));
-		expect(offending).toEqual([]);
-	});
+	it.each(toolSourceFiles())(
+		"%s never indexes or binds moduleOrder/formOrder by raw array position",
+		(absPath) => {
+			const source = readFileSync(absPath, "utf8");
+			const offending = source
+				.split("\n")
+				.filter((line) => FORBIDDEN_POSITIONAL.test(line));
+			expect(offending).toEqual([]);
+		},
+	);
 });

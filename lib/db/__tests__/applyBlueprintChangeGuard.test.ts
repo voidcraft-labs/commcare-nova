@@ -577,40 +577,43 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			"transient (warn-logged)",
 			Object.assign(new Error("blip"), { code: "ECONNRESET" }),
 		],
-	])("never rethrows a post-commit sweep failure — %s — the commit result still returns", async (_label, sweepError) => {
-		// The commit already landed, so a sweep fault is never a 500 whatever
-		// its class; the severity split (deterministic → `error`, transient →
-		// `warn`) is a Sentry-visibility decision, not a control-flow one.
-		const prior = minDoc();
-		const prospective = structuredClone(toPersistableDoc(prior));
-		prospective.caseTypes = [
-			...(prospective.caseTypes ?? []),
-			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
-		];
-		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-		const committed = structuredClone(prospective) as unknown as BlueprintDoc;
-		commitGuardedBatchMock.mockResolvedValue({
-			seq: 3,
-			committedDoc: committed,
-			deduped: false,
-		});
-		// The sweep throws — it must NOT propagate.
-		applySchemaChangeMock.mockRejectedValue(sweepError);
+	])(
+		"never rethrows a post-commit sweep failure — %s — the commit result still returns",
+		async (_label, sweepError) => {
+			// The commit already landed, so a sweep fault is never a 500 whatever
+			// its class; the severity split (deterministic → `error`, transient →
+			// `warn`) is a Sentry-visibility decision, not a control-flow one.
+			const prior = minDoc();
+			const prospective = structuredClone(toPersistableDoc(prior));
+			prospective.caseTypes = [
+				...(prospective.caseTypes ?? []),
+				{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+			];
+			loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+			const committed = structuredClone(prospective) as unknown as BlueprintDoc;
+			commitGuardedBatchMock.mockResolvedValue({
+				seq: 3,
+				committedDoc: committed,
+				deduped: false,
+			});
+			// The sweep throws — it must NOT propagate.
+			applySchemaChangeMock.mockRejectedValue(sweepError);
 
-		const result = await applyBlueprintChange({
-			appId: "app-1",
-			userId: "user-1",
-			prospective,
-			batchId: `batch-uuid-sweepfail-${_label}`,
-			kind: "autosave",
-			guard: {
-				mutations: [{ kind: "setAppName", name: "x" } as Mutation],
-			},
-		});
+			const result = await applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				prospective,
+				batchId: `batch-uuid-sweepfail-${_label}`,
+				kind: "autosave",
+				guard: {
+					mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+				},
+			});
 
-		expect(result.seq).toBe(3);
-		expect(result.committedDoc).toBe(committed);
-	});
+			expect(result.seq).toBe(3);
+			expect(result.committedDoc).toBe(committed);
+		},
+	);
 
 	it("skips Postgres entirely for a non-case-type batch (fast path) — and runs NO saga-level reauth", async () => {
 		const fresh = minDoc();

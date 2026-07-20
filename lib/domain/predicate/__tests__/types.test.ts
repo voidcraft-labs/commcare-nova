@@ -297,24 +297,24 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
-	it.each([
-		"miles",
-		"kilometers",
-	] as const)("rejects within-distance when %s conversion to meters overflows", (unit) => {
-		expect(() =>
-			predicateSchema.parse({
-				kind: "within-distance",
-				property: {
-					kind: "prop",
-					caseType: "clinic",
-					property: "location",
-				},
-				center: asValueExpr({ kind: "input", name: "user_location" }),
-				distance: Number.MAX_VALUE,
-				unit,
-			}),
-		).toThrow(/too large to convert to meters/);
-	});
+	it.each(["miles", "kilometers"] as const)(
+		"rejects within-distance when %s conversion to meters overflows",
+		(unit) => {
+			expect(() =>
+				predicateSchema.parse({
+					kind: "within-distance",
+					property: {
+						kind: "prop",
+						caseType: "clinic",
+						property: "location",
+					},
+					center: asValueExpr({ kind: "input", name: "user_location" }),
+					distance: Number.MAX_VALUE,
+					unit,
+				}),
+			).toThrow(/too large to convert to meters/);
+		},
+	);
 
 	// Shape-pin tests for the two operators that constrain a slot to a
 	// specific term subtype rather than a full `termSchema`. These
@@ -447,26 +447,27 @@ describe("predicate schema", () => {
 	// (`SESSION_CONTEXT_FIELDS`) is exercised here so a silent narrowing
 	// of the enum on either the schema or the type-level constant trips
 	// a row of the table.
-	it.each(
-		SESSION_CONTEXT_FIELDS,
-	)("parses a session-context reference for field: %s", (field) => {
-		const result = predicateSchema.parse({
-			kind: "eq",
-			left: asValueExpr({
-				kind: "prop",
-				caseType: "patient",
-				property: "owner_id",
-			}),
-			right: asValueExpr({ kind: "session-context", field }),
-		});
-		expect(result.kind).toBe("eq");
-		if (result.kind === "eq" && result.right.kind === "term") {
-			expect(result.right.term.kind).toBe("session-context");
-			if (result.right.term.kind === "session-context") {
-				expect(result.right.term.field).toBe(field);
+	it.each(SESSION_CONTEXT_FIELDS)(
+		"parses a session-context reference for field: %s",
+		(field) => {
+			const result = predicateSchema.parse({
+				kind: "eq",
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "owner_id",
+				}),
+				right: asValueExpr({ kind: "session-context", field }),
+			});
+			expect(result.kind).toBe("eq");
+			if (result.kind === "eq" && result.right.kind === "term") {
+				expect(result.right.term.kind).toBe("session-context");
+				if (result.right.term.kind === "session-context") {
+					expect(result.right.term.field).toBe(field);
+				}
 			}
-		}
-	});
+		},
+	);
 
 	it("rejects session-context with an enum-miss field", () => {
 		// `drift` is in the framework's `addMetadata` set at
@@ -1952,21 +1953,22 @@ describe("valueExpression schema — leaf arms", () => {
 });
 
 describe("valueExpression schema — date / coercion arms", () => {
-	it.each(
-		DATE_ADD_INTERVALS,
-	)("parses date-add with interval: %s", (interval) => {
-		// `DATE_ADD_INTERVALS` is the closed enum of accepted
-		// intervals. Iterating it ensures every member parses; a
-		// regression that narrowed the enum on either the schema
-		// or the type-level constant trips a row of this table.
-		const result = valueExpressionSchema.parse({
-			kind: "date-add",
-			date: { kind: "today" },
-			interval,
-			quantity: asValueExpr({ kind: "literal", value: 1 }),
-		});
-		expect(result.kind).toBe("date-add");
-	});
+	it.each(DATE_ADD_INTERVALS)(
+		"parses date-add with interval: %s",
+		(interval) => {
+			// `DATE_ADD_INTERVALS` is the closed enum of accepted
+			// intervals. Iterating it ensures every member parses; a
+			// regression that narrowed the enum on either the schema
+			// or the type-level constant trips a row of this table.
+			const result = valueExpressionSchema.parse({
+				kind: "date-add",
+				date: { kind: "today" },
+				interval,
+				quantity: asValueExpr({ kind: "literal", value: 1 }),
+			});
+			expect(result.kind).toBe("date-add");
+		},
+	);
 
 	it("rejects date-add with an interval outside the enum", () => {
 		expect(() =>
@@ -2172,16 +2174,17 @@ describe("valueExpression schema — unwrap-list + format-date", () => {
 		expect(result.kind).toBe("unwrap-list");
 	});
 
-	it.each(
-		FORMAT_DATE_PRESETS,
-	)("parses format-date with preset pattern: %s", (pattern) => {
-		const result = valueExpressionSchema.parse({
-			kind: "format-date",
-			date: { kind: "today" },
-			pattern,
-		});
-		expect(result.kind).toBe("format-date");
-	});
+	it.each(FORMAT_DATE_PRESETS)(
+		"parses format-date with preset pattern: %s",
+		(pattern) => {
+			const result = valueExpressionSchema.parse({
+				kind: "format-date",
+				date: { kind: "today" },
+				pattern,
+			});
+			expect(result.kind).toBe("format-date");
+		},
+	);
 
 	it("parses format-date with a custom pattern string", () => {
 		const result = valueExpressionSchema.parse({
@@ -2205,18 +2208,18 @@ describe("valueExpression schema — unwrap-list + format-date", () => {
 		).toThrow();
 	});
 
-	it.each([
-		"%Q",
-		"Date %",
-	])("rejects a format-date pattern JavaRosa cannot evaluate: %s", (pattern) => {
-		expect(() =>
-			valueExpressionSchema.parse({
-				kind: "format-date",
-				date: { kind: "today" },
-				pattern,
-			}),
-		).toThrow();
-	});
+	it.each(["%Q", "Date %"])(
+		"rejects a format-date pattern JavaRosa cannot evaluate: %s",
+		(pattern) => {
+			expect(() =>
+				valueExpressionSchema.parse({
+					kind: "format-date",
+					date: { kind: "today" },
+					pattern,
+				}),
+			).toThrow();
+		},
+	);
 });
 
 describe("valueExpression schema — cross-family cycle through predicate operands", () => {

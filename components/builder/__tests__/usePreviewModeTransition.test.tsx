@@ -40,20 +40,21 @@ describe("usePreviewModeTransition", () => {
 				moduleUuid: "module-1",
 			} as Location,
 		},
-	])("preserves the $name authoring tab when Preview has not moved surfaces", ({
-		location,
-	}) => {
-		state.location = location;
-		const setPreviewing = vi.fn();
-		const { result } = renderHook(() =>
-			usePreviewModeTransition(setPreviewing),
-		);
+	])(
+		"preserves the $name authoring tab when Preview has not moved surfaces",
+		({ location }) => {
+			state.location = location;
+			const setPreviewing = vi.fn();
+			const { result } = renderHook(() =>
+				usePreviewModeTransition(setPreviewing),
+			);
 
-		act(() => result.current(false));
+			act(() => result.current(false));
 
-		expect(state.replace).not.toHaveBeenCalled();
-		expect(setPreviewing).toHaveBeenCalledWith(false);
-	});
+			expect(state.replace).not.toHaveBeenCalled();
+			expect(setPreviewing).toHaveBeenCalledWith(false);
+		},
+	);
 
 	it("maps an open running case record to Details authoring on exit", () => {
 		state.location = {

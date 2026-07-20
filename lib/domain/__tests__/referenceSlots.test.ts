@@ -342,44 +342,51 @@ describe("registry shape invariants", () => {
 // ── Dead-path + applicability exactness ───────────────────────────
 
 describe("field slots — paths resolve exactly where claimed", () => {
-	it.each(
-		fieldSlots,
-	)("$slot resolves on every claimed kind/mode with the promised shape", (slot) => {
-		for (const schema of schemasClaimedByFieldSlot(slot)) {
-			const resolved = resolvePath(schema, slot.path);
-			expect(resolved.length).toBeGreaterThan(0);
-			if (slot.kind === "prose" || slot.kind === "case-type-ref") {
-				for (const r of resolved) {
-					expect(r).toBeInstanceOf(z.ZodString);
+	it.each(fieldSlots)(
+		"$slot resolves on every claimed kind/mode with the promised shape",
+		(slot) => {
+			for (const schema of schemasClaimedByFieldSlot(slot)) {
+				const resolved = resolvePath(schema, slot.path);
+				expect(resolved.length).toBeGreaterThan(0);
+				if (slot.kind === "prose" || slot.kind === "case-type-ref") {
+					for (const r of resolved) {
+						expect(r).toBeInstanceOf(z.ZodString);
+					}
 				}
 			}
-		}
-	});
+		},
+	);
 
-	it.each(
-		fieldSlots,
-	)("$slot does NOT resolve on any unclaimed kind", (slot) => {
-		for (const kind of NON_REPEAT_KINDS) {
-			if (slot.appliesTo.includes(kind)) continue;
-			expect(resolvePath(NON_REPEAT_KIND_SCHEMAS[kind], slot.path)).toEqual([]);
-		}
-		if (!slot.appliesTo.includes("repeat")) {
+	it.each(fieldSlots)(
+		"$slot does NOT resolve on any unclaimed kind",
+		(slot) => {
+			for (const kind of NON_REPEAT_KINDS) {
+				if (slot.appliesTo.includes(kind)) continue;
+				expect(resolvePath(NON_REPEAT_KIND_SCHEMAS[kind], slot.path)).toEqual(
+					[],
+				);
+			}
+			if (!slot.appliesTo.includes("repeat")) {
+				for (const mode of repeatModes) {
+					expect(resolvePath(REPEAT_VARIANT_SCHEMAS[mode], slot.path)).toEqual(
+						[],
+					);
+				}
+			}
+		},
+	);
+
+	it.each(fieldSlots.filter((s) => s.repeatModes !== undefined))(
+		"$slot does NOT resolve on unclaimed repeat modes",
+		(slot) => {
 			for (const mode of repeatModes) {
+				if (slot.repeatModes?.includes(mode)) continue;
 				expect(resolvePath(REPEAT_VARIANT_SCHEMAS[mode], slot.path)).toEqual(
 					[],
 				);
 			}
-		}
-	});
-
-	it.each(
-		fieldSlots.filter((s) => s.repeatModes !== undefined),
-	)("$slot does NOT resolve on unclaimed repeat modes", (slot) => {
-		for (const mode of repeatModes) {
-			if (slot.repeatModes?.includes(mode)) continue;
-			expect(resolvePath(REPEAT_VARIANT_SCHEMAS[mode], slot.path)).toEqual([]);
-		}
-	});
+		},
+	);
 });
 
 describe("form slots — paths resolve with the promised shape", () => {
@@ -455,17 +462,18 @@ describe("module slots — paths resolve with the promised shape", () => {
 // ── Schema-key audit — the totality gate ──────────────────────────
 
 describe("schema-key audit — every declared key is classified", () => {
-	it.each(
-		NON_REPEAT_KINDS,
-	)("field kind %s has no unclassified keys", (kind) => {
-		expect(
-			unclassifiedLeaves(
-				NON_REPEAT_KIND_SCHEMAS[kind],
-				fieldRegistryPaths(kind),
-				NON_REFERENCE_FIELD_PATH_SET,
-			),
-		).toEqual([]);
-	});
+	it.each(NON_REPEAT_KINDS)(
+		"field kind %s has no unclassified keys",
+		(kind) => {
+			expect(
+				unclassifiedLeaves(
+					NON_REPEAT_KIND_SCHEMAS[kind],
+					fieldRegistryPaths(kind),
+					NON_REFERENCE_FIELD_PATH_SET,
+				),
+			).toEqual([]);
+		},
+	);
 
 	it.each(repeatModes)("repeat mode %s has no unclassified keys", (mode) => {
 		expect(

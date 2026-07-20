@@ -717,22 +717,22 @@ describe("compileExpression — date-add arm", () => {
 		).toThrow(/without a resolvable date-or-datetime base type/i);
 	});
 
-	it.each([
-		"months",
-		"years",
-	] as const)("guards a dynamic %s quantity before adapting it to make_interval's integer slot", (interval) => {
-		const compiled = compileExpression_(
-			compileExpression(
-				dateAdd(now(), interval, double(term(literal("1.0")))),
-				makeCtx(),
-			),
-		);
-		const sqlText = compiled.sql.toLowerCase();
-		expect(sqlText).toContain("case when");
-		expect(sqlText).toContain("trunc(");
-		expect(sqlText).toContain("as integer");
-		expect(sqlText).toContain("make_interval(");
-	});
+	it.each(["months", "years"] as const)(
+		"guards a dynamic %s quantity before adapting it to make_interval's integer slot",
+		(interval) => {
+			const compiled = compileExpression_(
+				compileExpression(
+					dateAdd(now(), interval, double(term(literal("1.0")))),
+					makeCtx(),
+				),
+			);
+			const sqlText = compiled.sql.toLowerCase();
+			expect(sqlText).toContain("case when");
+			expect(sqlText).toContain("trunc(");
+			expect(sqlText).toContain("as integer");
+			expect(sqlText).toContain("make_interval(");
+		},
+	);
 });
 
 // ---------------------------------------------------------------
@@ -790,14 +790,14 @@ describe("compileExpression — format-date arm", () => {
 		expect(compiled.parameters).not.toContain("Day DD: %A, %e-%b-%Y");
 	});
 
-	it.each([
-		"%Q",
-		"Date %",
-	])("rejects a JavaRosa pattern that cannot be evaluated: %s", (pattern) => {
-		expect(() =>
-			compileExpression(formatDate(today(), pattern), makeCtx()),
-		).toThrow(/format-date pattern/i);
-	});
+	it.each(["%Q", "Date %"])(
+		"rejects a JavaRosa pattern that cannot be evaluated: %s",
+		(pattern) => {
+			expect(() =>
+				compileExpression(formatDate(today(), pattern), makeCtx()),
+			).toThrow(/format-date pattern/i);
+		},
+	);
 
 	it("compiles JavaRosa's complete supported escape set", () => {
 		const compiled = compileExpression_(

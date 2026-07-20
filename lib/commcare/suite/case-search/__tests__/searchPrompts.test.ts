@@ -317,36 +317,35 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		expect(validations.get("sibling")?.test).not.toContain("@name='owner'");
 	});
 
-	it.each<SearchInputType>([
-		"text",
-		"select",
-		"date",
-		"date-range",
-		"barcode",
-	])("attaches the same CSQL quote guard to an explicitly bound %s prompt", (type) => {
-		const inputName = `query_${type.replace("-", "_")}`;
-		const inputDef = advancedSearchInputDef(
-			INPUT_UUIDS.a,
-			inputName,
-			"Query",
-			type,
-			whenInput(
-				input(inputName),
-				eq(prop("patient", "case_name"), input(inputName)),
-			),
-		);
-		const config: CaseListConfig = {
-			columns: [],
-			searchInputs: [inputDef],
-		};
-		const validations = buildRuntimeCsqlPromptValidations(
-			composeXPathQueryEmission(config, "patient"),
-		);
-		const { xml } = emitSearchPrompts([inputDef], MODULE_ID, validations);
+	it.each<SearchInputType>(["text", "select", "date", "date-range", "barcode"])(
+		"attaches the same CSQL quote guard to an explicitly bound %s prompt",
+		(type) => {
+			const inputName = `query_${type.replace("-", "_")}`;
+			const inputDef = advancedSearchInputDef(
+				INPUT_UUIDS.a,
+				inputName,
+				"Query",
+				type,
+				whenInput(
+					input(inputName),
+					eq(prop("patient", "case_name"), input(inputName)),
+				),
+			);
+			const config: CaseListConfig = {
+				columns: [],
+				searchInputs: [inputDef],
+			};
+			const validations = buildRuntimeCsqlPromptValidations(
+				composeXPathQueryEmission(config, "patient"),
+			);
+			const { xml } = emitSearchPrompts([inputDef], MODULE_ID, validations);
 
-		expect(validations.get(inputName)?.test).toContain(`@name='${inputName}'`);
-		expect(xml.match(/<validation /g)).toHaveLength(1);
-	});
+			expect(validations.get(inputName)?.test).toContain(
+				`@name='${inputName}'`,
+			);
+			expect(xml.match(/<validation /g)).toHaveLength(1);
+		},
+	);
 
 	it("text type omits both @input and @appearance (CCHQ default)", () => {
 		const inputs: SearchInputDef[] = [

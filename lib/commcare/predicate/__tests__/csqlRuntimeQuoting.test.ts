@@ -55,18 +55,18 @@ describe("runtime CSQL value quoting", () => {
 		expect(resolveInput(wrapper, "query", value)).toBe(expected);
 	});
 
-	it.each([
-		`x' or match-all() or 'y`,
-		`x" or match-all() or "y`,
-	])("keeps a one-delimiter adversarial value inside one literal", (value) => {
-		const wrapper = emitCsql(
-			eq(prop("patient", "full_name"), input("query")),
-		).wrapper;
-		const rendered = resolveInput(wrapper, "query", value);
-		expect(rendered).toContain(value);
-		expect(rendered).not.toBe(CSQL_UNREPRESENTABLE_RUNTIME_STRING);
-		expect(rendered.startsWith("full_name = ")).toBe(true);
-	});
+	it.each([`x' or match-all() or 'y`, `x" or match-all() or "y`])(
+		"keeps a one-delimiter adversarial value inside one literal",
+		(value) => {
+			const wrapper = emitCsql(
+				eq(prop("patient", "full_name"), input("query")),
+			).wrapper;
+			const rendered = resolveInput(wrapper, "query", value);
+			expect(rendered).toContain(value);
+			expect(rendered).not.toBe(CSQL_UNREPRESENTABLE_RUNTIME_STRING);
+			expect(rendered.startsWith("full_name = ")).toBe(true);
+		},
+	);
 
 	it("rejects a value containing both delimiters before any bytes enter CSQL", () => {
 		const wrapper = emitCsql(
@@ -87,13 +87,16 @@ describe("runtime CSQL value quoting", () => {
 				eq(prop("patient", "status"), literal("active")),
 			),
 		],
-	])("rejects the whole %s query instead of broadening it", (_label, predicate) => {
-		const wrapper = emitCsql(predicate).wrapper;
-		expect(resolveInput(wrapper, "query", `it's "quoted"`)).toBe(
-			CSQL_UNREPRESENTABLE_RUNTIME_STRING,
-		);
-		expect(wrapper).not.toContain("match-none()");
-	});
+	])(
+		"rejects the whole %s query instead of broadening it",
+		(_label, predicate) => {
+			const wrapper = emitCsql(predicate).wrapper;
+			expect(resolveInput(wrapper, "query", `it's "quoted"`)).toBe(
+				CSQL_UNREPRESENTABLE_RUNTIME_STRING,
+			);
+			expect(wrapper).not.toContain("match-none()");
+		},
+	);
 
 	it("propagates a nested when-input guard to the outermost query", () => {
 		const predicate = or(

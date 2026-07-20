@@ -15,29 +15,32 @@ describe("canonical case-property aliases in case-list validation", () => {
 		["name", "case_name", "date", "text"],
 		["external-id", "external_id", "date", "text"],
 		["date-opened", "date_opened", "text", "datetime"],
-	] as const)("resolves legacy %s through %s metadata instead of the stale alias declaration", (alias, canonical, staleType, expectedType) => {
-		const doc = buildDoc({
-			appName: "Legacy aliases",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{
-							name: alias,
-							label: `Legacy ${alias}`,
-							data_type: staleType,
-						},
-					],
-				},
-			],
-		});
+	] as const)(
+		"resolves legacy %s through %s metadata instead of the stale alias declaration",
+		(alias, canonical, staleType, expectedType) => {
+			const doc = buildDoc({
+				appName: "Legacy aliases",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{
+								name: alias,
+								label: `Legacy ${alias}`,
+								data_type: staleType,
+							},
+						],
+					},
+				],
+			});
 
-		expect(resolvePropertyDataType(doc, "patient", canonical)).toBe(
-			expectedType,
-		);
-		expect(resolvePropertyDataType(doc, "patient", alias)).toBe(expectedType);
-		expect(propertyExists(doc, "patient", alias)).toBe(true);
-	});
+			expect(resolvePropertyDataType(doc, "patient", canonical)).toBe(
+				expectedType,
+			);
+			expect(resolvePropertyDataType(doc, "patient", alias)).toBe(expectedType);
+			expect(propertyExists(doc, "patient", alias)).toBe(true);
+		},
+	);
 
 	it("keeps a legacy AST reference readable while type-checking the canonical value", () => {
 		const doc = buildDoc({

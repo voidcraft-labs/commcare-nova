@@ -189,21 +189,26 @@ describe("PredicateWorkbench structural peer addition", () => {
 			"or",
 			"Conditions where any can match",
 		],
-	] as const)("exposes the focused %s clauses as one named ordered list", (_label, makeValue, kind, listName) => {
-		renderWorkbench(makeValue());
+	] as const)(
+		"exposes the focused %s clauses as one named ordered list",
+		(_label, makeValue, kind, listName) => {
+			renderWorkbench(makeValue());
 
-		const list = screen.getByRole("list", { name: listName });
-		const items = within(list).getAllByRole("listitem");
-		expect(list.tagName).toBe("OL");
-		expect(items).toHaveLength(2);
-		expect(Array.from(list.children)).toEqual(items);
-		expect(items.at(0)?.contains(focusRegion([kind, 0]))).toBe(true);
-		expect(items.at(1)?.contains(focusRegion([kind, 1]))).toBe(true);
-		expect(
-			within(list).queryByRole("button", { name: "Add condition" }),
-		).toBeNull();
-		expect(screen.getByRole("button", { name: "Add condition" })).toBeDefined();
-	});
+			const list = screen.getByRole("list", { name: listName });
+			const items = within(list).getAllByRole("listitem");
+			expect(list.tagName).toBe("OL");
+			expect(items).toHaveLength(2);
+			expect(Array.from(list.children)).toEqual(items);
+			expect(items.at(0)?.contains(focusRegion([kind, 0]))).toBe(true);
+			expect(items.at(1)?.contains(focusRegion([kind, 1]))).toBe(true);
+			expect(
+				within(list).queryByRole("button", { name: "Add condition" }),
+			).toBeNull();
+			expect(
+				screen.getByRole("button", { name: "Add condition" }),
+			).toBeDefined();
+		},
+	);
 
 	it("replaces the root collection with the focused nested collection", () => {
 		renderWorkbench(and(NORTH, or(SOUTH, not(NORTH))));
@@ -280,15 +285,20 @@ describe("PredicateWorkbench structural peer addition", () => {
 	it.each([
 		["an ordinary condition", NORTH],
 		["a condition group", and(NORTH, SOUTH)],
-	] as const)("does not put whole-filter replacement states in Add condition for %s", (_label, value) => {
-		renderWorkbench(value);
-		fireEvent.click(screen.getByRole("button", { name: "Add condition" }));
-		expect(screen.queryByText("Special cases")).toBeNull();
-		expect(
-			screen.queryByRole("menuitem", { name: /^Always match/ }),
-		).toBeNull();
-		expect(screen.queryByRole("menuitem", { name: /^Never match/ })).toBeNull();
-	});
+	] as const)(
+		"does not put whole-filter replacement states in Add condition for %s",
+		(_label, value) => {
+			renderWorkbench(value);
+			fireEvent.click(screen.getByRole("button", { name: "Add condition" }));
+			expect(screen.queryByText("Special cases")).toBeNull();
+			expect(
+				screen.queryByRole("menuitem", { name: /^Always match/ }),
+			).toBeNull();
+			expect(
+				screen.queryByRole("menuitem", { name: /^Never match/ }),
+			).toBeNull();
+		},
+	);
 
 	it("renders an existing sentinel as an editable rule", () => {
 		renderWorkbench(matchAll());
@@ -330,39 +340,45 @@ describe("PredicateWorkbench structural peer addition", () => {
 		["Search-answer condition", () => whenInput(input("query"), NORTH)],
 		["Related case exists", () => exists(VIA)],
 		["Related case is missing", () => missing(VIA)],
-	] as const)("wraps %s with a new sibling without rebuilding it", (_name, makeValue) => {
-		const original = makeValue();
-		const onChange = renderWorkbench(original);
+	] as const)(
+		"wraps %s with a new sibling without rebuilding it",
+		(_name, makeValue) => {
+			const original = makeValue();
+			const onChange = renderWorkbench(original);
 
-		addComparison();
+			addComparison();
 
-		const next = onChange.mock.calls.at(-1)?.[0] as Predicate | undefined;
-		expect(next?.kind).toBe("and");
-		if (next?.kind !== "and") throw new Error("Expected an all-match group");
-		expect(next.clauses).toHaveLength(2);
-		expect(next.clauses[0]).toBe(original);
-		expect(next.clauses[1]).toEqual(NEW_PEER);
-	});
+			const next = onChange.mock.calls.at(-1)?.[0] as Predicate | undefined;
+			expect(next?.kind).toBe("and");
+			if (next?.kind !== "and") throw new Error("Expected an all-match group");
+			expect(next.clauses).toHaveLength(2);
+			expect(next.clauses[0]).toBe(original);
+			expect(next.clauses[1]).toEqual(NEW_PEER);
+		},
+	);
 
 	it.each([
 		["all-match", () => and(NORTH, SOUTH), "and"],
 		["any-match", () => or(NORTH, SOUTH), "or"],
-	] as const)("adds directly to an existing %s group", (_name, makeValue, kind) => {
-		const original = makeValue();
-		const onChange = renderWorkbench(original);
+	] as const)(
+		"adds directly to an existing %s group",
+		(_name, makeValue, kind) => {
+			const original = makeValue();
+			const onChange = renderWorkbench(original);
 
-		addComparison();
+			addComparison();
 
-		const next = onChange.mock.calls.at(-1)?.[0] as Predicate | undefined;
-		expect(next?.kind).toBe(kind);
-		if (next?.kind !== "and" && next?.kind !== "or") {
-			throw new Error("Expected a logical group");
-		}
-		expect(next.clauses).toHaveLength(3);
-		expect(next.clauses[0]).toBe(original.clauses[0]);
-		expect(next.clauses[1]).toBe(original.clauses[1]);
-		expect(next.clauses[2]).toEqual(NEW_PEER);
-	});
+			const next = onChange.mock.calls.at(-1)?.[0] as Predicate | undefined;
+			expect(next?.kind).toBe(kind);
+			if (next?.kind !== "and" && next?.kind !== "or") {
+				throw new Error("Expected a logical group");
+			}
+			expect(next.clauses).toHaveLength(3);
+			expect(next.clauses[0]).toBe(original.clauses[0]);
+			expect(next.clauses[1]).toBe(original.clauses[1]);
+			expect(next.clauses[2]).toEqual(NEW_PEER);
+		},
+	);
 
 	it("moves focus into a peer that replaces the add menu", async () => {
 		render(<ControlledWorkbench initial={NORTH} />);

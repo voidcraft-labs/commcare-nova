@@ -118,17 +118,16 @@ describe("recoverLocation — case-list workspace without a case type", () => {
 		fields: {},
 	};
 
-	it.each([
-		"cases",
-		"search-config",
-		"detail-config",
-	] as const)("%s on a case-type-less module → module", (kind) => {
-		const loc = { kind, moduleUuid: MOD_A } as Location;
-		expect(recoverLocation(loc, noCaseTypeDoc)).toEqual({
-			kind: "module",
-			moduleUuid: MOD_A,
-		});
-	});
+	it.each(["cases", "search-config", "detail-config"] as const)(
+		"%s on a case-type-less module → module",
+		(kind) => {
+			const loc = { kind, moduleUuid: MOD_A } as Location;
+			expect(recoverLocation(loc, noCaseTypeDoc)).toEqual({
+				kind: "module",
+				moduleUuid: MOD_A,
+			});
+		},
+	);
 });
 
 describe("recoverLocation — form", () => {

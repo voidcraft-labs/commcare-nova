@@ -58,27 +58,30 @@ describe("seedCustomCondition", () => {
 		{ kind: "starts-with" },
 		{ kind: "phonetic" },
 		{ kind: "fuzzy-date" },
-	] satisfies readonly SearchInputMode[])("preserves $kind behavior, the relationship path, and the input envelope", (mode) => {
-		const via = ancestorPath(relationStep("parent"));
-		const row = simpleSearchInputDef(
-			asUuid(`si-${mode.kind}`),
-			"query",
-			"Query",
-			"text",
-			"case_name",
-			{ mode, via },
-		);
-		const propertyRef = prop(CASE_TYPE, "case_name", via);
-		const inputRef = input("query");
-		const expectedClause =
-			mode.kind === "exact"
-				? eq(propertyRef, inputRef)
-				: match(propertyRef, inputRef, mode.kind);
+	] satisfies readonly SearchInputMode[])(
+		"preserves $kind behavior, the relationship path, and the input envelope",
+		(mode) => {
+			const via = ancestorPath(relationStep("parent"));
+			const row = simpleSearchInputDef(
+				asUuid(`si-${mode.kind}`),
+				"query",
+				"Query",
+				"text",
+				"case_name",
+				{ mode, via },
+			);
+			const propertyRef = prop(CASE_TYPE, "case_name", via);
+			const inputRef = input("query");
+			const expectedClause =
+				mode.kind === "exact"
+					? eq(propertyRef, inputRef)
+					: match(propertyRef, inputRef, mode.kind);
 
-		expect(seedCustomCondition(row, CASE_TYPE)).toEqual(
-			whenInput(inputRef, expectedClause),
-		);
-	});
+			expect(seedCustomCondition(row, CASE_TYPE)).toEqual(
+				whenInput(inputRef, expectedClause),
+			);
+		},
+	);
 
 	it("wraps an input-bound comparison in a when-input-present envelope", () => {
 		// The exact shape from the screenshot: one text search on
@@ -195,17 +198,20 @@ describe("canSeedCustomConditionFaithfully", () => {
 		{ kind: "starts-with" },
 		{ kind: "phonetic" },
 		{ kind: "fuzzy-date" },
-	] satisfies readonly SearchInputMode[])("reports $kind as faithfully representable", (mode) => {
-		const row = simpleSearchInputDef(
-			asUuid(`si-${mode.kind}`),
-			"query",
-			"Query",
-			"text",
-			"case_name",
-			{ mode },
-		);
-		expect(canSeedCustomConditionFaithfully(row)).toBe(true);
-	});
+	] satisfies readonly SearchInputMode[])(
+		"reports $kind as faithfully representable",
+		(mode) => {
+			const row = simpleSearchInputDef(
+				asUuid(`si-${mode.kind}`),
+				"query",
+				"Query",
+				"text",
+				"case_name",
+				{ mode },
+			);
+			expect(canSeedCustomConditionFaithfully(row)).toBe(true);
+		},
+	);
 
 	it.each([
 		{ mode: { kind: "range" } as const, type: "date-range" as const },

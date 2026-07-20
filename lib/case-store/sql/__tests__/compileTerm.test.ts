@@ -458,12 +458,15 @@ describe("compileTerm — literal", () => {
 		["date", dateLiteral(""), "as date)"],
 		["datetime", datetimeLiteral(""), "as timestamptz)"],
 		["time", timeLiteral(""), "as time)"],
-	] as const)("turns an unset %s literal into typed null instead of casting an empty string", (_label, value, castToken) => {
-		const compiled = compileTerm_(compileTerm(value, makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain("nullif(");
-		expect(compiled.sql).toContain(castToken);
-		expect(compiled.parameters).toContain("");
-	});
+	] as const)(
+		"turns an unset %s literal into typed null instead of casting an empty string",
+		(_label, value, castToken) => {
+			const compiled = compileTerm_(compileTerm(value, makeCtx()));
+			expect(compiled.sql.toLowerCase()).toContain("nullif(");
+			expect(compiled.sql).toContain(castToken);
+			expect(compiled.parameters).toContain("");
+		},
+	);
 });
 
 // ---------------------------------------------------------------

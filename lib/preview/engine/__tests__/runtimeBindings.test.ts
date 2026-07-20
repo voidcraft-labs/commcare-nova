@@ -167,18 +167,21 @@ describe("searchInputValues wire bridge", () => {
 	it.each([
 		["lower", new Map([["visit_dates:from", "2025-01-02"]])],
 		["upper", new Map([["visit_dates:to", "2025-03-04"]])],
-	] as const)("keeps the bare daterange key absent for a %s-only range", (_side, raw) => {
-		const range = simpleSearchInputDef(
-			asUuid("range"),
-			"visit_dates",
-			"Visit dates",
-			"date-range",
-			"visit_date",
-		);
-		const values = withSearchInputExpressionValues([range], raw);
+	] as const)(
+		"keeps the bare daterange key absent for a %s-only range",
+		(_side, raw) => {
+			const range = simpleSearchInputDef(
+				asUuid("range"),
+				"visit_dates",
+				"Visit dates",
+				"date-range",
+				"visit_date",
+			);
+			const values = withSearchInputExpressionValues([range], raw);
 
-		expect(values.has("visit_dates")).toBe(false);
-	});
+			expect(values.has("visit_dates")).toBe(false);
+		},
+	);
 });
 
 const PATIENT = "patient";
@@ -1078,34 +1081,43 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			right: term(datetimeLiteral("2026-07-18T00:00:00Z")),
 			expectsTimestamp: true,
 		},
-	] as const)("preserves a date widget through production binding and SQL compilation for a $label", ({
-		left,
-		right,
-		expectsTimestamp,
-	}) => {
-		const dateInput = advancedSearchInputDef(
-			asUuid("visit-day"),
-			"visit_day",
-			"Visit day",
-			"date",
-			eq(left, right),
-		);
-		const bound = composeRuntimeFilter(
-			[dateInput],
-			new Map([["visit_day", "2026-07-17"]]),
-			PATIENT,
-			CASE_TYPE_SCHEMAS,
-		);
+	] as const)(
+		"preserves a date widget through production binding and SQL compilation for a $label",
+		({ left, right, expectsTimestamp }) => {
+			const dateInput = advancedSearchInputDef(
+				asUuid("visit-day"),
+				"visit_day",
+				"Visit day",
+				"date",
+				eq(left, right),
+			);
+			const bound = composeRuntimeFilter(
+				[dateInput],
+				new Map([["visit_day", "2026-07-17"]]),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
+			);
 
-		if (bound.kind !== "eq") {
-			throw new Error(`Expected an equality predicate, received ${bound.kind}`);
-		}
-		expect(bound.left).toMatchObject({
-			kind: "date-add",
-			date: expectsTimestamp
-				? {
-						kind: "datetime-coerce",
-						value: {
+			if (bound.kind !== "eq") {
+				throw new Error(
+					`Expected an equality predicate, received ${bound.kind}`,
+				);
+			}
+			expect(bound.left).toMatchObject({
+				kind: "date-add",
+				date: expectsTimestamp
+					? {
+							kind: "datetime-coerce",
+							value: {
+								kind: "term",
+								term: {
+									kind: "literal",
+									value: "2026-07-17",
+									data_type: "date",
+								},
+							},
+						}
+					: {
 							kind: "term",
 							term: {
 								kind: "literal",
@@ -1113,35 +1125,27 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 								data_type: "date",
 							},
 						},
-					}
-				: {
-						kind: "term",
-						term: {
-							kind: "literal",
-							value: "2026-07-17",
-							data_type: "date",
-						},
-					},
-		});
+			});
 
-		const compiled = SQL_DB.selectFrom("cases as c")
-			.selectAll()
-			.where(
-				compilePredicate(bound, {
-					db: SQL_DB,
-					appId: "app-runtime-binding",
-					projectId: "project-runtime-binding",
-					anchorAlias: "c",
-					caseTypeSchemas: CASE_TYPE_SCHEMAS,
-					bindings: {},
-				}),
-			)
-			.compile();
+			const compiled = SQL_DB.selectFrom("cases as c")
+				.selectAll()
+				.where(
+					compilePredicate(bound, {
+						db: SQL_DB,
+						appId: "app-runtime-binding",
+						projectId: "project-runtime-binding",
+						anchorAlias: "c",
+						caseTypeSchemas: CASE_TYPE_SCHEMAS,
+						bindings: {},
+					}),
+				)
+				.compile();
 
-		expect(compiled.sql).toContain("make_interval(");
-		expect(compiled.sql.includes("as timestamptz")).toBe(expectsTimestamp);
-		if (!expectsTimestamp) expect(compiled.sql).toContain("as date");
-	});
+			expect(compiled.sql).toContain("make_interval(");
+			expect(compiled.sql.includes("as timestamptz")).toBe(expectsTimestamp);
+			if (!expectsTimestamp) expect(compiled.sql).toContain("as date");
+		},
+	);
 
 	it("keeps zero-ref advanced predicates present in both Preview and wire", () => {
 		const advanced = advancedSearchInputDef(
