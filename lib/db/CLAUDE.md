@@ -110,10 +110,7 @@ never disturbs the other:
   `cost_estimate` counter (token math over `MODEL_PRICING`, which with a
   direct OpenAI key is the deterministic bill). Resets never touch it. Its
   sole gate consumer is the invisible dollar backstop (`COST_BACKSTOP_USD`),
-  read via `getMonthlyUsage`. (An orphaned `actual_cost` column — the
-  retired gateway-era per-call meter — survives on this table and
-  `run_summaries` until the expand-contract drop lands; nothing reads or
-  writes it.)
+  read via `getMonthlyUsage`.
 - `credit_months` (`CreditMonthDoc`) — the **resettable** user-facing gate.
   Balance is derived, not stored: `allowance(2000) + bonus − consumed`.
 - `credit_grants` (`CreditGrantDoc`) — append-only admin audit of every
