@@ -1772,6 +1772,69 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(rows[0]?.properties).toEqual({ age: ["30"] });
 		});
 
+		it("a datetime→date conversion truncates every stored value in the same sync — the #252 live edge", async () => {
+			const store = await options.factory(TENANT_A);
+			const datetimeCaseType: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "seen_at", label: "Seen at", data_type: "datetime" },
+				],
+			};
+			await seedSchema(store, buildBlueprint([datetimeCaseType]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					// Schema-canonical, as every stored datetime is (writes
+					// validate against strict `format: "date-time"`).
+					properties: makeProperties({ seen_at: "2026-06-15T09:30:00.000Z" }),
+				},
+			});
+
+			// The conversion reaches the store as a PLAIN additive sync
+			// (chat's drain-end materialize / the auto-save sweep) — no
+			// change entry, no hint. Detection alone must carry the rows.
+			const dateCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "seen_at", label: "Seen at", data_type: "date" }],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([dateCaseType])),
+			});
+			expect(report.retyped).toBe(1);
+			expect(report.parkedIds).toEqual([]);
+
+			// The calendar date IS what the conversion asked to keep — and
+			// the row's next write must pass the regenerated `format:
+			// "date"` schema (the stranding this closes).
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ seen_at: "2026-06-15" });
+			await store.update({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				patch: { properties: makeProperties({ seen_at: "2026-07-01" }) },
+			});
+
+			// Round-trip: converting back to datetime midnight-extends —
+			// no park in either direction on this pair.
+			const back = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([datetimeCaseType])),
+			});
+			expect(back.retyped).toBe(1);
+			expect(back.parkedIds).toEqual([]);
+			const after = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(after[0]?.properties).toEqual({
+				seen_at: "2026-07-01T00:00:00.000Z",
+			});
+		});
+
 		it("a caller-intent retype of the flipped property is not double-counted by detection", async () => {
 			const store = await options.factory(TENANT_A);
 			const singleCaseType: CaseType = {
