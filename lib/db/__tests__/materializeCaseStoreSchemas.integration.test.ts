@@ -215,7 +215,9 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 		const emptyReport = {
 			migrated: 0,
 			reshaped: 0,
-			quarantined: 0,
+			retyped: 0,
+			restored: 0,
+			parkedIds: [],
 			skipped: 0,
 			failureReasons: [],
 		};
@@ -238,6 +240,7 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 			traverse: unused,
 			applySchemaChange: applySchemaChangeMock,
 			dropSchema: unused,
+			unparkValues: unused,
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
@@ -267,7 +270,9 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 		const emptyReport = {
 			migrated: 0,
 			reshaped: 0,
-			quarantined: 0,
+			retyped: 0,
+			restored: 0,
+			parkedIds: [],
 			skipped: 0,
 			failureReasons: [],
 		};
@@ -290,6 +295,7 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 			traverse: unused,
 			applySchemaChange: applySchemaChangeMock,
 			dropSchema: unused,
+			unparkValues: unused,
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
@@ -323,7 +329,9 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const emptyReport = {
 			migrated: 0,
 			reshaped: 0,
-			quarantined: 0,
+			retyped: 0,
+			restored: 0,
+			parkedIds: [],
 			skipped: 0,
 			failureReasons: [],
 		};
@@ -347,6 +355,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 			traverse: unused,
 			applySchemaChange: applySchemaChangeMock,
 			dropSchema: unused,
+			unparkValues: unused,
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
@@ -379,7 +388,9 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const emptyReport = {
 			migrated: 0,
 			reshaped: 0,
-			quarantined: 0,
+			retyped: 0,
+			restored: 0,
+			parkedIds: [],
 			skipped: 0,
 			failureReasons: [],
 		};
@@ -406,6 +417,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 			traverse: unused,
 			applySchemaChange: applySchemaChangeMock,
 			dropSchema: unused,
+			unparkValues: unused,
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
@@ -448,7 +460,9 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const emptyReport = {
 			migrated: 0,
 			reshaped: 0,
-			quarantined: 0,
+			retyped: 0,
+			restored: 0,
+			parkedIds: [],
 			skipped: 0,
 			failureReasons: [],
 		};
@@ -474,6 +488,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 			traverse: unused,
 			applySchemaChange: applySchemaChangeMock,
 			dropSchema: unused,
+			unparkValues: unused,
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
@@ -574,6 +589,7 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 			traverse: unused,
 			applySchemaChange: throwingApply,
 			dropSchema: unused,
+			unparkValues: unused,
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;

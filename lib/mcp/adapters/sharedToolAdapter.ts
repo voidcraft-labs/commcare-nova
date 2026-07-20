@@ -211,8 +211,24 @@ export function registerSharedTool(
 					const { app_id: _discardedAppId, ...toolInput } = args;
 					const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
 					const payload = projectResult(outcome);
+					/* A saga commit that PARKED saved case values stashed a note
+					 * on the context — append it to a message-bearing payload so
+					 * the client hears about the data consequence with the
+					 * result, never silently. */
+					const parkedNote = mcpCtx.consumeParkedNote();
+					const finalPayload =
+						parkedNote !== undefined &&
+						typeof payload === "object" &&
+						payload !== null &&
+						"message" in payload &&
+						typeof (payload as { message: unknown }).message === "string"
+							? {
+									...payload,
+									message: `${(payload as { message: string }).message}\n\n${parkedNote}`,
+								}
+							: payload;
 					return {
-						content: [{ type: "text", text: JSON.stringify(payload) }],
+						content: [{ type: "text", text: JSON.stringify(finalPayload) }],
 					};
 				} finally {
 					/* Drain the event-log buffer before returning OR

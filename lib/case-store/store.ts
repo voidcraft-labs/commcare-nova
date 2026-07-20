@@ -267,21 +267,26 @@ export type CaseRowWithCalculated = CaseRow & {
 
 /**
  * The three change-shape arms `applySchemaChange` runs per-row
- * migrations for.
+ * migrations for. No arm ever removes a case row — a value the new
+ * declaration cannot hold PARKS (`parked_case_values`: the value
+ * moves out with its key, the row stays present and writable, and
+ * the entry is recoverable by the review surface).
  *
  *   - `rename(renames)` — one or more JSONB key renames applied
  *     SIMULTANEOUSLY per row (each destination reads the row's
  *     pre-migration value), so same-batch chains, swaps, and
  *     name-reuse (A→B while B→C) resolve with no ordering
  *     hazard. Values cast into the destination declaration;
- *     blank/uncastable values drop with the old key (reported,
- *     never a whole-row quarantine).
- *   - `retype(fromType, toType)` — per-row cast attempt; cast
- *     failures move to `cases_quarantine` with the original value
- *     preserved.
- *   - `narrow-options(removedOptions)` — rows whose select value
- *     is in `removedOptions` move to `cases_quarantine` (loud
- *     failure rather than silent acceptance).
+ *     blank values drop silently (nothing to keep), uncastable
+ *     values and a merge-conflict's displaced source value park.
+ *   - `retype(fromType, toType)` — per-row cast into the new type;
+ *     an uncastable value parks and its key drops.
+ *   - `narrow-options(removedOptions)` — a select value in
+ *     `removedOptions` parks (a multi-select keeps its surviving
+ *     elements; the FULL original array parks when any element was
+ *     removed). Deliberate opt-in flush — stored values outside the
+ *     current options are otherwise legitimate history (see the
+ *     `single_select` rationale in the JSON Schema generator).
  */
 export type SchemaChangeKind =
 	| { kind: "rename"; renames: ReadonlyArray<{ from: string; to: string }> }
@@ -323,22 +328,20 @@ export type SchemaChangeKind =
  * both are set, because the coarse gate's whole-call no-op could
  * otherwise silently skip a migration's per-row work on a stale seq.
  *
- * Independent of `change`, EVERY winning sync also runs the
- * string↔array shape reshape: when a property's stored JSON type
- * flips between plain string and array against the newly-derived
- * schema (the select single↔multi conversion), existing rows are
- * rewritten in the same transaction as the schema write — a stored
- * string scalar lifts to a one-element array, an array space-joins
- * into an unconstrained string target. Both rewrites are total and
- * index-safe, so no quarantine; every other shape transition
- * (integer/number sources with live typed expression indexes,
- * format-carrying string targets) is deliberately not auto-rewritten
- * — scope rationale on the implementation's `detectShapeFlips`. This
- * is detection over stored state, not caller intent, so it composes
- * with the additive gate: a stale-seq no-op is safe because the
- * fresher writer ran the same detection against the same stored row
- * in its own transaction. Rows a `change` migration and the reshape
- * both rewrite report on separate axes (`migrated` / `reshaped`).
+ * Independent of `change`, EVERY winning sync also runs per-property
+ * transition detection over the stored↔derived schema diff: a
+ * string↔array flip (the select single↔multi conversion) takes the
+ * TOTAL reshape — a stored string scalar lifts to a one-element
+ * array, an array space-joins into an unconstrained string target —
+ * and every OTHER validation-semantics change (a `format` keyword,
+ * string→integer, array→date, numeric→array via an in-transaction
+ * stale-index pre-drop) takes the per-row cast whose uncastable
+ * values park. This is detection over stored state, not caller
+ * intent, so it composes with the additive gate: a stale-seq no-op
+ * is safe because the fresher writer ran the same detection against
+ * the same stored row in its own transaction. Rows a `change`
+ * migration and the detection rewrite report on separate axes
+ * (`migrated` / `reshaped` / `retyped`).
  */
 export interface ApplySchemaChangeArgs {
 	appId: string;
@@ -350,25 +353,37 @@ export interface ApplySchemaChangeArgs {
 }
 
 /**
- * Per-row outcome of a sync's row rewrites, reported on two
- * separate axes because one physical row can be rewritten by both:
- * `migrated` counts rows a `change`-driven migration updated in
- * place, and `reshaped` counts rows the string↔array shape reshape
- * rewrote — summing them counts such a row twice, so consumers
- * report the axes side by side instead. `quarantined` rows moved to
- * `cases_quarantine`; `skipped` rows untouched by a `change`
- * migration (for `rename`, rows lacking every renamed key; for the
- * others, rows lacking the targeted property). `failureReasons`
- * carries per-row failure text in row-iteration order — the exact
- * `quarantine_reason` for quarantined rows, and the dropped-value
- * explanation for a rename whose value could not live under the
- * destination declaration (the row itself stays).
+ * Per-row outcome of a sync's row rewrites, reported on three
+ * separate row axes because one physical row can be rewritten by
+ * more than one step: `migrated` counts rows a `change`-driven
+ * migration updated in place, `reshaped` counts rows the
+ * string↔array shape reshape rewrote, and `retyped` counts rows the
+ * write-time retype detection cast — summing the axes can count a
+ * row twice, so consumers report them side by side instead.
+ * `skipped` counts rows a `change` migration left untouched (for
+ * `rename`, rows lacking every renamed key; for the others, rows
+ * lacking the targeted property).
+ *
+ * `parkedIds` are the `parked_case_values` entries this call
+ * created — one per VALUE that could not be carried (its count is
+ * the "N values set aside" number). The saga's compensation path
+ * consumes the ids to un-park on a failed blueprint commit.
+ * `restored` counts previously-parked values this sync wrote BACK:
+ * every winning sync ends by restoring any parked entry of the case
+ * type whose original value conforms to the type's new schema and
+ * whose key is free — so converting a property back (including via
+ * undo) automatically recovers what the forward conversion set
+ * aside. `failureReasons` carries the park events as
+ * person-readable text in row-iteration order (a blank-value key
+ * drop reports nothing).
  */
 export interface MigrationReport {
 	migrated: number;
 	reshaped: number;
-	quarantined: number;
+	retyped: number;
+	restored: number;
 	skipped: number;
+	parkedIds: string[];
 	failureReasons: string[];
 }
 
@@ -414,14 +429,14 @@ export interface SchemaCaseStore {
 	 * `caseTypeSchemas` map, optionally running a per-row migration.
 	 *
 	 * Two-phase shape — Phase A is one Kysely transaction that
-	 * UPSERTs `case_type_schemas` and runs the optional per-row
-	 * migration (`rename` / `retype` / `narrow-options`); Phase B
-	 * runs after Phase A commits and emits the per-property
-	 * expression-index `CREATE INDEX CONCURRENTLY` /
-	 * `DROP INDEX CONCURRENTLY` diff. Phase B cannot share the
-	 * Phase A transaction because non-CONCURRENTLY index builds
-	 * scan dead tuples produced by per-row quarantine inserts +
-	 * deletes earlier in the same transaction, and CONCURRENTLY
+	 * UPSERTs `case_type_schemas`, runs the detected per-property
+	 * transitions, and runs the optional per-row migration
+	 * (`rename` / `retype` / `narrow-options`); Phase B runs after
+	 * Phase A commits and emits the per-property expression-index
+	 * `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` diff.
+	 * Phase B cannot share the Phase A transaction because
+	 * non-CONCURRENTLY index builds scan the dead pre-migration
+	 * tuples the per-row UPDATEs leave in the heap, and CONCURRENTLY
 	 * index builds reject any outer transaction.
 	 *
 	 * Phase B failure leaves the next call's diff to converge —
@@ -433,6 +448,20 @@ export interface SchemaCaseStore {
 	 * change is an app-wide event, not a per-tenant one.
 	 */
 	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
+
+	/**
+	 * Write parked values back under their keys and delete the restored
+	 * entries — the saga's compensation half for a failed blueprint
+	 * commit, consuming `MigrationReport.parkedIds` from the forward
+	 * apply. Call only AFTER the schema state the values were valid
+	 * under is restored. An entry whose key meanwhile holds a real
+	 * concurrent value is KEPT (reported in `kept`) rather than
+	 * clobbered or deleted.
+	 */
+	unparkValues(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+	}): Promise<{ restored: number; kept: number }>;
 
 	/**
 	 * Drop the `case_type_schemas` row + every per-property

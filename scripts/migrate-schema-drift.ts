@@ -9,7 +9,8 @@
  *
  *   - each RETYPED property runs `applySchemaChange` with a `retype`
  *     change — per-row cast in one transaction, uncastable rows moved
- *     to `cases_quarantine` with their original values preserved;
+ *     to `parked_case_values` with their original values preserved
+ *     (the row stays, its uncastable value parks per-property);
  *   - a plain `applySchemaChange` re-sync converges everything else
  *     (missing rows, added/removed properties, spec refinements) and
  *     rebuilds the expression indexes (Phase B, `CONCURRENTLY`).
@@ -68,7 +69,7 @@ async function main() {
 	let migratedTypes = 0;
 	let retypesRun = 0;
 	let rowsMigrated = 0;
-	let rowsQuarantined = 0;
+	let valuesParked = 0;
 	const failedApps: string[] = [];
 
 	for (const { id } of appRows) {
@@ -103,17 +104,17 @@ async function main() {
 					});
 					retypesRun++;
 					rowsMigrated += report?.migrated ?? 0;
-					rowsQuarantined += report?.quarantined ?? 0;
+					valuesParked += report?.parkedIds.length ?? 0;
 					console.log(
 						`    retyped ${r.property}: ${r.fromType} → ${r.toType} — ` +
-							`${report?.migrated ?? 0} migrated, ${report?.quarantined ?? 0} quarantined, ${report?.skipped ?? 0} skipped` +
+							`${report?.migrated ?? 0} migrated, ${report?.parkedIds.length ?? 0} value(s) parked, ${report?.skipped ?? 0} skipped` +
 							((report?.reshaped ?? 0) > 0
 								? `, ${report?.reshaped} reshaped (string↔array flips on other properties of this type)`
 								: ""),
 					);
 					if (report && report.failureReasons.length > 0) {
 						for (const reason of report.failureReasons) {
-							console.log(`      quarantined: ${reason}`);
+							console.log(`      parked: ${reason}`);
 						}
 					}
 				}
@@ -150,7 +151,7 @@ async function main() {
 	console.log(
 		execute
 			? `Done: ${migratedTypes} case type(s) re-synced; ${retypesRun} retype(s) — ` +
-					`${rowsMigrated} row(s) migrated, ${rowsQuarantined} quarantined` +
+					`${rowsMigrated} row(s) migrated, ${valuesParked} value(s) parked` +
 					(failedApps.length > 0
 						? `; FAILED apps: ${failedApps.join(", ")}`
 						: "") +

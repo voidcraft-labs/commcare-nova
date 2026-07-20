@@ -117,7 +117,22 @@ export async function PUT(
 			kind: "autosave",
 			guard: { mutations: parsed.data.mutations },
 		});
-		return Response.json({ ok: true, seq: result.seq });
+		/* The migration outcome rides the response ONLY when the commit's
+		 * row migrations actually touched saved case data — the client
+		 * toasts it (a schema change silently rewriting or parking values
+		 * must never be invisible to the person who caused it). */
+		const migration = result.migration;
+		const touchedRows =
+			migration !== undefined &&
+			(migration.migrated > 0 ||
+				migration.reshaped > 0 ||
+				migration.retyped > 0 ||
+				migration.parked > 0);
+		return Response.json({
+			ok: true,
+			seq: result.seq,
+			...(touchedRows && { migration }),
+		});
 	} catch (err) {
 		if (err instanceof CommitReauthError) {
 			/* The actor lost edit access to this app (removed from its Project, or

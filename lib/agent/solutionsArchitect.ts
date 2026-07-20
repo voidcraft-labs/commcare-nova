@@ -218,6 +218,23 @@ export function createSolutionsArchitect(
 							doc,
 						);
 						if (mutations.length > 0) doc = newDoc;
+						/* A saga commit that PARKED saved case values stashed a
+						 * note on the context — append it to a message-bearing
+						 * result so the SA relays the data consequence to the
+						 * user, never silently. */
+						const parkedNote = ctx.consumeParkedNote?.();
+						if (
+							parkedNote !== undefined &&
+							typeof result === "object" &&
+							result !== null &&
+							"message" in result &&
+							typeof (result as { message: unknown }).message === "string"
+						) {
+							return {
+								...result,
+								message: `${(result as { message: string }).message}\n\n${parkedNote}`,
+							};
+						}
 						return result;
 					} catch (err) {
 						/* A RETRYABLE conflict — a peer deleted/changed what this

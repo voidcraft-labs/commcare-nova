@@ -775,15 +775,13 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		}
 	});
 
-	it("on retype that quarantines bad rows: index DDL succeeds against the post-commit state", async () => {
-		// The structural test the dead-tuple investigation produced:
-		// retype `text → int` against a row carrying `"abc"` would
-		// fail an in-transaction `CREATE INDEX` because PostgreSQL's
-		// non-CONCURRENTLY index builder uses `SnapshotAny` semantics
-		// and includes the dead tuple from the same transaction's
-		// quarantine DELETE. The two-phase split (tx for schema sync
-		// + per-row migration → COMMIT → fresh-connection DDL) lets
-		// the `CREATE INDEX` see only the post-commit row population.
+	it("on retype that parks bad values: index DDL succeeds against the post-commit state", async () => {
+		// The structural two-phase test: retype `text → int` against a
+		// row carrying `"abc"` parks the value (its key drops from the
+		// row), and the Phase-B `CREATE INDEX CONCURRENTLY` over the
+		// `::integer` expression runs only against the post-commit row
+		// population — where the uncastable value no longer exists
+		// under the key, so the typed index builds cleanly.
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
@@ -828,10 +826,10 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			property: "age",
 			change: { kind: "retype", fromType: "text", toType: "int" },
 		});
-		// One row migrated (Alice's "30" → 30); one row quarantined
-		// (Bob's "abc" can't cast).
-		expect(report.migrated).toBe(1);
-		expect(report.quarantined).toBe(1);
+		// Both rows rewrite: Alice's "30" → 30 in place; Bob's "abc"
+		// can't cast, so his value parks and the key drops.
+		expect(report.migrated).toBe(2);
+		expect(report.parkedIds).toHaveLength(1);
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
 		expect(indexes.map((i) => i.name)).toEqual([
@@ -888,7 +886,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			change: { kind: "retype", fromType: "multi_select", toType: "text" },
 		});
 		expect(report.migrated).toBe(1);
-		expect(report.quarantined).toBe(0);
+		expect(report.parkedIds).toEqual([]);
 
 		const { rows } = await dbHandle.pool.query(
 			`SELECT properties->>'languages' AS languages FROM cases WHERE app_id = $1 AND case_id = $2`,
@@ -903,11 +901,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 	it("Phase A rolls back atomically on per-row migration failure: schema row stays unchanged", async () => {
 		// Sabotage the second `applySchemaChange` call by removing
-		// `cases_quarantine` from the database mid-flight — the
-		// retype's quarantine attempt fails, and Phase A's
-		// transaction rolls back the new schema UPSERT alongside the
-		// failed migration. The probe verifies the schema row is
-		// preserved at its pre-call shape.
+		// `parked_case_values` from the database mid-flight — the
+		// retype's park INSERT fails, and Phase A's transaction rolls
+		// back the new schema UPSERT alongside the failed migration.
+		// The probe verifies the schema row is preserved at its
+		// pre-call shape.
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
@@ -928,10 +926,10 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			},
 		});
 
-		// Drop `cases_quarantine` so the retype's quarantine INSERT
+		// Drop `parked_case_values` so the retype's park INSERT
 		// throws. This is a controlled sabotage of the engine state;
 		// the production pipeline never drops the table.
-		await dbHandle.pool.query("DROP TABLE cases_quarantine");
+		await dbHandle.pool.query("DROP TABLE parked_case_values");
 
 		const retyped: CaseType = {
 			name: "patient",
@@ -963,10 +961,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(schema.properties.age.type).toBe("string");
 
 		// The row's properties are also untouched. Phase A's
-		// per-row migration would have updated the row's
-		// `properties.age` from `"abc"` to a typed value or moved
-		// it to quarantine; the rollback returns it to the
-		// pre-call value. Asserting the JSONB document confirms
+		// per-row migration would have dropped the row's
+		// `properties.age` into the park; the rollback returns it to
+		// the pre-call value. Asserting the JSONB document confirms
 		// the schema-and-data invariant the test labels.
 		const row = await dbHandle.pool.query<{ properties: unknown }>(
 			"SELECT properties FROM cases WHERE case_id = $1",
@@ -1058,7 +1055,10 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 		// Add the `name` property. Phase A's UPSERT commits the
 		// new schema; Phase B's CREATE INDEX with `gin_trgm_ops`
-		// fails because the extension is gone.
+		// fails because the extension is gone. The throw is the
+		// typed Phase-B wrapper (its `cause` carries the engine
+		// fault) so compensating callers keep the committed
+		// Phase-A report — parked ids and all — across the failure.
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [{ name: "name", label: "Name", data_type: "text" }],
@@ -1069,7 +1069,13 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				caseType: "patient",
 				caseTypeSchemas: buildSchemaMap(caseType),
 			}),
-		).rejects.toThrow(/gin_trgm_ops|pg_trgm|trgm/i);
+		).rejects.toMatchObject({
+			name: "SchemaChangePhaseBError",
+			report: { parkedIds: [] },
+			cause: expect.objectContaining({
+				message: expect.stringMatching(/gin_trgm_ops|pg_trgm|trgm/i),
+			}),
+		});
 
 		// Phase A's commit is intact: the schema row carries the
 		// new `name` property, even though Phase B failed.

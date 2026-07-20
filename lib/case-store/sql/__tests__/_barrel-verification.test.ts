@@ -31,13 +31,13 @@ import { expect, it } from "vitest";
 import type {
 	CaseIndexRelationship,
 	CaseIndicesTable,
-	CasesQuarantineTable,
 	CasesTable,
 	CaseTypeSchemasTable,
 	CompiledRelationPath,
 	CompilePredicateThunk,
 	Database,
 	ExpressionCompileContext,
+	ParkedCaseValuesTable,
 	PredicateCompileContext,
 	RelationPathCompileContext,
 	RelationPathLeafRow,
@@ -63,7 +63,7 @@ import {
 type _BarrelTypeSurface = {
 	caseIndexRelationship: CaseIndexRelationship;
 	caseIndicesTable: CaseIndicesTable;
-	casesQuarantineTable: CasesQuarantineTable;
+	parkedCaseValuesTable: ParkedCaseValuesTable;
 	casesTable: CasesTable;
 	caseTypeSchemasTable: CaseTypeSchemasTable;
 	compiledRelationPath: CompiledRelationPath;

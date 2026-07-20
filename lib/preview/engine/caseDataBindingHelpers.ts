@@ -1170,6 +1170,10 @@ export function schemaHealingCaseStore(
 		traverse: (a) => heal(() => store.traverse(a)),
 		applySchemaChange: (a) => store.applySchemaChange(a),
 		dropSchema: (a) => store.dropSchema(a),
+		// Un-healed like the schema writers above: it validates nothing
+		// (migrations are the trusted writer layer), so the heal's
+		// missing/stale-schema remedy has nothing to catch here.
+		unparkValues: (a) => store.unparkValues(a),
 		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
 		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
 	};

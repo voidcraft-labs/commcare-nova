@@ -46,10 +46,10 @@ import {
 import { describe, expect, it } from "vitest";
 import type {
 	CaseIndicesTable,
-	CasesQuarantineTable,
 	CasesTable,
 	CaseTypeSchemasTable,
 	Database,
+	ParkedCaseValuesTable,
 } from "../database";
 
 // -- Shared fixture --------------------------------------------------
@@ -367,61 +367,48 @@ describe("Database.case_indices", () => {
 	});
 });
 
-// -- `cases_quarantine` table --------------------------------------
+// -- `parked_case_values` table ------------------------------------
 
-describe("Database.cases_quarantine", () => {
-	it("compiles a quarantine-row insert with reason + default-stamped timestamp", () => {
-		// `applySchemaChange` writes here for rows that fail
-		// migration. The `quarantined_at` column is server-defaulted
-		// to `now()` so omitting it from the insert is the canonical
-		// shape; Kysely's `Insertable<CasesQuarantineTable>` shape
-		// with `ColumnType<Date, Date | string | undefined, ...>`
-		// accepts `undefined` for the default to fire.
+describe("Database.parked_case_values", () => {
+	it("compiles a park-entry insert with server-defaulted id + timestamp", () => {
+		// `applySchemaChange`'s per-row migrations write here for
+		// values that cannot carry into a property's new declaration.
+		// `id` (uuidv7) and `created_at` (now()) are server-defaulted,
+		// so omitting both is the canonical insert shape.
 		const compiled = compile(
-			db.insertInto("cases_quarantine").values({
-				case_id: "case-uuid",
+			db.insertInto("parked_case_values").values({
 				app_id: "app-uuid",
+				case_id: "case-uuid",
 				case_type: "patient",
-				owner_id: "owner-uuid",
-				status: "open",
-				opened_on: new Date("2026-05-02T00:00:00Z"),
-				modified_on: new Date("2026-05-02T00:00:00Z"),
-				closed_on: null,
-				case_name: "Alice",
-				parent_case_id: null,
-				properties: JSON.stringify({ age: "abc" }),
-				quarantine_reason:
-					"cast text→int failed for property 'age': value 'abc' is not numeric",
-				// `quarantined_at` omitted — server default fires.
+				property: "age",
+				original_value: JSON.stringify("abc"),
+				reason:
+					"cast text→int failed for property 'age': value \"abc\" is not a whole number",
+				// `id` + `created_at` omitted — server defaults fire.
 			}),
 		);
 
-		expect(compiled.sql).toContain('insert into "cases_quarantine"');
-		expect(compiled.sql).toContain('"quarantine_reason"');
-		// 12 explicit columns set; `quarantined_at` is defaulted.
-		expect(compiled.parameters).toHaveLength(12);
+		expect(compiled.sql).toContain('insert into "parked_case_values"');
+		expect(compiled.sql).toContain('"original_value"');
+		// 6 explicit columns set; `id` + `created_at` are defaulted.
+		expect(compiled.parameters).toHaveLength(6);
 	});
 
-	it("exposes the schema column shape via Selectable<CasesQuarantineTable>", () => {
-		type SelectedRow = Selectable<CasesQuarantineTable>;
+	it("exposes the schema column shape via Selectable<ParkedCaseValuesTable>", () => {
+		type SelectedRow = Selectable<ParkedCaseValuesTable>;
 		// Type-level assertion: every column reachable, with the
-		// quarantine-specific additions (`quarantine_reason`,
-		// `quarantined_at`) present and typed correctly.
+		// scalar-capable `original_value` (a bare string is valid
+		// jsonb) typed as `JsonValue` on the select side.
 		const _typecheck: SelectedRow = {
-			case_id: "case-uuid",
+			id: "entry-uuid",
 			app_id: "app-uuid",
+			case_id: "case-uuid",
 			case_type: "patient",
-			owner_id: "owner-uuid",
-			status: "open",
-			opened_on: new Date(),
-			modified_on: new Date(),
-			closed_on: null,
-			case_name: "Alice",
-			parent_case_id: null,
-			properties: { age: "abc" },
-			quarantine_reason: "cast failed",
-			quarantined_at: new Date(),
+			property: "age",
+			original_value: "abc",
+			reason: "cast failed",
+			created_at: new Date(),
 		};
-		expect(_typecheck.quarantine_reason).toBe("cast failed");
+		expect(_typecheck.reason).toBe("cast failed");
 	});
 });

@@ -88,9 +88,9 @@ describe("case-store harness — schema", () => {
 		// catches DDL drift that would prevent every other live-DB
 		// test from running.
 		//
-		// `cases_quarantine` is the failed-migration sink the
-		// `applySchemaChange` orchestration writes to; its shape is
-		// `cases` columns plus `quarantine_reason` + `quarantined_at`.
+		// `parked_case_values` is the per-property park the
+		// `applySchemaChange` migrations write to — one row per VALUE a
+		// migration could not carry into a property's new declaration.
 		const result = await pgClient.query<{
 			table_name: string;
 			column_name: string;
@@ -98,7 +98,7 @@ describe("case-store harness — schema", () => {
 			`SELECT table_name, column_name
 			 FROM information_schema.columns
 			 WHERE table_schema = 'public'
-			   AND table_name IN ('cases', 'case_type_schemas', 'case_indices', 'cases_quarantine')`,
+			   AND table_name IN ('cases', 'case_type_schemas', 'case_indices', 'parked_case_values')`,
 		);
 
 		const columnsByTable = new Map<string, Set<string>>();
@@ -113,8 +113,7 @@ describe("case-store harness — schema", () => {
 
 		// `case_name` is a top-level scalar column on `cases` (the
 		// CCHQ-platform-required display name that lives outside the
-		// JSONB property document); `cases_quarantine` mirrors it
-		// nullably to preserve the pre-migration value at audit time.
+		// JSONB property document).
 		expect(columnsByTable.get("cases")).toEqual(
 			new Set([
 				"case_id",
@@ -144,21 +143,16 @@ describe("case-store harness — schema", () => {
 				"depth",
 			]),
 		);
-		expect(columnsByTable.get("cases_quarantine")).toEqual(
+		expect(columnsByTable.get("parked_case_values")).toEqual(
 			new Set([
-				"case_id",
+				"id",
 				"app_id",
+				"case_id",
 				"case_type",
-				"owner_id",
-				"status",
-				"opened_on",
-				"modified_on",
-				"closed_on",
-				"case_name",
-				"parent_case_id",
-				"properties",
-				"quarantine_reason",
-				"quarantined_at",
+				"property",
+				"original_value",
+				"reason",
+				"created_at",
 			]),
 		);
 	});

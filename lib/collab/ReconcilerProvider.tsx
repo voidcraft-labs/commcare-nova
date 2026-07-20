@@ -39,6 +39,7 @@ import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import { BuilderSessionContext } from "@/lib/session/provider";
+import { showToast } from "@/lib/ui/toastStore";
 
 /** Backoff for the network/5xx retry loop: 1s, 2s, 4s, … capped at 30s. */
 function retryDelayMs(attempt: number): number {
@@ -242,6 +243,10 @@ function buildRuntime(
 		if (res.ok) {
 			const body = (await res.json().catch(() => ({}))) as {
 				seq?: number;
+				migration?: {
+					parked?: number;
+					failureReasons?: string[];
+				};
 			};
 			// The route ALWAYS returns a real committed seq on a 200. A 200 with no
 			// parseable seq is anomalous — NEVER fabricate `init.baseSeq` (once
@@ -252,6 +257,20 @@ function buildRuntime(
 			// a real seq via `batchDedup`.
 			if (typeof body.seq !== "number") {
 				return { ok: false, kind: "network", detail: "200 without seq" };
+			}
+			// A commit whose row migration SET VALUES ASIDE must be loud — the
+			// values left the case rows (recoverable in the saved-values store,
+			// but invisible until the review surface ships). A fully-successful
+			// migration stays silent: the conversion did exactly what was asked.
+			const parked = body.migration?.parked ?? 0;
+			if (parked > 0) {
+				showToast(
+					"warning",
+					parked === 1
+						? "1 saved value couldn't convert"
+						: `${parked} saved values couldn't convert`,
+					"The affected cases were kept; the values were set aside because they don't fit the field's new type.",
+				);
 			}
 			return { ok: true, seq: body.seq };
 		}

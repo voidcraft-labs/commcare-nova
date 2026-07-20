@@ -17,7 +17,7 @@
 // row set left split across Projects by a prior partial move, converges on the
 // next run with no source Project to get wrong.
 //
-// Only `cases` carries `project_id`. `cases_quarantine` has no tenant column
+// Only `cases` carries `project_id`. `parked_case_values` has no tenant column
 // (app-scoped audit), and `case_type_schemas` / `case_indices` key on
 // `(app_id, case_type)` / `(case_id, …)` — app-scoped and tenant-free, so their
 // rows and the per-`(app, case_type)` partial expression indexes keep covering
