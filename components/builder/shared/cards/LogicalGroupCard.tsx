@@ -213,8 +213,9 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			caseTypes: ctx.caseTypes,
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
+			caseDataScope: ctx.caseDataScope,
 		}),
-		[ctx.caseTypes, ctx.currentCaseType, ctx.knownInputs],
+		[ctx.caseTypes, ctx.currentCaseType, ctx.knownInputs, ctx.caseDataScope],
 	);
 	const containerKey = useId();
 	const rowIdentity = useStableListIdentity(value.clauses);
@@ -601,6 +602,7 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		caseDataScope: ctx.caseDataScope,
 	};
 
 	return (

@@ -55,6 +55,7 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
+import type { CaseDataScope } from "./editorSchemas";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -76,6 +77,11 @@ interface ExpressionCardEditorProps {
 	readonly currentCaseType: string;
 	/** Search inputs declared on the parent surface. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** When the slot evaluates relative to a case row. `"global"` slots
+	 *  (a search input's starting value) resolve once, before any case
+	 *  is selected — the provider-derived admission oracle drops every
+	 *  case-property / relationship source there. */
+	readonly caseDataScope?: CaseDataScope;
 	/**
 	 * The root slot's type constraint. Flows to the root
 	 * `ExpressionPicker` so the kind menu + value sources offer ONLY
@@ -112,6 +118,7 @@ export function ExpressionCardEditor({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	caseDataScope = "per-case",
 	constraint = ANY_CONSTRAINT,
 	onValidityChange,
 }: ExpressionCardEditorProps) {
@@ -165,6 +172,7 @@ export function ExpressionCardEditor({
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}
+			caseDataScope={caseDataScope}
 			validityIndex={validityIndex}
 		>
 			<ExpressionPicker

@@ -44,7 +44,12 @@ beforeEach(() => {
 });
 
 describe("setCaseSearchDisplay", () => {
-	it("canonicalizes standard-property aliases in the button condition", async () => {
+	it("refuses a case-property-reading button condition at the gate", async () => {
+		// The condition evaluates before any case is selected — a
+		// property read has no row to read, so the commit gate rejects
+		// the batch and nothing persists. (The tool-input schema rejects
+		// the same shape at parse for framework-validated callers; the
+		// gate covers direct execute calls.)
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
@@ -61,10 +66,11 @@ describe("setCaseSearchDisplay", () => {
 			doc,
 		);
 
-		expect(
-			result.newDoc.modules[MOD_A]?.caseSearchConfig
-				?.searchButtonDisplayCondition,
-		).toEqual(eq(prop("patient", "external_id"), literal("abc")));
+		expect(result.mutations).toEqual([]);
+		expect(result.newDoc).toBe(doc);
+		expect(result.result).toMatchObject({
+			error: expect.stringContaining("before any case is selected"),
+		});
 	});
 
 	it("sets every display slot on the module's caseSearchConfig", async () => {

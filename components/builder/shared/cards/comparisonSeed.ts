@@ -8,13 +8,15 @@ import {
 	eq,
 	gt,
 	gte,
+	literal,
 	lt,
 	lte,
 	neq,
 	type Predicate,
 	prop,
+	sessionContext,
 } from "@/lib/domain/predicate";
-import type { PredicateEditContext } from "../editorSchemas";
+import { caseDataInScope, type PredicateEditContext } from "../editorSchemas";
 import { seedLiteralForProperty } from "./reseed";
 
 type ComparisonArm<K extends ComparisonKind> = Extract<
@@ -36,20 +38,27 @@ export const KIND_BUILDERS: Record<
 
 const ORDERED_KINDS = new Set<ComparisonKind>(["lt", "lte", "gt", "gte"]);
 
-/** Build a type-valid comparison against the first applicable case property. */
+/** Build a type-valid comparison against the first applicable case property.
+ *  A global slot has no case to read, so its seed compares the current
+ *  user's username (a real, always-present session value — text, so
+ *  only the equality kinds are reachable there) against a value to
+ *  fill in. */
 export function comparisonDefault<K extends ComparisonKind>(
 	kind: K,
 	ctx: PredicateEditContext,
 ): ComparisonArm<K> {
+	const builder = KIND_BUILDERS[kind] as (
+		left: Parameters<typeof eq>[0],
+		right: Parameters<typeof eq>[1],
+	) => ComparisonArm<K>;
+	if (!caseDataInScope(ctx)) {
+		return builder(sessionContext("username"), literal(""));
+	}
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((candidate) =>
 		ORDERED_KINDS.has(kind) ? isOrdered(candidate) : true,
 	);
 	const propName = canonicalCasePropertyName(property?.name ?? "");
-	const builder = KIND_BUILDERS[kind] as (
-		left: Parameters<typeof eq>[0],
-		right: Parameters<typeof eq>[1],
-	) => ComparisonArm<K>;
 	return builder(
 		prop(ctx.currentCaseType, propName),
 		seedLiteralForProperty(property),

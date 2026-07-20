@@ -108,6 +108,7 @@ const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "ct",
 	knownInputs: KNOWN_INPUTS,
+	caseDataScope: "per-case",
 };
 const TYPE_CTX: TypeContext = {
 	caseTypes: CASE_TYPES,
@@ -250,6 +251,7 @@ describe("valid by construction — every admitted verb build type-checks", () =
 			caseTypes: [origin, destination],
 			currentCaseType: "child",
 			knownInputs: [],
+			caseDataScope: "per-case",
 		};
 		const typeCtx: TypeContext = {
 			caseTypes: [origin, destination],
@@ -346,6 +348,7 @@ describe("valid by construction — every registry default seeds a valid AST", (
 				caseTypes: [PARENT, ct],
 				currentCaseType: "ct",
 				knownInputs: KNOWN_INPUTS,
+				caseDataScope: "per-case",
 			};
 			const typeCtx: TypeContext = {
 				caseTypes: [PARENT, ct],

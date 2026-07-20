@@ -56,6 +56,7 @@ import {
 	WithCurrentCaseType,
 } from "./editorContext";
 import {
+	type CaseDataScope,
 	type PredicateEditContext,
 	predicateCardSchemas,
 	predicateUnavailableReason,
@@ -339,6 +340,11 @@ export interface PredicateWorkbenchProps {
 	/** Runtime that evaluates this rule. Search-backed rules consult the
 	 *  boundary verdict before offering a guaranteed-invalid value source. */
 	readonly evaluationTarget?: "on-device" | "case-search";
+	/** When the rule evaluates relative to a case row. `"global"` slots
+	 *  (the search-button display condition) resolve once, before any
+	 *  case is selected — verbs, seeds, and value sources drop every
+	 *  case-property / relationship read there. */
+	readonly caseDataScope?: CaseDataScope;
 	/** A semantic navigation request from another surface. The token makes a
 	 * repeat request for the same AST path observable after the author returns
 	 * to a dependency review. */
@@ -358,6 +364,7 @@ export function PredicateWorkbench({
 	currentCaseType,
 	knownInputs = [],
 	evaluationTarget = "on-device",
+	caseDataScope = "per-case",
 	focusRequest,
 }: PredicateWorkbenchProps) {
 	const [requestedPath, setRequestedPath] = useState<EditorPath>(
@@ -403,8 +410,13 @@ export function PredicateWorkbench({
 	);
 
 	const editContext = useMemo<PredicateEditContext>(
-		() => ({ caseTypes, currentCaseType: focusedCaseType, knownInputs }),
-		[caseTypes, focusedCaseType, knownInputs],
+		() => ({
+			caseTypes,
+			currentCaseType: focusedCaseType,
+			knownInputs,
+			caseDataScope,
+		}),
+		[caseTypes, focusedCaseType, knownInputs, caseDataScope],
 	);
 	const admitCaseSearchExpression = useCallback(
 		(path: EditorPath, next: ValueExpression) => {
@@ -557,6 +569,7 @@ export function PredicateWorkbench({
 			caseTypes={caseTypes}
 			currentCaseType={focusedCaseType}
 			knownInputs={knownInputs}
+			caseDataScope={caseDataScope}
 			validityIndex={validityIndex}
 			admitExpressionChange={
 				evaluationTarget === "case-search"

@@ -723,6 +723,7 @@ export function PredicateKindReplaceMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		caseDataScope: ctx.caseDataScope,
 	};
 	const currentKind = currentValue.kind;
 	const pendingPlan =

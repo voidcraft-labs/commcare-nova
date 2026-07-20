@@ -98,6 +98,8 @@ The Search action is independent from its input count. Adding the first Search i
 
 The SA boundary is narrower than the legacy domain loader for date ranges: `range` mode and the `date-range` widget must appear together, and `date-range` cannot carry the scalar `default` slot. One scalar cannot represent CommCare's paired start/end answer. Legacy docs remain loadable for builder repair, but tools must never create the mismatch or a From-only default.
 
+Two more parse-time narrowings mirror the validator's global-context rules: a search input's `default` and the display cluster's `searchButtonDisplayCondition` both resolve before any case is selected, so their schemas reject case-property / relationship reads (`expressionReadsCaseData` / `predicateReadsCaseData`) with the honest alternatives named — fixed values, `today()`, current-user/session values. The commit gate repeats the defense for direct callers and imported docs.
+
 The case-search-config tools accept the typed AST shape directly via Zod — `Predicate`, `ValueExpression` — pulled from `lib/domain/predicate`. The wholesale tools emit a single `updateModule` mutation patching `caseSearchConfig` via `updateModuleMutations`. The shared `moduleNotFoundResult` helper (used by every module-addressing SA tool family) lives at `tools/shared/moduleNotFoundResult.ts` so both families consume one Elm-style error shape; `tools/case-list-config/shared.ts` re-exports it for the existing case-list-config call sites.
 
 ### Media authoring — dedicated carriers + the asset library

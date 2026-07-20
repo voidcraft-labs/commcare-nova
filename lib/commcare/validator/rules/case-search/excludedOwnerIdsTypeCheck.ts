@@ -27,13 +27,11 @@
  * to check, no error.
  */
 
+import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
-	type BlueprintDoc,
-	excludedOwnerIdsReadsCaseData,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
-import { checkValueExpression } from "@/lib/domain/predicate";
+	checkValueExpression,
+	expressionReadsCaseData,
+} from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 import { formatPath, moduleTypeContext } from "../case-list/shared";
 
@@ -44,7 +42,7 @@ export function excludedOwnerIdsTypeCheck(
 ): ValidationError[] {
 	const expression = mod.caseSearchConfig?.excludedOwnerIds;
 	if (!expression) return [];
-	if (excludedOwnerIdsReadsCaseData(expression)) {
+	if (expressionReadsCaseData(expression)) {
 		return [
 			validationError(
 				"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",

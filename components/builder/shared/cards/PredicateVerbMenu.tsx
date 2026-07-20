@@ -943,6 +943,7 @@ export function PredicateVerbMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		caseDataScope: ctx.caseDataScope,
 	};
 	// The subject (left operand) drives which verbs are offerable — the
 	// same checker `checkComparison` / `checkMatch` validate against, so

@@ -82,17 +82,51 @@ import { hasRelatedCaseType } from "./relationSeed";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 /**
+ * When a slot's expression is evaluated relative to a case row.
+ *
+ *   - `"per-case"` — the ordinary scope: the expression runs against a
+ *     case (a Results row, a search candidate), so case-property and
+ *     relationship reads are meaningful.
+ *   - `"global"` — the expression resolves ONCE, before any case is
+ *     selected (a search input's starting value, the search-button
+ *     display condition). There is no row to read: the commit gate
+ *     rejects case-data reads there
+ *     (`CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE` /
+ *     `CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`),
+ *     so the pickers must not offer them.
+ */
+export type CaseDataScope = "per-case" | "global";
+
+/** One shared disabled-choice reason for every case-data-dependent
+ *  pick in a global slot — sources, verbs, and calculated kinds all
+ *  read the same sentence so the vocabulary can't drift. */
+export const GLOBAL_SCOPE_CASE_DATA_REASON =
+	"This is decided before a case is selected, so it can use only fixed values and current-user information";
+
+/**
  * Inputs available at the time `defaultValue` and `applicable` run.
  * The factories pick a sensible default property / case type when
  * possible; the applicability predicate narrows the kind picker so
  * authors see only the kinds whose semantics fit the current scope
  * (e.g. `multi-select-contains` is only applicable when the case
  * type has a multi_select-typed property).
+ *
+ * `caseDataScope` is REQUIRED (not defaulted) so every construction
+ * site states which evaluation scope its slot runs in — a surface
+ * that silently dropped the axis would offer case reads into a
+ * global slot and bounce off the commit gate.
  */
 export interface PredicateEditContext {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	readonly caseDataScope: CaseDataScope;
+}
+
+/** Whether case-property / relationship reads are meaningful in this
+ *  editor scope. */
+export function caseDataInScope(ctx: PredicateEditContext): boolean {
+	return ctx.caseDataScope !== "global";
 }
 
 /**
@@ -159,12 +193,23 @@ function getCurrentCaseType(ctx: PredicateEditContext): CaseType | undefined {
 	return ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 }
 
+/** A subject exists for a plain comparison / blank check: any case
+ *  property per-case, or the always-available session values in a
+ *  global slot. */
+function hasComparableSubject(ctx: PredicateEditContext): boolean {
+	if (!caseDataInScope(ctx)) return true;
+	return hasAnyProperty(ctx);
+}
+
 function hasAnyProperty(ctx: PredicateEditContext): boolean {
 	const ct = getCurrentCaseType(ctx);
 	return ct !== undefined && ct.properties.length > 0;
 }
 
 function hasMembershipProperty(ctx: PredicateEditContext): boolean {
+	// Session values are text-shaped, and text is a legal `in` subject —
+	// a global slot always has one.
+	if (!caseDataInScope(ctx)) return true;
 	const constraint = inSubjectConstraint();
 	return hasPropertyOfType(ctx, (property) =>
 		acceptsType(constraint, effectiveDataType(property)),
@@ -175,6 +220,11 @@ function hasPropertyOfType(
 	ctx: PredicateEditContext,
 	predicate: (p: CaseProperty) => boolean,
 ): boolean {
+	// Property-dependent kinds (ordered comparisons, match,
+	// within-distance, multi-select-contains) have no subject in a
+	// global slot: session values are text, which none of those kinds
+	// admit beyond what `hasComparableSubject` already covers.
+	if (!caseDataInScope(ctx)) return false;
 	const ct = getCurrentCaseType(ctx);
 	if (ct === undefined) return false;
 	return ct.properties.some(predicate);
@@ -188,6 +238,7 @@ export function predicateUnavailableReason(
 	kind: Predicate["kind"],
 	ctx: PredicateEditContext,
 ): string {
+	if (!caseDataInScope(ctx)) return GLOBAL_SCOPE_CASE_DATA_REASON;
 	switch (kind) {
 		case "exists":
 		case "missing":
@@ -246,7 +297,7 @@ export const predicateCardSchemas: {
 		description: "The property is exactly a value",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("eq", ctx),
-		applicable: hasAnyProperty,
+		applicable: hasComparableSubject,
 	},
 	neq: {
 		kind: "neq",
@@ -256,7 +307,7 @@ export const predicateCardSchemas: {
 		description: "The property is anything except a value",
 		component: ComparisonCard,
 		defaultValue: (ctx) => comparisonDefault("neq", ctx),
-		applicable: hasAnyProperty,
+		applicable: hasComparableSubject,
 	},
 	lt: {
 		kind: "lt",
@@ -386,7 +437,7 @@ export const predicateCardSchemas: {
 		description: "Empty or missing entirely",
 		component: IsBlankCard,
 		defaultValue: isBlankDefault,
-		applicable: hasAnyProperty,
+		applicable: hasComparableSubject,
 	},
 
 	// ── Sentinels ────────────────────────────────────────────────────
@@ -464,7 +515,7 @@ export const predicateCardSchemas: {
 		description: "Require at least one connected case to match",
 		component: ExistsCard,
 		defaultValue: existsDefault,
-		applicable: hasRelatedCaseType,
+		applicable: (ctx) => caseDataInScope(ctx) && hasRelatedCaseType(ctx),
 	},
 	missing: {
 		kind: "missing",
@@ -474,7 +525,7 @@ export const predicateCardSchemas: {
 		description: "Require that no connected case matches",
 		component: ExistsCard,
 		defaultValue: missingDefault,
-		applicable: hasRelatedCaseType,
+		applicable: (ctx) => caseDataInScope(ctx) && hasRelatedCaseType(ctx),
 	},
 };
 

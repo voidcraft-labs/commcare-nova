@@ -62,6 +62,7 @@ const ctx: PredicateEditContext = {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
+	caseDataScope: "per-case",
 };
 
 const allKinds = Object.keys(predicateCardSchemas) as Predicate["kind"][];
