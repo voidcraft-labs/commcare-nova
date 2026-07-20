@@ -74,8 +74,8 @@ export default defineConfig({
 		// segment, no match, no surprise filtering.
 		// `e2e/tests/**` are Playwright specs (`*.spec.ts`), not Vitest tests —
 		// they import `@playwright/test` and would throw under Vitest, so exclude
-		// them. The `e2e/lib/**` helpers stay in (Vitest imports them — e.g. the
-		// session-cookie contract test at lib/db/__tests__ pulls e2e/lib/session).
+		// them. The `e2e/lib/**` helpers stay in (Vitest runs tests there — e.g.
+		// e2e/lib/caseWorkspaceSeed.test.ts covers its sibling seed module).
 		exclude: [
 			...vitestConfigDefaults.exclude,
 			"**/.claude/worktrees/**",

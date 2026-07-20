@@ -20,8 +20,10 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   allowlist). To provoke an error on purpose, scope a local handler in that test.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
   + `auth_session` rows into the local **Postgres** (auth and app state both live
-  there); `e2e/lib/session.ts` signs the cookie exactly like
-  `better-call`. Its validity is pinned by
+  there); `lib/auth/sessionCookie.ts` signs the cookie exactly like
+  `better-call`, and `e2e/lib/session.ts` wraps it into Playwright `storageState`.
+  (Local driving OUTSIDE this suite doesn't need any of that — `GET /api/dev/login`
+  is the one-URL sign-in.) Its validity is pinned by
   `lib/db/__tests__/sessionCookie.integration.test.ts` — a better-auth/better-call
   bump that breaks it fails *there*, not as a Playwright timeout, so re-verify the
   signer after such a bump.
