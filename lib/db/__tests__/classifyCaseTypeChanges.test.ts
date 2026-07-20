@@ -294,8 +294,10 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 		expect(result).toEqual([
 			{
 				caseType: "patient",
-				property: "years",
-				change: { kind: "rename", from: "age", to: "years" },
+				change: {
+					kind: "rename",
+					renames: [{ from: "age", to: "years" }],
+				},
 			},
 		]);
 	});
@@ -319,8 +321,10 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 		expect(result).toEqual([
 			{
 				caseType: "patient",
-				property: "years",
-				change: { kind: "rename", from: "age", to: "years" },
+				change: {
+					kind: "rename",
+					renames: [{ from: "age", to: "years" }],
+				},
 			},
 		]);
 	});
@@ -335,8 +339,10 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 		expect(result).toEqual([
 			{
 				caseType: "patient",
-				property: "years",
-				change: { kind: "rename", from: "age", to: "years" },
+				change: {
+					kind: "rename",
+					renames: [{ from: "age", to: "years" }],
+				},
 			},
 		]);
 	});
@@ -416,6 +422,121 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 		expect(result[0]?.caseType).toBe("patient");
 		expect(result[0]?.change?.kind).toBe("rename");
 		expect(result[1]).toEqual({ caseType: "visit" });
+	});
+
+	/** Two writers of `patient` under pinned uuids, for the multi-pair
+	 *  and suppression cases below. */
+	function twoWriterDoc(args: {
+		field1Id: string;
+		field2Id: string;
+		catalog: readonly string[];
+	}): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: args.catalog.map((name) => ({ name, label: name })),
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: "field-one",
+									id: args.field1Id,
+									kind: "text",
+									label: "One",
+									case_property_on: "patient",
+								}),
+								f({
+									uuid: "field-two",
+									id: args.field2Id,
+									kind: "text",
+									label: "Two",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("emits BOTH pairs of a name-reuse batch in one entry (height→weight while weight→weight_kg)", () => {
+		// `weight` never leaves the view (field-one now writes it), so a
+		// departed-property trigger would prove only height→weight and
+		// the migration would destroy weight's data. The field-uuid
+		// trigger proves both pairs; the store applies them
+		// simultaneously.
+		const result = classifyCaseTypeChanges({
+			prior: twoWriterDoc({
+				field1Id: "height",
+				field2Id: "weight",
+				catalog: ["height", "weight"],
+			}),
+			prospective: twoWriterDoc({
+				field1Id: "weight",
+				field2Id: "weight_kg",
+				catalog: ["weight", "weight_kg"],
+			}),
+		});
+		expect(result).toEqual([
+			{
+				caseType: "patient",
+				change: {
+					kind: "rename",
+					renames: [
+						{ from: "height", to: "weight" },
+						{ from: "weight", to: "weight_kg" },
+					],
+				},
+			},
+		]);
+	});
+
+	it("suppresses a pair whose old name is KEPT by an unchanged writer", () => {
+		// field-one renames village→hamlet, but field-two still writes
+		// `village` under its unchanged id — the property lives on and
+		// its data stays; migrating it would steal a live property's
+		// values. The surface still shifted, so the sync entry stands.
+		const result = classifyCaseTypeChanges({
+			prior: twoWriterDoc({
+				field1Id: "village",
+				field2Id: "village",
+				catalog: ["village"],
+			}),
+			prospective: twoWriterDoc({
+				field1Id: "hamlet",
+				field2Id: "village",
+				catalog: ["village", "hamlet"],
+			}),
+		});
+		expect(result).toEqual([{ caseType: "patient" }]);
+	});
+
+	it("never synthesizes a pair onto a reserved non-property name", () => {
+		// `case_name` lives in the scalar column, not the JSONB document
+		// — `caseTypeToJsonSchema` filters it — so a migration into it
+		// would park values under a key the schema forbids and reads
+		// never consult. The rename classifies as schema-sync-only.
+		const result = classifyCaseTypeChanges({
+			prior: patientDoc({
+				fieldId: "patient_name",
+				catalog: [{ name: "patient_name", label: "Name" }],
+			}),
+			prospective: patientDoc({
+				fieldId: "case_name",
+				catalog: [{ name: "case_name", label: "Name" }],
+			}),
+		});
+		expect(result).toEqual([{ caseType: "patient" }]);
 	});
 });
 

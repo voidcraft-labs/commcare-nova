@@ -57,6 +57,10 @@ import {
 	type EntityRow,
 } from "./blueprintRows";
 import {
+	provenRenamePairs,
+	type RenameExpectation,
+} from "./classifyCaseTypeChanges";
+import {
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 	CommitReauthError,
@@ -595,6 +599,19 @@ export interface CommitGuardedBatchArgs {
 	readonly kind: AcceptedMutationDoc["kind"];
 	readonly mediaExpectations?: readonly MediaAttachExpectation[];
 	/**
+	 * The rename pairs the caller's Phase-1 case-store migration covered
+	 * (the cross-store saga passes this, possibly EMPTY). When present,
+	 * the commit re-proves renames against the FRESH doc pair inside the
+	 * transaction (`provenRenamePairs`) and REJECTS if the re-apply
+	 * would rename a pair not in this list — the batch was prepared
+	 * against a prior that trailed a concurrent commit, and letting it
+	 * land would strand row values with the rename evidence expired
+	 * (both sides of every later diff would already hold the new name).
+	 * Absent (direct chat fast-path / cross-Project-move callers, whose
+	 * batches carry no rename kinds): no check.
+	 */
+	readonly renameExpectations?: readonly RenameExpectation[];
+	/**
 	 * A `{ projectId }` the caller ALREADY resolved and reauthed the actor's
 	 * role against moments ago (the migration-bearing `applyBlueprintChange`
 	 * path, which reauths before its Phase-1 DDL). When present, the
@@ -738,6 +755,34 @@ export async function commitGuardedBatch(
 				throw new BlueprintCommitRejectedError(
 					describeIntroducedErrors(verdict.introduced),
 				);
+			}
+			// Rename-expectation gate — re-prove renames against the FRESH
+			// pair. A fresh-proven pair the caller's Phase-1 migration did
+			// not cover means the batch renames something other than what
+			// was migrated (its prior trailed a concurrent commit);
+			// committing it would strand row values permanently, because
+			// after this commit both sides of every future diff hold the
+			// new name and no sync can ever prove the migration again. The
+			// reverse asymmetry is fine: an expected pair the fresh diff
+			// does NOT prove means a peer already committed the same
+			// rename (the forward migration no-oped) — nothing to reject.
+			if (args.renameExpectations !== undefined) {
+				const proven = provenRenamePairs(freshDoc, verdict.nextDoc);
+				for (const [renamedType, pairs] of proven) {
+					for (const pair of pairs) {
+						const covered = args.renameExpectations.some(
+							(expectation) =>
+								expectation.caseType === renamedType &&
+								expectation.from === pair.from &&
+								expectation.to === pair.to,
+						);
+						if (!covered) {
+							throw new BlueprintCommitRejectedError(
+								`This change would rename the case property "${pair.from}" to "${pair.to}" on "${renamedType}", but it was prepared against an older version of the app and the saved case data was migrated for a different rename. Reload to get the latest state, then redo the rename.`,
+							);
+						}
+					}
+				}
 			}
 			const seq = Number(fresh.mutation_seq) + 1;
 			const persistable = toPersistableDoc(verdict.nextDoc);

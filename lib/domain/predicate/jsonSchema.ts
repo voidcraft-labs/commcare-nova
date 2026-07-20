@@ -149,7 +149,9 @@ export type CaseTypePropertyJsonSchema =
  * column's non-empty CHECK constraint is the structural guarantee
  * for the field; the AJV schema covers user-defined properties only.
  */
-const RESERVED_NON_PROPERTY_NAMES: ReadonlySet<string> = new Set(["case_name"]);
+export const RESERVED_NON_PROPERTY_NAMES: ReadonlySet<string> = new Set([
+	"case_name",
+]);
 
 export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
 	const properties: Record<string, CaseTypePropertyJsonSchema> = {};

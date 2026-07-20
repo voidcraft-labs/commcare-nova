@@ -1218,10 +1218,19 @@ export class PostgresCaseStore implements CaseStore {
 			// own detection.
 			let reshaped = 0;
 			if (won) {
+				// Exclude only a RETYPE/NARROW-targeted property from the
+				// reshape — those migrations rewrite the same key their
+				// caller named, and a double rewrite would double-count. A
+				// RENAME's destinations are deliberately NOT excluded: a
+				// same-batch select flip on a merge-rename destination
+				// must still reshape the rows the rename never visits
+				// (rows holding the destination key without any old key).
 				const flips = detectShapeFlips(
 					priorRow?.schema,
 					schema,
-					args.change !== undefined ? args.property : undefined,
+					args.change !== undefined && args.change.kind !== "rename"
+						? args.property
+						: undefined,
 				);
 				if (flips.length > 0) {
 					reshaped = await this.runShapeReshape(trx, {
@@ -1244,17 +1253,6 @@ export class PostgresCaseStore implements CaseStore {
 					skipped: 0,
 					failureReasons: [],
 				};
-			}
-			if (args.property === undefined) {
-				throw new Error(
-					compilerBugMessage({
-						where: "case-store.PostgresCaseStore.applySchemaChange",
-						invariant:
-							"`property` is undefined while `change` is defined; the change shape targets a specific property and the migration loop reads from it",
-						detail:
-							"The `ApplySchemaChangeArgs` contract pairs `change` and `property` — `change` describes WHAT shifts (`rename` / `retype` / `narrow-options`); `property` names WHICH property the shift targets. Reaching this throw means the caller passed `change` but omitted `property`. Hint: pass `property` alongside `change` at the call site.",
-					}),
-				);
 			}
 			const migration = await this.runPerRowMigration(trx, {
 				appId: args.appId,
@@ -1531,45 +1529,47 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Dispatch to the per-row migration matching the `change` shape.
-	 * Three arms: `rename(from, to)`, `retype(fromType, toType)`, and
-	 * `narrow-options(removedOptions)`. Cast / option-set failures
-	 * move to `cases_quarantine` with the original value + failure
-	 * reason.
+	 * Three arms: `rename(renames[])`, `retype(fromType, toType)`, and
+	 * `narrow-options(removedOptions)`. Retype / narrow-options cast /
+	 * option-set failures move to `cases_quarantine` with the original
+	 * value + failure reason; a rename's uncastable values drop with
+	 * their old key instead (contract on `runRenameMigration`).
 	 */
 	private async runPerRowMigration(
 		trx: Transaction<Database>,
 		args: {
 			appId: string;
 			caseType: string;
-			property: string;
+			property: string | undefined;
 			change: SchemaChangeKind;
 			caseTypeDecl: CaseType;
 		},
 	): Promise<MigrationReport> {
 		switch (args.change.kind) {
 			case "rename": {
-				// The DESTINATION declaration's type drives the rename's
+				// Each DESTINATION declaration's type drives its pair's
 				// per-row cast. A plain rename carried its declaration with
 				// it (identity cast); a merge-rename adopted the surviving
 				// entry's type. An undeclared `data_type` derives a plain
 				// string schema, so it casts as `text`.
-				const to = args.change.to;
-				const toType =
-					args.caseTypeDecl.properties.find((p) => p.name === to)?.data_type ??
-					"text";
+				const renames = args.change.renames.map((pair) => ({
+					from: pair.from,
+					to: pair.to,
+					toType:
+						args.caseTypeDecl.properties.find((p) => p.name === pair.to)
+							?.data_type ?? ("text" as const),
+				}));
 				return await this.runRenameMigration(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					from: args.change.from,
-					to,
-					toType,
+					renames,
 				});
 			}
 			case "retype":
 				return await this.runRetypeMigration(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					property: args.property,
+					property: this.requireMigrationProperty(args.property, "retype"),
 					fromType: args.change.fromType,
 					toType: args.change.toType,
 				});
@@ -1577,10 +1577,33 @@ export class PostgresCaseStore implements CaseStore {
 				return await this.runNarrowOptionsMigration(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					property: args.property,
+					property: this.requireMigrationProperty(
+						args.property,
+						"narrow-options",
+					),
 					removedOptions: args.change.removedOptions,
 				});
 		}
+	}
+
+	/**
+	 * The `retype` / `narrow-options` arms target ONE property and
+	 * require the paired `property` argument; a `rename` change
+	 * carries its own targets in `renames` and never reaches this.
+	 */
+	private requireMigrationProperty(
+		property: string | undefined,
+		kind: "retype" | "narrow-options",
+	): string {
+		if (property !== undefined) return property;
+		throw new Error(
+			compilerBugMessage({
+				where: "case-store.PostgresCaseStore.runPerRowMigration",
+				invariant: `\`property\` is undefined for a \`${kind}\` change; that migration targets a specific property and the per-row loop reads from it`,
+				detail:
+					"The `ApplySchemaChangeArgs` contract pairs `property` with the `retype` / `narrow-options` change arms. Hint: pass `property` alongside the change at the call site.",
+			}),
+		);
 	}
 
 	/**
@@ -1665,42 +1688,53 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Rename: move each row's value from the old JSONB key to the new
-	 * one, casting into the DESTINATION declaration. A plain rename
+	 * Rename: move each row's values from the old JSONB keys to the
+	 * new ones — ALL pairs applied SIMULTANEOUSLY against the row's
+	 * pre-migration document, so a same-batch swap (A→B while B→A) or
+	 * name-reuse (A→B while a second writer's B→C) lands every value
+	 * at its true destination with no ordering hazard: every old key
+	 * drops first, then each destination fills from the OLD document's
+	 * source value.
+	 *
+	 * Values cast into the DESTINATION declaration. A plain rename
 	 * carries its declaration with it, so the cast is an identity pass
 	 * — but a MERGE-rename (the destination name was already declared;
 	 * the doc layer's cascade drops the old entry and keeps the
 	 * existing declaration) can land a value under a differently-typed
 	 * key, and an uncast move would re-strand the row on the
 	 * destination's `type` keyword — or abort Phase B's typed
-	 * expression index. So the arm mirrors the retype migration:
-	 * classify in TypeScript via `tryCastValue` against the
-	 * destination `data_type`, quarantine rows whose value cannot
-	 * live under the surviving declaration.
+	 * expression index.
 	 *
-	 * Per-row rules, in order:
-	 *   - Destination key already holds a non-null value (a
-	 *     merge-rename conflict): the destination value WINS — it
-	 *     already conforms to the surviving declaration — and the old
-	 *     key is dropped. Preferring the old value would overwrite
-	 *     schema-valid data with a value that may need a failable
-	 *     cast.
-	 *   - Old key holds JSON `null`: the key is dropped and nothing
-	 *     is written to the destination — a null carries no value,
-	 *     but the KEY must still go (merged-document validation
-	 *     rejects the undeclared key regardless of its value).
+	 * Per-pair, per-row rules:
+	 *   - Destination key already holds a non-null value that is NOT
+	 *     itself being renamed away (a merge-rename conflict): the
+	 *     destination value WINS — it already conforms to the
+	 *     surviving declaration — and the old key's value is dropped.
+	 *     Preferring the old value would overwrite schema-valid data
+	 *     with a value that may need a failable cast.
+	 *   - Old key holds JSON `null` or a blank string: the key drops
+	 *     and nothing is written — there is no data to move, and the
+	 *     KEY must still go (merged-document validation rejects the
+	 *     undeclared key regardless of its value).
 	 *   - Otherwise: `tryCastValue` into the destination type; success
-	 *     writes the cast value under the new key, failure moves the
-	 *     row to `cases_quarantine` with the original value + reason.
+	 *     writes the cast value under the new key, failure DROPS the
+	 *     value with the old key and records a `failureReasons` entry.
+	 *     Deliberately NOT the retype arm's whole-row quarantine: a
+	 *     rename is a first-class conversational/builder gesture, and
+	 *     making an entire case vanish from every list over one
+	 *     uncastable field value is worse than shedding that value
+	 *     loudly. The row stays present and writable.
 	 */
 	private async runRenameMigration(
 		trx: Transaction<Database>,
 		args: {
 			appId: string;
 			caseType: string;
-			from: string;
-			to: string;
-			toType: CasePropertyDataType;
+			renames: ReadonlyArray<{
+				from: string;
+				to: string;
+				toType: CasePropertyDataType;
+			}>;
 		},
 	): Promise<MigrationReport> {
 		// Count the full row population first so `migrated` + `skipped`
@@ -1721,44 +1755,61 @@ export class PostgresCaseStore implements CaseStore {
 			.executeTakeFirstOrThrow();
 		const totalCount = Number(totalRow.total);
 
-		// Only rows holding the old key leave Postgres — `?` tests key
-		// presence, so conforming and key-less rows never load into Node.
+		// Only rows holding at least one old key leave Postgres — `?`
+		// tests key presence, so conforming and key-less rows never load
+		// into Node.
 		const rows = await trx
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where(sql<boolean>`c.properties ? ${sql.lit(args.from)}`)
+			.where((eb) =>
+				eb.or(
+					args.renames.map(
+						(pair) => sql<boolean>`c.properties ? ${sql.lit(pair.from)}`,
+					),
+				),
+			)
 			.execute();
 
+		const fromKeys = new Set(args.renames.map((pair) => pair.from));
 		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
-		const quarantinedRows: { row: CaseRow; reason: string }[] = [];
 		const failureReasons: string[] = [];
 
 		for (const row of rows) {
-			const { [args.from]: value, ...rest } = row.properties;
-			const destination = rest[args.to];
-			if (destination !== undefined && destination !== null) {
-				// Merge-rename conflict — destination value wins; the old
-				// key is simply dropped.
-				migratedRows.push({ caseId: row.case_id, newProperties: rest });
-				continue;
+			const old = row.properties;
+			const next: JsonObject = {};
+			for (const [key, value] of Object.entries(old)) {
+				if (!fromKeys.has(key)) next[key] = value;
 			}
-			if (value === null || value === undefined) {
-				migratedRows.push({ caseId: row.case_id, newProperties: rest });
-				continue;
+			for (const pair of args.renames) {
+				if (!Object.hasOwn(old, pair.from)) continue;
+				const value = old[pair.from];
+				const destination = old[pair.to];
+				if (
+					destination !== undefined &&
+					destination !== null &&
+					!fromKeys.has(pair.to)
+				) {
+					continue; // conflict — the destination's surviving value wins
+				}
+				if (
+					value === null ||
+					value === undefined ||
+					(typeof value === "string" && value.trim() === "")
+				) {
+					continue; // no data to move — the key drop above suffices
+				}
+				const cast = tryCastValue(value, pair.toType);
+				if (cast.ok) {
+					next[pair.to] = cast.value as JsonValue;
+				} else {
+					failureReasons.push(
+						`rename ${pair.from}→${pair.to} dropped a value on case ${row.case_id}: it cannot live under the destination's \`${pair.toType}\` declaration: ${cast.reason}`,
+					);
+				}
 			}
-			const cast = tryCastValue(value, args.toType);
-			if (cast.ok) {
-				migratedRows.push({
-					caseId: row.case_id,
-					newProperties: { ...rest, [args.to]: cast.value as JsonValue },
-				});
-			} else {
-				const reason = `rename ${args.from}→${args.to} failed: the value cannot live under the destination's \`${args.toType}\` declaration: ${cast.reason}`;
-				quarantinedRows.push({ row, reason });
-				failureReasons.push(reason);
-			}
+			migratedRows.push({ caseId: row.case_id, newProperties: next });
 		}
 
 		if (migratedRows.length > 0) {
@@ -1767,14 +1818,11 @@ export class PostgresCaseStore implements CaseStore {
 				rows: migratedRows,
 			});
 		}
-		if (quarantinedRows.length > 0) {
-			await this.bulkQuarantine(trx, args.appId, quarantinedRows);
-		}
 
 		return {
 			migrated: migratedRows.length,
 			reshaped: 0,
-			quarantined: quarantinedRows.length,
+			quarantined: 0,
 			skipped: totalCount - rows.length,
 			failureReasons,
 		};

@@ -610,8 +610,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap(renamed),
-			property: "years",
-			change: { kind: "rename", from: "age", to: "years" },
+			change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
@@ -2515,8 +2514,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 				caseTypeSchemas: buildCaseTypeMap(
 					buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 				),
-				property: "name",
-				change: { kind: "rename", from: "old", to: "name" },
+				change: { kind: "rename", renames: [{ from: "old", to: "name" }] },
 				syncedSeq: 3,
 			}),
 		).rejects.toThrow(/mutually exclusive|change.*syncedSeq/i);

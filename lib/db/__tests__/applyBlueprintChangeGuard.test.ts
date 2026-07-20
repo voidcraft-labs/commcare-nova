@@ -392,16 +392,29 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 
-		// Phase 1 forward-applied the rename `change`; the rejection compensated
-		// it with a schema-sync-only re-derive of the prior (no `change`, no
-		// `dropSchema`).
+		// Phase 1 forward-applied the rename `change`; the rejection
+		// compensated it with the INVERSE rename (row values return to the
+		// restored key) followed by a schema-sync-only re-derive of the
+		// prior. No `dropSchema` anywhere.
 		const forward = applySchemaChangeMock.mock.calls[0]?.[0];
 		expect(forward).toMatchObject({
 			appId: "app-1",
 			caseType: "patient",
-			change: { kind: "rename", from: "village", to: "hamlet" },
+			change: {
+				kind: "rename",
+				renames: [{ from: "village", to: "hamlet" }],
+			},
 		});
-		const compensation = applySchemaChangeMock.mock.calls[1]?.[0];
+		const inversion = applySchemaChangeMock.mock.calls[1]?.[0];
+		expect(inversion).toMatchObject({
+			appId: "app-1",
+			caseType: "patient",
+			change: {
+				kind: "rename",
+				renames: [{ from: "hamlet", to: "village" }],
+			},
+		});
+		const compensation = applySchemaChangeMock.mock.calls[2]?.[0];
 		expect(compensation).toMatchObject({ appId: "app-1", caseType: "patient" });
 		expect(compensation.change).toBeUndefined();
 		expect(dropSchemaMock).not.toHaveBeenCalled();
@@ -444,8 +457,20 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 
 		// TWO calls: the forward (threw) + the compensating re-sync — compensate
 		// did NOT skip the type just because the forward never "succeeded".
-		expect(applySchemaChangeMock).toHaveBeenCalledTimes(2);
-		const compensation = applySchemaChangeMock.mock.calls[1]?.[0];
+		// THREE calls: the forward (threw) + the compensating inverse
+		// rename + the seq-guarded additive re-sync. The inverse is a
+		// harmless zero-row no-op when the forward's Phase A rolled back.
+		expect(applySchemaChangeMock).toHaveBeenCalledTimes(3);
+		const inversion = applySchemaChangeMock.mock.calls[1]?.[0];
+		expect(inversion).toMatchObject({
+			appId: "app-1",
+			caseType: "patient",
+			change: {
+				kind: "rename",
+				renames: [{ from: "hamlet", to: "village" }],
+			},
+		});
+		const compensation = applySchemaChangeMock.mock.calls[2]?.[0];
 		expect(compensation).toMatchObject({
 			appId: "app-1",
 			caseType: "patient",
@@ -655,6 +680,11 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		expect(loadAppProjectIdMock).toHaveBeenCalledTimes(1);
 		expect(commitGuardedBatchMock.mock.calls[0]?.[0]).toMatchObject({
 			preauthorized: { projectId: "proj-1" },
+			// The migrated pairs ride into the commit's rename gate, which
+			// re-proves them against the FRESH doc pair in-transaction.
+			renameExpectations: [
+				{ caseType: "patient", from: "village", to: "hamlet" },
+			],
 		});
 	});
 

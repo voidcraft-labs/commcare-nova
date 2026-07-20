@@ -20,11 +20,13 @@
  *      string↔array reshape may still rewrite flipped select rows
  *      inside the sync.
  *
- *   2. **Per-row migration** — `{ caseType, property, change }` with
- *      a discriminated `change` shape. Issued for a PROVEN rename
- *      (see below). The case-store runs the schema sync + per-row
- *      migration in one transaction; rows whose value cannot live
- *      under the destination declaration move to `cases_quarantine`.
+ *   2. **Per-row migration** — `{ caseType, change }` with a
+ *      discriminated `change` shape. Issued for PROVEN renames
+ *      (see below), one entry per case type carrying every proven
+ *      pair. The case-store runs the schema sync + per-row
+ *      migration in one transaction; a value that cannot live
+ *      under its destination declaration drops with the old key
+ *      (reported, never a whole-row quarantine).
  *      (`SchemaChangeKind`'s other arms — `retype`,
  *      `narrow-options` — are never classifier-emitted; the drift
  *      scripts drive them against `applySchemaChange` directly.)
@@ -51,18 +53,30 @@
  *
  * Rename detection: a rename and an "add new + remove old" pair are
  * indistinguishable at the property-LIST level, but fields carry
- * uuid identity — so the classifier proves a rename by pairing each
- * property that LEFT a case type's materializable view with a field
- * that wrote it in `prior` and, under the SAME uuid, writes a
- * property the prospective view holds. That evidence covers every
- * batch encoding of a rename: the `renameField` gesture (builder,
- * SA/MCP `edit_field`) and the diff-shaped batches undo/redo and
- * the collab reconciler emit (`updateField` id patch + catalog
- * add/remove pairs — `diffDocsToMutations` never emits
+ * uuid identity — so the classifier proves renames from FIELD id
+ * moves: a field that writes the same case type in both snapshots
+ * under a changed id (old name → new name) is rename evidence,
+ * unless the old name is KEPT by another writer whose id did not
+ * change (then the property lives on and its data stays). That
+ * evidence covers every batch encoding of a rename: the
+ * `renameField` gesture (builder, SA/MCP `edit_field`), the
+ * `moveField` dedup auto-rename, and the diff-shaped batches
+ * undo/redo and the collab reconciler emit (`updateField` id patch
+ * + catalog add/remove pairs — `diffDocsToMutations` never emits
  * `renameField`). A same-batch rename CHAIN (A→B→C) collapses for
- * free: only the endpoints appear in the snapshots. A property
- * removal with no surviving writer under the same uuid stays a
- * remove — no rename entry, no per-row migration.
+ * free: only the endpoints appear in the snapshots. All of a case
+ * type's proven pairs ride ONE rename entry and the store applies
+ * them SIMULTANEOUSLY per row, so a swap (A→B while B→A) or a
+ * name-reuse batch (A→B while a second field's B→C) moves every
+ * value to its true destination with no ordering hazard. A
+ * property removal with no surviving writer under the same uuid
+ * stays a remove — no rename entry, no per-row migration.
+ *
+ * Pairs touching a reserved non-property name (`case_name`) are
+ * never synthesized: the JSON Schema stores those as scalar
+ * columns, not JSONB keys (`caseTypeToJsonSchema` filters them),
+ * so a migration into one would park values under a key the
+ * schema forbids and reads never consult.
  *
  * `narrow-options` has no equivalent evidence (shrinking an option
  * set looks identical to removing the property, and options carry
@@ -79,6 +93,7 @@ import {
 	fieldCasePropertyOn,
 	materializableCaseTypes,
 } from "@/lib/domain";
+import { RESERVED_NON_PROPERTY_NAMES } from "@/lib/domain/predicate/jsonSchema";
 
 /**
  * One change entry the saga issues to the case store. Mirrors the
@@ -108,12 +123,11 @@ export interface ClassifyArgs {
  *
  * Strategy:
  *   1. Synthesize rename entries (`synthesizeRenameEntries`) from
- *      the two snapshots: a property that left a case type's view
- *      paired with a same-uuid field that still writes the type
- *      under a new name proves a rename, and its entry carries the
- *      `rename` change so the case-store migrates row values
- *      old-key → new-key in the same transaction as the schema
- *      regen.
+ *      the two snapshots — the field-uuid evidence rule on
+ *      `provenRenamePairs`. Each affected case type gets ONE entry
+ *      carrying all its proven pairs, so the case-store migrates
+ *      row values old-key → new-key (simultaneously across pairs)
+ *      in the same transaction as the schema regen.
  *   2. Walk the prospective case types. For each case type
  *      present in both snapshots, diff the property lists. Any
  *      structural change (property added/removed, `data_type`
@@ -181,81 +195,145 @@ export function classifyCaseTypeChanges(
 }
 
 /**
- * Prove renames from the two snapshots and emit one `rename`-change
- * entry per proven pair.
+ * Prove renames from the two snapshots and emit ONE `rename`-change
+ * entry per case type carrying every proven pair.
  *
- * A property P that left a case type's materializable view is a
- * rename — not a removal — exactly when some field that wrote
- * `(caseType, P)` in `prior` still exists under the SAME uuid in
- * `prospective`, still writes the same case type, and its id moved
- * to a name Q the prospective view declares. Field ids ARE the
- * property names for case-bound writers, and the uuid is the
- * identity the property-list diff lacks. The evidence works for
- * every batch encoding (gesture `renameField`, diff-shaped
- * undo/reconciler batches) and covers bare-writer DERIVED
- * properties — those never touch the catalog, so a cascade-meta or
- * catalog-diff approach would miss them.
+ * Evidence rule, per field uuid present in BOTH snapshots: the field
+ * writes the same case type on both sides, its id moved P → Q, Q is a
+ * property the prospective view declares, and neither name is a
+ * reserved non-property name. Field ids ARE the property names for
+ * case-bound writers, and the uuid is the identity the property-list
+ * diff lacks; the rule covers bare-writer DERIVED properties (which
+ * never touch the catalog) and merge-renames (Q already declared).
  *
- * A merge-rename (Q was already declared before the rename) proves
- * the same way — Q is in the prospective view regardless of when it
- * was declared; the store's rename migration owns the value-level
- * merge semantics.
+ * A pair is SUPPRESSED when the old name P is KEPT — some other
+ * field with the UNCHANGED id P writes the case type in both
+ * snapshots. Then P is a live property whose data stays put; the
+ * moving field merely stopped writing it. (P re-appearing in the
+ * prospective as another pair's DESTINATION is not "kept": in a
+ * name-reuse batch — field1 A→P while field2 P→C — field2's P data
+ * must travel to C before field1's A data arrives, which the
+ * store's simultaneous per-row application guarantees.)
  *
- * Candidate uuids iterate in sorted order so a pathological
- * snapshot pair where peer writers of P diverge onto different new
- * names still resolves deterministically (first sorted uuid wins).
+ * Determinism: uuids iterate sorted, and the first pair claiming a
+ * `from` wins — a pathological snapshot pair where peer writers of
+ * P diverge onto different new names resolves deterministically.
  */
+export interface RenamePair {
+	readonly from: string;
+	readonly to: string;
+}
+
+/**
+ * A proven rename pair flattened with its case type — the shape the
+ * saga hands `commitGuardedBatch` as `renameExpectations`, and the
+ * commit's rename gate checks its fresh-doc proof against.
+ */
+export interface RenameExpectation {
+	readonly caseType: string;
+	readonly from: string;
+	readonly to: string;
+}
+
+/**
+ * The proven rename pairs between two snapshots, keyed by case
+ * type. Exported for the guarded commit's rename-expectation gate
+ * (`commitGuardedBatch`), which re-proves the pairs against the
+ * FRESH doc pair inside the transaction — one evidence engine for
+ * both the saga's classification and the commit-time re-check.
+ */
+export function provenRenamePairs(
+	prior: BlueprintDoc,
+	prospective: BlueprintDoc,
+): ReadonlyMap<string, readonly RenamePair[]> {
+	const priorByName = indexCaseTypes(materializableCaseTypes(prior));
+	const prospectiveByName = indexCaseTypes(
+		materializableCaseTypes(prospective),
+	);
+	return synthesizeRenamePairs(
+		{ prior, prospective },
+		priorByName,
+		prospectiveByName,
+	);
+}
+
+function synthesizeRenamePairs(
+	args: ClassifyArgs,
+	priorByName: ReadonlyMap<string, CaseType>,
+	prospectiveByName: ReadonlyMap<string, CaseType>,
+): Map<string, RenamePair[]> {
+	// Ids kept by an unchanged writer, keyed per case type — the
+	// suppression set. One pass over the prior fields builds it.
+	const keptByCaseType = new Map<string, Set<string>>();
+	const uuids = Object.keys(args.prior.fields).sort();
+	for (const uuid of uuids) {
+		const priorField =
+			args.prior.fields[uuid as keyof typeof args.prior.fields];
+		const prospectiveField =
+			args.prospective.fields[uuid as keyof typeof args.prospective.fields];
+		if (priorField === undefined || prospectiveField === undefined) continue;
+		if (priorField.id !== prospectiveField.id) continue;
+		const caseType = fieldCasePropertyOn(priorField);
+		if (caseType === undefined) continue;
+		if (fieldCasePropertyOn(prospectiveField) !== caseType) continue;
+		let kept = keptByCaseType.get(caseType);
+		if (kept === undefined) {
+			kept = new Set();
+			keptByCaseType.set(caseType, kept);
+		}
+		kept.add(priorField.id);
+	}
+
+	const pairsByCaseType = new Map<string, RenamePair[]>();
+	for (const uuid of uuids) {
+		const priorField =
+			args.prior.fields[uuid as keyof typeof args.prior.fields];
+		const prospectiveField =
+			args.prospective.fields[uuid as keyof typeof args.prospective.fields];
+		if (priorField === undefined || prospectiveField === undefined) continue;
+		const from = priorField.id;
+		const to = prospectiveField.id;
+		if (from === to) continue;
+		const caseType = fieldCasePropertyOn(priorField);
+		if (caseType === undefined) continue;
+		if (fieldCasePropertyOn(prospectiveField) !== caseType) continue;
+		if (!priorByName.has(caseType) || !prospectiveByName.has(caseType)) {
+			continue;
+		}
+		if (
+			RESERVED_NON_PROPERTY_NAMES.has(from) ||
+			RESERVED_NON_PROPERTY_NAMES.has(to)
+		) {
+			continue;
+		}
+		const prospectiveType = prospectiveByName.get(caseType);
+		if (!prospectiveType?.properties.some((p) => p.name === to)) continue;
+		const priorType = priorByName.get(caseType);
+		if (!priorType?.properties.some((p) => p.name === from)) continue;
+		if (keptByCaseType.get(caseType)?.has(from)) continue;
+		const pairs = pairsByCaseType.get(caseType) ?? [];
+		if (pairs.some((pair) => pair.from === from)) continue;
+		pairs.push({ from, to });
+		pairsByCaseType.set(caseType, pairs);
+	}
+	return pairsByCaseType;
+}
+
 function synthesizeRenameEntries(
 	args: ClassifyArgs,
 	priorByName: ReadonlyMap<string, CaseType>,
 	prospectiveByName: ReadonlyMap<string, CaseType>,
 ): CaseTypeChangeEntry[] {
+	const pairsByCaseType = synthesizeRenamePairs(
+		args,
+		priorByName,
+		prospectiveByName,
+	);
 	const entries: CaseTypeChangeEntry[] = [];
-	for (const [name, priorType] of priorByName) {
-		const prospectiveType = prospectiveByName.get(name);
-		if (prospectiveType === undefined) continue;
-		const prospectiveProps = new Set(
-			prospectiveType.properties.map((p) => p.name),
-		);
-		for (const prop of priorType.properties) {
-			if (prospectiveProps.has(prop.name)) continue;
-			const to = renamedTo(args, name, prop.name, prospectiveProps);
-			if (to === undefined) continue;
-			entries.push({
-				caseType: name,
-				property: to,
-				change: { kind: "rename", from: prop.name, to },
-			});
-		}
+	for (const [caseType, renames] of pairsByCaseType) {
+		entries.push({ caseType, change: { kind: "rename", renames } });
 	}
 	return entries;
-}
-
-/**
- * Resolve the destination name a departed property was renamed to,
- * or `undefined` when no same-uuid writer evidence exists (a true
- * removal). See `synthesizeRenameEntries` for the evidence rule.
- */
-function renamedTo(
-	args: ClassifyArgs,
-	caseType: string,
-	from: string,
-	prospectiveProps: ReadonlySet<string>,
-): string | undefined {
-	for (const uuid of Object.keys(args.prior.fields).sort()) {
-		const priorField =
-			args.prior.fields[uuid as keyof typeof args.prior.fields];
-		if (priorField === undefined || priorField.id !== from) continue;
-		if (fieldCasePropertyOn(priorField) !== caseType) continue;
-		const prospectiveField =
-			args.prospective.fields[uuid as keyof typeof args.prospective.fields];
-		if (prospectiveField === undefined) continue;
-		if (fieldCasePropertyOn(prospectiveField) !== caseType) continue;
-		const to = prospectiveField.id;
-		if (to === from || !prospectiveProps.has(to)) continue;
-		return to;
-	}
-	return undefined;
 }
 
 /**

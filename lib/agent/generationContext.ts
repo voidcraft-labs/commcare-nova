@@ -467,14 +467,23 @@ export class GenerationContext implements ToolExecutionContext {
 			// bare would leave the rename's diff evidence expired at the
 			// drain-end additive materialize (the committed doc holds the
 			// new name on both sides), permanently stranding rows on the
-			// old key. `renameField` is the only chat-emitted carrier —
-			// `moveField`'s dedup never removes a property from the view
-			// (the colliding sibling still writes the old pair), and the
-			// diff-shaped undo batches exist only on the auto-save
-			// surface, which always rides the saga. Every other batch
-			// keeps the bare inline commit; the drain-end materialize
-			// covers its schema sync in one pass.
-			if (mutations.some((m) => m.kind === "renameField")) {
+			// old key. The chat-emitted carriers are `renameField` and
+			// `moveField` — a cross-parent move's sibling-id dedup renames
+			// the field, and when the colliding sibling is NOT a writer of
+			// the same pair (a survey field sharing the id), the old
+			// property leaves the materializable view exactly like a
+			// rename. A moveField that renamed nothing classifies to zero
+			// entries and falls through the saga's fast path, so the
+			// over-trigger costs one in-memory replay. The diff-shaped
+			// undo batches exist only on the auto-save surface, which
+			// always rides the saga. Every other batch keeps the bare
+			// inline commit; the drain-end materialize covers its schema
+			// sync in one pass.
+			if (
+				mutations.some(
+					(m) => m.kind === "renameField" || m.kind === "moveField",
+				)
+			) {
 				const saga = await applyBlueprintChange({
 					appId: this.appId,
 					userId: this.session.user.id,

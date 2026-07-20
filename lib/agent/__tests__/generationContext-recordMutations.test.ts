@@ -154,6 +154,24 @@ describe("GenerationContext.recordMutations", () => {
 		expect(frame.data.seq).toBe(3);
 	});
 
+	it("routes a moveField batch through the saga too — a cross-parent dedup can rename a property", async () => {
+		vi.mocked(applyBlueprintChange).mockResolvedValue({
+			seq: 4,
+			committedDoc: committedDocFor("saga-committed"),
+		});
+		const move: Mutation = {
+			kind: "moveField",
+			uuid: asUuid("field-uuid"),
+			toParentUuid: asUuid("form-uuid"),
+			order: "a0",
+		};
+
+		await ctx.recordMutations([move], DOC);
+
+		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
+		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
+	});
+
 	it("emits data-mutations AFTER the commit, carrying raw mutations + envelopes + seq + batchId", async () => {
 		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
 		const call = writer.write.mock.calls[0]?.[0] as {
