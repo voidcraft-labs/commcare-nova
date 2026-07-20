@@ -9,8 +9,8 @@
  * without either losing a per-row migration. The sync splits
  * `classifyCaseTypeChanges`'s entries by change kind:
  *
- *   - **Migration-bearing** entries (a `change` hint — a rename /
- *     retype / narrow-options reshape, single-actor by nature):
+ *   - **Migration-bearing** entries (a `change` shape — a
+ *     classifier-proven rename, single-actor by nature):
  *     run Postgres-first + `compensate()` BEFORE the commit,
  *     derived from the client prospective. The per-row migration
  *     is recoverable — a failure runs a compensating
@@ -67,11 +67,15 @@
  *   - `app/api/apps/[id]/route.ts` PUT (auto-save).
  *   - `lib/mcp/context.ts` `recordMutations` (MCP tool calls).
  *
- * The chat surface does NOT route through this saga: each tool batch
- * commits inline through `commitGuardedBatch` directly (awaited), and
- * the chat route's drain-end finalize re-syncs the case-store schemas
- * in one pass for whatever the run persisted — so the chat path needs
- * no per-save saga.
+ * The chat surface routes only its RENAME-carrying batches here
+ * (`GenerationContext.commitBatch` detects `renameField`): a rename's
+ * row migration must run while the snapshots still prove it — once the
+ * batch commits bare, both sides of every later diff hold the new name
+ * and the drain-end additive materialize would strand the rows. Every
+ * other chat batch commits inline through `commitGuardedBatch` directly
+ * (awaited), and the chat route's drain-end finalize re-syncs the
+ * case-store schemas in one pass for whatever the run persisted — so
+ * the common chat path needs no per-save saga.
  *
  * ## Loading the prior state
  *
@@ -102,7 +106,6 @@ import { commitGuardedBatch, loadApp, loadAppProjectId } from "./apps";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
-	type SchemaChangeHint,
 } from "./classifyCaseTypeChanges";
 import { reauthorizeActorForCommit } from "./commitGuard";
 import { getAppDb } from "./pg";
@@ -117,11 +120,11 @@ import type { AcceptedMutationDoc } from "./types";
  * guarded commit ({@link commitGuardedBatch}) — the transactional
  * read-evaluate-write below — after the case-store schema saga.
  *
- * `hint` carries optional explicit per-row migration intent —
- * rename / retype / narrow-options. The classifier emits the
- * matching `change` shape on the `applySchemaChange` call so the
- * schema sync + per-row migration run in one Postgres
- * transaction.
+ * Per-row migration intent is NOT a caller input: the classifier
+ * proves renames itself from the two snapshots (field-uuid
+ * evidence — see `classifyCaseTypeChanges`) and emits the matching
+ * `change` entry, so the schema sync + per-row migration run in
+ * one Postgres transaction with no caller threading a hint.
  *
  * `priorBlueprint` lets a caller that already loaded the app
  * document (the auto-save PUT route does so for ownership) skip
@@ -148,7 +151,6 @@ export interface ApplyBlueprintChangeArgs {
 	readonly batchId: string;
 	/** Which write path is committing — stamped on the durable stream entry. */
 	readonly kind: AcceptedMutationDoc["kind"];
-	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
 	/**
 	 * Guarded MUTATION commit: the blueprint write is a transactional
@@ -241,7 +243,6 @@ export async function applyBlueprintChange(
 	const entries = classifyCaseTypeChanges({
 		prior: priorBlueprint,
 		prospective: prospectiveBlueprint,
-		hint: args.hint,
 	});
 
 	// Fast path — pure non-case-type mutation, skip the case-store entirely and
@@ -259,23 +260,15 @@ export async function applyBlueprintChange(
 
 	// The migration-bearing entries run Postgres-first + compensate; the
 	// additive ones ride the post-commit sweep. `change !== undefined` is the
-	// discriminator the classifier stamps for an explicit per-row reshape. A
-	// hint whose `caseType` isn't in the prospective (a stale / retired-type
-	// hint) is dropped — running it would throw `CaseTypeNotInBlueprintError`
-	// and abort an otherwise-valid write; the sweep (or the next save) still
-	// covers whatever the committed doc holds.
+	// discriminator the classifier stamps for a proven per-row reshape. A
+	// change entry's case type is always present in the prospective — the
+	// classifier synthesizes it FROM the prospective's materializable view,
+	// the same view `buildCaseTypeMap` builds — so no absent-type filter is
+	// needed before Phase 1.
 	const prospectiveSchemas = buildCaseTypeMap(prospectiveBlueprint);
-	const migrationEntries = entries.filter((entry) => {
-		if (entry.change === undefined) return false;
-		if (!prospectiveSchemas.has(entry.caseType)) {
-			log.warn(
-				"[applyBlueprintChange] migration hint targets a case type absent from the prospective blueprint — skipping",
-				{ appId: args.appId, caseType: entry.caseType },
-			);
-			return false;
-		}
-		return true;
-	});
+	const migrationEntries = entries.filter(
+		(entry) => entry.change !== undefined,
+	);
 
 	// Reauthorize BEFORE the migration-bearing Phase-1 DDL — ONLY when there is
 	// such DDL to protect. The saga applies that DDL before

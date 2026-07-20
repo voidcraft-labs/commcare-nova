@@ -108,6 +108,21 @@ vi.mock("@/lib/case-store", async () => {
 	};
 });
 
+/**
+ * A real rename batch for `minDoc`'s case-bound `village` field. The
+ * saga replays it onto the prior to derive the prospective, and the
+ * classifier proves the village→hamlet rename from the two snapshots
+ * (field-uuid evidence) — the migration-bearing path with no hint
+ * mechanism involved.
+ */
+function renameVillageBatch(doc: BlueprintDoc): Mutation[] {
+	const field = Object.values(doc.fields).find((fl) => fl.id === "village");
+	if (field === undefined) {
+		throw new Error("fixture is missing the case-bound `village` field");
+	}
+	return [{ kind: "renameField", uuid: field.uuid, newId: "hamlet" }];
+}
+
 /** Valid one-module registration doc writing two case properties. */
 function minDoc(appName = "Test"): BlueprintDoc {
 	return buildDoc({
@@ -321,18 +336,13 @@ describe("applyBlueprintChange — reauth before any Postgres DDL", () => {
 				appId: "app-1",
 				userId: "user-1",
 				priorBlueprint: toPersistableDoc(prior),
-				// A rename hint would otherwise drive Phase-1 DDL — the reauth
-				// must fire first so no `case_type_schemas` mutation happens.
-				hint: {
-					kind: "rename",
-					caseType: "patient",
-					from: "village",
-					to: "hamlet",
-				},
+				// The rename batch would otherwise drive Phase-1 DDL — the
+				// reauth must fire first so no `case_type_schemas` mutation
+				// happens.
 				batchId: "batch-reauth",
 				kind: "autosave",
 				guard: {
-					mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+					mutations: renameVillageBatch(prior),
 				},
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
@@ -351,7 +361,7 @@ describe("applyBlueprintChange — reauth before any Postgres DDL", () => {
 describe("applyBlueprintChange — Postgres saga around the guarded commit", () => {
 	it("compensates a MIGRATION-BEARING entry via applySchemaChange(prior) when the commit rejects", async () => {
 		const prior = minDoc();
-		// A rename hint drives the ONE migration-bearing Phase-1 call against the
+		// A rename batch drives the ONE migration-bearing Phase-1 call against the
 		// existing `patient` type. When the writer then rejects, the saga
 		// compensates by re-syncing the type from the CURRENT committed doc (a
 		// fresh `loadApp`, here the same `prior`) — no `change`, no `dropSchema`
@@ -374,16 +384,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 				userId: "user-1",
 				priorBlueprint: toPersistableDoc(prior),
 				runId: "run-1",
-				hint: {
-					kind: "rename",
-					caseType: "patient",
-					from: "village",
-					to: "hamlet",
-				},
 				batchId: "batch-uuid-4",
 				kind: "mcp",
 				guard: {
-					mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+					mutations: renameVillageBatch(prior),
 				},
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
@@ -432,15 +436,9 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 				appId: "app-1",
 				userId: "user-1",
 				priorBlueprint: toPersistableDoc(prior),
-				hint: {
-					kind: "rename",
-					caseType: "patient",
-					from: "village",
-					to: "hamlet",
-				},
 				batchId: "batch-phaseB-fail",
 				kind: "autosave",
-				guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+				guard: { mutations: renameVillageBatch(prior) },
 			}),
 		).rejects.toThrow("phase B index DDL failed");
 
@@ -640,15 +638,9 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			appId: "app-1",
 			userId: "user-1",
 			priorBlueprint: toPersistableDoc(prior),
-			hint: {
-				kind: "rename",
-				caseType: "patient",
-				from: "village",
-				to: "hamlet",
-			},
 			batchId: "batch-order",
 			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+			guard: { mutations: renameVillageBatch(prior) },
 		});
 
 		// Reauth (loadAppProjectId → reauth) precedes the first applySchemaChange.
@@ -704,43 +696,5 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		// skipped entirely.
 		expect(result.seq).toBe(4);
 		expect(applySchemaChangeMock).not.toHaveBeenCalled();
-	});
-
-	it("skips a migration hint whose caseType is absent from the prospective (stale hint) — commit still proceeds", async () => {
-		// A hint targeting a retired / non-existent case type would make Phase-1
-		// `applySchemaChange` throw `CaseTypeNotInBlueprintError` and abort the
-		// whole write. The saga drops it (warn) so the otherwise-valid commit
-		// lands.
-		const prior = minDoc();
-		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-		commitGuardedBatchMock.mockResolvedValue({
-			seq: 6,
-			committedDoc: toPersistableDoc(prior) as unknown as BlueprintDoc,
-			deduped: false,
-		});
-
-		const result = await applyBlueprintChange({
-			appId: "app-1",
-			userId: "user-1",
-			priorBlueprint: toPersistableDoc(prior),
-			// `ghost` isn't a case type in the prospective — the hint is stale.
-			hint: {
-				kind: "rename",
-				caseType: "ghost",
-				from: "a",
-				to: "b",
-			},
-			batchId: "batch-stale-hint",
-			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
-		});
-
-		// The stale migration hint never reached Phase-1 (no throw), and no
-		// pre-DDL reauth ran (no migration entry survived the filter), so the
-		// commit landed normally.
-		expect(result.seq).toBe(6);
-		expect(applySchemaChangeMock).not.toHaveBeenCalled();
-		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
-		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 	});
 });

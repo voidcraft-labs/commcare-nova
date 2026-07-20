@@ -109,6 +109,16 @@ BEFORE the write reaches Postgres. The schema row is fetched on
 demand and the compiled validator is cached per
 `(appId, caseType, schemaContent)`.
 
+`update` merges the patch over the row's existing document and,
+before validating, SHEDS inherited keys the current schema no
+longer declares: any key in a row but not in the stored schema is
+provably an orphan (every write validated against the then-stored
+schema, so a fresher-than-schema key cannot exist), left behind by
+a property removal or a pre-migration rename. Shedding it with the
+write is what keeps such rows writable instead of failing
+`additionalProperties` forever. Only the INHERITED half is shed —
+an unknown key in the caller's PATCH is still a validation error.
+
 The API route is the trust boundary; the database is internal.
 There is no in-database trigger and no `pg_jsonschema` dependency
 — Cloud SQL doesn't allowlist that extension and the validator
@@ -127,7 +137,7 @@ architecture.
    `detectShapeFlips` diffs the stored schema against the derived
    one; a property whose JSON type flips between plain string and
    array (the select single↔multi conversion — which reaches the
-   store as a plain additive sync, no hint) has its old-shape rows
+   store as a plain additive sync) has its old-shape rows
    rewritten in the same transaction: string scalar → one-element
    array, array → space-joined string (XForms convention) into an
    UNCONSTRAINED string target. Both rewrites are total AND
@@ -148,7 +158,15 @@ architecture.
    three arms are `rename(from, to)`, `retype(fromType, toType)`,
    and `narrow-options(removedOptions)`. Cast / option-set
    failures move to `cases_quarantine` with the original value +
-   failure reason. The `change`-targeted property is excluded from
+   failure reason. The rename arm moves each row's value under the
+   new key, casting into the DESTINATION declaration's type — a
+   plain rename casts as identity, but a MERGE-rename (the target
+   name was already declared; the doc layer keeps the surviving
+   declaration) can retype the moved value, and a conflict row
+   (both keys populated) keeps the destination's already-valid
+   value. The `rename` change is synthesized by
+   `classifyCaseTypeChanges` from field-uuid evidence — no surface
+   threads a hint. The `change`-targeted property is excluded from
    step 2's detection, and the reshape reports on its own
    `reshaped` axis so one row rewritten by both is never
    double-counted.

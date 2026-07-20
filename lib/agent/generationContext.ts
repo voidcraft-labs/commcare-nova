@@ -49,6 +49,7 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
 	commitGuardedBatch,
 	refreshBuildLiveness,
@@ -116,7 +117,8 @@ export function logWarnings(
  * before constructing the context (Postgres-down = 503, not an orphaned
  * build). Every `GenerationContext` has a target app because each tool batch
  * commits inline through `commitGuardedBatch(appId, …)` — the same shape as
- * `McpContext`.
+ * `McpContext` — except rename-carrying batches, which ride the cross-store
+ * saga so the case-store row migration runs with the commit.
  */
 interface GenerationContextOptions {
 	/** Server-shared OpenAI API key (resolved by `resolveOpenAIKey`) —
@@ -423,9 +425,11 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Commit one batch through the unified guarded writer, then — AFTER the
-	 * commit resolves — emit the `data-mutations` SSE event and log the
-	 * envelopes. Awaited-inline: the SA's `serial()` mutex serializes tool
+	 * Commit one batch through the unified guarded writer (rename-carrying
+	 * batches detour through the cross-store saga — see the branch below),
+	 * then — AFTER the commit resolves — emit the `data-mutations` SSE
+	 * event and log the envelopes. Awaited-inline: the SA's `serial()`
+	 * mutex serializes tool
 	 * bodies, so the commit that lands here always builds on the previous one's
 	 * committed doc, and `consumeStream()` resolving implies every commit
 	 * settled. A rejection (`commitGuardedBatch` throws) propagates BEFORE
@@ -453,17 +457,58 @@ export class GenerationContext implements ToolExecutionContext {
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
 		const batchId = crypto.randomUUID();
-		let result: Awaited<ReturnType<typeof commitGuardedBatch>>;
+		let result: { seq: number; committedDoc: BlueprintDoc };
 		try {
-			result = await commitGuardedBatch({
-				appId: this.appId,
-				batchId,
-				runId: this.usage.runId,
-				mutations,
-				actorUserId: this.session.user.id,
-				kind: "chat",
-				...(mediaExpectations !== undefined && { mediaExpectations }),
-			});
+			// A batch that can RENAME a case property routes through the
+			// cross-store saga instead of the bare guarded commit: the
+			// classifier proves the rename from the snapshots and the
+			// case-store migrates row values old-key → new-key in the same
+			// transaction as the schema regen. Committing such a batch
+			// bare would leave the rename's diff evidence expired at the
+			// drain-end additive materialize (the committed doc holds the
+			// new name on both sides), permanently stranding rows on the
+			// old key. `renameField` is the only chat-emitted carrier —
+			// `moveField`'s dedup never removes a property from the view
+			// (the colliding sibling still writes the old pair), and the
+			// diff-shaped undo batches exist only on the auto-save
+			// surface, which always rides the saga. Every other batch
+			// keeps the bare inline commit; the drain-end materialize
+			// covers its schema sync in one pass.
+			if (mutations.some((m) => m.kind === "renameField")) {
+				const saga = await applyBlueprintChange({
+					appId: this.appId,
+					userId: this.session.user.id,
+					runId: this.usage.runId,
+					batchId,
+					kind: "chat",
+					...(this._latestDoc !== undefined && {
+						priorBlueprint: this._latestDoc,
+					}),
+					guard: {
+						mutations,
+						...(mediaExpectations !== undefined && { mediaExpectations }),
+					},
+				});
+				if (saga.committedDoc === undefined) {
+					// Only a top-level dedup omits the doc, and this batch's
+					// id was minted moments ago — reaching this is a latch
+					// collision on a fresh uuid.
+					throw new Error(
+						`[generationContext] rename batch ${batchId} deduped against an existing latch for app ${this.appId} — a freshly-minted batch id cannot have committed before`,
+					);
+				}
+				result = { seq: saga.seq, committedDoc: saga.committedDoc };
+			} else {
+				result = await commitGuardedBatch({
+					appId: this.appId,
+					batchId,
+					runId: this.usage.runId,
+					mutations,
+					actorUserId: this.session.user.id,
+					kind: "chat",
+					...(mediaExpectations !== undefined && { mediaExpectations }),
+				});
+			}
 		} catch (err) {
 			if (err instanceof CommitReauthError) this._reauthError = err;
 			throw err;

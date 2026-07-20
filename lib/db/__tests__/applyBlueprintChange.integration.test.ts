@@ -36,6 +36,7 @@
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
@@ -44,6 +45,7 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppDoc } from "@/lib/db/types";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
@@ -161,6 +163,49 @@ afterEach(() => {
 
 const APP_ID = "app-saga";
 const OWNER_ID = "owner-saga";
+
+/**
+ * A prior/prospective doc pair encoding a case-property RENAME with the
+ * field-uuid evidence the classifier's synthesis requires: the same
+ * `field-age` uuid writes `patient` in both snapshots, its id moving
+ * `age` → `years` and the catalog entry moving with it. Driving the
+ * saga with these (no hint mechanism exists) makes it emit the
+ * migration-bearing `rename` entry.
+ */
+function renameFixtureDocs(): {
+	prior: PersistableDoc;
+	prospective: PersistableDoc;
+} {
+	const build = (name: string) =>
+		toPersistableDoc(
+			buildDoc({
+				appName: "Saga Test",
+				caseTypes: [{ name: "patient", properties: [{ name, label: "Age" }] }],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										uuid: "field-age",
+										id: name,
+										kind: "text",
+										label: "Age",
+										case_property_on: "patient",
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+	return { prior: build("age"), prospective: build("years") };
+}
 
 /** The persisted (stripped) shape — what real callers hand the saga.
  *  `PersistedBlueprint`'s compile-time wall on `prospective` rejects an
@@ -382,17 +427,13 @@ describe("applyBlueprintChange — additive mutations", () => {
 	});
 });
 
-// ── Cases — retype mutation with hint ─────────────────────────────
+// ── Cases — rename batches (issue #269 end-to-end) ────────────────
 
-describe("applyBlueprintChange — retype mutations", () => {
-	it("runs schema sync + per-row migration in one transaction with the retype hint", async () => {
-		// Bootstrap: seed an initial schema with `age: text`,
-		// insert two rows (one castable, one not).
-		const initial: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "text" }],
-		};
-		const initialBlueprint = makeBlueprint([initial]);
+describe("applyBlueprintChange — rename batches", () => {
+	it("runs schema sync + old-key → new-key row migration in one transaction for a proven rename", async () => {
+		// Bootstrap: seed the prior schema (`age` declared), insert
+		// two rows holding `age` values.
+		const { prior, prospective } = renameFixtureDocs();
 		const initialStore = new PostgresCaseStore({
 			projectId: OWNER_ID,
 			actorUserId: OWNER_ID,
@@ -402,15 +443,13 @@ describe("applyBlueprintChange — retype mutations", () => {
 		await initialStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(prior),
 		});
 
-		const aliceId = uuidv7();
-		const bobId = uuidv7();
 		await initialStore.insert({
 			appId: APP_ID,
 			row: {
-				case_id: aliceId,
+				case_id: uuidv7(),
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
@@ -420,76 +459,73 @@ describe("applyBlueprintChange — retype mutations", () => {
 		await initialStore.insert({
 			appId: APP_ID,
 			row: {
-				case_id: bobId,
+				case_id: uuidv7(),
 				case_type: "patient",
 				case_name: "Bob",
 				status: "open",
-				properties: { age: "not-a-number" },
+				properties: { age: "31" },
 			},
 		});
 
-		// Retype `age` from text to int. The saga's hint carries
-		// the explicit per-row migration; Postgres runs schema sync
-		// + migration in one transaction.
-		const retyped: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
-		};
-		const retypedBlueprint = makeBlueprint([retyped]);
-		loadAppMock.mockResolvedValueOnce(makeAppDoc(initialBlueprint));
+		// Rename `age` → `years`. The classifier proves the rename
+		// from the snapshots (field-uuid evidence); Postgres runs
+		// schema sync + row migration in one transaction. Without the
+		// migration, both rows would strand: the regenerated schema
+		// drops `age` and every merged-document write would fail
+		// `additionalProperties` (the #269 shape).
+		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
 
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
-			prospective: retypedBlueprint,
-			batchId: "batch-retype-1",
+			prospective,
+			batchId: "batch-rename-1",
 			kind: "mcp",
 			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
-			hint: {
-				kind: "retype",
-				caseType: "patient",
-				property: "age",
-				fromType: "text",
-				toType: "int",
-			},
 		});
 
 		// The blueprint committed.
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 
-		// Alice's row migrated; Bob's row landed in quarantine.
-		const aliceRows = await initialStore.query({
+		// Both rows carry their values under the NEW key — nothing
+		// stranded, nothing quarantined.
+		const rows = await initialStore.query({
 			appId: APP_ID,
 			caseType: "patient",
 		});
-		expect(aliceRows).toHaveLength(1);
-		expect(aliceRows[0]?.properties).toEqual({ age: 30 });
-
-		// `cases_quarantine` carries Bob's row with the original
-		// JSONB value preserved.
+		expect(rows).toHaveLength(2);
+		const values = rows.map((r) => r.properties).sort();
+		expect(values).toEqual([{ years: "30" }, { years: "31" }]);
 		const quarantined = await dbHandle.pool.query(
 			"SELECT case_id FROM cases_quarantine WHERE app_id = $1",
 			[APP_ID],
 		);
-		expect(quarantined.rows).toHaveLength(1);
+		expect(quarantined.rows).toHaveLength(0);
+
+		// The schema row references only the new key.
+		const schemaRows = await dbHandle.pool.query<{
+			schema: { properties?: Record<string, unknown> };
+		}>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(Object.keys(schemaRows.rows[0]?.schema.properties ?? {})).toEqual([
+			"years",
+		]);
 	});
 
-	// Saga-level proof that a retype mutation's schema sync +
+	// Saga-level proof that a rename batch's schema sync + row
 	// migration runs atomically: a mid-migration failure leaves no
 	// schema row behind. The sibling store-level proof
 	// (`PostgresCaseStore — applySchemaChange index DDL > Phase A
 	// rolls back atomically on per-row migration failure`) covers
 	// the store on its own; this one covers the saga's wrapper so a
 	// regression in either layer's failure routing surfaces here.
-	it("rolls back the schema row + suppresses the blueprint commit when the retype migration fails mid-Phase-A", async () => {
+	it("rolls back the schema row + suppresses the blueprint commit when the rename migration fails mid-Phase-A", async () => {
 		// Bootstrap: seed `case_type_schemas[appId, "patient"]` with
-		// a `text`-typed `age`. This is the prior state the rollback
-		// must preserve.
-		const initial: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "text" }],
-		};
-		const initialBlueprint = makeBlueprint([initial]);
+		// the prior (`age`-declared) schema. This is the state the
+		// rollback must preserve.
+		const { prior, prospective } = renameFixtureDocs();
 		const seedStore = new PostgresCaseStore({
 			projectId: OWNER_ID,
 			actorUserId: OWNER_ID,
@@ -499,22 +535,7 @@ describe("applyBlueprintChange — retype mutations", () => {
 		await seedStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
-		});
-
-		// Insert one row whose `age` value will fail the cast
-		// (`"abc"` → int) so the retype's migration path routes the
-		// row through the `cases_quarantine` INSERT — the step we'll
-		// sabotage to force a mid-Phase-A failure.
-		await seedStore.insert({
-			appId: APP_ID,
-			row: {
-				case_id: uuidv7(),
-				case_type: "patient",
-				case_name: "uncastable",
-				status: "open",
-				properties: { age: "abc" },
-			},
+			caseTypeSchemas: buildCaseTypeMap(prior),
 		});
 
 		// Capture the prior schema so the post-failure assertion can
@@ -529,74 +550,38 @@ describe("applyBlueprintChange — retype mutations", () => {
 		expect(priorRows.rows).toHaveLength(1);
 		const priorSchema = priorRows.rows[0]?.schema;
 
-		// Sabotage: drop `case_indices` so the retype's quarantine
-		// path throws mid-flight. `bulkQuarantine` runs INSERT into
-		// `cases_quarantine` FIRST, then DELETE from `case_indices` —
-		// the dropped table makes the second statement throw, and
-		// Phase A's transaction ROLLBACK reverts the in-flight
-		// `cases_quarantine` INSERT alongside the schema regen UPSERT.
-		// `cases_quarantine` survives so the post-failure assertion
-		// can probe it for zero rows; the store-level sibling test
-		// (`postgres/__tests__/store.test.ts > Phase A rolls back
-		// atomically`) drops `cases_quarantine` instead because it
-		// only asserts the schema row's shape.
-		await dbHandle.pool.query("DROP TABLE case_indices");
+		// Sabotage: drop `cases` so the rename migration's first row
+		// read throws mid-Phase-A — AFTER the schema regen UPSERT in
+		// the same transaction, whose rollback must revert it.
+		await dbHandle.pool.query("DROP TABLE cases");
 
-		// Drive the retype through the saga. The mocked
+		// Drive the rename through the saga. The mocked
 		// `commitGuardedBatch` would resolve if reached, but the saga
 		// short-circuits on the Postgres failure before the commit
 		// step runs — the post-failure assertion below verifies that.
-		const retyped: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
-		};
-		const retypedBlueprint = makeBlueprint([retyped]);
-		loadAppMock.mockResolvedValueOnce(makeAppDoc(initialBlueprint));
+		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
 
 		await expect(
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
-				prospective: retypedBlueprint,
+				prospective,
 				batchId: "batch-rollback-1",
 				kind: "mcp",
 				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
-				hint: {
-					kind: "retype",
-					caseType: "patient",
-					property: "age",
-					fromType: "text",
-					toType: "int",
-				},
 			}),
 		).rejects.toThrow();
 
 		// Phase A rollback: `case_type_schemas` carries the prior
-		// `text`-typed schema verbatim. The schema regen UPSERT and
-		// the failed migration share one transaction; the
-		// transaction's rollback returns the row to its pre-call
-		// shape.
+		// schema verbatim. The schema regen UPSERT and the failed
+		// migration share one transaction; the transaction's rollback
+		// returns the row to its pre-call shape.
 		const postRows = await dbHandle.pool.query<{ schema: unknown }>(
 			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],
 		);
 		expect(postRows.rows).toHaveLength(1);
 		expect(postRows.rows[0]?.schema).toEqual(priorSchema);
-
-		// `cases_quarantine` carries zero rows for this app. The
-		// retype path's `bulkQuarantine` ran the INSERT into
-		// `cases_quarantine` BEFORE the DELETE that threw — the
-		// rollback reverts the in-flight INSERT alongside the schema
-		// regen, so the table reflects its pre-call (empty) state.
-		// This is the durability test for the in-transaction
-		// guarantee: a non-transactional implementation would have
-		// committed the INSERT before the DELETE failed and the
-		// quarantine table would carry the orphan row.
-		const quarantined = await dbHandle.pool.query(
-			"SELECT case_id FROM cases_quarantine WHERE app_id = $1",
-			[APP_ID],
-		);
-		expect(quarantined.rows).toHaveLength(0);
 
 		// Saga-level invariant: the blueprint commit MUST NOT have
 		// fired. The saga's contract is "case-store first, blueprint
@@ -611,20 +596,17 @@ describe("applyBlueprintChange — retype mutations", () => {
 
 // ── Cases — blueprint commit failure + compensation ───────────────
 //
-// Only a MIGRATION-BEARING entry (a `change` hint) runs Postgres-first, so
-// only it compensates on a blueprint-commit failure. Additive entries never
-// touch Postgres before the commit — they ride the post-commit sweep, which is
-// simply skipped when the commit throws — so there is nothing to compensate
-// for them (the case-type-addition `dropSchema` arm is gone).
+// Only a MIGRATION-BEARING entry (a proven rename's `change`) runs
+// Postgres-first, so only it compensates on a blueprint-commit failure.
+// Additive entries never touch Postgres before the commit — they ride the
+// post-commit sweep, which is simply skipped when the commit throws — so
+// there is nothing to compensate for them (the case-type-addition
+// `dropSchema` arm is gone).
 
 describe("applyBlueprintChange — compensation on blueprint commit failure", () => {
-	it("compensates a MIGRATION-BEARING retype back to the prior schema when the guarded commit throws", async () => {
-		// Bootstrap: seed an initial schema with a `text`-typed `age`.
-		const initial: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "text" }],
-		};
-		const initialBlueprint = makeBlueprint([initial]);
+	it("compensates a MIGRATION-BEARING rename back to the prior schema when the guarded commit throws", async () => {
+		// Bootstrap: seed the prior (`age`-declared) schema.
+		const { prior, prospective } = renameFixtureDocs();
 		const seedStore = new PostgresCaseStore({
 			projectId: OWNER_ID,
 			actorUserId: OWNER_ID,
@@ -634,7 +616,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		await seedStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(prior),
 		});
 
 		// Capture the prior schema so we can compare after compensation runs.
@@ -645,19 +627,13 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		expect(priorRows.rows).toHaveLength(1);
 		const priorSchema = priorRows.rows[0]?.schema;
 
-		// Prospective: retype `age` text → int. The hint makes it
-		// migration-bearing, so Phase 1 forward-applies it against Postgres
-		// BEFORE the commit.
-		const retyped: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
-		};
-		const retypedBlueprint = makeBlueprint([retyped]);
+		// Prospective: rename `age` → `years` — migration-bearing, so
+		// Phase 1 forward-applies it against Postgres BEFORE the commit.
 		// The saga's prior read AND compensate's fresh current-state read both
 		// resolve to the initial doc (no concurrent peer in this test), so
-		// compensate re-derives the prior `text` schema, seq-guarded.
-		loadAppMock.mockResolvedValue(makeAppDoc(initialBlueprint));
-		// The blueprint commit fails — the saga must compensate the retype.
+		// compensate re-derives the prior schema, seq-guarded.
+		loadAppMock.mockResolvedValue(makeAppDoc(prior));
+		// The blueprint commit fails — the saga must compensate the rename.
 		const commitErr = new Error("simulated app-state commit failure");
 		commitGuardedBatchMock.mockRejectedValueOnce(commitErr);
 
@@ -665,17 +641,10 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
-				prospective: retypedBlueprint,
+				prospective,
 				batchId: "batch-compensate-1",
 				kind: "autosave",
 				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
-				hint: {
-					kind: "retype",
-					caseType: "patient",
-					property: "age",
-					fromType: "text",
-					toType: "int",
-				},
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 
@@ -740,12 +709,9 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		// must instead re-derive from the CURRENT committed doc (which carries
 		// the peer's property and NOT M's failed change), seq-guarded.
 
-		// Prior (M's view): `patient` has just `age: text`.
-		const priorPatient: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "text" }],
-		};
-		const priorBlueprint = makeBlueprint([priorPatient]);
+		// M's view: the rename fixture pair (`age` → `years`), which
+		// lacks the peer's `phone`.
+		const { prior, prospective } = renameFixtureDocs();
 
 		// A peer concurrently committed `phone` → the CURRENT committed state has
 		// BOTH `age` and `phone`. Seed Postgres to that state (peer's sweep ran).
@@ -770,12 +736,6 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 			syncedSeq: 10, // the peer's committed seq
 		});
 
-		// M retypes `age` text → int against ITS prior (which lacks `phone`).
-		const retypedPatient: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: "Age", data_type: "int" }],
-		};
-		const retypedBlueprint = makeBlueprint([retypedPatient]);
 		// The saga takes M's prior from `priorBlueprint` (below), so it never
 		// reads `loadApp` for the prior — the ONLY `loadApp` call is
 		// compensate's fresh current-state read, which must return the CURRENT
@@ -788,23 +748,16 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
-				prospective: retypedBlueprint,
-				priorBlueprint,
+				prospective,
+				priorBlueprint: prior,
 				batchId: "batch-compensate-peer",
 				kind: "autosave",
 				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
-				hint: {
-					kind: "retype",
-					caseType: "patient",
-					property: "age",
-					fromType: "text",
-					toType: "int",
-				},
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 
 		// The compensated schema carries the peer's `phone` AND the prior
-		// `age` (text — M's int retype was uncommitted), NOT M's stale
+		// `age` (M's rename to `years` was uncommitted), NOT M's stale
 		// prior-without-phone. The peer's committed property survived.
 		const postRows = await dbHandle.pool.query<{
 			schema: { properties?: Record<string, { type?: string }> };
@@ -816,7 +769,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		expect(postRows.rows).toHaveLength(1);
 		const props = postRows.rows[0]?.schema.properties ?? {};
 		expect(Object.keys(props).sort()).toEqual(["age", "phone"]);
-		// `age` reverted to text (M's int retype never committed).
+		// `age` survived under its own name (M's rename never committed).
 		expect(props.age?.type).toBe("string");
 		// The compensation recorded the current seq (10), not M's stale seq.
 		expect(Number(postRows.rows[0]?.synced_seq)).toBe(10);

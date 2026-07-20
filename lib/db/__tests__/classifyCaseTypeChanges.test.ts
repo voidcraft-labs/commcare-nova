@@ -11,13 +11,13 @@
 //      the first row insert.
 //   3. Property-surface diffs (add, remove, type shift, option
 //      changes) emit one schema-sync-only entry per affected
-//      case type. The classifier doesn't synthesize per-row
-//      migrations from the diff alone.
-//   4. Explicit `hint`s (rename / retype / narrow-options) emit
-//      the matching discriminated `change` entry, and the case
-//      type covered by the hint is NOT re-emitted by the
-//      structural diff loop (one `applySchemaChange` call covers
-//      both the schema regen and the per-row migration).
+//      case type.
+//   4. Renames are SYNTHESIZED from the snapshots via field-uuid
+//      evidence and emit the matching `rename` change entry; the
+//      covered case type is NOT re-emitted by the structural diff
+//      loop (one `applySchemaChange` call covers both the schema
+//      regen and the per-row migration). A departed property with
+//      no surviving writer stays a plain removal.
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -122,7 +122,7 @@ describe("classifyCaseTypeChanges — case-type removals", () => {
 	});
 });
 
-describe("classifyCaseTypeChanges — property-surface diffs (no hint)", () => {
+describe("classifyCaseTypeChanges — property-surface diffs", () => {
 	it("emits one schema-sync-only entry when a property is added", () => {
 		const extended: CaseType = {
 			name: "patient",
@@ -140,10 +140,12 @@ describe("classifyCaseTypeChanges — property-surface diffs (no hint)", () => {
 
 	it("emits one schema-sync-only entry when a property is removed", () => {
 		// Existing values for the removed property remain in JSONB
-		// until the next write of the row, then drop. The schema-
-		// sync entry regenerates the JSON Schema (no longer
-		// references the property) and emits the index DDL diff
-		// (drops the removed property's expression index).
+		// until each row's next properties write, where the store's
+		// merged-update strip sheds them. The schema-sync entry
+		// regenerates the JSON Schema (no longer references the
+		// property) and emits the index DDL diff (drops the removed
+		// property's expression index). No writer field exists in
+		// this fixture, so no rename is proven.
 		const reduced: CaseType = {
 			name: "patient",
 			properties: [{ name: "name", label: "Name", data_type: "text" }],
@@ -155,14 +157,14 @@ describe("classifyCaseTypeChanges — property-surface diffs (no hint)", () => {
 		expect(result).toEqual([{ caseType: "patient" }]);
 	});
 
-	it("emits one schema-sync-only entry when a data_type shifts and no hint is supplied", () => {
-		// The classifier doesn't synthesize a `retype` migration
-		// from the diff alone — the typed-AST tools thread the
-		// `change` shape through the `hint` slot when they want
-		// per-row migration semantics. Without a hint, the diff
-		// is treated as a schema-sync-only event; the case-store
-		// regenerates the JSON Schema and rows that already fail
-		// the new schema land in `cases_quarantine` on next write.
+	it("emits one schema-sync-only entry when a data_type shifts", () => {
+		// The classifier doesn't synthesize a `retype` migration —
+		// unlike a rename, a type shift carries no identity evidence
+		// to prove which rows-level rewrite the author intended. The
+		// diff is a schema-sync-only event; the store's own
+		// string↔array reshape rewrites flipped select shapes inside
+		// the sync, and every other stale-typed value is the
+		// derived-type-flip reconciliation feature's territory.
 		const retyped: CaseType = {
 			name: "patient",
 			properties: [
@@ -231,21 +233,63 @@ describe("classifyCaseTypeChanges — property-surface diffs (no hint)", () => {
 	});
 });
 
-describe("classifyCaseTypeChanges — explicit hints", () => {
-	it("emits a `rename` change entry for a rename hint", () => {
-		const renamed: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "years", label: "Years", data_type: "int" },
+describe("classifyCaseTypeChanges — synthesized renames", () => {
+	// The classifier proves a rename from the two snapshots alone:
+	// a property left the case type's materializable view AND the
+	// same-uuid field that wrote it still writes the type under a
+	// new name the prospective view declares. These fixtures build
+	// real docs (catalog + writer field) so the evidence rule runs
+	// against the same materializable view production uses.
+	function patientDoc(args: {
+		fieldId: string;
+		catalog: readonly { name: string; label: string }[];
+	}): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: args.catalog.map((p) => ({ ...p })),
+				},
 			],
-		};
-		const result = classifyCaseTypeChanges({
-			prior: makeDoc([PATIENT]),
-			prospective: makeDoc([renamed]),
-			hint: { kind: "rename", caseType: "patient", from: "age", to: "years" },
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: "field-age",
+									id: args.fieldId,
+									kind: "int",
+									label: "Age",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
 		});
-		// One entry — the hint covers the case type, so the
+	}
+
+	it("emits a `rename` change entry when a same-uuid writer's id moves", () => {
+		// A same-batch rename CHAIN (age → middle → years) produces the
+		// identical snapshot pair — only the endpoints exist — so this
+		// case also pins chain collapse.
+		const result = classifyCaseTypeChanges({
+			prior: patientDoc({
+				fieldId: "age",
+				catalog: [{ name: "age", label: "Age" }],
+			}),
+			prospective: patientDoc({
+				fieldId: "years",
+				catalog: [{ name: "years", label: "Years" }],
+			}),
+		});
+		// One entry — the rename covers the case type, so the
 		// structural diff loop is suppressed for `patient`.
 		expect(result).toEqual([
 			{
@@ -256,90 +300,96 @@ describe("classifyCaseTypeChanges — explicit hints", () => {
 		]);
 	});
 
-	it("emits a `retype` change entry for a retype hint", () => {
-		const retyped: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
-			],
-		};
-		const initialTextAge: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "text" },
-			],
-		};
+	it("proves a MERGE-rename (destination already declared) the same way", () => {
 		const result = classifyCaseTypeChanges({
-			prior: makeDoc([initialTextAge]),
-			prospective: makeDoc([retyped]),
-			hint: {
-				kind: "retype",
-				caseType: "patient",
-				property: "age",
-				fromType: "text",
-				toType: "int",
-			},
+			prior: patientDoc({
+				fieldId: "age",
+				catalog: [
+					{ name: "age", label: "Age" },
+					{ name: "years", label: "Years" },
+				],
+			}),
+			// The cascade's merge drops the old entry and keeps the
+			// surviving declaration.
+			prospective: patientDoc({
+				fieldId: "years",
+				catalog: [{ name: "years", label: "Years" }],
+			}),
 		});
 		expect(result).toEqual([
 			{
 				caseType: "patient",
-				property: "age",
-				change: { kind: "retype", fromType: "text", toType: "int" },
+				property: "years",
+				change: { kind: "rename", from: "age", to: "years" },
 			},
 		]);
 	});
 
-	it("emits a `narrow-options` change entry for a narrow-options hint", () => {
-		const initial: CaseType = {
-			name: "patient",
-			properties: [
+	it("proves a bare-writer DERIVED property rename with no catalog entry", () => {
+		// The property exists in the view only through the writer's
+		// id — a catalog-diff or cascade-meta approach would miss it.
+		const result = classifyCaseTypeChanges({
+			prior: patientDoc({ fieldId: "age", catalog: [] }),
+			prospective: patientDoc({ fieldId: "years", catalog: [] }),
+		});
+		expect(result).toEqual([
+			{
+				caseType: "patient",
+				property: "years",
+				change: { kind: "rename", from: "age", to: "years" },
+			},
+		]);
+	});
+
+	it("treats a departed property with no surviving writer as a removal", () => {
+		// Same snapshots as a rename except the field is GONE in the
+		// prospective — no uuid evidence, so no per-row migration;
+		// the schema-sync entry stands alone and the store sheds the
+		// orphaned row values on each row's next write.
+		const prior = patientDoc({
+			fieldId: "age",
+			catalog: [{ name: "age", label: "Age" }],
+		});
+		const prospective = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+		const result = classifyCaseTypeChanges({ prior, prospective });
+		expect(result).toEqual([{ caseType: "patient" }]);
+	});
+
+	it("does not prove a rename when the writer stopped writing the case type", () => {
+		// The field survives under its uuid with a new id, but its
+		// `case_property_on` no longer targets the case type — the new
+		// id is not the departed property's new home.
+		const prior = patientDoc({ fieldId: "age", catalog: [] });
+		const prospective = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
 				{
-					name: "color",
-					label: "Color",
-					data_type: "single_select",
-					options: [
-						{ value: "red", label: "Red" },
-						{ value: "blue", label: "Blue" },
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: "field-age",
+									id: "years",
+									kind: "int",
+									label: "Age",
+								}),
+							],
+						},
 					],
 				},
 			],
-		};
-		const narrowed: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "color",
-					label: "Color",
-					data_type: "single_select",
-					options: [{ value: "blue", label: "Blue" }],
-				},
-			],
-		};
-		const result = classifyCaseTypeChanges({
-			prior: makeDoc([initial]),
-			prospective: makeDoc([narrowed]),
-			hint: {
-				kind: "narrow-options",
-				caseType: "patient",
-				property: "color",
-				removedOptions: ["red"],
-			},
 		});
-		expect(result).toEqual([
-			{
-				caseType: "patient",
-				property: "color",
-				change: { kind: "narrow-options", removedOptions: ["red"] },
-			},
-		]);
+		const result = classifyCaseTypeChanges({ prior, prospective });
+		expect(result).toEqual([{ caseType: "patient" }]);
 	});
 
-	it("emits the hint entry plus structural entries for OTHER affected case types", () => {
-		// Hint targets `patient`; an unrelated case-type (`visit`)
-		// also shifts. Expectation: one hint entry for `patient`,
-		// one schema-sync-only entry for `visit`.
+	it("pairs a rename entry with an unrelated case type's sync entry", () => {
 		const visit: CaseType = {
 			name: "visit",
 			properties: [{ name: "date", label: "Date", data_type: "date" }],
@@ -351,11 +401,17 @@ describe("classifyCaseTypeChanges — explicit hints", () => {
 				{ name: "outcome", label: "Outcome", data_type: "text" },
 			],
 		};
-		const result = classifyCaseTypeChanges({
-			prior: makeDoc([PATIENT, visit]),
-			prospective: makeDoc([PATIENT, visitV2]),
-			hint: { kind: "rename", caseType: "patient", from: "age", to: "years" },
+		const prior = patientDoc({
+			fieldId: "age",
+			catalog: [{ name: "age", label: "Age" }],
 		});
+		const prospective = patientDoc({
+			fieldId: "years",
+			catalog: [{ name: "years", label: "Years" }],
+		});
+		prior.caseTypes = [...(prior.caseTypes ?? []), visit];
+		prospective.caseTypes = [...(prospective.caseTypes ?? []), visitV2];
+		const result = classifyCaseTypeChanges({ prior, prospective });
 		expect(result).toHaveLength(2);
 		expect(result[0]?.caseType).toBe("patient");
 		expect(result[0]?.change?.kind).toBe("rename");
