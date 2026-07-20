@@ -63,6 +63,7 @@ import {
 } from "@/lib/domain/predicate/builders";
 import {
 	CaseNotFoundError,
+	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
 } from "../errors";
@@ -1013,8 +1014,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(renamedBlueprint),
-				property: "years",
-				change: { kind: "rename", from: "age", to: "years" },
+				change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
 			});
 			// Two rows carried `age`; one didn't.
 			expect(report.migrated).toBe(2);
@@ -1043,6 +1043,297 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(byId.get(PATIENT_CAROL_ID)?.properties).toEqual({
 				name: "Carol",
 			});
+
+			// Re-running the same rename is a no-op — no row still
+			// carries the old key.
+			const rerun = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(renamedBlueprint),
+				change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
+			});
+			expect(rerun.migrated).toBe(0);
+			expect(rerun.quarantined).toBe(0);
+		});
+
+		it("applySchemaChange (rename) applies same-batch pairs simultaneously — a swap crosses cleanly", async () => {
+			const store = await options.factory(TENANT_A);
+			const twoProps: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "height", label: "Height", data_type: "text" },
+					{ name: "weight", label: "Weight", data_type: "text" },
+				],
+			};
+			await seedSchema(store, buildBlueprint([twoProps]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ height: "170", weight: "60" }),
+				},
+			});
+
+			// The name-reuse batch: height→weight while weight→weight_kg.
+			// Sequential application in either order would misplace or
+			// destroy a value; the simultaneous per-row apply lands both
+			// at their true destinations.
+			const reused: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "weight", label: "Height", data_type: "text" },
+					{ name: "weight_kg", label: "Weight", data_type: "text" },
+				],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([reused])),
+				change: {
+					kind: "rename",
+					renames: [
+						{ from: "height", to: "weight" },
+						{ from: "weight", to: "weight_kg" },
+					],
+				},
+			});
+			expect(report.migrated).toBe(1);
+			expect(report.quarantined).toBe(0);
+			expect(report.failureReasons).toEqual([]);
+
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({
+				weight: "170",
+				weight_kg: "60",
+			});
+		});
+
+		it("applySchemaChange (rename) merging onto an existing declaration keeps destination values and casts moved ones", async () => {
+			// A MERGE-rename: the destination name was already declared,
+			// so the surviving declaration (here `years: int`) can differ
+			// from the source's. Three behaviors under one migration:
+			// a destination value wins its conflict, a from-only value
+			// casts into the destination type, and an uncastable value
+			// DROPS with the old key (reported) — the row itself stays,
+			// never a whole-row quarantine.
+			const store = await options.factory(TENANT_A);
+			const mergedFrom: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "age", label: "Age", data_type: "text" },
+					{ name: "years", label: "Years", data_type: "int" },
+				],
+			};
+			await seedSchema(store, buildBlueprint([mergedFrom]), "patient");
+
+			// From-only, castable — moves and casts "30" → 30.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "30" }),
+				},
+			});
+			// Conflict — the destination's already-valid value wins and
+			// the old key drops.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "99", years: 1 }),
+				},
+			});
+			// From-only, uncastable under the surviving `int` — the VALUE
+			// drops with the old key (reported); the row stays.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_CAROL_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+
+			const mergedCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "years", label: "Years", data_type: "int" }],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([mergedCaseType])),
+				change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
+			});
+			expect(report.migrated).toBe(3);
+			expect(report.quarantined).toBe(0);
+			expect(report.skipped).toBe(0);
+			expect(report.failureReasons).toHaveLength(1);
+			expect(report.failureReasons[0]).toContain("age");
+			expect(report.failureReasons[0]).toContain("years");
+			expect(report.failureReasons[0]).toContain("int");
+
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const byId = new Map(rows.map((r) => [r.case_id, r]));
+			expect(rows).toHaveLength(3);
+			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({ years: 30 });
+			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({ years: 1 });
+			// Carol's row survives, writable, minus the uncastable value.
+			expect(byId.get(PATIENT_CAROL_ID)?.properties).toEqual({});
+		});
+
+		it("applySchemaChange (rename) drops blank values instead of quarantining, and reshapes destination-only rows on a same-batch select flip", async () => {
+			// Two behaviors on one sync: a blank string under the old key
+			// is no data — the key drops silently; and a same-batch flip
+			// of the DESTINATION (single→multi select) still reshapes
+			// rows the rename never visits (they hold only the
+			// destination key), because a rename does not exclude its
+			// destinations from the shape reshape.
+			const store = await options.factory(TENANT_A);
+			const before: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "age", label: "Age", data_type: "text" },
+					{
+						name: "years",
+						label: "Years",
+						data_type: "single_select",
+						options: [
+							{ value: "young", label: "Young" },
+							{ value: "old", label: "Old" },
+						],
+					},
+				],
+			};
+			await seedSchema(store, buildBlueprint([before]), "patient");
+			// Blank old-key value — drops silently, no report entry.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "" }),
+				},
+			});
+			// Destination-only row — the rename never selects it; the
+			// reshape must still lift its scalar to an array.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ years: "young" }),
+				},
+			});
+
+			const after: CaseType = {
+				name: "patient",
+				properties: [
+					{
+						name: "years",
+						label: "Years",
+						data_type: "multi_select",
+						options: [
+							{ value: "young", label: "Young" },
+							{ value: "old", label: "Old" },
+						],
+					},
+				],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([after])),
+				change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
+			});
+			expect(report.migrated).toBe(1);
+			expect(report.reshaped).toBe(1);
+			expect(report.quarantined).toBe(0);
+			expect(report.failureReasons).toEqual([]);
+
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const byId = new Map(rows.map((r) => [r.case_id, r]));
+			// Alice: blank age dropped, nothing written under years.
+			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({});
+			// Bob: reshaped to the flipped array shape.
+			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({
+				years: ["young"],
+			});
+		});
+
+		// -----------------------------------------------------------
+		// update — merged-write strip of undeclared inherited keys
+		// -----------------------------------------------------------
+
+		it("update() sheds inherited keys the schema no longer declares, while patch keys stay strict", async () => {
+			// A row stranded by a pre-migration rename/removal holds a
+			// key the current schema does not declare. Its next
+			// properties write sheds the orphaned key instead of failing
+			// `additionalProperties` forever — but an unknown key in the
+			// caller's PATCH is still a validation error.
+			const store = await options.factory(TENANT_A);
+			const withAge: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "age", label: "Age", data_type: "text" },
+				],
+			};
+			await seedSchema(store, buildBlueprint([withAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: "30" }),
+				},
+			});
+
+			// The schema regenerates WITHOUT `age` (an additive sync — the
+			// legacy stranding shape: no rename migration ran).
+			const withoutAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "name", label: "Name", data_type: "text" }],
+			};
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([withoutAge])),
+			});
+
+			// The write succeeds and sheds the orphaned `age`.
+			await store.update({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				patch: { properties: makeProperties({ name: "Alicia" }) },
+			});
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ name: "Alicia" });
+
+			// A patch key the schema doesn't declare still rejects.
+			await expect(
+				store.update({
+					appId: APP_ID,
+					caseId: PATIENT_ALICE_ID,
+					patch: { properties: makeProperties({ bogus: "x" }) },
+				}),
+			).rejects.toBeInstanceOf(CasePropertiesValidationError);
 		});
 
 		// -----------------------------------------------------------

@@ -151,6 +151,8 @@ function buildAjv(): Ajv2020 {
 interface ValidatorCacheEntry {
 	schemaJson: string;
 	validate: ValidateFunction<unknown>;
+	/** Property keys the schema declares — the merged-update strip's allowlist. */
+	declared: ReadonlySet<string>;
 }
 
 /** The Postgres-backed implementation of `CaseStore`. */
@@ -805,15 +807,11 @@ export class PostgresCaseStore implements CaseStore {
 		const insertRows: InsertObject<Database, "cases">[] = args.rows.map(
 			(row, index) => {
 				const propertiesObject = parseJsonbInput(row.properties);
-				const ok = validator(propertiesObject);
-				if (!ok) {
-					const failures = (validator.errors ?? []).map(ajvErrorToCaseFailure);
-					throw new CasePropertiesValidationError(
-						args.appId,
-						caseType,
-						failures,
-					);
-				}
+				this.assertValidProperties(validator, {
+					appId: args.appId,
+					caseType,
+					properties: propertiesObject,
+				});
 				return {
 					...row,
 					case_id: caseIds[index],
@@ -890,19 +888,38 @@ export class PostgresCaseStore implements CaseStore {
 			// with `max: 1` pools (the per-test isolation harness's
 			// shape), an unscoped read would wait forever on a
 			// connection the transaction owns.
-			const mergedProperties =
-				args.patch.properties !== undefined
-					? {
-							...existing.properties,
-							...parseJsonbInput(args.patch.properties),
-						}
-					: undefined;
-			if (mergedProperties !== undefined) {
-				await this.validateProperties({
+			//
+			// The merge SHEDS inherited keys the current schema no longer
+			// declares before validating: a key orphaned by a property
+			// removal (or by a rename whose migration predates this
+			// deploy) would otherwise fail `additionalProperties` on this
+			// row's every future write — the value is dead data the
+			// blueprint can no longer reference, so it drops with the
+			// write instead of locking the row. Only the INHERITED half is
+			// shed; an unknown key in the caller's PATCH is still a
+			// validation error (a caller bug worth surfacing, not
+			// residue).
+			let mergedProperties: Record<string, unknown> | undefined;
+			if (args.patch.properties !== undefined) {
+				const validator = await this.getValidator(
+					args.appId,
+					existing.case_type,
+					trx,
+				);
+				const inherited: Record<string, unknown> = {};
+				for (const [key, value] of Object.entries(existing.properties)) {
+					if (validator.declared.has(key)) {
+						inherited[key] = value;
+					}
+				}
+				mergedProperties = {
+					...inherited,
+					...parseJsonbInput(args.patch.properties),
+				};
+				this.assertValidProperties(validator, {
 					appId: args.appId,
 					caseType: existing.case_type,
 					properties: mergedProperties,
-					executor: trx,
 				});
 			}
 
@@ -1201,10 +1218,19 @@ export class PostgresCaseStore implements CaseStore {
 			// own detection.
 			let reshaped = 0;
 			if (won) {
+				// Exclude only a RETYPE/NARROW-targeted property from the
+				// reshape — those migrations rewrite the same key their
+				// caller named, and a double rewrite would double-count. A
+				// RENAME's destinations are deliberately NOT excluded: a
+				// same-batch select flip on a merge-rename destination
+				// must still reshape the rows the rename never visits
+				// (rows holding the destination key without any old key).
 				const flips = detectShapeFlips(
 					priorRow?.schema,
 					schema,
-					args.change !== undefined ? args.property : undefined,
+					args.change !== undefined && args.change.kind !== "rename"
+						? args.property
+						: undefined,
 				);
 				if (flips.length > 0) {
 					reshaped = await this.runShapeReshape(trx, {
@@ -1228,23 +1254,12 @@ export class PostgresCaseStore implements CaseStore {
 					failureReasons: [],
 				};
 			}
-			if (args.property === undefined) {
-				throw new Error(
-					compilerBugMessage({
-						where: "case-store.PostgresCaseStore.applySchemaChange",
-						invariant:
-							"`property` is undefined while `change` is defined; the change shape targets a specific property and the migration loop reads from it",
-						detail:
-							"The `ApplySchemaChangeArgs` contract pairs `change` and `property` — `change` describes WHAT shifts (`rename` / `retype` / `narrow-options`); `property` names WHICH property the shift targets. Reaching this throw means the caller passed `change` but omitted `property`. Hint: pass `property` alongside `change` at the call site.",
-					}),
-				);
-			}
 			const migration = await this.runPerRowMigration(trx, {
 				appId: args.appId,
 				caseType: args.caseType,
 				property: args.property,
 				change: args.change,
-				schema,
+				caseTypeDecl: caseType,
 			});
 			// The reshape reports on its OWN axis rather than folding into
 			// `migrated`: one physical row can be rewritten by both the
@@ -1514,34 +1529,47 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Dispatch to the per-row migration matching the `change` shape.
-	 * Three arms: `rename(from, to)`, `retype(fromType, toType)`, and
-	 * `narrow-options(removedOptions)`. Cast / option-set failures
-	 * move to `cases_quarantine` with the original value + failure
-	 * reason.
+	 * Three arms: `rename(renames[])`, `retype(fromType, toType)`, and
+	 * `narrow-options(removedOptions)`. Retype / narrow-options cast /
+	 * option-set failures move to `cases_quarantine` with the original
+	 * value + failure reason; a rename's uncastable values drop with
+	 * their old key instead (contract on `runRenameMigration`).
 	 */
 	private async runPerRowMigration(
 		trx: Transaction<Database>,
 		args: {
 			appId: string;
 			caseType: string;
-			property: string;
+			property: string | undefined;
 			change: SchemaChangeKind;
-			schema: CaseTypeJsonSchema;
+			caseTypeDecl: CaseType;
 		},
 	): Promise<MigrationReport> {
 		switch (args.change.kind) {
-			case "rename":
+			case "rename": {
+				// Each DESTINATION declaration's type drives its pair's
+				// per-row cast. A plain rename carried its declaration with
+				// it (identity cast); a merge-rename adopted the surviving
+				// entry's type. An undeclared `data_type` derives a plain
+				// string schema, so it casts as `text`.
+				const renames = args.change.renames.map((pair) => ({
+					from: pair.from,
+					to: pair.to,
+					toType:
+						args.caseTypeDecl.properties.find((p) => p.name === pair.to)
+							?.data_type ?? ("text" as const),
+				}));
 				return await this.runRenameMigration(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					from: args.change.from,
-					to: args.change.to,
+					renames,
 				});
+			}
 			case "retype":
 				return await this.runRetypeMigration(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					property: args.property,
+					property: this.requireMigrationProperty(args.property, "retype"),
 					fromType: args.change.fromType,
 					toType: args.change.toType,
 				});
@@ -1549,10 +1577,33 @@ export class PostgresCaseStore implements CaseStore {
 				return await this.runNarrowOptionsMigration(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					property: args.property,
+					property: this.requireMigrationProperty(
+						args.property,
+						"narrow-options",
+					),
 					removedOptions: args.change.removedOptions,
 				});
 		}
+	}
+
+	/**
+	 * The `retype` / `narrow-options` arms target ONE property and
+	 * require the paired `property` argument; a `rename` change
+	 * carries its own targets in `renames` and never reaches this.
+	 */
+	private requireMigrationProperty(
+		property: string | undefined,
+		kind: "retype" | "narrow-options",
+	): string {
+		if (property !== undefined) return property;
+		throw new Error(
+			compilerBugMessage({
+				where: "case-store.PostgresCaseStore.runPerRowMigration",
+				invariant: `\`property\` is undefined for a \`${kind}\` change; that migration targets a specific property and the per-row loop reads from it`,
+				detail:
+					"The `ApplySchemaChangeArgs` contract pairs `property` with the `retype` / `narrow-options` change arms. Hint: pass `property` alongside the change at the call site.",
+			}),
+		);
 	}
 
 	/**
@@ -1637,26 +1688,58 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Rename a JSONB property key. SQL:
-	 * `properties = jsonb_set(properties #- '{from}', '{to}',
-	 * properties->'from')` — the `#-` operator drops the old key
-	 * and `jsonb_set` adds the new with the old value. One UPDATE
-	 * bounded by `properties ? 'from'` so rows missing the key
-	 * don't pay a no-op write.
+	 * Rename: move each row's values from the old JSONB keys to the
+	 * new ones — ALL pairs applied SIMULTANEOUSLY against the row's
+	 * pre-migration document, so a same-batch swap (A→B while B→A) or
+	 * name-reuse (A→B while a second writer's B→C) lands every value
+	 * at its true destination with no ordering hazard: every old key
+	 * drops first, then each destination fills from the OLD document's
+	 * source value.
+	 *
+	 * Values cast into the DESTINATION declaration. A plain rename
+	 * carries its declaration with it, so the cast is an identity pass
+	 * — but a MERGE-rename (the destination name was already declared;
+	 * the doc layer's cascade drops the old entry and keeps the
+	 * existing declaration) can land a value under a differently-typed
+	 * key, and an uncast move would re-strand the row on the
+	 * destination's `type` keyword — or abort Phase B's typed
+	 * expression index.
+	 *
+	 * Per-pair, per-row rules:
+	 *   - Destination key already holds a non-null value that is NOT
+	 *     itself being renamed away (a merge-rename conflict): the
+	 *     destination value WINS — it already conforms to the
+	 *     surviving declaration — and the old key's value is dropped.
+	 *     Preferring the old value would overwrite schema-valid data
+	 *     with a value that may need a failable cast.
+	 *   - Old key holds JSON `null` or a blank string: the key drops
+	 *     and nothing is written — there is no data to move, and the
+	 *     KEY must still go (merged-document validation rejects the
+	 *     undeclared key regardless of its value).
+	 *   - Otherwise: `tryCastValue` into the destination type; success
+	 *     writes the cast value under the new key, failure DROPS the
+	 *     value with the old key and records a `failureReasons` entry.
+	 *     Deliberately NOT the retype arm's whole-row quarantine: a
+	 *     rename is a first-class conversational/builder gesture, and
+	 *     making an entire case vanish from every list over one
+	 *     uncastable field value is worse than shedding that value
+	 *     loudly. The row stays present and writable.
 	 */
 	private async runRenameMigration(
 		trx: Transaction<Database>,
 		args: {
 			appId: string;
 			caseType: string;
-			from: string;
-			to: string;
+			renames: ReadonlyArray<{
+				from: string;
+				to: string;
+				toType: CasePropertyDataType;
+			}>;
 		},
 	): Promise<MigrationReport> {
-		// Count the full row population first so `migrated` from the
-		// UPDATE pairs with an accurate `skipped` count. Both queries
-		// share the caller's transaction so no concurrent inserter
-		// can land between them.
+		// Count the full row population first so `migrated` + `skipped`
+		// stay an exact partition. Both queries share the caller's
+		// transaction so no concurrent inserter can land between them.
 		// App-scoped, NOT tenant-scoped: a schema change migrates EVERY
 		// member's rows of the app's case type (a property rename is an
 		// app-wide event, not a per-Project one), so every per-row
@@ -1672,31 +1755,76 @@ export class PostgresCaseStore implements CaseStore {
 			.executeTakeFirstOrThrow();
 		const totalCount = Number(totalRow.total);
 
-		// `sql.lit` flows the JSONB key as a SQL string literal —
-		// `jsonb_set`'s path argument and `#-`'s right operand are
-		// both `text[]`, which the typed builder constructs via
-		// `ARRAY['key']`.
-		const from = args.from;
-		const to = args.to;
-		const updated = await trx
-			.updateTable("cases as c")
-			.set({
-				properties: sql`jsonb_set(c.properties #- ARRAY[${sql.lit(from)}]::text[], ARRAY[${sql.lit(to)}]::text[], c.properties->${sql.lit(from)})`,
-				modified_on: sql`now()`,
-			})
+		// Only rows holding at least one old key leave Postgres — `?`
+		// tests key presence, so conforming and key-less rows never load
+		// into Node.
+		const rows = await trx
+			.selectFrom("cases as c")
+			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where(sql<boolean>`c.properties ? ${sql.lit(from)}`)
-			.executeTakeFirst();
+			.where((eb) =>
+				eb.or(
+					args.renames.map(
+						(pair) => sql<boolean>`c.properties ? ${sql.lit(pair.from)}`,
+					),
+				),
+			)
+			.execute();
 
-		const migrated = Number(updated.numUpdatedRows ?? 0);
-		const skipped = totalCount - migrated;
+		const fromKeys = new Set(args.renames.map((pair) => pair.from));
+		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
+		const failureReasons: string[] = [];
+
+		for (const row of rows) {
+			const old = row.properties;
+			const next: JsonObject = {};
+			for (const [key, value] of Object.entries(old)) {
+				if (!fromKeys.has(key)) next[key] = value;
+			}
+			for (const pair of args.renames) {
+				if (!Object.hasOwn(old, pair.from)) continue;
+				const value = old[pair.from];
+				const destination = old[pair.to];
+				if (
+					destination !== undefined &&
+					destination !== null &&
+					!fromKeys.has(pair.to)
+				) {
+					continue; // conflict — the destination's surviving value wins
+				}
+				if (
+					value === null ||
+					value === undefined ||
+					(typeof value === "string" && value.trim() === "")
+				) {
+					continue; // no data to move — the key drop above suffices
+				}
+				const cast = tryCastValue(value, pair.toType);
+				if (cast.ok) {
+					next[pair.to] = cast.value as JsonValue;
+				} else {
+					failureReasons.push(
+						`rename ${pair.from}→${pair.to} dropped a value on case ${row.case_id}: it cannot live under the destination's \`${pair.toType}\` declaration: ${cast.reason}`,
+					);
+				}
+			}
+			migratedRows.push({ caseId: row.case_id, newProperties: next });
+		}
+
+		if (migratedRows.length > 0) {
+			await this.bulkUpdateProperties(trx, {
+				appId: args.appId,
+				rows: migratedRows,
+			});
+		}
+
 		return {
-			migrated,
+			migrated: migratedRows.length,
 			reshaped: 0,
 			quarantined: 0,
-			skipped,
-			failureReasons: [],
+			skipped: totalCount - rows.length,
+			failureReasons,
 		};
 	}
 
@@ -1944,14 +2072,29 @@ export class PostgresCaseStore implements CaseStore {
 			args.caseType,
 			args.executor,
 		);
-		const ok = validator(args.properties);
+		this.assertValidProperties(validator, args);
+	}
+
+	/**
+	 * Run an already-fetched validator over a candidate document and
+	 * project AJV's errors onto `CasePropertyFailure` so API routes
+	 * get one consistent shape across per-row and bulk paths —
+	 * `ajvErrorToCaseFailure` names the offending key on an
+	 * `additionalProperties` failure (AJV's default message doesn't).
+	 */
+	private assertValidProperties(
+		validator: ValidatorCacheEntry,
+		args: {
+			appId: string;
+			caseType: string;
+			properties: Record<string, unknown>;
+		},
+	): void {
+		const ok = validator.validate(args.properties);
 		if (!ok) {
-			// Project AJV's errors onto `CasePropertyFailure` so API
-			// routes get one consistent shape across per-row and bulk
-			// paths — `ajvErrorToCaseFailure` names the offending key on
-			// an `additionalProperties` failure (AJV's default message
-			// doesn't).
-			const failures = (validator.errors ?? []).map(ajvErrorToCaseFailure);
+			const failures = (validator.validate.errors ?? []).map(
+				ajvErrorToCaseFailure,
+			);
 			throw new CasePropertiesValidationError(
 				args.appId,
 				args.caseType,
@@ -1994,7 +2137,7 @@ export class PostgresCaseStore implements CaseStore {
 		appId: string,
 		caseType: string,
 		executor: Transaction<Database>,
-	): Promise<ValidateFunction<unknown>> {
+	): Promise<ValidatorCacheEntry> {
 		const row = await executor
 			.selectFrom("case_type_schemas")
 			.select("schema")
@@ -2010,12 +2153,18 @@ export class PostgresCaseStore implements CaseStore {
 		const cacheKey = `${appId}::${caseType}`;
 		const cached = this.validatorCache.get(cacheKey);
 		if (cached !== undefined && cached.schemaJson === schemaJson) {
-			return cached.validate;
+			return cached;
 		}
 
 		const validate = this.ajv.compile(row.schema as object);
-		this.validatorCache.set(cacheKey, { schemaJson, validate });
-		return validate;
+		const declaredProps = (row.schema as { properties?: object }).properties;
+		const entry: ValidatorCacheEntry = {
+			schemaJson,
+			validate,
+			declared: new Set(Object.keys(declaredProps ?? {})),
+		};
+		this.validatorCache.set(cacheKey, entry);
+		return entry;
 	}
 
 	/** Centralized factory so schema-map + bindings defaults stay aligned across every predicate-compile site. */
