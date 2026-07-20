@@ -345,6 +345,17 @@ export function ChatSidebar({
 		localSendRef.current = true;
 	}, []);
 
+	/* A local turn always returns the view to the bottom, wherever the user had
+	 * scrolled: jump (no animated travel through the transcript) and re-engage
+	 * use-stick-to-bottom's pin, which an upward scroll releases. The jump lands
+	 * on the CURRENT bottom — the new message commits a render later — and the
+	 * re-engaged pin then carries it (and the streamed reply) into view via the
+	 * resize follow. Incoming content alone never scrolls an escaped view; only
+	 * the user's own send does. */
+	const scrollToLatest = useCallback(() => {
+		void stickContextRef.current?.scrollToBottom({ animation: "instant" });
+	}, []);
+
 	// Route typed messages as question answers when an AskQuestionsCard is waiting.
 	// Answers are text-only (the question UI is multiple-choice); any staged
 	// attachments are forwarded only on a normal send, never folded into an answer.
@@ -358,17 +369,23 @@ export function ChatSidebar({
 				markLocalSend();
 				onSend(message);
 			}
+			scrollToLatest();
 		},
-		[markLocalSend, onSend],
+		[markLocalSend, onSend, scrollToLatest],
 	);
 
-	// An answered question starts the same outgoing-message status as the composer.
+	// An answered question starts the same outgoing-message status as the composer
+	// — and, like one, must leave the resumed stream in view even if the user had
+	// unpinned the view before clicking the final option.
 	const handleToolOutput = useCallback(
 		(params: { tool: string; toolCallId: string; output: unknown }) => {
-			if (params.tool === "askQuestions") markLocalSend();
+			if (params.tool === "askQuestions") {
+				markLocalSend();
+				scrollToLatest();
+			}
 			addToolOutput(params);
 		},
-		[addToolOutput, markLocalSend],
+		[addToolOutput, markLocalSend, scrollToLatest],
 	);
 
 	// ── Auto-scroll question cards into view when they appear ──
