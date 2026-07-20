@@ -41,6 +41,7 @@ import type {
 	StagedMutationBatch,
 	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
+import { describeParkedOutcome } from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
@@ -51,6 +52,7 @@ import type {
 	MutationEvent,
 } from "@/lib/log/types";
 import { LogWriter } from "@/lib/log/writer";
+import { log } from "@/lib/logger";
 import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import { createProgressEmitter, type ProgressEmitter } from "./progress";
 import type { ToolContext } from "./types";
@@ -90,6 +92,9 @@ export class McpContext implements ToolExecutionContext {
 	 * same monotonic sequence.
 	 */
 	private seq = 0;
+
+	/** See `ToolExecutionContext.consumeParkedNote`. */
+	private _parkedNote: string | undefined;
 
 	constructor(opts: McpContextOptions) {
 		this.appId = opts.appId;
@@ -279,8 +284,26 @@ export class McpContext implements ToolExecutionContext {
 		});
 		/* `committedDoc` is absent only on a TOP-LEVEL dedup hit (a client retry
 		 * of an already-committed batch); the doc the tool passed in IS that
-		 * committed state, so coalesce to it. */
+		 * committed state, so coalesce to it. A commit whose row migration
+		 * PARKED saved case values surfaces the outcome so the tool result
+		 * tells the client — a park must never be invisible to the caller
+		 * that caused it (this boundary has no toast). */
+		if (result.migration !== undefined && result.migration.parked > 0) {
+			this._parkedNote = describeParkedOutcome(result.migration);
+			log.warn("[mcp] saga commit parked case values", {
+				appId: this.appId,
+				parked: result.migration.parked,
+				failureReasons: result.migration.failureReasons,
+			});
+		}
 		return result.committedDoc ?? doc;
+	}
+
+	/** See `ToolExecutionContext.consumeParkedNote`. */
+	consumeParkedNote(): string | undefined {
+		const note = this._parkedNote;
+		this._parkedNote = undefined;
+		return note;
 	}
 }
 

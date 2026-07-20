@@ -368,15 +368,20 @@ export interface ApplySchemaChangeArgs {
  * created — one per VALUE that could not be carried (its count is
  * the "N values set aside" number). The saga's compensation path
  * consumes the ids to un-park on a failed blueprint commit.
- * `failureReasons` carries the same events as person-readable text
- * in row-iteration order, plus non-parking drops (a rename's
- * blank-value key drop reports nothing; its uncastable and
- * merge-conflict drops appear in both).
+ * `restored` counts previously-parked values this sync wrote BACK:
+ * every winning sync ends by restoring any parked entry of the case
+ * type whose original value conforms to the type's new schema and
+ * whose key is free — so converting a property back (including via
+ * undo) automatically recovers what the forward conversion set
+ * aside. `failureReasons` carries the park events as
+ * person-readable text in row-iteration order (a blank-value key
+ * drop reports nothing).
  */
 export interface MigrationReport {
 	migrated: number;
 	reshaped: number;
 	retyped: number;
+	restored: number;
 	skipped: number;
 	parkedIds: string[];
 	failureReasons: string[];

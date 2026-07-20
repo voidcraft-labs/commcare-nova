@@ -154,6 +154,39 @@ describe("GenerationContext.recordMutations", () => {
 		expect(frame.data.seq).toBe(3);
 	});
 
+	it("stashes a saga commit's park outcome as the consumable note for the tool wrapper", async () => {
+		vi.mocked(applyBlueprintChange).mockResolvedValue({
+			seq: 4,
+			committedDoc: committedDocFor("saga-committed"),
+			migration: {
+				migrated: 2,
+				reshaped: 0,
+				retyped: 0,
+				restored: 0,
+				parked: 1,
+				failureReasons: [
+					'rename age→years set aside a value on case c1: it cannot live under the destination\'s `int` declaration: value "abc" is not a whole number',
+				],
+			},
+		});
+		const rename: Mutation = {
+			kind: "renameField",
+			uuid: asUuid("field-uuid"),
+			newId: "patient_full_name",
+		};
+
+		await ctx.recordMutations([rename], DOC);
+
+		// Read-and-clear: the first consume returns the person-readable
+		// note (the tool wrapper appends it to its success message so the
+		// SA relays the data consequence); the second returns nothing.
+		const note = ctx.consumeParkedNote();
+		expect(note).toContain("1 saved case value");
+		expect(note).toContain("set aside");
+		expect(note).toContain("age→years");
+		expect(ctx.consumeParkedNote()).toBeUndefined();
+	});
+
 	it("routes a moveField batch through the saga too — a cross-parent dedup can rename a property", async () => {
 		vi.mocked(applyBlueprintChange).mockResolvedValue({
 			seq: 4,

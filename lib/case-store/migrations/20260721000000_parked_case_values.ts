@@ -34,6 +34,23 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`CREATE INDEX IF NOT EXISTS "parked_case_values_case_id_idx" ON "parked_case_values" ("case_id")`.execute(
 		db,
 	);
+	// Refuse to destroy data: a quarantined row is a FULL case another
+	// path already deleted from `cases`, so a non-empty sink must be
+	// inspected + migrated forward by a human before this drop can run.
+	// Verified empty in production and local when this shipped; the
+	// guard makes that a checked precondition instead of a comment
+	// assertion. (Dynamic EXECUTE so the block still parses when the
+	// table is already gone on a replay.)
+	await sql`DO $$
+		DECLARE has_rows boolean;
+		BEGIN
+			IF to_regclass('public.cases_quarantine') IS NOT NULL THEN
+				EXECUTE 'SELECT EXISTS (SELECT 1 FROM cases_quarantine)' INTO has_rows;
+				IF has_rows THEN
+					RAISE EXCEPTION 'cases_quarantine still holds rows — refusing to drop the recoverable-row sink. Each row is a full case an old quarantine path already removed from cases; inspect and migrate them forward, then re-run.';
+				END IF;
+			END IF;
+		END $$`.execute(db);
 	await sql`DROP TABLE IF EXISTS "cases_quarantine"`.execute(db);
 }
 

@@ -34,6 +34,7 @@ import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
  * adopts `committedDoc` as its working doc so it always builds on what actually
  * landed (a concurrent peer edit merged in); MCP coalesces it with the
  * post-mutation doc it already holds on a top-level dedup hit.
+ *
  */
 export interface RecordMutationsResult {
 	readonly events: MutationEvent[];
@@ -82,6 +83,18 @@ export interface ToolExecutionContext {
 	): Promise<RecordMutationsResult>;
 
 	/**
+	 * Read-and-clear the note describing saved case values the LAST
+	 * commit's row migration PARKED (`parked_case_values`) — set by the
+	 * saga-routed commit paths, absent otherwise. The tool wrapper
+	 * appends it to the tool's success message so the model (and an
+	 * MCP client) can tell the user — a park must never be invisible
+	 * to the person who caused it. Safe as call-scoped state because
+	 * both surfaces serialize tool execution (the chat mutex; MCP's
+	 * one-call-per-request).
+	 */
+	consumeParkedNote?(): string | undefined;
+
+	/**
 	 * Persist a multi-stage mutation sequence as ONE save. The stages keep
 	 * their per-stage event-log tags (`convert:`/`rename:`/`edit:` chapter
 	 * shapes), but the blueprint write is a single unit: an implementation
@@ -101,6 +114,27 @@ export interface ToolExecutionContext {
 	/** Persist a conversation event (assistant text/reasoning, tool
 	 * call/result, user message, error). */
 	recordConversation(payload: ConversationPayload): ConversationEvent;
+}
+
+/**
+ * Render a saga commit's park outcome as the note the tool wrapper
+ * appends to its success message (see `consumeParkedNote`). Typed
+ * structurally so this leaf imports nothing from the saga layer.
+ */
+export function describeParkedOutcome(outcome: {
+	readonly parked: number;
+	readonly failureReasons: readonly string[];
+}): string {
+	const detail = outcome.failureReasons.slice(0, 3).join("; ");
+	const more =
+		outcome.failureReasons.length > 3
+			? ` (and ${outcome.failureReasons.length - 3} more)`
+			: "";
+	return (
+		`Data note: ${outcome.parked} saved case value${outcome.parked === 1 ? "" : "s"} ` +
+		`could not convert to the new type and ${outcome.parked === 1 ? "was" : "were"} set aside — ` +
+		`the cases themselves are intact. ${detail}${more}`
+	);
 }
 
 /**

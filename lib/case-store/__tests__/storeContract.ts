@@ -935,6 +935,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				migrated: 0,
 				reshaped: 0,
 				retyped: 0,
+				restored: 0,
 				skipped: 0,
 				parkedIds: [],
 				failureReasons: [],
@@ -1447,23 +1448,21 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				afterWrite.find((r) => r.case_id === PATIENT_BOB_ID)?.properties,
 			).toEqual({ note: "still editable" });
 
-			// The compensation flow: revert the schema to the ORIGINAL
-			// (text) blueprint — an additive sync whose write-time
-			// detection casts Alice's now-number value back to a string —
-			// and THEN un-park. The restored value is valid under the
-			// restored schema, exactly the saga's ordering contract.
+			// Convert BACK to the ORIGINAL (text) blueprint — an additive
+			// sync whose write-time detection casts Alice's now-number
+			// value back to a string AND whose closing restore step writes
+			// Bob's parked "abc" back on its own: the value conforms to
+			// the restored declaration and its key is free, so a
+			// convert-back (including an undo batch) recovers what the
+			// forward conversion set aside with no explicit call.
 			const revert = await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
 			});
 			expect(revert.retyped).toBe(1); // Alice's 30 → "30"
+			expect(revert.restored).toBe(1); // Bob's "abc" came back
 			expect(revert.parkedIds).toEqual([]);
-			const unparked = await store.unparkValues({
-				appId: APP_ID,
-				ids: report.parkedIds,
-			});
-			expect(unparked).toEqual({ restored: 1, kept: 0 });
 			const restored = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -1475,6 +1474,16 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(byIdAfter.get(PATIENT_BOB_ID)?.properties).toEqual({
 				note: "still editable",
 				age: "abc",
+			});
+			// The saga's explicit compensation un-park is an idempotent
+			// no-op here — the entry was already restored (and deleted).
+			const unparked = await store.unparkValues({
+				appId: APP_ID,
+				ids: report.parkedIds,
+			});
+			expect(unparked).toEqual({
+				restored: 0,
+				kept: report.parkedIds.length,
 			});
 		});
 

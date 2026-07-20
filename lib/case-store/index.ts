@@ -19,6 +19,7 @@ export {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
 } from "./errors";
 export { withProjectContext, withSchemaContext } from "./projectContext";

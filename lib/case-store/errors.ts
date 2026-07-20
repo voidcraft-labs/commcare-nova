@@ -209,6 +209,58 @@ export class CaseTypeNotInBlueprintError extends Error {
  * rows; reaching this error means the blueprint mutator skipped the
  * sync step. Server Actions map to a `schema-not-synced` arm.
  */
+/**
+ * `applySchemaChange`'s Phase B (post-commit index DDL) failed AFTER
+ * Phase A committed its schema write + row migrations. The wrapper
+ * exists so the COMMITTED Phase-A `MigrationReport` survives the
+ * throw: without it, a compensating caller loses the parked-value
+ * ids with the return value and can never un-park them, stranding
+ * the values with no restore path. `cause` carries the underlying
+ * fault, one level deep, exactly where `isTransientDbError` looks —
+ * transient classification keeps working through the wrap.
+ *
+ * The report shape lives on the interface side; the slot is typed
+ * structurally here to keep `errors.ts` a leaf.
+ */
+export class SchemaChangePhaseBError extends Error {
+	/** Stable error name for log filters and instanceof-style checks. */
+	readonly name = "SchemaChangePhaseBError";
+	/** The COMMITTED Phase-A report — parked ids and all. */
+	readonly report: {
+		readonly migrated: number;
+		readonly reshaped: number;
+		readonly retyped: number;
+		readonly restored: number;
+		readonly skipped: number;
+		readonly parkedIds: string[];
+		readonly failureReasons: string[];
+	};
+
+	constructor(args: {
+		appId: string;
+		caseType: string;
+		report: SchemaChangePhaseBError["report"];
+		cause: unknown;
+	}) {
+		super(
+			[
+				`Index DDL (Phase B) failed for case type '${args.caseType}' after its schema write + row migrations committed.`,
+				``,
+				`${INDENT}app_id:    '${args.appId}'`,
+				`${INDENT}case_type: '${args.caseType}'`,
+				``,
+				"Phase A is durable: the schema row and every row rewrite (including",
+				"parked values) are committed. The next applySchemaChange call",
+				"re-emits the outstanding index DDL idempotently. Compensating",
+				"callers read `report.parkedIds` off this error so a failed commit",
+				"can still un-park what the committed Phase A set aside.",
+			].join("\n"),
+			{ cause: args.cause },
+		);
+		this.report = args.report;
+	}
+}
+
 export class SchemaNotSyncedError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */
 	readonly name = "SchemaNotSyncedError";

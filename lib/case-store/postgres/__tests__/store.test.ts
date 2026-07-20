@@ -1055,7 +1055,10 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 		// Add the `name` property. Phase A's UPSERT commits the
 		// new schema; Phase B's CREATE INDEX with `gin_trgm_ops`
-		// fails because the extension is gone.
+		// fails because the extension is gone. The throw is the
+		// typed Phase-B wrapper (its `cause` carries the engine
+		// fault) so compensating callers keep the committed
+		// Phase-A report — parked ids and all — across the failure.
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [{ name: "name", label: "Name", data_type: "text" }],
@@ -1066,7 +1069,13 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				caseType: "patient",
 				caseTypeSchemas: buildSchemaMap(caseType),
 			}),
-		).rejects.toThrow(/gin_trgm_ops|pg_trgm|trgm/i);
+		).rejects.toMatchObject({
+			name: "SchemaChangePhaseBError",
+			report: { parkedIds: [] },
+			cause: expect.objectContaining({
+				message: expect.stringMatching(/gin_trgm_ops|pg_trgm|trgm/i),
+			}),
+		});
 
 		// Phase A's commit is intact: the schema row carries the
 		// new `name` property, even though Phase B failed.

@@ -86,6 +86,7 @@ import type {
 	StagedMutationBatch,
 	ToolExecutionContext,
 } from "./toolExecutionContext";
+import { describeParkedOutcome } from "./toolExecutionContext";
 
 /**
  * Debounce for the per-step run-lease heartbeat — a live run refreshes its
@@ -225,6 +226,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * through `failRun` (refund, never keep the charge) instead. TERMINAL — a
 	 * reload can't restore access, so it's never cleared within a run. */
 	private _reauthError: CommitReauthError | undefined;
+	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
 	 * See {@link GenerationContextOptions.editLease}. */
@@ -512,6 +514,19 @@ export class GenerationContext implements ToolExecutionContext {
 					);
 				}
 				result = { seq: saga.seq, committedDoc: saga.committedDoc };
+				// A saga commit's row migration can PARK saved case values.
+				// Stash the note for the tool wrapper to append to its
+				// success message — and log it, since this boundary has no
+				// toast.
+				if (saga.migration !== undefined && saga.migration.parked > 0) {
+					this._parkedNote = describeParkedOutcome(saga.migration);
+					log.warn("[generationContext] saga commit parked case values", {
+						appId: this.appId,
+						batchId,
+						parked: saga.migration.parked,
+						failureReasons: saga.migration.failureReasons,
+					});
+				}
 			} else {
 				result = await commitGuardedBatch({
 					appId: this.appId,
@@ -542,6 +557,13 @@ export class GenerationContext implements ToolExecutionContext {
 		});
 		for (const e of events) this.logWriter.logEvent(e);
 		return { events, committedDoc: result.committedDoc };
+	}
+
+	/** See `ToolExecutionContext.consumeParkedNote`. */
+	consumeParkedNote(): string | undefined {
+		const note = this._parkedNote;
+		this._parkedNote = undefined;
+		return note;
 	}
 
 	/**

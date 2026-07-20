@@ -71,6 +71,7 @@ import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
 } from "../errors";
 import type { SampleCaseGenerator } from "../sample/generator";
@@ -1129,6 +1130,7 @@ export class PostgresCaseStore implements CaseStore {
 					migrated: 0,
 					reshaped: 0,
 					retyped: 0,
+					restored: 0,
 					skipped: 0,
 					parkedIds: [],
 					failureReasons: [],
@@ -1224,6 +1226,7 @@ export class PostgresCaseStore implements CaseStore {
 			let retyped = 0;
 			let detectedParkedIds: string[] = [];
 			let detectedFailureReasons: string[] = [];
+			let transitions: PropertyTransitions = { flips: [], retypes: [] };
 			if (won) {
 				// Exclude only a RETYPE/NARROW-targeted property — those
 				// migrations rewrite the same key their caller named, and a
@@ -1234,7 +1237,7 @@ export class PostgresCaseStore implements CaseStore {
 				// migrate the rows the rename never visits — this step runs
 				// first, and the rename arm's conflict rule then treats the
 				// freshly-cast destination value as the surviving one.
-				const transitions = detectPropertyTransitions(
+				transitions = detectPropertyTransitions(
 					priorRow?.schema,
 					schema,
 					args.change !== undefined && args.change.kind !== "rename"
@@ -1288,36 +1291,61 @@ export class PostgresCaseStore implements CaseStore {
 			// mutations (no `change`) skip this — adding a property still
 			// emits its expression index in Phase B, but the row
 			// population doesn't need migrating.
-			if (args.change === undefined) {
-				return {
-					migrated: 0,
-					reshaped,
-					retyped,
-					skipped: 0,
-					parkedIds: detectedParkedIds,
-					failureReasons: detectedFailureReasons,
-				};
-			}
-			const migration = await this.runPerRowMigration(trx, {
-				appId: args.appId,
-				caseType: args.caseType,
-				property: args.property,
-				change: args.change,
-				caseTypeDecl: caseType,
-			});
+			const migration =
+				args.change === undefined
+					? undefined
+					: await this.runPerRowMigration(trx, {
+							appId: args.appId,
+							caseType: args.caseType,
+							property: args.property,
+							change: args.change,
+							caseTypeDecl: caseType,
+						});
+
+			// Step 4: restore previously-parked values whose property's
+			// validation semantics CHANGED in this sync and whose original
+			// value the new schema accepts — the winning sync's closing
+			// move, so a convert-back (a fresh conversion, an undo batch,
+			// the saga's compensating re-sync) automatically recovers what
+			// the forward conversion set aside. Scoped to the TRANSITIONED
+			// properties on purpose: a narrow-options park's select value
+			// always conforms (selects carry no enum), so an unscoped
+			// restore would silently undo the opt-in flush on the type's
+			// next sync. Runs AFTER the migrations, so a value parked
+			// moments ago in this same transaction is re-checked against
+			// the schema that parked it and stays put.
+			const transitionedProperties = new Set<string>([
+				...transitions.flips.map((flip) => flip.property),
+				...transitions.retypes.map((retype) => retype.property),
+				...(args.change !== undefined && args.change.kind === "retype"
+					? [this.requireMigrationProperty(args.property, "retype")]
+					: []),
+			]);
+			const restored =
+				won && transitionedProperties.size > 0
+					? await this.restoreConformantParked(trx, {
+							appId: args.appId,
+							caseType: args.caseType,
+							schema,
+							properties: transitionedProperties,
+						})
+					: 0;
+
 			// Step 2's work reports on its OWN axes rather than folding
 			// into `migrated`: one physical row can be rewritten by both a
 			// detected transition and the `change`-targeted migration, so
 			// a sum would count it twice. Park ids and reasons concatenate
 			// — each names a distinct VALUE.
 			return {
-				...migration,
+				migrated: migration?.migrated ?? 0,
 				reshaped,
 				retyped,
-				parkedIds: [...detectedParkedIds, ...migration.parkedIds],
+				restored,
+				skipped: migration?.skipped ?? 0,
+				parkedIds: [...detectedParkedIds, ...(migration?.parkedIds ?? [])],
 				failureReasons: [
 					...detectedFailureReasons,
-					...migration.failureReasons,
+					...(migration?.failureReasons ?? []),
 				],
 			};
 		});
@@ -1338,11 +1366,23 @@ export class PostgresCaseStore implements CaseStore {
 		// earlier already returns before reaching Phase B; this closes the
 		// narrower fine-gate-loser window.)
 		if (won) {
-			await this.syncExpressionIndexes({
-				appId: args.appId,
-				caseType: args.caseType,
-				desired: desiredIndexes,
-			});
+			try {
+				await this.syncExpressionIndexes({
+					appId: args.appId,
+					caseType: args.caseType,
+					desired: desiredIndexes,
+				});
+			} catch (phaseBErr) {
+				// Phase A is already durable — wrap so the COMMITTED report
+				// (parked ids and all) survives the throw for compensating
+				// callers; `cause` keeps transient classification working.
+				throw new SchemaChangePhaseBError({
+					appId: args.appId,
+					caseType: args.caseType,
+					report,
+					cause: phaseBErr,
+				});
+			}
 		}
 
 		return report;
@@ -1881,11 +1921,7 @@ export class PostgresCaseStore implements CaseStore {
 			for (const pair of args.renames) {
 				if (!Object.hasOwn(old, pair.from)) continue;
 				const value = old[pair.from];
-				if (
-					value === null ||
-					value === undefined ||
-					(typeof value === "string" && value.trim() === "")
-				) {
+				if (hasNoDataToKeep(value)) {
 					continue; // no data to keep — the key drop above suffices
 				}
 				const destination = old[pair.to];
@@ -1938,6 +1974,7 @@ export class PostgresCaseStore implements CaseStore {
 			migrated: migratedRows.length,
 			reshaped: 0,
 			retyped: 0,
+			restored: 0,
 			skipped: totalCount - rows.length,
 			parkedIds,
 			failureReasons,
@@ -2007,11 +2044,7 @@ export class PostgresCaseStore implements CaseStore {
 				const source = next ?? row.properties;
 				if (!Object.hasOwn(source, retype.property)) continue;
 				const value = source[retype.property];
-				if (
-					value === null ||
-					value === undefined ||
-					(typeof value === "string" && value.trim() === "")
-				) {
+				if (hasNoDataToKeep(value)) {
 					next = withoutKey(source, retype.property);
 					continue;
 				}
@@ -2054,6 +2087,7 @@ export class PostgresCaseStore implements CaseStore {
 			migrated: migratedRows.length,
 			reshaped: 0,
 			retyped: 0,
+			restored: 0,
 			skipped: totalCount - rows.length,
 			parkedIds,
 			failureReasons,
@@ -2144,6 +2178,7 @@ export class PostgresCaseStore implements CaseStore {
 			migrated: migratedRows.length,
 			reshaped: 0,
 			retyped: 0,
+			restored: 0,
 			skipped,
 			parkedIds,
 			failureReasons,
@@ -2212,17 +2247,128 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
+	 * Restore every parked value of the sync's TRANSITIONED properties
+	 * whose original value conforms to the JUST-WRITTEN derived schema
+	 * and whose key is free — the winning sync's closing move (Phase A
+	 * step 4). Same
+	 * safety rules as `unparkValues` (row exists, key free, value
+	 * conforms; a blocked entry stays parked), checked against the
+	 * in-memory derived schema the transaction just UPSERTed rather
+	 * than a re-read of the stored row (identical bytes). The cases
+	 * read locks `FOR UPDATE`, consistent with the transaction's
+	 * advisory → schema → cases lock order. Returns the restore count
+	 * for the report's `restored` axis.
+	 */
+	private async restoreConformantParked(
+		trx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseType: string;
+			schema: CaseTypeJsonSchema;
+			/** Only entries of these properties are candidates — the sync's
+			 *  TRANSITIONED set (see the step-4 comment for why the scope
+			 *  is load-bearing). */
+			properties: ReadonlySet<string>;
+		},
+	): Promise<number> {
+		const entries = await trx
+			.selectFrom("parked_case_values as p")
+			.selectAll("p")
+			.where("p.app_id", "=", args.appId)
+			.where("p.case_type", "=", args.caseType)
+			.where("p.property", "in", [...args.properties])
+			.execute();
+		if (entries.length === 0) return 0;
+
+		const ajv = new Ajv2020({ strict: false });
+		addFormats(ajv);
+		const validators = new Map<string, ValidateFunction<unknown> | null>();
+		const conforms = (property: string, value: unknown): boolean => {
+			let validate = validators.get(property);
+			if (validate === undefined) {
+				const propSchema = args.schema.properties[property];
+				validate = propSchema !== undefined ? ajv.compile(propSchema) : null;
+				validators.set(property, validate);
+			}
+			return validate !== null && validate(value) === true;
+		};
+		const candidates = entries.filter((entry) =>
+			conforms(entry.property, entry.original_value),
+		);
+		if (candidates.length === 0) return 0;
+
+		const rows = await trx
+			.selectFrom("cases as c")
+			.select(["c.case_id", "c.properties"])
+			.where("c.app_id", "=", args.appId)
+			.where(
+				"c.case_id",
+				"in",
+				candidates.map((entry) => entry.case_id),
+			)
+			.forUpdate()
+			.execute();
+		const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
+		const nextByCaseId = new Map<string, JsonObject>();
+		const restoredIds: string[] = [];
+		for (const entry of candidates) {
+			const row = rowByCaseId.get(entry.case_id);
+			if (row === undefined) continue;
+			const current = nextByCaseId.get(entry.case_id) ?? row.properties;
+			if (
+				Object.hasOwn(current, entry.property) &&
+				current[entry.property] !== null &&
+				current[entry.property] !== ""
+			) {
+				continue; // a real value occupies the key — the entry stays
+			}
+			nextByCaseId.set(entry.case_id, {
+				...current,
+				[entry.property]: entry.original_value,
+			});
+			restoredIds.push(entry.id);
+		}
+
+		if (nextByCaseId.size > 0) {
+			await this.bulkUpdateProperties(trx, {
+				appId: args.appId,
+				rows: [...nextByCaseId.entries()].map(([caseId, newProperties]) => ({
+					caseId,
+					newProperties,
+				})),
+			});
+		}
+		if (restoredIds.length > 0) {
+			await trx
+				.deleteFrom("parked_case_values")
+				.where("parked_case_values.app_id", "=", args.appId)
+				.where("parked_case_values.id", "in", restoredIds)
+				.execute();
+		}
+		return restoredIds.length;
+	}
+
+	/**
 	 * Write parked values back under their keys and delete the
 	 * restored entries — the cross-store saga's compensation half for
 	 * a failed blueprint commit (`parkedIds` off the forward apply's
-	 * `MigrationReport`). Caller contract: run this only AFTER the
-	 * schema state the values were valid under is back (compensation
-	 * re-applies the prior blueprint first), so the restored document
-	 * conforms without re-validation — migrations are the trusted
-	 * writer layer, same as `bulkUpdateProperties`. An entry whose key
-	 * meanwhile holds a real concurrent value is KEPT rather than
-	 * restored or deleted — lossless beats tidy; the review surface
-	 * settles it.
+	 * `MigrationReport`). A restore happens ONLY when it is safe on
+	 * every axis, else the entry is KEPT (lossless beats tidy; the
+	 * review surface settles it):
+	 *
+	 *   - the row still exists, and its key holds no real concurrent
+	 *     value (the cases read is `FOR UPDATE`, so a concurrent
+	 *     `update()`'s merged write serializes against the restore
+	 *     instead of clobbering it);
+	 *   - the value CONFORMS to the property's declaration in the
+	 *     CURRENTLY-STORED schema row, checked here rather than
+	 *     trusted from the caller — compensation's re-sync can lose a
+	 *     race to a concurrent peer's differently-typed commit (or
+	 *     fail and be swallowed), and an unchecked restore would then
+	 *     poison the row against merged-document validation, abort on
+	 *     a live typed expression index, or write an orphan key the
+	 *     write-time shed silently eats. An undeclared property keeps
+	 *     the entry for the same reason.
 	 */
 	async unparkValues(args: {
 		appId: string;
@@ -2236,6 +2382,13 @@ export class PostgresCaseStore implements CaseStore {
 				.where("p.app_id", "=", args.appId)
 				.where("p.id", "in", [...args.ids])
 				.execute();
+			// Every requested entry can have vanished with its rows (a
+			// cascade from sample-data replace / case deletion) — return
+			// the honest nothing-to-restore rather than compiling an
+			// empty `IN ()`.
+			if (entries.length === 0) {
+				return { restored: 0, kept: args.ids.length };
+			}
 			const rows = await trx
 				.selectFrom("cases as c")
 				.select(["c.case_id", "c.properties"])
@@ -2245,8 +2398,14 @@ export class PostgresCaseStore implements CaseStore {
 					"in",
 					entries.map((entry) => entry.case_id),
 				)
+				.forUpdate()
 				.execute();
 			const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
+			const conformance = await this.parkedValueConformance(
+				trx,
+				args.appId,
+				new Set(entries.map((entry) => entry.case_type)),
+			);
 
 			// Group per row so several restored properties on one case
 			// compose into a single rewrite.
@@ -2270,8 +2429,13 @@ export class PostgresCaseStore implements CaseStore {
 				) {
 					// A concurrent writer landed a real value under the key
 					// after the park. Keep the entry rather than clobber the
-					// newer value or delete the older one — lossless beats
-					// tidy, and the review surface can settle it.
+					// newer value or delete the older one.
+					kept++;
+					continue;
+				}
+				if (
+					!conformance(entry.case_type, entry.property, entry.original_value)
+				) {
 					kept++;
 					continue;
 				}
@@ -2300,6 +2464,51 @@ export class PostgresCaseStore implements CaseStore {
 			}
 			return { restored: restoredIds.length, kept };
 		});
+	}
+
+	/**
+	 * Build the per-`(caseType, property)` conformance check restores
+	 * gate on: reads the involved types' CURRENTLY-STORED schema rows
+	 * inside the caller's transaction and compiles a per-property ajv
+	 * validator on demand. An absent schema row, an unparseable stored
+	 * document, or an undeclared property all answer `false` — a
+	 * restore never proceeds on a guess.
+	 */
+	private async parkedValueConformance(
+		trx: Transaction<Database>,
+		appId: string,
+		caseTypes: ReadonlySet<string>,
+	): Promise<(caseType: string, property: string, value: unknown) => boolean> {
+		const schemaRows = await trx
+			.selectFrom("case_type_schemas")
+			.select(["case_type", "schema"])
+			.where("app_id", "=", appId)
+			.where("case_type", "in", [...caseTypes])
+			.execute();
+		const propsByType = new Map<string, Record<string, unknown>>();
+		for (const row of schemaRows) {
+			const stored = row.schema;
+			if (typeof stored !== "object" || stored === null) continue;
+			const props = (stored as { properties?: unknown }).properties;
+			if (typeof props !== "object" || props === null) continue;
+			propsByType.set(row.case_type, props as Record<string, unknown>);
+		}
+		const ajv = new Ajv2020({ strict: false });
+		addFormats(ajv);
+		const cache = new Map<string, ValidateFunction<unknown> | null>();
+		return (caseType, property, value) => {
+			const key = `${caseType} ${property}`;
+			let validate = cache.get(key);
+			if (validate === undefined) {
+				const propSchema = propsByType.get(caseType)?.[property];
+				validate =
+					typeof propSchema === "object" && propSchema !== null
+						? ajv.compile(propSchema)
+						: null;
+				cache.set(key, validate);
+			}
+			return validate !== null && validate(value) === true;
+		};
 	}
 
 	/**
@@ -2730,6 +2939,22 @@ interface ParkEntry {
 function withoutKey(source: JsonObject, key: string): JsonObject {
 	const { [key]: _dropped, ...rest } = source;
 	return rest;
+}
+
+/**
+ * A value with nothing worth keeping through a migration: JSON
+ * `null`, a blank string, or an EMPTY selection array (a cleared
+ * multi-select). Such a key drops silently — parking it would fill
+ * the review surface (and the couldn't-convert toast count) with
+ * valueless entries.
+ */
+function hasNoDataToKeep(value: unknown): boolean {
+	return (
+		value === null ||
+		value === undefined ||
+		(typeof value === "string" && value.trim() === "") ||
+		(Array.isArray(value) && value.length === 0)
+	);
 }
 
 /**

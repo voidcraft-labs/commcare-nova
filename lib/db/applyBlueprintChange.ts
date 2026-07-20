@@ -96,7 +96,11 @@
 
 import { produce } from "immer";
 import type { MigrationReport, SchemaCaseStore } from "@/lib/case-store";
-import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
+import {
+	buildCaseTypeMap,
+	SchemaChangePhaseBError,
+	withSchemaContext,
+} from "@/lib/case-store";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -204,6 +208,7 @@ export interface MigrationOutcome {
 	readonly migrated: number;
 	readonly reshaped: number;
 	readonly retyped: number;
+	readonly restored: number;
 	readonly parked: number;
 	readonly failureReasons: readonly string[];
 }
@@ -367,6 +372,14 @@ export async function applyBlueprintChange(
 			);
 		}
 	} catch (forwardErr) {
+		// A Phase-B failure is thrown AFTER Phase A committed its schema
+		// write + row migrations — harvest the committed report off the
+		// typed wrapper so compensation can still un-park what Phase A
+		// set aside (losing it here would strand those values with no
+		// restore path).
+		if (forwardErr instanceof SchemaChangePhaseBError) {
+			forwardReports.push(forwardErr.report);
+		}
 		await compensate(args.appId, store, migrationEntries, forwardParkedIds());
 		throw forwardErr;
 	}
@@ -410,6 +423,7 @@ export async function applyBlueprintChange(
 				migrated: all.reduce((sum, r) => sum + r.migrated, 0),
 				reshaped: all.reduce((sum, r) => sum + r.reshaped, 0),
 				retyped: all.reduce((sum, r) => sum + r.retyped, 0),
+				restored: all.reduce((sum, r) => sum + r.restored, 0),
 				parked: all.reduce((sum, r) => sum + r.parkedIds.length, 0),
 				failureReasons: all.flatMap((r) => r.failureReasons),
 			},
@@ -554,6 +568,12 @@ async function sweepCommittedSchemas(
 				}),
 			);
 		} catch (sweepErr) {
+			// A Phase-B failure committed its Phase A (possibly parking
+			// values) — keep its report so the aggregated outcome still
+			// surfaces the parks to the user.
+			if (sweepErr instanceof SchemaChangePhaseBError) {
+				reports.push(sweepErr.report);
+			}
 			// Never rethrown — the commit already landed, so a sweep failure is
 			// not a 500. But split severity like the build materialize: a
 			// DETERMINISTIC fault (an unschemable property — trigger unreachable
@@ -609,6 +629,16 @@ async function sweepCommittedSchemas(
  * The inversion is simultaneous like the forward pass, so chains reverse
  * correctly; dropped uncastable/blank values are gone either way (reported
  * in the forward call's `failureReasons`).
+ *
+ * KNOWN LIMITATION (fidelity, not validity): the re-sync's reverse
+ * casts are not byte-faithful for every forward transition — a
+ * multi→single flip's space-join lifts back as ONE element, and a
+ * canonicalized temporal value (a midnight extension) stays extended
+ * because the reverse direction is an identity widening. Every value
+ * remains VALID under the restored schema; a failed commit can leave
+ * it in the canonicalized form rather than the original bytes.
+ * Byte-faithful compensation needs pre-migration value capture on the
+ * forward applies — tracked as follow-up work on the #252 arc.
  *
  * Values the forward applies PARKED un-park LAST (`parkedIds`), after every
  * type's re-sync has restored the schema state they were valid under — the
