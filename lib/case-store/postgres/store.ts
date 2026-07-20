@@ -3028,12 +3028,21 @@ function dataTypeTokenOf(
 		format?: unknown;
 		pattern?: unknown;
 	};
+	const annotation = (propSchema as Record<string, unknown>)["x-novaDataType"];
 	if (type === "integer") return "int";
 	if (type === "number") return "decimal";
 	if (type === "array") return "multi_select";
 	if (type !== "string") return undefined;
 	if (typeof pattern === "string") return "geopoint";
-	if (format === undefined) return "text";
+	if (format === undefined) {
+		// A select's VALIDATION shape is plain text (no enum — see the
+		// generator's `single_select` arm), so the authored type survives
+		// only through the generator's annotation keyword. A pre-annotation
+		// stored schema reads as `text` — value-compatible in every cast,
+		// so nothing depends on the distinction beyond the recorded park
+		// transition, and re-syncs converge the stored bytes.
+		return annotation === "single_select" ? "single_select" : "text";
+	}
 	if (format === "date") return "date";
 	if (format === "time") return "time";
 	if (format === "date-time") return "datetime";
@@ -3055,9 +3064,15 @@ function castIsIdentityWidening(
 			fromType === "date" ||
 			fromType === "time" ||
 			fromType === "datetime" ||
-			fromType === "geopoint"
+			fromType === "geopoint" ||
+			// text ⇄ single_select differ only by the generator's annotation
+			// keyword — both are UNCONSTRAINED strings, so every stored
+			// value already conforms in either direction and a rewrite
+			// would only churn `modified_on`.
+			fromType === "single_select"
 		);
 	}
+	if (toType === "single_select") return fromType === "text";
 	return fromType === "int" && toType === "decimal";
 }
 
@@ -3080,11 +3095,14 @@ function castIsIdentityWidening(
  *     expression index (`dropStaleNumericIndexes`) — writing an array
  *     through that cast would abort Phase A.
  *
- * Identity WIDENINGS (temporal/geopoint→text, int→decimal) are
- * skipped — every stored value already satisfies the destination
- * schema, so a rewrite would only churn `modified_on`. `text` and
- * `single_select` share one schema shape, so flips between them
- * (and every same-shape sync) produce no transition at all.
+ * Identity WIDENINGS (temporal/geopoint→text, int→decimal,
+ * text⇄single_select) are skipped — every stored value already
+ * satisfies the destination schema, so a rewrite would only churn
+ * `modified_on`. `text` and `single_select` share one VALIDATION
+ * shape but distinct tokens (the generator's `x-novaDataType`
+ * annotation, read by `dataTypeTokenOf`), so a select's park
+ * records its authored type while flips between the two still
+ * migrate nothing.
  *
  * `exclude` names the property a caller-intent `retype` /
  * `narrow-options` migration already owns in the same call, so its
@@ -3123,7 +3141,10 @@ function detectPropertyTransitions(
 			fromType !== "multi_select";
 		if (toType === "multi_select" && fromIsString) {
 			flips.push({ property: name, toType: "multi_select" });
-		} else if (fromType === "multi_select" && toType === "text") {
+		} else if (
+			fromType === "multi_select" &&
+			(toType === "text" || toType === "single_select")
+		) {
 			flips.push({ property: name, toType: "single_select" });
 		} else {
 			retypes.push({ property: name, fromType, toType });

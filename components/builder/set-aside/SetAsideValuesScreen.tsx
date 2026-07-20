@@ -104,6 +104,22 @@ const DATA_TYPE_ICONS: Record<CasePropertyDataType, IconifyIcon> = {
 	geopoint: tablerMapPin,
 };
 
+/**
+ * The property's CURRENT type for display copy. A declared property
+ * with no explicit `data_type` IS text (the schema's implied
+ * default) — falling back to the park's `toType` there would name a
+ * type the property no longer holds. Only a property missing from
+ * the catalog entirely (a rename park's retired source) borrows the
+ * park's target as the best available description.
+ */
+function currentTypeOf(
+	decl: CaseProperty | undefined,
+	parkTarget: CasePropertyDataType,
+): CasePropertyDataType {
+	if (decl === undefined) return parkTarget;
+	return decl.data_type ?? "text";
+}
+
 /** The Fix editor's in-progress draft for one entry. */
 interface FixDraft {
 	readonly entryId: string;
@@ -179,6 +195,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kept > 0) {
 				// The verdict moved between render and write (a teammate's
 				// edit, a fresh conversion) — the re-listed rows show why.
+				// The hook's invalidation already refreshes the list.
 				showToast(
 					"warning",
 					result.kept === 1
@@ -186,7 +203,20 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						: `${result.kept} values stayed set aside`,
 					"They no longer fit the property's current type, or the case now holds a newer value.",
 				);
-				await reload();
+			}
+		});
+
+	const undismissEntries = (ids: readonly string[]) =>
+		withBusy(ids, async () => {
+			const result = await setDismissed([...ids], false);
+			if (result.kind !== "toggled") {
+				showToast(
+					"error",
+					"Couldn't bring the value back",
+					result.kind === "error"
+						? result.message
+						: "You're signed out. Reload the page to sign in again.",
+				);
 			}
 		});
 
@@ -213,16 +243,11 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					action: {
 						label: "Undo",
 						onPress: () => {
-							void setDismissed([...ids], false);
+							void undismissEntries(ids);
 						},
 					},
 				},
 			);
-		});
-
-	const undismissEntries = (ids: readonly string[]) =>
-		withBusy(ids, async () => {
-			await setDismissed([...ids], false);
 		});
 
 	const saveFix = (entry: ParkedValueEntryWire) => {
@@ -532,7 +557,7 @@ function SetAsideGroupCard({
 	readonly onAskNova: () => void;
 }) {
 	const currentTypeLabel =
-		DATA_TYPE_LABELS[currentDecl?.data_type ?? group.toType];
+		DATA_TYPE_LABELS[currentTypeOf(currentDecl, group.toType)];
 	const count = group.entries.length;
 	const showConvertBackHint =
 		canEdit &&
@@ -719,7 +744,7 @@ function SetAsideEntryRow({
 }) {
 	const display = displaySetAsideValue(entry.originalValue);
 	const currentTypeLabel =
-		DATA_TYPE_LABELS[currentDecl?.data_type ?? entry.toType];
+		DATA_TYPE_LABELS[currentTypeOf(currentDecl, entry.toType)];
 	// The row's short "why" — the stored `reason` is the log-grade
 	// account; the row states the same fact in the malformed-value
 	// voice, derived from the server verdict.
@@ -975,6 +1000,8 @@ function ReplacementInput({
 		case "decimal":
 			return (
 				<Input
+					autoComplete="off"
+					data-1p-ignore
 					type="number"
 					step={dataType === "int" ? 1 : "any"}
 					value={draft.text}
@@ -986,6 +1013,8 @@ function ReplacementInput({
 		case "date":
 			return (
 				<Input
+					autoComplete="off"
+					data-1p-ignore
 					type="date"
 					value={draft.text}
 					onChange={(event) => setText(event.target.value)}
@@ -996,6 +1025,8 @@ function ReplacementInput({
 		case "time":
 			return (
 				<Input
+					autoComplete="off"
+					data-1p-ignore
 					type="time"
 					value={draft.text}
 					onChange={(event) => setText(event.target.value)}
@@ -1006,6 +1037,8 @@ function ReplacementInput({
 		case "datetime":
 			return (
 				<Input
+					autoComplete="off"
+					data-1p-ignore
 					type="datetime-local"
 					value={draft.text}
 					onChange={(event) => setText(event.target.value)}
@@ -1077,6 +1110,8 @@ function ReplacementInput({
 		case "geopoint":
 			return (
 				<Input
+					autoComplete="off"
+					data-1p-ignore
 					value={draft.text}
 					onChange={(event) => setText(event.target.value)}
 					aria-label="Replacement GPS point"
@@ -1087,6 +1122,8 @@ function ReplacementInput({
 		default:
 			return (
 				<Input
+					autoComplete="off"
+					data-1p-ignore
 					value={draft.text}
 					onChange={(event) => setText(event.target.value)}
 					aria-label="Replacement value"

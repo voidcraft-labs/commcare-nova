@@ -2357,6 +2357,85 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			).rejects.toBeInstanceOf(ParkedValueNotFoundError);
 		});
 
+		it("a select's park records its authored type, and a text⇄select flip migrates nothing", async () => {
+			// `text` and `single_select` validate identically (no enum), so
+			// the authored type survives only through the schema generator's
+			// annotation keyword. The park must record `single_select` — the
+			// review chip and the convert-back handoff read it — and flips
+			// between the two must stay identity (no row churn, no parks).
+			const store = await options.factory(TENANT_A);
+			const selectStatus: CaseType = {
+				name: "patient",
+				properties: [
+					{
+						name: "status",
+						label: "Status",
+						data_type: "single_select",
+						options: [{ value: "well", label: "Well" }],
+					},
+				],
+			};
+			const intStatus: CaseType = {
+				name: "patient",
+				properties: [{ name: "status", label: "Status", data_type: "int" }],
+			};
+			const textStatus: CaseType = {
+				name: "patient",
+				properties: [{ name: "status", label: "Status", data_type: "text" }],
+			};
+			await seedSchema(store, buildBlueprint([selectStatus]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ status: "well" }),
+				},
+			});
+
+			// Detection-only conversion (an additive sync, no `change` hint —
+			// the chat materialize's shape): the select value can't cast to
+			// int and parks under its AUTHORED from type.
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intStatus])),
+			});
+			expect(report.parkedIds).toHaveLength(1);
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed[0]).toMatchObject({
+				fromType: "single_select",
+				toType: "int",
+			});
+
+			// text ⇄ single_select in both directions is an identity widening:
+			// no rewrite, no park — and the select→text leg still auto-restores
+			// the parked value (a plain string conforms either way).
+			const toText = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([textStatus])),
+			});
+			expect(toText.retyped).toBe(0);
+			expect(toText.reshaped).toBe(0);
+			expect(toText.parkedIds).toEqual([]);
+			expect(toText.restored).toBe(1);
+			const backToSelect = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([selectStatus])),
+			});
+			expect(backToSelect.migrated).toBe(0);
+			expect(backToSelect.parkedIds).toEqual([]);
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ status: "well" });
+		});
+
 		it("narrow-options parks carry the select type on both sides; survivors block, a dropped key restores", async () => {
 			const store = await options.factory(TENANT_A);
 			const wide: CaseType = {

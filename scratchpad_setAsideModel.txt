@@ -94,7 +94,7 @@ export function groupSetAsideEntries(
 ): SetAsideGroup[] {
 	const byKey = new Map<string, ParkedValueEntryWire[]>();
 	for (const entry of entries) {
-		const key = `${entry.property}|${entry.fromType}|${entry.toType}`;
+		const key = `${entry.property}${entry.fromType}${entry.toType}`;
 		const bucket = byKey.get(key);
 		if (bucket === undefined) byKey.set(key, [entry]);
 		else bucket.push(entry);

@@ -109,6 +109,7 @@ export function BreadcrumbStrip() {
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config" ||
+		loc.kind === "set-aside" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;

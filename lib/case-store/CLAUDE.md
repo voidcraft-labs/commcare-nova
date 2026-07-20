@@ -161,8 +161,11 @@ architecture.
      row's value attempts `tryCastValue` into the new type; an
      uncastable value PARKS (`parked_case_values`) with its key
      dropped, and the row STAYS. Identity widenings
-     (temporal/geopoint→text, int→decimal) are skipped — every
-     stored value already conforms. A numeric-SOURCE retype first
+     (temporal/geopoint→text, int→decimal, text⇄single_select — the
+     select's authored type survives via the schema generator's
+     `x-novaDataType` annotation, which `dataTypeTokenOf` reads) are
+     skipped — every stored value already conforms. A numeric-SOURCE
+     retype first
      drops the property's live `::integer`/`::numeric` expression
      index inside the transaction (`dropStaleNumericIndexes`) —
      writing an array through that stale cast would abort Phase A;

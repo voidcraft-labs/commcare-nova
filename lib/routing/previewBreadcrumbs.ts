@@ -147,7 +147,11 @@ export function previewBreadcrumbTrail(
 	if (
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
-		loc.kind === "detail-config"
+		loc.kind === "detail-config" ||
+		// Preview shows the running case list for the set-aside review's
+		// URL (like the config kinds), so its trail follows the same
+		// running-app rewrite.
+		loc.kind === "set-aside"
 	) {
 		const items: PreviewBreadcrumbItem[] = [...homeAndModule];
 		/* Name the case-loading form this list feeds: the form tapped to get

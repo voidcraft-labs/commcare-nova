@@ -250,15 +250,26 @@ export function useCases(args: {
  * filter, so the case-data manager can safely distinguish "no cases exist"
  * from "no cases match this view."
  */
-export function useCaseCount(args: {
+/**
+ * The shared per-`(appId, caseType)` keyed-resource scaffolding under
+ * `useCaseCount` and `useParkedValues`: one Server Action call keyed
+ * by the pair, re-fired by the shared case-data revision, keeping the
+ * last settled value on screen through refetches (`settledKind`
+ * names the success arm worth keeping) — and rendering `loading`
+ * rather than a stale different-pair result when the identity moves.
+ */
+function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
+	fetcher: (ids: { appId: string; caseType: string }) => Promise<T>;
+	settledKind: T["kind"];
+	errorMessage: string;
 }): {
-	state: LoadingState<LoadCaseCountResult>;
+	state: LoadingState<T>;
 	fetching: boolean;
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType } = args;
+	const { appId, caseType, fetcher, settledKind, errorMessage } = args;
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const ready = Boolean(appId && caseType);
 	const requestIdentity = ready ? `${appId}\u0000${caseType}` : "";
@@ -266,43 +277,43 @@ export function useCaseCount(args: {
 		() => [requestIdentity, caseDataRevision],
 		[requestIdentity, caseDataRevision],
 	);
-	interface KeyedCaseCountState {
-		readonly kind: "case-count";
+	interface KeyedState {
+		readonly kind: "per-case-type";
 		readonly key: string;
-		readonly value: LoadingState<LoadCaseCountResult>;
+		readonly value: LoadingState<T>;
 	}
-	const resource = useReloadableResource<KeyedCaseCountState>({
+	const resource = useReloadableResource<KeyedState>({
 		prepare: () =>
 			!appId || !caseType
 				? {
 						notReady: {
-							kind: "case-count",
+							kind: "per-case-type",
 							key: "",
 							value: { kind: "idle" },
 						},
 					}
 				: {
 						fetch: async () => ({
-							kind: "case-count" as const,
+							kind: "per-case-type" as const,
 							key: requestIdentity,
-							value: await loadCaseCountAction({ appId, caseType }),
+							value: await fetcher({ appId, caseType }),
 						}),
 					},
 		loading: {
-			kind: "case-count",
+			kind: "per-case-type",
 			key: requestIdentity,
 			value: { kind: "loading" },
 		},
 		toError: (err) => ({
-			kind: "case-count",
+			kind: "per-case-type" as const,
 			key: requestIdentity,
 			value: {
 				kind: "error",
-				message: err instanceof Error ? err.message : "Failed to count cases.",
-			},
+				message: err instanceof Error ? err.message : errorMessage,
+			} as LoadingState<T>,
 		}),
 		keepStale: (prev) =>
-			prev.key === requestIdentity && prev.value.kind === "count",
+			prev.key === requestIdentity && prev.value.kind === settledKind,
 		reloadToken,
 	});
 	return {
@@ -314,6 +325,22 @@ export function useCaseCount(args: {
 		fetching: resource.fetching,
 		reload: resource.reload,
 	};
+}
+
+export function useCaseCount(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): {
+	state: LoadingState<LoadCaseCountResult>;
+	fetching: boolean;
+	reload: () => Promise<void>;
+} {
+	return usePerCaseTypeResource<LoadCaseCountResult>({
+		...args,
+		fetcher: loadCaseCountAction,
+		settledKind: "count",
+		errorMessage: "Failed to count cases.",
+	});
 }
 
 /**
@@ -510,65 +537,12 @@ export function useParkedValues(args: {
 	fetching: boolean;
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType } = args;
-	const caseDataRevision = useCaseDataRevision(appId, caseType);
-	const ready = Boolean(appId && caseType);
-	const requestIdentity = ready ? `${appId}\u0000${caseType}` : "";
-	const reloadToken = useMemo(
-		() => [requestIdentity, caseDataRevision],
-		[requestIdentity, caseDataRevision],
-	);
-	interface KeyedParkedValuesState {
-		readonly kind: "parked-values";
-		readonly key: string;
-		readonly value: LoadingState<LoadParkedValuesResult>;
-	}
-	const resource = useReloadableResource<KeyedParkedValuesState>({
-		prepare: () =>
-			!appId || !caseType
-				? {
-						notReady: {
-							kind: "parked-values",
-							key: "",
-							value: { kind: "idle" },
-						},
-					}
-				: {
-						fetch: async () => ({
-							kind: "parked-values" as const,
-							key: requestIdentity,
-							value: await loadParkedValuesAction({ appId, caseType }),
-						}),
-					},
-		loading: {
-			kind: "parked-values",
-			key: requestIdentity,
-			value: { kind: "loading" },
-		},
-		toError: (err) => ({
-			kind: "parked-values",
-			key: requestIdentity,
-			value: {
-				kind: "error",
-				message:
-					err instanceof Error
-						? err.message
-						: "Failed to load set-aside values.",
-			},
-		}),
-		keepStale: (prev) =>
-			prev.key === requestIdentity && prev.value.kind === "entries",
-		reloadToken,
+	return usePerCaseTypeResource<LoadParkedValuesResult>({
+		...args,
+		fetcher: loadParkedValuesAction,
+		settledKind: "entries",
+		errorMessage: "Failed to load set-aside values.",
 	});
-	return {
-		state: !ready
-			? { kind: "idle" }
-			: resource.state.key === requestIdentity
-				? resource.state.value
-				: { kind: "loading" },
-		fetching: resource.fetching,
-		reload: resource.reload,
-	};
 }
 
 /**

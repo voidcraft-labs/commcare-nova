@@ -218,8 +218,13 @@ vi.mock("@/lib/auth/hooks/useAuth", () => ({
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	loadCasesAction: vi.fn(),
 	loadCaseDataAction: vi.fn(),
+	loadCaseCountAction: vi.fn(),
+	loadParkedValuesAction: vi.fn(),
 	populateSampleCasesAction: vi.fn(),
 	resetSampleCasesAction: vi.fn(),
+	restoreParkedValuesAction: vi.fn(),
+	setParkedValuesDismissedAction: vi.fn(),
+	replaceParkedValueAction: vi.fn(),
 	submitFormAction: vi.fn(),
 	loadFilterPreviewAction: vi.fn(),
 }));

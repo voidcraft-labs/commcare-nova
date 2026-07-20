@@ -111,6 +111,33 @@ function buildRuntime(
 	// one `openStream`; assigned just below.
 	let reconciler: Reconciler;
 
+	/** Bump the shared case-data revision for every case type the (post-
+	 *  apply) doc declares. Case rows are keyed per type; a commit can
+	 *  migrate any type it touched, and over-invalidating an untouched
+	 *  type costs one bounded re-SELECT per mounted representation. */
+	function invalidateDocCaseTypes(): void {
+		const id = appIdBox.current;
+		if (!id) return;
+		for (const caseType of docStore.getState().caseTypes ?? []) {
+			invalidateCaseData(id, caseType.name);
+		}
+	}
+
+	/** Whether a committed batch could have touched case data (run a
+	 *  write-time migration, park, or restore). Everything except a
+	 *  cosmetic-only `updateField` qualifies — label/hint edits are the
+	 *  high-frequency typing stream and never change a property's
+	 *  derived schema, while the structural kinds arrive at click
+	 *  cadence where an occasional needless refetch is cheap. */
+	function frameMayTouchCaseData(frame: MutationFrame): boolean {
+		return frame.mutations.some((mutation) => {
+			if (mutation.kind !== "updateField") return true;
+			return Object.keys(mutation.patch ?? {}).some(
+				(key) => key !== "label" && key !== "hint",
+			);
+		});
+	}
+
 	function openStream(cursor: number): void {
 		const id = appIdBox.current;
 		if (!id || !active) return;
@@ -126,6 +153,16 @@ function buildRuntime(
 			try {
 				const frame = JSON.parse((ev as MessageEvent).data) as MutationFrame;
 				reconciler.onFrame(frame);
+				// Blueprint commits can change CASE DATA now (write-time
+				// migrations park/restore/reshape rows), and the stream is the
+				// one channel every commit path reaches this tab through —
+				// its own autosave echo, its own chat run's echo, a same-user
+				// MCP edit, and every teammate's commit. Bumping the shared
+				// per-type revision here is what keeps the set-aside surfaces
+				// (and every other case-data representation) honest without a
+				// per-path invalidation. Filtered so a peer's label-typing
+				// stream doesn't refetch case data per keystroke-batch.
+				if (frameMayTouchCaseData(frame)) invalidateDocCaseTypes();
 			} catch (err) {
 				reportClientError({
 					message: `Reconciler: malformed mutation frame — ${
@@ -264,41 +301,55 @@ function buildRuntime(
 			// A commit whose row migration SET VALUES ASIDE must be loud — the
 			// values left the case rows into the review surface's store. A
 			// fully-successful migration stays silent: the conversion did
-			// exactly what was asked. The per-type invalidation is what
-			// lights the Case data badge and refreshes any mounted list.
+			// exactly what was asked. (No invalidation here — this batch's
+			// own stream echo runs the shared frame-layer invalidation, one
+			// bump per commit for every path alike.)
 			const parked = body.migration?.parked ?? 0;
 			const parkedCaseTypes = body.migration?.parkedCaseTypes ?? [];
 			if (parked > 0) {
-				for (const caseType of parkedCaseTypes) {
-					invalidateCaseData(id, caseType);
-				}
 				showToast(
 					"warning",
 					parked === 1 ? "1 value set aside" : `${parked} values set aside`,
 					"They didn't fit the property's new type. Nothing was deleted — review them anytime in Case data.",
-					{
-						action: {
-							label: "Review set-aside values",
-							onPress: () => {
-								// Resolve the destination at PRESS time from the live
-								// doc — a module bound to the first affected case type
-								// (the doc may have moved since the commit).
-								const doc = docStore.getState();
-								const moduleEntry = Object.entries(doc.modules).find(
-									([, module]) =>
-										module.caseType !== undefined &&
-										parkedCaseTypes.includes(module.caseType),
-								);
-								if (moduleEntry === undefined) return;
-								window.history.pushState(
-									null,
-									"",
-									`/build/${id}/${moduleEntry[0]}/set-aside`,
-								);
-								notifyPathChange();
+					// The Review action only renders when the response NAMED the
+					// affected case types (a version-skewed server that reports
+					// `parked` without them gets the plain toast rather than a
+					// button that cannot navigate).
+					parkedCaseTypes.length === 0
+						? undefined
+						: {
+								action: {
+									label: "Review set-aside values",
+									onPress: () => {
+										// Resolve the destination at PRESS time from the live
+										// doc — a module bound to the first affected case type
+										// (the doc may have moved since the commit).
+										const doc = docStore.getState();
+										const moduleEntry = Object.entries(doc.modules).find(
+											([, module]) =>
+												module.caseType !== undefined &&
+												parkedCaseTypes.includes(module.caseType),
+										);
+										if (moduleEntry === undefined) {
+											// The bound module vanished (e.g. removed in the same
+											// batch) — say so instead of consuming the press
+											// silently. The values stay safe either way.
+											showToast(
+												"info",
+												"No screen to review them on right now",
+												"The set-aside values' case type isn't used by any module. They stay saved — add a module for that case type (or ask Nova) to review them under Case data.",
+											);
+											return;
+										}
+										window.history.pushState(
+											null,
+											"",
+											`/build/${id}/${moduleEntry[0]}/set-aside`,
+										);
+										notifyPathChange();
+									},
+								},
 							},
-						},
-					},
 				);
 			}
 			return { ok: true, seq: body.seq };
@@ -355,7 +406,13 @@ function buildRuntime(
 	const deps: ReconcilerDeps = {
 		put,
 		reload,
-		resubscribe: (cursor) => openStream(cursor),
+		resubscribe: (cursor) => {
+			openStream(cursor);
+			// A resubscribe follows a reload, which folded frames this tab
+			// never saw individually — any of them could have migrated case
+			// data, so refresh the per-type caches wholesale.
+			invalidateDocCaseTypes();
+		},
 		scheduleRetry,
 		onReauthDenied: () => {
 			// The SINGLE 403 Sentry report: `useAutoSave` reports only for a 404
