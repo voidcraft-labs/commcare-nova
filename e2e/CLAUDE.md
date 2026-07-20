@@ -35,6 +35,16 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   instance.
 - **No new RTL/jsdom tests.** UI logic is tested as `f(state)` in Vitest; real UI
   behavior is tested here in Playwright. Don't add `@testing-library/react` DOM tests.
+- **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
+  `POST /api/chat` from `page.route` with a canned UI-message SSE stream
+  (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by
+  `transportContract.integration.test.ts`), so a send exercises the real
+  composer → `useChat` → transport path without the request ever reaching the
+  server — the smoke stays model-free even for tests that hit Send. The
+  fixture app for these tests ("Smoke — Scroll") seeds a paused askQuestions
+  round exactly as a finished run persists one: turn upsert (marks live) +
+  response append carrying the `input-available` tool part (retires the
+  marker), so opening it never attempts a stream resume.
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —
   e.g. `getByRole("button", { name: "Sign in with Google" })`. If you add a
   `data-testid`, prefer it for the gate.

@@ -26,6 +26,14 @@ interface SeedManifest {
 	olderThreadId: string;
 	olderThreadUserText: string;
 	olderThreadAssistantText: string;
+	scrollAppId: string;
+	scrollThreadUserText: string;
+	scrollThreadAssistantText: string;
+	scrollQuestionThreadUserText: string;
+	scrollQuestionHeader: string;
+	scrollQuestionOneText: string;
+	scrollQuestionTwoText: string;
+	scrollQuestionFinalOption: string;
 	caseWorkspace: {
 		routes: {
 			search: string;
@@ -43,12 +51,133 @@ type SecondaryHeaderName =
 	| "chat-rail"
 	| "inspector";
 
+/**
+ * The conversation's true scroll element. use-stick-to-bottom scrolls an
+ * INNER div it creates under the `role="log"` root — the root itself is
+ * `overflow-y-hidden` and never scrolls — so every scroll measurement must
+ * resolve past the wrapper or it reads a vacuous 0. (Evaluate callbacks are
+ * serialized, so the resolver is inlined in each helper below.)
+ */
 async function bottomGap(page: Page): Promise<number> {
-	return page
-		.getByRole("log")
-		.evaluate((el) =>
-			Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop),
+	return page.getByRole("log").evaluate((el) => {
+		let scroller: Element = el;
+		for (const div of el.querySelectorAll("div")) {
+			const overflowY = getComputedStyle(div).overflowY;
+			if (overflowY === "auto" || overflowY === "scroll") {
+				scroller = div;
+				break;
+			}
+		}
+		return Math.abs(
+			scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
 		);
+	});
+}
+
+async function logScrollTop(page: Page): Promise<number> {
+	return page.getByRole("log").evaluate((el) => {
+		let scroller: Element = el;
+		for (const div of el.querySelectorAll("div")) {
+			const overflowY = getComputedStyle(div).overflowY;
+			if (overflowY === "auto" || overflowY === "scroll") {
+				scroller = div;
+				break;
+			}
+		}
+		return scroller.scrollTop;
+	});
+}
+
+/**
+ * Answer every POST /api/chat with a canned SSE reply AT THE NETWORK LAYER —
+ * the request never reaches the server, so the scroll tests can never reach
+ * the model (or spend anything). The chunk shapes mirror the transport
+ * contract (`transportContract.integration.test.ts`): SSE `data:` lines
+ * terminated by `[DONE]`, with the `x-workflow-run-id` reconnect header.
+ * Each send gets a numbered reply so repeated sends stay uniquely assertable.
+ */
+async function stubChatSends(
+	page: Page,
+): Promise<{ reply: (n: number) => string }> {
+	const replyText = (n: number) =>
+		`Stubbed model reply ${n}: no tokens were harmed in this test.`;
+	let sends = 0;
+	await page.route("**/api/chat", async (route) => {
+		if (route.request().method() !== "POST") {
+			await route.fallback();
+			return;
+		}
+		sends += 1;
+		// The step envelope is load-bearing: an answered askQuestions round
+		// CONTINUES the same assistant message, and `shouldAutoResend` looks at
+		// the parts after the message's last step-start. Without `start-step`
+		// the answered tool part stays in that window and every reply triggers
+		// another resend — an infinite send loop against this stub.
+		const chunks = [
+			{ type: "start" },
+			{ type: "start-step" },
+			{ type: "text-start", id: "stub" },
+			{ type: "text-delta", id: "stub", delta: replyText(sends) },
+			{ type: "text-end", id: "stub" },
+			{ type: "finish-step" },
+			{ type: "finish" },
+		];
+		await route.fulfill({
+			status: 200,
+			headers: {
+				"content-type": "text/event-stream",
+				"x-workflow-run-id": `00000000-0000-4000-8000-00000000000${sends}`,
+			},
+			body: `${chunks
+				.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+				.join("")}data: [DONE]\n\n`,
+		});
+	});
+	return { reply: replyText };
+}
+
+/**
+ * Record every scroll position the conversation log passes through, so a test
+ * can distinguish a JUMP to the bottom (no samples strictly between the start
+ * region and the pre-send bottom) from an animated trip through the
+ * transcript (a dense trail of interior samples). Returns the pre-send
+ * max scrollTop; read the samples back with `readScrollTrace`.
+ */
+async function armScrollTrace(page: Page): Promise<number> {
+	return page.getByRole("log").evaluate((el) => {
+		let scroller: Element = el;
+		for (const div of el.querySelectorAll("div")) {
+			const overflowY = getComputedStyle(div).overflowY;
+			if (overflowY === "auto" || overflowY === "scroll") {
+				scroller = div;
+				break;
+			}
+		}
+		const w = window as unknown as { __scrollTrace?: number[] };
+		w.__scrollTrace = [];
+		scroller.addEventListener("scroll", () => {
+			w.__scrollTrace?.push(scroller.scrollTop);
+		});
+		return scroller.scrollHeight - scroller.clientHeight;
+	});
+}
+
+async function readScrollTrace(page: Page): Promise<number[]> {
+	return page.evaluate(
+		() =>
+			(window as unknown as { __scrollTrace?: number[] }).__scrollTrace ?? [],
+	);
+}
+
+/**
+ * Escape the conversation's bottom pin the way a person does — real wheel
+ * input over the log. use-stick-to-bottom deliberately ignores programmatic
+ * `scrollTop` writes (it re-pins right after them); only trusted user scroll
+ * releases the lock, so the tests must scroll with the mouse.
+ */
+async function wheelScrollLog(page: Page, deltaY: number): Promise<void> {
+	await page.getByRole("log").hover();
+	await page.mouse.wheel(0, deltaY);
 }
 
 async function expectSecondaryHeadersAligned(
@@ -1124,6 +1253,110 @@ test.describe("authenticated builder", () => {
 		await expect(page.getByText(seed.threadAssistantText)).toBeVisible({
 			timeout: 10_000,
 		});
+	});
+
+	test("sending a message returns the view to it — a jump, never an animated trip", async ({
+		page,
+	}) => {
+		const stub = await stubChatSends(page);
+		await page.goto(`/build/${seed.scrollAppId}`);
+
+		// The settled conversation opens already at the bottom.
+		await expect(page.getByText(seed.scrollThreadAssistantText)).toBeVisible({
+			timeout: 20_000,
+		});
+		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
+
+		const composer = page.getByPlaceholder("Describe a change");
+		const submit = page.getByRole("button", { name: "Submit" });
+
+		// Re-reading history escapes the bottom pin: the view holds still and
+		// the return affordance appears — nothing yanks the reader around.
+		await wheelScrollLog(page, -30_000);
+		await expect(
+			page.getByRole("button", { name: "Scroll to latest" }),
+		).toBeVisible();
+		await expect.poll(() => logScrollTop(page)).toBeLessThanOrEqual(1);
+
+		// Config 1 — send from the TOP of a tall transcript. The view must jump
+		// straight to the new message: no scroll sample may land in the interior
+		// of the transcript (an animated scroll leaves a dense trail there).
+		const preSendMax = await armScrollTrace(page);
+		expect(preSendMax).toBeGreaterThan(400); // tall enough to prove a jump
+		await composer.fill("Smoke: rename the referral module");
+		await submit.click();
+		await expect(
+			page.getByText("Smoke: rename the referral module"),
+		).toBeVisible();
+		await expect(page.getByText(stub.reply(1))).toBeVisible();
+		await expect.poll(() => bottomGap(page)).toBeLessThanOrEqual(1);
+		const trace = await readScrollTrace(page);
+		expect(trace.length).toBeGreaterThan(0);
+		expect(trace.filter((y) => y > 60 && y < preSendMax - 60)).toEqual([]);
+
+		// Config 2 — send while already AT the bottom: the reply streams in and
+		// the view stays pinned to it.
+		await composer.fill("Smoke: also rename the form");
+		await submit.click();
+		await expect(page.getByText(stub.reply(2))).toBeVisible();
+		await expect.poll(() => bottomGap(page)).toBeLessThanOrEqual(1);
+	});
+
+	test("answering a waiting question round returns the view to the conversation tail", async ({
+		page,
+	}) => {
+		const stub = await stubChatSends(page);
+		await page.goto(`/build/${seed.scrollAppId}`);
+		await expect(page.getByText(seed.scrollThreadAssistantText)).toBeVisible({
+			timeout: 20_000,
+		});
+
+		// Open the paused conversation from History — it lands at the bottom
+		// with the question card waiting, no animated travel to get there.
+		await page.getByRole("button", { name: "History" }).click();
+		await page
+			.getByRole("button", {
+				name: new RegExp(seed.scrollQuestionThreadUserText),
+			})
+			.click();
+		await expect(page.getByText(seed.scrollQuestionHeader)).toBeVisible();
+		await expect(page.getByText(seed.scrollQuestionOneText)).toBeVisible();
+		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
+
+		// Config 3 — TYPE an answer from the top of the transcript. A typed
+		// message while a card waits routes as that question's answer; it is a
+		// local turn, so the view jumps back to the card (which advances to the
+		// next question) without an animated trip.
+		await wheelScrollLog(page, -30_000);
+		await expect(
+			page.getByRole("button", { name: "Scroll to latest" }),
+		).toBeVisible();
+		await expect.poll(() => logScrollTop(page)).toBeLessThanOrEqual(1);
+		const preAnswerMax = await armScrollTrace(page);
+		const composer = page.getByPlaceholder("Describe a change");
+		await composer.fill("The community team handles it");
+		await page.getByRole("button", { name: "Submit" }).click();
+		await expect(page.getByText(seed.scrollQuestionTwoText)).toBeVisible();
+		await expect.poll(() => bottomGap(page)).toBeLessThanOrEqual(1);
+		const trace = await readScrollTrace(page);
+		expect(trace.length).toBeGreaterThan(0);
+		expect(trace.filter((y) => y > 60 && y < preAnswerMax - 60)).toEqual([]);
+
+		// Config 4 — CLICK the final option after nudging the view off the
+		// bottom (escaping the pin while the card stays on screen). The answered
+		// round auto-resends the turn — a local send, so the streamed reply must
+		// land pinned in view rather than growing below the fold.
+		await wheelScrollLog(page, -150);
+		await expect(
+			page.getByRole("button", { name: "Scroll to latest" }),
+		).toBeVisible();
+		// Click near the option's left edge — the centered Scroll-to-latest
+		// overlay floats over the card's midline in this escaped position.
+		await page
+			.getByRole("button", { name: seed.scrollQuestionFinalOption })
+			.click({ position: { x: 24, y: 12 } });
+		await expect(page.getByText(stub.reply(1))).toBeVisible();
+		await expect.poll(() => bottomGap(page)).toBeLessThanOrEqual(1);
 	});
 
 	test("GET /api/auth/get-session returns the seeded user", async ({
