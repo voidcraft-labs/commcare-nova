@@ -64,6 +64,18 @@ export const SEED = {
 	threadAssistantText: "Smoke: the visit tracker is ready.",
 	olderThreadUserText: "Smoke: add an intake notes field",
 	olderThreadAssistantText: "Smoke: the intake notes field is ready.",
+	/** Module-bearing app for chat-scroll behavior: a tall settled conversation
+	 *  (opens on load) plus a tall conversation paused on a waiting two-question
+	 *  askQuestions card. Its sends are network-stubbed in the spec, so the
+	 *  fixture never risks a model call. */
+	scrollAppName: "Smoke — Scroll",
+	scrollThreadUserText: "Smoke: tune the follow-up schedule",
+	scrollThreadAssistantText: "Smoke: the follow-up schedule is tuned.",
+	scrollQuestionThreadUserText: "Smoke: reshape the referral flow",
+	scrollQuestionHeader: "Referral flow details",
+	scrollQuestionOneText: "Who initiates a referral?",
+	scrollQuestionTwoText: "When should a referral close?",
+	scrollQuestionFinalOption: "After the visit is logged",
 } as const;
 
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
@@ -384,6 +396,131 @@ async function main(): Promise<void> {
 			[olderThreadId, threadId],
 		],
 	);
+	/* The scroll fixture: same module-bearing shape as the conversations app,
+	 * with the two transcripts the scroll spec drives — a settled conversation
+	 * that opens on load, and an older one paused on a WAITING askQuestions
+	 * card. The paused round persists exactly as a real one does: the turn
+	 * upsert marks the thread live, and the response append (the assistant
+	 * message carrying the input-available tool part) retires the marker — so
+	 * opening it must not attempt a stream resume. */
+	const scrollAppId = await createApp(
+		SEED.userId,
+		seedProjectId,
+		randomUUID(),
+		{ appName: SEED.scrollAppName, status: "complete" },
+	);
+	await appendSyntheticBatch(
+		scrollAppId,
+		toPersistableDoc(
+			buildDoc({
+				appName: SEED.scrollAppName,
+				modules: [
+					{
+						uuid: "0f000000-0000-4000-8000-000000000011",
+						name: "Referrals",
+						forms: [
+							{
+								uuid: "0f000000-0000-4000-8000-000000000012",
+								name: "Log referral",
+								type: "survey",
+								fields: [
+									f({
+										uuid: "0f000000-0000-4000-8000-000000000013",
+										kind: "text",
+										id: "referral_notes",
+										label: "Referral notes",
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		),
+	);
+	const scrollQuestionThreadId = randomUUID();
+	{
+		const streamId = randomUUID();
+		const written = await upsertThreadTurn({
+			appId: scrollAppId,
+			threadId: scrollQuestionThreadId,
+			runId: randomUUID(),
+			streamId,
+			threadType: "edit",
+			messages: tallThreadHistory(
+				"smoke-scroll-q",
+				SEED.scrollQuestionThreadUserText,
+			),
+		});
+		if (!written) {
+			throw new Error("e2e/seed.ts: scroll question thread seed write failed");
+		}
+		await appendThreadResponse({
+			appId: scrollAppId,
+			threadId: scrollQuestionThreadId,
+			streamId,
+			responseMessage: {
+				id: "smoke-scroll-q-assistant-final",
+				role: "assistant",
+				parts: [
+					{ type: "step-start" },
+					{
+						type: "text",
+						text: "Smoke: two quick questions before I make the change.",
+					},
+					{
+						type: "tool-askQuestions",
+						toolCallId: "smoke-scroll-q-ask-1",
+						state: "input-available",
+						input: {
+							header: SEED.scrollQuestionHeader,
+							questions: [
+								{
+									question: SEED.scrollQuestionOneText,
+									options: [
+										{ label: "Community health workers" },
+										{ label: "Facility staff" },
+									],
+								},
+								{
+									question: SEED.scrollQuestionTwoText,
+									options: [
+										{ label: SEED.scrollQuestionFinalOption },
+										{ label: "After thirty days" },
+									],
+								},
+							],
+						},
+					},
+				],
+			} as UIMessage,
+		});
+	}
+	const scrollThreadId = randomUUID();
+	await seedSettledThread({
+		appId: scrollAppId,
+		threadId: scrollThreadId,
+		prefix: "smoke-scroll",
+		firstUserText: SEED.scrollThreadUserText,
+		finalAssistantText: SEED.scrollThreadAssistantText,
+		threadType: "edit",
+	});
+	/* Stable ordering even when both writes land in the same millisecond. */
+	await pool.query(
+		`UPDATE threads SET updated_at = CASE
+			WHEN thread_id = $1 THEN $3
+			WHEN thread_id = $2 THEN $4
+			ELSE updated_at
+		END
+		WHERE thread_id = ANY($5)`,
+		[
+			scrollQuestionThreadId,
+			scrollThreadId,
+			new Date(Date.now() - 60_000).toISOString(),
+			new Date().toISOString(),
+			[scrollQuestionThreadId, scrollThreadId],
+		],
+	);
 	const deleteAppIds: string[] = [];
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
@@ -409,6 +546,8 @@ async function main(): Promise<void> {
 				deleteAppIds,
 				threadsAppId,
 				olderThreadId,
+				scrollAppId,
+				scrollQuestionThreadId,
 				baseUrl,
 			},
 			null,

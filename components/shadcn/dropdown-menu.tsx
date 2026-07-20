@@ -110,7 +110,7 @@ function DropdownMenuPopup({ className, ...props }: MenuPrimitive.Popup.Props) {
 			data-slot="dropdown-menu-popup"
 			className={cn(
 				MENU_POPUP_CLS,
-				"max-h-(--available-height) max-w-full overflow-x-hidden overflow-y-auto p-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+				"max-h-(--available-height) max-w-full overflow-x-hidden overflow-y-auto p-1 outline-none",
 				className,
 			)}
 			{...props}

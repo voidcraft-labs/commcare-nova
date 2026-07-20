@@ -20,8 +20,10 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   allowlist). To provoke an error on purpose, scope a local handler in that test.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
   + `auth_session` rows into the local **Postgres** (auth and app state both live
-  there); `e2e/lib/session.ts` signs the cookie exactly like
-  `better-call`. Its validity is pinned by
+  there); `lib/auth/sessionCookie.ts` signs the cookie exactly like
+  `better-call`, and `e2e/lib/session.ts` wraps it into Playwright `storageState`.
+  (Local driving OUTSIDE this suite doesn't need any of that — `GET /api/dev/login`
+  is the one-URL sign-in.) Its validity is pinned by
   `lib/db/__tests__/sessionCookie.integration.test.ts` — a better-auth/better-call
   bump that breaks it fails *there*, not as a Playwright timeout, so re-verify the
   signer after such a bump.
@@ -33,6 +35,16 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   instance.
 - **No new RTL/jsdom tests.** UI logic is tested as `f(state)` in Vitest; real UI
   behavior is tested here in Playwright. Don't add `@testing-library/react` DOM tests.
+- **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
+  `POST /api/chat` from `page.route` with a canned UI-message SSE stream
+  (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by
+  `transportContract.integration.test.ts`), so a send exercises the real
+  composer → `useChat` → transport path without the request ever reaching the
+  server — the smoke stays model-free even for tests that hit Send. The
+  fixture app for these tests ("Smoke — Scroll") seeds a paused askQuestions
+  round exactly as a finished run persists one: turn upsert (marks live) +
+  response append carrying the `input-available` tool part (retires the
+  marker), so opening it never attempts a stream resume.
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —
   e.g. `getByRole("button", { name: "Sign in with Google" })`. If you add a
   `data-testid`, prefer it for the gate.

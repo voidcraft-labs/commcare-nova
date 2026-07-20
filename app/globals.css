@@ -225,15 +225,27 @@ body {
 	font-family: var(--font-sans);
 }
 
-/* Custom scrollbar — reserve gutter space only on actual scroll containers
-   to prevent layout shift when content grows. The wildcard selector was
-   causing double scrollbar gutters: overflow-hidden parents reserved a
-   blank gutter gap next to children that showed real scrollbars. */
-.overflow-y-auto,
-.overflow-y-scroll {
-	scrollbar-gutter: stable;
-	scrollbar-color: var(--nova-border-bright) transparent;
-	scrollbar-width: thin;
+/* Scrollbar defaults for scroll containers — a stable gutter so long-lived
+   panels don't shift layout when growing content adds a scrollbar. Scoped to
+   actual scroll containers: a wider selector would reserve blank gutters on
+   overflow-hidden parents beside children showing real scrollbars. Layered so
+   per-surface `[scrollbar-*]` utilities can override — unlayered, these
+   declarations would beat every Tailwind utility regardless of specificity. */
+@layer components {
+	.overflow-y-auto,
+	.overflow-y-scroll {
+		scrollbar-gutter: stable;
+		scrollbar-color: var(--nova-border-bright) transparent;
+		scrollbar-width: thin;
+	}
+
+	/* Floating self-sized surfaces — every chrome constant in `lib/styles.ts`
+	   carries `nova-floating` — reserve no gutter: beside a short list the
+	   blank strip reads as dead space, and the popup is sized to its content,
+	   so the scrollbar should take space only when it actually exists. */
+	.nova-floating :is(.overflow-y-auto, .overflow-y-scroll) {
+		scrollbar-gutter: auto;
+	}
 }
 ::-webkit-scrollbar {
 	width: 6px;

@@ -42,11 +42,16 @@ CI has no `@dimagi.com` Workspace account and sign-in is domain-gated, so the su
 does **not** drive real Google OAuth for the everyday gate. Instead `e2e/seed.ts`
 writes a session row straight into the local Postgres (auth and app state both live
 there) and `e2e/lib/session.ts`
-forges the cookie Better Auth would have set — signed exactly like `better-call`'s
-`signCookieValue` (HMAC-SHA256 of the token, keyed by `BETTER_AUTH_SECRET`). The
+wraps it in the cookie Better Auth would have set — signed by
+`lib/auth/sessionCookie.ts` exactly like `better-call`'s `signCookieValue`
+(HMAC-SHA256 of the token, keyed by `BETTER_AUTH_SECRET`). The
 contract that this forgery stays valid is pinned by
 `lib/db/__tests__/sessionCookie.integration.test.ts`, which runs the forged cookie
 through the real adapter stack and fails loudly if a dependency bump breaks it.
+
+Everyday local sessions (agents, curl, manual browsing) don't need the suite or the
+seed at all: visit `GET http://localhost:3000/api/dev/login` and you're signed in —
+same signer, dev-only route.
 
 ## Run it locally
 
