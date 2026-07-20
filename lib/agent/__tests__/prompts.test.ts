@@ -159,10 +159,11 @@ describe("markStablePrefixBoundary", () => {
 		]);
 	}
 
-	it("marks the last user message before the final user message", () => {
-		/* NOT the assistant message between them: the Responses wire has no
-		 * breakpoint slot on assistant `output_text` items, so an assistant
-		 * marker would silently vanish from the request. */
+	it("marks the FINAL user message — the next turn replays it verbatim", () => {
+		/* NOT the assistant message or an earlier user turn: the final user
+		 * message is the deepest byte-stable point (only the volatile tail
+		 * follows it), and the Responses wire can carry the marker on user
+		 * text parts — assistant `output_text` items have no slot. */
 		const messages: ModelMessage[] = [
 			{ role: "system", content: "SYSTEM" },
 			{ role: "user", content: [{ type: "text", text: "u1" }] },
@@ -170,14 +171,29 @@ describe("markStablePrefixBoundary", () => {
 			{ role: "user", content: [{ type: "text", text: "new question" }] },
 		];
 		const marked = markStablePrefixBoundary(messages);
-		expect(markerLocations(marked)).toEqual(["1:user:text"]);
-		const content = marked[1]?.content as Array<{ providerOptions?: unknown }>;
+		expect(markerLocations(marked)).toEqual(["3:user:text"]);
+		const content = marked[3]?.content as Array<{ providerOptions?: unknown }>;
 		expect(content[0]?.providerOptions).toEqual(BREAKPOINT);
 		// Inputs are never mutated — the base array is reused across retries.
 		expect(markerLocations(messages)).toEqual([]);
 	});
 
-	it("walks past unmarkable messages (tool results, assistant turns) to a user message", () => {
+	it("marks a lone opening message — the first post of a thread writes a readable entry", () => {
+		/* The pattern that cost prod its first cross-POST reads: a fresh
+		 * thread's turn 1 has ONLY its own user message. Marking it is what
+		 * gives turn 2 an entry to read. */
+		const messages: ModelMessage[] = [
+			{ role: "system", content: "SYSTEM" },
+			{ role: "user", content: [{ type: "text", text: "only question" }] },
+		];
+		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
+			"1:user:text",
+		]);
+	});
+
+	it("walks past unmarkable trailing messages (tool results, assistant turns) to the nearest user message", () => {
+		// A continuation prompt ends with assistant/tool messages — the wire
+		// can't mark those, so the marker lands on the turn's user message.
 		const messages: ModelMessage[] = [
 			{ role: "system", content: "SYSTEM" },
 			{ role: "user", content: [{ type: "text", text: "u1" }] },
@@ -193,17 +209,16 @@ describe("markStablePrefixBoundary", () => {
 					},
 				],
 			},
-			{ role: "user", content: [{ type: "text", text: "new question" }] },
 		];
 		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
 			"1:user:text",
 		]);
 	});
 
-	it("falls back to the system message on a first turn", () => {
+	it("falls back to the system message when no user message exists", () => {
 		const messages: ModelMessage[] = [
 			{ role: "system", content: "SYSTEM" },
-			{ role: "user", content: [{ type: "text", text: "only question" }] },
+			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
 		];
 		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
 			"0:system:message",
