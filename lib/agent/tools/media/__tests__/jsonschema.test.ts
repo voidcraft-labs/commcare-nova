@@ -2,7 +2,7 @@
  * Guard: every new media tool input schema (plus the grown editField
  * edit-patch schema and the MCP upload schema) lowers to JSON Schema
  * without throwing. This is the local stand-in for `scripts/test-schema.ts`'s
- * compiler smoke test on machines without an AI_GATEWAY_API_KEY — a Zod
+ * compiler smoke test on machines without an OPENAI_API_KEY — a Zod
  * `.transform()` (which the media slots deliberately avoid) is what would
  * make `z.toJSONSchema` throw, so a clean lowering proves the schemas are
  * representable for the provider tool-input compiler.

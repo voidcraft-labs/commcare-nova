@@ -274,6 +274,16 @@ function summarizeConversation(payload: ConversationPayload): string {
 			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
 		case "attachment-prep":
 			return `attachment-prep ${payload.phase}${payload.count !== undefined ? ` (${payload.count} doc${payload.count === 1 ? "" : "s"})` : ""}`;
+		case "step-usage": {
+			/* The per-step billing decomposition: uncached = input − cacheRead,
+			 * computed here so a cache investigation reads it straight off the
+			 * line instead of doing per-row arithmetic. */
+			const uncached =
+				payload.cacheReadTokens !== undefined
+					? ` (${payload.inputTokens - payload.cacheReadTokens} uncached, ${payload.cacheReadTokens} cached)`
+					: "";
+			return `step-usage: in ${payload.inputTokens}${uncached}, out ${payload.outputTokens}`;
+		}
 	}
 }
 
@@ -330,6 +340,16 @@ function printEventVerbose(event: Event): void {
 			console.log(`  │ error.fatal:   ${p.error.fatal}`);
 			console.log(`  │ error.message: ${p.error.message}`);
 			break;
+		case "step-usage":
+			console.log(`  │ inputTokens:      ${p.inputTokens}`);
+			console.log(
+				`  │ cacheReadTokens:  ${p.cacheReadTokens ?? "not reported"}`,
+			);
+			console.log(
+				`  │ cacheWriteTokens: ${p.cacheWriteTokens ?? "not reported"}`,
+			);
+			console.log(`  │ outputTokens:     ${p.outputTokens}`);
+			break;
 	}
 	console.log("  └─");
 }
@@ -365,8 +385,7 @@ function printRunSummary(summary: RunSummaryDoc): void {
 		["Cache read", tok(summary.cacheReadTokens)],
 		["Cache write", tok(summary.cacheWriteTokens)],
 		["Cache hit rate", cacheHitRate],
-		["Est. cost", usd(summary.costEstimate)],
-		["Actual cost", usd(summary.actualCost)],
+		["Cost", usd(summary.costEstimate)],
 	]);
 }
 
@@ -427,14 +446,12 @@ function printRunsTableView(
 			{ header: "Input", align: "right" },
 			{ header: "Output", align: "right" },
 			{ header: "Cache%", align: "right" },
-			{ header: "Est", align: "right" },
-			{ header: "Actual", align: "right" },
+			{ header: "Cost", align: "right" },
 		],
 		rows.map(({ runId, summary }) => {
 			if (!summary) {
 				return [
 					`${runId.slice(0, 8)}…`,
-					"—",
 					"—",
 					"—",
 					"—",
@@ -455,7 +472,6 @@ function printRunsTableView(
 				tok(summary.outputTokens),
 				pct(summary.cacheReadTokens, summary.inputTokens),
 				usd(summary.costEstimate),
-				usd(summary.actualCost),
 			];
 		}),
 	);

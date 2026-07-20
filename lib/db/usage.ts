@@ -1,16 +1,15 @@
 /**
- * Usage tracking — per-user monthly ACTUAL-dollar cost aggregation.
+ * Usage tracking — per-user monthly dollar cost aggregation.
  *
  * Reads and writes the `usage_months` row keyed `(user_id, period)`, so a read
  * is a single primary-key fetch. This is the accumulate-only cost record:
  * increments add to the stored counters in one UPSERT, and nothing ever resets
  * it — an admin credit reset/grant touches the parallel `credit_months` ledger,
- * never this one. Two dollar counters accumulate side by side: `cost_estimate`
- * (token-math forecast) and `actual_cost` (the gateway's own per-call meter,
- * summed from `providerMetadata.gateway.cost`). Its sole gate consumer is the
- * invisible `ACTUAL_COST_BACKSTOP_USD` runaway guard, which reads BOTH via
- * `getMonthlyUsage` and trips on either. The user-facing quota is credits,
- * not dollars — see `./credits`.
+ * never this one. The dollar counter is `cost_estimate` — token math over
+ * `MODEL_PRICING`, which with a direct OpenAI key is the deterministic bill,
+ * not a forecast. Its sole gate consumer is the invisible `COST_BACKSTOP_USD`
+ * runaway guard, read via `getMonthlyUsage`. The user-facing quota is
+ * credits, not dollars — see `./credits`.
  *
  * Fail-closed: the route wraps the pre-request `getMonthlyUsage` read in a
  * try/catch — if Postgres is down, the read fails → 503. No separate retry or
@@ -32,7 +31,7 @@ import type { RunSummaryDoc, UsageDoc } from "./types";
  * exists yet (first request of the month). The `bigint` token columns come
  * back from pg as strings, so each is `Number(...)`-ed here.
  *
- * This is a blocking read — used for the pre-request actual-$ backstop check.
+ * This is a blocking read — used for the pre-request dollar-backstop check.
  */
 export async function getMonthlyUsage(
 	userId: string,
@@ -44,7 +43,6 @@ export async function getMonthlyUsage(
 			"input_tokens",
 			"output_tokens",
 			"cost_estimate",
-			"actual_cost",
 			"request_count",
 			"updated_at",
 		])
@@ -56,7 +54,6 @@ export async function getMonthlyUsage(
 		input_tokens: Number(row.input_tokens),
 		output_tokens: Number(row.output_tokens),
 		cost_estimate: row.cost_estimate,
-		actual_cost: row.actual_cost,
 		request_count: row.request_count,
 		updated_at: row.updated_at,
 	};
@@ -69,7 +66,6 @@ interface UsageIncrement {
 	input_tokens: number;
 	output_tokens: number;
 	cost_estimate: number;
-	actual_cost: number;
 }
 
 /**
@@ -96,7 +92,6 @@ export async function incrementUsage(
 			input_tokens: deltas.input_tokens,
 			output_tokens: deltas.output_tokens,
 			cost_estimate: deltas.cost_estimate,
-			actual_cost: deltas.actual_cost,
 			request_count: 1,
 			updated_at: new Date(),
 		})
@@ -105,7 +100,6 @@ export async function incrementUsage(
 				input_tokens: sql<number>`usage_months.input_tokens + excluded.input_tokens`,
 				output_tokens: sql<number>`usage_months.output_tokens + excluded.output_tokens`,
 				cost_estimate: sql<number>`usage_months.cost_estimate + excluded.cost_estimate`,
-				actual_cost: sql<number>`usage_months.actual_cost + excluded.actual_cost`,
 				request_count: sql<number>`usage_months.request_count + 1`,
 				updated_at: new Date(),
 			}),
@@ -116,7 +110,8 @@ export async function incrementUsage(
 // ── Cost estimation ───────────────────────────────────────────────
 
 /**
- * Estimate USD cost from token counts using `MODEL_PRICING`.
+ * Compute USD cost from token counts using `MODEL_PRICING`. With a direct
+ * OpenAI key this token math IS the bill — there is no separate meter.
  *
  * Convention: `inputTokens` is the TOTAL input count for the call, INCLUDING
  * any cache-read and cache-write tokens. The uncached portion is derived
@@ -128,7 +123,7 @@ export async function incrementUsage(
  * `uncachedInput` is floored at zero: if a caller mis-reports cache tokens
  * such that the sum exceeds `inputTokens`, a negative uncached count would
  * flow into the monthly `incrementUsage` accumulation and corrupt the
- * actual-$ counter (and misreport the run summary). Clamp here rather than
+ * dollar counter (and misreport the run summary). Clamp here rather than
  * trust the source.
  *
  * Exported so admin inspect scripts can recompute costs from stored run
@@ -163,9 +158,6 @@ interface LLMCallUsage {
 	outputTokens: number;
 	cacheReadTokens?: number;
 	cacheWriteTokens?: number;
-	/** The gateway's metered USD charge for this call
-	 *  (`providerMetadata.gateway.cost` via `gatewayActualCost`). */
-	actualCostUsd?: number;
 }
 
 /**
@@ -237,7 +229,7 @@ interface AccumulatorRunConfig {
 
 /**
  * Per-request LLM usage accumulator. `flush()` fans out to the monthly
- * actual-$ document and the per-run summary doc (and refunds the credit
+ * dollar document and the per-run summary doc (and refunds the credit
  * reservation on a no-op/failed run) — see the two methods for the
  * contracts they own.
  */
@@ -253,12 +245,11 @@ export class UsageAccumulator {
 	private outputTokens = 0;
 	private cacheReadTokens = 0;
 	private cacheWriteTokens = 0;
-	private actualCost = 0;
 	private stepCount = 0;
 	private toolCallCount = 0;
 	private _finalized = false;
 	/* Flipped by `markRunFailed` when the run broke the app. A failed run still
-	 * accrues its actual $ cost (the actual-$ backstop must see retry spam) but hands
+	 * accrues its dollar cost (the backstop must see retry spam) but hands
 	 * the reserved credits back — the user isn't charged for a broken result. */
 	private _runFailed = false;
 	/* Set true iff a credit refund was owed this run AND its (cross-document)
@@ -289,7 +280,6 @@ export class UsageAccumulator {
 		this.outputTokens += usage.outputTokens;
 		this.cacheReadTokens += usage.cacheReadTokens ?? 0;
 		this.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
-		this.actualCost += usage.actualCostUsd ?? 0;
 		if (opts.step) this.stepCount++;
 	}
 
@@ -345,7 +335,6 @@ export class UsageAccumulator {
 				this.cacheReadTokens,
 				this.cacheWriteTokens,
 			),
-			actualCost: this.actualCost,
 			toolCallCount: this.toolCallCount,
 		};
 	}
@@ -360,7 +349,7 @@ export class UsageAccumulator {
 	 *   zero-cost edit replays, so inspect tools have a row to display
 	 *   and multi-turn threads accumulate correctly.
 	 * - Monthly increment fires whenever there was real cost — failed runs
-	 *   included. The actual $ spend always accrues so the actual-$ backstop sees
+	 *   included. The dollar spend always accrues so the backstop sees
 	 *   retry spam from a user hammering a broken app. (Zero-cost runs skip it:
 	 *   `incrementUsage` would bump `request_count` without matching spend.)
 	 * - Credit refund fires when a reservation was booked AND the run did no
@@ -395,17 +384,15 @@ export class UsageAccumulator {
 			summary,
 		);
 
-		// Branch 1 — dollar spend (the token-math estimate AND the
-		// gateway-metered actual). Accrues whenever the SA ran (including a
-		// failed run, so the actual-$ backstop counts retry spam). Independent
+		// Branch 1 — dollar spend. Accrues whenever the SA ran (including a
+		// failed run, so the dollar backstop counts retry spam). Independent
 		// of the refund below.
-		if (summary.costEstimate > 0 || summary.actualCost > 0) {
+		if (summary.costEstimate > 0) {
 			try {
 				await incrementUsage(this.seed.userId, {
 					input_tokens: summary.inputTokens,
 					output_tokens: summary.outputTokens,
 					cost_estimate: summary.costEstimate,
-					actual_cost: summary.actualCost,
 				});
 			} catch (err) {
 				log.error("[UsageAccumulator] monthly increment failed", err, {
@@ -430,7 +417,7 @@ export class UsageAccumulator {
 			? null
 			: this._runFailed
 				? "run-failed"
-				: summary.costEstimate === 0 && summary.actualCost === 0
+				: summary.costEstimate === 0
 					? "zero-cost"
 					: null;
 		if (
@@ -477,7 +464,6 @@ export class UsageAccumulator {
 			cacheReadTokens: summary.cacheReadTokens,
 			cacheWriteTokens: summary.cacheWriteTokens,
 			costEstimate: summary.costEstimate,
-			actualCost: summary.actualCost,
 			summaryAction,
 			didReserve: this.seed.didReserve ?? false,
 			reservedAmount: this.seed.reservedAmount ?? 0,
@@ -491,7 +477,7 @@ export class UsageAccumulator {
 			refunded: refundReason !== null && !this._refundFailed,
 			refundReason,
 			refundFailed: this._refundFailed,
-			accruedActual: summary.costEstimate > 0 || summary.actualCost > 0,
+			accruedCost: summary.costEstimate > 0,
 			sentMessageCount: this.seed.sentMessageCount,
 			sentMessageChars: this.seed.sentMessageChars,
 		});

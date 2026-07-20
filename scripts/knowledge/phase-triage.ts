@@ -3,7 +3,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { createGateway, generateObject } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateObject } from "ai";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
@@ -16,7 +17,7 @@ import type {
 
 const CACHE_DIR = ".data/confluence-cache";
 const TRIAGE_PATH = path.join(CACHE_DIR, "triage.json");
-const HAIKU_MODEL = "anthropic/claude-haiku-4.5";
+const TRIAGE_MODEL = "gpt-5.6-luna";
 const HAIKU_INPUT_COST = 1; // $/M tokens
 const HAIKU_OUTPUT_COST = 5; // $/M tokens
 const MAX_CONTENT_CHARS = 6000; // ~1500 tokens per page for triage
@@ -139,7 +140,7 @@ export async function triage(
 		}
 	}
 
-	const gateway = createGateway({ apiKey: config.gatewayApiKey });
+	const openai = createOpenAI({ apiKey: config.openaiApiKey });
 	const entries: TriageEntry[] = [...existingEntries];
 	let totalInputTokens = 0;
 	let totalOutputTokens = 0;
@@ -154,7 +155,7 @@ export async function triage(
 
 		try {
 			const result = await generateObject({
-				model: gateway(HAIKU_MODEL),
+				model: openai(TRIAGE_MODEL),
 				schema: triageBatchSchema,
 				system: `You are classifying Confluence pages for relevance to an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, fields, case configuration, form logic) from natural language.
 

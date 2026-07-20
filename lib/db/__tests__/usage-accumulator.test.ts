@@ -67,7 +67,7 @@ describe("UsageAccumulator", () => {
 			appId: "app-1",
 			userId: "user-1",
 			runId: "run-1",
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
 			moduleCount: 0,
@@ -106,7 +106,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
 			moduleCount: 0,
@@ -124,7 +124,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
 			moduleCount: 0,
@@ -145,7 +145,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			promptMode: "edit",
 			appReady: true,
 			moduleCount: 5,
@@ -164,7 +164,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "run-getter-test",
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
 			moduleCount: 0,
@@ -177,8 +177,7 @@ describe("UsageAccumulator", () => {
 	// A reservation booked at request start (didReserve) is handed back to the
 	// user when the run did no billable work: it either FAILED (broke the app)
 	// or produced zero cost. The two flush() branches are INDEPENDENT — a failed
-	// run with real cost both accrues the cost (so the actual-$ backstop sees retry
-	// spam) AND refunds the reserved credits. These cases cover every branch of
+	// run with real cost both accrues the cost (so the dollar backstop sees retry	// spam) AND refunds the reserved credits. These cases cover every branch of
 	// that guard, not just a representative one.
 	describe("credit refund branch", () => {
 		/** A reserved seed pinned to a deterministic charge period for refund assertions. */
@@ -186,7 +185,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			promptMode: "build" as const,
 			appReady: false,
 			moduleCount: 0,
@@ -231,8 +230,8 @@ describe("UsageAccumulator", () => {
 			acc.markRunFailed();
 			await acc.flush();
 
-			// The two branches are independent: the actual $ cost still accrues so
-			// the actual-$ backstop sees retry spam from a user hammering a broken app…
+			// The two branches are independent: the dollar cost still accrues so
+			// the backstop sees retry spam from a user hammering a broken app…
 			expect(await requestCount("u")).toBe(1);
 			// …while the user's credits are made whole because the app broke.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
@@ -334,7 +333,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			promptMode: "build" as const,
 			appReady: false,
 			moduleCount: 0,
@@ -363,7 +362,7 @@ describe("UsageAccumulator", () => {
 					stepCount: 0,
 					toolCallCount: 0,
 					costEstimate: 0,
-					accruedActual: false,
+					accruedCost: false,
 					didReserve: true,
 					reservedAmount: 100,
 					refunded: true,
@@ -382,7 +381,7 @@ describe("UsageAccumulator", () => {
 			// Real cost + markRunFailed → the third leg of the refundReason ternary.
 			// This is the discriminator the log exists for: a legitimate failed-run
 			// refund must read "run-failed", never the "zero-cost" wrong-refund alarm.
-			// `accruedActual: true` confirms costEstimate > 0 (they are equivalent by
+			// `accruedCost: true` confirms costEstimate > 0 (they are equivalent by
 			// construction), so both the failed-refund AND the still-accrues-cost
 			// invariants are pinned in one assertion.
 			const acc = new UsageAccumulator(reservedSeed);
@@ -396,7 +395,7 @@ describe("UsageAccumulator", () => {
 					summaryAction: "incremented",
 					refunded: true,
 					refundReason: "run-failed",
-					accruedActual: true,
+					accruedCost: true,
 				}),
 			);
 		});
@@ -425,7 +424,7 @@ describe("UsageAccumulator", () => {
 			);
 		});
 
-		it("logs refundReason null + accruedActual true on a healthy paid run", async () => {
+		it("logs refundReason null + accruedCost true on a healthy paid run", async () => {
 			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("incremented");
 			refundReservationMock.mockReset();
@@ -440,7 +439,7 @@ describe("UsageAccumulator", () => {
 					summaryAction: "incremented",
 					refunded: false,
 					refundReason: null,
-					accruedActual: true,
+					accruedCost: true,
 				}),
 			);
 		});

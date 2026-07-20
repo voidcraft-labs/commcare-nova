@@ -3,8 +3,8 @@
  *
  * All routes require authenticated sessions (Google OAuth, restricted
  * to the email-domain allowlist enforced by the `databaseHooks` block
- * in `lib/auth.ts`). The server-side AI_GATEWAY_API_KEY (Vercel AI
- * Gateway) is used for all LLM calls.
+ * in `lib/auth.ts`). The server-side OPENAI_API_KEY is used for all
+ * LLM calls.
  *
  * User identity is Better Auth's built-in `session.user.id` — always
  * present on valid sessions, no custom session fields needed.
@@ -111,45 +111,43 @@ function identifySentryUser(session: Session): void {
 // this barrel's heavy Better Auth + DB-pool graph into the request path.
 export { callerIpFromHeaders } from "./callerIp";
 
-// ── Gateway-key resolution for chat-API routes ──────────────────────
+// ── OpenAI-key resolution for chat-API routes ───────────────────────
 
-/* Naming: `resolveGatewayKey` (and the `GatewayKey*` types below)
+/* Naming: `resolveOpenAIKey` (and the `OpenAIKey*` types below)
  * disambiguate from Nova's user-minted MCP API keys (see
  * `lib/db/api-keys.ts` and `app/(app)/settings/api-key-actions.ts`).
  * Both surfaces use "API key" in product copy; the prefix here pins
  * which one each function operates on so callers don't have to read
  * the file context to know. */
 
-/** Successful resolution — server-shared AI Gateway key + authenticated session. */
-interface GatewayKeyResolved {
+/** Successful resolution — server-shared OpenAI key + authenticated session. */
+interface OpenAIKeyResolved {
 	ok: true;
 	apiKey: string;
 	session: Session;
 }
 
 /** Failed resolution — error message and HTTP status code. */
-interface GatewayKeyError {
+interface OpenAIKeyError {
 	ok: false;
 	error: string;
 	status: number;
 }
 
-type GatewayKeyResult = GatewayKeyResolved | GatewayKeyError;
+type OpenAIKeyResult = OpenAIKeyResolved | OpenAIKeyError;
 
 /**
- * Resolve the server-shared Vercel AI Gateway API key for an authenticated
+ * Resolve the server-shared OpenAI API key for an authenticated
  * request hitting the chat surface (`/api/chat`). Requires a valid
- * session and `AI_GATEWAY_API_KEY` in the environment. Returns a
+ * session and `OPENAI_API_KEY` in the environment. Returns a
  * discriminated union so callers can handle errors without try/catch.
  *
  * Distinct from the user-minted Nova API keys managed via
  * `auth.api.{create,delete,update,verify}ApiKey` in
  * `app/(app)/settings/api-key-actions.ts` — those authenticate the MCP
- * surface; this function authorizes server-to-gateway LLM calls.
+ * surface; this function authorizes server-to-OpenAI LLM calls.
  */
-export async function resolveGatewayKey(
-	req: Request,
-): Promise<GatewayKeyResult> {
+export async function resolveOpenAIKey(req: Request): Promise<OpenAIKeyResult> {
 	// `getSessionSafe` already applies the live banned/deleted revocation lock,
 	// so a revoked user reads as signed-out here (no paid model call).
 	const session = await getSessionSafe(req);
@@ -163,7 +161,7 @@ export async function resolveGatewayKey(
 
 	touchUser(session.user.id);
 
-	const serverKey = process.env.AI_GATEWAY_API_KEY;
+	const serverKey = process.env.OPENAI_API_KEY;
 	if (!serverKey) {
 		return { ok: false, error: "Server API key not configured.", status: 500 };
 	}

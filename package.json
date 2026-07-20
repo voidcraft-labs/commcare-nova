@@ -47,8 +47,6 @@
 		"mp:manual": "MP_MANUAL=1 bash scripts/smoke.sh --project=mp-manual --headed"
 	},
 	"dependencies": {
-		"@ai-sdk/gateway": "4.0.19",
-		"@ai-sdk/google": "^4.0.12",
 		"@ai-sdk/openai": "^4.0.11",
 		"@ai-sdk/react": "4.0.27",
 		"@ai-sdk/workflow": "1.0.26",

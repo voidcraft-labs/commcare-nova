@@ -11,7 +11,7 @@
  *
  * Record hierarchy:
  *
- *   usage_months(user_id, period)    → UsageDoc         (monthly actual-$ cost, accumulate-only)
+ *   usage_months(user_id, period)    → UsageDoc         (monthly dollar cost, accumulate-only)
  *   credit_months(user_id, period)   → CreditMonthDoc   (monthly credit balance, the resettable gate)
  *   credit_grants                    → CreditGrantDoc   (append-only admin reset/grant audit)
  *   apps(id) + blueprint_entities    → AppDoc           (scalars + assembled blueprint)
@@ -48,9 +48,6 @@ export interface UsageDoc {
 	input_tokens: number;
 	output_tokens: number;
 	cost_estimate: number;
-	/** Gateway-metered actual USD, accumulated per request. 0 for months
-	 *  recorded before actuals existed. */
-	actual_cost: number;
 	request_count: number;
 	updated_at: Date;
 }
@@ -109,7 +106,7 @@ export const runSummaryDocSchema = z.object({
 	moduleCount: z.number().int().nonnegative(),
 	/** Number of agent LLM steps in the run. */
 	stepCount: z.number().int().nonnegative(),
-	/** SA model id (e.g. "openai/gpt-5.6-sol"). */
+	/** SA model id (e.g. "gpt-5.6-sol"). */
 	model: z.string(),
 	/**
 	 * Total input tokens for the run, INCLUDING cache_read_tokens and
@@ -121,13 +118,6 @@ export const runSummaryDocSchema = z.object({
 	cacheReadTokens: z.number().int().nonnegative(),
 	cacheWriteTokens: z.number().int().nonnegative(),
 	costEstimate: z.number().nonnegative(),
-	/**
-	 * The gateway-metered actual USD charge for the run, summed from each
-	 * call's `providerMetadata.gateway.cost` — the settled truth, next to the
-	 * token-math `costEstimate` (which remains the pre-flight forecast).
-	 * 0 on runs finalized before actuals were recorded.
-	 */
-	actualCost: z.number().nonnegative(),
 	toolCallCount: z.number().int().nonnegative(),
 });
 export type RunSummaryDoc = z.infer<typeof runSummaryDocSchema>;

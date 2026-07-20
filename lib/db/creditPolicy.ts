@@ -29,9 +29,9 @@ export const CREDITS_PER_BUILD = 100;
 
 /**
  * Cost of an edit to an existing app ($0.05). Deliberately cheap — priced on
- * perceived value so iterating feels nearly free, decoupled from the fact that
- * an edit can currently cost more in actual dollars than a build (a cache-expiry
- * artifact the actual-$ backstop and the cost ledger guard and track separately).
+ * perceived value so iterating feels nearly free, decoupled from what an
+ * edit costs in dollars (the backstop and the cost ledger guard and track
+ * that separately).
  */
 export const CREDITS_PER_EDIT = 5;
 
@@ -45,13 +45,12 @@ export const MONTHLY_CREDIT_ALLOWANCE = 2000;
 /**
  * Invisible per-user monthly dollar runaway guard. Flat-credit pricing doesn't
  * track dollars, so this caps a worst-case runaway (and refund-farming, since
- * a failed run still accrues cost). The gate trips on the LARGER of the two
- * accumulated `usage_months` counters — the token-math `cost_estimate` and
- * the gateway-metered `actual_cost` — so a divergence in either direction
- * still stops a runaway. Never trips in normal use; the dollar figure is
- * never surfaced to the user.
+ * a failed run still accrues cost). The gate trips on the accumulated
+ * `usage_months.cost_estimate` counter — token math over `MODEL_PRICING`,
+ * which is the deterministic OpenAI bill. Never trips in normal use; the
+ * dollar figure is never surfaced to the user.
  */
-export const ACTUAL_COST_BACKSTOP_USD = 300;
+export const COST_BACKSTOP_USD = 300;
 
 /**
  * Spendable balance for a period: `allowance + bonus − consumed`.

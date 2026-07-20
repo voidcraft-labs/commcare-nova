@@ -2,7 +2,7 @@
  * Reasoning-part repair for the chat route — the wire contract that keeps a
  * resumed thread from ever poisoning its own model requests.
  *
- * Nova's gateway runs OpenAI's Responses API STATELESS (`store: false` +
+ * Nova runs OpenAI's Responses API STATELESS (`store: false` +
  * `include: ["reasoning.encrypted_content"]` — verified against live chunk
  * logs: every reasoning part streams back with
  * `providerMetadata.openai.{itemId, reasoningEncryptedContent}`). Replayed
@@ -100,8 +100,8 @@ function askQuestionsPartToText(part: Part): string {
 }
 
 /**
- * Apply the reasoning-part contract above. `turnModel` is the gateway model
- * id the SA will run THIS turn (`SA_EDIT_MODEL` / `SA_BUILD_MODEL` by mode).
+ * Apply the reasoning-part contract above. `turnModel` is the model id
+ * the SA will run THIS turn (`SA_EDIT_MODEL` / `SA_BUILD_MODEL` by mode).
  */
 export function sanitizeHistoricalReasoningParts<M extends UIMessage>(
 	messages: M[],

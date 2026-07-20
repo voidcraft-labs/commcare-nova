@@ -21,13 +21,19 @@
  * 2. **`editDoc`** (optional `BlueprintDoc`) is the build/edit switch.
  *    Threading it through to `buildSolutionsArchitectPrompt` is what
  *    gives edit-mode subagents their full edit framing
- *    (`EDIT_PREAMBLE`) plus the inlined `summarizeBlueprint(doc)` at
- *    boot — the same prompt the web flow's `/api/chat` edit mode uses,
- *    single source of truth. Build callers pass `undefined`; edit
+ *    (`EDIT_PREAMBLE`), and this renderer appends the "Current app
+ *    state" block (`summarizeBlueprint(doc)`) the preamble promises —
+ *    INLINED here, unlike the web flow, which delivers it as a
+ *    per-turn message to keep its system prompt cache-stable: a
+ *    subagent fetches this prompt exactly once as its boot
+ *    instructions, so there is no cross-turn prefix to protect and no
+ *    message channel to ride. Build callers pass `undefined`; edit
  *    callers pass the loaded blueprint. Empty docs
  *    (`moduleOrder.length === 0`) fall back to the build prompt inside
  *    the renderer — there's nothing to edit yet, so the planning flow
- *    is the right boot.
+ *    is the right boot — and get no state block (`isEditableDoc` is
+ *    the one shared predicate, so framing and summary can't come
+ *    apart).
  *
  * **Tool-name vocabulary.** `EDIT_PREAMBLE` and `SHARED_TAIL` in
  * `lib/agent/prompts.ts` reference the SA's camelCase tool names
@@ -36,7 +42,11 @@
  * model resolves the two by name at call time.
  */
 
-import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
+import {
+	buildSolutionsArchitectPrompt,
+	isEditableDoc,
+} from "@/lib/agent/prompts";
+import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
 import type { BlueprintDoc } from "@/lib/domain";
 
 /**
@@ -98,22 +108,23 @@ tool is not available to you in this mode.`,
 /**
  * Compose the nova-architect subagent's system prompt body.
  *
- * The body delegates entirely to `buildSolutionsArchitectPrompt`, the
- * same renderer the web flow's `/api/chat` route uses. Threading
- * `editDoc` through means the MCP edit-mode subagent boots with exactly
- * the prompt the web flow's SA gets in edit mode — `EDIT_PREAMBLE`
- * framing ("you have full visibility, only ask about intent") plus an
- * inlined `summarizeBlueprint(doc)` so the subagent knows the app's
- * structure at turn 0 instead of having to spend a tool call to fetch
- * it. Single source of truth, single rendering branch, no cross-
- * surface drift.
+ * The body delegates to `buildSolutionsArchitectPrompt`, the same
+ * renderer the web flow's `/api/chat` route uses — `EDIT_PREAMBLE`
+ * framing ("you have full visibility, only ask about intent") when an
+ * editable blueprint is threaded through. The "Current app state" block
+ * the preamble promises is appended here as the prompt's closing
+ * section, so the subagent knows the app's structure at turn 0 instead
+ * of having to spend a tool call to fetch it. (The web flow delivers
+ * the same summary as a per-turn message instead — its system prompt
+ * must stay byte-stable for the provider's exact-prefix cache; a boot
+ * prompt fetched once has no such constraint.)
  *
  * Build callers pass `undefined` (or omit `editDoc`); edit callers
  * pass the loaded blueprint when the app is COMPLETE (the status-keyed
  * fork lives in `get_agent_prompt`). Empty docs
  * (`moduleOrder.length === 0`) intentionally fall back to the build
- * prompt — `buildSolutionsArchitectPrompt`'s degenerate-edit branch
- * delivers the build framing instead.
+ * prompt — `isEditableDoc` gates the branch AND the state block, so
+ * the degenerate case gets the build framing and no summary.
  */
 export function renderAgentPrompt(
 	interactive: boolean,
@@ -123,5 +134,8 @@ export function renderAgentPrompt(
 	const interactivityBlock = interactive
 		? INTERACTIVITY_INSTRUCTIONS.interactive
 		: INTERACTIVITY_INSTRUCTIONS.autonomous;
-	return `${baseSystem}${interactivityBlock}`;
+	const appStateBlock = isEditableDoc(editDoc)
+		? `\n\n---\n\n## Current app state\n\n${summarizeBlueprint(editDoc)}`
+		: "";
+	return `${baseSystem}${interactivityBlock}${appStateBlock}`;
 }

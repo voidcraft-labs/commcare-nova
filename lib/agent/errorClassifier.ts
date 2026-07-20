@@ -2,7 +2,6 @@
  * Error classifier — inspects errors from the AI SDK / API calls and returns
  * a structured classification with a human-readable message safe for display.
  */
-import { GatewayError } from "@ai-sdk/gateway";
 import { APICallError } from "ai";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -51,14 +50,8 @@ export const MESSAGES: Record<ErrorType, string> = {
 
 /**
  * Map an HTTP status from a failed model call to its user-facing bucket.
- * Shared by the `APICallError` branch (direct provider HTTP errors) and the
- * `GatewayError` branch (the AI Gateway wraps upstream provider failures in
- * its own `Error` subclasses that carry `statusCode` but are NOT
- * `APICallError`s — without this branch a gateway rate limit or auth failure
- * would fall through to the generic `internal` bucket).
- *
- * `body` is whatever error text is available for the "overloaded" sniff — the
- * response body on `APICallError`, the message on `GatewayError`.
+ * `body` is whatever error text is available for the "overloaded" sniff —
+ * the response body on `APICallError`.
  */
 function classifyByStatus(
 	status: number | undefined,
@@ -77,14 +70,6 @@ function classifyByStatus(
 		return {
 			type: "api_rate_limit",
 			message: MESSAGES.api_rate_limit,
-			recoverable: false,
-			raw,
-		};
-	}
-	if (status === 529) {
-		return {
-			type: "api_overloaded",
-			message: MESSAGES.api_overloaded,
 			recoverable: false,
 			raw,
 		};
@@ -140,12 +125,6 @@ export function classifyError(error: unknown): ClassifiedError {
 		return classifyByStatus(error.statusCode, raw, error.responseBody);
 	}
 
-	// AI Gateway errors — plain `Error` subclasses carrying `statusCode`
-	// (429 rate limit, 401 auth, 5xx upstream provider failures, …).
-	if (GatewayError.isInstance(error)) {
-		return classifyByStatus(error.statusCode, raw, raw);
-	}
-
 	// Network / fetch errors
 	if (error instanceof TypeError && raw.includes("fetch")) {
 		return {
@@ -196,23 +175,21 @@ export function classifyError(error: unknown): ClassifiedError {
 	// block above — when they arrive *mid-stream*. Once the response has begun
 	// streaming, the SDK can no longer attach a `statusCode`, so the failure
 	// reaches us as a plain `Error` whose message is the provider's JSON error
-	// body. We match each provider taxonomy's 5xx type token with its bare
-	// message phrase as a fallback — OpenAI emits
-	// `{"type":"server_error","message":"The server had an error …"}`,
-	// Anthropic `{"type":"api_error","message":"Internal server error"}` (the
-	// gateway can route either family) — and bucket it as `api_server`: a
-	// transient upstream failure the user can retry, not a Nova-internal
-	// defect. Without this branch the error falls to the `internal` bucket
-	// below, which tells the user "Something went wrong during generation." —
-	// implying our bug when the fault is upstream and retriable. The bucket is
-	// load-bearing beyond the message: the SDK's `maxRetries` covers request
-	// *establishment* only, so a mid-stream failure reaches the chat route's
-	// turn-level re-run (`turnRetry.ts`), which keys on exactly these
-	// transient types.
+	// body. We match OpenAI's 5xx type token
+	// (`{"type":"server_error","message":"The server had an error …"}`) with
+	// its bare message phrase as a fallback, plus the generic
+	// "internal server error" phrase any intermediary can emit — and bucket
+	// it as `api_server`: a transient upstream failure the user can retry,
+	// not a Nova-internal defect. Without this branch the error falls to the
+	// `internal` bucket below, which tells the user "Something went wrong
+	// during generation." — implying our bug when the fault is upstream and
+	// retriable. The bucket is load-bearing beyond the message: the SDK's
+	// `maxRetries` covers request *establishment* only, so a mid-stream
+	// failure reaches the chat route's turn-level re-run (`turnRetry.ts`),
+	// which keys on exactly these transient types.
 	if (
 		lowerMsg.includes("server_error") ||
 		lowerMsg.includes("the server had an error") ||
-		lowerMsg.includes("api_error") ||
 		lowerMsg.includes("internal server error")
 	) {
 		return {

@@ -3,7 +3,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { createGateway, Output, streamText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { Output, streamText } from "ai";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
@@ -15,7 +16,7 @@ import type {
 } from "./types.js";
 
 const DISTILL_DIR = ".data/confluence-cache/distilled";
-const SONNET_MODEL = "anthropic/claude-sonnet-4.6";
+const DISTILL_MODEL = "gpt-5.6-luna";
 const SONNET_INPUT_COST = 3; // $/M tokens
 const SONNET_OUTPUT_COST = 15; // $/M tokens
 
@@ -125,7 +126,7 @@ export async function distill(
 	discovery: DiscoveryResult,
 	triageResult: TriageResult,
 ): Promise<void> {
-	const gateway = createGateway({ apiKey: config.gatewayApiKey });
+	const openai = createOpenAI({ apiKey: config.openaiApiKey });
 
 	// Load relevant pages (6+ relevance)
 	const relevantEntries = triageResult.entries.filter((e) => e.relevance >= 6);
@@ -204,7 +205,7 @@ export async function distill(
 	);
 
 	const clusterStream = streamText({
-		model: gateway(SONNET_MODEL),
+		model: openai(DISTILL_MODEL),
 		output: Output.object({ schema: tagClusterSchema }),
 		system: `You are organizing CommCare platform knowledge for an AI agent that builds CommCare apps.
 
@@ -384,7 +385,7 @@ Format as clean markdown. Start with a level-1 heading matching the topic name. 
 					: `Topic: ${cluster.name}\nDescription: ${cluster.description}\n\nSource pages (${batch.length}):\n\n${sourceContent}`;
 
 				const result = streamText({
-					model: gateway(SONNET_MODEL),
+					model: openai(DISTILL_MODEL),
 					system: distillSystem,
 					prompt,
 				});

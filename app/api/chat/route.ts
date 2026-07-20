@@ -7,6 +7,7 @@ import {
 	validateUIMessages,
 } from "ai";
 import {
+	buildAppStateMessage,
 	buildTurnRetryContinuation,
 	classifyError,
 	countDocumentsNeedingRead,
@@ -14,13 +15,14 @@ import {
 	type ErrorType,
 	GenerationContext,
 	MESSAGES,
+	markStablePrefixBoundary,
 	resolveAttachments,
 	shouldRetryTurn,
 	TURN_RETRY_MESSAGE,
 	turnRetryDelayMs,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
+import { resolveActiveProjectId, resolveOpenAIKey } from "@/lib/auth-utils";
 import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
@@ -51,7 +53,7 @@ import {
 	reserveForNewBuild,
 	setAwaitingInput,
 } from "@/lib/db/apps";
-import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
+import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import {
 	getCurrentCreditBalance,
 	OutOfCreditsError,
@@ -103,7 +105,7 @@ let lastChunkPruneAt = 0;
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	// Bound the UNauthenticated parse ahead of `resolveGatewayKey` below. The
+	// Bound the UNauthenticated parse ahead of `resolveOpenAIKey` below. The
 	// cap is generous enough for the largest real request (blueprint + bounded
 	// message history); the message/attachment/text limits stay as the secondary,
 	// post-parse controls. Enforced on BOTH the declared size (cheap, pre-buffer)
@@ -178,7 +180,7 @@ export async function POST(req: Request) {
 	}
 
 	// Require authenticated session + server API key
-	const keyResult = await resolveGatewayKey(req);
+	const keyResult = await resolveOpenAIKey(req);
 	if (!keyResult.ok) {
 		return new Response(JSON.stringify({ error: keyResult.error }), {
 			status: keyResult.status,
@@ -215,11 +217,8 @@ export async function POST(req: Request) {
 	 *       create an orphan app in the common out-of-credits case. */
 	try {
 		const usage = await getMonthlyUsage(userId);
-		const monthlySpend = Math.max(
-			usage?.cost_estimate ?? 0,
-			usage?.actual_cost ?? 0,
-		);
-		if (monthlySpend >= ACTUAL_COST_BACKSTOP_USD) {
+		const monthlySpend = usage?.cost_estimate ?? 0;
+		if (monthlySpend >= COST_BACKSTOP_USD) {
 			return Response.json(
 				{
 					error:
@@ -1482,15 +1481,36 @@ export async function POST(req: Request) {
 						saModel,
 					);
 
+					/* Edit turns deliver the CURRENT blueprint summary as a per-turn
+					 * message at the END of the prompt, not inside the system prompt:
+					 * the summary changes on every doc mutation and provider caching
+					 * is exact-prefix, so a volatile summary in the prompt would
+					 * re-bill the static tail + the tool rendering + the history on
+					 * every doc-mutating turn. Appended after the full history, the
+					 * cached prefix survives through the previous user turn; the
+					 * re-billed suffix is the prior turn's response — which replay
+					 * re-bills regardless, since history drops its reasoning items —
+					 * plus this snapshot. Rendered from the same doc the SA booted
+					 * with, so it reflects builder-side and co-member edits the
+					 * conversation never saw. Ephemeral by construction — a
+					 * ModelMessage appended past `validated` never reaches the thread
+					 * transcript, so each turn carries exactly one fresh snapshot. */
+					const appStateMessage = editing
+						? buildAppStateMessage(sessionDoc)
+						: null;
+
 					/* Record the input-context composition for the per-run finalize
 					 * log: how many messages were actually sent (after the sanitizer's
-					 * drops + the resolve) and their serialized size. The
-					 * system prompt is ~constant, so this is the variable part of the
-					 * per-request input cost — the lever the cost investigation needs
-					 * visibility into. */
+					 * drops + the resolve, plus the app-state message) and their
+					 * serialized size. The system prompt is static, so this is the
+					 * variable part of the per-request input cost — the lever the
+					 * cost investigation needs visibility into. */
 					usage.configureRun({
-						sentMessageCount: effectiveMessages.length,
-						sentMessageChars: JSON.stringify(effectiveMessages).length,
+						sentMessageCount:
+							effectiveMessages.length + (appStateMessage ? 1 : 0),
+						sentMessageChars:
+							JSON.stringify(effectiveMessages).length +
+							(appStateMessage ? JSON.stringify(appStateMessage).length : 0),
 					});
 
 					/* Run the agent to completion SERVER-SIDE, decoupled from the browser.
@@ -1514,9 +1534,27 @@ export async function POST(req: Request) {
 						messages: effectiveMessages,
 						tools: sa.tools,
 					});
-					const baseModelMessages = await convertToModelMessages(validated, {
-						tools: sa.tools,
-					});
+					/* Mark the stable-prefix boundary (the message before the latest
+					 * user message) with an explicit cache breakpoint — GPT-5.6's
+					 * implicit mode only auto-caches at the LATEST message, an entry
+					 * the next turn's changed tail can never match; the explicit
+					 * marker is what gives the next turn a readable entry. Full
+					 * story on `markStablePrefixBoundary`. */
+					const baseModelMessages = markStablePrefixBoundary(
+						await convertToModelMessages(validated, {
+							tools: sa.tools,
+						}),
+					);
+					/* The full per-turn prompt: converted history, then the app-state
+					 * snapshot (edit turns). A retry/redrive attempt REPLACES the
+					 * snapshot with the turn-retry continuation below — the
+					 * continuation embeds its own, fresher committed-state summary,
+					 * and the model must see exactly one authoritative snapshot (a
+					 * stale summary beside the fresh one invites re-planning against
+					 * the wrong state). */
+					const promptMessages = appStateMessage
+						? [...baseModelMessages, appStateMessage]
+						: baseModelMessages;
 
 					/* The turn runs inside a bounded TRANSIENT-failure re-run loop: a
 					 * provider fault mid-generation (a 500 halfway through a step, a
@@ -1576,7 +1614,7 @@ export async function POST(req: Request) {
 						const result = await sa.stream({
 							prompt: continuation
 								? [...baseModelMessages, continuation]
-								: baseModelMessages,
+								: promptMessages,
 						});
 
 						/* Drive the drain UN-awaited so the loop advances to its terminal state

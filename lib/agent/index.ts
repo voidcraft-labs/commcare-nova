@@ -6,9 +6,14 @@
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
-// generationContext — shared LLM wrapper around the AI Gateway provider, SSE
+// generationContext — shared LLM wrapper around the OpenAI provider, SSE
 // writer, event log, and usage accumulator.
 export { GenerationContext, logWarnings } from "./generationContext";
+// prompts — the per-turn app-state message an edit turn appends to the end
+// of its prompt (the system prompt itself is static; the SA factory renders
+// it internally), and the stable-prefix cache-breakpoint marker the route
+// applies to the converted history.
+export { buildAppStateMessage, markStablePrefixBoundary } from "./prompts";
 // resolveAttachments — server-side resolution of chat attachment refs. The
 // composer sends asset-id refs in message metadata; the chat route calls
 // `resolveAttachments` to append each ref's stored requirements extract

@@ -19,7 +19,7 @@
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
-	ACTUAL_COST_BACKSTOP_USD,
+	COST_BACKSTOP_USD,
 	CREDITS_PER_BUILD,
 	CREDITS_PER_DOLLAR,
 	CREDITS_PER_EDIT,
@@ -79,7 +79,7 @@ describe("credit policy — pure helpers and constants", () => {
 			CREDITS_PER_BUILD,
 			CREDITS_PER_EDIT,
 			MONTHLY_CREDIT_ALLOWANCE,
-			ACTUAL_COST_BACKSTOP_USD,
+			COST_BACKSTOP_USD,
 		]).toEqual([100, 100, 5, 2000, 300]);
 	});
 

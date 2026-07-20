@@ -90,7 +90,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 			prompt: "the document body",
 			schema,
 			label: "attachment-txt",
-			model: "openai/gpt-5.6-luna",
+			model: "gpt-5.6-luna",
 			maxOutputTokens: 4096,
 		});
 

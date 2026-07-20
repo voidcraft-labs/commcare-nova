@@ -18,8 +18,8 @@
 // from being re-condensed — or re-billed at the SA's input rate across dozens of
 // tool-loop steps — on every send.
 
+import { createOpenAI } from "@ai-sdk/openai";
 import AdmZip from "adm-zip";
-import { createGateway } from "ai";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -137,13 +137,13 @@ export const EXTRACT_MAX_BYTES = 4 * 1024 * 1024;
 // ── Summarizer model + provider options ──────────────────────────────────
 
 /**
- * The official document summarizer: OpenAI GPT-5.6 Luna, reached through the
- * AI Gateway like every other model (`AI_GATEWAY_API_KEY` — one credential
- * covers every provider). Extraction is a platform feature, so a missing key
- * fails loud rather than silently degrading. The preview script reuses the
- * same id + options so what it tests matches production.
+ * The official document summarizer: OpenAI GPT-5.6 Luna, on the same
+ * `OPENAI_API_KEY` credential as every other model. Extraction is a platform
+ * feature, so a missing key fails loud rather than silently degrading. The
+ * preview script reuses the same id + options so what it tests matches
+ * production.
  */
-export const CONDENSER_MODEL = "openai/gpt-5.6-luna";
+export const CONDENSER_MODEL = "gpt-5.6-luna";
 
 /**
  * Provider options for the summarizer — the canonical reasoning literal
@@ -718,9 +718,9 @@ export async function extractDocument(opts: {
  * The production document condenser: a `CONDENSER_MODEL`-bound
  * `AttachmentCondenser` over the provider-agnostic `subGeneration` helpers.
  * Built per call (cheap) by the upload-time extract route, which runs OUTSIDE a
- * chat `GenerationContext` and so needs its own gateway-bound backend.
+ * chat `GenerationContext` and so needs its own provider-bound backend.
  *
- * Fails loud if `AI_GATEWAY_API_KEY` is unset — extraction is a platform
+ * Fails loud if `OPENAI_API_KEY` is unset — extraction is a platform
  * feature, not something to silently skip. It ignores the `model` / `label` /
  * `emitErrors` opts (those are `GenerationContext`-isms): the model is
  * pre-bound here and there's no SSE to emit to, so a transport error simply
@@ -728,13 +728,13 @@ export async function extractDocument(opts: {
  * call's `finishReason`.
  */
 export function createExtractionCondenser(): AttachmentCondenser {
-	const apiKey = process.env.AI_GATEWAY_API_KEY;
+	const apiKey = process.env.OPENAI_API_KEY;
 	if (!apiKey) {
 		throw new Error(
-			"AI_GATEWAY_API_KEY is unset — document feature extraction needs the AI Gateway key to reach the summarizer model. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
+			"OPENAI_API_KEY is unset — document feature extraction needs the OpenAI key to reach the summarizer model. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
-	const model = createGateway({ apiKey })(CONDENSER_MODEL);
+	const model = createOpenAI({ apiKey })(CONDENSER_MODEL);
 	return {
 		async extractDocumentStructured(args) {
 			const r = await streamObjectWith({

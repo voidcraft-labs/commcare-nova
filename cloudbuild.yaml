@@ -129,6 +129,12 @@ steps:
   # is declared failed — in practice the second attempt succeeds. The probe
   # port is Cloud Run's default container port; if a `--port` override ever
   # lands here, httpGet.port must move with it.
+  # `--update-secrets` MERGES into the service's existing secret env vars
+  # (unlike `--set-secrets`, which replaces the whole set). OPENAI_API_KEY is
+  # the one LLM credential (Secret Manager: `nova-openai-api-key`, resolved
+  # `latest` at instance start by the RUNTIME service account — which needs
+  # `roles/secretmanager.secretAccessor` on it). A secret with no version
+  # fails the revision loudly at deploy, so paste the key BEFORE merging.
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
@@ -140,6 +146,7 @@ steps:
       - --region=us-central1
       - --min-instances=1
       - --no-cpu-throttling
+      - --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest
       - --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
 
 options:

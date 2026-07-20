@@ -171,7 +171,6 @@ export interface RunSummariesTable {
 	cache_read_tokens: BigIntColumn;
 	cache_write_tokens: BigIntColumn;
 	cost_estimate: number;
-	actual_cost: number;
 	tool_call_count: number;
 }
 
@@ -203,7 +202,6 @@ export interface UsageMonthsTable {
 	input_tokens: BigIntColumn;
 	output_tokens: BigIntColumn;
 	cost_estimate: number;
-	actual_cost: number;
 	request_count: number;
 	updated_at: Timestamp;
 }

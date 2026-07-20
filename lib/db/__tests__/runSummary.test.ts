@@ -38,13 +38,12 @@ describe("runSummaryDocSchema", () => {
 		appReady: false,
 		moduleCount: 0,
 		stepCount: 7,
-		model: "openai/gpt-5.6-sol",
+		model: "gpt-5.6-sol",
 		inputTokens: 1234,
 		outputTokens: 567,
 		cacheReadTokens: 891,
 		cacheWriteTokens: 0,
 		costEstimate: 0.0421,
-		actualCost: 0.0398,
 		toolCallCount: 14,
 	};
 
@@ -99,13 +98,12 @@ describe("writeRunSummary", () => {
 		appReady: true,
 		moduleCount: 3,
 		stepCount: 2,
-		model: "openai/gpt-5.6-sol",
+		model: "gpt-5.6-sol",
 		inputTokens: 1_000,
 		outputTokens: 500,
 		cacheReadTokens: 200,
 		cacheWriteTokens: 100,
 		costEstimate: 0.01,
-		actualCost: 0.012,
 		toolCallCount: 3,
 	};
 
@@ -124,13 +122,12 @@ describe("writeRunSummary", () => {
 			appReady: false,
 			moduleCount: 0,
 			stepCount: 5,
-			model: "openai/gpt-5.6-sol",
+			model: "gpt-5.6-sol",
 			inputTokens: 10_000,
 			outputTokens: 800,
 			cacheReadTokens: 3_000,
 			cacheWriteTokens: 500,
 			costEstimate: 0.05,
-			actualCost: 0.06,
 			toolCallCount: 7,
 		};
 		const { writeRunSummary, loadRunSummary } = await import("../runSummary");
@@ -156,7 +153,6 @@ describe("writeRunSummary", () => {
 			cacheReadTokens: 3_000 + 200,
 			cacheWriteTokens: 500 + 100,
 			costEstimate: 0.05 + 0.01,
-			actualCost: 0.06 + 0.012,
 		});
 	});
 

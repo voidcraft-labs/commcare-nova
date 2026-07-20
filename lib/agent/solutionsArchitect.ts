@@ -4,9 +4,10 @@
  * ONE shared tool set serves both modes: conversation, the data-model
  * tool (`generateSchema` — a build's first commit, and how a new case
  * type enters an existing app), reads, mutations, case-list /
- * case-search config, media. Build vs edit picks the prompt (an edit
- * prompt carries the blueprint summary) and the model — never the tool
- * set.
+ * case-search config, media. Build vs edit picks the prompt and the
+ * model — never the tool set. Both prompts are static; an edit turn's
+ * blueprint summary rides a per-turn message the route appends
+ * (`buildAppStateMessage`), keeping the system prompt cache-stable.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
@@ -81,9 +82,9 @@ import { wireToolSchema } from "./wireSchemas";
  *   app's current state loaded from Postgres. The SA owns this doc for
  *   the lifetime of the agent — every tool call mutates it in place.
  * @param editing - True when the app already exists (appReady). The SA gets
- *   the editing preamble + blueprint summary in its prompt and only has access
- *   to read + mutation + validation tools. False during initial builds, where
- *   the SA gets the full tool set and build-mode prompt.
+ *   the editing preamble in its prompt (the blueprint summary arrives as a
+ *   per-turn message the route appends). False during initial builds, where
+ *   the SA gets the build-mode prompt.
  */
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
@@ -391,10 +392,10 @@ export function createSolutionsArchitect(
 		// a ground-up build reasons at the ceiling, an edit of an existing
 		// app at medium (`SA_BUILD_REASONING` / `SA_EDIT_REASONING`).
 		model: ctx.model(editing ? SA_EDIT_MODEL : SA_BUILD_MODEL),
-		// The prompt summary is rendered from the current normalized doc
-		// when the app already exists. `buildSolutionsArchitectPrompt`
-		// walks the normalized doc directly and produces a domain-vocab
-		// summary.
+		// The doc picks the build-vs-edit branch and contributes no bytes —
+		// both prompts are static so the provider's exact-prefix cache
+		// survives doc mutations. The edit turn's blueprint summary rides
+		// the per-turn message the route appends (`buildAppStateMessage`).
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),
 		/* Provider 5xx / 429 at request establishment retries with the SDK's
@@ -407,12 +408,14 @@ export function createSolutionsArchitect(
 		prepareStep: () => {
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
-			// streamed reasoning summaries the live-thinking feed needs. No
-			// cache option: OpenAI prompt caching is implicit (managed
-			// breakpoints, 30-min TTL).
+			// streamed reasoning summaries the live-thinking feed needs, plus
+			// the SA's per-app prompt-cache configuration (key + options; the
+			// route's `markStablePrefixBoundary` marker is the third piece of
+			// the documented triple — see the helper's doc).
 			return {
 				providerOptions: reasoningProviderOptions(
 					(editing ? SA_EDIT_REASONING : SA_BUILD_REASONING).effort,
+					{ promptCacheKey: `nova:app:${ctx.appId}` },
 				),
 			};
 		},
@@ -443,7 +446,6 @@ export function createSolutionsArchitect(
 							: [],
 					),
 					warnings: step.warnings,
-					providerMetadata: step.providerMetadata,
 				},
 				"Solutions Architect",
 			);

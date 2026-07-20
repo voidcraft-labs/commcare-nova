@@ -84,8 +84,8 @@ export const TURN_RETRY_MESSAGE =
 
 /**
  * The continuation message appended to the retry attempt's prompt: the
- * committed state (rendered by the same summarizer the edit prompt uses) plus
- * the instruction to continue rather than restart. Returns null for an empty
+ * committed state (rendered by the same summarizer the edit turn's app-state
+ * message uses) plus the instruction to continue rather than restart. Returns null for an empty
  * doc — with nothing committed, a bare re-run of the original messages IS the
  * continuation, and the extra message would only churn the cached prefix.
  *

@@ -42,7 +42,7 @@ const DEFAULT_SEED: AccumulatorSeed = {
 	appId: "test-app",
 	userId: "user-1",
 	runId: "run-1",
-	model: "openai/gpt-5.6-sol",
+	model: "gpt-5.6-sol",
 	promptMode: "build",
 	appReady: false,
 	moduleCount: 0,
