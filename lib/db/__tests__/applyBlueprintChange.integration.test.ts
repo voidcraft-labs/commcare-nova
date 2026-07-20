@@ -488,7 +488,7 @@ describe("applyBlueprintChange — rename batches", () => {
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 
 		// Both rows carry their values under the NEW key — nothing
-		// stranded, nothing quarantined.
+		// stranded, nothing parked.
 		const rows = await initialStore.query({
 			appId: APP_ID,
 			caseType: "patient",
@@ -496,11 +496,11 @@ describe("applyBlueprintChange — rename batches", () => {
 		expect(rows).toHaveLength(2);
 		const values = rows.map((r) => r.properties).sort();
 		expect(values).toEqual([{ years: "30" }, { years: "31" }]);
-		const quarantined = await dbHandle.pool.query(
-			"SELECT case_id FROM cases_quarantine WHERE app_id = $1",
+		const parked = await dbHandle.pool.query(
+			"SELECT id FROM parked_case_values WHERE app_id = $1",
 			[APP_ID],
 		);
-		expect(quarantined.rows).toHaveLength(0);
+		expect(parked.rows).toHaveLength(0);
 
 		// The schema row references only the new key.
 		const schemaRows = await dbHandle.pool.query<{
@@ -552,8 +552,10 @@ describe("applyBlueprintChange — rename batches", () => {
 
 		// Sabotage: drop `cases` so the rename migration's first row
 		// read throws mid-Phase-A — AFTER the schema regen UPSERT in
-		// the same transaction, whose rollback must revert it.
-		await dbHandle.pool.query("DROP TABLE cases");
+		// the same transaction, whose rollback must revert it. CASCADE
+		// takes `parked_case_values` (FK on `cases`) with it; the saga
+		// fails before any park, so nothing needed the table.
+		await dbHandle.pool.query("DROP TABLE cases CASCADE");
 
 		// Drive the rename through the saga. The mocked
 		// `commitGuardedBatch` would resolve if reached, but the saga

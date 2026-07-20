@@ -28,7 +28,7 @@
  *   - `retyped` — both sides carry the property with different
  *     domain types. Rows may hold values in the OLD shape, so the
  *     migrate script runs `applySchemaChange` with a `retype` change
- *     — per-row cast, uncastable rows quarantined.
+ *     — per-row cast, uncastable values parked.
  *   - `unresolvable` — a stored spec this module can't invert to a
  *     `CasePropertyDataType` (schema drift from a future/foreign
  *     writer). Reported for an owner decision; never auto-migrated.

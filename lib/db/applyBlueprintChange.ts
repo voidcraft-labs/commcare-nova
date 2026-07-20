@@ -95,7 +95,7 @@
  */
 
 import { produce } from "immer";
-import type { SchemaCaseStore } from "@/lib/case-store";
+import type { MigrationReport, SchemaCaseStore } from "@/lib/case-store";
 import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -190,9 +190,28 @@ export interface ApplyBlueprintChangeArgs {
  * app-doc read; the in-txn dedup inside {@link commitGuardedBatch} does
  * supply it).
  */
+/**
+ * What the commit's row migrations did to the saved case data —
+ * aggregated over the Phase-1 forward applies AND the post-commit
+ * sweep (whose write-time detection can retype/park on its own).
+ * `parked` counts VALUES set aside into `parked_case_values`;
+ * `failureReasons` is their person-readable why. Absent when the
+ * commit touched no case-type schema (the fast path) or deduped.
+ * The PUT route surfaces it so the builder can toast the outcome
+ * instead of silently discarding it.
+ */
+export interface MigrationOutcome {
+	readonly migrated: number;
+	readonly reshaped: number;
+	readonly retyped: number;
+	readonly parked: number;
+	readonly failureReasons: readonly string[];
+}
+
 export interface ApplyBlueprintChangeResult {
 	readonly seq: number;
 	readonly committedDoc?: BlueprintDoc;
+	readonly migration?: MigrationOutcome;
 }
 
 /**
@@ -328,18 +347,27 @@ export async function applyBlueprintChange(
 	// is idempotent (it re-derives each type from the fresh committed doc), so
 	// re-syncing a type whose Phase A rolled back is a harmless no-op while a
 	// Phase-A-committed / Phase-B-failed type is correctly reconciled.
+	// Every report the saga's schema syncs produce, aggregated into the
+	// result's `migration` outcome; the parked ids additionally feed the
+	// compensation path — a failed commit un-parks what its forward
+	// applies set aside, restoring the values under the restored schema.
+	const forwardReports: MigrationReport[] = [];
+	const forwardParkedIds = (): string[] =>
+		forwardReports.flatMap((report) => report.parkedIds);
 	try {
 		for (const entry of migrationEntries) {
-			await store.applySchemaChange({
-				appId: args.appId,
-				caseType: entry.caseType,
-				caseTypeSchemas: prospectiveSchemas,
-				...(entry.property !== undefined && { property: entry.property }),
-				...(entry.change !== undefined && { change: entry.change }),
-			});
+			forwardReports.push(
+				await store.applySchemaChange({
+					appId: args.appId,
+					caseType: entry.caseType,
+					caseTypeSchemas: prospectiveSchemas,
+					...(entry.property !== undefined && { property: entry.property }),
+					...(entry.change !== undefined && { change: entry.change }),
+				}),
+			);
 		}
 	} catch (forwardErr) {
-		await compensate(args.appId, store, migrationEntries);
+		await compensate(args.appId, store, migrationEntries, forwardParkedIds());
 		throw forwardErr;
 	}
 
@@ -354,7 +382,7 @@ export async function applyBlueprintChange(
 			preauthorized,
 		));
 	} catch (commitErr) {
-		await compensate(args.appId, store, migrationEntries);
+		await compensate(args.appId, store, migrationEntries, forwardParkedIds());
 		throw commitErr;
 	}
 
@@ -369,7 +397,23 @@ export async function applyBlueprintChange(
 	// and clobber a peer's property. (`committedDoc` is also absent on a
 	// top-level dedup, so the guard covers both dedup shapes.)
 	if (!deduped) {
-		await sweepCommittedSchemas(store, args.appId, result, entries);
+		const sweepReports = await sweepCommittedSchemas(
+			store,
+			args.appId,
+			result,
+			entries,
+		);
+		const all = [...forwardReports, ...sweepReports];
+		return {
+			...result,
+			migration: {
+				migrated: all.reduce((sum, r) => sum + r.migrated, 0),
+				reshaped: all.reduce((sum, r) => sum + r.reshaped, 0),
+				retyped: all.reduce((sum, r) => sum + r.retyped, 0),
+				parked: all.reduce((sum, r) => sum + r.parkedIds.length, 0),
+				failureReasons: all.flatMap((r) => r.failureReasons),
+			},
+		};
 	}
 	return result;
 }
@@ -488,8 +532,9 @@ async function sweepCommittedSchemas(
 	appId: string,
 	result: ApplyBlueprintChangeResult,
 	entries: readonly CaseTypeChangeEntry[],
-): Promise<void> {
-	if (result.committedDoc === undefined) return;
+): Promise<MigrationReport[]> {
+	const reports: MigrationReport[] = [];
+	if (result.committedDoc === undefined) return reports;
 	const committedSchemas = buildCaseTypeMap(result.committedDoc);
 	// One sync per DISTINCT touched case type — the classifier can emit several
 	// entries for one type (one property added and one retyped), but the sweep
@@ -500,12 +545,14 @@ async function sweepCommittedSchemas(
 		// retire) has no schema to derive — skip rather than throw.
 		if (!committedSchemas.has(caseType)) continue;
 		try {
-			await store.applySchemaChange({
-				appId,
-				caseType,
-				caseTypeSchemas: committedSchemas,
-				syncedSeq: result.seq,
-			});
+			reports.push(
+				await store.applySchemaChange({
+					appId,
+					caseType,
+					caseTypeSchemas: committedSchemas,
+					syncedSeq: result.seq,
+				}),
+			);
 		} catch (sweepErr) {
 			// Never rethrown — the commit already landed, so a sweep failure is
 			// not a 500. But split severity like the build materialize: a
@@ -521,6 +568,7 @@ async function sweepCommittedSchemas(
 			}
 		}
 	}
+	return reports;
 }
 
 /**
@@ -562,9 +610,15 @@ async function sweepCommittedSchemas(
  * correctly; dropped uncastable/blank values are gone either way (reported
  * in the forward call's `failureReasons`).
  *
- * The `retype` / `narrow-options` arms (drift-script-only) have no inversion
- * — rows already retyped stay in their new JSONB shape, rows already
- * quarantined stay quarantined; the fresh-doc schema mirrors what's stored.
+ * Values the forward applies PARKED un-park LAST (`parkedIds`), after every
+ * type's re-sync has restored the schema state they were valid under — the
+ * ordering `unparkValues` contracts on. This covers the rename arm's
+ * conflict/uncastable parks AND anything the forward sync's write-time
+ * retype detection set aside; an entry whose key meanwhile holds a real
+ * concurrent value is kept parked (lossless) rather than clobbered. Rows a
+ * retype already CAST stay in their new JSONB shape only until the re-sync's
+ * own detection casts them back where a faithful cast exists; the fresh-doc
+ * schema mirrors what's stored either way.
  *
  * If the fresh `loadApp` returns null (the app was concurrently deleted) there
  * is nothing to reconcile. Per-call try/catch isolation: one compensation
@@ -575,6 +629,7 @@ async function compensate(
 	appId: string,
 	store: SchemaCaseStore,
 	entries: readonly CaseTypeChangeEntry[],
+	parkedIds: readonly string[],
 ): Promise<void> {
 	if (entries.length === 0) return;
 	// The CURRENT committed state — reflects any concurrent peer's committed
@@ -650,6 +705,20 @@ async function compensate(
 				`[applyBlueprintChange] compensation failed for caseType=${caseType}`,
 				compensateErr,
 				{ appId },
+			);
+		}
+	}
+	// Un-park LAST — every touched type's schema is back at the current
+	// committed state above, so each restored value lands under a
+	// declaration it was valid for (the `unparkValues` caller contract).
+	if (parkedIds.length > 0) {
+		try {
+			await store.unparkValues({ appId, ids: parkedIds });
+		} catch (unparkErr) {
+			log.error(
+				"[applyBlueprintChange] un-park failed during compensation — the values remain recoverable in parked_case_values",
+				unparkErr,
+				{ appId, parkedCount: parkedIds.length },
 			);
 		}
 	}

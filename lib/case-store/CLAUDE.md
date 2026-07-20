@@ -11,7 +11,7 @@ External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / 
 
 **The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included (the compiler's casts stay in lockstep with the type checker), implicit standard entries excluded (their values live in scalar columns, never the JSONB document — a map entry would compile a standard-name reference to a silently-NULL JSONB read, and on the schema-write side would put `format` constraints + a GIN index per text-typed standard name on every case type). Standard-name references resolve instead through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the name→column map mirroring CCHQ's own field-alias table (`commcare-hq/.../app_manager/detail_screen.py`: `name`→`case_name`, `date_opened`/`date-opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`/`external-id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-null`/`is-blank` arms (timestamp columns collapse `is-blank` to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays. The alias shadows any same-named JSONB key, exactly as the device shadows it.
 
-**Schema drift after a derivation change is a scan-then-migrate.** Stored `case_type_schemas` rows converge to the CURRENT derivation only when an edit touches their case type — `classifyCaseTypeChanges` diffs prior-vs-prospective views that both already carry the new derivation, so a deploy that changes what schemas derive FROM leaves stored rows stale until `scripts/scan-schema-drift.ts` (read-only sizing) + `scripts/migrate-schema-drift.ts --execute` (per-property `retype` migrations with quarantine, then a plain re-sync per case type) run over the old data.
+**Schema drift after a derivation change is a scan-then-migrate.** Stored `case_type_schemas` rows converge to the CURRENT derivation only when an edit touches their case type — `classifyCaseTypeChanges` diffs prior-vs-prospective views that both already carry the new derivation, so a deploy that changes what schemas derive FROM leaves stored rows stale until `scripts/scan-schema-drift.ts` (read-only sizing) + `scripts/migrate-schema-drift.ts --execute` (per-property `retype` migrations — uncastable values park — then a plain re-sync per case type) run over the old data.
 
 **One deliberate exception:** the connection layer's `getCaseStorePool()` (subpath `@/lib/case-store/postgres/connection`) is a runtime export the auth layer (`lib/auth.ts`, `lib/auth/db.ts`) imports so Better Auth runs on the SAME `pg.Pool` — one pool per instance is what keeps the connection budget (`enforceConnectionBudget`) intact. Do not route it through the barrel or "tidy" it back to tests-only; the pool-sharing the budget depends on is the reason it's exposed.
 
@@ -119,7 +119,10 @@ REGRESSION path — the saga's compensate after a failed
 blueprint commit — upholds the proof by INVERTING its rename's
 row migration first, so a value legitimately written under the
 briefly-live prospective schema travels back to a declared key
-instead of becoming an orphan the shed would eat. Shedding with
+instead of becoming an orphan the shed would eat (and it
+UN-PARKS what the forward applies set aside, LAST, once the
+restored schema again declares the keys those values were valid
+under — `unparkValues`). Shedding with
 the write is what keeps orphan-carrying rows writable instead of
 failing `additionalProperties` forever. Only the INHERITED half is
 shed — an unknown key in the caller's PATCH is still a validation
@@ -139,51 +142,70 @@ architecture.
    concurrent syncs of one type serialize), regenerate the JSON
    Schema via `caseTypeToJsonSchema`, and UPSERT into
    `case_type_schemas`.
-2. **String↔array shape reshape** — on every WINNING sync,
-   `detectShapeFlips` diffs the stored schema against the derived
-   one; a property whose JSON type flips between plain string and
-   array (the select single↔multi conversion — which reaches the
-   store as a plain additive sync) has its old-shape rows
-   rewritten in the same transaction: string scalar → one-element
-   array, array → space-joined string (XForms convention) into an
-   UNCONSTRAINED string target. Both rewrites are total AND
-   index-safe — no quarantine; every other transition (integer /
-   number → array against a live typed expression index, format-
-   carrying string targets) is deliberately not auto-rewritten
-   (rationale on `detectShapeFlips`; quarantine policy is the
-   derived-type-flip reconciliation feature's decision). Without
-   this step, a regenerated schema would strand every
-   pre-conversion row: merged-document write validation rejects
-   the old shape on the row's next write of ANY property. Row
-   writers serialize against the flip via the schema-row
+2. **Per-property transition detection** — on every WINNING sync,
+   `detectPropertyTransitions` diffs the stored schema against the
+   derived one and classifies every same-name property whose
+   validation semantics changed into two migration families, both
+   run in the SAME transaction as the schema write (so the schema
+   row and the row population can never disagree, whichever caller
+   synced — the saga, the drain-end materialize, the heal, the
+   compensate path, the drift scripts):
+
+   - **String↔array flips** (the select single↔multi conversion):
+     the TOTAL reshape — string scalar → one-element array, array →
+     space-joined string (XForms convention) into an UNCONSTRAINED
+     string target; a blank scalar's key drops instead of minting a
+     one-empty-string selection. No value can fail these.
+   - **Retypes** (everything else — a `format` keyword appearing or
+     changing, string→integer, array→date, numeric→array): each
+     row's value attempts `tryCastValue` into the new type; an
+     uncastable value PARKS (`parked_case_values`) with its key
+     dropped, and the row STAYS. Identity widenings
+     (temporal/geopoint→text, int→decimal) are skipped — every
+     stored value already conforms. A numeric-SOURCE retype first
+     drops the property's live `::integer`/`::numeric` expression
+     index inside the transaction (`dropStaleNumericIndexes`) —
+     writing an array through that stale cast would abort Phase A;
+     Phase B rebuilds the new type's index after commit.
+
+   Without this step, a regenerated schema would strand every
+   pre-transition row: merged-document write validation rejects
+   the old value on the row's next write of ANY property. Row
+   writers serialize against the transition via the schema-row
    `FOR SHARE` their in-transaction validation holds (contract on
    `getValidator`; uniform lock order: relationship advisory →
    schema row → `cases` rows), so no write validated against the
-   old schema can land after the reshape's scan.
+   old schema can land after the detection's scan.
 3. **Per-row migration** — only when `change` is supplied. The
    three arms are `rename(renames[])`, `retype(fromType, toType)`,
-   and `narrow-options(removedOptions)`. The retype / narrow-options
-   arms move cast / option-set failures to `cases_quarantine` with
-   the original value + failure reason. The rename arm applies ALL
-   its pairs SIMULTANEOUSLY per row (every destination reads the
-   row's pre-migration value), so same-batch chains, swaps, and
-   name-reuse (A→B while B→C) land every value at its true
-   destination; values cast into the DESTINATION declaration's type
-   (a MERGE-rename adopts the surviving entry's type), a conflict
-   row keeps the destination's already-valid value, and a
-   blank/uncastable value DROPS with its old key (reported in
-   `failureReasons`) — never a whole-row quarantine, because a
-   rename is a first-class authoring gesture and vanishing a case
-   over one bad value is worse than shedding it loudly. The
-   `rename` change is synthesized by `classifyCaseTypeChanges` from
-   field-uuid evidence — no surface threads a hint — and the
-   guarded commit re-proves the pairs against the FRESH doc pair
-   in-transaction (`renameExpectations`), rejecting a batch whose
-   trailing prior migrated a different rename than the commit would
-   apply. Only a retype/narrow-options-targeted property is
-   excluded from step 2's detection (a rename's destinations still
-   reshape); the reshape reports on its own `reshaped` axis so one
-   row rewritten by both is never double-counted.
+   and `narrow-options(removedOptions)`. NO arm removes a row — a
+   value the new declaration cannot hold parks with its key
+   dropped, `parked_case_values` preserving the original + a
+   person-readable reason, and the row stays present and writable.
+   The retype arm shares the detection's cast engine (one property,
+   caller-named). Narrow-options parks the FULL original select
+   value while a multi-select keeps its surviving elements on the
+   row — a deliberate opt-in flush, since stored values outside the
+   current options are otherwise legitimate history. The rename arm
+   applies ALL its pairs SIMULTANEOUSLY per row (every destination
+   reads the row's pre-migration value), so same-batch chains,
+   swaps, and name-reuse (A→B while B→C) land every value at its
+   true destination; values cast into the DESTINATION declaration's
+   type (a MERGE-rename adopts the surviving entry's type), a
+   conflict row keeps the destination's already-valid value with
+   the displaced source value parked, and a blank value's key drops
+   silently (nothing to keep). The `rename` change is synthesized
+   by `classifyCaseTypeChanges` from field-uuid evidence — no
+   surface threads a hint — and the guarded commit re-proves the
+   pairs against the FRESH doc pair in-transaction
+   (`renameExpectations`), rejecting a batch whose trailing prior
+   migrated a different rename than the commit would apply. Only a
+   retype/narrow-options-targeted property is excluded from step
+   2's detection (a rename's keys are invisible or compose — see
+   `detectPropertyTransitions`); step 2 reports on its own
+   `reshaped` / `retyped` axes so one row rewritten by both steps
+   is never double-counted, and every park lands in the report's
+   `parkedIds` + `failureReasons`.
 
 Phase A commits when the steps succeed and rolls back atomically
 on failure. The schema row + data are always consistent.
@@ -243,16 +265,16 @@ its own conflict.
 ### Why two phases, not one transaction
 
 PostgreSQL's `CREATE INDEX` (non-`CONCURRENTLY`) heap-scans with
-`SnapshotAny` semantics, which includes recently-deleted but
-not-yet-vacuumed tuples. Inside the same transaction as Phase A's
-per-row migration, a retype that moves a non-castable row to
-`cases_quarantine` (DELETE from `cases` + INSERT into
-`cases_quarantine`) leaves a dead tuple in `cases`'s heap. A
-subsequent in-transaction `CREATE INDEX` over the new typed
-expression scans that dead tuple and fails the cast on its
-pre-migration value — the `text → int` retype's `"abc"`
-quarantined row trips `((properties->>'X')::integer)`, rolling
-back the transaction and defeating quarantine.
+`SnapshotAny` semantics, which includes dead but not-yet-vacuumed
+tuples. Inside the same transaction as Phase A's per-row
+migration, every row UPDATE (a cast rewrite, a park's key drop)
+leaves the row's PRE-migration version as a dead tuple in
+`cases`'s heap. A subsequent in-transaction `CREATE INDEX` over
+the new typed expression scans that dead tuple and fails the cast
+on its pre-migration value — the `text → int` retype's parked
+`"abc"` still exists as a dead tuple and trips
+`((properties->>'X')::integer)`, rolling back the transaction and
+defeating the migration.
 
 `CREATE INDEX CONCURRENTLY` uses MVCC snapshot semantics strict
 enough to ignore dead tuples and cannot run inside an outer

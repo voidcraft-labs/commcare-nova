@@ -26,7 +26,7 @@
  *      pair. The case-store runs the schema sync + per-row
  *      migration in one transaction; a value that cannot live
  *      under its destination declaration drops with the old key
- *      (reported, never a whole-row quarantine).
+ *      (parked + reported, never a row removal).
  *      (`SchemaChangeKind`'s other arms — `retype`,
  *      `narrow-options` — are never classifier-emitted; the drift
  *      scripts drive them against `applySchemaChange` directly.)

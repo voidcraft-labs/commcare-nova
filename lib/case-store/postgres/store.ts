@@ -1323,8 +1323,8 @@ export class PostgresCaseStore implements CaseStore {
 		});
 
 		// Phase B: per-property expression-index DDL. Runs against
-		// the post-commit state so quarantine deletes have committed
-		// and the heap scan sees clean rows. Failure leaves Phase A
+		// the post-commit state so the migration's row rewrites have
+		// committed and the heap scan sees clean rows. Failure leaves Phase A
 		// intact; the next call retries idempotently via the
 		// `indisvalid`-aware catalog diff.
 		//

@@ -91,18 +91,22 @@ export function isTransientDbError(error: unknown): boolean {
  * transient fault. The caller is responsible for swallowing the terminal throw
  * (both sites log + move on rather than fail the run).
  */
-export async function withTransientRetry(
-	attempt: () => Promise<unknown>,
-): Promise<void> {
+export async function withTransientRetry<T>(
+	attempt: () => Promise<T>,
+): Promise<T> {
+	let lastError: unknown;
 	for (let i = 1; i <= PER_TYPE_SYNC_ATTEMPTS; i++) {
 		try {
-			await attempt();
-			return;
+			return await attempt();
 		} catch (error) {
 			if (i >= PER_TYPE_SYNC_ATTEMPTS || !isTransientDbError(error)) {
 				throw error;
 			}
+			lastError = error;
 			await delay(RETRY_BACKOFF_MS * i);
 		}
 	}
+	// Unreachable — the final attempt either returned or threw above; the
+	// rethrow keeps the compiler's all-paths-return proof honest.
+	throw lastError;
 }

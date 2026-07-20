@@ -183,7 +183,7 @@ export async function materializeCaseStoreSchemas(
 	const caseTypeSchemas = buildCaseTypeMap(args.blueprint);
 	for (const caseType of caseTypes) {
 		try {
-			await withTransientRetry(() =>
+			const report = await withTransientRetry(() =>
 				store.applySchemaChange({
 					appId: args.appId,
 					caseType: caseType.name,
@@ -191,6 +191,19 @@ export async function materializeCaseStoreSchemas(
 					...(args.syncedSeq !== undefined && { syncedSeq: args.syncedSeq }),
 				}),
 			);
+			// This boundary has no user-facing response channel (it runs at
+			// drain end / heal), so a sync whose write-time detection SET
+			// VALUES ASIDE logs loudly — the values stay recoverable in
+			// `parked_case_values`, but a silent park here would otherwise
+			// be invisible until the review surface ships.
+			if (report.parkedIds.length > 0) {
+				log.warn("[materializeCaseStoreSchemas] sync parked case values", {
+					appId: args.appId,
+					caseType: caseType.name,
+					parked: report.parkedIds.length,
+					failureReasons: report.failureReasons,
+				});
+			}
 		} catch (error) {
 			// A deterministic fault (identifier collision, `CaseTypeNotInBlueprintError`)
 			// would fail identically on every heal — surface it so a build doesn't

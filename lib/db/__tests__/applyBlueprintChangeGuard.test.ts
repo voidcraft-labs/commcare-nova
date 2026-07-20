@@ -40,6 +40,7 @@ const { loadAppMock, loadAppProjectIdMock, commitGuardedBatchMock } =
 		commitGuardedBatchMock: vi.fn(),
 	}));
 
+const unparkValuesMock = vi.fn(async () => ({ restored: 0, kept: 0 }));
 const { applySchemaChangeMock, dropSchemaMock, withSchemaContextMock } =
 	vi.hoisted(() => ({
 		applySchemaChangeMock: vi.fn(),
@@ -177,9 +178,21 @@ beforeEach(() => {
 	reauthorizeActorForCommitMock.mockResolvedValue(undefined);
 	// Default: no prior dedup latch — the saga proceeds to the guarded commit.
 	latchRowMock.mockResolvedValue(undefined);
+	// Every sync returns the empty report by default — the saga aggregates
+	// `parkedIds` etc. off every return, so the mock must honor the
+	// `MigrationReport` contract; per-test overrides replace this.
+	applySchemaChangeMock.mockResolvedValue({
+		migrated: 0,
+		reshaped: 0,
+		retyped: 0,
+		skipped: 0,
+		parkedIds: [],
+		failureReasons: [],
+	});
 	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
 		dropSchema: dropSchemaMock,
+		unparkValues: unparkValuesMock,
 	});
 });
 
@@ -368,12 +381,25 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		// (the case-type-addition arm is gone; migration entries target an
 		// existing type).
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-		applySchemaChangeMock.mockResolvedValue({
-			migrated: 0,
-			quarantined: 0,
-			skipped: 0,
-			failureReasons: [],
-		});
+		// The forward apply PARKS one value (a merge-conflict discard); the
+		// compensation must un-park exactly that id after the re-sync.
+		applySchemaChangeMock
+			.mockResolvedValueOnce({
+				migrated: 1,
+				reshaped: 0,
+				retyped: 0,
+				skipped: 0,
+				parkedIds: ["park-entry-1"],
+				failureReasons: ["rename village→hamlet set aside a value"],
+			})
+			.mockResolvedValue({
+				migrated: 0,
+				reshaped: 0,
+				retyped: 0,
+				skipped: 0,
+				parkedIds: [],
+				failureReasons: [],
+			});
 		commitGuardedBatchMock.mockRejectedValue(
 			new BlueprintCommitRejectedError("rejected against the fresh doc"),
 		);
@@ -418,6 +444,17 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		expect(compensation).toMatchObject({ appId: "app-1", caseType: "patient" });
 		expect(compensation.change).toBeUndefined();
 		expect(dropSchemaMock).not.toHaveBeenCalled();
+		// The forward apply's parked value un-parks LAST — after the re-sync
+		// restored the schema state it was valid under.
+		expect(unparkValuesMock).toHaveBeenCalledTimes(1);
+		expect(unparkValuesMock).toHaveBeenCalledWith({
+			appId: "app-1",
+			ids: ["park-entry-1"],
+		});
+		const unparkOrder = unparkValuesMock.mock.invocationCallOrder[0] ?? 0;
+		const resyncOrder =
+			applySchemaChangeMock.mock.invocationCallOrder[2] ?? Number.MAX_VALUE;
+		expect(unparkOrder).toBeGreaterThan(resyncOrder);
 	});
 
 	it("compensates a migration entry whose forward apply THREW (Phase-A-committed-Phase-B-failed shape)", async () => {
@@ -439,7 +476,9 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			// Compensate's re-sync succeeds.
 			.mockResolvedValueOnce({
 				migrated: 0,
-				quarantined: 0,
+				reshaped: 0,
+				retyped: 0,
+				parkedIds: [],
 				skipped: 0,
 				failureReasons: [],
 			});
@@ -500,8 +539,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		});
 		applySchemaChangeMock.mockResolvedValue({
 			migrated: 0,
-			quarantined: 0,
+			reshaped: 0,
+			retyped: 0,
 			skipped: 0,
+			parkedIds: [],
 			failureReasons: [],
 		});
 
@@ -614,8 +655,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		});
 		applySchemaChangeMock.mockResolvedValue({
 			migrated: 0,
-			quarantined: 0,
+			reshaped: 0,
+			retyped: 0,
 			skipped: 0,
+			parkedIds: [],
 			failureReasons: [],
 		});
 
@@ -648,7 +691,14 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		});
 		applySchemaChangeMock.mockImplementation(async () => {
 			order.push("applySchemaChange");
-			return { migrated: 0, quarantined: 0, skipped: 0, failureReasons: [] };
+			return {
+				migrated: 0,
+				reshaped: 0,
+				retyped: 0,
+				skipped: 0,
+				parkedIds: [],
+				failureReasons: [],
+			};
 		});
 		commitGuardedBatchMock.mockImplementation(async () => {
 			order.push("commit");
@@ -708,8 +758,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		});
 		applySchemaChangeMock.mockResolvedValue({
 			migrated: 0,
-			quarantined: 0,
+			reshaped: 0,
+			retyped: 0,
 			skipped: 0,
+			parkedIds: [],
 			failureReasons: [],
 		});
 

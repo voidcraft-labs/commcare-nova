@@ -328,22 +328,20 @@ export type SchemaChangeKind =
  * both are set, because the coarse gate's whole-call no-op could
  * otherwise silently skip a migration's per-row work on a stale seq.
  *
- * Independent of `change`, EVERY winning sync also runs the
- * string↔array shape reshape: when a property's stored JSON type
- * flips between plain string and array against the newly-derived
- * schema (the select single↔multi conversion), existing rows are
- * rewritten in the same transaction as the schema write — a stored
- * string scalar lifts to a one-element array, an array space-joins
- * into an unconstrained string target. Both rewrites are total and
- * index-safe, so no quarantine; every other shape transition
- * (integer/number sources with live typed expression indexes,
- * format-carrying string targets) is deliberately not auto-rewritten
- * — scope rationale on the implementation's `detectShapeFlips`. This
- * is detection over stored state, not caller intent, so it composes
- * with the additive gate: a stale-seq no-op is safe because the
- * fresher writer ran the same detection against the same stored row
- * in its own transaction. Rows a `change` migration and the reshape
- * both rewrite report on separate axes (`migrated` / `reshaped`).
+ * Independent of `change`, EVERY winning sync also runs per-property
+ * transition detection over the stored↔derived schema diff: a
+ * string↔array flip (the select single↔multi conversion) takes the
+ * TOTAL reshape — a stored string scalar lifts to a one-element
+ * array, an array space-joins into an unconstrained string target —
+ * and every OTHER validation-semantics change (a `format` keyword,
+ * string→integer, array→date, numeric→array via an in-transaction
+ * stale-index pre-drop) takes the per-row cast whose uncastable
+ * values park. This is detection over stored state, not caller
+ * intent, so it composes with the additive gate: a stale-seq no-op
+ * is safe because the fresher writer ran the same detection against
+ * the same stored row in its own transaction. Rows a `change`
+ * migration and the detection rewrite report on separate axes
+ * (`migrated` / `reshaped` / `retyped`).
  */
 export interface ApplySchemaChangeArgs {
 	appId: string;
@@ -426,14 +424,14 @@ export interface SchemaCaseStore {
 	 * `caseTypeSchemas` map, optionally running a per-row migration.
 	 *
 	 * Two-phase shape — Phase A is one Kysely transaction that
-	 * UPSERTs `case_type_schemas` and runs the optional per-row
-	 * migration (`rename` / `retype` / `narrow-options`); Phase B
-	 * runs after Phase A commits and emits the per-property
-	 * expression-index `CREATE INDEX CONCURRENTLY` /
-	 * `DROP INDEX CONCURRENTLY` diff. Phase B cannot share the
-	 * Phase A transaction because non-CONCURRENTLY index builds
-	 * scan dead tuples produced by per-row quarantine inserts +
-	 * deletes earlier in the same transaction, and CONCURRENTLY
+	 * UPSERTs `case_type_schemas`, runs the detected per-property
+	 * transitions, and runs the optional per-row migration
+	 * (`rename` / `retype` / `narrow-options`); Phase B runs after
+	 * Phase A commits and emits the per-property expression-index
+	 * `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` diff.
+	 * Phase B cannot share the Phase A transaction because
+	 * non-CONCURRENTLY index builds scan the dead pre-migration
+	 * tuples the per-row UPDATEs leave in the heap, and CONCURRENTLY
 	 * index builds reject any outer transaction.
 	 *
 	 * Phase B failure leaves the next call's diff to converge —

@@ -226,7 +226,7 @@ export function schemaForDataType(
 			// conversion into a row poisoner — a case holding yesterday's
 			// legal value fails validation on its next write of ANY property.
 			// Values outside the current options are legitimate history; the
-			// explicit `narrow-options` migration (quarantine) is the opt-in
+			// explicit `narrow-options` migration (which parks) is the opt-in
 			// path for callers that want them flushed.
 			return { type: "string" };
 		case "multi_select":
