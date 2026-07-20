@@ -1,11 +1,31 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { Ref } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AddFormMenu } from "@/components/builder/appTree/insertion/AddFormMenu";
 import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModulePopover";
 import type { FormType, Uuid } from "@/lib/domain";
+
+/** Let Base UI finish popup scroll-lock release and close transitions.
+ *  Both tests end on the click that closes the popover/menu; Base UI
+ *  schedules that teardown on the next macrotask + frames, which must
+ *  run inside the test or the async-leak gate pins the stray task. */
+async function settleBaseUiTransitions(): Promise<void> {
+	await act(async () => {
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => resolve()),
+		);
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => resolve()),
+		);
+	});
+}
+
+afterEach(async () => {
+	await settleBaseUiTransitions();
+});
 
 const mocks = vi.hoisted(() => ({
 	createCaseListModule: vi.fn(),
