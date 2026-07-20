@@ -168,10 +168,7 @@ export function FieldPicker({
 									No matching fields
 								</div>
 							</Autocomplete.Empty>
-							<Autocomplete.List
-								className="w-full max-h-48 overflow-y-auto"
-								style={{ scrollbarGutter: "auto" }}
-							>
+							<Autocomplete.List className="w-full max-h-48 overflow-y-auto">
 								<Autocomplete.Collection>
 									{(field: FieldEntry) => (
 										<Autocomplete.Item

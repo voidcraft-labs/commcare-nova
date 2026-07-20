@@ -5,7 +5,7 @@
  * like a glass edge.
  */
 export const POPOVER_GLASS =
-	"rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] border border-white/[0.06] shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] border border-white/[0.06] shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
 
 /* ── Base UI Menu shared styles ────────────────────────────────────────────
  * Glass/elevated surfaces live on the Positioner, not the Popup — Base UI's
@@ -17,7 +17,12 @@ export const POPOVER_GLASS =
  * These constants are the ONE definition of Nova's floating chrome: the
  * shadcn wrappers (`components/shadcn/{dropdown-menu,select,popover}.tsx`)
  * and the raw Base UI call sites both consume them, so the two layers cannot
- * drift apart visually. */
+ * drift apart visually.
+ *
+ * Every constant carries `nova-floating`: scroll containers inside a floating
+ * surface drop the app-wide reserved scrollbar gutter (`globals.css`) — these
+ * surfaces are self-sized, so a reserved gutter beside a short list reads as
+ * dead space right of the items. */
 
 /** Base classes shared by every menu item (normal, disabled, submenu trigger). */
 export const MENU_ITEM_BASE =
@@ -31,11 +36,11 @@ export const MENU_ITEM_DISABLED_CLS = `${MENU_ITEM_BASE} opacity-40 cursor-not-a
 
 /** Glass-surfaced positioner (L1) for primary menu panels. */
 export const MENU_POSITIONER_CLS =
-	"outline-none z-popover-top rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating outline-none z-popover-top rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
 
 /** Elevated positioner (L2) for submenus stacked above a glass parent. */
 export const MENU_SUBMENU_POSITIONER_CLS =
-	"outline-none z-popover-top rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
+	"nova-floating outline-none z-popover-top rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
 
 /** Popup animation — scale + fade entrance/exit via Base UI data attributes. */
 export const MENU_POPUP_CLS =
@@ -46,11 +51,11 @@ export const MENU_POPUP_CLS =
 
 /** Glass-surfaced positioner (L1) for primary popover panels. */
 export const POPOVER_POSITIONER_GLASS_CLS =
-	"outline-none z-popover rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
+	"nova-floating outline-none z-popover rounded-xl bg-[rgba(10,10,26,0.4)] backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.18),0_24px_48px_rgba(0,0,0,0.5)]";
 
 /** Elevated positioner (L2) for popovers stacked above a glass parent. */
 export const POPOVER_POSITIONER_ELEVATED_CLS =
-	"outline-none z-popover rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
+	"nova-floating outline-none z-popover rounded-xl bg-[rgba(16,16,36,0.95)] outline-[rgba(255,255,255,0.06)] outline-1 shadow-[inset_0_0_0_1px_rgba(200,200,255,0.15),0_16px_40px_rgba(0,0,0,0.6)]";
 
 /** Popup animation — scale + fade, same motion language as menus. */
 export const POPOVER_POPUP_CLS =

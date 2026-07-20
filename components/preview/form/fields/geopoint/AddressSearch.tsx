@@ -187,10 +187,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 										: "No matching places"}
 							</div>
 						</Autocomplete.Empty>
-						<Autocomplete.List
-							className="max-h-56 w-full overflow-y-auto"
-							style={{ scrollbarGutter: "auto" }}
-						>
+						<Autocomplete.List className="max-h-56 w-full overflow-y-auto">
 							<Autocomplete.Collection>
 								{(item: Suggestion) => (
 									<Autocomplete.Item
