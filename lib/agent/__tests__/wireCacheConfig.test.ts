@@ -170,10 +170,10 @@ describe("SA edit-turn Responses wire body", () => {
 		// On a markable item (a user message — assistant output_text has no
 		// breakpoint slot on this wire) …
 		expect(bp?.role).toBe("user");
-		// … and strictly before the two volatile trailing messages (the new
-		// user message, the app-state message), so the cached prefix it marks
-		// replays byte-identically next turn.
-		expect(bp?.index).toBeLessThan(input.length - 2);
+		// … the FINAL history user message: the item just before the
+		// app-state tail. The next turn replays it verbatim, so the entry it
+		// writes is the deepest prefix that turn can read.
+		expect(bp?.index).toBe(input.length - 2);
 
 		// The app-state summary is the very last input item.
 		const last = input[input.length - 1];

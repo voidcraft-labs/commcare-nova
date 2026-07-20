@@ -550,22 +550,28 @@ export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
  *
  * GPT-5.6's cache is breakpoint-based: implicit mode writes ONE automatic
  * entry on the latest message, so each turn's only entry covers the full
- * prompt including the volatile tail (the app-state message, the new user
- * message) — and the next turn, which diverges before that boundary, matches
- * nothing and reads zero. Implicit mode also HONORS explicit breakpoints, so
- * placing one marker at the deepest point that replays byte-identically next
- * turn gives every turn an entry the next turn can actually read.
+ * prompt including the volatile tail (the app-state message, the model's
+ * new response) — and the next turn, which diverges before that boundary,
+ * matches nothing and reads zero. Implicit mode also HONORS explicit
+ * breakpoints, so placing one marker at the deepest point that replays
+ * byte-identically next turn gives every turn an entry the next turn can
+ * actually read.
  *
- * Placement: the last USER message before the final user message, falling
- * back to the system message. The markable set is dictated by the Responses
- * wire (verified in `@ai-sdk/openai`'s input converter): only system/
- * developer messages, user-message text/file parts, and content-typed tool
- * outputs carry `prompt_cache_breakpoint` — assistant `output_text` items
- * and Nova's json-typed tool results have no slot for it, so a marker
- * placed there would silently vanish from the request. Walking back to the
- * previous user turn costs nothing real: everything after it (the prior
- * assistant response) re-bills anyway, because replayed history re-renders
- * that response differently than it streamed.
+ * Placement: the FINAL user message of the (pre-app-state) history — the
+ * deepest byte-stable point, because the next turn replays this turn's own
+ * user message verbatim and only the volatile tail follows it. Crucially,
+ * this makes the FIRST post of a thread markable: a lone opening message IS
+ * the final user message, so turn 1 writes a full prefix entry and turn 2
+ * reads it. (The previous before-the-last-user placement left a fresh
+ * thread's first TWO turns with nothing to read — live-measured on prod as
+ * four consecutive 0%-cached first steps across a fresh build + fresh edit
+ * thread.) The markable set is dictated by the Responses wire (verified in
+ * `@ai-sdk/openai`'s input converter): only system/developer messages,
+ * user-message text/file parts, and content-typed tool outputs carry
+ * `prompt_cache_breakpoint` — assistant `output_text` items and Nova's
+ * json-typed tool results have no slot for it, so a marker placed there
+ * would silently vanish from the request. A continuation prompt ending in
+ * assistant/tool messages therefore walks back to its nearest user message.
  *
  * Mechanics: the marker rides part-level `providerOptions` on the boundary
  * message's last text part. Returns a new array — the input and its
@@ -577,14 +583,8 @@ export function markStablePrefixBoundary(
 	const BREAKPOINT = {
 		openai: { promptCacheBreakpoint: { mode: "explicit" as const } },
 	};
-	const lastUserIdx = messages.findLastIndex((m) => m.role === "user");
-	// Walk backward from just before the last user message (or the array
-	// end when there is none) to the nearest message the wire can mark.
-	for (
-		let i = (lastUserIdx === -1 ? messages.length : lastUserIdx) - 1;
-		i >= 0;
-		i--
-	) {
+	// Walk backward from the end to the nearest message the wire can mark.
+	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i];
 		if (!msg) continue;
 		if (msg.role === "system") {
