@@ -478,7 +478,12 @@ export class GenerationContext implements ToolExecutionContext {
 			// undo batches exist only on the auto-save surface, which
 			// always rides the saga. Every other batch keeps the bare
 			// inline commit; the drain-end materialize covers its schema
-			// sync in one pass.
+			// sync in one pass — including a `convertField` batch, whose
+			// row migration needs no batch intent: the property KEY is
+			// stable across a retype, so the materialize sync's own
+			// stored↔derived schema diff (`detectPropertyTransitions` in
+			// the case store) proves and runs the cast there, no saga
+			// detour required.
 			if (
 				mutations.some(
 					(m) => m.kind === "renameField" || m.kind === "moveField",
