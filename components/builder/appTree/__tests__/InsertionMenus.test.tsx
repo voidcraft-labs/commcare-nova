@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Ref } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AddFormMenu } from "@/components/builder/appTree/insertion/AddFormMenu";
 import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModulePopover";
 import type { FormType, Uuid } from "@/lib/domain";
@@ -63,6 +63,17 @@ vi.mock("@/lib/routing/hooks", () => ({
 vi.mock("@/lib/session/hooks", () => ({
 	useCanEdit: () => true,
 }));
+
+afterEach(async () => {
+	// RTL's auto-registered cleanup would unmount AFTER this hook (afterEach
+	// hooks run last-registered-first), so unmount explicitly here and then
+	// drain Base UI's zero-delay scroll-lock release (`useScrollLock`'s
+	// `timeoutUnlock.start(0, …)` fires on popup unmount) before the async-
+	// leak gate samples pending timers. Under CPU load the timer otherwise
+	// survives the test and trips the gate.
+	cleanup();
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+});
 
 beforeEach(() => {
 	vi.clearAllMocks();
