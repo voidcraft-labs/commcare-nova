@@ -29,11 +29,11 @@
  *     lower-seq sync fully no-ops.
  *
  * The additive sweep carries no caller-intent migration and
- * nothing to compensate. (The store's own string↔array reshape may
- * still rewrite rows inside a sweep's sync — total, idempotent,
- * atomic with the schema write.) A sweep failure logs at `warn`
- * and returns success — it is idempotent and re-derivable via the
- * next save / the point-of-use heal.
+ * nothing to compensate (the store's own string↔array reshape may
+ * still rewrite rows inside the sync — see `applySchemaChange`). A
+ * sweep failure logs at `warn` and returns success — it is
+ * idempotent and re-derivable via the next save / the point-of-use
+ * heal.
  *
  * ## Saga shape
  *

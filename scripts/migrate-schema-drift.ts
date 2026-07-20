@@ -106,7 +106,10 @@ async function main() {
 					rowsQuarantined += report?.quarantined ?? 0;
 					console.log(
 						`    retyped ${r.property}: ${r.fromType} → ${r.toType} — ` +
-							`${report?.migrated ?? 0} migrated, ${report?.quarantined ?? 0} quarantined, ${report?.skipped ?? 0} skipped`,
+							`${report?.migrated ?? 0} migrated, ${report?.quarantined ?? 0} quarantined, ${report?.skipped ?? 0} skipped` +
+							((report?.reshaped ?? 0) > 0
+								? `, ${report?.reshaped} reshaped (string↔array flips on other properties of this type)`
+								: ""),
 					);
 					if (report && report.failureReasons.length > 0) {
 						for (const reason of report.failureReasons) {

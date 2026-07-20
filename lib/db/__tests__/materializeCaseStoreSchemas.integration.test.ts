@@ -214,6 +214,7 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 		const seqs: Array<number | undefined> = [];
 		const emptyReport = {
 			migrated: 0,
+			reshaped: 0,
 			quarantined: 0,
 			skipped: 0,
 			failureReasons: [],
@@ -265,6 +266,7 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 		let observed: { syncedSeq?: number; hasKey?: boolean } = {};
 		const emptyReport = {
 			migrated: 0,
+			reshaped: 0,
 			quarantined: 0,
 			skipped: 0,
 			failureReasons: [],
@@ -320,6 +322,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const failureReason = "deterministic identifier collision";
 		const emptyReport = {
 			migrated: 0,
+			reshaped: 0,
 			quarantined: 0,
 			skipped: 0,
 			failureReasons: [],
@@ -375,6 +378,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const calls: string[] = [];
 		const emptyReport = {
 			migrated: 0,
+			reshaped: 0,
 			quarantined: 0,
 			skipped: 0,
 			failureReasons: [],
@@ -443,6 +447,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		let attempts = 0;
 		const emptyReport = {
 			migrated: 0,
+			reshaped: 0,
 			quarantined: 0,
 			skipped: 0,
 			failureReasons: [],

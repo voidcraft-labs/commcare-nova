@@ -932,6 +932,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Additive path: zero rows touched, zero quarantined.
 			expect(report).toEqual({
 				migrated: 0,
+				reshaped: 0,
 				quarantined: 0,
 				skipped: 0,
 				failureReasons: [],
@@ -1131,8 +1132,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// and array. Every winning sync therefore diffs the stored
 		// schema against the derived one and rewrites old-shape rows in
 		// the same transaction — without it, every pre-conversion row
-		// failed the merged-document validation on its next write of
-		// ANY property.
+		// would fail the merged-document validation on its next write
+		// of ANY property.
 
 		it("applySchemaChange (additive) lifts scalar rows when a property flips single→multi select", async () => {
 			const store = await options.factory(TENANT_A);
@@ -1179,7 +1180,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([multiCaseType])),
 			});
-			expect(report.migrated).toBe(1);
+			expect(report.reshaped).toBe(1);
+			expect(report.migrated).toBe(0);
 			expect(report.quarantined).toBe(0);
 
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
@@ -1211,7 +1213,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([multiCaseType])),
 			});
-			expect(again.migrated).toBe(0);
+			expect(again.reshaped).toBe(0);
 		});
 
 		it("applySchemaChange (additive) space-joins array rows when a property flips multi→single select", async () => {
@@ -1250,7 +1252,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([singleCaseType])),
 			});
-			expect(report.migrated).toBe(1);
+			expect(report.reshaped).toBe(1);
 
 			// The XForms multi-value convention: space-joined.
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
@@ -1302,7 +1304,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([multiCaseType])),
 				syncedSeq: 3,
 			});
-			expect(report.migrated).toBe(0);
+			expect(report.reshaped).toBe(0);
 
 			// The coarse gate no-opped the WHOLE call: the row keeps its
 			// scalar, and the stored schema still validates scalars — a
@@ -1349,11 +1351,51 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([dateCaseType])),
 			});
-			expect(report.migrated).toBe(0);
+			expect(report.reshaped).toBe(0);
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			expect(rows[0]?.properties).toEqual({
 				visits: ["2026-01-01", "2026-02-01"],
 			});
+		});
+
+		it("an int→array flip is NOT reshaped — and the sync survives the live ::integer index", async () => {
+			const store = await options.factory(TENANT_A);
+			const intCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			// Phase B of this sync builds the btree expression index on
+			// ((properties->>'age')::integer).
+			await seedSchema(store, buildBlueprint([intCaseType]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: 30 }),
+				},
+			});
+
+			// The lift arm is scoped to stored STRING schemas: rewriting
+			// this row to ["30"] inside Phase A would be indexed through
+			// the still-live ::integer cast and abort the whole sync
+			// (Phase B reconciles indexes only after Phase A commits). The
+			// narrowed detection leaves the rows alone, so the sync itself
+			// must succeed.
+			const multiCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "multi_select" }],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([multiCaseType])),
+			});
+			expect(report.reshaped).toBe(0);
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ age: 30 });
 		});
 
 		it("a caller-intent retype of the flipped property is not double-counted by detection", async () => {
@@ -1397,6 +1439,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 			expect(report.migrated).toBe(1);
+			expect(report.reshaped).toBe(0);
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			expect(rows[0]?.properties).toEqual({ language: ["en"] });
 		});

@@ -32,14 +32,12 @@
  *   - Value-RESHAPING flips (`single_select` ↔ `multi_select`, whose
  *     stored values change between scalar string and JSONB array) get
  *     NO cascade — no peer carry, no re-declare. Stored rows are the
- *     case store's business: `applySchemaChange` detects the
- *     string↔array schema flip and rewrites old-shape rows in the
- *     same transaction as the schema write, so the flip the gate
+ *     case store's business (`applySchemaChange` reshapes them when a
+ *     property's schema flips string↔array), so the flip the gate
  *     admits (undeclared entry, single writer) lands with its data
- *     intact. The agreement gate still blocks the flip on declared or
- *     multi-writer properties because the escort work (peer carry +
- *     re-declare) is a separate feature, not because rows would
- *     strand.
+ *     intact; the gate still blocks it on declared/multi-writer
+ *     properties because the escort (peer carry + re-declare) is
+ *     separate work, not because rows would strand.
  *   - A conversion to `hidden` — whose writers the agreement rules
  *     exempt (`caseDataTypeForFieldKind` returns undefined) — converts
  *     ONLY the addressed field, and when it was the property's LAST

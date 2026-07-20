@@ -59,13 +59,11 @@
  *
  * Idempotent UPSERT over whatever the blueprint carries — this
  * boundary passes no `change`, so no caller-intent migration runs,
- * and nothing needs compensating on failure. (The store itself may
- * still rewrite rows inside the sync: `applySchemaChange` reshapes
- * string↔array-flipped values in the same transaction as the schema
- * write — total, idempotent, atomic with the UPSERT, so the
- * no-compensation story is unchanged.) The compensation surface
- * `applyBlueprintChange.ts` builds for awaited writes is irrelevant
- * here.
+ * and nothing needs compensating on failure (the store's own
+ * string↔array reshape may still rewrite rows inside the sync,
+ * atomically with the schema write — see `applySchemaChange`). The
+ * compensation surface `applyBlueprintChange.ts` builds for awaited
+ * writes is irrelevant here.
  *
  * ## Failure handling — retry transient, swallow transient, THROW deterministic
  *

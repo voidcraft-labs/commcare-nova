@@ -515,11 +515,6 @@ export class PostgresCaseStore implements CaseStore {
 		row: CaseInsert;
 	}): Promise<{ caseId: string }> {
 		const propertiesObject = parseJsonbInput(args.row.properties);
-		await this.validateProperties({
-			appId: args.appId,
-			caseType: args.row.case_type,
-			properties: propertiesObject,
-		});
 
 		// `properties` re-stringifies because the `cases` table's JSONB
 		// insert side is a JSON string for pg's JSONB cast. The
@@ -539,6 +534,10 @@ export class PostgresCaseStore implements CaseStore {
 
 		// One transaction across cases + case_indices so a derived
 		// edge insert can't observe a partial cases-row commit.
+		// Validation runs INSIDE it — the schema `FOR SHARE` must hold
+		// until the row commits (the write-vs-sync contract on
+		// `getValidator`) — and AFTER the advisory block, keeping the
+		// uniform advisory → schema → rows lock order.
 		return await this.db.transaction().execute(async (trx) => {
 			if (
 				args.row.parent_case_id !== null &&
@@ -550,6 +549,12 @@ export class PostgresCaseStore implements CaseStore {
 					parentCaseId: args.row.parent_case_id,
 				});
 			}
+			await this.validateProperties({
+				appId: args.appId,
+				caseType: args.row.case_type,
+				properties: propertiesObject,
+				executor: trx,
+			});
 			const inserted = await trx
 				.insertInto("cases")
 				.values(insertRow)
@@ -1103,7 +1108,13 @@ export class PostgresCaseStore implements CaseStore {
 				existing !== undefined &&
 				args.syncedSeq < Number(existing.synced_seq)
 			) {
-				return { migrated: 0, quarantined: 0, skipped: 0, failureReasons: [] };
+				return {
+					migrated: 0,
+					reshaped: 0,
+					quarantined: 0,
+					skipped: 0,
+					failureReasons: [],
+				};
 			}
 		}
 
@@ -1120,8 +1131,14 @@ export class PostgresCaseStore implements CaseStore {
 			// property. `FOR UPDATE` serializes concurrent syncs of the same
 			// type, so a second syncer blocks here, then reads the winner's
 			// committed schema and detects no remaining flip — the reshape
-			// scan runs once per transition, not once per racer. An absent
-			// row locks nothing: first sync, nothing to reshape.
+			// scan runs once per transition, not once per racer. It also
+			// serializes ROW WRITERS: every insert/update holds this row
+			// `FOR SHARE` through `validateProperties` until its own commit
+			// (contract on `getValidator`), so a row validated against the
+			// old schema is committed — and visible to the reshape scan —
+			// before this lock is granted; none can slip between the scan
+			// and the schema flip. An absent row locks nothing: first sync,
+			// nothing to reshape.
 			const priorRow = await trx
 				.selectFrom("case_type_schemas")
 				.select("schema")
@@ -1168,19 +1185,20 @@ export class PostgresCaseStore implements CaseStore {
 			won = upserted !== undefined;
 
 			// Step 2: the stored↔desired shape reshape. When a property's
-			// stored JSON type flips between scalar and array (the select
-			// single↔multi conversion as seen from the store), every
-			// existing row is rewritten in the SAME transaction as the
-			// schema write — so the schema row and the row population can
-			// never disagree on this axis, whichever caller synced (the
-			// saga's sweep, the drain-end materialize, the point-of-use
-			// heal, the compensate path, the drift scripts). Without it,
-			// the regenerated schema stranded every pre-conversion row:
-			// the merged-document write validation rejected the old-shape
-			// value on the row's NEXT write of ANY property. Scoped to the
-			// TOTAL rewrites only (`detectShapeFlips`); a fine-gate loser
-			// skips it — the winner's schema is what's stored, and the
-			// winner ran its own detection.
+			// stored JSON type flips between plain string and array (the
+			// select single↔multi conversion as seen from the store),
+			// every existing row is rewritten in the SAME transaction as
+			// the schema write — so the schema row and the row population
+			// can never disagree on this axis, whichever caller synced
+			// (the saga's sweep, the drain-end materialize, the
+			// point-of-use heal, the compensate path, the drift scripts).
+			// Without it, a regenerated schema would strand every
+			// pre-conversion row: merged-document write validation
+			// rejects the old-shape value on the row's next write of ANY
+			// property. Scoped to the total-and-index-safe rewrites only
+			// (`detectShapeFlips`); a fine-gate loser skips it — the
+			// winner's schema is what's stored, and the winner ran its
+			// own detection.
 			let reshaped = 0;
 			if (won) {
 				const flips = detectShapeFlips(
@@ -1203,7 +1221,8 @@ export class PostgresCaseStore implements CaseStore {
 			// population doesn't need migrating.
 			if (args.change === undefined) {
 				return {
-					migrated: reshaped,
+					migrated: 0,
+					reshaped,
 					quarantined: 0,
 					skipped: 0,
 					failureReasons: [],
@@ -1227,13 +1246,13 @@ export class PostgresCaseStore implements CaseStore {
 				change: args.change,
 				schema,
 			});
-			// The reshape's rewrites fold into `migrated` — the report is
-			// "rows this call rewrote", whatever drove each rewrite. The
-			// migration's own property was excluded from detection, so no
-			// row is double-counted.
+			// The reshape reports on its OWN axis rather than folding into
+			// `migrated`: one physical row can be rewritten by both the
+			// reshape (a detected property) and the migration (the
+			// `change`-targeted property), so a sum would count it twice.
 			return {
 				...migration,
-				migrated: migration.migrated + reshaped,
+				reshaped,
 			};
 		});
 
@@ -1395,6 +1414,15 @@ export class PostgresCaseStore implements CaseStore {
 		const caseTypeName = args.caseType.name;
 		return await this.db.transaction().execute(async (trx) => {
 			await this.lockRelationshipWrites(trx, args.appId);
+			// Take the schema `FOR SHARE` BEFORE the row deletes below —
+			// the bulk insert's hoisted validator fetch would otherwise
+			// acquire it after this transaction already holds `cases` row
+			// locks, inverting the advisory → schema → rows order every
+			// other writer follows (a concurrent `applySchemaChange`
+			// holding the schema lock while its reshape waits on the
+			// deleted rows would deadlock-cycle). Also pre-warms the
+			// compiled-validator cache the bulk path reuses.
+			await this.getValidator(args.appId, caseTypeName, trx);
 			const resetCaseIds = () =>
 				trx
 					.selectFrom("cases as reset_cases")
@@ -1529,14 +1557,20 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Rewrite every row whose value for a flipped property still holds
-	 * the OLD shape (Phase A step 2). Row classification runs in
-	 * TypeScript, mirroring the retype arm; the writes flow through
-	 * `bulkUpdateProperties` — two round-trips regardless of row count.
-	 * Rows already in the target shape are untouched (no write, no
-	 * `modified_on` stamp), which is also what makes a re-detection of
-	 * the same transition a no-op. Both rewrite arms are TOTAL
-	 * (`tryCastValue` cannot fail for them — see `detectShapeFlips`),
-	 * so unlike the retype arm there is no quarantine path here.
+	 * the OLD shape (Phase A step 2). The SELECT carries a
+	 * `jsonb_typeof` filter per flip so only MISMATCHED rows leave
+	 * Postgres — conforming and property-less rows never load into
+	 * Node, bounding the scan's memory to the affected population
+	 * (which also keeps the schema-row lock window short on a large
+	 * case type). Final classification still runs in TypeScript,
+	 * mirroring the retype arm; the writes flow through
+	 * `bulkUpdateProperties` — two round-trips regardless of row
+	 * count. Rows already in the target shape are untouched (no
+	 * write, no `modified_on` stamp), which is also what makes a
+	 * re-detection of the same transition a no-op. Both rewrite arms
+	 * are TOTAL (`tryCastValue` cannot fail for them — see
+	 * `detectShapeFlips`), so unlike the retype arm there is no
+	 * quarantine path here.
 	 *
 	 * App-scoped, not tenant-scoped — the same rule as every per-row
 	 * migration: a schema change reshapes EVERY member's rows of the
@@ -1552,11 +1586,24 @@ export class PostgresCaseStore implements CaseStore {
 			flips: readonly ShapeFlip[];
 		},
 	): Promise<number> {
+		// `jsonb_typeof` of an ABSENT key is SQL NULL, so both arms'
+		// comparisons resolve unknown and the row is filtered — matching
+		// the loop's value-absent skip. JSON `null` values are likewise
+		// excluded on both arms.
 		const rows = await trx
 			.selectFrom("cases as c")
 			.select(["c.case_id", "c.properties"])
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
+			.where((eb) =>
+				eb.or(
+					args.flips.map((flip) =>
+						flip.toType === "multi_select"
+							? sql<boolean>`jsonb_typeof(c.properties->${sql.lit(flip.property)}) NOT IN ('array', 'null')`
+							: sql<boolean>`jsonb_typeof(c.properties->${sql.lit(flip.property)}) = 'array'`,
+					),
+				),
+			)
 			.execute();
 
 		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
@@ -1646,6 +1693,7 @@ export class PostgresCaseStore implements CaseStore {
 		const skipped = totalCount - migrated;
 		return {
 			migrated,
+			reshaped: 0,
 			quarantined: 0,
 			skipped,
 			failureReasons: [],
@@ -1726,6 +1774,7 @@ export class PostgresCaseStore implements CaseStore {
 
 		return {
 			migrated: migratedRows.length,
+			reshaped: 0,
 			quarantined: quarantinedRows.length,
 			skipped,
 			failureReasons,
@@ -1785,6 +1834,7 @@ export class PostgresCaseStore implements CaseStore {
 
 		return {
 			migrated: 0,
+			reshaped: 0,
 			quarantined: quarantinedRows.length,
 			skipped,
 			failureReasons,
@@ -1875,24 +1925,24 @@ export class PostgresCaseStore implements CaseStore {
 	 * Validate a candidate `properties` payload against the case
 	 * type's JSON Schema. Throws on failure; returns on success.
 	 *
-	 * `executor` selects the connection for the schema read. Call
-	 * sites already inside a Kysely transaction MUST pass the
-	 * transaction handle. Without that thread-through, a `pg.Pool`
-	 * with `max: 1` (the per-test harness's size) deadlocks because
-	 * the pool's only connection is held by the in-flight
-	 * transaction. The shape is structural even at larger pool
-	 * sizes; sharing the executor is the fix.
+	 * `executor` is the caller's WRITING transaction — required, not
+	 * optional, for two structural reasons: the schema read's
+	 * `FOR SHARE` must hold until the write commits (the write-vs-sync
+	 * serialization contract on `getValidator`), and a `pg.Pool` with
+	 * `max: 1` (the per-test harness's size) deadlocks if the read
+	 * runs off-transaction while the pool's only connection is held
+	 * by the in-flight transaction.
 	 */
 	private async validateProperties(args: {
 		appId: string;
 		caseType: string;
 		properties: Record<string, unknown>;
-		executor?: Kysely<Database> | Transaction<Database>;
+		executor: Transaction<Database>;
 	}): Promise<void> {
 		const validator = await this.getValidator(
 			args.appId,
 			args.caseType,
-			args.executor ?? this.db,
+			args.executor,
 		);
 		const ok = validator(args.properties);
 		if (!ok) {
@@ -1916,22 +1966,41 @@ export class PostgresCaseStore implements CaseStore {
 	 * schema row update automatically invalidates the cache because
 	 * the JSON-stringified content changes.
 	 *
+	 * The read takes `FOR SHARE` on the schema row, held to the end
+	 * of the caller's WRITING transaction — the writer half of the
+	 * write-vs-sync serialization contract. `applySchemaChange` takes
+	 * the same row `FOR UPDATE` before its Phase-A reshape, so a row
+	 * write and a schema flip order strictly: a write that validated
+	 * against the OLD schema commits before the sync's reshape scan
+	 * runs (the scan sees its row), and a write that starts after the
+	 * sync holds the lock validates against the NEW schema. Without
+	 * the lock, a scalar row validated against the old schema could
+	 * commit after the reshape's scan — permanently stranded under
+	 * the flipped schema, with detection never firing again.
+	 *
+	 * Lock-ordering rule (deadlock-freedom): every transaction that
+	 * takes both acquires the relationship advisory lock
+	 * (`lockRelationshipWrites`) BEFORE this schema lock, and both
+	 * before any `cases` row locks. The executor is therefore
+	 * REQUIRED to be the caller's transaction — on a bare connection
+	 * the lock would release at statement end and the contract above
+	 * silently would not hold.
+	 *
 	 * Throws `SchemaNotSyncedError` when no schema row exists; the
 	 * blueprint mutator must run `applySchemaChange` first so the
 	 * row is materialized before any write reaches this validator.
-	 * `executor` shares the transaction (see `validateProperties`
-	 * for the deadlock rationale).
 	 */
 	private async getValidator(
 		appId: string,
 		caseType: string,
-		executor: Kysely<Database> | Transaction<Database>,
+		executor: Transaction<Database>,
 	): Promise<ValidateFunction<unknown>> {
 		const row = await executor
 			.selectFrom("case_type_schemas")
 			.select("schema")
 			.where("app_id", "=", appId)
 			.where("case_type", "=", caseType)
+			.forShare()
 			.executeTakeFirst();
 		if (row === undefined) {
 			throw new SchemaNotSyncedError(appId, caseType);
@@ -2106,12 +2175,18 @@ interface ShapeFlip {
 
 /**
  * Diff the stored schema document against the newly-derived one and
- * name every property whose value SHAPE flips between scalar and
- * array — the select single↔multi conversion as the case store sees
- * it. Only the two TOTAL rewrites are reported:
+ * name every property whose value shape flips between plain string
+ * and array — the select single↔multi conversion as the case store
+ * sees it. Only the two TOTAL-and-index-safe rewrites are reported:
  *
- *   - anything → array: any stored scalar lifts to a one-element
- *     string array.
+ *   - STRING → array: the stored scalar string lifts to a one-element
+ *     string array. Deliberately NOT any-scalar → array: an
+ *     integer/number-typed stored schema has a live typed expression
+ *     index (`::integer` / `::numeric`) that Phase B reconciles only
+ *     AFTER Phase A commits — writing array values through that cast
+ *     inside Phase A would abort the whole transaction. A string
+ *     source has no cast-bearing index (`single_select` has none;
+ *     `text`'s trgm GIN reads `->>` uncast), so the lift is safe.
  *   - array → UNCONSTRAINED string: the stored array space-joins. A
  *     `format`- or `pattern`-carrying string target is excluded — the
  *     joined value could fail the constraint, and a failable rewrite
@@ -2123,7 +2198,7 @@ interface ShapeFlip {
  * Matching is same-name only: a rename is indistinguishable from
  * remove+add at this layer and never reports. A malformed or absent
  * stored schema yields no flips — detection fails open to "no
- * reshape", the behavior every sync had before detection existed.
+ * reshape", the behavior of a sync with nothing stored to diff.
  */
 function detectShapeFlips(
 	stored: unknown,
@@ -2142,7 +2217,7 @@ function detectShapeFlips(
 		if (typeof storedProp !== "object" || storedProp === null) continue;
 		const storedType = (storedProp as { type?: unknown }).type;
 		if (typeof storedType !== "string") continue;
-		if (nextProp.type === "array" && storedType !== "array") {
+		if (nextProp.type === "array" && storedType === "string") {
 			flips.push({ property: name, toType: "multi_select" });
 		} else if (
 			storedType === "array" &&
