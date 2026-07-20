@@ -24,6 +24,7 @@
 
 import {
 	type CaseProperty,
+	type CasePropertyDataType,
 	type CaseType,
 	casePropertyDataTypes,
 } from "@/lib/domain";
@@ -184,7 +185,21 @@ export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
  * without an explicit type is text.
  */
 function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
-	switch (prop.data_type) {
+	return schemaForDataType(prop.data_type);
+}
+
+/**
+ * The one `data_type` → JSON-Schema-shape mapping. Exported for the
+ * case-store's cast-conformance check: `tryCastValue`'s contract is
+ * that an `ok` cast output validates under the destination property's
+ * schema, and it proves that by validating against EXACTLY these
+ * shapes — so a new constraint added here tightens the casts
+ * automatically instead of drifting.
+ */
+export function schemaForDataType(
+	dataType: CasePropertyDataType | undefined,
+): CaseTypePropertyJsonSchema {
+	switch (dataType) {
 		case undefined:
 		case "text":
 			return { type: "string" };
@@ -227,7 +242,7 @@ function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
 			// case to be wired through this generator before the project
 			// compiles. The runtime throw guards the same invariant for any
 			// payload that reaches via untyped boundaries.
-			const _exhaustive: never = prop.data_type;
+			const _exhaustive: never = dataType;
 			throw new Error(
 				unhandledKindMessage({
 					where: "caseTypeToJsonSchema",

@@ -52,12 +52,12 @@ export { compileTerm } from "./compileTerm";
 export type {
 	CaseIndexRelationship,
 	CaseIndicesTable,
-	CasesQuarantineTable,
 	CasesTable,
 	CaseTypeSchemasTable,
 	Database,
 	JsonObject,
 	JsonPrimitive,
 	JsonValue,
+	ParkedCaseValuesTable,
 } from "./database";
 export { POSTGRES_CAST_FOR_DATA_TYPE } from "./dataTypeTokens";

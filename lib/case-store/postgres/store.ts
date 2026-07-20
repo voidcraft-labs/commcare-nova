@@ -64,6 +64,7 @@ import {
 import {
 	type CaseTypeJsonSchema,
 	caseTypeToJsonSchema,
+	schemaForDataType,
 } from "@/lib/domain/predicate/jsonSchema";
 import type { RelationPath } from "@/lib/domain/predicate/types";
 import {
@@ -83,7 +84,6 @@ import {
 } from "../sql";
 import type {
 	CaseIndicesTable,
-	CasesQuarantineTable,
 	Database,
 	JsonObject,
 	JsonValue,
@@ -1128,8 +1128,9 @@ export class PostgresCaseStore implements CaseStore {
 				return {
 					migrated: 0,
 					reshaped: 0,
-					quarantined: 0,
+					retyped: 0,
 					skipped: 0,
+					parkedIds: [],
 					failureReasons: [],
 				};
 			}
@@ -1201,43 +1202,85 @@ export class PostgresCaseStore implements CaseStore {
 			// a suppressing WHERE, so it always returns a row (always a winner).
 			won = upserted !== undefined;
 
-			// Step 2: the stored↔desired shape reshape. When a property's
-			// stored JSON type flips between plain string and array (the
-			// select single↔multi conversion as seen from the store),
-			// every existing row is rewritten in the SAME transaction as
-			// the schema write — so the schema row and the row population
-			// can never disagree on this axis, whichever caller synced
-			// (the saga's sweep, the drain-end materialize, the
-			// point-of-use heal, the compensate path, the drift scripts).
-			// Without it, a regenerated schema would strand every
-			// pre-conversion row: merged-document write validation
-			// rejects the old-shape value on the row's next write of ANY
-			// property. Scoped to the total-and-index-safe rewrites only
-			// (`detectShapeFlips`); a fine-gate loser skips it — the
-			// winner's schema is what's stored, and the winner ran its
-			// own detection.
+			// Step 2: stored↔desired per-property transition detection. On
+			// every WINNING sync the stored schema diffs against the newly
+			// derived one and every same-name property whose validation
+			// semantics changed migrates in the SAME transaction as the
+			// schema write — so the schema row and the row population can
+			// never disagree, whichever caller synced (the saga's sweep,
+			// the drain-end materialize, the point-of-use heal, the
+			// compensate path, the drift scripts). Without it, a
+			// regenerated schema strands every pre-transition row:
+			// merged-document write validation rejects the old value on
+			// the row's next write of ANY property. Two families:
+			// string↔array flips take the TOTAL reshape; every other
+			// change (a `format` keyword, string→integer, array→date, …)
+			// takes the per-row cast whose uncastable values PARK. A
+			// fine-gate loser skips both — the winner's schema is what's
+			// stored, and the winner ran its own detection; a stale-seq
+			// no-op is equally safe because detection derives from the
+			// stored row itself.
 			let reshaped = 0;
+			let retyped = 0;
+			let detectedParkedIds: string[] = [];
+			let detectedFailureReasons: string[] = [];
 			if (won) {
-				// Exclude only a RETYPE/NARROW-targeted property from the
-				// reshape — those migrations rewrite the same key their
-				// caller named, and a double rewrite would double-count. A
-				// RENAME's destinations are deliberately NOT excluded: a
-				// same-batch select flip on a merge-rename destination
-				// must still reshape the rows the rename never visits
-				// (rows holding the destination key without any old key).
-				const flips = detectShapeFlips(
+				// Exclude only a RETYPE/NARROW-targeted property — those
+				// migrations rewrite the same key their caller named, and a
+				// double rewrite would double-count. A RENAME's keys are
+				// deliberately NOT excluded: its FROM keys are absent from
+				// the derived schema (invisible here), and a merge-rename
+				// DESTINATION whose own population changes type must still
+				// migrate the rows the rename never visits — this step runs
+				// first, and the rename arm's conflict rule then treats the
+				// freshly-cast destination value as the surviving one.
+				const transitions = detectPropertyTransitions(
 					priorRow?.schema,
 					schema,
 					args.change !== undefined && args.change.kind !== "rename"
 						? args.property
 						: undefined,
 				);
-				if (flips.length > 0) {
+				// A numeric-source transition writes non-numeric values (an
+				// array target) through the property's live `::integer` /
+				// `::numeric` expression index, which would abort the
+				// transaction — drop the stale index FIRST (plain in-txn
+				// DROP; Phase B recreates the new type's index after
+				// commit). The explicit `retype` arm shares the hazard.
+				const explicitRetype =
+					args.change !== undefined && args.change.kind === "retype"
+						? [
+								{
+									property: this.requireMigrationProperty(
+										args.property,
+										"retype",
+									),
+									fromType: args.change.fromType,
+									toType: args.change.toType,
+								},
+							]
+						: [];
+				await this.dropStaleNumericIndexes(trx, {
+					appId: args.appId,
+					caseType: args.caseType,
+					retypes: [...transitions.retypes, ...explicitRetype],
+				});
+				if (transitions.flips.length > 0) {
 					reshaped = await this.runShapeReshape(trx, {
 						appId: args.appId,
 						caseType: args.caseType,
-						flips,
+						flips: transitions.flips,
 					});
+				}
+				if (transitions.retypes.length > 0) {
+					const detected = await this.runRetypeMigrations(trx, {
+						appId: args.appId,
+						caseType: args.caseType,
+						retypes: transitions.retypes,
+					});
+					retyped = detected.migrated;
+					detectedParkedIds = detected.parkedIds;
+					detectedFailureReasons = detected.failureReasons;
 				}
 			}
 
@@ -1249,9 +1292,10 @@ export class PostgresCaseStore implements CaseStore {
 				return {
 					migrated: 0,
 					reshaped,
-					quarantined: 0,
+					retyped,
 					skipped: 0,
-					failureReasons: [],
+					parkedIds: detectedParkedIds,
+					failureReasons: detectedFailureReasons,
 				};
 			}
 			const migration = await this.runPerRowMigration(trx, {
@@ -1261,13 +1305,20 @@ export class PostgresCaseStore implements CaseStore {
 				change: args.change,
 				caseTypeDecl: caseType,
 			});
-			// The reshape reports on its OWN axis rather than folding into
-			// `migrated`: one physical row can be rewritten by both the
-			// reshape (a detected property) and the migration (the
-			// `change`-targeted property), so a sum would count it twice.
+			// Step 2's work reports on its OWN axes rather than folding
+			// into `migrated`: one physical row can be rewritten by both a
+			// detected transition and the `change`-targeted migration, so
+			// a sum would count it twice. Park ids and reasons concatenate
+			// — each names a distinct VALUE.
 			return {
 				...migration,
 				reshaped,
+				retyped,
+				parkedIds: [...detectedParkedIds, ...migration.parkedIds],
+				failureReasons: [
+					...detectedFailureReasons,
+					...migration.failureReasons,
+				],
 			};
 		});
 
@@ -1365,6 +1416,39 @@ export class PostgresCaseStore implements CaseStore {
 		}
 		for (const create of creates) {
 			await emitCreateIndex(this.db, create);
+		}
+	}
+
+	/**
+	 * Drop the live `::integer` / `::numeric` btree expression index of
+	 * every numeric-SOURCE retype before its rows rewrite (plain in-txn
+	 * `DROP INDEX` — brief `ACCESS EXCLUSIVE`, safe at preview scale).
+	 * A retype away from a numeric type writes values the stale cast
+	 * can't evaluate (an array target's `'["x"]'::integer`), which
+	 * would abort Phase A mid-migration; Phase B's catalog diff would
+	 * drop the index anyway, this just moves the drop ahead of the row
+	 * writes. Non-numeric sources have no cast-bearing index (`text`'s
+	 * trgm GIN and multi_select's jsonb GIN read uncast) and are
+	 * skipped.
+	 */
+	private async dropStaleNumericIndexes(
+		trx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseType: string;
+			retypes: ReadonlyArray<DetectedRetype>;
+		},
+	): Promise<void> {
+		for (const retype of args.retypes) {
+			if (retype.fromType !== "int" && retype.fromType !== "decimal") continue;
+			if (retype.toType === "int" || retype.toType === "decimal") continue;
+			const staleName = indexName(
+				args.appId,
+				args.caseType,
+				retype.property,
+				BTREE_SUFFIX_FOR_DATA_TYPE[retype.fromType],
+			);
+			await sql`DROP INDEX IF EXISTS ${sql.id(staleName)}`.execute(trx);
 		}
 	}
 
@@ -1530,10 +1614,9 @@ export class PostgresCaseStore implements CaseStore {
 	/**
 	 * Dispatch to the per-row migration matching the `change` shape.
 	 * Three arms: `rename(renames[])`, `retype(fromType, toType)`, and
-	 * `narrow-options(removedOptions)`. Retype / narrow-options cast /
-	 * option-set failures move to `cases_quarantine` with the original
-	 * value + failure reason; a rename's uncastable values drop with
-	 * their old key instead (contract on `runRenameMigration`).
+	 * `narrow-options(removedOptions)`. No arm removes a row — a value
+	 * the new declaration cannot hold PARKS (`parked_case_values`) with
+	 * its key dropped, and the row stays present and writable.
 	 */
 	private async runPerRowMigration(
 		trx: Transaction<Database>,
@@ -1566,12 +1649,16 @@ export class PostgresCaseStore implements CaseStore {
 				});
 			}
 			case "retype":
-				return await this.runRetypeMigration(trx, {
+				return await this.runRetypeMigrations(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					property: this.requireMigrationProperty(args.property, "retype"),
-					fromType: args.change.fromType,
-					toType: args.change.toType,
+					retypes: [
+						{
+							property: this.requireMigrationProperty(args.property, "retype"),
+							fromType: args.change.fromType,
+							toType: args.change.toType,
+						},
+					],
 				});
 			case "narrow-options":
 				return await this.runNarrowOptionsMigration(trx, {
@@ -1620,8 +1707,8 @@ export class PostgresCaseStore implements CaseStore {
 	 * write, no `modified_on` stamp), which is also what makes a
 	 * re-detection of the same transition a no-op. Both rewrite arms
 	 * are TOTAL (`tryCastValue` cannot fail for them — see
-	 * `detectShapeFlips`), so unlike the retype arm there is no
-	 * quarantine path here.
+	 * `detectPropertyTransitions`), so unlike the retype arms there
+	 * is no park path here.
 	 *
 	 * App-scoped, not tenant-scoped — the same rule as every per-row
 	 * migration: a schema change reshapes EVERY member's rows of the
@@ -1669,8 +1756,16 @@ export class PostgresCaseStore implements CaseStore {
 						? Array.isArray(value)
 						: !Array.isArray(value);
 				if (conforms) continue;
+				if (typeof value === "string" && value.trim() === "") {
+					// A blank scalar has no selection to lift — the key drops
+					// (absent ≡ nothing selected, the form-completion
+					// convention), keeping the flip total without minting a
+					// one-empty-string selection.
+					next = withoutKey(source, flip.property);
+					continue;
+				}
 				const cast = tryCastValue(value, flip.toType);
-				if (!cast.ok) continue; // unreachable — both arms are total
+				if (!cast.ok) continue; // unreachable — both arms are total for non-blank values
 				next = { ...source, [flip.property]: cast.value as JsonValue };
 			}
 			if (next !== undefined) {
@@ -1709,21 +1804,21 @@ export class PostgresCaseStore implements CaseStore {
 	 *   - Destination key already holds a non-null value that is NOT
 	 *     itself being renamed away (a merge-rename conflict): the
 	 *     destination value WINS — it already conforms to the
-	 *     surviving declaration — and the old key's value is dropped.
-	 *     Preferring the old value would overwrite schema-valid data
-	 *     with a value that may need a failable cast.
+	 *     surviving declaration — and the old key's displaced value
+	 *     PARKS. Preferring the old value would overwrite schema-valid
+	 *     data with a value that may need a failable cast.
 	 *   - Old key holds JSON `null` or a blank string: the key drops
-	 *     and nothing is written — there is no data to move, and the
-	 *     KEY must still go (merged-document validation rejects the
+	 *     and nothing parks — there is no data to keep, and the KEY
+	 *     must still go (merged-document validation rejects the
 	 *     undeclared key regardless of its value).
 	 *   - Otherwise: `tryCastValue` into the destination type; success
-	 *     writes the cast value under the new key, failure DROPS the
-	 *     value with the old key and records a `failureReasons` entry.
-	 *     Deliberately NOT the retype arm's whole-row quarantine: a
-	 *     rename is a first-class conversational/builder gesture, and
-	 *     making an entire case vanish from every list over one
-	 *     uncastable field value is worse than shedding that value
-	 *     loudly. The row stays present and writable.
+	 *     writes the cast value under the new key, failure PARKS the
+	 *     value with its old key dropped and records a
+	 *     `failureReasons` entry. Never a row removal: a rename is a
+	 *     first-class conversational/builder gesture, and making an
+	 *     entire case vanish from every list over one uncastable field
+	 *     value is worse than setting that value aside loudly. The row
+	 *     stays present and writable.
 	 */
 	private async runRenameMigration(
 		trx: Transaction<Database>,
@@ -1774,6 +1869,7 @@ export class PostgresCaseStore implements CaseStore {
 
 		const fromKeys = new Set(args.renames.map((pair) => pair.from));
 		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
+		const parks: ParkEntry[] = [];
 		const failureReasons: string[] = [];
 
 		for (const row of rows) {
@@ -1785,28 +1881,46 @@ export class PostgresCaseStore implements CaseStore {
 			for (const pair of args.renames) {
 				if (!Object.hasOwn(old, pair.from)) continue;
 				const value = old[pair.from];
+				if (
+					value === null ||
+					value === undefined ||
+					(typeof value === "string" && value.trim() === "")
+				) {
+					continue; // no data to keep — the key drop above suffices
+				}
 				const destination = old[pair.to];
 				if (
 					destination !== undefined &&
 					destination !== null &&
 					!fromKeys.has(pair.to)
 				) {
-					continue; // conflict — the destination's surviving value wins
-				}
-				if (
-					value === null ||
-					value === undefined ||
-					(typeof value === "string" && value.trim() === "")
-				) {
-					continue; // no data to move — the key drop above suffices
+					// Merge-rename conflict — the destination's surviving,
+					// already-conforming value wins; the displaced source
+					// value parks instead of silently vanishing.
+					const reason = `rename ${pair.from}→${pair.to} on case ${row.case_id} kept the destination's existing value; the '${pair.from}' value was set aside`;
+					parks.push({
+						caseId: row.case_id,
+						caseType: row.case_type,
+						property: pair.from,
+						value,
+						reason,
+					});
+					failureReasons.push(reason);
+					continue;
 				}
 				const cast = tryCastValue(value, pair.toType);
 				if (cast.ok) {
 					next[pair.to] = cast.value as JsonValue;
 				} else {
-					failureReasons.push(
-						`rename ${pair.from}→${pair.to} dropped a value on case ${row.case_id}: it cannot live under the destination's \`${pair.toType}\` declaration: ${cast.reason}`,
-					);
+					const reason = `rename ${pair.from}→${pair.to} set aside a value on case ${row.case_id}: it cannot live under the destination's \`${pair.toType}\` declaration: ${cast.reason}`;
+					parks.push({
+						caseId: row.case_id,
+						caseType: row.case_type,
+						property: pair.from,
+						value,
+						reason,
+					});
+					failureReasons.push(reason);
 				}
 			}
 			migratedRows.push({ caseId: row.case_id, newProperties: next });
@@ -1818,68 +1932,107 @@ export class PostgresCaseStore implements CaseStore {
 				rows: migratedRows,
 			});
 		}
+		const parkedIds = await this.bulkPark(trx, args.appId, parks);
 
 		return {
 			migrated: migratedRows.length,
 			reshaped: 0,
-			quarantined: 0,
+			retyped: 0,
 			skipped: totalCount - rows.length,
+			parkedIds,
 			failureReasons,
 		};
 	}
 
 	/**
-	 * Retype: cast each row's value; on success UPDATE in place, on
-	 * failure move to `cases_quarantine`. Classification runs in
-	 * TypeScript because the Postgres-side cast produces a
-	 * transaction-fatal exception on the first bad value, and
-	 * per-row quarantine needs per-row failure observation. The
-	 * writes then flow through bulk SQL — five round-trips total
+	 * Retype: cast each row's values into their properties' new
+	 * declarations — ALL entries in one row scan. A successful cast
+	 * rewrites the value in place; an uncastable value PARKS: its key
+	 * drops from the row (merged-document validation would reject it
+	 * under the new declaration) and a `parked_case_values` entry
+	 * preserves it. The row itself always stays. A JSON `null` or
+	 * blank-string value drops with its key silently — nothing to
+	 * keep, same rule as the rename arm.
+	 *
+	 * Classification runs in TypeScript because the Postgres-side cast
+	 * produces a transaction-fatal exception on the first bad value,
+	 * and per-value parking needs per-value failure observation. The
+	 * writes then flow through bulk SQL — constant round-trips
 	 * regardless of row count.
+	 *
+	 * Consumed by the write-time retype detection (possibly several
+	 * properties in one sync) and the explicit `retype` change arm
+	 * (exactly one).
 	 */
-	private async runRetypeMigration(
+	private async runRetypeMigrations(
 		trx: Transaction<Database>,
 		args: {
 			appId: string;
 			caseType: string;
-			property: string;
-			fromType: CasePropertyDataType;
-			toType: CasePropertyDataType;
+			retypes: ReadonlyArray<DetectedRetype>;
 		},
 	): Promise<MigrationReport> {
+		const totalRow = await trx
+			.selectFrom("cases as c")
+			.select((eb) => eb.fn.countAll<string>().as("total"))
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_type", "=", args.caseType)
+			.executeTakeFirstOrThrow();
+		const totalCount = Number(totalRow.total);
+
+		// Only rows holding at least one targeted key leave Postgres —
+		// `?` tests key presence, so key-less rows never load into Node.
 		const rows = await trx
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
+			.where((eb) =>
+				eb.or(
+					args.retypes.map(
+						(retype) =>
+							sql<boolean>`c.properties ? ${sql.lit(retype.property)}`,
+					),
+				),
+			)
 			.execute();
 
 		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
-		const quarantinedRows: { row: CaseRow; reason: string }[] = [];
-		let skipped = 0;
+		const parks: ParkEntry[] = [];
 		const failureReasons: string[] = [];
 
 		for (const row of rows) {
-			const propsRecord = row.properties;
-			const rawValue = propsRecord[args.property];
-			if (rawValue === undefined || rawValue === null) {
-				skipped++;
-				continue;
+			let next: JsonObject | undefined;
+			for (const retype of args.retypes) {
+				const source = next ?? row.properties;
+				if (!Object.hasOwn(source, retype.property)) continue;
+				const value = source[retype.property];
+				if (
+					value === null ||
+					value === undefined ||
+					(typeof value === "string" && value.trim() === "")
+				) {
+					next = withoutKey(source, retype.property);
+					continue;
+				}
+				const cast = tryCastValue(value, retype.toType);
+				if (cast.ok) {
+					next = { ...source, [retype.property]: cast.value as JsonValue };
+				} else {
+					const reason = `cast ${retype.fromType}→${retype.toType} failed for property '${retype.property}': ${cast.reason}`;
+					parks.push({
+						caseId: row.case_id,
+						caseType: row.case_type,
+						property: retype.property,
+						value,
+						reason,
+					});
+					failureReasons.push(reason);
+					next = withoutKey(source, retype.property);
+				}
 			}
-
-			const cast = tryCastValue(rawValue, args.toType);
-			if (cast.ok) {
-				migratedRows.push({
-					caseId: row.case_id,
-					newProperties: {
-						...propsRecord,
-						[args.property]: cast.value as JsonValue,
-					},
-				});
-			} else {
-				const reason = `cast ${args.fromType}→${args.toType} failed for property '${args.property}': ${cast.reason}`;
-				quarantinedRows.push({ row, reason });
-				failureReasons.push(reason);
+			if (next !== undefined) {
+				migratedRows.push({ caseId: row.case_id, newProperties: next });
 			}
 		}
 
@@ -1895,26 +2048,28 @@ export class PostgresCaseStore implements CaseStore {
 				rows: migratedRows,
 			});
 		}
-
-		if (quarantinedRows.length > 0) {
-			await this.bulkQuarantine(trx, args.appId, quarantinedRows);
-		}
+		const parkedIds = await this.bulkPark(trx, args.appId, parks);
 
 		return {
 			migrated: migratedRows.length,
 			reshaped: 0,
-			quarantined: quarantinedRows.length,
-			skipped,
+			retyped: 0,
+			skipped: totalCount - rows.length,
+			parkedIds,
 			failureReasons,
 		};
 	}
 
 	/**
-	 * Narrow-options: rows whose property value (or any multi-select
-	 * array element) is in the removed set move to quarantine. Multi-
-	 * select rows quarantine if ANY element is removed — partial
-	 * intersections still represent a row whose stored shape
-	 * contradicts the new schema. Three round-trips total.
+	 * Narrow-options: a select value matching the removed set PARKS.
+	 * A single-select's value parks whole and its key drops; a
+	 * multi-select keeps its SURVIVING elements in the row (the key
+	 * drops only when none survive) while the FULL original array
+	 * parks — the entry preserves the exact pre-flush selection, so a
+	 * restore is faithful rather than a merge puzzle. Deliberate
+	 * opt-in flush: stored values outside the current options are
+	 * otherwise legitimate history (see the `single_select` rationale
+	 * in the JSON Schema generator). Constant round-trips.
 	 */
 	private async runNarrowOptionsMigration(
 		trx: Transaction<Database>,
@@ -1933,7 +2088,8 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.case_type", "=", args.caseType)
 			.execute();
 
-		const quarantinedRows: { row: CaseRow; reason: string }[] = [];
+		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
+		const parks: ParkEntry[] = [];
 		let skipped = 0;
 		const failureReasons: string[] = [];
 
@@ -1951,20 +2107,45 @@ export class PostgresCaseStore implements CaseStore {
 				continue;
 			}
 
-			const reason = `option '${conflict}' removed from property '${args.property}'`;
-			quarantinedRows.push({ row, reason });
+			const reason = `option '${conflict}' removed from property '${args.property}'; case ${row.case_id}'s value was set aside`;
+			parks.push({
+				caseId: row.case_id,
+				caseType: row.case_type,
+				property: args.property,
+				value: rawValue,
+				reason,
+			});
 			failureReasons.push(reason);
+
+			const survivors = Array.isArray(rawValue)
+				? rawValue.filter(
+						(element) =>
+							!(typeof element === "string" && removedSet.has(element)),
+					)
+				: [];
+			migratedRows.push({
+				caseId: row.case_id,
+				newProperties:
+					survivors.length > 0
+						? { ...propsRecord, [args.property]: survivors }
+						: withoutKey(propsRecord, args.property),
+			});
 		}
 
-		if (quarantinedRows.length > 0) {
-			await this.bulkQuarantine(trx, args.appId, quarantinedRows);
+		if (migratedRows.length > 0) {
+			await this.bulkUpdateProperties(trx, {
+				appId: args.appId,
+				rows: migratedRows,
+			});
 		}
+		const parkedIds = await this.bulkPark(trx, args.appId, parks);
 
 		return {
-			migrated: 0,
+			migrated: migratedRows.length,
 			reshaped: 0,
-			quarantined: quarantinedRows.length,
+			retyped: 0,
 			skipped,
+			parkedIds,
 			failureReasons,
 		};
 	}
@@ -2000,53 +2181,125 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Move a batch of rows to `cases_quarantine` and remove them
-	 * from `cases` + `case_indices`. Three bulk statements regardless
-	 * of row count. `quarantined_at` defaults server-side. `appId` is
+	 * Insert park entries — one per VALUE a migration could not carry
+	 * into its property's new declaration — and return their ids in
+	 * entry order. The rows the values came from are NOT touched here;
+	 * each caller drops the keys in its own row rewrite. `appId` is
 	 * passed explicitly rather than read off `entries[0]` so the
 	 * helper stays well-defined for empty inputs.
 	 */
-	private async bulkQuarantine(
+	private async bulkPark(
 		trx: Transaction<Database>,
 		appId: string,
-		entries: ReadonlyArray<{ row: CaseRow; reason: string }>,
-	): Promise<void> {
-		if (entries.length === 0) return;
-		const payloads: Insertable<CasesQuarantineTable>[] = entries.map(
-			({ row, reason }) => ({
-				case_id: row.case_id,
-				app_id: row.app_id,
-				case_type: row.case_type,
-				owner_id: row.owner_id,
-				status: row.status,
-				opened_on: row.opened_on,
-				modified_on: row.modified_on,
-				closed_on: row.closed_on,
-				case_name: row.case_name,
-				parent_case_id: row.parent_case_id,
-				properties: JSON.stringify(row.properties),
-				quarantine_reason: reason,
-			}),
-		);
-		const caseIds = entries.map((e) => e.row.case_id);
-
-		await trx.insertInto("cases_quarantine").values(payloads).execute();
-
-		await trx
-			.deleteFrom("case_indices")
-			.where("case_indices.case_id", "in", caseIds)
+		entries: ReadonlyArray<ParkEntry>,
+	): Promise<string[]> {
+		if (entries.length === 0) return [];
+		const inserted = await trx
+			.insertInto("parked_case_values")
+			.values(
+				entries.map((entry) => ({
+					app_id: appId,
+					case_id: entry.caseId,
+					case_type: entry.caseType,
+					property: entry.property,
+					original_value: JSON.stringify(entry.value),
+					reason: entry.reason,
+				})),
+			)
+			.returning("id")
 			.execute();
+		return inserted.map((row) => row.id);
+	}
 
-		// App-scoped DELETE, matching the per-row migration's app-scoped
-		// SELECT: the explicit `case_id IN` list already pins the exact
-		// rows, and `app_id` keeps it within the app's partition. No
-		// tenant filter — a schema change quarantines every member's bad
-		// rows, not just the actor's.
-		await trx
-			.deleteFrom("cases as c")
-			.where("c.case_id", "in", caseIds)
-			.where("c.app_id", "=", appId)
-			.execute();
+	/**
+	 * Write parked values back under their keys and delete the
+	 * restored entries — the cross-store saga's compensation half for
+	 * a failed blueprint commit (`parkedIds` off the forward apply's
+	 * `MigrationReport`). Caller contract: run this only AFTER the
+	 * schema state the values were valid under is back (compensation
+	 * re-applies the prior blueprint first), so the restored document
+	 * conforms without re-validation — migrations are the trusted
+	 * writer layer, same as `bulkUpdateProperties`. An entry whose key
+	 * meanwhile holds a real concurrent value is KEPT rather than
+	 * restored or deleted — lossless beats tidy; the review surface
+	 * settles it.
+	 */
+	async unparkValues(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+	}): Promise<{ restored: number; kept: number }> {
+		if (args.ids.length === 0) return { restored: 0, kept: 0 };
+		return await this.db.transaction().execute(async (trx) => {
+			const entries = await trx
+				.selectFrom("parked_case_values as p")
+				.selectAll("p")
+				.where("p.app_id", "=", args.appId)
+				.where("p.id", "in", [...args.ids])
+				.execute();
+			const rows = await trx
+				.selectFrom("cases as c")
+				.select(["c.case_id", "c.properties"])
+				.where("c.app_id", "=", args.appId)
+				.where(
+					"c.case_id",
+					"in",
+					entries.map((entry) => entry.case_id),
+				)
+				.execute();
+			const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
+
+			// Group per row so several restored properties on one case
+			// compose into a single rewrite.
+			const nextByCaseId = new Map<string, JsonObject>();
+			const restoredIds: string[] = [];
+			let kept = 0;
+			for (const entry of entries) {
+				const row = rowByCaseId.get(entry.case_id);
+				if (row === undefined) {
+					// The row vanished (cascade would have removed the entry
+					// with it inside one transaction, but the id list can span
+					// operations) — nothing to restore into.
+					kept++;
+					continue;
+				}
+				const current = nextByCaseId.get(entry.case_id) ?? row.properties;
+				if (
+					Object.hasOwn(current, entry.property) &&
+					current[entry.property] !== null &&
+					current[entry.property] !== ""
+				) {
+					// A concurrent writer landed a real value under the key
+					// after the park. Keep the entry rather than clobber the
+					// newer value or delete the older one — lossless beats
+					// tidy, and the review surface can settle it.
+					kept++;
+					continue;
+				}
+				nextByCaseId.set(entry.case_id, {
+					...current,
+					[entry.property]: entry.original_value,
+				});
+				restoredIds.push(entry.id);
+			}
+
+			if (nextByCaseId.size > 0) {
+				await this.bulkUpdateProperties(trx, {
+					appId: args.appId,
+					rows: [...nextByCaseId.entries()].map(([caseId, newProperties]) => ({
+						caseId,
+						newProperties,
+					})),
+				});
+			}
+			if (restoredIds.length > 0) {
+				await trx
+					.deleteFrom("parked_case_values")
+					.where("parked_case_values.app_id", "=", args.appId)
+					.where("parked_case_values.id", "in", restoredIds)
+					.execute();
+			}
+			return { restored: restoredIds.length, kept };
+		});
 	}
 
 	/**
@@ -2323,80 +2576,252 @@ interface ShapeFlip {
 }
 
 /**
- * Diff the stored schema document against the newly-derived one and
- * name every property whose value shape flips between plain string
- * and array — the select single↔multi conversion as the case store
- * sees it. Only the two TOTAL-and-index-safe rewrites are reported:
- *
- *   - STRING → array: the stored scalar string lifts to a one-element
- *     string array. Deliberately NOT any-scalar → array: an
- *     integer/number-typed stored schema has a live typed expression
- *     index (`::integer` / `::numeric`) that Phase B reconciles only
- *     AFTER Phase A commits — writing array values through that cast
- *     inside Phase A would abort the whole transaction. A string
- *     source has no cast-bearing index (`single_select` has none;
- *     `text`'s trgm GIN reads `->>` uncast), so the lift is safe.
- *   - array → UNCONSTRAINED string: the stored array space-joins. A
- *     `format`- or `pattern`-carrying string target is excluded — the
- *     joined value could fail the constraint, and a failable rewrite
- *     is quarantine-policy work (the derived-type-flip reconciliation
- *     feature), not this opportunistic reshape.
- *
- * `exclude` names the property a caller-intent `change` migration
- * already owns in the same call, so its rows aren't rewritten twice.
- * Matching is same-name only: a rename is indistinguishable from
- * remove+add at this layer and never reports. A malformed or absent
- * stored schema yields no flips — detection fails open to "no
- * reshape", the behavior of a sync with nothing stored to diff.
+ * One property whose stored values must CAST into a differently-typed
+ * declaration (the write-time retype detection). `fromType` is the
+ * stored schema's data-type reading (drives the stale-index pre-drop
+ * and the park reason); `toType` drives `tryCastValue`.
  */
-function detectShapeFlips(
+interface DetectedRetype {
+	property: string;
+	fromType: CasePropertyDataType;
+	toType: CasePropertyDataType;
+}
+
+/** The two per-property migration families a schema diff can name. */
+interface PropertyTransitions {
+	flips: ShapeFlip[];
+	retypes: DetectedRetype[];
+}
+
+/**
+ * Read a property-schema shape back to the `data_type` that emits it —
+ * the inverse of `schemaForDataType`, tolerant of the stored side's
+ * `unknown`. `text` and `single_select` collapse to one token (their
+ * schemas are byte-identical, so no migration can distinguish or need
+ * them); an unrecognized shape returns `undefined` and detection skips
+ * the property (fail open — the behavior of nothing stored to diff).
+ */
+function dataTypeTokenOf(
+	propSchema: unknown,
+): CasePropertyDataType | undefined {
+	if (typeof propSchema !== "object" || propSchema === null) return undefined;
+	const { type, format, pattern } = propSchema as {
+		type?: unknown;
+		format?: unknown;
+		pattern?: unknown;
+	};
+	if (type === "integer") return "int";
+	if (type === "number") return "decimal";
+	if (type === "array") return "multi_select";
+	if (type !== "string") return undefined;
+	if (typeof pattern === "string") return "geopoint";
+	if (format === undefined) return "text";
+	if (format === "date") return "date";
+	if (format === "time") return "time";
+	if (format === "date-time") return "datetime";
+	return undefined;
+}
+
+/**
+ * A transition every stored value ALREADY satisfies — the destination
+ * schema is a superset of the source's, so rows need no rewrite and
+ * detection skips it: every temporal/geopoint value is a plain string,
+ * and every int4 integer is a number.
+ */
+function castIsIdentityWidening(
+	fromType: CasePropertyDataType,
+	toType: CasePropertyDataType,
+): boolean {
+	if (toType === "text") {
+		return (
+			fromType === "date" ||
+			fromType === "time" ||
+			fromType === "datetime" ||
+			fromType === "geopoint"
+		);
+	}
+	return fromType === "int" && toType === "decimal";
+}
+
+/**
+ * Diff the stored schema document against the newly-derived one and
+ * classify every same-name property whose validation semantics
+ * changed into one of two migration families:
+ *
+ *   - `flips` — the TOTAL string↔array rewrites (the select
+ *     single↔multi conversion as the case store sees it): a stored
+ *     string lifts to a one-element array; a stored array space-joins
+ *     into an UNCONSTRAINED string target (the XForms convention). No
+ *     value can fail these.
+ *   - `retypes` — every other semantic change (a `format` keyword
+ *     appearing or changing, string→integer, array→date, …): each
+ *     row's value attempts `tryCastValue` into the new type and PARKS
+ *     when no faithful cast exists. An array target from a NUMERIC
+ *     source lands here rather than in `flips` because its rewrite
+ *     must first drop the source's live `::integer`/`::numeric`
+ *     expression index (`dropStaleNumericIndexes`) — writing an array
+ *     through that cast would abort Phase A.
+ *
+ * Identity WIDENINGS (temporal/geopoint→text, int→decimal) are
+ * skipped — every stored value already satisfies the destination
+ * schema, so a rewrite would only churn `modified_on`. `text` and
+ * `single_select` share one schema shape, so flips between them
+ * (and every same-shape sync) produce no transition at all.
+ *
+ * `exclude` names the property a caller-intent `retype` /
+ * `narrow-options` migration already owns in the same call, so its
+ * rows aren't rewritten twice. Matching is same-name only: a rename
+ * is indistinguishable from remove+add at this layer and never
+ * reports (the rename arm owns its keys — including casting values
+ * INTO its destinations — while a merge-rename destination's
+ * OWN-population type change still surfaces here as a retype, which
+ * runs before the rename arm and composes with its conflict rule). A
+ * malformed or absent stored schema yields no transitions — detection
+ * fails open to "nothing to migrate".
+ */
+function detectPropertyTransitions(
 	stored: unknown,
 	next: CaseTypeJsonSchema,
 	exclude: string | undefined,
-): ShapeFlip[] {
-	if (typeof stored !== "object" || stored === null) return [];
+): PropertyTransitions {
+	const none: PropertyTransitions = { flips: [], retypes: [] };
+	if (typeof stored !== "object" || stored === null) return none;
 	const storedProps = (stored as { properties?: unknown }).properties;
-	if (typeof storedProps !== "object" || storedProps === null) return [];
+	if (typeof storedProps !== "object" || storedProps === null) return none;
 	const storedByName = storedProps as Record<string, unknown>;
 
 	const flips: ShapeFlip[] = [];
+	const retypes: DetectedRetype[] = [];
 	for (const [name, nextProp] of Object.entries(next.properties)) {
 		if (name === exclude) continue;
-		const storedProp = storedByName[name];
-		if (typeof storedProp !== "object" || storedProp === null) continue;
-		const storedType = (storedProp as { type?: unknown }).type;
-		if (typeof storedType !== "string") continue;
-		if (nextProp.type === "array" && storedType === "string") {
+		const fromType = dataTypeTokenOf(storedByName[name]);
+		const toType = dataTypeTokenOf(nextProp);
+		if (fromType === undefined || toType === undefined) continue;
+		if (fromType === toType) continue;
+		if (castIsIdentityWidening(fromType, toType)) continue;
+		const fromIsString =
+			fromType !== "int" &&
+			fromType !== "decimal" &&
+			fromType !== "multi_select";
+		if (toType === "multi_select" && fromIsString) {
 			flips.push({ property: name, toType: "multi_select" });
-		} else if (
-			storedType === "array" &&
-			nextProp.type === "string" &&
-			nextProp.format === undefined &&
-			nextProp.pattern === undefined
-		) {
+		} else if (fromType === "multi_select" && toType === "text") {
 			flips.push({ property: name, toType: "single_select" });
+		} else {
+			retypes.push({ property: name, fromType, toType });
 		}
 	}
-	return flips;
+	return { flips, retypes };
 }
 
-/** Cast result for a retype migration's per-row attempt. */
+/** Cast result for a per-row migration's cast attempt. */
 type CastResult = { ok: true; value: unknown } | { ok: false; reason: string };
 
+/** One value a migration could not carry — becomes a `parked_case_values` row. */
+interface ParkEntry {
+	caseId: string;
+	caseType: string;
+	property: string;
+	value: JsonValue;
+	reason: string;
+}
+
+/** A shallow copy of `source` without `key` — the row-side half of a park/drop. */
+function withoutKey(source: JsonObject, key: string): JsonObject {
+	const { [key]: _dropped, ...rest } = source;
+	return rest;
+}
+
 /**
- * Try to cast a stored value to the new property data type during
- * a `retype` per-row migration. Failure cases surface a descriptive
- * `reason` that flows into `cases_quarantine.quarantine_reason`.
- * Exhaustive over `CasePropertyDataType`.
+ * Per-data-type conformance validators for cast outputs, compiled
+ * once from the SAME `schemaForDataType` shapes the row validator
+ * embeds. `tryCastValue`'s contract is that an `ok` value ALWAYS
+ * validates under the destination property's schema, and delegating
+ * the final check to ajv makes that structural — a keyword added to
+ * the schema generator tightens the casts automatically instead of
+ * drifting (the pre-conformance datetime arm accepted values the
+ * `format: "date-time"` keyword then rejected on the row's next
+ * write).
+ */
+const castConformance = (() => {
+	const ajv = new Ajv2020({ strict: false });
+	addFormats(ajv);
+	const cache = new Map<CasePropertyDataType, ValidateFunction<unknown>>();
+	return (dataType: CasePropertyDataType): ValidateFunction<unknown> => {
+		let validate = cache.get(dataType);
+		if (validate === undefined) {
+			validate = ajv.compile(schemaForDataType(dataType));
+			cache.set(dataType, validate);
+		}
+		return validate;
+	};
+})();
+
+/**
+ * Normalize a time-of-day fragment to `HH:MM:SS` plus an explicit
+ * offset. Strict `format: "time"` (RFC 3339 full-time) REQUIRES the
+ * offset; Nova authors no app timezone, so an offset-less value reads
+ * as UTC — the same stance the exact-day search helpers and the
+ * sample generator take. Fractional seconds drop (one canonical
+ * shape). Anything the padding can't make conformant is left for the
+ * conformance check to reject.
+ */
+function normalizeTimeOfDay(fragment: string): string {
+	const withoutFraction = fragment.replace(/\.\d+/, "");
+	const withSeconds = /^\d{2}:\d{2}$/.test(withoutFraction)
+		? `${withoutFraction}:00`
+		: withoutFraction;
+	return /(?:Z|[+-]\d{2}:\d{2})$/.test(withSeconds)
+		? withSeconds
+		: `${withSeconds}Z`;
+}
+
+/**
+ * Try to cast a stored value to a new property data type during a
+ * per-row migration (the write-time retype detection, the explicit
+ * `retype` arm, and the rename arm's destination cast). Failure
+ * `reason`s flow into `parked_case_values.reason` and the report's
+ * `failureReasons`. Exhaustive over `CasePropertyDataType`.
+ *
+ * Two-stage: NORMALIZE into the type's canonical shape, then PROVE
+ * conformance against `schemaForDataType` via ajv — `ok` therefore
+ * guarantees the value survives the row's next merged-document
+ * validation. The temporal truncation/extension arms lean on a
+ * stored-data invariant: every write validates against the
+ * then-stored schema, so a stored temporal value is schema-canonical
+ * for its stored type (a datetime always looks like
+ * `YYYY-MM-DDTHH:MM:SS[.sss]Z|±hh:mm`).
  */
 function tryCastValue(
 	value: unknown,
 	toType: CasePropertyDataType,
 ): CastResult {
+	const candidate = normalizeValueForType(value, toType);
+	if (!candidate.ok) return candidate;
+	if (!castConformance(toType)(candidate.value)) {
+		return {
+			ok: false,
+			reason: `value ${JSON.stringify(value)} normalized to ${JSON.stringify(candidate.value)}, which the \`${toType}\` schema still rejects`,
+		};
+	}
+	return candidate;
+}
+
+/**
+ * The normalization half of `tryCastValue`: produce the destination
+ * type's canonical shape where a faithful transformation exists, or
+ * fail with the reason there is none. Deliberately does NOT prove
+ * conformance — `tryCastValue` runs the ajv check over every `ok`
+ * result, so garbage that merely LOOKS shaped (a `2026-13-40` date)
+ * still fails, with the schema as the single authority.
+ */
+function normalizeValueForType(
+	value: unknown,
+	toType: CasePropertyDataType,
+): CastResult {
 	// A multi-select value is a JSONB array of selected option values; its
 	// string projection is the XForms wire convention — space-separated —
-	// not JS's default comma join. Every string-target arm below (text,
-	// single_select, geopoint, and the parse attempts) reads this.
+	// not JS's default comma join. Every string-target arm below reads this.
 	const stringValue = Array.isArray(value)
 		? value.join(" ")
 		: typeof value === "string"
@@ -2406,23 +2831,24 @@ function tryCastValue(
 	switch (toType) {
 		case "text":
 		case "single_select":
-		case "geopoint":
-			// Geopoint admits any string here; deeper geopoint
-			// validation is the JSON Schema's job at re-insert.
 			return { ok: true, value: stringValue };
+		case "geopoint":
+			return { ok: true, value: stringValue.trim() };
 		case "int": {
 			const trimmed = stringValue.trim();
 			if (!/^-?\d+$/.test(trimmed)) {
 				return {
 					ok: false,
-					reason: `value ${JSON.stringify(stringValue)} is not an integer`,
+					reason: `value ${JSON.stringify(stringValue)} is not a whole number`,
 				};
 			}
+			// int4 range enforcement is the conformance check's job —
+			// `schemaForDataType` bounds the integer schema to int4.
 			return { ok: true, value: Number.parseInt(trimmed, 10) };
 		}
 		case "decimal": {
 			const trimmed = stringValue.trim();
-			const parsed = Number(trimmed);
+			const parsed = trimmed === "" ? Number.NaN : Number(trimmed);
 			if (!Number.isFinite(parsed)) {
 				return {
 					ok: false,
@@ -2431,37 +2857,65 @@ function tryCastValue(
 			}
 			return { ok: true, value: parsed };
 		}
-		case "date":
-			if (!/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
-				return {
-					ok: false,
-					reason: `value ${JSON.stringify(stringValue)} is not an ISO date (YYYY-MM-DD)`,
-				};
+		case "date": {
+			// A canonical datetime truncates to its calendar date — the
+			// date part IS what a datetime→date conversion asks to keep.
+			const trimmed = stringValue.trim();
+			return {
+				ok: true,
+				value: /^\d{4}-\d{2}-\d{2}T/.test(trimmed)
+					? trimmed.slice(0, 10)
+					: trimmed,
+			};
+		}
+		case "time": {
+			// A canonical datetime truncates to its time-of-day (an
+			// explicit offset survives the cut); a bare time pads to the
+			// offset-carrying canonical shape.
+			const trimmed = stringValue.trim();
+			const tIndex = trimmed.indexOf("T");
+			return {
+				ok: true,
+				value: normalizeTimeOfDay(
+					tIndex >= 0 ? trimmed.slice(tIndex + 1) : trimmed,
+				),
+			};
+		}
+		case "datetime": {
+			const trimmed = stringValue.trim();
+			if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+				// A bare date extends to midnight UTC — Nova authors no
+				// app timezone, so UTC is the codebase-wide reading of an
+				// offset-less temporal value.
+				return { ok: true, value: `${trimmed}T00:00:00.000Z` };
 			}
-			return { ok: true, value: stringValue };
-		case "time":
-			if (!/^\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(stringValue)) {
-				return {
-					ok: false,
-					reason: `value ${JSON.stringify(stringValue)} is not an ISO time`,
-				};
+			if (
+				/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(trimmed)
+			) {
+				// The offset-less `datetime-local` shape: pad seconds to
+				// the full RFC 3339 grammar and read the wall-clock as UTC.
+				const withSeconds = /T\d{2}:\d{2}$/.test(trimmed)
+					? `${trimmed}:00`
+					: trimmed;
+				return { ok: true, value: `${withSeconds}Z` };
 			}
-			return { ok: true, value: stringValue };
-		case "datetime":
-			if (Number.isNaN(Date.parse(stringValue))) {
-				return {
-					ok: false,
-					reason: `value ${JSON.stringify(stringValue)} is not parseable as a datetime`,
-				};
-			}
-			return { ok: true, value: stringValue };
-		case "multi_select":
+			// Already canonical (or garbage) — conformance adjudicates.
+			return { ok: true, value: trimmed };
+		}
+		case "multi_select": {
 			if (Array.isArray(value)) {
-				return { ok: true, value };
+				return { ok: true, value: value.map(String) };
+			}
+			if (stringValue.trim() === "") {
+				return {
+					ok: false,
+					reason: "a blank value has nothing to carry into a selection list",
+				};
 			}
 			// Scalar → one-element array (the lift used when retyping
 			// any scalar data type to multi_select).
 			return { ok: true, value: [stringValue] };
+		}
 		default: {
 			const _exhaustive: never = toType;
 			throw new Error(

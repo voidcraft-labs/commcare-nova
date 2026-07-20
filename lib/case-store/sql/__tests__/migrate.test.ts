@@ -54,7 +54,11 @@ describe("runCaseStoreMigrations", () => {
 		expect(await regclassExists(db, "public.cases")).toBe(true);
 		expect(await regclassExists(db, "public.case_indices")).toBe(true);
 		expect(await regclassExists(db, "public.case_type_schemas")).toBe(true);
-		expect(await regclassExists(db, "public.cases_quarantine")).toBe(true);
+		expect(await regclassExists(db, "public.parked_case_values")).toBe(true);
+		// The baseline's whole-row quarantine sink is created and then
+		// dropped by the park migration — the full chain must end
+		// without it.
+		expect(await regclassExists(db, "public.cases_quarantine")).toBe(false);
 		// `case_name` comes from the second migration — its presence proves both
 		// migrations ran, in order.
 		expect(await columnExists(db, "cases", "case_name")).toBe(true);
@@ -97,10 +101,10 @@ describe("runCaseStoreMigrations", () => {
 		await sql`ALTER TABLE "cases" DROP CONSTRAINT IF EXISTS "cases_case_name_check"`.execute(
 			db,
 		);
+		// (`cases_quarantine` needs no companion drop here — the park
+		// migration at the end of the chain removed the table, and the
+		// replay below re-creates + re-drops it along the way.)
 		await sql`ALTER TABLE "cases" DROP COLUMN "case_name"`.execute(db);
-		await sql`ALTER TABLE "cases_quarantine" DROP COLUMN IF EXISTS "case_name"`.execute(
-			db,
-		);
 		expect(await columnExists(db, "cases", "case_name")).toBe(false);
 
 		await expect(runCaseStoreMigrations(db)).resolves.toBeUndefined();

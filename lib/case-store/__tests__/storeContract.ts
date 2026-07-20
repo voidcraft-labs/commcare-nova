@@ -930,12 +930,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
 			});
-			// Additive path: zero rows touched, zero quarantined.
+			// Additive path: zero rows touched, nothing parked.
 			expect(report).toEqual({
 				migrated: 0,
 				reshaped: 0,
-				quarantined: 0,
+				retyped: 0,
 				skipped: 0,
+				parkedIds: [],
 				failureReasons: [],
 			});
 
@@ -1018,7 +1019,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			// Two rows carried `age`; one didn't.
 			expect(report.migrated).toBe(2);
-			expect(report.quarantined).toBe(0);
+			expect(report.parkedIds).toEqual([]);
 			// Carol's row didn't carry `age`; the count reflects the
 			// actual unmatched-row population (one row skipped,
 			// neither migrated nor quarantined).
@@ -1053,7 +1054,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
 			});
 			expect(rerun.migrated).toBe(0);
-			expect(rerun.quarantined).toBe(0);
+			expect(rerun.parkedIds).toEqual([]);
 		});
 
 		it("applySchemaChange (rename) applies same-batch pairs simultaneously — a swap crosses cleanly", async () => {
@@ -1101,7 +1102,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 			expect(report.migrated).toBe(1);
-			expect(report.quarantined).toBe(0);
+			expect(report.parkedIds).toEqual([]);
 			expect(report.failureReasons).toEqual([]);
 
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
@@ -1115,10 +1116,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// A MERGE-rename: the destination name was already declared,
 			// so the surviving declaration (here `years: int`) can differ
 			// from the source's. Three behaviors under one migration:
-			// a destination value wins its conflict, a from-only value
-			// casts into the destination type, and an uncastable value
-			// DROPS with the old key (reported) — the row itself stays,
-			// never a whole-row quarantine.
+			// a destination value wins its conflict (the displaced source
+			// value PARKS), a from-only value casts into the destination
+			// type, and an uncastable value PARKS with the old key
+			// dropped (reported) — the row itself always stays.
 			const store = await options.factory(TENANT_A);
 			const mergedFrom: CaseType = {
 				name: "patient",
@@ -1140,8 +1141,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					properties: makeProperties({ age: "30" }),
 				},
 			});
-			// Conflict — the destination's already-valid value wins and
-			// the old key drops.
+			// Conflict — the destination's already-valid value wins; the
+			// displaced source value parks.
 			await store.insert({
 				appId: APP_ID,
 				row: {
@@ -1153,7 +1154,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 			// From-only, uncastable under the surviving `int` — the VALUE
-			// drops with the old key (reported); the row stays.
+			// parks with the old key dropped (reported); the row stays.
 			await store.insert({
 				appId: APP_ID,
 				row: {
@@ -1176,12 +1177,20 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				change: { kind: "rename", renames: [{ from: "age", to: "years" }] },
 			});
 			expect(report.migrated).toBe(3);
-			expect(report.quarantined).toBe(0);
+			// Two values parked: Bob's displaced "99" and Carol's
+			// uncastable "abc".
+			expect(report.parkedIds).toHaveLength(2);
 			expect(report.skipped).toBe(0);
-			expect(report.failureReasons).toHaveLength(1);
-			expect(report.failureReasons[0]).toContain("age");
-			expect(report.failureReasons[0]).toContain("years");
-			expect(report.failureReasons[0]).toContain("int");
+			expect(report.failureReasons).toHaveLength(2);
+			const uncastableReason = report.failureReasons.find((r) =>
+				r.includes("int"),
+			);
+			expect(uncastableReason).toContain("age");
+			expect(uncastableReason).toContain("years");
+			const conflictReason = report.failureReasons.find((r) =>
+				r.includes("kept the destination"),
+			);
+			expect(conflictReason).toContain("age→years");
 
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
@@ -1262,7 +1271,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(report.migrated).toBe(1);
 			expect(report.reshaped).toBe(1);
-			expect(report.quarantined).toBe(0);
+			expect(report.parkedIds).toEqual([]);
 			expect(report.failureReasons).toEqual([]);
 
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
@@ -1340,13 +1349,16 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// applySchemaChange — retype
 		// -----------------------------------------------------------
 
-		it("applySchemaChange (retype) quarantines rows that fail the cast", async () => {
+		it("applySchemaChange (retype) parks values that fail the cast — the row stays", async () => {
 			const store = await options.factory(TENANT_A);
 			// Initial schema: `age` is text. AJV will accept either
 			// numeric-looking and non-numeric strings on insert.
 			const initialCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: "Age", data_type: "text" },
+					{ name: "note", label: "Note", data_type: "text" },
+				],
 			};
 			const initialBlueprint = buildBlueprint([initialCaseType]);
 			await seedSchema(store, initialBlueprint, "patient");
@@ -1369,8 +1381,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					case_type: "patient",
 					case_name: DEFAULT_CASE_NAME,
 					status: "open",
-					// Not castable to int — moves to quarantine.
-					properties: makeProperties({ age: "abc" }),
+					// Not castable to int — the value parks, the row stays.
+					properties: makeProperties({ age: "abc", note: "keep me" }),
 				},
 			});
 
@@ -1379,7 +1391,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// a schema validating against integers.
 			const retypedCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "note", label: "Note", data_type: "text" },
+				],
 			};
 			const retypedBlueprint = buildBlueprint([retypedCaseType]);
 			const report = await store.applySchemaChange({
@@ -1393,8 +1408,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					toType: "int",
 				},
 			});
-			expect(report.migrated).toBe(1);
-			expect(report.quarantined).toBe(1);
+			// BOTH rows rewrite: Alice's value casts in place; Bob's
+			// uncastable value parks and his `age` key drops.
+			expect(report.migrated).toBe(2);
+			expect(report.parkedIds).toHaveLength(1);
 			expect(report.skipped).toBe(0);
 			expect(report.failureReasons).toHaveLength(1);
 			// The reason text names the cast direction + the property.
@@ -1402,15 +1419,63 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(report.failureReasons[0]).toContain("int");
 			expect(report.failureReasons[0]).toContain("age");
 
-			// Alice's row stays in `cases` with the value cast to a
-			// JS number; Bob's row is gone (moved to quarantine).
-			const survivors = await store.query({
+			// Alice's value is a JS number now; Bob's row STAYS with the
+			// parked key dropped and his other property intact.
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
 			});
-			expect(survivors).toHaveLength(1);
-			expect(survivors[0]?.case_id).toBe(PATIENT_ALICE_ID);
-			expect(survivors[0]?.properties).toEqual({ age: 30 });
+			const byId = new Map(rows.map((r) => [r.case_id, r]));
+			expect(rows).toHaveLength(2);
+			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({ age: 30 });
+			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({
+				note: "keep me",
+			});
+
+			// Bob's row is immediately WRITABLE under the new schema —
+			// the whole point of parking over whole-row quarantine.
+			await store.update({
+				appId: APP_ID,
+				caseId: PATIENT_BOB_ID,
+				patch: { properties: makeProperties({ note: "still editable" }) },
+			});
+			const afterWrite = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(
+				afterWrite.find((r) => r.case_id === PATIENT_BOB_ID)?.properties,
+			).toEqual({ note: "still editable" });
+
+			// The compensation flow: revert the schema to the ORIGINAL
+			// (text) blueprint — an additive sync whose write-time
+			// detection casts Alice's now-number value back to a string —
+			// and THEN un-park. The restored value is valid under the
+			// restored schema, exactly the saga's ordering contract.
+			const revert = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
+			});
+			expect(revert.retyped).toBe(1); // Alice's 30 → "30"
+			expect(revert.parkedIds).toEqual([]);
+			const unparked = await store.unparkValues({
+				appId: APP_ID,
+				ids: report.parkedIds,
+			});
+			expect(unparked).toEqual({ restored: 1, kept: 0 });
+			const restored = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			const byIdAfter = new Map(restored.map((r) => [r.case_id, r]));
+			expect(byIdAfter.get(PATIENT_ALICE_ID)?.properties).toEqual({
+				age: "30",
+			});
+			expect(byIdAfter.get(PATIENT_BOB_ID)?.properties).toEqual({
+				note: "still editable",
+				age: "abc",
+			});
 		});
 
 		// -----------------------------------------------------------
@@ -1473,7 +1538,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(report.reshaped).toBe(1);
 			expect(report.migrated).toBe(0);
-			expect(report.quarantined).toBe(0);
+			expect(report.parkedIds).toEqual([]);
 
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
@@ -1609,7 +1674,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 		});
 
-		it("an array→format-string flip is NOT auto-reshaped (failable rewrite)", async () => {
+		it("an array→format-string flip RETYPES: castable single values convert, the rest park", async () => {
 			const store = await options.factory(TENANT_A);
 			const multiCaseType: CaseType = {
 				name: "patient",
@@ -1625,14 +1690,27 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					case_type: "patient",
 					case_name: DEFAULT_CASE_NAME,
 					status: "open",
+					// Two selections space-join to a non-date — parks.
 					properties: makeProperties({ visits: ["2026-01-01", "2026-02-01"] }),
 				},
 			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					// A one-element date-shaped selection casts faithfully.
+					properties: makeProperties({ visits: ["2026-03-05"] }),
+				},
+			});
 
-			// The derived target is a `format: "date"` string — the joined
-			// value could fail the constraint, so the reshape deliberately
-			// leaves the rows alone (quarantine policy is the
-			// derived-type-flip reconciliation feature's decision).
+			// The derived target is a `format: "date"` string. Write-time
+			// detection classifies array→format-string as a RETYPE (the
+			// space-join can fail the constraint), so each row's value
+			// attempts the cast and parks when none exists — no row is
+			// ever left stranded under the regenerated schema.
 			const dateCaseType: CaseType = {
 				name: "patient",
 				properties: [{ name: "visits", label: "Visits", data_type: "date" }],
@@ -1643,13 +1721,17 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([dateCaseType])),
 			});
 			expect(report.reshaped).toBe(0);
+			expect(report.retyped).toBe(2);
+			expect(report.parkedIds).toHaveLength(1);
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
-			expect(rows[0]?.properties).toEqual({
-				visits: ["2026-01-01", "2026-02-01"],
+			const byId = new Map(rows.map((r) => [r.case_id, r]));
+			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({});
+			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({
+				visits: "2026-03-05",
 			});
 		});
 
-		it("an int→array flip is NOT reshaped — and the sync survives the live ::integer index", async () => {
+		it("an int→array flip RETYPES through the stale-index pre-drop — the sync survives and lifts", async () => {
 			const store = await options.factory(TENANT_A);
 			const intCaseType: CaseType = {
 				name: "patient",
@@ -1669,12 +1751,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			// The lift arm is scoped to stored STRING schemas: rewriting
-			// this row to ["30"] inside Phase A would be indexed through
-			// the still-live ::integer cast and abort the whole sync
-			// (Phase B reconciles indexes only after Phase A commits). The
-			// narrowed detection leaves the rows alone, so the sync itself
-			// must succeed.
+			// Writing ["30"] through the still-live ::integer expression
+			// index would abort Phase A — the numeric-source pre-drop
+			// (`dropStaleNumericIndexes`) removes that index inside the
+			// transaction first, so the lift lands and Phase B builds the
+			// array target's GIN afterward.
 			const multiCaseType: CaseType = {
 				name: "patient",
 				properties: [{ name: "age", label: "Age", data_type: "multi_select" }],
@@ -1685,8 +1766,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([multiCaseType])),
 			});
 			expect(report.reshaped).toBe(0);
+			expect(report.retyped).toBe(1);
+			expect(report.parkedIds).toEqual([]);
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
-			expect(rows[0]?.properties).toEqual({ age: 30 });
+			expect(rows[0]?.properties).toEqual({ age: ["30"] });
 		});
 
 		it("a caller-intent retype of the flipped property is not double-counted by detection", async () => {
@@ -1739,7 +1822,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// applySchemaChange — narrow-options
 		// -----------------------------------------------------------
 
-		it("applySchemaChange (narrow-options) quarantines rows with removed values", async () => {
+		it("applySchemaChange (narrow-options) parks removed values — multi keeps survivors, rows stay", async () => {
 			const store = await options.factory(TENANT_A);
 			const initialCaseType: CaseType = {
 				name: "patient",
@@ -1779,8 +1862,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			// Narrow `color` to drop `red`. Alice's row carries
-			// `red` and moves to quarantine; Bob's row stays.
+			// Narrow `color` to drop `red`. Alice's value parks and her
+			// key drops; Bob's row is untouched (skipped).
 			const narrowedCaseType: CaseType = {
 				name: "patient",
 				properties: [
@@ -1800,20 +1883,83 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				property: "color",
 				change: { kind: "narrow-options", removedOptions: ["red"] },
 			});
-			expect(report.quarantined).toBe(1);
+			expect(report.migrated).toBe(1);
+			expect(report.parkedIds).toHaveLength(1);
 			expect(report.skipped).toBe(1);
-			expect(report.failureReasons).toEqual([
+			expect(report.failureReasons).toHaveLength(1);
+			expect(report.failureReasons[0]).toContain(
 				"option 'red' removed from property 'color'",
-			]);
+			);
 
-			// Alice gone from `cases` (moved to quarantine); Bob
-			// remains.
-			const survivors = await store.query({
+			// BOTH rows remain; Alice's `color` key is gone.
+			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
 			});
-			expect(survivors).toHaveLength(1);
-			expect(survivors[0]?.case_id).toBe(PATIENT_BOB_ID);
+			const byId = new Map(rows.map((r) => [r.case_id, r]));
+			expect(rows).toHaveLength(2);
+			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({});
+			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({ color: "blue" });
+		});
+
+		it("applySchemaChange (narrow-options) keeps a multi-select's surviving elements while the full original parks", async () => {
+			const store = await options.factory(TENANT_A);
+			const initialCaseType: CaseType = {
+				name: "patient",
+				properties: [
+					{
+						name: "symptoms",
+						label: "Symptoms",
+						data_type: "multi_select",
+						options: [
+							{ value: "fever", label: "Fever" },
+							{ value: "cough", label: "Cough" },
+							{ value: "rash", label: "Rash" },
+						],
+					},
+				],
+			};
+			await seedSchema(store, buildBlueprint([initialCaseType]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ symptoms: ["fever", "rash"] }),
+				},
+			});
+
+			const narrowedCaseType: CaseType = {
+				name: "patient",
+				properties: [
+					{
+						name: "symptoms",
+						label: "Symptoms",
+						data_type: "multi_select",
+						options: [
+							{ value: "fever", label: "Fever" },
+							{ value: "cough", label: "Cough" },
+						],
+					},
+				],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([narrowedCaseType])),
+				property: "symptoms",
+				change: { kind: "narrow-options", removedOptions: ["rash"] },
+			});
+			expect(report.migrated).toBe(1);
+			expect(report.parkedIds).toHaveLength(1);
+
+			// The surviving element stays selected on the row; the FULL
+			// pre-flush selection is what parked, so a restore is
+			// faithful rather than a merge puzzle.
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ symptoms: ["fever"] });
 		});
 
 		// -----------------------------------------------------------

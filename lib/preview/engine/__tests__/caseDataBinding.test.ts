@@ -1711,6 +1711,7 @@ describe("readCaseData", () => {
 			},
 			applySchemaChange: (a) => store.applySchemaChange(a),
 			dropSchema: (a) => store.dropSchema(a),
+			unparkValues: (a) => store.unparkValues(a),
 			generateSampleData: (a) => store.generateSampleData(a),
 			resetSampleData: (a) => store.resetSampleData(a),
 		};
@@ -3024,6 +3025,7 @@ describe("submitFormAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3059,6 +3061,7 @@ describe("submitFormAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3128,6 +3131,7 @@ describe("loadCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3177,6 +3181,7 @@ describe("loadCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3259,6 +3264,7 @@ describe("loadCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3301,6 +3307,7 @@ describe("loadCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3342,6 +3349,7 @@ describe("loadCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3408,6 +3416,7 @@ describe("loadCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3485,6 +3494,7 @@ describe("loadCaseCountAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3565,6 +3575,7 @@ describe("resetSampleCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn().mockResolvedValueOnce({
 				deleted: SAMPLE_CASE_DEFAULT_COUNT,
@@ -3606,6 +3617,7 @@ describe("resetSampleCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi
 				.fn()
@@ -3654,6 +3666,7 @@ describe("resetSampleCasesAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			// Persistent rejection — the healed retry must throw again for
 			// the typed arm to surface.
@@ -3699,6 +3712,7 @@ describe("loadCaseDataAction session projection", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -4167,6 +4181,7 @@ describe("loadFilterPreviewAction", () => {
 			traverse: vi.fn(),
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;

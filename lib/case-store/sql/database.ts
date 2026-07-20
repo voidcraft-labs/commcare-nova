@@ -231,49 +231,38 @@ export interface CaseIndicesTable {
 }
 
 /**
- * Failed-migration sink. `applySchemaChange` writes here when a
- * blueprint mutation produces a value the new schema rejects; the
- * original row stays preserved verbatim for author-UI review.
+ * Per-property park — where a value lands when a per-row migration
+ * (the write-time retype detection, the explicit `retype` /
+ * `narrow-options` arms, a rename's discarded destination value)
+ * cannot carry it into the property's new declaration. The CASE ROW
+ * STAYS in `cases` — only the value moves here, and the row's key
+ * drops so merged-document validation keeps admitting the row.
+ * These entries are first-class user data awaiting the review /
+ * restore surface, never a debug sink.
  *
- * Composite PK `(case_id, quarantined_at)` admits the same case
- * being quarantined more than once across separate migrations.
- * The single-column PK `cases` uses would conflict on the second
- * quarantine.
- *
- * `case_name` is nullable here (unlike `cases`) because audit
- * rows have no CHECK — a row in quarantine is by definition one
- * whose live shape failed validation.
+ * `case_id` carries `ON DELETE CASCADE` off `cases`: entries die
+ * with their row (sample-data replace, case deletion), and
+ * re-tenanting needs no companion because the park carries no
+ * `project_id` — reads reach tenancy by joining through `cases`.
  */
-export interface CasesQuarantineTable {
-	/** NOT defaulted to `uuidv7()` — quarantine writes carry the original case_id. */
-	case_id: string;
+export interface ParkedCaseValuesTable {
+	/** Defaulted server-side via `uuidv7()`; application code omits on INSERT. */
+	id: ColumnType<string, string | undefined, never>;
 	app_id: string;
+	case_id: string;
 	case_type: string;
-	owner_id: string | null;
-	status: string | null;
-	opened_on: ColumnType<
-		Date | null,
-		Date | string | null,
-		Date | string | null
-	>;
-	modified_on: ColumnType<
-		Date | null,
-		Date | string | null,
-		Date | string | null
-	>;
-	closed_on: ColumnType<
-		Date | null,
-		Date | string | null,
-		Date | string | null
-	>;
-	case_name: string | null;
-	parent_case_id: string | null;
-	/** Captured verbatim at quarantine time (NOT normalized to the new schema). */
-	properties: JSONColumnType<JsonObject>;
-	/** E.g. `"cast text→int failed for property 'age': value 'abc' is not numeric"`. */
-	quarantine_reason: string;
+	property: string;
+	/**
+	 * The original value verbatim (NOT normalized to the new schema).
+	 * Scalar-or-array jsonb, so the manual `ColumnType` shape rather
+	 * than `JSONColumnType` (which requires an object payload);
+	 * writers stringify on INSERT exactly as the JSONB columns do.
+	 */
+	original_value: ColumnType<JsonValue, string, string>;
+	/** Person-readable — the same text the report's `failureReasons` carries. */
+	reason: string;
 	/** Defaulted server-side via `now()`; application code omits on INSERT. */
-	quarantined_at: ColumnType<Date, Date | string | undefined, Date | string>;
+	created_at: ColumnType<Date, Date | string | undefined, Date | string>;
 }
 
 /** Complete Kysely Database type. The runtime instance is constructed elsewhere. */
@@ -281,5 +270,5 @@ export interface Database {
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
 	case_indices: CaseIndicesTable;
-	cases_quarantine: CasesQuarantineTable;
+	parked_case_values: ParkedCaseValuesTable;
 }
