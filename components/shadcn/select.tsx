@@ -121,16 +121,9 @@ function SelectContent({
 				<SelectPrimitive.Popup
 					data-slot="select-content"
 					data-align-trigger={alignItemWithTrigger}
-					/* `[scrollbar-width:none]` + the webkit twin hide the popup's own
-					 * scrollbar: `overflow-y-auto` otherwise reserves a right-edge
-					 * gutter (~6px) even with nothing to scroll, which reads as dead
-					 * space to the right of a selected item's check on a short list.
-					 * Scrolling still works (wheel / keyboard / Base UI's scroll
-					 * arrows; the inner List already hides its own scrollbar), and the
-					 * item content lands symmetric to the popup's left/right edges. */
 					className={cn(
 						MENU_POPUP_CLS,
-						"relative max-h-(--available-height) w-(--anchor-width) min-w-[min(9rem,var(--available-width))] max-w-(--available-width) overflow-x-hidden overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden data-[align-trigger=true]:animate-none",
+						"relative max-h-(--available-height) w-(--anchor-width) min-w-[min(9rem,var(--available-width))] max-w-(--available-width) overflow-x-hidden overflow-y-auto data-[align-trigger=true]:animate-none",
 						className,
 					)}
 					{...props}
