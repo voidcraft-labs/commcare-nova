@@ -119,15 +119,41 @@ architecture.
 
 ### Phase A (one Kysely transaction)
 
-1. **Schema sync** — regenerate the JSON Schema via
-   `caseTypeToJsonSchema` and UPSERT into `case_type_schemas`.
-2. **Per-row migration** — only when `change` is supplied. The
+1. **Schema sync** — read the stored schema row (`FOR UPDATE`, so
+   concurrent syncs of one type serialize), regenerate the JSON
+   Schema via `caseTypeToJsonSchema`, and UPSERT into
+   `case_type_schemas`.
+2. **String↔array shape reshape** — on every WINNING sync,
+   `detectShapeFlips` diffs the stored schema against the derived
+   one; a property whose JSON type flips between plain string and
+   array (the select single↔multi conversion — which reaches the
+   store as a plain additive sync, no hint) has its old-shape rows
+   rewritten in the same transaction: string scalar → one-element
+   array, array → space-joined string (XForms convention) into an
+   UNCONSTRAINED string target. Both rewrites are total AND
+   index-safe — no quarantine; every other transition (integer /
+   number → array against a live typed expression index, format-
+   carrying string targets) is deliberately not auto-rewritten
+   (rationale on `detectShapeFlips`; quarantine policy is the
+   derived-type-flip reconciliation feature's decision). Without
+   this step, a regenerated schema would strand every
+   pre-conversion row: merged-document write validation rejects
+   the old shape on the row's next write of ANY property. Row
+   writers serialize against the flip via the schema-row
+   `FOR SHARE` their in-transaction validation holds (contract on
+   `getValidator`; uniform lock order: relationship advisory →
+   schema row → `cases` rows), so no write validated against the
+   old schema can land after the reshape's scan.
+3. **Per-row migration** — only when `change` is supplied. The
    three arms are `rename(from, to)`, `retype(fromType, toType)`,
    and `narrow-options(removedOptions)`. Cast / option-set
    failures move to `cases_quarantine` with the original value +
-   failure reason.
+   failure reason. The `change`-targeted property is excluded from
+   step 2's detection, and the reshape reports on its own
+   `reshaped` axis so one row rewritten by both is never
+   double-counted.
 
-Phase A commits when both steps succeed and rolls back atomically
+Phase A commits when the steps succeed and rolls back atomically
 on failure. The schema row + data are always consistent.
 
 ### The monotone `synced_seq` gate
@@ -156,9 +182,15 @@ edits converge instead of clobbering each other:
   correctness gate).
 
 `syncedSeq` is mutually exclusive with `change` — the additive gate
-carries a seq and no per-row migration; a migration runs pre-commit
-un-versioned. The implementation throws when both are set (so the
-whole-call no-op can never silently skip a migration's per-row work).
+carries a seq and no caller-intent migration; a migration runs
+pre-commit un-versioned. The implementation throws when both are set
+(so the whole-call no-op can never silently skip a migration's
+per-row work). The Phase-A shape reshape is exempt from that
+tension: it derives from the stored row itself, so a stale-seq
+no-op is safe — the fresher writer that advanced the row ran the
+same detection against the same stored state in its own
+transaction, and a fine-gate loser skips the reshape along with
+Phase B.
 
 Absent `syncedSeq` (the pre-multiplayer path and the migration
 saga's Postgres-first forward apply — which runs before its own
@@ -167,7 +199,7 @@ its own conflict.
 
 ### Phase B (no transaction; runs after Phase A commits)
 
-3. **Per-property expression-index DDL** — always runs. Computes
+4. **Per-property expression-index DDL** — always runs. Computes
    the desired index set from the blueprint's property
    declarations, reads the live index set from `pg_index` +
    `pg_class` (joined to capture `indisvalid`), and emits the

@@ -57,10 +57,13 @@
  *
  * ## Why no saga
  *
- * Idempotent UPSERT over whatever the blueprint carries — there is
- * no per-row migration here and nothing to compensate on failure.
- * The compensation surface `applyBlueprintChange.ts` builds for
- * awaited writes is irrelevant here.
+ * Idempotent UPSERT over whatever the blueprint carries — this
+ * boundary passes no `change`, so no caller-intent migration runs,
+ * and nothing needs compensating on failure (the store's own
+ * string↔array reshape may still rewrite rows inside the sync,
+ * atomically with the schema write — see `applySchemaChange`). The
+ * compensation surface `applyBlueprintChange.ts` builds for awaited
+ * writes is irrelevant here.
  *
  * ## Failure handling — retry transient, swallow transient, THROW deterministic
  *

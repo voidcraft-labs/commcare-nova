@@ -315,6 +315,23 @@ export type SchemaChangeKind =
  * carries a seq and no migration. The implementation throws when
  * both are set, because the coarse gate's whole-call no-op could
  * otherwise silently skip a migration's per-row work on a stale seq.
+ *
+ * Independent of `change`, EVERY winning sync also runs the
+ * string↔array shape reshape: when a property's stored JSON type
+ * flips between plain string and array against the newly-derived
+ * schema (the select single↔multi conversion), existing rows are
+ * rewritten in the same transaction as the schema write — a stored
+ * string scalar lifts to a one-element array, an array space-joins
+ * into an unconstrained string target. Both rewrites are total and
+ * index-safe, so no quarantine; every other shape transition
+ * (integer/number sources with live typed expression indexes,
+ * format-carrying string targets) is deliberately not auto-rewritten
+ * — scope rationale on the implementation's `detectShapeFlips`. This
+ * is detection over stored state, not caller intent, so it composes
+ * with the additive gate: a stale-seq no-op is safe because the
+ * fresher writer ran the same detection against the same stored row
+ * in its own transaction. Rows a `change` migration and the reshape
+ * both rewrite report on separate axes (`migrated` / `reshaped`).
  */
 export interface ApplySchemaChangeArgs {
 	appId: string;
@@ -326,16 +343,22 @@ export interface ApplySchemaChangeArgs {
 }
 
 /**
- * Per-row outcome from a `change`-driven migration. `migrated`
- * rows updated in place; `quarantined` rows moved to
- * `cases_quarantine`; `skipped` rows untouched (for `rename`, rows
- * lacking the `from` key; for the others, rows lacking the
- * targeted property). `failureReasons` carries the exact
- * `quarantine_reason` text per quarantined row in row-iteration
- * order — author-facing review UI reads these directly.
+ * Per-row outcome of a sync's row rewrites, reported on two
+ * separate axes because one physical row can be rewritten by both:
+ * `migrated` counts rows a `change`-driven migration updated in
+ * place, and `reshaped` counts rows the string↔array shape reshape
+ * rewrote — summing them counts such a row twice, so consumers
+ * report the axes side by side instead. `quarantined` rows moved to
+ * `cases_quarantine`; `skipped` rows untouched by a `change`
+ * migration (for `rename`, rows lacking the `from` key; for the
+ * others, rows lacking the targeted property). `failureReasons`
+ * carries the exact `quarantine_reason` text per quarantined row in
+ * row-iteration order — author-facing review UI reads these
+ * directly.
  */
 export interface MigrationReport {
 	migrated: number;
+	reshaped: number;
 	quarantined: number;
 	skipped: number;
 	failureReasons: string[];
