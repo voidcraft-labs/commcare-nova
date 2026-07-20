@@ -187,21 +187,21 @@ describe("ModuleScreen", () => {
 		expect(screen.getByText("Follow Up")).toBeDefined();
 	});
 
-	it.each([
-		"edit",
-		"preview",
-	] as const)("redirects a caseListOnly module (no forms) to its case list in %s mode", (mode) => {
-		// A bare case list has no form menu in ANY mode — its home is the
-		// case list. Replace history so the empty module URL is never a
-		// back-button stop for a formless module.
-		editModeMock.mockReturnValue(mode);
-		navigateMock.replace.mockClear();
-		navigateMock.openCaseList.mockClear();
-		renderModuleScreen({ caseType: "village", caseListOnly: true });
-		expect(navigateMock.replace).toHaveBeenCalledWith({
-			kind: "cases",
-			moduleUuid: MODULE_UUID,
-		});
-		expect(navigateMock.openCaseList).not.toHaveBeenCalled();
-	});
+	it.each(["edit", "preview"] as const)(
+		"redirects a caseListOnly module (no forms) to its case list in %s mode",
+		(mode) => {
+			// A bare case list has no form menu in ANY mode — its home is the
+			// case list. Replace history so the empty module URL is never a
+			// back-button stop for a formless module.
+			editModeMock.mockReturnValue(mode);
+			navigateMock.replace.mockClear();
+			navigateMock.openCaseList.mockClear();
+			renderModuleScreen({ caseType: "village", caseListOnly: true });
+			expect(navigateMock.replace).toHaveBeenCalledWith({
+				kind: "cases",
+				moduleUuid: MODULE_UUID,
+			});
+			expect(navigateMock.openCaseList).not.toHaveBeenCalled();
+		},
+	);
 });

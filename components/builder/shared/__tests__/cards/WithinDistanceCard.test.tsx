@@ -55,22 +55,25 @@ describe("WithinDistanceCard distance validation", () => {
 		["non-numeric input", "not-a-number", ""],
 		["a negative distance", "-1", "-1"],
 		["a zero distance", "0", "0"],
-	])("preserves %s and explains how to fix it", (_label, authoredDraft, visibleDraft) => {
-		const { input, onChange } = renderDistance();
-		expect(Number(input.min)).toBeGreaterThan(0);
-		expect(input.step).toBe("any");
+	])(
+		"preserves %s and explains how to fix it",
+		(_label, authoredDraft, visibleDraft) => {
+			const { input, onChange } = renderDistance();
+			expect(Number(input.min)).toBeGreaterThan(0);
+			expect(input.step).toBe("any");
 
-		input.focus();
-		fireEvent.change(input, { target: { value: authoredDraft } });
-		fireEvent.blur(input);
+			input.focus();
+			fireEvent.change(input, { target: { value: authoredDraft } });
+			fireEvent.blur(input);
 
-		expect(input.value).toBe(visibleDraft);
-		expect(input.getAttribute("aria-invalid")).toBe("true");
-		const error = screen.getByRole("alert");
-		expect(error.textContent).toBe("Enter a distance greater than 0");
-		expect(input.getAttribute("aria-describedby")).toBe(error.id);
-		expect(onChange).not.toHaveBeenCalled();
-	});
+			expect(input.value).toBe(visibleDraft);
+			expect(input.getAttribute("aria-invalid")).toBe("true");
+			const error = screen.getByRole("alert");
+			expect(error.textContent).toBe("Enter a distance greater than 0");
+			expect(input.getAttribute("aria-describedby")).toBe(error.id);
+			expect(onChange).not.toHaveBeenCalled();
+		},
+	);
 
 	it("clears the error and commits a positive distance", () => {
 		const { input, onChange } = renderDistance();

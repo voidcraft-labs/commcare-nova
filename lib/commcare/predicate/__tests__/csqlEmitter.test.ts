@@ -202,15 +202,13 @@ describe("emitCsql — reserved case attributes", () => {
 	// the `@` prefix. The four below get the prefix; user-defined
 	// properties emit bare.
 
-	it.each([
-		"case_id",
-		"case_type",
-		"owner_id",
-		"status",
-	] as const)("prefixes '%s' with @", (attr) => {
-		const result = emitCsql(eq(prop("patient", attr), literal("X")));
-		expect(result.wrapper).toBe(`concat("@${attr} = 'X'")`);
-	});
+	it.each(["case_id", "case_type", "owner_id", "status"] as const)(
+		"prefixes '%s' with @",
+		(attr) => {
+			const result = emitCsql(eq(prop("patient", attr), literal("X")));
+			expect(result.wrapper).toBe(`concat("@${attr} = 'X'")`);
+		},
+	);
 
 	it("leaves user-defined properties bare", () => {
 		const result = emitCsql(eq(prop("patient", "full_name"), literal("Alice")));

@@ -316,19 +316,19 @@ describe("columnSchema — six discriminated arms", () => {
 		expect(parsed.success).toBe(false);
 	});
 
-	it.each([
-		"%Q",
-		"Date %",
-	])("rejects a date column pattern JavaRosa cannot evaluate: %s", (pattern) => {
-		const parsed = columnSchema.safeParse({
-			uuid: u(1),
-			kind: "date",
-			field: "opened_on",
-			header: "Opened",
-			pattern,
-		});
-		expect(parsed.success).toBe(false);
-	});
+	it.each(["%Q", "Date %"])(
+		"rejects a date column pattern JavaRosa cannot evaluate: %s",
+		(pattern) => {
+			const parsed = columnSchema.safeParse({
+				uuid: u(1),
+				kind: "date",
+				field: "opened_on",
+				header: "Opened",
+				pattern,
+			});
+			expect(parsed.success).toBe(false);
+		},
+	);
 
 	it("rejects an unknown column kind", () => {
 		const parsed = columnSchema.safeParse({

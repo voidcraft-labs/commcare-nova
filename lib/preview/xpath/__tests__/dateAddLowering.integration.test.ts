@@ -32,9 +32,12 @@ describe("on-device date-add lowering in Preview XPath", () => {
 		["2024-01-01", "minutes", 720, "2024-01-01"],
 		["2024-01-01", "hours", 24, "2024-01-02"],
 		["2024-01-01", "weeks", 0.5, "2024-01-04"],
-	] as const)("evaluates %s plus %s %s as the same whole date CCHQ returns", (base, interval, quantity, expected) => {
-		const { xpath, result } = evaluateDateAdd(base, interval, quantity);
-		expect(xpath).toContain("date(floor(");
-		expect(result).toBe(expected);
-	});
+	] as const)(
+		"evaluates %s plus %s %s as the same whole date CCHQ returns",
+		(base, interval, quantity, expected) => {
+			const { xpath, result } = evaluateDateAdd(base, interval, quantity);
+			expect(xpath).toContain("date(floor(");
+			expect(result).toBe(expected);
+		},
+	);
 });

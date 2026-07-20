@@ -453,12 +453,12 @@ describe("proxy: unknown hosts (Cloud Run health checks, dev localhost, missing 
 });
 
 describe("proxy: /warmup stays probe-only on the custom domains", () => {
-	it.each([
-		"commcare.app",
-		"mcp.commcare.app",
-	])("404s /warmup on %s (hostname allowlist)", (host) => {
-		expectNotFound(proxy(req(host, "/warmup")));
-	});
+	it.each(["commcare.app", "mcp.commcare.app"])(
+		"404s /warmup on %s (hostname allowlist)",
+		(host) => {
+			expectNotFound(proxy(req(host, "/warmup")));
+		},
+	);
 
 	it("rewrites /warmup on docs.commcare.app into docs space like any unknown docs path", () => {
 		/* The docs host never proxy-404s: every off-allowlist path rewrites

@@ -155,17 +155,20 @@ describe("useBreadcrumbs", () => {
 	it.each([
 		["search", "Search", "search-config"],
 		["details", "Details", "detail-config"],
-	] as const)("at the %s workspace path, names the %s tab in the breadcrumb", (pathSegment, label, kind) => {
-		mockSegments.current = [moduleUuid, pathSegment];
-		const { result } = renderHook(() => useBreadcrumbs(), {
-			wrapper: wrapperFn,
-		});
-		expect(result.current.at(-1)).toEqual({
-			key: `${kind}:${moduleUuid}`,
-			label,
-			location: { kind, moduleUuid },
-		});
-	});
+	] as const)(
+		"at the %s workspace path, names the %s tab in the breadcrumb",
+		(pathSegment, label, kind) => {
+			mockSegments.current = [moduleUuid, pathSegment];
+			const { result } = renderHook(() => useBreadcrumbs(), {
+				wrapper: wrapperFn,
+			});
+			expect(result.current.at(-1)).toEqual({
+				key: `${kind}:${moduleUuid}`,
+				label,
+				location: { kind, moduleUuid },
+			});
+		},
+	);
 
 	it("at a form, shows [Home, Module, Form]", () => {
 		mockSegments.current = [formUuid];

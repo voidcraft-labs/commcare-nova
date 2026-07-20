@@ -19,12 +19,12 @@ describe("deriveGenerationSignalMode", () => {
 		);
 	});
 
-	it.each([
-		GenerationStage.Foundation,
-		GenerationStage.Build,
-	])("does not let %s tags take over the signal grid during an edit", (stage) => {
-		expect(deriveGenerationSignalMode(false, stage)).toBeNull();
-	});
+	it.each([GenerationStage.Foundation, GenerationStage.Build])(
+		"does not let %s tags take over the signal grid during an edit",
+		(stage) => {
+			expect(deriveGenerationSignalMode(false, stage)).toBeNull();
+		},
+	);
 });
 
 describe("computeScaffoldProgress", () => {

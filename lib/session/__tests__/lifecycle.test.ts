@@ -177,16 +177,16 @@ describe("deriveAgentStage", () => {
 				GenerationStage.Fix,
 			],
 		},
-	])("derives every $name prefix monotonically from facts", ({
-		tags,
-		expected,
-	}) => {
-		const events = tags.map((tag, seq) => mut(tag, seq));
-		const actual = events.map((_, index) =>
-			deriveAgentStage(events.slice(0, index + 1)),
-		);
-		expect(actual).toEqual(expected);
-	});
+	])(
+		"derives every $name prefix monotonically from facts",
+		({ tags, expected }) => {
+			const events = tags.map((tag, seq) => mut(tag, seq));
+			const actual = events.map((_, index) =>
+				deriveAgentStage(events.slice(0, index + 1)),
+			);
+			expect(actual).toEqual(expected);
+		},
+	);
 });
 
 // ── deriveAgentError ──────────────────────────────────────────────────────

@@ -15,11 +15,13 @@ describe("CommCare date-pattern vocabulary", () => {
 		expect(isSupportedCommCareDatePattern(pattern)).toBe(true);
 	});
 
-	it.each([
-		"%Q",
-		"Date %",
-	])("rejects the unsupported pattern %s without partial interpretation", (pattern) => {
-		expect(parseCommCareDatePattern(pattern).kind).toBe("unsupported-pattern");
-		expect(isSupportedCommCareDatePattern(pattern)).toBe(false);
-	});
+	it.each(["%Q", "Date %"])(
+		"rejects the unsupported pattern %s without partial interpretation",
+		(pattern) => {
+			expect(parseCommCareDatePattern(pattern).kind).toBe(
+				"unsupported-pattern",
+			);
+			expect(isSupportedCommCareDatePattern(pattern)).toBe(false);
+		},
+	);
 });

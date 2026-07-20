@@ -136,28 +136,34 @@ describe("PredicateCardEditor — user-facing diagnostics", () => {
 			{ code: "match-value-empty", path: ["value"] },
 			"Enter a value to match",
 		],
-	] as const)("presents a next action for %s errors", (_label, finding, copy) => {
-		const error: CheckError = {
-			code: finding.code,
-			path: [...finding.path],
-			message: "Detailed checker prose that must stay out of the UI",
-		};
-		expect(presentCheckErrorForEditor(error)).toBe(copy);
-	});
+	] as const)(
+		"presents a next action for %s errors",
+		(_label, finding, copy) => {
+			const error: CheckError = {
+				code: finding.code,
+				path: [...finding.path],
+				message: "Detailed checker prose that must stay out of the UI",
+			};
+			expect(presentCheckErrorForEditor(error)).toBe(copy);
+		},
+	);
 
 	it.each([
 		[["property"], "Choose available case information"],
 		[["input"], "Choose an available Search field"],
 		[["via"], "Choose an available connection to another case"],
 		[["right"], "Choose a value that works here"],
-	] as const)("keeps a path-specific next action for an unknown diagnostic at %j", (path, copy) => {
-		const futureError = {
-			path: [...path],
-			code: "future-checker-category",
-			message: "Raw future checker detail",
-		} as unknown as CheckError;
-		expect(presentCheckErrorForEditor(futureError)).toBe(copy);
-	});
+	] as const)(
+		"keeps a path-specific next action for an unknown diagnostic at %j",
+		(path, copy) => {
+			const futureError = {
+				path: [...path],
+				code: "future-checker-category",
+				message: "Raw future checker detail",
+			} as unknown as CheckError;
+			expect(presentCheckErrorForEditor(futureError)).toBe(copy);
+		},
+	);
 });
 
 describe("PredicateCardEditor — recursive nesting", () => {

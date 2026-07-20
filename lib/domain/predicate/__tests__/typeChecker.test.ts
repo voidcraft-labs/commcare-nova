@@ -652,30 +652,33 @@ describe("checkPredicate — match property-shape requirement", () => {
 	// separately below because its allow-list is wider.
 	const TEXT_SHAPED_MATCH_MODES = ["fuzzy", "phonetic", "starts-with"] as const;
 
-	it.each(
-		TEXT_SHAPED_MATCH_MODES,
-	)("accepts match on a text property (mode: %s)", (mode) => {
-		const p = match(prop("patient", "name"), "alice", mode);
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
+	it.each(TEXT_SHAPED_MATCH_MODES)(
+		"accepts match on a text property (mode: %s)",
+		(mode) => {
+			const p = match(prop("patient", "name"), "alice", mode);
+			expect(checkPredicate(p, ctx).ok).toBe(true);
+		},
+	);
 
-	it.each(
-		TEXT_SHAPED_MATCH_MODES,
-	)("accepts match on a single_select property (mode: %s)", (mode) => {
-		const p = match(prop("patient", "status"), "ope", mode);
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
+	it.each(TEXT_SHAPED_MATCH_MODES)(
+		"accepts match on a single_select property (mode: %s)",
+		(mode) => {
+			const p = match(prop("patient", "status"), "ope", mode);
+			expect(checkPredicate(p, ctx).ok).toBe(true);
+		},
+	);
 
 	// `multi_select` is stored as text and structurally indistinguishable
 	// from `single_select` at the wire — pinning both arms of the
 	// text-shaped allow-list locks the rule against a regression that
 	// dropped one without breaking the other.
-	it.each(
-		TEXT_SHAPED_MATCH_MODES,
-	)("accepts match on a multi_select property (mode: %s)", (mode) => {
-		const p = match(prop("patient", "tags"), "vip", mode);
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
+	it.each(TEXT_SHAPED_MATCH_MODES)(
+		"accepts match on a multi_select property (mode: %s)",
+		(mode) => {
+			const p = match(prop("patient", "tags"), "vip", mode);
+			expect(checkPredicate(p, ctx).ok).toBe(true);
+		},
+	);
 
 	it("accepts a pure derived text expression as the match value", () => {
 		const p = match(
@@ -720,14 +723,13 @@ describe("checkPredicate — match property-shape requirement", () => {
 		}
 	});
 
-	it.each([
-		"name",
-		"status",
-		"tags",
-	] as const)("accepts fuzzy-date match on a text-shaped property (%s)", (propName) => {
-		const p = match(prop("patient", propName), "2024-12-03", "fuzzy-date");
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
+	it.each(["name", "status", "tags"] as const)(
+		"accepts fuzzy-date match on a text-shaped property (%s)",
+		(propName) => {
+			const p = match(prop("patient", propName), "2024-12-03", "fuzzy-date");
+			expect(checkPredicate(p, ctx).ok).toBe(true);
+		},
+	);
 
 	// Parameterized rejection across every property type that does NOT
 	// pass the text-shaped trio (excluding `geopoint`, which lives on
@@ -755,23 +757,23 @@ describe("checkPredicate — match property-shape requirement", () => {
 				(mode) => ({ ...prop, mode }),
 			),
 		),
-	)("rejects match on a $dataType property (mode: $mode)", ({
-		propName,
-		mode,
-	}) => {
-		const p = match(prop("patient", propName), "alice", mode);
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0].path).toEqual(["property"]);
-			expect(result.errors[0].code).toBe("match-value");
-			// Error message names the offending mode and the
-			// allow-list contents — both load-bearing for the
-			// editor's per-mode highlighting.
-			expect(result.errors[0].message).toMatch(new RegExp(`mode='${mode}'`));
-		}
-	});
+	)(
+		"rejects match on a $dataType property (mode: $mode)",
+		({ propName, mode }) => {
+			const p = match(prop("patient", propName), "alice", mode);
+			const result = checkPredicate(p, ctx);
+			expect(result.ok).toBe(false);
+			if (!result.ok) {
+				expect(result.errors).toHaveLength(1);
+				expect(result.errors[0].path).toEqual(["property"]);
+				expect(result.errors[0].code).toBe("match-value");
+				// Error message names the offending mode and the
+				// allow-list contents — both load-bearing for the
+				// editor's per-mode highlighting.
+				expect(result.errors[0].message).toMatch(new RegExp(`mode='${mode}'`));
+			}
+		},
+	);
 
 	// `geopoint` lives on the `ctxWithGeo` fixture (the base PATIENT
 	// fixture deliberately omits a geopoint to keep the comparison-rule
@@ -783,18 +785,19 @@ describe("checkPredicate — match property-shape requirement", () => {
 	// rule against a regression that widened the allow-list to "anything
 	// stored as text on the wire." `fuzzy-date` rejects geopoint too —
 	// its widening covers date / datetime only.
-	it.each(
-		MATCH_MODES,
-	)("rejects match on a geopoint property (mode: %s)", (mode) => {
-		const p = match(prop("patient", "location"), "40.7 -74.0", mode);
-		const result = checkPredicate(p, ctxWithGeo);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0].path).toEqual(["property"]);
-			expect(result.errors[0].message).toMatch(new RegExp(`mode='${mode}'`));
-		}
-	});
+	it.each(MATCH_MODES)(
+		"rejects match on a geopoint property (mode: %s)",
+		(mode) => {
+			const p = match(prop("patient", "location"), "40.7 -74.0", mode);
+			const result = checkPredicate(p, ctxWithGeo);
+			expect(result.ok).toBe(false);
+			if (!result.ok) {
+				expect(result.errors).toHaveLength(1);
+				expect(result.errors[0].path).toEqual(["property"]);
+				expect(result.errors[0].message).toMatch(new RegExp(`mode='${mode}'`));
+			}
+		},
+	);
 });
 
 describe("checkPredicate — multi-select-contains property requirement", () => {
@@ -813,15 +816,16 @@ describe("checkPredicate — multi-select-contains property requirement", () => 
 	// "field contains a value" against a non-multi_select property use
 	// `match(..., starts-with)` or a comparison.
 
-	it.each(
-		MULTI_SELECT_QUANTIFIERS,
-	)("accepts multi-select-contains on a multi_select property (quantifier: %s)", (quantifier) => {
-		const p =
-			quantifier === "any"
-				? multiSelectAny(prop("patient", "tags"), literal("vip"))
-				: multiSelectAll(prop("patient", "tags"), literal("vip"));
-		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
+	it.each(MULTI_SELECT_QUANTIFIERS)(
+		"accepts multi-select-contains on a multi_select property (quantifier: %s)",
+		(quantifier) => {
+			const p =
+				quantifier === "any"
+					? multiSelectAny(prop("patient", "tags"), literal("vip"))
+					: multiSelectAll(prop("patient", "tags"), literal("vip"));
+			expect(checkPredicate(p, ctx).ok).toBe(true);
+		},
+	);
 
 	// Parameterized rejection across every non-multi_select data type
 	// (text, single_select, ordered numerics, temporals, geopoint).
@@ -839,19 +843,20 @@ describe("checkPredicate — multi-select-contains property requirement", () => 
 		{ propName: "last_seen", dataType: "datetime" },
 		{ propName: "appointment_time", dataType: "time" },
 	] as const;
-	it.each(
-		REJECTED_NON_MULTI_SELECT,
-	)("rejects multi-select-contains on a $dataType property", ({ propName }) => {
-		const p = multiSelectAny(prop("patient", propName), literal("x"));
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			// Property-rule errors attach to the operator's `property`
-			// path, parallel to `match` and `within-distance`.
-			expect(result.errors[0].path).toEqual(["property"]);
-			expect(result.errors[0].message).toMatch(/multi_select/i);
-		}
-	});
+	it.each(REJECTED_NON_MULTI_SELECT)(
+		"rejects multi-select-contains on a $dataType property",
+		({ propName }) => {
+			const p = multiSelectAny(prop("patient", propName), literal("x"));
+			const result = checkPredicate(p, ctx);
+			expect(result.ok).toBe(false);
+			if (!result.ok) {
+				// Property-rule errors attach to the operator's `property`
+				// path, parallel to `match` and `within-distance`.
+				expect(result.errors[0].path).toEqual(["property"]);
+				expect(result.errors[0].message).toMatch(/multi_select/i);
+			}
+		},
+	);
 
 	it("rejects multi-select-contains on a geopoint property", () => {
 		const p = multiSelectAny(
@@ -2030,18 +2035,15 @@ describe("checkExpression — arith arm + numeric promotion", () => {
 		expect(resolve(v).type).toBe("decimal");
 	});
 
-	it.each([
-		"+",
-		"-",
-		"*",
-		"div",
-		"mod",
-	] as const)("arith(%s) accepts both operands as int", (op) => {
-		const v = arith(op, term(literal(1)), term(literal(2)));
-		const { type, errors } = resolve(v);
-		expect(type).toBe("int");
-		expect(errors).toEqual([]);
-	});
+	it.each(["+", "-", "*", "div", "mod"] as const)(
+		"arith(%s) accepts both operands as int",
+		(op) => {
+			const v = arith(op, term(literal(1)), term(literal(2)));
+			const { type, errors } = resolve(v);
+			expect(type).toBe("int");
+			expect(errors).toEqual([]);
+		},
+	);
 
 	it("arith rejects a non-numeric left operand", () => {
 		const v = arith("+", term(prop("patient", "name")), term(literal(1)));

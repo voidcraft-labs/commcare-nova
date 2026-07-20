@@ -164,25 +164,30 @@ describe("seedSearchInput", () => {
 		["name", "external_id"],
 		["external-id", "case_name"],
 		["date-opened", "case_name"],
-	])("treats legacy search target %s as its canonical property when seeding", (legacy, expected) => {
-		const properties = caseType("client", [
-			prop("case_name"),
-			prop("external_id"),
-			prop("date_opened", "datetime"),
-		]);
-		const existing = simpleSearchInputDef(
-			newUuid(),
-			"legacy",
-			"Legacy",
-			"text",
-			legacy,
-		);
-		const seed = seedSearchInput(
-			config({ searchInputs: [existing] }),
-			properties,
-		);
-		expect(seed && seed.kind === "simple" ? seed.property : "").toBe(expected);
-	});
+	])(
+		"treats legacy search target %s as its canonical property when seeding",
+		(legacy, expected) => {
+			const properties = caseType("client", [
+				prop("case_name"),
+				prop("external_id"),
+				prop("date_opened", "datetime"),
+			]);
+			const existing = simpleSearchInputDef(
+				newUuid(),
+				"legacy",
+				"Legacy",
+				"text",
+				legacy,
+			);
+			const seed = seedSearchInput(
+				config({ searchInputs: [existing] }),
+				properties,
+			);
+			expect(seed && seed.kind === "simple" ? seed.property : "").toBe(
+				expected,
+			);
+		},
+	);
 
 	it("seeds non-text widgets without a fuzzy mode", () => {
 		const dateOnly = caseType("visit", [prop("visit_date", "date")]);
@@ -261,27 +266,32 @@ describe("seedColumn", () => {
 		["name", "external_id"],
 		["external-id", "case_name"],
 		["date-opened", "case_name"],
-	])("treats legacy column field %s as its canonical property when seeding", (legacy, expected) => {
-		const properties = caseType("client", [
-			prop("case_name"),
-			prop("external_id"),
-			prop("date_opened", "datetime"),
-		]);
-		const seed = seedColumn(
-			config({
-				columns: [
-					{
-						uuid: newUuid(),
-						kind: "plain",
-						field: legacy,
-						header: "Legacy",
-					},
-				],
-			}),
-			properties,
-		);
-		expect(seed && seed.kind !== "calculated" ? seed.field : "").toBe(expected);
-	});
+	])(
+		"treats legacy column field %s as its canonical property when seeding",
+		(legacy, expected) => {
+			const properties = caseType("client", [
+				prop("case_name"),
+				prop("external_id"),
+				prop("date_opened", "datetime"),
+			]);
+			const seed = seedColumn(
+				config({
+					columns: [
+						{
+							uuid: newUuid(),
+							kind: "plain",
+							field: legacy,
+							header: "Legacy",
+						},
+					],
+				}),
+				properties,
+			);
+			expect(seed && seed.kind !== "calculated" ? seed.field : "").toBe(
+				expected,
+			);
+		},
+	);
 
 	it("returns undefined for a propertyless case type", () => {
 		expect(seedColumn(config(), caseType("empty", []))).toBeUndefined();
@@ -292,33 +302,36 @@ describe("chooser-first display fields", () => {
 	it.each([
 		["list", "listOrder"],
 		["detail", "detailOrder"],
-	] as const)("encodes a center-canvas %s add outside the strict nested fallback", (surface, orderKey) => {
-		const moduleUuid = asUuid("10000000-0000-4000-8000-000000000000");
-		const seed = seedColumnForProperty(prop("case_name"));
-		const mutation = seededColumnAddMutation(
-			moduleUuid,
-			config({
-				columns: [
-					{
-						uuid: asUuid("20000000-0000-4000-8000-000000000000"),
-						kind: "plain",
-						field: "external_id",
-						header: "External ID",
-						order: "generic-a",
-						listOrder: "list-a",
-						detailOrder: "detail-a",
-					},
-				],
-			}),
-			surface,
-			seed,
-		);
+	] as const)(
+		"encodes a center-canvas %s add outside the strict nested fallback",
+		(surface, orderKey) => {
+			const moduleUuid = asUuid("10000000-0000-4000-8000-000000000000");
+			const seed = seedColumnForProperty(prop("case_name"));
+			const mutation = seededColumnAddMutation(
+				moduleUuid,
+				config({
+					columns: [
+						{
+							uuid: asUuid("20000000-0000-4000-8000-000000000000"),
+							kind: "plain",
+							field: "external_id",
+							header: "External ID",
+							order: "generic-a",
+							listOrder: "list-a",
+							detailOrder: "detail-a",
+						},
+					],
+				}),
+				surface,
+				seed,
+			);
 
-		expect(mutation.column).not.toHaveProperty("listOrder");
-		expect(mutation.column).not.toHaveProperty("detailOrder");
-		expect(mutation.surfaceOrders?.[orderKey]).toEqual(expect.any(String));
-		expect(mutationSchema.safeParse(mutation).success).toBe(true);
-	});
+			expect(mutation.column).not.toHaveProperty("listOrder");
+			expect(mutation.column).not.toHaveProperty("detailOrder");
+			expect(mutation.surfaceOrders?.[orderKey]).toEqual(expect.any(String));
+			expect(mutationSchema.safeParse(mutation).success).toBe(true);
+		},
+	);
 
 	it("builds the exact property selected by the author", () => {
 		const selected = prop("visit_date", "datetime");

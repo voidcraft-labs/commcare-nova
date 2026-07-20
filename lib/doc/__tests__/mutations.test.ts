@@ -472,20 +472,20 @@ describe("mutationSchema round-trip", () => {
 			).toBe(false);
 		});
 
-		it.each([
-			"list",
-			"detail",
-		] as const)("rejects a %s visibility patch that contradicts its fallback column", (surface) => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateColumn",
-					moduleUuid,
-					uuid: columnUuid,
-					column,
-					visibilityPatch: { surface, visible: false },
-				}).success,
-			).toBe(false);
-		});
+		it.each(["list", "detail"] as const)(
+			"rejects a %s visibility patch that contradicts its fallback column",
+			(surface) => {
+				expect(
+					mutationSchema.safeParse({
+						kind: "updateColumn",
+						moduleUuid,
+						uuid: columnUuid,
+						column,
+						visibilityPatch: { surface, visible: false },
+					}).success,
+				).toBe(false);
+			},
+		);
 
 		it("moveColumn with a Results surface patch", () => {
 			expectRoundTrip({
