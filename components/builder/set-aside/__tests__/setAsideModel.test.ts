@@ -8,6 +8,7 @@ import {
 	groupSetAsideEntries,
 	replacementDraftToValue,
 	setAsideCounts,
+	setAsideEventPhrase,
 } from "../setAsideModel";
 
 function entry(over: Partial<ParkedValueEntryWire>): ParkedValueEntryWire {
@@ -170,6 +171,25 @@ describe("dataTypePhrase", () => {
 		expect(dataTypePhrase("date")).toBe("a date");
 		expect(dataTypePhrase("int")).toBe("a whole number");
 		expect(dataTypePhrase("single_select")).toBe("a select");
+	});
+});
+
+describe("setAsideEventPhrase", () => {
+	it("narrates a type change in the past tense and a narrow as an option removal", () => {
+		expect(
+			setAsideEventPhrase("Priority", {
+				fromType: "text",
+				toType: "int",
+				isTypeChange: true,
+			}),
+		).toBe("when Priority changed from text to whole number");
+		expect(
+			setAsideEventPhrase("Risk level", {
+				fromType: "single_select",
+				toType: "single_select",
+				isTypeChange: false,
+			}),
+		).toBe("when options were removed");
 	});
 });
 

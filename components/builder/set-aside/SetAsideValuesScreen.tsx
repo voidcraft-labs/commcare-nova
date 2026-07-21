@@ -18,7 +18,6 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerNumber123 from "@iconify-icons/tabler/123";
 import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
-import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
@@ -91,6 +90,7 @@ import {
 	type SetAsideFilter,
 	type SetAsideGroup,
 	setAsideCounts,
+	setAsideEventPhrase,
 } from "./setAsideModel";
 
 const DATA_TYPE_ICONS: Record<CasePropertyDataType, IconifyIcon> = {
@@ -186,17 +186,37 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "restored") {
 				showToast(
 					"error",
-					"Couldn't restore",
+					ids.length === 1
+						? "Couldn't put the value back"
+						: "Couldn't put the values back",
 					result.kind === "error"
 						? result.message
 						: "You're signed out. Reload the page to sign in again.",
 				);
 				return;
 			}
-			if (result.kept > 0) {
-				// The verdict moved between render and write (a teammate's
-				// edit, a fresh conversion) — the re-listed rows show why.
-				// The hook's invalidation already refreshes the list.
+			// A put-back succeeds SILENTLY from the row's point of view —
+			// the entry just leaves the list — so every outcome gets a
+			// toast saying where the values went. A kept remainder means
+			// the verdict moved between render and write (a teammate's
+			// edit, a fresh conversion); the re-listed rows show why.
+			if (result.kept === 0) {
+				showToast(
+					"info",
+					result.restored === 1
+						? "1 value put back"
+						: `${result.restored} values put back`,
+					result.restored === 1
+						? "It's saved on its case again."
+						: "They're saved on their cases again.",
+				);
+			} else if (result.restored > 0) {
+				showToast(
+					"warning",
+					`Put back ${result.restored} of ${result.restored + result.kept} values`,
+					"The rest no longer fit the current type, or their cases hold newer values.",
+				);
+			} else {
 				showToast(
 					"warning",
 					result.kept === 1
@@ -215,7 +235,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "toggled") {
 				showToast(
 					"error",
-					"Couldn't bring the value back",
+					"Couldn't move it back",
 					result.kind === "error"
 						? result.message
 						: "You're signed out. Reload the page to sign in again.",
@@ -324,8 +344,8 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				</h1>
 				<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
 					When a property changes type, any saved values that no longer fit are
-					set aside, not deleted. You can restore a value, replace it with one
-					that fits, or dismiss it.
+					set aside, not deleted. You can put a value back on its case, replace
+					it with one that fits, or dismiss it.
 				</p>
 				{!canEdit && entries.length > 0 && (
 					<p className="mt-3 max-w-2xl rounded-lg bg-nova-elevated px-3 py-2.5 text-sm leading-relaxed text-nova-text-secondary">
@@ -380,7 +400,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 							{(
 								[
 									["all", "All", counts.all],
-									["restorable", "Ready to restore", counts.restorable],
+									["restorable", "Ready to put back", counts.restorable],
 									["dismissed", "Dismissed", counts.dismissed],
 								] as const
 							).map(([value, label, count]) => (
@@ -412,7 +432,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						{groups.length === 0 ? (
 							<p className="mt-8 text-sm text-nova-text-secondary">
 								{filter === "restorable"
-									? "Nothing is ready to restore right now. A value becomes ready when its property fits it again."
+									? "Nothing is ready to put back right now. A value becomes ready when its property fits it again."
 									: "You haven’t dismissed anything"}
 							</p>
 						) : (
@@ -587,25 +607,17 @@ function SetAsideGroupCard({
 					<Icon icon={DATA_TYPE_ICONS[group.toType]} width="16" height="16" />
 				</span>
 				<div className="min-w-0 flex-1">
-					<div className="flex flex-wrap items-center gap-2.5">
-						<span className="text-[15px] font-semibold text-nova-text">
-							{label}
-						</span>
-						{group.isTypeChange ? (
-							<span className="inline-flex items-center gap-1.5 rounded-full border border-nova-border px-2.5 py-0.5 text-xs text-nova-text-secondary">
-								{DATA_TYPE_LABELS[group.fromType]}
-								<Icon icon={tablerArrowRight} width="11" height="11" />
-								{DATA_TYPE_LABELS[group.toType]}
-							</span>
-						) : (
-							<span className="inline-flex items-center rounded-full border border-nova-border px-2.5 py-0.5 text-xs text-nova-text-secondary">
-								options removed
-							</span>
-						)}
-					</div>
+					<span className="text-[15px] font-semibold text-nova-text">
+						{label}
+					</span>
+					{/* The transition lives HERE as past-tense prose, never a chip
+					 * beside the title — a bare "text → whole number" next to the
+					 * property name reads as its current type, which goes false
+					 * the moment the property converts back. */}
 					<p className="mt-0.5 text-xs text-nova-text-muted">
 						{count === 1 ? "1 value" : `${count} values`} · set aside{" "}
-						{formatSetAsideTimestamp(group.latestCreatedAt, new Date())}
+						{formatSetAsideTimestamp(group.latestCreatedAt, new Date())},{" "}
+						{setAsideEventPhrase(label, group)}
 					</p>
 				</div>
 				{canEdit && group.restorableIds.length > 1 && (
@@ -617,7 +629,7 @@ function SetAsideGroupCard({
 						onClick={() => onRestore(group.restorableIds)}
 					>
 						<Icon icon={tablerRestore} />
-						Restore all {group.restorableIds.length}
+						Put back all {group.restorableIds.length}
 					</Button>
 				)}
 				{canEdit && filter !== "dismissed" && (
@@ -654,14 +666,14 @@ function SetAsideGroupCard({
 					/>
 					<p className="min-w-60 flex-1 text-[13px] leading-relaxed text-nova-text-secondary">
 						{count === 1
-							? `This value doesn’t fit ${dataTypePhrase(group.toType)}, but it still fits ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can restore it.`
+							? `This value doesn’t fit ${dataTypePhrase(group.toType)}, but it still fits ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can put it back.`
 							: `None of these fit ${dataTypePhrase(group.toType)}, but ${
 									group.fitsOriginalCount === count
 										? count === 2
 											? "both"
 											: `all ${count}`
 										: `${group.fitsOriginalCount} of the ${count}`
-								} still fit ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can restore them.`}
+								} still fit ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can put them back.`}
 					</p>
 					<Button
 						type="button"
@@ -685,8 +697,8 @@ function SetAsideGroupCard({
 					/>
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 						{count === 1
-							? `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and its saved value fits. It’s ready to restore.`
-							: `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and all ${count} saved values fit. They’re ready to restore.`}
+							? `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and its saved value fits. You can put it back on its case.`
+							: `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and all ${count} saved values fit. You can put them back on their cases.`}
 					</p>
 				</div>
 			)}
@@ -770,16 +782,20 @@ function SetAsideEntryRow({
 			? `Doesn’t fit ${currentTypePhrase}`
 			: entry.blockedBy === "occupied"
 				? "The case has a newer value"
-				: "Ready to restore";
+				: "Ready to put back";
 	const blockedReason =
 		entry.blockedBy === "type"
-			? `Still fits ${dataTypePhrase(fromType)}, but not ${currentTypePhrase}. Change the type back and you can restore it`
+			? `Still fits ${dataTypePhrase(fromType)}, but not ${currentTypePhrase}. Convert the type back and you can put it back on its case`
 			: entry.blockedBy === "occupied"
-				? "The case has a newer value, and restoring would overwrite it. Use Replace to choose what’s saved instead"
+				? "The case has a newer value, and putting this back would overwrite it. Use Replace to choose what’s saved instead"
 				: null;
 
 	const restoreButton = (
-		<SimpleTooltip content={entry.restorable ? null : blockedReason}>
+		<SimpleTooltip
+			content={
+				entry.restorable ? "Saves this value on its case again" : blockedReason
+			}
+		>
 			<Button
 				type="button"
 				variant="ghost"
@@ -787,7 +803,7 @@ function SetAsideEntryRow({
 				disabled={!entry.restorable || busy}
 				onClick={onRestore}
 			>
-				Restore
+				Put back
 			</Button>
 		</SimpleTooltip>
 	);
@@ -803,12 +819,12 @@ function SetAsideEntryRow({
 		</Button>
 	);
 	const dismissButton = dismissedView ? (
-		<SimpleTooltip content="Move back to the active list">
+		<SimpleTooltip content="Moves this value back to the All list">
 			<Button
 				type="button"
 				variant="ghost"
 				size="icon"
-				aria-label="Bring back"
+				aria-label="Move back to All"
 				className="size-11 text-nova-text-muted"
 				disabled={busy}
 				onClick={onUndismiss}
@@ -880,7 +896,7 @@ function SetAsideEntryRow({
 									disabled={!entry.restorable || busy}
 									onClick={onRestore}
 								>
-									Restore
+									Put back
 								</DropdownMenuItem>
 								<DropdownMenuItem disabled={busy} onClick={onOpenReplace}>
 									Replace
@@ -889,7 +905,7 @@ function SetAsideEntryRow({
 									disabled={busy}
 									onClick={dismissedView ? onUndismiss : onDismiss}
 								>
-									{dismissedView ? "Bring back" : "Dismiss"}
+									{dismissedView ? "Move back to All" : "Dismiss"}
 								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>

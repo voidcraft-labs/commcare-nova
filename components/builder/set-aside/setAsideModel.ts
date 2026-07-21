@@ -191,6 +191,23 @@ export function dataTypePhrase(dataType: CasePropertyDataType): string {
 }
 
 /**
+ * The card caption's event clause — "when Priority changed from text
+ * to whole number" / "when options were removed". Past-tense prose in
+ * the caption (not a chip beside the title) so the transition always
+ * reads as HISTORY: after a convert-back the park's target type is no
+ * longer the property's current type, and a bare "text → whole
+ * number" chip next to "is text again" contradicted itself.
+ */
+export function setAsideEventPhrase(
+	label: string,
+	group: Pick<SetAsideGroup, "fromType" | "toType" | "isTypeChange">,
+): string {
+	return group.isTypeChange
+		? `when ${label} changed from ${DATA_TYPE_LABELS[group.fromType]} to ${DATA_TYPE_LABELS[group.toType]}`
+		: "when options were removed";
+}
+
+/**
  * A stored value rendered for the entry row — arrays (multi-select
  * originals) read as their comma-separated selections, everything
  * else as its plain string form.
