@@ -187,6 +187,38 @@ Search → Results → Details journey is useful as soon as you enter Preview.
 Case-data controls stay outside Preview. Preview contains only the app a
 frontline user will run, so every button there behaves like a real app button.
 
+## Review data after a property change
+
+When a case property changes type — for example, a free-text date of birth
+becomes a real date field — Nova converts every saved case value it can. A
+value that doesn't fit the new type is kept instead of deleted, and its case
+is held out of the app: it leaves case lists, search, and forms until you've
+decided its waiting values on the **Data to review** screen. Holding the
+whole case keeps the app honest — no form opens onto a silently blank
+required field, and no calculation runs over a hole.
+
+You'll see a notice the moment it happens, and the **Case data** button
+carries a dot while any cases are held. Open Case data and choose **Review
+data** to see them, one card per case. Each value states in a few words why
+it's waiting — "Isn't a date", "The property was removed" — checked against
+the property as it is right now. **View case** on any card opens everything
+the case currently holds, so you can decide with the whole record in front
+of you. Everyone in the Project sees the same list, so a teammate's
+conversion is just as visible as your own.
+
+For each value you can:
+
+- **Put it back** — saves the value on its case again. Offered when the value
+  fits the property's current type.
+- **Overwrite** it — enter a new value in the property's current type, saved
+  straight to the case. The original moves to the **Dismissed** list.
+- **Dismiss** it — move it to the **Dismissed** list, where it stays readable
+  and can be moved back at any time.
+
+Once a case has nothing left waiting, it returns to the app on its own. You
+don't have to resolve values one by one either: if the property's type
+changes back, waiting values that fit again return automatically.
+
 ## Preview without starting over
 
 Edit mode stays focused on the screen's structure, labels, and reading order;

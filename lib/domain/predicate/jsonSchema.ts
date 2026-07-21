@@ -125,7 +125,20 @@ export type CaseTypeJsonSchema = {
  * option-value enum poisons rows under merged-document validation).
  */
 export type CaseTypePropertyJsonSchema =
-	| { type: "string"; format?: string; pattern?: string }
+	| {
+			type: "string";
+			format?: string;
+			pattern?: string;
+			/**
+			 * Lossless data-type marker for string flavors whose VALIDATION
+			 * shape is identical to plain text (`single_select` — no enum,
+			 * see the arm below). Ajv ignores it (every compile site runs
+			 * `strict: false`); the case-store's `dataTypeTokenOf` reads it
+			 * so a park's recorded transition names the type the user
+			 * authored instead of collapsing selects to "text".
+			 */
+			"x-novaDataType"?: "single_select";
+	  }
 	| { type: "integer"; minimum: number; maximum: number }
 	| { type: "number" }
 	| { type: "array"; items: { type: "string" } };
@@ -227,8 +240,10 @@ export function schemaForDataType(
 			// legal value fails validation on its next write of ANY property.
 			// Values outside the current options are legitimate history; the
 			// explicit `narrow-options` migration (which parks) is the opt-in
-			// path for callers that want them flushed.
-			return { type: "string" };
+			// path for callers that want them flushed. The annotation keyword
+			// keeps the authored type readable off the stored schema without
+			// adding any validation constraint.
+			return { type: "string", "x-novaDataType": "single_select" };
 		case "multi_select":
 			// Array-shaped (one element per selected value) but item values
 			// are unconstrained — same no-enum rationale as `single_select`.

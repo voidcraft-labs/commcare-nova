@@ -21,6 +21,7 @@ import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	ParkedValueNotFoundError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store";
 import { log } from "@/lib/logger";
@@ -43,6 +44,7 @@ export const TYPED_USER_DOMAIN_ERRORS = [
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	ParkedValueNotFoundError,
 	SchemaNotSyncedError,
 ] as const;
 

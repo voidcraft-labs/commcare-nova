@@ -41,6 +41,7 @@ import {
 	CaseListConfigWorkspace,
 	type CaseListWorkspaceTab,
 } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -91,6 +92,10 @@ function locationToScreen(
 
 	if (loc.kind === "detail-config") {
 		return { type: "detailConfig", moduleIndex };
+	}
+
+	if (loc.kind === "data-review") {
+		return { type: "dataReview", moduleIndex };
 	}
 
 	/* Form screen — resolve formUuid to index within the module's form list. */
@@ -199,6 +204,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			tab: "detail",
 		};
 	}
+	/** The data review screen's identity — uuid-shaped like the
+	 *  workspace ref above, for the same reason (a builder surface
+	 *  mounted off the URL, not the integer-indexed preview shape). */
+	const dataReviewRef = useRef<{ moduleUuid: Uuid }>(undefined);
+	if (loc.kind === "data-review") {
+		dataReviewRef.current = { moduleUuid: loc.moduleUuid };
+	}
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
 	const homeVisitedRef = useRef(false);
@@ -215,7 +227,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			break;
 		case "searchConfig":
 		case "detailConfig":
-			/* In preview mode all three case-list URLs render the same
+		case "dataReview":
+			/* In preview mode these case-workspace URLs render the same
 			 * running-app `CaseListScreen` (the composed search +
 			 * list experience), so the sibling kinds synthesize the
 			 * integer-indexed caseList identity. */
@@ -339,12 +352,25 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						/>
 					</Activity>
 				)}
+				{dataReviewRef.current && (
+					<Activity
+						mode={
+							screen.type === "dataReview" && mode === "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="DataReviewScreen"
+					>
+						<DataReviewScreen moduleUuid={dataReviewRef.current.moduleUuid} />
+					</Activity>
+				)}
 				{caseListScreenRef.current && (
 					<Activity
 						mode={
 							(screen.type === "caseList" ||
 								screen.type === "searchConfig" ||
-								screen.type === "detailConfig") &&
+								screen.type === "detailConfig" ||
+								screen.type === "dataReview") &&
 							(mode !== "edit" || atCaseRecord)
 								? "visible"
 								: "hidden"

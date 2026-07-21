@@ -7,11 +7,14 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
+import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useCallback, useRef, useState } from "react";
+import { heldCaseCount } from "@/components/builder/data-review/dataReviewModel";
+import { NameChip } from "@/components/builder/data-review/NameChip";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -32,13 +35,17 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import type { Uuid } from "@/lib/doc/types";
 import { type CaseType, humanizeId } from "@/lib/domain";
 import type { PopulateSampleCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	useCaseCount,
+	useParkedValues,
 	usePopulateSampleCases,
 	useResetSampleCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useNavigate } from "@/lib/routing/hooks";
+import { useSetPreviewing } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 
 type Operation = "create" | "replace" | null;
@@ -75,11 +82,13 @@ function caseLabel(count: number): string {
 
 export function CaseDataManager({
 	appId,
+	moduleUuid,
 	caseType,
 	canEdit,
 	hasLinkedChildren,
 }: {
 	readonly appId: string;
+	readonly moduleUuid: Uuid;
 	readonly caseType: CaseType;
 	readonly canEdit: boolean;
 	readonly hasLinkedChildren: boolean;
@@ -89,9 +98,28 @@ export function CaseDataManager({
 		fetching,
 		reload: reloadCount,
 	} = useCaseCount({
+		includeHeld: true,
 		appId,
 		caseType: caseType.name,
 	});
+	/* The review discovery signals: the amber dot on the trigger (what
+	 * remains after the conversion toast dies) and the popover's review
+	 * section. Both derive from the same list the review screen renders,
+	 * so one invalidation refreshes every surface. At zero active
+	 * entries neither renders — no empty-state noise. */
+	const { state: parkedState } = useParkedValues({
+		appId,
+		caseType: caseType.name,
+	});
+	const activeParked =
+		parkedState.kind === "entries"
+			? parkedState.entries.filter((entry) => entry.dismissedAt === null)
+			: [];
+	const heldCases = heldCaseCount(
+		parkedState.kind === "entries" ? parkedState.entries : [],
+	);
+	const navigate = useNavigate();
+	const setPreviewing = useSetPreviewing();
 	const populate = usePopulateSampleCases({ appId, caseType });
 	const reset = useResetSampleCases({ appId, caseType });
 	const [popoverOpen, setPopoverOpen] = useState(false);
@@ -180,7 +208,11 @@ export function CaseDataManager({
 			: countState.kind === "error" || countState.kind === "unauthenticated"
 				? "Case count unavailable"
 				: "Case count loading";
-	const triggerLabel = `Case data for ${caseTypeDisplayName}. ${triggerCountStatus}. Case data is shared throughout your app`;
+	const triggerLabel = `Case data for ${caseTypeDisplayName}. ${triggerCountStatus}.${
+		heldCases > 0
+			? ` ${heldCases === 1 ? "1 case" : `${heldCases} cases`} held for review.`
+			: ""
+	} Case data is shared throughout your app`;
 
 	const createSamples = async () => {
 		setOperation("create");
@@ -252,7 +284,7 @@ export function CaseDataManager({
 					ref={triggerRef}
 					render={<Button type="button" variant="outline" size="xl" />}
 					aria-label={triggerLabel}
-					className="min-h-11 shrink-0 gap-2 rounded-lg border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/45 not-disabled:hover:bg-nova-elevated not-disabled:hover:text-nova-text xl:px-3"
+					className="relative min-h-11 shrink-0 gap-2 rounded-lg border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/45 not-disabled:hover:bg-nova-elevated not-disabled:hover:text-nova-text xl:px-3"
 				>
 					<Icon icon={tablerDatabase} width="16" height="16" />
 					<span className="inline-flex items-center gap-2">
@@ -274,6 +306,16 @@ export function CaseDataManager({
 							height="14"
 							className="animate-spin text-nova-text-muted"
 							aria-label="Refreshing case count…"
+						/>
+					)}
+					{/* The durable discovery signal — outlives the conversion
+					 * toast, clears when no undismissed entries remain. Amber:
+					 * the warning hue, never rose (nothing failed; values are
+					 * waiting). */}
+					{activeParked.length > 0 && (
+						<span
+							aria-hidden="true"
+							className="absolute -top-1 -right-1 size-2.5 rounded-full border-2 border-pv-bg bg-nova-amber"
 						/>
 					)}
 				</PopoverTrigger>
@@ -307,9 +349,9 @@ export function CaseDataManager({
 							Case data
 						</PopoverTitle>
 						<PopoverDescription className="text-sm leading-relaxed text-nova-text-secondary">
-							{canEdit ? "Add or replace" : "View"} case data for “
-							{caseTypeDisplayName}”. It’s used throughout your app and in
-							Preview.
+							{canEdit ? "Add or replace" : "View"} the cases saved for the{" "}
+							<NameChip label={caseType.name} /> case type. They’re used
+							throughout your app and in Preview.
 						</PopoverDescription>
 					</PopoverHeader>
 					{operation === "create" && (
@@ -321,6 +363,48 @@ export function CaseDataManager({
 						>
 							Adding sample cases…
 						</p>
+					)}
+
+					{/* Review section — news first, between the header and the
+					 * count block, so the popover's existing jobs stay
+					 * untouched. Renders only while undismissed entries exist. */}
+					{activeParked.length > 0 && (
+						<div className="mx-4 mb-4 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] p-3">
+							<div className="flex items-start gap-2.5">
+								<Icon
+									icon={tablerArchive}
+									width="17"
+									height="17"
+									className="mt-0.5 shrink-0 text-nova-amber"
+								/>
+								<div className="min-w-0">
+									<p className="text-sm font-semibold text-nova-text">
+										{heldCases === 1
+											? "1 case held for review"
+											: `${heldCases} cases held for review`}
+									</p>
+									<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-secondary">
+										Out of the app until their values are decided
+									</p>
+								</div>
+							</div>
+							<Button
+								type="button"
+								variant="outline"
+								className="mt-2.5 min-h-11 w-full"
+								onClick={() => {
+									setPopoverOpen(false);
+									// The review screen is an edit surface — in preview the
+									// data-review URL renders the running case list, so the
+									// press would look like a no-op. Leave preview first.
+									setPreviewing(false);
+									navigate.openDataReview(moduleUuid);
+								}}
+							>
+								<Icon icon={tablerArchive} width="15" height="15" />
+								Review data
+							</Button>
+						</div>
 					)}
 
 					<div className="border-t border-nova-border px-4 pb-4 pt-4">
@@ -490,10 +574,9 @@ export function CaseDataManager({
 							Replace all {caseLabel(count ?? 0)}?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left text-pretty">
-							All case data for “{caseTypeDisplayName}” will be replaced
-							throughout the app, including cases added by hand or through
-							Preview. New sample cases will appear everywhere this case type is
-							used.
+							All “{caseTypeDisplayName}” cases will be replaced throughout the
+							app, including cases added by hand or through Preview. New sample
+							cases will appear everywhere this case type is used.
 							{hasLinkedChildren && (
 								<>
 									{" "}

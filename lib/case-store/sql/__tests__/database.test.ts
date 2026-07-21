@@ -384,14 +384,18 @@ describe("Database.parked_case_values", () => {
 				original_value: JSON.stringify("abc"),
 				reason:
 					"cast text→int failed for property 'age': value \"abc\" is not a whole number",
-				// `id` + `created_at` omitted — server defaults fire.
+				from_type: "text",
+				to_type: "int",
+				// `id` + `created_at` omitted — server defaults fire;
+				// `dismissed_at` omitted — a fresh park is active.
 			}),
 		);
 
 		expect(compiled.sql).toContain('insert into "parked_case_values"');
 		expect(compiled.sql).toContain('"original_value"');
-		// 6 explicit columns set; `id` + `created_at` are defaulted.
-		expect(compiled.parameters).toHaveLength(6);
+		// 8 explicit columns set; `id` + `created_at` + `dismissed_at`
+		// are defaulted/omitted.
+		expect(compiled.parameters).toHaveLength(8);
 	});
 
 	it("exposes the schema column shape via Selectable<ParkedCaseValuesTable>", () => {
@@ -407,6 +411,9 @@ describe("Database.parked_case_values", () => {
 			property: "age",
 			original_value: "abc",
 			reason: "cast failed",
+			from_type: "text",
+			to_type: "int",
+			dismissed_at: null,
 			created_at: new Date(),
 		};
 		expect(_typecheck.reason).toBe("cast failed");
