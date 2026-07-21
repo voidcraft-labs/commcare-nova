@@ -412,10 +412,11 @@ export interface MigrationReport {
  * (also the answer for an absent or unparseable stored schema:
  * restore refuses to guess). There is no occupancy arm: a case with
  * an active kept value is HELD out of the running app (see
- * `QueryArgs.includeHeld`), so nothing can land a newer value in the
- * parked slot — a put-back writes the original over whatever the
- * slot holds (a narrow-options flush's surviving selections are the
- * one occupant, and they are a subset of the original).
+ * `QueryArgs.includeHeld`), so the normal flow can't land a newer
+ * value in the parked slot. Where a dismissal round-trip did (dismiss
+ * releases → a form writes → move-back re-holds), the put back still
+ * proceeds — it is a human decision — and archives the displaced
+ * value as a new dismissed entry rather than destroying it.
  */
 export type ParkedValueStanding = "fits" | "blocked" | "undeclared";
 
@@ -695,15 +696,22 @@ export interface CaseStore extends SchemaCaseStore {
 	/**
 	 * The user-driven restore: write the named entries' values back
 	 * under their keys and delete the restored entries. Same safety
-	 * core as {@link SchemaCaseStore.unparkValues} — row exists, key
-	 * free, value conforms to the currently-stored schema; a blocked
-	 * entry is KEPT — plus the tenant gate: an id whose case row sits
-	 * outside the bound Project counts as `kept`, never touched.
+	 * core as {@link SchemaCaseStore.unparkValues} — row exists, value
+	 * conforms to the currently-stored schema; a blocked entry is
+	 * KEPT — plus the tenant gate (an id whose case row sits outside
+	 * the bound Project counts as `kept`, never touched) and the
+	 * dismissed gate (a DISMISSED id counts as `kept`: its case may be
+	 * live with a peer's replacement under the slot, so a stale
+	 * client's Put back never overwrites — move back to review first).
+	 * Unlike the automatic restores, this human decision OVERWRITES an
+	 * occupied slot; a displaced value that isn't redundant with the
+	 * original is archived as a new dismissed entry (`displaced`
+	 * counts them), so no overwrite ever destroys data.
 	 */
 	restoreParkedValues(args: {
 		appId: string;
 		ids: ReadonlyArray<string>;
-	}): Promise<{ restored: number; kept: number }>;
+	}): Promise<{ restored: number; kept: number; displaced: number }>;
 
 	/**
 	 * Toggle the soft archive on the named entries. Dismissing never

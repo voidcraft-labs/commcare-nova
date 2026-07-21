@@ -103,25 +103,25 @@ describe("displayReviewValue", () => {
 
 describe("standingPhrase", () => {
 	it("names what a blocked value fails to be, from the current type", () => {
-		expect(standingPhrase("blocked", "date")).toBe("Isn't a date");
-		expect(standingPhrase("blocked", "datetime")).toBe("Isn't a date & time");
-		expect(standingPhrase("blocked", "int")).toBe("Isn't a whole number");
-		expect(standingPhrase("blocked", "geopoint")).toBe("Isn't a GPS point");
-		expect(standingPhrase("blocked", "text")).toBe("Isn't text");
+		expect(standingPhrase("blocked", "date")).toBe("Isn’t a date");
+		expect(standingPhrase("blocked", "datetime")).toBe("Isn’t a date & time");
+		expect(standingPhrase("blocked", "int")).toBe("Isn’t a whole number");
+		expect(standingPhrase("blocked", "geopoint")).toBe("Isn’t a GPS point");
+		expect(standingPhrase("blocked", "text")).toBe("Isn’t text");
 	});
 
 	it("phrases select blocks as choice shape — a select schema carries no option enum, so only shape can block", () => {
 		expect(standingPhrase("blocked", "single_select")).toBe(
-			"Isn't a single choice",
+			"Isn’t a single choice",
 		);
 		expect(standingPhrase("blocked", "multi_select")).toBe(
-			"Isn't a list of choices",
+			"Isn’t a list of choices",
 		);
 	});
 
 	it("stays typeless when the client sees no declaration for a blocked entry", () => {
 		expect(standingPhrase("blocked", undefined)).toBe(
-			"Doesn't fit the property now",
+			"Doesn’t fit the property now",
 		);
 	});
 

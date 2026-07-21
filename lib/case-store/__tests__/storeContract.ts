@@ -2326,7 +2326,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					appId: APP_ID,
 					ids: report.parkedIds,
 				}),
-			).toEqual({ restored: 0, kept: 1 });
+			).toEqual({ restored: 0, kept: 1, displaced: 0 });
 			await expect(
 				foreign.replaceParkedValue({
 					appId: APP_ID,
@@ -2336,7 +2336,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			).rejects.toBeInstanceOf(ParkedValueNotFoundError);
 		});
 
-		it("a dismissed entry survives a convert-back; the explicit restore is its only way home", async () => {
+		it("a dismissed entry survives a convert-back; move back to review, then the explicit restore, is its only way home", async () => {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
@@ -2385,9 +2385,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			expect(rows[0]?.properties).toEqual({});
 
-			// The archived entry now shows fully restorable (fits text,
-			// key free) — and the review surface's explicit restore is
-			// what brings it home.
+			// The archived entry now stands fits (text again, key free) —
+			// but the dismissed gate means it can't be put back DIRECTLY:
+			// a restore against the dismissed id falls to kept. Move back
+			// to review first (the Dismissed tab's one action), then the
+			// explicit restore brings it home.
 			const listed = await store.listParkedValues({
 				appId: APP_ID,
 				caseType: "patient",
@@ -2399,7 +2401,20 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					appId: APP_ID,
 					ids: report.parkedIds,
 				}),
-			).toEqual({ restored: 1, kept: 0 });
+			).toEqual({ restored: 0, kept: 1, displaced: 0 });
+			expect(
+				await store.setParkedValuesDismissed({
+					appId: APP_ID,
+					ids: report.parkedIds,
+					dismissed: false,
+				}),
+			).toBe(1);
+			expect(
+				await store.restoreParkedValues({
+					appId: APP_ID,
+					ids: report.parkedIds,
+				}),
+			).toEqual({ restored: 1, kept: 0, displaced: 0 });
 			const restoredRows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -2416,7 +2431,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					appId: APP_ID,
 					ids: report.parkedIds,
 				}),
-			).toEqual({ restored: 0, kept: 1 });
+			).toEqual({ restored: 0, kept: 1, displaced: 0 });
 		});
 
 		it("un-dismissing re-arms the convert-back auto-restore", async () => {
@@ -2727,12 +2742,136 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				appId: APP_ID,
 				ids: listed.map((e) => e.id),
 			});
-			expect(result).toEqual({ restored: 2, kept: 0 });
+			expect(result).toEqual({ restored: 2, kept: 0, displaced: 0 });
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			expect(rows[0]?.properties).toEqual({
 				color: "red",
 				symptoms: ["fever", "chills"],
 			});
+		});
+
+		it("a put back over a real occupying value archives the displaced value instead of destroying it", async () => {
+			const store = await options.factory(TENANT_A);
+			const textAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const intAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			await seedSchema(store, buildBlueprint([textAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intAge])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			expect(report.parkedIds).toHaveLength(1);
+
+			// A real value lands under the parked key (a dismissal
+			// round-trip's form write; here a direct update). The
+			// convert-back's AUTOMATIC restore must keep the entry —
+			// never overwrite without a human decision.
+			await store.update({
+				appId: APP_ID,
+				caseId: PATIENT_BOB_ID,
+				patch: { properties: makeProperties({ age: 55 }) },
+			});
+			const revert = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([textAge])),
+			});
+			expect(revert.restored).toBe(0);
+
+			// The explicit put back proceeds — and the value it displaces
+			// ("55" after the convert-back's cast) is archived as a NEW
+			// dismissed entry, not destroyed. Archived means recoverable
+			// under Dismissed while holding nothing: the case releases.
+			expect(
+				await store.restoreParkedValues({
+					appId: APP_ID,
+					ids: report.parkedIds,
+				}),
+			).toEqual({ restored: 1, kept: 0, displaced: 1 });
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ age: "abc" });
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed).toHaveLength(1);
+			expect(listed[0]?.originalValue).toBe("55");
+			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
+			expect(listed[0]?.reason).toContain("displaced");
+		});
+
+		it("a dismissed entry cannot be put back directly — a stale client's restore falls to kept", async () => {
+			const store = await options.factory(TENANT_A);
+			const textAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const intAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			await seedSchema(store, buildBlueprint([textAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intAge])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+
+			// A peer replaces the value: the entry archives and the case
+			// releases with the replacement saved.
+			await store.replaceParkedValue({
+				appId: APP_ID,
+				id: report.parkedIds[0] as string,
+				value: 42,
+			});
+
+			// A STALE client still showing the entry active presses Put
+			// back. The dismissed gate keeps it — the peer's replacement
+			// survives and the archive row stays.
+			expect(
+				await store.restoreParkedValues({
+					appId: APP_ID,
+					ids: report.parkedIds,
+				}),
+			).toEqual({ restored: 0, kept: 1, displaced: 0 });
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(rows[0]?.properties).toEqual({ age: 42 });
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed).toHaveLength(1);
+			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
 		});
 
 		it("a park whose property leaves the schema stands undeclared, and restore keeps it", async () => {
@@ -2787,7 +2926,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					appId: APP_ID,
 					ids: report.parkedIds,
 				}),
-			).toEqual({ restored: 0, kept: 1 });
+			).toEqual({ restored: 0, kept: 1, displaced: 0 });
 		});
 
 		// -----------------------------------------------------------

@@ -285,13 +285,18 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	caseType: string | undefined;
 	fetcher: (ids: { appId: string; caseType: string }) => Promise<T>;
 	settledKind: T["kind"];
+	/** Distinguishes callers whose fetchers differ beyond (appId,
+	 * caseType) — e.g. the count's includeHeld variants — in the
+	 * module-level in-flight dedupe key, so concurrent mounts of
+	 * DIFFERENT variants never share one call. */
+	variant?: string;
 	errorMessage: string;
 }): {
 	state: LoadingState<T>;
 	fetching: boolean;
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType, fetcher, settledKind, errorMessage } = args;
+	const { appId, caseType, fetcher, settledKind, variant, errorMessage } = args;
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const ready = Boolean(appId && caseType);
 	const requestIdentity = ready ? `${appId}\u0000${caseType}` : "";
@@ -319,7 +324,7 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 							kind: "per-case-type" as const,
 							key: requestIdentity,
 							value: await dedupedPerCaseTypeCall(
-								`${settledKind} ${requestIdentity} ${caseDataRevision}`,
+								`${settledKind} ${variant ?? ""} ${requestIdentity} ${caseDataRevision}`,
 								() => fetcher({ appId, caseType }),
 							),
 						}),
@@ -355,15 +360,25 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 export function useCaseCount(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
+	/** The builder's Case data manager passes true — the full stored
+	 * population it governs; the running app's probes leave it unset. */
+	includeHeld?: boolean;
 }): {
 	state: LoadingState<LoadCaseCountResult>;
 	fetching: boolean;
 	reload: () => Promise<void>;
 } {
+	const includeHeld = args.includeHeld === true;
 	return usePerCaseTypeResource<LoadCaseCountResult>({
-		...args,
-		fetcher: loadCaseCountAction,
+		appId: args.appId,
+		caseType: args.caseType,
+		fetcher: (ids) => loadCaseCountAction({ ...ids, includeHeld }),
+		// The variant is part of the dedupe identity — the manager's
+		// population count (held included) and the running list's
+		// empty-state probe (held excluded) may mount concurrently and
+		// must never share one in-flight result.
 		settledKind: "count",
+		variant: includeHeld ? "held-included" : undefined,
 		errorMessage: "Failed to count cases.",
 	});
 }

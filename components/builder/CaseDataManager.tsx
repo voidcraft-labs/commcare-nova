@@ -98,6 +98,7 @@ export function CaseDataManager({
 		fetching,
 		reload: reloadCount,
 	} = useCaseCount({
+		includeHeld: true,
 		appId,
 		caseType: caseType.name,
 	});
@@ -208,8 +209,8 @@ export function CaseDataManager({
 				? "Case count unavailable"
 				: "Case count loading";
 	const triggerLabel = `Case data for ${caseTypeDisplayName}. ${triggerCountStatus}.${
-		activeParked.length > 0
-			? ` ${activeParked.length === 1 ? "1 value" : `${activeParked.length} values`} to review.`
+		heldCases > 0
+			? ` ${heldCases === 1 ? "1 case" : `${heldCases} cases`} held for review.`
 			: ""
 	} Case data is shared throughout your app`;
 

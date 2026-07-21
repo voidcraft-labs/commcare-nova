@@ -208,9 +208,15 @@ architecture.
    compensation half, and both restores share one conformance-
    gated core split on ONE axis (`restoreEntries.overwriteExisting`):
    the review's explicit put back is a human decision and OVERWRITES
-   whatever the slot holds (a narrow flush's surviving subset, a
-   rename's standing destination value); the compensation and the
-   auto-restore are automatic and never overwrite.
+   whatever the slot holds; the compensation and the auto-restore are
+   automatic and never overwrite. An overwrite never destroys: a
+   displaced value that isn't redundant with the original (equal, or
+   a multi-select survivors-subset) is archived as a NEW dismissed
+   entry — recoverable under Dismissed, holding nothing. And a
+   DISMISSED entry can't be put back directly (`restoreParkedValues`
+   filters them to `kept`): its case may be live with a peer's
+   replacement under the slot, so a stale client's Put back never
+   clobbers — move back to review first.
 
    **The HOLD.** A case with an active (undismissed)
    `parked_case_values` entry is held out of every default read:
@@ -224,9 +230,19 @@ architecture.
    without the value); moving an entry back to review re-holds;
    direct `update()` writes stay possible (the review's own Replace
    path uses them) — the hold is a read-side contract, not a write
-   lock. Because the running app can't reach a held case, no newer
-   value can land in a parked slot — the reason the standing union
-   has no occupancy arm.
+   lock. Because the running app can't reach a held case, the NORMAL
+   flow can't land a newer value in a parked slot — the reason the
+   standing union has no occupancy arm. A dismissal round-trip can
+   (dismiss releases → a form writes → move-back re-holds); the put
+   back still proceeds and archives what it displaces. The hold also
+   applies JOIN-side: every `cases` row a relation walk reaches
+   (`compileRelationPath` — relation predicates, count-of-related,
+   calculated columns) carries the same active-park exclusion, so a
+   count never disagrees with the list beside it. The ancestor
+   ENRICHMENT walk (`traverse` for form preloads) deliberately still
+   reads held rows — a child's form showing its parent's name is
+   reference data, and blanking it would recreate the
+   hole-in-a-form trap the hold exists to prevent.
 3. **Per-row migration** — only when `change` is supplied. The
    three arms are `rename(renames[])`, `retype(fromType, toType)`,
    and `narrow-options(removedOptions)`. NO arm removes a row — a

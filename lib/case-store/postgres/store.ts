@@ -2466,9 +2466,11 @@ export class PostgresCaseStore implements CaseStore {
 			if (entries.length === 0) {
 				return { restored: 0, kept: args.ids.length };
 			}
-			return await this.restoreEntries(trx, args.appId, entries, {
+			const result = await this.restoreEntries(trx, args.appId, entries, {
 				overwriteExisting: false,
 			});
+			// Never-overwrite caller: nothing can be displaced.
+			return { restored: result.restored, kept: result.kept };
 		});
 	}
 
@@ -2484,17 +2486,24 @@ export class PostgresCaseStore implements CaseStore {
 	 * `overwriteExisting` splits the two callers on the one axis where
 	 * they differ: the review's Put back is a HUMAN decision made
 	 * against the whole record, so it writes the original over
-	 * whatever the slot holds (a narrow-options flush's surviving
-	 * subset, a rename's standing destination value); the saga's
-	 * compensation is automatic and never overwrites — an occupied key
-	 * keeps its entry for review.
+	 * whatever the slot holds; the saga's compensation is automatic
+	 * and never overwrites — an occupied key keeps its entry for
+	 * review. An overwrite never DESTROYS: when the displaced value
+	 * carries information the original doesn't already contain (it
+	 * isn't equal, and isn't a multi-select subset — the narrow
+	 * flush's survivors), it is archived as a NEW dismissed entry, so
+	 * every value a put back displaces stays recoverable under the
+	 * Dismissed filter. The hold makes an occupied slot unreachable in
+	 * the normal flow, but dismissal round-trips can land real data
+	 * under a parked key (dismiss releases the case → a form writes →
+	 * move-back re-holds) — that data must never silently vanish.
 	 */
 	private async restoreEntries(
 		trx: Transaction<Database>,
 		appId: string,
 		entries: ReadonlyArray<Selectable<ParkedCaseValuesTable>>,
 		opts: { overwriteExisting: boolean },
-	): Promise<{ restored: number; kept: number }> {
+	): Promise<{ restored: number; kept: number; displaced: number }> {
 		const rows = await trx
 			.selectFrom("cases as c")
 			.select(["c.case_id", "c.properties"])
@@ -2507,7 +2516,7 @@ export class PostgresCaseStore implements CaseStore {
 			.forUpdate()
 			.execute();
 		const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
-		const classify = await this.parkedValueFitClassifier(
+		const { classify, currentTypeOf } = await this.parkedValueFitClassifier(
 			trx,
 			appId,
 			new Set(entries.map((entry) => entry.case_type)),
@@ -2517,6 +2526,12 @@ export class PostgresCaseStore implements CaseStore {
 		// compose into a single rewrite.
 		const nextByCaseId = new Map<string, JsonObject>();
 		const restoredIds: string[] = [];
+		const displaced: Array<{
+			caseId: string;
+			caseType: string;
+			property: string;
+			value: JsonValue;
+		}> = [];
 		let kept = 0;
 		for (const entry of entries) {
 			const row = rowByCaseId.get(entry.case_id);
@@ -2528,12 +2543,12 @@ export class PostgresCaseStore implements CaseStore {
 				continue;
 			}
 			const current = nextByCaseId.get(entry.case_id) ?? row.properties;
-			if (
-				!opts.overwriteExisting &&
-				Object.hasOwn(current, entry.property) &&
-				current[entry.property] !== null &&
-				current[entry.property] !== ""
-			) {
+			const occupant = Object.hasOwn(current, entry.property)
+				? current[entry.property]
+				: undefined;
+			const occupied =
+				occupant !== undefined && occupant !== null && occupant !== "";
+			if (!opts.overwriteExisting && occupied) {
 				// Automatic caller + a real value under the key: keep the
 				// entry rather than clobber without a human decision.
 				kept++;
@@ -2545,6 +2560,14 @@ export class PostgresCaseStore implements CaseStore {
 			) {
 				kept++;
 				continue;
+			}
+			if (occupied && !occupantRedundant(occupant, entry.original_value)) {
+				displaced.push({
+					caseId: entry.case_id,
+					caseType: entry.case_type,
+					property: entry.property,
+					value: occupant as JsonValue,
+				});
 			}
 			nextByCaseId.set(entry.case_id, {
 				...current,
@@ -2569,7 +2592,31 @@ export class PostgresCaseStore implements CaseStore {
 				.where("parked_case_values.id", "in", restoredIds)
 				.execute();
 		}
-		return { restored: restoredIds.length, kept };
+		if (displaced.length > 0) {
+			// The displaced values land ARCHIVED (dismissed at birth):
+			// recoverable under the Dismissed filter, but holding nothing
+			// — the user just resolved this case, and a fresh active
+			// entry would silently re-hold it. Both type slots carry the
+			// property's CURRENT declared type (the displaced value lived
+			// under it) — there is no transition, only a displacement.
+			await trx
+				.insertInto("parked_case_values")
+				.values(
+					displaced.map((d) => ({
+						app_id: appId,
+						case_id: d.caseId,
+						case_type: d.caseType,
+						property: d.property,
+						original_value: JSON.stringify(d.value),
+						reason: `displaced when the reviewed value was put back under '${d.property}'`,
+						from_type: currentTypeOf(d.caseType, d.property) ?? "text",
+						to_type: currentTypeOf(d.caseType, d.property) ?? "text",
+						dismissed_at: new Date(),
+					})),
+				)
+				.execute();
+		}
+		return { restored: restoredIds.length, kept, displaced: displaced.length };
 	}
 
 	async listParkedValues(args: {
@@ -2601,7 +2648,7 @@ export class PostgresCaseStore implements CaseStore {
 					.orderBy("p.id", "desc")
 					.execute();
 				if (rows.length === 0) return [];
-				const classify = await this.parkedValueFitClassifier(
+				const { classify } = await this.parkedValueFitClassifier(
 					trx,
 					args.appId,
 					new Set(rows.map((row) => row.case_type)),
@@ -2630,9 +2677,9 @@ export class PostgresCaseStore implements CaseStore {
 	async restoreParkedValues(args: {
 		appId: string;
 		ids: ReadonlyArray<string>;
-	}): Promise<{ restored: number; kept: number }> {
+	}): Promise<{ restored: number; kept: number; displaced: number }> {
 		const projectId = this.requireProjectId();
-		if (args.ids.length === 0) return { restored: 0, kept: 0 };
+		if (args.ids.length === 0) return { restored: 0, kept: 0, displaced: 0 };
 		return await this.db.transaction().execute(async (trx) => {
 			// The `cases` join is the tenant gate; an id it filters out
 			// (vanished row, foreign Project) counts as `kept`, exactly
@@ -2644,10 +2691,17 @@ export class PostgresCaseStore implements CaseStore {
 				.selectAll("p")
 				.where("p.app_id", "=", args.appId)
 				.where("p.id", "in", [...args.ids])
+				// A DISMISSED entry has no direct way back to the case: its
+				// case may be live again and its slot may hold a peer's
+				// replacement, so a stale client's Put back must fall to
+				// `kept` (the refreshed list explains), never overwrite.
+				// Move back to review first — that re-holds the case and
+				// re-offers Put back against fresh standings.
+				.where("p.dismissed_at", "is", null)
 				.where("c.project_id", "=", projectId)
 				.execute();
 			if (entries.length === 0) {
-				return { restored: 0, kept: args.ids.length };
+				return { restored: 0, kept: args.ids.length, displaced: 0 };
 			}
 			const result = await this.restoreEntries(trx, args.appId, entries, {
 				overwriteExisting: true,
@@ -2655,6 +2709,7 @@ export class PostgresCaseStore implements CaseStore {
 			return {
 				restored: result.restored,
 				kept: result.kept + (args.ids.length - entries.length),
+				displaced: result.displaced,
 			};
 		});
 	}
@@ -2733,13 +2788,20 @@ export class PostgresCaseStore implements CaseStore {
 		trx: Transaction<Database>,
 		appId: string,
 		caseTypes: ReadonlySet<string>,
-	): Promise<
-		(
+	): Promise<{
+		classify: (
 			caseType: string,
 			property: string,
 			value: unknown,
-		) => "fits" | "blocked" | "undeclared"
-	> {
+		) => "fits" | "blocked" | "undeclared";
+		/** The CURRENT declared type token for a property, from the same
+		 *  stored schema the classifier validates against — `undefined`
+		 *  for an undeclared property or an unparseable schema. */
+		currentTypeOf: (
+			caseType: string,
+			property: string,
+		) => CasePropertyDataType | undefined;
+	}> {
 		const schemaRows = await trx
 			.selectFrom("case_type_schemas")
 			.select(["case_type", "schema"])
@@ -2757,19 +2819,23 @@ export class PostgresCaseStore implements CaseStore {
 		const ajv = new Ajv2020({ strict: false });
 		addFormats(ajv);
 		const cache = new Map<string, ValidateFunction<unknown> | null>();
-		return (caseType, property, value) => {
-			const key = `${caseType} ${property}`;
-			let validate = cache.get(key);
-			if (validate === undefined) {
-				const propSchema = propsByType.get(caseType)?.[property];
-				validate =
-					typeof propSchema === "object" && propSchema !== null
-						? ajv.compile(propSchema)
-						: null;
-				cache.set(key, validate);
-			}
-			if (validate === null) return "undeclared";
-			return validate(value) === true ? "fits" : "blocked";
+		return {
+			classify: (caseType, property, value) => {
+				const key = `${caseType} ${property}`;
+				let validate = cache.get(key);
+				if (validate === undefined) {
+					const propSchema = propsByType.get(caseType)?.[property];
+					validate =
+						typeof propSchema === "object" && propSchema !== null
+							? ajv.compile(propSchema)
+							: null;
+					cache.set(key, validate);
+				}
+				if (validate === null) return "undeclared";
+				return validate(value) === true ? "fits" : "blocked";
+			},
+			currentTypeOf: (caseType, property) =>
+				dataTypeTokenOf(propsByType.get(caseType)?.[property]),
 		};
 	}
 
@@ -3085,6 +3151,23 @@ interface PropertyTransitions {
  * shape returns `undefined` and detection skips the property (fail
  * open — the behavior of nothing stored to diff).
  */
+/**
+ * Whether an occupying value carries nothing the restored original
+ * doesn't already contain — equal values, or a multi-select occupant
+ * that is a subset of the original's selections (the narrow-options
+ * flush keeps SURVIVORS on the row, and survivors ⊆ original by
+ * construction). A redundant occupant is overwritten without an
+ * archive entry; anything else a put back displaces gets one.
+ */
+function occupantRedundant(occupant: unknown, original: unknown): boolean {
+	if (JSON.stringify(occupant) === JSON.stringify(original)) return true;
+	return (
+		Array.isArray(occupant) &&
+		Array.isArray(original) &&
+		occupant.every((element) => original.includes(element))
+	);
+}
+
 function dataTypeTokenOf(
 	propSchema: unknown,
 ): CasePropertyDataType | undefined {

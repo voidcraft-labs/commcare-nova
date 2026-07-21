@@ -174,10 +174,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "restored") {
 				showToast(
 					"error",
-					"Couldn't put the value back",
+					"Couldn’t put the value back",
 					result.kind === "error"
 						? result.message
-						: "You're signed out. Reload the page to sign in again.",
+						: "You’re signed out. Reload the page to sign in again.",
 				);
 				return;
 			}
@@ -186,11 +186,17 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			// render and write (a teammate's edit, a fresh conversion) —
 			// and the refreshed list shows the row's new state.
 			if (result.restored === 1) {
-				showToast("info", "Value put back", "It's saved on its case again.");
+				showToast(
+					"info",
+					"Value put back",
+					result.displaced > 0
+						? "It’s saved on its case again. The value it replaced is under Dismissed."
+						: "It’s saved on its case again.",
+				);
 			} else {
 				showToast(
 					"warning",
-					"It can't go back right now",
+					"It can’t go back right now",
 					"The property or the case changed since this list loaded.",
 				);
 			}
@@ -202,10 +208,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "toggled") {
 				showToast(
 					"error",
-					"Couldn't move it back",
+					"Couldn’t move it back",
 					result.kind === "error"
 						? result.message
-						: "You're signed out. Reload the page to sign in again.",
+						: "You’re signed out. Reload the page to sign in again.",
 				);
 				return;
 			}
@@ -224,10 +230,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			if (result.kind !== "toggled") {
 				showToast(
 					"error",
-					"Couldn't dismiss",
+					"Couldn’t dismiss",
 					result.kind === "error"
 						? result.message
-						: "You're signed out. Reload the page to sign in again.",
+						: "You’re signed out. Reload the page to sign in again.",
 				);
 				return;
 			}
@@ -315,7 +321,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				"Couldn’t overwrite the value",
 				result.kind === "error"
 					? result.message
-					: "You're signed out. Reload the page to sign in again.",
+					: "You’re signed out. Reload the page to sign in again.",
 			);
 		})();
 	};
@@ -370,7 +376,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					<p className="font-medium text-nova-text">This list didn’t load</p>
 					<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 						{state.kind === "unauthenticated"
-							? "You're signed out. Reload the page to sign in again."
+							? "You’re signed out. Reload the page to sign in again."
 							: state.message}
 					</p>
 					<Button
@@ -672,7 +678,7 @@ function ReviewEntryRow({
 											onClick={onOpenReplace}
 										>
 											<Icon icon={tablerPencil} width="15" height="15" />
-											Replace
+											Overwrite
 										</Button>
 									</SimpleTooltip>
 								)}

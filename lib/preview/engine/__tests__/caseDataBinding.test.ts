@@ -3550,12 +3550,15 @@ describe("loadCaseCountAction", () => {
 		});
 
 		expect(result).toEqual({ kind: "count", count: 37 });
-		// The manager's count opts into HELD cases — it reports the full
-		// stored population it governs, not the running app's view.
+		// The flag is CALLER-controlled: only the builder's Case data
+		// manager passes true (its population includes held rows); this
+		// probe-style call leaves it unset and inherits the hold, so the
+		// running app's empty states attribute against the population
+		// the app can actually reach.
 		expect(stubStore.count).toHaveBeenCalledWith({
 			appId: APP_ID,
 			caseType: "patient",
-			includeHeld: true,
+			includeHeld: false,
 		});
 	});
 

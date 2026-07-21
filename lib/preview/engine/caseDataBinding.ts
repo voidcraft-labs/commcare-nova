@@ -350,18 +350,22 @@ export async function loadCasesAction(args: {
 export async function loadCaseCountAction(args: {
 	appId: string;
 	caseType: string;
+	/** The builder's Case data manager passes true — it reports the
+	 * full stored population it governs (replace-all deletes held rows
+	 * too), with the held count named separately beside it. The
+	 * running app's empty-state probe leaves it unset so "no cases
+	 * exist" vs "your conditions exclude cases" attributes against the
+	 * population the app can actually reach. */
+	includeHeld?: boolean;
 }): Promise<LoadCaseCountResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await gatedCaseStore(args.appId, session.user.id, "view");
-		// The manager reports the full stored population — held cases
-		// are still rows it governs (replace-all deletes them too), and
-		// the popover's review section names the held count separately.
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
-			includeHeld: true,
+			includeHeld: args.includeHeld === true,
 		});
 		return { kind: "count", count };
 	} catch (err) {

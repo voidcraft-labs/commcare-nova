@@ -128,7 +128,7 @@ export function displayReviewValue(value: JsonValue): string {
  * The row's one-clause story: why this value is waiting, told
  * against the property's CURRENT state — the server's `standing`
  * classification carries the fact, this maps it to words. The
- * blocked arm names what the value fails to be ("Isn't a date"
+ * blocked arm names what the value fails to be ("Isn’t a date"
  * beside the literal "next Tuesday" and the date-iconed chip is the
  * whole event). A select block is always a SHAPE mismatch — the
  * stored select schema carries no option enum (a narrowed-away value
@@ -150,11 +150,11 @@ export function standingPhrase(
 		case "undeclared":
 			return "The property was removed";
 		case "blocked": {
-			if (currentType === undefined) return "Doesn't fit the property now";
-			if (currentType === "single_select") return "Isn't a single choice";
-			if (currentType === "multi_select") return "Isn't a list of choices";
+			if (currentType === undefined) return "Doesn’t fit the property now";
+			if (currentType === "single_select") return "Isn’t a single choice";
+			if (currentType === "multi_select") return "Isn’t a list of choices";
 			const label = DATA_TYPE_LABELS[currentType];
-			return currentType === "text" ? "Isn't text" : `Isn't a ${label}`;
+			return currentType === "text" ? "Isn’t text" : `Isn’t a ${label}`;
 		}
 	}
 }

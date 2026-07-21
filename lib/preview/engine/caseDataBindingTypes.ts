@@ -150,9 +150,9 @@ export type LoadParkedValuesResult =
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
-/** Result of the review surface's explicit restore. `kept` counts entries that stayed parked (blocked, vanished, or foreign) — the client re-lists to show why. */
+/** Result of the review surface's explicit restore. `kept` counts entries that stayed parked (blocked, vanished, dismissed, or foreign) — the client re-lists to show why. `displaced` counts occupying values the put back archived under Dismissed instead of destroying. */
 export type RestoreParkedValuesResult =
-	| { kind: "restored"; restored: number; kept: number }
+	| { kind: "restored"; restored: number; kept: number; displaced: number }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
