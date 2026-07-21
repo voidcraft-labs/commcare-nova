@@ -631,11 +631,11 @@ export async function setParkedValuesDismissedAction(args: {
 }
 
 /**
- * The Fix path: write a typed replacement value to the entry's case
+ * The Replace path: write a typed replacement value to the entry's case
  * through the standard validated update, then archive the entry (its
  * original value stays readable under Dismissed). Validation
  * failures come back as the typed `invalid-value` arm for inline
- * rendering in the Fix editor; a vanished entry (teammate restored
+ * rendering in the Replace editor; a vanished entry (teammate restored
  * it, case row replaced) is the `not-found` arm — both expected
  * control flow, not faults.
  */

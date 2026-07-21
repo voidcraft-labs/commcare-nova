@@ -595,7 +595,7 @@ export function useSetParkedValuesDismissed(args: {
 }
 
 /**
- * Curried action callback for the Fix editor's "Save to case". The
+ * Curried action callback for the Replace editor's "Save to case". The
  * typed `invalid-value` arm stays with the caller for inline
  * rendering; only a successful replacement invalidates.
  */

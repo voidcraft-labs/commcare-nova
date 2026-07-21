@@ -162,7 +162,7 @@ export type SetParkedValuesDismissedResult =
 	| { kind: "error"; message: string };
 
 /**
- * Result of the Fix path (write a replacement value to the case,
+ * Result of the Replace path (write a replacement value to the case,
  * archive the entry). `invalid-value` carries the schema's per-field
  * failures for inline rendering; `not-found` means the entry vanished
  * (a teammate restored/dismissed it, or its case row was replaced) —

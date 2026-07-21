@@ -82,6 +82,7 @@ import { useAppId, useCanEdit, useSetSidebarOpen } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import {
 	DATA_TYPE_LABELS,
+	dataTypePhrase,
 	displaySetAsideValue,
 	filterSetAsideEntries,
 	formatSetAsideTimestamp,
@@ -120,8 +121,8 @@ function currentTypeOf(
 	return decl.data_type ?? "text";
 }
 
-/** The Fix editor's in-progress draft for one entry. */
-interface FixDraft {
+/** The Replace editor's in-progress draft for one entry. */
+interface ReplaceDraft {
 	readonly entryId: string;
 	readonly text: string;
 	readonly selections: readonly string[];
@@ -144,7 +145,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	});
 
 	const [filter, setFilter] = useState<SetAsideFilter>("all");
-	const [fixDraft, setFixDraft] = useState<FixDraft | null>(null);
+	const [replaceDraft, setReplaceDraft] = useState<ReplaceDraft | null>(null);
 	const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
 	const [confirmDismissAll, setConfirmDismissAll] =
 		useState<SetAsideGroup | null>(null);
@@ -201,7 +202,9 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					result.kept === 1
 						? "1 value stayed set aside"
 						: `${result.kept} values stayed set aside`,
-					"They no longer fit the property's current type, or the case now holds a newer value.",
+					result.kept === 1
+						? "It no longer fits the property's current type, or its case now holds a newer value."
+						: "They no longer fit the property's current type, or their cases now hold newer values.",
 				);
 			}
 		});
@@ -238,7 +241,9 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				result.count === 1
 					? "Value dismissed"
 					: `${result.count} values dismissed`,
-				"Nothing was deleted — dismissed values stay under the Dismissed filter.",
+				result.count === 1
+					? "Nothing was deleted. Find it under the Dismissed filter."
+					: "Nothing was deleted. Find them under the Dismissed filter.",
 				{
 					action: {
 						label: "Undo",
@@ -250,35 +255,37 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			);
 		});
 
-	const saveFix = (entry: ParkedValueEntryWire) => {
-		if (fixDraft === null || fixDraft.entryId !== entry.id) return;
+	const saveReplacement = (entry: ParkedValueEntryWire) => {
+		if (replaceDraft === null || replaceDraft.entryId !== entry.id) return;
 		const currentType = propertyDecl(entry.property)?.data_type ?? "text";
 		const draft = replacementDraftToValue(
 			currentType,
-			currentType === "multi_select" ? fixDraft.selections : fixDraft.text,
+			currentType === "multi_select"
+				? replaceDraft.selections
+				: replaceDraft.text,
 		);
 		if (!draft.ok) return;
-		setFixDraft({ ...fixDraft, saving: true, failures: null });
+		setReplaceDraft({ ...replaceDraft, saving: true, failures: null });
 		void (async () => {
 			const result = await replace(entry.id, draft.value);
 			if (result.kind === "replaced") {
-				setFixDraft(null);
+				setReplaceDraft(null);
 				return;
 			}
 			if (result.kind === "invalid-value") {
-				setFixDraft((prev) =>
+				setReplaceDraft((prev) =>
 					prev?.entryId === entry.id
 						? { ...prev, saving: false, failures: result.failures }
 						: prev,
 				);
 				return;
 			}
-			setFixDraft(null);
+			setReplaceDraft(null);
 			if (result.kind === "not-found") {
 				showToast(
 					"info",
 					"This value moved on",
-					"It was restored, replaced, or its case was removed — the list is refreshed.",
+					"It was restored, replaced, or its case was removed. The list is refreshed.",
 				);
 				await reload();
 				return;
@@ -316,9 +323,9 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					Set-aside values
 				</h1>
 				<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
-					When a property changes type, saved values that don’t fit are set
-					aside instead of deleted. Restore a value, enter a replacement, or
-					dismiss it.
+					When a property changes type, any saved values that no longer fit are
+					set aside, not deleted. You can restore a value, replace it with one
+					that fits, or dismiss it.
 				</p>
 				{!canEdit && entries.length > 0 && (
 					<p className="mt-3 max-w-2xl rounded-lg bg-nova-elevated px-3 py-2.5 text-sm leading-relaxed text-nova-text-secondary">
@@ -373,7 +380,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 							{(
 								[
 									["all", "All", counts.all],
-									["restorable", "Restorable", counts.restorable],
+									["restorable", "Ready to restore", counts.restorable],
 									["dismissed", "Dismissed", counts.dismissed],
 								] as const
 							).map(([value, label, count]) => (
@@ -388,7 +395,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 											: "border-nova-border text-nova-text-secondary hover:border-nova-border-bright hover:text-nova-text"
 									}`}
 								>
-									{label} {count}
+									{label} · {count}
 								</button>
 							))}
 							{fetching && (
@@ -405,8 +412,8 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						{groups.length === 0 ? (
 							<p className="mt-8 text-sm text-nova-text-secondary">
 								{filter === "restorable"
-									? "Nothing can be restored right now — values become restorable when their property accepts them again."
-									: "No dismissed values."}
+									? "Nothing is ready to restore right now. A value becomes ready when its property fits it again."
+									: "You haven’t dismissed anything"}
 							</p>
 						) : (
 							groups.map((group) => (
@@ -416,15 +423,15 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 									filter={filter}
 									canEdit={canEdit}
 									busyIds={busyIds}
-									fixDraft={fixDraft}
+									replaceDraft={replaceDraft}
 									currentDecl={propertyDecl(group.property)}
 									label={propertyLabel(group.property)}
 									onRestore={restoreEntries}
 									onDismiss={dismissEntries}
 									onUndismiss={undismissEntries}
 									onDismissAll={() => setConfirmDismissAll(group)}
-									onOpenFix={(entry) =>
-										setFixDraft({
+									onOpenReplace={(entry) =>
+										setReplaceDraft({
 											entryId: entry.id,
 											text: "",
 											selections: [],
@@ -432,9 +439,9 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 											saving: false,
 										})
 									}
-									onDraftChange={(next) => setFixDraft(next)}
-									onCancelFix={() => setFixDraft(null)}
-									onSaveFix={saveFix}
+									onDraftChange={(next) => setReplaceDraft(next)}
+									onCancelReplace={() => setReplaceDraft(null)}
+									onSaveReplace={saveReplacement}
 									onAskNova={() => askNovaToConvertBack(group)}
 								/>
 							))
@@ -483,8 +490,8 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 							”?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left text-pretty">
-							They leave this list but nothing is deleted — every value stays
-							available (and restorable) under the Dismissed filter.
+							Nothing is deleted. Every value stays under the Dismissed filter,
+							and you can restore them from there.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -526,38 +533,36 @@ function SetAsideGroupCard({
 	filter,
 	canEdit,
 	busyIds,
-	fixDraft,
+	replaceDraft,
 	currentDecl,
 	label,
 	onRestore,
 	onDismiss,
 	onUndismiss,
 	onDismissAll,
-	onOpenFix,
+	onOpenReplace,
 	onDraftChange,
-	onCancelFix,
-	onSaveFix,
+	onCancelReplace,
+	onSaveReplace,
 	onAskNova,
 }: {
 	readonly group: SetAsideGroup;
 	readonly filter: SetAsideFilter;
 	readonly canEdit: boolean;
 	readonly busyIds: ReadonlySet<string>;
-	readonly fixDraft: FixDraft | null;
+	readonly replaceDraft: ReplaceDraft | null;
 	readonly currentDecl: CaseProperty | undefined;
 	readonly label: string;
 	readonly onRestore: (ids: readonly string[]) => void;
 	readonly onDismiss: (ids: readonly string[]) => void;
 	readonly onUndismiss: (ids: readonly string[]) => void;
 	readonly onDismissAll: () => void;
-	readonly onOpenFix: (entry: ParkedValueEntryWire) => void;
-	readonly onDraftChange: (next: FixDraft) => void;
-	readonly onCancelFix: () => void;
-	readonly onSaveFix: (entry: ParkedValueEntryWire) => void;
+	readonly onOpenReplace: (entry: ParkedValueEntryWire) => void;
+	readonly onDraftChange: (next: ReplaceDraft) => void;
+	readonly onCancelReplace: () => void;
+	readonly onSaveReplace: (entry: ParkedValueEntryWire) => void;
 	readonly onAskNova: () => void;
 }) {
-	const currentTypeLabel =
-		DATA_TYPE_LABELS[currentTypeOf(currentDecl, group.toType)];
 	const count = group.entries.length;
 	const showConvertBackHint =
 		canEdit &&
@@ -565,8 +570,15 @@ function SetAsideGroupCard({
 		group.restorableIds.length === 0 &&
 		group.fitsOriginalCount > 0 &&
 		filter !== "dismissed";
+	// The "converted back" success note — only meaningful for a real
+	// type change (an options-removed group never left its type, so
+	// "is a select again" would be false; its enabled Restore buttons
+	// already say everything).
 	const showAllRestorable =
-		group.allRestorable && count > 0 && filter !== "dismissed";
+		group.isTypeChange &&
+		group.allRestorable &&
+		count > 0 &&
+		filter !== "dismissed";
 
 	return (
 		<section className="mt-5 overflow-visible rounded-2xl border border-nova-border bg-nova-surface">
@@ -580,13 +592,13 @@ function SetAsideGroupCard({
 							{label}
 						</span>
 						{group.isTypeChange ? (
-							<span className="inline-flex items-center gap-1.5 rounded-full border border-nova-border px-2.5 py-0.5 font-mono text-[11px] text-nova-text-secondary">
+							<span className="inline-flex items-center gap-1.5 rounded-full border border-nova-border px-2.5 py-0.5 text-xs text-nova-text-secondary">
 								{DATA_TYPE_LABELS[group.fromType]}
 								<Icon icon={tablerArrowRight} width="11" height="11" />
 								{DATA_TYPE_LABELS[group.toType]}
 							</span>
 						) : (
-							<span className="inline-flex items-center rounded-full border border-nova-border px-2.5 py-0.5 font-mono text-[11px] text-nova-text-secondary">
+							<span className="inline-flex items-center rounded-full border border-nova-border px-2.5 py-0.5 text-xs text-nova-text-secondary">
 								options removed
 							</span>
 						)}
@@ -641,13 +653,15 @@ function SetAsideGroupCard({
 						className="shrink-0 text-nova-violet-bright"
 					/>
 					<p className="min-w-60 flex-1 text-[13px] leading-relaxed text-nova-text-secondary">
-						None of these fit a {DATA_TYPE_LABELS[group.toType]}, but{" "}
-						{group.fitsOriginalCount === count
-							? `all ${count}`
-							: `${group.fitsOriginalCount} of the ${count}`}{" "}
-						still fit {DATA_TYPE_LABELS[group.fromType]}. If {label} becomes a{" "}
-						{DATA_TYPE_LABELS[group.fromType]} property again, those values can
-						be restored.
+						{count === 1
+							? `This value doesn’t fit ${dataTypePhrase(group.toType)}, but it still fits ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can restore it.`
+							: `None of these fit ${dataTypePhrase(group.toType)}, but ${
+									group.fitsOriginalCount === count
+										? count === 2
+											? "both"
+											: `all ${count}`
+										: `${group.fitsOriginalCount} of the ${count}`
+								} still fit ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can restore them.`}
 					</p>
 					<Button
 						type="button"
@@ -670,18 +684,18 @@ function SetAsideGroupCard({
 						className="shrink-0 text-nova-emerald"
 					/>
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						{label} is a {currentTypeLabel} again — all {count} original{" "}
-						{count === 1 ? "value fits" : "values fit"} the current type and can
-						be restored.
+						{count === 1
+							? `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and its saved value fits. It’s ready to restore.`
+							: `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and all ${count} saved values fit. They’re ready to restore.`}
 					</p>
 				</div>
 			)}
 
 			{/* Column captions — wide layout only. */}
-			<div className="hidden items-center gap-4 px-4 py-1.5 text-[11px] font-semibold tracking-wider text-nova-text-muted uppercase @3xl:flex">
+			<div className="hidden items-center gap-4 px-4 py-1.5 text-xs font-medium text-nova-text-muted @3xl:flex">
 				<span className="w-40 shrink-0">Case</span>
 				<span className="min-w-0 flex-1">Original value</span>
-				<span className="w-48 shrink-0">Why it didn’t fit</span>
+				<span className="w-48 shrink-0">Why it’s set aside</span>
 				{canEdit && <span className="w-52 shrink-0" />}
 			</div>
 
@@ -692,17 +706,19 @@ function SetAsideGroupCard({
 					canEdit={canEdit}
 					busy={busyIds.has(entry.id)}
 					dismissedView={filter === "dismissed"}
-					fixDraft={fixDraft?.entryId === entry.id ? fixDraft : null}
+					replaceDraft={
+						replaceDraft?.entryId === entry.id ? replaceDraft : null
+					}
 					currentDecl={currentDecl}
 					label={label}
 					fromType={group.fromType}
 					onRestore={() => onRestore([entry.id])}
 					onDismiss={() => onDismiss([entry.id])}
 					onUndismiss={() => onUndismiss([entry.id])}
-					onOpenFix={() => onOpenFix(entry)}
+					onOpenReplace={() => onOpenReplace(entry)}
 					onDraftChange={onDraftChange}
-					onCancelFix={onCancelFix}
-					onSaveFix={() => onSaveFix(entry)}
+					onCancelReplace={onCancelReplace}
+					onSaveReplace={() => onSaveReplace(entry)}
 				/>
 			))}
 		</section>
@@ -714,51 +730,52 @@ function SetAsideEntryRow({
 	canEdit,
 	busy,
 	dismissedView,
-	fixDraft,
+	replaceDraft,
 	currentDecl,
 	label,
 	fromType,
 	onRestore,
 	onDismiss,
 	onUndismiss,
-	onOpenFix,
+	onOpenReplace,
 	onDraftChange,
-	onCancelFix,
-	onSaveFix,
+	onCancelReplace,
+	onSaveReplace,
 }: {
 	readonly entry: ParkedValueEntryWire;
 	readonly canEdit: boolean;
 	readonly busy: boolean;
 	readonly dismissedView: boolean;
-	readonly fixDraft: FixDraft | null;
+	readonly replaceDraft: ReplaceDraft | null;
 	readonly currentDecl: CaseProperty | undefined;
 	readonly label: string;
 	readonly fromType: CasePropertyDataType;
 	readonly onRestore: () => void;
 	readonly onDismiss: () => void;
 	readonly onUndismiss: () => void;
-	readonly onOpenFix: () => void;
-	readonly onDraftChange: (next: FixDraft) => void;
-	readonly onCancelFix: () => void;
-	readonly onSaveFix: () => void;
+	readonly onOpenReplace: () => void;
+	readonly onDraftChange: (next: ReplaceDraft) => void;
+	readonly onCancelReplace: () => void;
+	readonly onSaveReplace: () => void;
 }) {
 	const display = displaySetAsideValue(entry.originalValue);
-	const currentTypeLabel =
-		DATA_TYPE_LABELS[currentTypeOf(currentDecl, entry.toType)];
+	const currentTypePhrase = dataTypePhrase(
+		currentTypeOf(currentDecl, entry.toType),
+	);
 	// The row's short "why" — the stored `reason` is the log-grade
 	// account; the row states the same fact in the malformed-value
 	// voice, derived from the server verdict.
 	const whyText =
 		entry.blockedBy === "type"
-			? `Doesn’t fit a ${currentTypeLabel}`
+			? `Doesn’t fit ${currentTypePhrase}`
 			: entry.blockedBy === "occupied"
 				? "The case has a newer value"
-				: "Fits the current type";
+				: "Ready to restore";
 	const blockedReason =
 		entry.blockedBy === "type"
-			? `Fits ${DATA_TYPE_LABELS[fromType]}, not ${currentTypeLabel} — convert the type back to restore it`
+			? `Still fits ${dataTypePhrase(fromType)}, but not ${currentTypePhrase}. Change the type back and you can restore it`
 			: entry.blockedBy === "occupied"
-				? "The case already holds a value here — restoring would overwrite it. Use Fix to change it deliberately."
+				? "The case has a newer value, and restoring would overwrite it. Use Replace to choose what’s saved instead"
 				: null;
 
 	const restoreButton = (
@@ -774,15 +791,15 @@ function SetAsideEntryRow({
 			</Button>
 		</SimpleTooltip>
 	);
-	const fixButton = (
+	const replaceButton = (
 		<Button
 			type="button"
 			variant="ghost"
 			className="min-h-11 text-[13px] text-nova-violet-bright"
 			disabled={busy}
-			onClick={onOpenFix}
+			onClick={onOpenReplace}
 		>
-			Fix
+			Replace
 		</Button>
 	);
 	const dismissButton = dismissedView ? (
@@ -791,7 +808,7 @@ function SetAsideEntryRow({
 				type="button"
 				variant="ghost"
 				size="icon"
-				aria-label="Un-dismiss"
+				aria-label="Bring back"
 				className="size-11 text-nova-text-muted"
 				disabled={busy}
 				onClick={onUndismiss}
@@ -820,7 +837,7 @@ function SetAsideEntryRow({
 				<span className="w-40 shrink-0 truncate text-[13.5px] font-medium text-nova-text">
 					{entry.caseName || "Unnamed case"}
 				</span>
-				<span className="min-w-0 flex-1 truncate font-mono text-[13px] text-nova-text">
+				<span className="min-w-0 flex-1 truncate text-[13px] text-nova-text">
 					<span className="text-nova-text-muted">“</span>
 					{display}
 					<span className="text-nova-text-muted">”</span>
@@ -831,7 +848,7 @@ function SetAsideEntryRow({
 				{canEdit && (
 					<span className="flex w-52 shrink-0 items-center justify-end gap-0.5">
 						{restoreButton}
-						{fixButton}
+						{replaceButton}
 						{dismissButton}
 					</span>
 				)}
@@ -865,20 +882,20 @@ function SetAsideEntryRow({
 								>
 									Restore
 								</DropdownMenuItem>
-								<DropdownMenuItem disabled={busy} onClick={onOpenFix}>
-									Fix
+								<DropdownMenuItem disabled={busy} onClick={onOpenReplace}>
+									Replace
 								</DropdownMenuItem>
 								<DropdownMenuItem
 									disabled={busy}
 									onClick={dismissedView ? onUndismiss : onDismiss}
 								>
-									{dismissedView ? "Un-dismiss" : "Dismiss"}
+									{dismissedView ? "Bring back" : "Dismiss"}
 								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
 					)}
 				</div>
-				<p className="mt-0.5 font-mono text-[13px] break-words text-nova-text">
+				<p className="mt-0.5 text-[13px] break-words text-nova-text">
 					<span className="text-nova-text-muted">“</span>
 					{display}
 					<span className="text-nova-text-muted">”</span>
@@ -886,23 +903,23 @@ function SetAsideEntryRow({
 				<p className="mt-1 text-xs text-nova-text-muted">{whyText}</p>
 			</div>
 
-			{fixDraft !== null && (
-				<FixEditor
+			{replaceDraft !== null && (
+				<ReplaceEditor
 					entry={entry}
-					draft={fixDraft}
+					draft={replaceDraft}
 					currentDecl={currentDecl}
 					label={label}
 					displayOriginal={display}
 					onDraftChange={onDraftChange}
-					onCancel={onCancelFix}
-					onSave={onSaveFix}
+					onCancel={onCancelReplace}
+					onSave={onSaveReplace}
 				/>
 			)}
 		</div>
 	);
 }
 
-function FixEditor({
+function ReplaceEditor({
 	entry,
 	draft,
 	currentDecl,
@@ -913,11 +930,11 @@ function FixEditor({
 	onSave,
 }: {
 	readonly entry: ParkedValueEntryWire;
-	readonly draft: FixDraft;
+	readonly draft: ReplaceDraft;
 	readonly currentDecl: CaseProperty | undefined;
 	readonly label: string;
 	readonly displayOriginal: string;
-	readonly onDraftChange: (next: FixDraft) => void;
+	readonly onDraftChange: (next: ReplaceDraft) => void;
 	readonly onCancel: () => void;
 	readonly onSave: () => void;
 }) {
@@ -930,7 +947,7 @@ function FixEditor({
 	return (
 		<div className="mx-4 mb-3.5 rounded-lg border border-nova-violet/30 bg-nova-violet/[0.04] px-4 py-3.5">
 			<p className="text-[13px] font-medium text-nova-text">
-				Replacement {label.toLowerCase()} — {entry.caseName || "this case"}
+				New value for {entry.caseName || "this case"}
 			</p>
 			<div className="mt-2.5 flex flex-wrap items-center gap-3">
 				<ReplacementInput
@@ -973,8 +990,8 @@ function FixEditor({
 				</ul>
 			)}
 			<p className="mt-2 text-xs text-nova-text-muted">
-				Saves to this case’s {label}. The original value “{displayOriginal}”
-				stays on this entry, under Dismissed.
+				Saves to this case’s {label}. The original “{displayOriginal}” stays
+				available under Dismissed.
 			</p>
 		</div>
 	);
@@ -988,8 +1005,8 @@ function ReplacementInput({
 }: {
 	readonly dataType: CasePropertyDataType;
 	readonly options: ReadonlyArray<{ value: string; label: string }>;
-	readonly draft: FixDraft;
-	readonly onDraftChange: (next: FixDraft) => void;
+	readonly draft: ReplaceDraft;
+	readonly onDraftChange: (next: ReplaceDraft) => void;
 }) {
 	const checkboxIdBase = useId();
 	const setText = (text: string) =>
@@ -1116,7 +1133,7 @@ function ReplacementInput({
 					onChange={(event) => setText(event.target.value)}
 					aria-label="Replacement GPS point"
 					placeholder="latitude longitude"
-					className="min-h-11 w-64 font-mono"
+					className="min-h-11 w-64"
 				/>
 			);
 		default:

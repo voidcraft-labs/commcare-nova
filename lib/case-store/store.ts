@@ -704,7 +704,7 @@ export interface CaseStore extends SchemaCaseStore {
 	}): Promise<number>;
 
 	/**
-	 * The "Fix" path: write `value` to the entry's case property
+	 * The "Replace" path: write `value` to the entry's case property
 	 * through the standard validated `update` (schema validation,
 	 * orphan shed, `modified_on` stamp), then dismiss the entry — the
 	 * original value stays readable under the Dismissed filter rather

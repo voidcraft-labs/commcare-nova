@@ -310,7 +310,9 @@ function buildRuntime(
 				showToast(
 					"warning",
 					parked === 1 ? "1 value set aside" : `${parked} values set aside`,
-					"They didn't fit the property's new type. Nothing was deleted — review them anytime in Case data.",
+					parked === 1
+						? "It didn't fit the property's new type. Nothing was deleted. Review it anytime in Case data."
+						: "They didn't fit the property's new type. Nothing was deleted. Review them anytime in Case data.",
 					// The Review action only renders when the response NAMED the
 					// affected case types (a version-skewed server that reports
 					// `parked` without them gets the plain toast rather than a
@@ -336,8 +338,8 @@ function buildRuntime(
 											// silently. The values stay safe either way.
 											showToast(
 												"info",
-												"No screen to review them on right now",
-												"The set-aside values' case type isn't used by any module. They stay saved — add a module for that case type (or ask Nova) to review them under Case data.",
+												"No screen shows them right now",
+												"No module uses that case type anymore. The values stay saved. Add a module for it, or ask Nova to, and you'll find them under Case data.",
 											);
 											return;
 										}

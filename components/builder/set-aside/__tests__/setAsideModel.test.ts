@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ParkedValueEntryWire } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
+	dataTypePhrase,
 	displaySetAsideValue,
 	filterSetAsideEntries,
 	formatSetAsideTimestamp,
@@ -115,26 +116,60 @@ describe("groupSetAsideEntries", () => {
 describe("formatSetAsideTimestamp", () => {
 	const now = new Date(2026, 6, 20, 12, 0); // local 2026-07-20 12:00
 
-	it("names today and yesterday with the clock time", () => {
+	// The locale is pinned so the pins are deterministic; real callers
+	// omit it and get the viewer's own clock and date order.
+	it("names today and yesterday with the viewer's clock", () => {
 		expect(
-			formatSetAsideTimestamp(new Date(2026, 6, 20, 9, 41).toISOString(), now),
-		).toBe("today, 09:41");
+			formatSetAsideTimestamp(
+				new Date(2026, 6, 20, 9, 41).toISOString(),
+				now,
+				"en-US",
+			),
+		).toBe("today at 9:41 AM");
 		expect(
-			formatSetAsideTimestamp(new Date(2026, 6, 19, 14, 2).toISOString(), now),
-		).toBe("yesterday, 14:02");
+			formatSetAsideTimestamp(
+				new Date(2026, 6, 19, 14, 2).toISOString(),
+				now,
+				"en-US",
+			),
+		).toBe("yesterday at 2:02 PM");
+		expect(
+			formatSetAsideTimestamp(
+				new Date(2026, 6, 20, 9, 41).toISOString(),
+				now,
+				"en-GB",
+			),
+		).toBe("today at 9:41");
 	});
 
 	it("collapses older dates to day-month, adding the year across years", () => {
 		expect(
-			formatSetAsideTimestamp(new Date(2026, 5, 12, 8, 0).toISOString(), now),
-		).toBe("12 Jun");
+			formatSetAsideTimestamp(
+				new Date(2026, 5, 12, 8, 0).toISOString(),
+				now,
+				"en-US",
+			),
+		).toBe("Jun 12");
 		expect(
-			formatSetAsideTimestamp(new Date(2025, 5, 12, 8, 0).toISOString(), now),
-		).toBe("12 Jun 2025");
+			formatSetAsideTimestamp(
+				new Date(2025, 5, 12, 8, 0).toISOString(),
+				now,
+				"en-US",
+			),
+		).toBe("Jun 12, 2025");
 	});
 
 	it("renders nothing for an unparseable timestamp", () => {
-		expect(formatSetAsideTimestamp("not a date", now)).toBe("");
+		expect(formatSetAsideTimestamp("not a date", now, "en-US")).toBe("");
+	});
+});
+
+describe("dataTypePhrase", () => {
+	it("adds the natural article for every countable type, none for text", () => {
+		expect(dataTypePhrase("text")).toBe("text");
+		expect(dataTypePhrase("date")).toBe("a date");
+		expect(dataTypePhrase("int")).toBe("a whole number");
+		expect(dataTypePhrase("single_select")).toBe("a select");
 	});
 });
 

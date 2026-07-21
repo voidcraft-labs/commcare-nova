@@ -129,26 +129,33 @@ export function groupSetAsideEntries(
 }
 
 /**
- * "set aside today, 09:41" / "yesterday, 14:02" / "12 Jun" /
- * "12 Jun 2025" — the card caption's timestamp. Calendar-day
- * comparison in the viewer's local zone; `now` is injected for
- * deterministic tests.
+ * "set aside today at 9:41 AM" / "yesterday at 2:02 PM" / "Jun 12" /
+ * "Jun 12, 2025" — the card caption's timestamp. Calendar-day
+ * comparison in the viewer's local zone, and the clock/date shapes
+ * come from the viewer's OWN locale (12-hour where that's the norm,
+ * 24-hour where it is) — the format is internationalization, never a
+ * style statement. `now` and `locale` are injected for deterministic
+ * tests; real callers pass only the timestamp.
  */
-export function formatSetAsideTimestamp(iso: string, now: Date): string {
+export function formatSetAsideTimestamp(
+	iso: string,
+	now: Date,
+	locale?: string,
+): string {
 	const then = new Date(iso);
 	if (Number.isNaN(then.getTime())) return "";
 	const dayKey = (d: Date) =>
 		`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 	const yesterday = new Date(now);
 	yesterday.setDate(now.getDate() - 1);
-	const time = then.toLocaleTimeString("en-GB", {
-		hour: "2-digit",
+	const time = then.toLocaleTimeString(locale, {
+		hour: "numeric",
 		minute: "2-digit",
 	});
-	if (dayKey(then) === dayKey(now)) return `today, ${time}`;
-	if (dayKey(then) === dayKey(yesterday)) return `yesterday, ${time}`;
+	if (dayKey(then) === dayKey(now)) return `today at ${time}`;
+	if (dayKey(then) === dayKey(yesterday)) return `yesterday at ${time}`;
 	const sameYear = then.getFullYear() === now.getFullYear();
-	return then.toLocaleDateString("en-GB", {
+	return then.toLocaleDateString(locale, {
 		day: "numeric",
 		month: "short",
 		...(sameYear ? {} : { year: "numeric" }),
@@ -172,6 +179,16 @@ export const DATA_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 	multi_select: "multi-select",
 	geopoint: "GPS point",
 };
+
+/**
+ * The label with its natural article, for running prose ("fits a
+ * date", "fits text") — "text" is a mass noun; every other type label
+ * counts.
+ */
+export function dataTypePhrase(dataType: CasePropertyDataType): string {
+	const label = DATA_TYPE_LABELS[dataType];
+	return dataType === "text" ? label : `a ${label}`;
+}
 
 /**
  * A stored value rendered for the entry row — arrays (multi-select

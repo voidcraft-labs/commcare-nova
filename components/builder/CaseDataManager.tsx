@@ -219,7 +219,7 @@ export function CaseDataManager({
 				: "Case count loading";
 	const triggerLabel = `Case data for ${caseTypeDisplayName}. ${triggerCountStatus}.${
 		activeParked.length > 0
-			? ` ${activeParked.length} ${activeParked.length === 1 ? "value" : "values"} set aside awaiting review.`
+			? ` ${activeParked.length === 1 ? "1 value is" : `${activeParked.length} values are`} set aside to review.`
 			: ""
 	} Case data is shared throughout your app`;
 
