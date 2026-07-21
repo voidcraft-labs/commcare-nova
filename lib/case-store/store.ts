@@ -366,7 +366,7 @@ export interface ApplySchemaChangeArgs {
  *
  * `parkedIds` are the `parked_case_values` entries this call
  * created — one per VALUE that could not be carried (its count is
- * the "N values set aside" number). The saga's compensation path
+ * the review-toast count). The saga's compensation path
  * consumes the ids to un-park on a failed blueprint commit.
  * `restored` counts previously-parked values this sync wrote BACK:
  * every winning sync ends by restoring any parked entry of the case
@@ -388,7 +388,7 @@ export interface MigrationReport {
 }
 
 /**
- * One set-aside value as the review surface reads it — a
+ * One kept value as the review surface reads it — a
  * `parked_case_values` row joined to its live case, with the
  * restore verdict computed server-side against the property's
  * CURRENT declaration (never promised from staleness):
@@ -666,7 +666,7 @@ export interface CaseStore extends SchemaCaseStore {
 	}>;
 
 	/**
-	 * Every set-aside value of the case type, newest first, with the
+	 * Every kept value of the case type, newest first, with the
 	 * restore verdict computed against the CURRENTLY-stored schema —
 	 * see {@link ParkedValueEntry}. Tenant-bound through the `cases`
 	 * join (an entry is only as visible as its case row).

@@ -133,11 +133,11 @@ export interface NavigateActions {
 	 */
 	openDetailConfig: (moduleUuid: Uuid) => void;
 	/**
-	 * Open the set-aside values review screen for `moduleUuid`. Routes
-	 * to `/build/{appId}/{moduleUuid}/set-aside` — reached from the
+	 * Open the data review screen for `moduleUuid`. Routes
+	 * to `/build/{appId}/{moduleUuid}/data-review` — reached from the
 	 * Case data popover, the conversion toast, and shared deep links.
 	 */
-	openSetAside: (moduleUuid: Uuid) => void;
+	openDataReview: (moduleUuid: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -164,7 +164,7 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 			loc.kind === "cases" ||
 			loc.kind === "search-config" ||
 			loc.kind === "detail-config" ||
-			loc.kind === "set-aside" ||
+			loc.kind === "data-review" ||
 			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
@@ -228,7 +228,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config" ||
-		loc.kind === "set-aside" ||
+		loc.kind === "data-review" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
@@ -299,11 +299,11 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
 			});
 		}
-		if (loc.kind === "set-aside") {
+		if (loc.kind === "data-review") {
 			items.push({
-				key: `set-aside:${moduleUuid}`,
-				label: "Set-aside values",
-				location: { kind: "set-aside", moduleUuid: loc.moduleUuid },
+				key: `data-review:${moduleUuid}`,
+				label: "Data to review",
+				location: { kind: "data-review", moduleUuid: loc.moduleUuid },
 			});
 		}
 		if (loc.kind === "form" && formUuid && moduleUuid) {
@@ -373,8 +373,8 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "search-config", moduleUuid }),
 			openDetailConfig: (moduleUuid: Uuid) =>
 				push({ kind: "detail-config", moduleUuid }),
-			openSetAside: (moduleUuid: Uuid) =>
-				push({ kind: "set-aside", moduleUuid }),
+			openDataReview: (moduleUuid: Uuid) =>
+				push({ kind: "data-review", moduleUuid }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -408,7 +408,7 @@ export function parentLocation(loc: Location): Location | undefined {
 				: { kind: "module", moduleUuid: loc.moduleUuid };
 		case "search-config":
 		case "detail-config":
-		case "set-aside":
+		case "data-review":
 			return { kind: "module", moduleUuid: loc.moduleUuid };
 		case "form":
 			return loc.selectedUuid

@@ -14,7 +14,7 @@
  *   /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
  *   /build/[id]/{moduleUuid}/search               → case-search authoring
  *   /build/[id]/{moduleUuid}/details              → case-details authoring
- *   /build/[id]/{moduleUuid}/set-aside            → set-aside values review
+ *   /build/[id]/{moduleUuid}/data-review          → data review screen
  *   /build/[id]/{formUuid}                        → form
  *   /build/[id]/{formUuid}/{fieldUuid}          → form + selected field
  *
@@ -64,7 +64,7 @@ export const locationSchema = z.discriminatedUnion("kind", [
 	z
 		.object({ kind: z.literal("detail-config"), moduleUuid: uuidSchema })
 		.strict(),
-	z.object({ kind: z.literal("set-aside"), moduleUuid: uuidSchema }).strict(),
+	z.object({ kind: z.literal("data-review"), moduleUuid: uuidSchema }).strict(),
 	z
 		.object({
 			kind: z.literal("form"),

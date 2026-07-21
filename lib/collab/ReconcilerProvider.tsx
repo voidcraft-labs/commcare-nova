@@ -158,7 +158,7 @@ function buildRuntime(
 				// one channel every commit path reaches this tab through —
 				// its own autosave echo, its own chat run's echo, a same-user
 				// MCP edit, and every teammate's commit. Bumping the shared
-				// per-type revision here is what keeps the set-aside surfaces
+				// per-type revision here is what keeps the data-review surfaces
 				// (and every other case-data representation) honest without a
 				// per-path invalidation. Filtered so a peer's label-typing
 				// stream doesn't refetch case data per keystroke-batch.
@@ -309,10 +309,10 @@ function buildRuntime(
 			if (parked > 0) {
 				showToast(
 					"warning",
-					parked === 1 ? "1 value set aside" : `${parked} values set aside`,
+					parked === 1 ? "1 value to review" : `${parked} values to review`,
 					parked === 1
-						? "It didn't fit the property's new type. Nothing was deleted. Review it anytime in Case data."
-						: "They didn't fit the property's new type. Nothing was deleted. Review them anytime in Case data.",
+						? "It didn't fit the property's new type, so it was kept. Nothing was deleted. Review it anytime in Case data."
+						: "They didn't fit the property's new type, so they were kept. Nothing was deleted. Review them anytime in Case data.",
 					// The Review action only renders when the response NAMED the
 					// affected case types (a version-skewed server that reports
 					// `parked` without them gets the plain toast rather than a
@@ -321,7 +321,7 @@ function buildRuntime(
 						? undefined
 						: {
 								action: {
-									label: "Review set-aside values",
+									label: "Review data",
 									onPress: () => {
 										// Resolve the destination at PRESS time from the live
 										// doc — a module bound to the first affected case type
@@ -346,7 +346,7 @@ function buildRuntime(
 										window.history.pushState(
 											null,
 											"",
-											`/build/${id}/${moduleEntry[0]}/set-aside`,
+											`/build/${id}/${moduleEntry[0]}/data-review`,
 										);
 										notifyPathChange();
 									},

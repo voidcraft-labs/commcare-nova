@@ -1,33 +1,28 @@
 /**
- * SetAsideValuesScreen — the review surface for values a schema
- * conversion couldn't carry (`/build/{appId}/{moduleUuid}/set-aside`).
+ * DataReviewScreen — the review surface for saved case values a schema
+ * conversion couldn't carry (`/build/{appId}/{moduleUuid}/data-review`).
  *
  * Everything shown is the Server Action's server-computed truth: the
- * grouping/filter/callout DERIVATIONS live in the pure
- * `setAsideModel.ts`, the restore VERDICTS come per-entry from
+ * case grouping / filter / notice DERIVATIONS live in the pure
+ * `dataReviewModel.ts`, the per-entry verdicts come from
  * `listParkedValues` (computed against the property's current
  * declaration, re-proven at write time), and this component only
- * renders and dispatches. Copy rules from the design pass: "set
- * aside" is the only vocabulary, "nothing was deleted" appears once,
- * restorability is stated as computed fact, and every dismiss gets an
- * undo toast — dismissing never deletes.
+ * renders and dispatches.
+ *
+ * Design rules (the review-round bar): the CASE is the anchor — one
+ * card per case, its waiting values as rows — because people review
+ * records, not floating values. Every action is a visible labeled
+ * button (no overflow menus at any width), each row emphasizes its ONE
+ * primary action for its state, explanation lives at the point of
+ * action (tooltips, the per-property notice), every put-back reports
+ * where the value went, and no invented vocabulary — plain words only.
  */
 "use client";
 
-import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerNumber123 from "@iconify-icons/tabler/123";
+import { Icon } from "@iconify/react/offline";
 import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
-import tablerCalendar from "@iconify-icons/tabler/calendar";
-import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
-import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
-import tablerClock from "@iconify-icons/tabler/clock";
-import tablerCursorText from "@iconify-icons/tabler/cursor-text";
-import tablerDots from "@iconify-icons/tabler/dots";
-import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
-import tablerListCheck from "@iconify-icons/tabler/list-check";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
-import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerRestore from "@iconify-icons/tabler/restore";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
@@ -35,24 +30,8 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useId, useState } from "react";
 import { usePromptInputController } from "@/components/ai-elements/prompt-input";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
 import {
 	Select,
@@ -80,30 +59,19 @@ import {
 import { useAppId, useCanEdit, useSetSidebarOpen } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import {
+	type ConvertBackNotice,
+	convertBackNotices,
 	DATA_TYPE_LABELS,
 	dataTypePhrase,
-	displaySetAsideValue,
-	filterSetAsideEntries,
-	formatSetAsideTimestamp,
-	groupSetAsideEntries,
+	displayReviewValue,
+	filterReviewEntries,
+	groupReviewByCase,
+	type ReviewCaseGroup,
+	type ReviewFilter,
+	readyIds,
 	replacementDraftToValue,
-	type SetAsideFilter,
-	type SetAsideGroup,
-	setAsideCounts,
-	setAsideEventPhrase,
-} from "./setAsideModel";
-
-const DATA_TYPE_ICONS: Record<CasePropertyDataType, IconifyIcon> = {
-	text: tablerCursorText,
-	int: tablerNumber123,
-	decimal: tablerNumber123,
-	date: tablerCalendar,
-	time: tablerClock,
-	datetime: tablerCalendar,
-	single_select: tablerCircleDot,
-	multi_select: tablerListCheck,
-	geopoint: tablerMapPin,
-};
+	reviewCounts,
+} from "./dataReviewModel";
 
 /**
  * The property's CURRENT type for display copy. A declared property
@@ -130,7 +98,7 @@ interface ReplaceDraft {
 	readonly saving: boolean;
 }
 
-export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
+export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	const appId = useAppId();
 	const canEdit = useCanEdit();
 	const module = useModule(moduleUuid);
@@ -144,12 +112,9 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		caseType: caseType?.name,
 	});
 
-	const [filter, setFilter] = useState<SetAsideFilter>("all");
+	const [filter, setFilter] = useState<ReviewFilter>("all");
 	const [replaceDraft, setReplaceDraft] = useState<ReplaceDraft | null>(null);
 	const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
-	const [confirmDismissAll, setConfirmDismissAll] =
-		useState<SetAsideGroup | null>(null);
-	const [dismissingAll, setDismissingAll] = useState(false);
 
 	const restore = useRestoreParkedValues({ appId, caseType: caseType?.name });
 	const setDismissed = useSetParkedValuesDismissed({
@@ -180,7 +145,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		}
 	};
 
-	const restoreEntries = (ids: readonly string[]) =>
+	const putBackEntries = (ids: readonly string[]) =>
 		withBusy(ids, async () => {
 			const result = await restore([...ids]);
 			if (result.kind !== "restored") {
@@ -219,9 +184,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			} else {
 				showToast(
 					"warning",
-					result.kept === 1
-						? "1 value stayed set aside"
-						: `${result.kept} values stayed set aside`,
+					result.kept === 1 ? "1 value not put back" : "No values put back",
 					result.kept === 1
 						? "It no longer fits the property's current type, or its case now holds a newer value."
 						: "They no longer fit the property's current type, or their cases now hold newer values.",
@@ -305,7 +268,7 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				showToast(
 					"info",
 					"This value moved on",
-					"It was restored, replaced, or its case was removed. The list is refreshed.",
+					"It was put back, replaced, or its case was removed. The list is refreshed.",
 				);
 				await reload();
 				return;
@@ -320,9 +283,9 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		})();
 	};
 
-	const askNovaToConvertBack = (group: SetAsideGroup) => {
+	const askNovaToConvertBack = (notice: ConvertBackNotice) => {
 		composer.textInput.setInput(
-			`Convert ${propertyLabel(group.property)} back to ${DATA_TYPE_LABELS[group.fromType]}`,
+			`Convert ${propertyLabel(notice.property)} back to ${DATA_TYPE_LABELS[notice.fromType]}`,
 		);
 		setSidebarOpen("chat", true);
 		requestAnimationFrame(() => {
@@ -333,40 +296,54 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	};
 
 	const entries = state.kind === "entries" ? state.entries : [];
-	const counts = setAsideCounts(entries);
-	const groups = groupSetAsideEntries(filterSetAsideEntries(entries, filter));
+	const counts = reviewCounts(entries);
+	const ready = readyIds(entries);
+	const notices = convertBackNotices(entries);
+	const groups = groupReviewByCase(filterReviewEntries(entries, filter));
 
 	return (
 		<div className="@container">
 			<ContentFrame width="5xl" className="px-6 pt-7 pb-16">
-				<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
-					Set-aside values
-				</h1>
-				<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
-					When a property changes type, any saved values that no longer fit are
-					set aside, not deleted. You can put a value back on its case, replace
-					it with one that fits, or dismiss it.
-				</p>
+				<div className="flex flex-wrap items-start gap-3">
+					<div className="min-w-0 flex-1">
+						<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+							Data to review
+						</h1>
+						<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
+							Saved values that stopped fitting when a property changed. Nothing
+							was deleted.
+						</p>
+					</div>
+					{canEdit && ready.length > 1 && filter !== "dismissed" && (
+						<Button
+							type="button"
+							className="min-h-11"
+							disabled={ready.some((id) => busyIds.has(id))}
+							onClick={() => putBackEntries(ready)}
+						>
+							<Icon icon={tablerRestore} />
+							Put back all {ready.length}
+						</Button>
+					)}
+				</div>
 				{!canEdit && entries.length > 0 && (
 					<p className="mt-3 max-w-2xl rounded-lg bg-nova-elevated px-3 py-2.5 text-sm leading-relaxed text-nova-text-secondary">
-						You can view set-aside values, but restoring or changing them needs
-						edit access
+						You can view this list, but putting values back or changing them
+						needs edit access
 					</p>
 				)}
 
 				{state.kind === "loading" || state.kind === "idle" ? (
 					<p className="mt-8 flex items-center gap-2 text-sm text-nova-text-secondary">
 						<Icon icon={tablerLoader2} className="animate-spin" width="16" />
-						Loading set-aside values…
+						Loading…
 					</p>
 				) : state.kind !== "entries" ? (
 					<div
 						role="alert"
 						className="mt-8 max-w-md rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-4"
 					>
-						<p className="font-medium text-nova-text">
-							Set-aside values didn’t load
-						</p>
+						<p className="font-medium text-nova-text">This list didn’t load</p>
 						<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 							{state.kind === "unauthenticated"
 								? "You're signed out. Reload the page to sign in again."
@@ -387,20 +364,20 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						<span className="grid size-10 place-items-center rounded-xl bg-nova-violet/[0.09] text-nova-violet-bright">
 							<Icon icon={tablerArchive} width="18" height="18" />
 						</span>
-						<p className="font-medium text-nova-text">Nothing is set aside</p>
+						<p className="font-medium text-nova-text">Nothing to review</p>
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
-							When a case property’s type changes, any saved values that don’t
-							fit the new type are kept here instead of being deleted.
+							If a property change ever makes saved values stop fitting, they’re
+							kept here. Nothing gets deleted.
 						</p>
 					</div>
 				) : (
 					<>
 						<fieldset className="mt-5 flex flex-wrap items-center gap-2">
-							<legend className="sr-only">Filter set-aside values</legend>
+							<legend className="sr-only">Filter the list</legend>
 							{(
 								[
 									["all", "All", counts.all],
-									["restorable", "Ready to put back", counts.restorable],
+									["ready", "Ready to put back", counts.ready],
 									["dismissed", "Dismissed", counts.dismissed],
 								] as const
 							).map(([value, label, count]) => (
@@ -429,27 +406,59 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 							)}
 						</fieldset>
 
+						{filter !== "dismissed" &&
+							notices.map((notice) => (
+								<div
+									key={`${notice.property}|${notice.fromType}|${notice.toType}`}
+									className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-nova-violet/25 bg-nova-violet/[0.06] px-4 py-3"
+								>
+									<Icon
+										icon={tablerArrowBackUp}
+										width="17"
+										height="17"
+										className="shrink-0 text-nova-violet-bright"
+									/>
+									<p className="min-w-60 flex-1 text-[13px] leading-relaxed text-nova-text-secondary">
+										{notice.count === 1
+											? `${propertyLabel(notice.property)} is now ${dataTypePhrase(notice.toType)} and 1 saved value doesn’t fit. Replace it below, or convert ${propertyLabel(notice.property)} back to ${DATA_TYPE_LABELS[notice.fromType]} and it goes back on its case automatically.`
+											: `${propertyLabel(notice.property)} is now ${dataTypePhrase(notice.toType)} and ${notice.count} saved values don’t fit. Replace them below, or convert ${propertyLabel(notice.property)} back to ${DATA_TYPE_LABELS[notice.fromType]} and they go back on their cases automatically.`}
+									</p>
+									{canEdit && (
+										<SimpleTooltip content="Opens chat with the request written for you. Nova changes the property type, and values that fit go back automatically">
+											<Button
+												type="button"
+												variant="outline"
+												className="min-h-10 border-nova-violet/30 bg-nova-violet/[0.08] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.16]"
+												onClick={() => askNovaToConvertBack(notice)}
+											>
+												<Icon icon={tablerSparkles} />
+												Convert back in chat
+											</Button>
+										</SimpleTooltip>
+									)}
+								</div>
+							))}
+
 						{groups.length === 0 ? (
 							<p className="mt-8 text-sm text-nova-text-secondary">
-								{filter === "restorable"
+								{filter === "ready"
 									? "Nothing is ready to put back right now. A value becomes ready when its property fits it again."
 									: "You haven’t dismissed anything"}
 							</p>
 						) : (
 							groups.map((group) => (
-								<SetAsideGroupCard
-									key={group.key}
+								<ReviewCaseCard
+									key={group.caseId}
 									group={group}
-									filter={filter}
 									canEdit={canEdit}
 									busyIds={busyIds}
 									replaceDraft={replaceDraft}
-									currentDecl={propertyDecl(group.property)}
-									label={propertyLabel(group.property)}
-									onRestore={restoreEntries}
-									onDismiss={dismissEntries}
-									onUndismiss={undismissEntries}
-									onDismissAll={() => setConfirmDismissAll(group)}
+									dismissedView={filter === "dismissed"}
+									propertyDecl={propertyDecl}
+									propertyLabel={propertyLabel}
+									onPutBack={(entry) => putBackEntries([entry.id])}
+									onDismiss={(entry) => dismissEntries([entry.id])}
+									onUndismiss={(entry) => undismissEntries([entry.id])}
 									onOpenReplace={(entry) =>
 										setReplaceDraft({
 											entryId: entry.id,
@@ -462,271 +471,76 @@ export function SetAsideValuesScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 									onDraftChange={(next) => setReplaceDraft(next)}
 									onCancelReplace={() => setReplaceDraft(null)}
 									onSaveReplace={saveReplacement}
-									onAskNova={() => askNovaToConvertBack(group)}
 								/>
 							))
-						)}
-
-						{filter !== "dismissed" && counts.dismissed > 0 && (
-							<p className="mt-5 text-[13px] text-nova-text-muted">
-								{counts.dismissed === 1
-									? "1 dismissed value stays"
-									: `${counts.dismissed} dismissed values stay`}{" "}
-								available under{" "}
-								<button
-									type="button"
-									className="cursor-pointer font-medium text-nova-violet-bright hover:text-nova-text"
-									onClick={() => setFilter("dismissed")}
-								>
-									Dismissed
-								</button>
-							</p>
 						)}
 					</>
 				)}
 			</ContentFrame>
-
-			<AlertDialog
-				open={confirmDismissAll !== null}
-				onOpenChange={(nextOpen, eventDetails) => {
-					if (!nextOpen && dismissingAll) {
-						eventDetails.cancel();
-						return;
-					}
-					if (!nextOpen) setConfirmDismissAll(null);
-				}}
-			>
-				<AlertDialogContent className="text-left">
-					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
-							Dismiss all{" "}
-							{confirmDismissAll !== null
-								? confirmDismissAll.entries.length
-								: ""}{" "}
-							values for “
-							{confirmDismissAll !== null
-								? propertyLabel(confirmDismissAll.property)
-								: ""}
-							”?
-						</AlertDialogTitle>
-						<AlertDialogDescription className="text-left text-pretty">
-							Nothing is deleted. Every value stays under the Dismissed filter,
-							and you can restore them from there.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={dismissingAll}>
-							Cancel
-						</AlertDialogCancel>
-						<AlertDialogAction
-							disabled={dismissingAll}
-							onClick={() => {
-								const group = confirmDismissAll;
-								if (group === null) return;
-								setDismissingAll(true);
-								void (async () => {
-									try {
-										await dismissEntries(
-											group.entries.map((entry) => entry.id),
-										);
-									} finally {
-										setDismissingAll(false);
-										setConfirmDismissAll(null);
-									}
-								})();
-							}}
-						>
-							{dismissingAll && (
-								<Icon icon={tablerLoader2} className="animate-spin" />
-							)}
-							{dismissingAll ? "Dismissing" : "Dismiss all"}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
 		</div>
 	);
 }
 
-function SetAsideGroupCard({
+function ReviewCaseCard({
 	group,
-	filter,
 	canEdit,
 	busyIds,
 	replaceDraft,
-	currentDecl,
-	label,
-	onRestore,
+	dismissedView,
+	propertyDecl,
+	propertyLabel,
+	onPutBack,
 	onDismiss,
 	onUndismiss,
-	onDismissAll,
 	onOpenReplace,
 	onDraftChange,
 	onCancelReplace,
 	onSaveReplace,
-	onAskNova,
 }: {
-	readonly group: SetAsideGroup;
-	readonly filter: SetAsideFilter;
+	readonly group: ReviewCaseGroup;
 	readonly canEdit: boolean;
 	readonly busyIds: ReadonlySet<string>;
 	readonly replaceDraft: ReplaceDraft | null;
-	readonly currentDecl: CaseProperty | undefined;
-	readonly label: string;
-	readonly onRestore: (ids: readonly string[]) => void;
-	readonly onDismiss: (ids: readonly string[]) => void;
-	readonly onUndismiss: (ids: readonly string[]) => void;
-	readonly onDismissAll: () => void;
+	readonly dismissedView: boolean;
+	readonly propertyDecl: (name: string) => CaseProperty | undefined;
+	readonly propertyLabel: (name: string) => string;
+	readonly onPutBack: (entry: ParkedValueEntryWire) => void;
+	readonly onDismiss: (entry: ParkedValueEntryWire) => void;
+	readonly onUndismiss: (entry: ParkedValueEntryWire) => void;
 	readonly onOpenReplace: (entry: ParkedValueEntryWire) => void;
 	readonly onDraftChange: (next: ReplaceDraft) => void;
 	readonly onCancelReplace: () => void;
 	readonly onSaveReplace: (entry: ParkedValueEntryWire) => void;
-	readonly onAskNova: () => void;
 }) {
-	const count = group.entries.length;
-	const showConvertBackHint =
-		canEdit &&
-		group.isTypeChange &&
-		group.restorableIds.length === 0 &&
-		group.fitsOriginalCount > 0 &&
-		filter !== "dismissed";
-	// The "converted back" success note — only meaningful for a real
-	// type change (an options-removed group never left its type, so
-	// "is a select again" would be false; its enabled Restore buttons
-	// already say everything).
-	const showAllRestorable =
-		group.isTypeChange &&
-		group.allRestorable &&
-		count > 0 &&
-		filter !== "dismissed";
-
 	return (
-		<section className="mt-5 overflow-visible rounded-2xl border border-nova-border bg-nova-surface">
-			<div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-				<span className="grid size-8 shrink-0 place-items-center rounded-lg bg-nova-violet/10 text-nova-violet-bright">
-					<Icon icon={DATA_TYPE_ICONS[group.toType]} width="16" height="16" />
+		<section className="mt-4 overflow-visible rounded-2xl border border-nova-border bg-nova-surface">
+			<div className="flex flex-wrap items-baseline gap-x-2.5 px-4 pt-3 pb-1.5">
+				<h2 className="text-[15px] font-semibold text-nova-text">
+					{group.caseName || "Unnamed case"}
+				</h2>
+				<span className="text-xs text-nova-text-muted">
+					{group.entries.length === 1
+						? "1 value to review"
+						: `${group.entries.length} values to review`}
 				</span>
-				<div className="min-w-0 flex-1">
-					<span className="text-[15px] font-semibold text-nova-text">
-						{label}
-					</span>
-					{/* The transition lives HERE as past-tense prose, never a chip
-					 * beside the title — a bare "text → whole number" next to the
-					 * property name reads as its current type, which goes false
-					 * the moment the property converts back. */}
-					<p className="mt-0.5 text-xs text-nova-text-muted">
-						{count === 1 ? "1 value" : `${count} values`} · set aside{" "}
-						{formatSetAsideTimestamp(group.latestCreatedAt, new Date())},{" "}
-						{setAsideEventPhrase(label, group)}
-					</p>
-				</div>
-				{canEdit && group.restorableIds.length > 1 && (
-					<Button
-						type="button"
-						variant="outline"
-						className="min-h-10"
-						disabled={group.restorableIds.some((id) => busyIds.has(id))}
-						onClick={() => onRestore(group.restorableIds)}
-					>
-						<Icon icon={tablerRestore} />
-						Put back all {group.restorableIds.length}
-					</Button>
-				)}
-				{canEdit && filter !== "dismissed" && (
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon"
-									aria-label={`More actions for ${label}`}
-									className="size-11"
-								/>
-							}
-						>
-							<Icon icon={tablerDotsVertical} width="18" height="18" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							<DropdownMenuItem onClick={onDismissAll}>
-								Dismiss all {count}
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-				)}
-			</div>
-
-			{showConvertBackHint && (
-				<div className="mx-4 mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-nova-violet/25 bg-nova-violet/[0.06] px-3.5 py-3">
-					<Icon
-						icon={tablerArrowBackUp}
-						width="17"
-						height="17"
-						className="shrink-0 text-nova-violet-bright"
-					/>
-					<p className="min-w-60 flex-1 text-[13px] leading-relaxed text-nova-text-secondary">
-						{count === 1
-							? `This value doesn’t fit ${dataTypePhrase(group.toType)}, but it still fits ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can put it back.`
-							: `None of these fit ${dataTypePhrase(group.toType)}, but ${
-									group.fitsOriginalCount === count
-										? count === 2
-											? "both"
-											: `all ${count}`
-										: `${group.fitsOriginalCount} of the ${count}`
-								} still fit ${dataTypePhrase(group.fromType)}. If ${label} becomes ${dataTypePhrase(group.fromType)} again, you can put them back.`}
-					</p>
-					<Button
-						type="button"
-						variant="outline"
-						className="min-h-10 border-nova-violet/30 bg-nova-violet/[0.08] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.16]"
-						onClick={onAskNova}
-					>
-						<Icon icon={tablerSparkles} />
-						Ask Nova to convert it back
-					</Button>
-				</div>
-			)}
-
-			{showAllRestorable && (
-				<div className="mx-4 mb-3 flex items-center gap-2.5 rounded-lg border border-nova-emerald/30 bg-nova-emerald/[0.05] px-3.5 py-2.5">
-					<Icon
-						icon={tablerCircleCheck}
-						width="16"
-						height="16"
-						className="shrink-0 text-nova-emerald"
-					/>
-					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						{count === 1
-							? `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and its saved value fits. You can put it back on its case.`
-							: `${label} is ${dataTypePhrase(currentTypeOf(currentDecl, group.toType))} again, and all ${count} saved values fit. You can put them back on their cases.`}
-					</p>
-				</div>
-			)}
-
-			{/* Column captions — wide layout only. */}
-			<div className="hidden items-center gap-4 px-4 py-1.5 text-xs font-medium text-nova-text-muted @3xl:flex">
-				<span className="w-40 shrink-0">Case</span>
-				<span className="min-w-0 flex-1">Original value</span>
-				<span className="w-48 shrink-0">Why it’s set aside</span>
-				{canEdit && <span className="w-52 shrink-0" />}
 			</div>
 
 			{group.entries.map((entry) => (
-				<SetAsideEntryRow
+				<ReviewEntryRow
 					key={entry.id}
 					entry={entry}
 					canEdit={canEdit}
 					busy={busyIds.has(entry.id)}
-					dismissedView={filter === "dismissed"}
+					dismissedView={dismissedView}
 					replaceDraft={
 						replaceDraft?.entryId === entry.id ? replaceDraft : null
 					}
-					currentDecl={currentDecl}
-					label={label}
-					fromType={group.fromType}
-					onRestore={() => onRestore([entry.id])}
-					onDismiss={() => onDismiss([entry.id])}
-					onUndismiss={() => onUndismiss([entry.id])}
+					currentDecl={propertyDecl(entry.property)}
+					label={propertyLabel(entry.property)}
+					caseName={group.caseName}
+					onPutBack={() => onPutBack(entry)}
+					onDismiss={() => onDismiss(entry)}
+					onUndismiss={() => onUndismiss(entry)}
 					onOpenReplace={() => onOpenReplace(entry)}
 					onDraftChange={onDraftChange}
 					onCancelReplace={onCancelReplace}
@@ -737,7 +551,7 @@ function SetAsideGroupCard({
 	);
 }
 
-function SetAsideEntryRow({
+function ReviewEntryRow({
 	entry,
 	canEdit,
 	busy,
@@ -745,8 +559,8 @@ function SetAsideEntryRow({
 	replaceDraft,
 	currentDecl,
 	label,
-	fromType,
-	onRestore,
+	caseName,
+	onPutBack,
 	onDismiss,
 	onUndismiss,
 	onOpenReplace,
@@ -761,8 +575,8 @@ function SetAsideEntryRow({
 	readonly replaceDraft: ReplaceDraft | null;
 	readonly currentDecl: CaseProperty | undefined;
 	readonly label: string;
-	readonly fromType: CasePropertyDataType;
-	readonly onRestore: () => void;
+	readonly caseName: string;
+	readonly onPutBack: () => void;
 	readonly onDismiss: () => void;
 	readonly onUndismiss: () => void;
 	readonly onOpenReplace: () => void;
@@ -770,53 +584,58 @@ function SetAsideEntryRow({
 	readonly onCancelReplace: () => void;
 	readonly onSaveReplace: () => void;
 }) {
-	const display = displaySetAsideValue(entry.originalValue);
+	const display = displayReviewValue(entry.originalValue);
 	const currentTypePhrase = dataTypePhrase(
 		currentTypeOf(currentDecl, entry.toType),
 	);
-	// The row's short "why" — the stored `reason` is the log-grade
-	// account; the row states the same fact in the malformed-value
-	// voice, derived from the server verdict.
-	const whyText =
+	// The row's short status — states the server verdict in plain
+	// words; the stored `reason` remains the log-grade account.
+	const status =
 		entry.blockedBy === "type"
 			? `Doesn’t fit ${currentTypePhrase}`
 			: entry.blockedBy === "occupied"
 				? "The case has a newer value"
 				: "Ready to put back";
-	const blockedReason =
-		entry.blockedBy === "type"
-			? `Still fits ${dataTypePhrase(fromType)}, but not ${currentTypePhrase}. Convert the type back and you can put it back on its case`
-			: entry.blockedBy === "occupied"
-				? "The case has a newer value, and putting this back would overwrite it. Use Replace to choose what’s saved instead"
-				: null;
+	const putBackTooltip = entry.restorable
+		? "Saves this value on its case again"
+		: entry.blockedBy === "type"
+			? `Still fits ${dataTypePhrase(entry.fromType)}, but not ${currentTypePhrase}. Replace it, or convert the property back`
+			: "Putting this back would overwrite the case's newer value. Use Replace to choose what's saved";
 
-	const restoreButton = (
-		<SimpleTooltip
-			content={
-				entry.restorable ? "Saves this value on its case again" : blockedReason
-			}
-		>
+	// One emphasized primary per state: Put back when it's ready,
+	// Replace when it isn't. Every action stays a visible labeled
+	// button at every width — no overflow menus.
+	const putBackButton = (
+		<SimpleTooltip content={putBackTooltip}>
 			<Button
 				type="button"
-				variant="ghost"
-				className="min-h-11 text-[13px] text-nova-violet-bright"
+				variant={entry.restorable ? "outline" : "ghost"}
+				className={`min-h-10 text-[13px] ${
+					entry.restorable ? "text-nova-violet-bright" : "text-nova-text-muted"
+				}`}
 				disabled={!entry.restorable || busy}
-				onClick={onRestore}
+				onClick={onPutBack}
 			>
 				Put back
 			</Button>
 		</SimpleTooltip>
 	);
 	const replaceButton = (
-		<Button
-			type="button"
-			variant="ghost"
-			className="min-h-11 text-[13px] text-nova-violet-bright"
-			disabled={busy}
-			onClick={onOpenReplace}
-		>
-			Replace
-		</Button>
+		<SimpleTooltip content={`Enter a new ${label} for this case`}>
+			<Button
+				type="button"
+				variant={entry.restorable ? "ghost" : "outline"}
+				className={`min-h-10 text-[13px] ${
+					entry.restorable
+						? "text-nova-text-secondary"
+						: "text-nova-violet-bright"
+				}`}
+				disabled={busy}
+				onClick={onOpenReplace}
+			>
+				Replace
+			</Button>
+		</SimpleTooltip>
 	);
 	const dismissButton = dismissedView ? (
 		<SimpleTooltip content="Moves this value back to the All list">
@@ -825,7 +644,7 @@ function SetAsideEntryRow({
 				variant="ghost"
 				size="icon"
 				aria-label="Move back to All"
-				className="size-11 text-nova-text-muted"
+				className="size-10 text-nova-text-muted"
 				disabled={busy}
 				onClick={onUndismiss}
 			>
@@ -833,98 +652,73 @@ function SetAsideEntryRow({
 			</Button>
 		</SimpleTooltip>
 	) : (
-		<Button
-			type="button"
-			variant="ghost"
-			size="icon"
-			aria-label="Dismiss"
-			className="size-11 text-nova-text-muted"
-			disabled={busy}
-			onClick={onDismiss}
-		>
-			<Icon icon={tablerX} width="15" height="15" />
-		</Button>
+		<SimpleTooltip content="Sets this value out of the way. Nothing is deleted">
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon"
+				aria-label="Dismiss"
+				className="size-10 text-nova-text-muted"
+				disabled={busy}
+				onClick={onDismiss}
+			>
+				<Icon icon={tablerX} width="15" height="15" />
+			</Button>
+		</SimpleTooltip>
 	);
 
 	return (
 		<div className="border-t border-nova-violet/[0.08]">
-			{/* Wide layout — aligned columns. */}
-			<div className="hidden min-h-13 items-center gap-4 px-4 py-0.5 @3xl:flex">
-				<span className="w-40 shrink-0 truncate text-[13.5px] font-medium text-nova-text">
-					{entry.caseName || "Unnamed case"}
+			{/* Wide layout — one aligned line per value. */}
+			<div className="hidden min-h-13 items-center gap-4 px-4 py-1 @3xl:flex">
+				<span className="w-36 shrink-0 truncate text-[13px] font-medium text-nova-text-secondary">
+					{label}
 				</span>
-				<span className="min-w-0 flex-1 truncate text-[13px] text-nova-text">
+				<span className="min-w-0 flex-1 truncate text-[13.5px] text-nova-text">
 					<span className="text-nova-text-muted">“</span>
 					{display}
 					<span className="text-nova-text-muted">”</span>
 				</span>
 				<span className="w-48 shrink-0 text-xs leading-snug text-nova-text-muted">
-					{whyText}
+					{status}
 				</span>
 				{canEdit && (
-					<span className="flex w-52 shrink-0 items-center justify-end gap-0.5">
-						{restoreButton}
+					<span className="flex shrink-0 items-center justify-end gap-1">
+						{putBackButton}
 						{replaceButton}
 						{dismissButton}
 					</span>
 				)}
 			</div>
 
-			{/* Narrow layout — stacked card with a collapsed action menu. */}
+			{/* Narrow layout — stacked, with the same visible buttons. */}
 			<div className="px-4 py-3 @3xl:hidden">
-				<div className="flex items-center gap-2">
-					<span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-nova-text">
-						{entry.caseName || "Unnamed case"}
+				<div className="flex flex-wrap items-baseline gap-x-2">
+					<span className="text-[13px] font-medium text-nova-text-secondary">
+						{label}
 					</span>
-					{canEdit && (
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon"
-										aria-label={`Actions for ${entry.caseName || "this value"}`}
-										className="size-11"
-									/>
-								}
-							>
-								<Icon icon={tablerDots} width="16" height="16" />
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">
-								<DropdownMenuItem
-									disabled={!entry.restorable || busy}
-									onClick={onRestore}
-								>
-									Put back
-								</DropdownMenuItem>
-								<DropdownMenuItem disabled={busy} onClick={onOpenReplace}>
-									Replace
-								</DropdownMenuItem>
-								<DropdownMenuItem
-									disabled={busy}
-									onClick={dismissedView ? onUndismiss : onDismiss}
-								>
-									{dismissedView ? "Move back to All" : "Dismiss"}
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
-					)}
+					<span className="text-xs text-nova-text-muted">{status}</span>
 				</div>
-				<p className="mt-0.5 text-[13px] break-words text-nova-text">
+				<p className="mt-0.5 text-[13.5px] break-words text-nova-text">
 					<span className="text-nova-text-muted">“</span>
 					{display}
 					<span className="text-nova-text-muted">”</span>
 				</p>
-				<p className="mt-1 text-xs text-nova-text-muted">{whyText}</p>
+				{canEdit && (
+					<div className="mt-1.5 flex flex-wrap items-center gap-1">
+						{putBackButton}
+						{replaceButton}
+						{dismissButton}
+					</div>
+				)}
 			</div>
 
 			{replaceDraft !== null && (
 				<ReplaceEditor
-					entry={entry}
 					draft={replaceDraft}
 					currentDecl={currentDecl}
 					label={label}
+					caseName={caseName}
 					displayOriginal={display}
 					onDraftChange={onDraftChange}
 					onCancel={onCancelReplace}
@@ -936,19 +730,19 @@ function SetAsideEntryRow({
 }
 
 function ReplaceEditor({
-	entry,
 	draft,
 	currentDecl,
 	label,
+	caseName,
 	displayOriginal,
 	onDraftChange,
 	onCancel,
 	onSave,
 }: {
-	readonly entry: ParkedValueEntryWire;
 	readonly draft: ReplaceDraft;
 	readonly currentDecl: CaseProperty | undefined;
 	readonly label: string;
+	readonly caseName: string;
 	readonly displayOriginal: string;
 	readonly onDraftChange: (next: ReplaceDraft) => void;
 	readonly onCancel: () => void;
@@ -963,7 +757,7 @@ function ReplaceEditor({
 	return (
 		<div className="mx-4 mb-3.5 rounded-lg border border-nova-violet/30 bg-nova-violet/[0.04] px-4 py-3.5">
 			<p className="text-[13px] font-medium text-nova-text">
-				New value for {entry.caseName || "this case"}
+				New {label} for {caseName || "this case"}
 			</p>
 			<div className="mt-2.5 flex flex-wrap items-center gap-3">
 				<ReplacementInput

@@ -519,7 +519,7 @@ export function useResetSampleCases(args: {
 }
 
 /**
- * Subscribe to a case type's set-aside values. One list serves every
+ * Subscribe to a case type's kept values. One list serves every
  * representation — the review screen renders the entries; the Case
  * data badge + popover section derive their active count and property
  * names from the same state — and all of them ride the shared
@@ -541,7 +541,7 @@ export function useParkedValues(args: {
 		...args,
 		fetcher: loadParkedValuesAction,
 		settledKind: "entries",
-		errorMessage: "Failed to load set-aside values.",
+		errorMessage: "Couldn’t load the data to review.",
 	});
 }
 

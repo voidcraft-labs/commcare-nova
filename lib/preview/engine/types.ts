@@ -60,10 +60,10 @@ export type PreviewScreen =
 	 *  adapter just like every other screen kind. */
 	| { type: "searchConfig"; moduleIndex: number }
 	| { type: "detailConfig"; moduleIndex: number }
-	/** The set-aside values review screen — a builder workspace sibling
+	/** The data review screen — a builder workspace sibling
 	 *  of the config kinds above (edit-mode only; preview shows the
 	 *  running case list for its URL, like the config kinds do). */
-	| { type: "setAside"; moduleIndex: number }
+	| { type: "dataReview"; moduleIndex: number }
 	| { type: "form"; moduleIndex: number; formIndex: number; caseId?: string };
 
 /** Returns the immediate parent screen in the hierarchy, or undefined if already at home. */
@@ -76,7 +76,7 @@ export function getParentScreen(
 		case "caseList":
 		case "searchConfig":
 		case "detailConfig":
-		case "setAside":
+		case "dataReview":
 		case "form":
 			return { type: "module", moduleIndex: screen.moduleIndex };
 		default:
@@ -95,7 +95,7 @@ export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
 		return a.moduleIndex === b.moduleIndex;
 	if (a.type === "detailConfig" && b.type === "detailConfig")
 		return a.moduleIndex === b.moduleIndex;
-	if (a.type === "setAside" && b.type === "setAside")
+	if (a.type === "dataReview" && b.type === "dataReview")
 		return a.moduleIndex === b.moduleIndex;
 	if (a.type === "form" && b.type === "form")
 		return (
@@ -121,8 +121,8 @@ export function screenKey(screen: PreviewScreen): string {
 			return `searchConfig-${screen.moduleIndex}`;
 		case "detailConfig":
 			return `detailConfig-${screen.moduleIndex}`;
-		case "setAside":
-			return `setAside-${screen.moduleIndex}`;
+		case "dataReview":
+			return `dataReview-${screen.moduleIndex}`;
 		case "form":
 			return `form-${screen.moduleIndex}-${screen.formIndex}`;
 	}

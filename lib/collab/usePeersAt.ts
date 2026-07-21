@@ -50,7 +50,7 @@ export function peerTarget(location: Location): PeerTarget | null {
 		case "cases":
 		case "search-config":
 		case "detail-config":
-		case "set-aside":
+		case "data-review":
 			return { kind: "module", uuid: location.moduleUuid };
 		case "form":
 			return location.selectedUuid !== undefined

@@ -120,7 +120,7 @@ export type LoadCaseCountResult =
 	| { kind: "error"; message: string };
 
 /**
- * One set-aside value as it crosses the Server Action wire —
+ * One kept value as it crosses the Server Action wire —
  * `ParkedValueEntry` (see `lib/case-store`) with its timestamps as
  * ISO strings so the payload stays plain JSON. The verdict fields
  * (`restorable` / `blockedBy` / `fitsOriginalType`) are computed
@@ -138,7 +138,7 @@ export interface ParkedValueEntryWire
 export type { CasePropertyDataType };
 
 /**
- * Result of listing a case type's set-aside values. One arm serves
+ * Result of listing a case type's kept values. One arm serves
  * every reader — the review screen renders the full entries; the
  * discovery surfaces (the Case data badge + popover section) derive
  * their active count and property names from the same list, so one
@@ -155,7 +155,7 @@ export type RestoreParkedValuesResult =
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
-/** Result of toggling the soft archive on set-aside entries. */
+/** Result of toggling the soft archive on kept entries. */
 export type SetParkedValuesDismissedResult =
 	| { kind: "toggled"; count: number }
 	| { kind: "unauthenticated" }

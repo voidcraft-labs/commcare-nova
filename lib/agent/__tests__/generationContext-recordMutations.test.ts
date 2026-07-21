@@ -183,7 +183,7 @@ describe("GenerationContext.recordMutations", () => {
 		// SA relays the data consequence); the second returns nothing.
 		const note = ctx.consumeParkedNote();
 		expect(note).toContain("1 saved case value");
-		expect(note).toContain("set aside");
+		expect(note).toContain("kept it for review");
 		expect(note).toContain("age→years");
 		expect(ctx.consumeParkedNote()).toBeUndefined();
 	});

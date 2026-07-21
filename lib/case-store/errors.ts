@@ -65,7 +65,7 @@ export class CaseNotFoundError extends Error {
 }
 
 /**
- * Thrown when a review-surface operation names a set-aside entry the
+ * Thrown when a review-surface operation names a kept entry the
  * bound `CaseStore` cannot reach. Mirrors {@link CaseNotFoundError}'s
  * posture: "never existed", "already restored/deleted", and "outside
  * the bound Project" are deliberately indistinguishable so the tenant
@@ -74,13 +74,13 @@ export class CaseNotFoundError extends Error {
 export class ParkedValueNotFoundError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */
 	readonly name = "ParkedValueNotFoundError";
-	/** The set-aside entry id the operation tried to reach. */
+	/** The kept entry's id the operation tried to reach. */
 	readonly parkedValueId: string;
 
 	constructor(parkedValueId: string) {
 		super(
 			[
-				`Set-aside value '${parkedValueId}' not found.`,
+				`Review entry '${parkedValueId}' not found.`,
 				``,
 				`${INDENT}parked_value_id: '${parkedValueId}'`,
 				``,

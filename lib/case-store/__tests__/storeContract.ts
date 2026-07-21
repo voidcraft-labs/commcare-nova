@@ -2055,7 +2055,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// The review surface — list / restore / dismiss / replace
 		// -----------------------------------------------------------
 		//
-		// The tenant-bound reader + the three writes the set-aside
+		// The tenant-bound reader + the three writes the review
 		// review screen runs on `parked_case_values`. The verdicts are
 		// computed server-side against the CURRENTLY-stored schema —
 		// never promised from park-time state — and every write

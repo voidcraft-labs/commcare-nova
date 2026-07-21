@@ -8,7 +8,7 @@ export type ToastSeverity = "error" | "warning" | "info";
 
 /**
  * One follow-up action rendered as a labeled button under the toast
- * body ("Review set-aside values", "Undo"). Pressing it runs
+ * body ("Review data", "Undo"). Pressing it runs
  * `onPress` and dismisses the toast — the toast is the ephemeral
  * announcement; the action hands off to a durable surface.
  */

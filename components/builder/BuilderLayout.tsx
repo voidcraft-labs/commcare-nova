@@ -400,7 +400,7 @@ export function BuilderLayout({
 	return (
 		<BuilderReferenceProvider>
 			{/* The chat composer's state lifts to this provider so canvas
-			 *  surfaces can prefill it — the set-aside review's "Ask Nova to
+			 *  surfaces can prefill it — the data review screen’s "Ask Nova to
 			 *  convert it back" hands its prompt to the SA through
 			 *  `usePromptInputController` instead of inventing a second
 			 *  conversion surface. PromptInput detects the provider and runs

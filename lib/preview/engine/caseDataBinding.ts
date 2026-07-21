@@ -521,7 +521,7 @@ export async function resetSampleCasesAction(
 }
 
 /**
- * List a case type's set-aside values (`parked_case_values` joined to
+ * List a case type's kept values (`parked_case_values` joined to
  * their live cases, verdicts computed server-side) for the review
  * screen AND the discovery surfaces — the Case data badge/popover
  * derive their active count from the same list so one invalidation
@@ -558,13 +558,15 @@ export async function loadParkedValuesAction(args: {
 		return {
 			kind: "error",
 			message:
-				err instanceof Error ? err.message : "Failed to load set-aside values.",
+				err instanceof Error
+					? err.message
+					: "Couldn’t load the data to review.",
 		};
 	}
 }
 
 /**
- * Restore set-aside values onto their cases. The store re-proves
+ * Restore kept values onto their cases. The store re-proves
  * every entry safe (row exists, key free, value conforms to the
  * CURRENT schema) — a blocked entry counts in `kept`, so a stale
  * client racing a teammate degrades to an honest partial rather than
@@ -597,7 +599,7 @@ export async function restoreParkedValuesAction(args: {
 }
 
 /**
- * Toggle the soft archive on set-aside entries — `dismissed: true`
+ * Toggle the soft archive on kept entries — `dismissed: true`
  * for Dismiss (and its bulk form), `false` for the undo toast's
  * un-dismiss. Never deletes.
  */

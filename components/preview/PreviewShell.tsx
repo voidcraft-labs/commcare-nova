@@ -41,7 +41,7 @@ import {
 	CaseListConfigWorkspace,
 	type CaseListWorkspaceTab,
 } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
-import { SetAsideValuesScreen } from "@/components/builder/set-aside/SetAsideValuesScreen";
+import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -94,8 +94,8 @@ function locationToScreen(
 		return { type: "detailConfig", moduleIndex };
 	}
 
-	if (loc.kind === "set-aside") {
-		return { type: "setAside", moduleIndex };
+	if (loc.kind === "data-review") {
+		return { type: "dataReview", moduleIndex };
 	}
 
 	/* Form screen — resolve formUuid to index within the module's form list. */
@@ -204,12 +204,12 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			tab: "detail",
 		};
 	}
-	/** The set-aside review screen's identity — uuid-shaped like the
+	/** The data review screen's identity — uuid-shaped like the
 	 *  workspace ref above, for the same reason (a builder surface
 	 *  mounted off the URL, not the integer-indexed preview shape). */
-	const setAsideRef = useRef<{ moduleUuid: Uuid }>(undefined);
-	if (loc.kind === "set-aside") {
-		setAsideRef.current = { moduleUuid: loc.moduleUuid };
+	const dataReviewRef = useRef<{ moduleUuid: Uuid }>(undefined);
+	if (loc.kind === "data-review") {
+		dataReviewRef.current = { moduleUuid: loc.moduleUuid };
 	}
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
@@ -227,7 +227,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			break;
 		case "searchConfig":
 		case "detailConfig":
-		case "setAside":
+		case "dataReview":
 			/* In preview mode these case-workspace URLs render the same
 			 * running-app `CaseListScreen` (the composed search +
 			 * list experience), so the sibling kinds synthesize the
@@ -352,16 +352,16 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						/>
 					</Activity>
 				)}
-				{setAsideRef.current && (
+				{dataReviewRef.current && (
 					<Activity
 						mode={
-							screen.type === "setAside" && mode === "edit"
+							screen.type === "dataReview" && mode === "edit"
 								? "visible"
 								: "hidden"
 						}
-						name="SetAsideValuesScreen"
+						name="DataReviewScreen"
 					>
-						<SetAsideValuesScreen moduleUuid={setAsideRef.current.moduleUuid} />
+						<DataReviewScreen moduleUuid={dataReviewRef.current.moduleUuid} />
 					</Activity>
 				)}
 				{caseListScreenRef.current && (
@@ -370,7 +370,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 							(screen.type === "caseList" ||
 								screen.type === "searchConfig" ||
 								screen.type === "detailConfig" ||
-								screen.type === "setAside") &&
+								screen.type === "dataReview") &&
 							(mode !== "edit" || atCaseRecord)
 								? "visible"
 								: "hidden"

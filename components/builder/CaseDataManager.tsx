@@ -80,7 +80,7 @@ function caseLabel(count: number): string {
 /**
  * "changes to Date of birth and Age (years)" — the popover section
  * names the affected properties so a teammate who didn't run the
- * conversion still understands what was set aside.
+ * conversion still understands what was kept for review.
  */
 function propertyListPhrase(labels: readonly string[]): string {
 	if (labels.length <= 2) return labels.join(" and ");
@@ -108,7 +108,7 @@ export function CaseDataManager({
 		appId,
 		caseType: caseType.name,
 	});
-	/* The set-aside discovery signals: the amber dot on the trigger (what
+	/* The review discovery signals: the amber dot on the trigger (what
 	 * remains after the conversion toast dies) and the popover's review
 	 * section. Both derive from the same list the review screen renders,
 	 * so one invalidation refreshes every surface. At zero active
@@ -219,7 +219,7 @@ export function CaseDataManager({
 				: "Case count loading";
 	const triggerLabel = `Case data for ${caseTypeDisplayName}. ${triggerCountStatus}.${
 		activeParked.length > 0
-			? ` ${activeParked.length === 1 ? "1 value is" : `${activeParked.length} values are`} set aside to review.`
+			? ` ${activeParked.length === 1 ? "1 value" : `${activeParked.length} values`} to review.`
 			: ""
 	} Case data is shared throughout your app`;
 
@@ -374,8 +374,8 @@ export function CaseDataManager({
 						</p>
 					)}
 
-					{/* Set-aside review section — news first, between the header
-					 * and the count block, so the popover's existing jobs stay
+					{/* Review section — news first, between the header and the
+					 * count block, so the popover's existing jobs stay
 					 * untouched. Renders only while undismissed entries exist. */}
 					{activeParked.length > 0 && (
 						<div className="mx-4 mb-4 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] p-3">
@@ -389,12 +389,12 @@ export function CaseDataManager({
 								<div className="min-w-0">
 									<p className="text-sm font-semibold text-nova-text">
 										{activeParked.length === 1
-											? "1 value set aside"
-											: `${activeParked.length} values set aside`}
+											? "1 value to review"
+											: `${activeParked.length} values to review`}
 									</p>
 									<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-secondary">
-										{activeParked.length === 1 ? "It" : "They"} didn’t fit
-										changes to {propertyListPhrase(parkedPropertyLabels)}.
+										{activeParked.length === 1 ? "It" : "They"} stopped fitting
+										when {propertyListPhrase(parkedPropertyLabels)} changed.
 										Nothing was deleted.
 									</p>
 								</div>
@@ -405,11 +405,11 @@ export function CaseDataManager({
 								className="mt-2.5 min-h-11 w-full"
 								onClick={() => {
 									setPopoverOpen(false);
-									navigate.openSetAside(moduleUuid);
+									navigate.openDataReview(moduleUuid);
 								}}
 							>
 								<Icon icon={tablerArchive} width="15" height="15" />
-								Review set-aside values
+								Review data
 							</Button>
 						</div>
 					)}

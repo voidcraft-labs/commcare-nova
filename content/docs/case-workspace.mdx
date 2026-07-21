@@ -181,26 +181,25 @@ Search → Results → Details journey is useful as soon as you enter Preview.
 Case-data controls stay outside Preview. Preview contains only the app a
 frontline user will run, so every button there behaves like a real app button.
 
-## Review set-aside values
+## Review data after a property change
 
 When a case property changes type — for example, a free-text date of birth
 becomes a real date field — Nova converts every saved case value it can. A
-value that doesn't fit the new type is **set aside** instead of deleted: the
-case keeps running with that property blank, and the original value is kept
-with a plain-language reason.
+value that doesn't fit the new type is kept instead of deleted: the case
+keeps running with that property blank, and the original value waits on the
+**Data to review** screen.
 
 You'll see a notice the moment it happens, and the **Case data** button
-carries a dot while any set-aside values are waiting. Open Case data and
-choose **Review set-aside values** to see them, grouped by the change that
-set them aside. Everyone in the Project sees the same list, so a teammate's
-conversion is just as visible as your own.
+carries a dot while any values are waiting. Open Case data and choose
+**Review data** to see them, listed by case. Everyone in the Project sees
+the same list, so a teammate's conversion is just as visible as your own.
 
 For each value you can:
 
 - **Put it back** — saves the value on its case again, available when it fits
   the property's current type and the case hasn't been given a newer value.
-  If nothing in a group fits, the screen says what would make it fit again;
-  converting the property back puts waiting values back automatically.
+  When none of a property's values fit, the screen offers to convert the
+  property back; values that fit go back automatically.
 - **Replace** it — enter a new value in the property's current type, saved
   straight to the case. The original stays readable on the entry.
 - **Dismiss** it — move it out of the way without deleting anything.
