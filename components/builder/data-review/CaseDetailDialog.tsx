@@ -8,7 +8,6 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
-import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -18,11 +17,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import { Skeleton } from "@/components/shadcn/skeleton";
 import type { CaseProperty, CaseType } from "@/lib/domain";
-import { humanizeId } from "@/lib/domain";
 import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
-import { NameChip } from "./NameChip";
+import { DATA_TYPE_LABELS } from "./dataReviewModel";
+import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
 
 /**
  * A stored value as the person who typed it knows it — select values
@@ -39,6 +39,47 @@ function displayCaseValue(
 	if (Array.isArray(raw))
 		return raw.map((v) => optionLabel(String(v))).join(", ");
 	return optionLabel(String(raw));
+}
+
+/** The property chip for one table row — declared properties carry
+ * their current type as the icon; a saved key the schema no longer
+ * declares keeps the case family's database mark. `case_name` is text
+ * by definition, declared or not. */
+function rowChip(id: string, decl: CaseProperty | undefined) {
+	if (decl === undefined && id !== "case_name") return <NameChip label={id} />;
+	const dataType = decl?.data_type ?? "text";
+	return (
+		<NameChip
+			label={id}
+			icon={DATA_TYPE_ICONS[dataType]}
+			iconLabel={`${DATA_TYPE_LABELS[dataType]} property`}
+		/>
+	);
+}
+
+/** Placeholder table while the case row loads — the same column
+ * geometry as the loaded table (a chip-shaped block in the w-40
+ * name column, a value line beside it) so the swap doesn't jump. */
+function LoadingTable() {
+	const valueWidths = ["w-40", "w-24", "w-36", "w-16", "w-28"];
+	return (
+		<div>
+			<p role="status" className="sr-only">
+				Loading case…
+			</p>
+			{valueWidths.map((width) => (
+				<div
+					key={width}
+					className="flex items-center gap-4 border-t border-nova-border py-2.5"
+				>
+					<div className="w-40 shrink-0">
+						<Skeleton className="h-[18px] w-24 rounded-[4px]" />
+					</div>
+					<Skeleton className={`h-4 ${width}`} />
+				</div>
+			))}
+		</div>
+	);
 }
 
 export function CaseDetailDialog({
@@ -67,14 +108,16 @@ export function CaseDetailDialog({
 	// schema no longer declares (renamed/retired properties keep their
 	// data) — the table shows everything the case holds, not just what
 	// the current schema names.
-	const rows: Array<{ key: string; label: string; value: string }> = [];
+	const rows: Array<{
+		key: string;
+		decl: CaseProperty | undefined;
+		value: string;
+	}> = [];
 	if (row !== null) {
 		const seen = new Set<string>(["case_name"]);
 		rows.push({
 			key: "case_name",
-			label:
-				caseType.properties.find((p) => p.name === "case_name")?.label ??
-				"Name",
+			decl: caseType.properties.find((p) => p.name === "case_name"),
 			value: row.case_name,
 		});
 		for (const decl of caseType.properties) {
@@ -82,7 +125,7 @@ export function CaseDetailDialog({
 			seen.add(decl.name);
 			rows.push({
 				key: decl.name,
-				label: decl.label ?? humanizeId(decl.name),
+				decl,
 				value: displayCaseValue(decl, row.properties[decl.name]),
 			});
 		}
@@ -90,7 +133,7 @@ export function CaseDetailDialog({
 			if (seen.has(key)) continue;
 			rows.push({
 				key,
-				label: humanizeId(key),
+				decl: undefined,
 				value: displayCaseValue(undefined, value),
 			});
 		}
@@ -112,10 +155,7 @@ export function CaseDetailDialog({
 				</DialogHeader>
 
 				{state.kind === "loading" || state.kind === "idle" ? (
-					<p className="flex min-h-24 items-center gap-2 text-sm text-nova-text-secondary">
-						<Icon icon={tablerLoader2} className="animate-spin" width="16" />
-						Loading…
-					</p>
+					<LoadingTable />
 				) : state.kind === "error" || state.kind === "unauthenticated" ? (
 					<div role="alert">
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
@@ -140,13 +180,13 @@ export function CaseDetailDialog({
 				) : (
 					<table className="w-full border-collapse">
 						<tbody>
-							{rows.map(({ key, label, value }) => (
+							{rows.map(({ key, decl, value }) => (
 								<tr key={key} className="border-t border-nova-border">
 									<th
 										scope="row"
 										className="w-40 py-2.5 pr-4 text-left align-top font-normal"
 									>
-										<NameChip label={label} />
+										{rowChip(key, decl)}
 									</th>
 									<td className="py-2.5 align-top text-sm leading-relaxed break-words text-nova-text [overflow-wrap:anywhere]">
 										{value === "" ? (

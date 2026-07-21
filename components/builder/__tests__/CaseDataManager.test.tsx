@@ -69,8 +69,10 @@ const UNAVAILABLE_TRIGGER_LABEL =
 	"Case data for Patient. Case count unavailable. Case data is shared throughout your app";
 
 /** The popover description's full text, chip and all — the case-type
- *  name renders as a Badge inside the paragraph, so assertions match
- *  the paragraph's assembled textContent rather than one text node. */
+ *  name renders as a reference-style chip inside the paragraph, so
+ *  assertions match the paragraph's assembled textContent rather than
+ *  one text node. The chip carries the case type's NAME (the id the
+ *  `#patient/…` references use), not a humanized label. */
 const scopeDescription =
 	(verb: "Add or replace" | "View", label: string) =>
 	(_content: string, element: Element | null) =>
@@ -206,7 +208,7 @@ describe("CaseDataManager", () => {
 		fireEvent.click(trigger);
 
 		expect(
-			screen.getByText(scopeDescription("Add or replace", "Patient")),
+			screen.getByText(scopeDescription("Add or replace", "patient")),
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Replace case data" }));
 
@@ -248,9 +250,9 @@ describe("CaseDataManager", () => {
 				"No case data is available for Search, Results, or Details",
 			),
 		).toBeTruthy();
-		expect(screen.getByText(scopeDescription("View", "Patient"))).toBeTruthy();
+		expect(screen.getByText(scopeDescription("View", "patient"))).toBeTruthy();
 		expect(
-			screen.queryByText(scopeDescription("Add or replace", "Patient")),
+			screen.queryByText(scopeDescription("Add or replace", "patient")),
 		).toBeNull();
 		expect(
 			screen.getByText(
@@ -449,7 +451,7 @@ describe("CaseDataManager", () => {
 		});
 		fireEvent.click(trigger);
 		expect(
-			screen.getByText(scopeDescription("Add or replace", "Clients")),
+			screen.getByText(scopeDescription("Add or replace", "clients")),
 		).toBeTruthy();
 		expect(screen.queryByText(/Clients cases/i)).toBeNull();
 

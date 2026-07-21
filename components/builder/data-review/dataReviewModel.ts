@@ -1,8 +1,8 @@
 // The data review screen's state model — pure functions over the
 // Server Action's wire entries (`ParkedValueEntryWire`), kept free of
-// React so the case grouping, filter partition, notice conditions, and
-// draft normalization unit-test directly. The component renders this
-// model; it never re-derives a verdict (those are computed server-side
+// React so the case grouping, filter partition, and draft
+// normalization unit-test directly. The component renders this model;
+// it never re-derives a verdict (those are computed server-side
 // against the property's current declaration).
 
 import type {
@@ -81,54 +81,9 @@ export function groupReviewByCase(
 }
 
 /**
- * One property-level notice above the case list: every active value of
- * this property is blocked by its CURRENT type, and at least one still
- * fits the type it was saved under — so converting the property back
- * is a real way out, alongside replacing each value. Derived from the
- * ACTIVE entries only; a type change with any ready or occupied value
- * gets no notice (those rows already offer their own actions).
- */
-export interface ConvertBackNotice {
-	readonly property: string;
-	readonly fromType: CasePropertyDataType;
-	readonly toType: CasePropertyDataType;
-	readonly count: number;
-}
-
-export function convertBackNotices(
-	entries: readonly ParkedValueEntryWire[],
-): ConvertBackNotice[] {
-	const byTransition = new Map<string, ParkedValueEntryWire[]>();
-	for (const entry of entries) {
-		if (entry.dismissedAt !== null) continue;
-		if (entry.fromType === entry.toType) continue;
-		const key = `${entry.property}|${entry.fromType}|${entry.toType}`;
-		const bucket = byTransition.get(key);
-		if (bucket === undefined) byTransition.set(key, [entry]);
-		else bucket.push(entry);
-	}
-	const notices: ConvertBackNotice[] = [];
-	for (const bucket of byTransition.values()) {
-		const allBlockedByType = bucket.every(
-			(entry) => entry.blockedBy === "type",
-		);
-		const anyFitsOriginal = bucket.some((entry) => entry.fitsOriginalType);
-		if (!allBlockedByType || !anyFitsOriginal) continue;
-		const first = bucket[0] as ParkedValueEntryWire;
-		notices.push({
-			property: first.property,
-			fromType: first.fromType,
-			toType: first.toType,
-			count: bucket.length,
-		});
-	}
-	return notices.sort((a, b) => a.property.localeCompare(b.property));
-}
-
-/**
- * Person-facing spelling for each data type — the convert-back notice
- * reads these instead of the wire tokens (`single_select` is authoring
- * vocabulary, not user vocabulary).
+ * Person-facing spelling for each data type — the chip icon's
+ * screen-reader name reads these instead of the wire tokens
+ * (`single_select` is authoring vocabulary, not user vocabulary).
  */
 export const DATA_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 	text: "text",
@@ -141,16 +96,6 @@ export const DATA_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 	multi_select: "multi-select",
 	geopoint: "GPS point",
 };
-
-/**
- * The label with its natural article, for running prose ("fits a
- * date", "fits text") — "text" is a mass noun; every other type label
- * counts.
- */
-export function dataTypePhrase(dataType: CasePropertyDataType): string {
-	const label = DATA_TYPE_LABELS[dataType];
-	return dataType === "text" ? label : `a ${label}`;
-}
 
 /**
  * A stored value rendered for a row — arrays (multi-select originals)

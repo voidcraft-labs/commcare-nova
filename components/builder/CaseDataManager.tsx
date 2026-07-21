@@ -345,7 +345,7 @@ export function CaseDataManager({
 						</PopoverTitle>
 						<PopoverDescription className="text-sm leading-relaxed text-nova-text-secondary">
 							{canEdit ? "Add or replace" : "View"} the cases saved for the{" "}
-							<NameChip label={caseTypeDisplayName} /> case type. They’re used
+							<NameChip label={caseType.name} /> case type. They’re used
 							throughout your app and in Preview.
 						</PopoverDescription>
 					</PopoverHeader>

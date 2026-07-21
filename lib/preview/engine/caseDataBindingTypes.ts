@@ -122,10 +122,9 @@ export type LoadCaseCountResult =
 /**
  * One kept value as it crosses the Server Action wire —
  * `ParkedValueEntry` (see `lib/case-store`) with its timestamps as
- * ISO strings so the payload stays plain JSON. The verdict fields
- * (`restorable` / `blockedBy` / `fitsOriginalType`) are computed
- * server-side against the property's CURRENT declaration; the
- * client renders them, never re-derives them.
+ * ISO strings so the payload stays plain JSON. The `restorable`
+ * verdict is computed server-side against the property's CURRENT
+ * declaration; the client renders it, never re-derives it.
  */
 export interface ParkedValueEntryWire
 	extends Omit<ParkedValueEntry, "createdAt" | "dismissedAt"> {

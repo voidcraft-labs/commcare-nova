@@ -2174,12 +2174,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				fromType: "text",
 				toType: "int",
 				dismissedAt: null,
-				// "abc" fits text but not the CURRENT int declaration, and
-				// the key is free — blocked by type, with the convert-back
-				// callout's condition (`fitsOriginalType`) true.
+				// "abc" fits text but not the CURRENT int declaration —
+				// not restorable until the property changes again.
 				restorable: false,
-				blockedBy: "type",
-				fitsOriginalType: true,
 			});
 			expect(entry?.reason).toContain("age");
 			expect(entry?.createdAt).toBeInstanceOf(Date);
@@ -2271,7 +2268,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
 			expect(listed[0]?.restorable).toBe(true);
-			expect(listed[0]?.blockedBy).toBeNull();
 			expect(
 				await store.restoreParkedValues({
 					appId: APP_ID,
@@ -2405,15 +2401,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// The entry archives rather than deletes — the original value
 			// stays readable under the Dismissed filter, now doubly
 			// blocked ("abc" no longer fits the int declaration AND the
-			// replacement occupies its key; the deeper type block is what
-			// reports).
+			// replacement occupies its key).
 			const listed = await store.listParkedValues({
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
 			expect(listed[0]?.restorable).toBe(false);
-			expect(listed[0]?.blockedBy).toBe("type");
 
 			await expect(
 				store.replaceParkedValue({
@@ -2590,7 +2584,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				fromType: "single_select",
 				toType: "single_select",
 				restorable: true,
-				blockedBy: null,
 			});
 			// The multi kept its SURVIVING elements on the row — the full
 			// pre-flush original parked, blocked by those survivors.
@@ -2599,7 +2592,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				fromType: "multi_select",
 				toType: "multi_select",
 				restorable: false,
-				blockedBy: "occupied",
 			});
 
 			// Restore proves the verdicts: the blocked entry is KEPT, the

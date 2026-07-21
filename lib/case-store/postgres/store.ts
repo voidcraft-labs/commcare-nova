@@ -2571,7 +2571,6 @@ export class PostgresCaseStore implements CaseStore {
 				// `bulkPark` — the only writer — so the read-side narrowing
 				// trusts the column the same way `original_value` trusts
 				// its jsonb shape.
-				const fromType = row.from_type as CasePropertyDataType;
 				return {
 					id: row.id,
 					caseId: row.case_id,
@@ -2580,14 +2579,11 @@ export class PostgresCaseStore implements CaseStore {
 					property: row.property,
 					originalValue: row.original_value,
 					reason: row.reason,
-					fromType,
+					fromType: row.from_type as CasePropertyDataType,
 					toType: row.to_type as CasePropertyDataType,
 					createdAt: row.created_at,
 					dismissedAt: row.dismissed_at,
 					restorable: conforms && !occupied,
-					blockedBy: conforms ? (occupied ? "occupied" : null) : "type",
-					fitsOriginalType:
-						castConformance(fromType)(row.original_value) === true,
 				};
 			});
 		});

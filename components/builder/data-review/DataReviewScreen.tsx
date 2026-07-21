@@ -3,8 +3,8 @@
  * conversion couldn't carry (`/build/{appId}/{moduleUuid}/data-review`).
  *
  * Everything shown is the Server Action's server-computed truth: the
- * case grouping / filter / notice DERIVATIONS live in the pure
- * `dataReviewModel.ts`, the per-entry verdicts come from
+ * case grouping / filter DERIVATIONS live in the pure
+ * `dataReviewModel.ts`, the per-entry `restorable` verdict comes from
  * `listParkedValues` (computed against the property's current
  * declaration, re-proven at write time), and this component only
  * renders and dispatches.
@@ -12,12 +12,15 @@
  * Design rules (the review-round bar): the CASE is the anchor — one
  * card per case, its waiting values as rows, and the whole case one
  * View case dialog away so a decision is made against the record, not
- * a floating value. Property names render as chips, never inline
- * prose. Each row offers exactly the actions that apply to it — its
- * one primary action plus Dismiss — as visible labeled buttons; a
- * button that couldn't work is not rendered disabled beside one that
- * can. Plain words only, and reassurance lives in the verbs ("kept",
- * "put back"), not appended disclaimers.
+ * a floating value. The page header explains the interface once (what
+ * the list is, what the actions do, what returns on its own); each
+ * row then SHOWS its state instead of narrating it — the property
+ * renders as a reference-style chip whose icon is the property's
+ * CURRENT type, beside the literal waiting value. Each row offers
+ * every action that works for it as visible labeled buttons — never a
+ * disabled button beside a live one. Plain words only, and
+ * reassurance lives in the verbs ("kept", "put back"), not appended
+ * disclaimers.
  */
 "use client";
 
@@ -27,7 +30,7 @@ import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import { useId, useState } from "react";
+import { type ReactElement, useId, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
@@ -44,7 +47,6 @@ import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseProperty, CasePropertyDataType } from "@/lib/domain";
-import { humanizeId } from "@/lib/domain";
 import type {
 	CasePropertyFailure,
 	ParkedValueEntryWire,
@@ -59,9 +61,7 @@ import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { CaseDetailDialog } from "./CaseDetailDialog";
 import {
-	convertBackNotices,
 	DATA_TYPE_LABELS,
-	dataTypePhrase,
 	displayReviewValue,
 	filterReviewEntries,
 	groupReviewByCase,
@@ -70,23 +70,7 @@ import {
 	replacementDraftToValue,
 	reviewCounts,
 } from "./dataReviewModel";
-import { NameChip } from "./NameChip";
-
-/**
- * The property's CURRENT type for display copy. A declared property
- * with no explicit `data_type` IS text (the schema's implied
- * default) — falling back to the park's `toType` there would name a
- * type the property no longer holds. Only a property missing from
- * the catalog entirely (a rename park's retired source) borrows the
- * park's target as the best available description.
- */
-function currentTypeOf(
-	decl: CaseProperty | undefined,
-	parkTarget: CasePropertyDataType,
-): CasePropertyDataType {
-	if (decl === undefined) return parkTarget;
-	return decl.data_type ?? "text";
-}
+import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
 
 /** The Replace editor's in-progress draft for one entry. */
 interface ReplaceDraft {
@@ -130,8 +114,23 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 
 	const propertyDecl = (name: string): CaseProperty | undefined =>
 		caseType.properties.find((property) => property.name === name);
-	const propertyLabel = (name: string): string =>
-		propertyDecl(name)?.label ?? humanizeId(name);
+	// The row's chip: the reference-chip variant carrying the
+	// property's CURRENT type as its icon — the state shown, not
+	// narrated. A property the schema no longer declares (a rename's
+	// retired source) keeps the case family's database mark: naming a
+	// type for it would be fiction.
+	const propertyChip = (name: string): ReactElement => {
+		const decl = propertyDecl(name);
+		if (decl === undefined) return <NameChip label={name} />;
+		const dataType = decl.data_type ?? "text";
+		return (
+			<NameChip
+				label={name}
+				icon={DATA_TYPE_ICONS[dataType]}
+				iconLabel={`${DATA_TYPE_LABELS[dataType]} property`}
+			/>
+		);
+	};
 
 	const withBusy = async (id: string, run: () => Promise<void>) => {
 		setBusyIds((prev) => new Set([...prev, id]));
@@ -294,7 +293,6 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	) {
 		setFilter("ready");
 	}
-	const notices = convertBackNotices(entries);
 	const groups = groupReviewByCase(filterReviewEntries(entries, filter));
 
 	return (
@@ -304,7 +302,10 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					Data to review
 				</h1>
 				<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
-					Saved values that no longer fit after a property changed
+					When a property changes and a value it held no longer fits, that value
+					comes off its case and waits here. Put it back on the case, replace it
+					with one that fits, or dismiss it. If the property changes back,
+					waiting values that fit again return on their own.
 				</p>
 			</div>
 			{!canEdit && entries.length > 0 && (
@@ -387,33 +388,6 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						)}
 					</fieldset>
 
-					{filter === "ready" &&
-						notices.map((notice) => (
-							<div
-								key={`${notice.property}|${notice.fromType}|${notice.toType}`}
-								className="mt-5 flex items-start gap-2.5 rounded-xl border border-nova-violet/25 bg-nova-violet/[0.06] px-4 py-3"
-							>
-								<Icon
-									icon={tablerArrowBackUp}
-									width="17"
-									height="17"
-									className="mt-0.5 shrink-0 text-nova-violet-bright"
-								/>
-								<p className="min-w-0 text-[13px] leading-relaxed text-nova-text-secondary">
-									{notice.count === 1 ? "This value" : "These values"} no longer{" "}
-									{notice.count === 1 ? "fits" : "fit"} since{" "}
-									<NameChip label={propertyLabel(notice.property)} /> became{" "}
-									{dataTypePhrase(
-										currentTypeOf(propertyDecl(notice.property), notice.toType),
-									)}
-									. Convert the property back to{" "}
-									{DATA_TYPE_LABELS[notice.fromType]} and{" "}
-									{notice.count === 1 ? "it’ll" : "they’ll"} go back
-									automatically.
-								</p>
-							</div>
-						))}
-
 					{groups.length === 0 ? (
 						<p className="mt-8 text-sm text-nova-text-secondary">
 							Nothing to review right now
@@ -428,7 +402,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 								replaceDraft={replaceDraft}
 								dismissedView={filter === "dismissed"}
 								propertyDecl={propertyDecl}
-								propertyLabel={propertyLabel}
+								propertyChip={propertyChip}
 								onViewCase={() =>
 									setViewCase({
 										caseId: group.caseId,
@@ -476,7 +450,7 @@ function ReviewCaseCard({
 	replaceDraft,
 	dismissedView,
 	propertyDecl,
-	propertyLabel,
+	propertyChip,
 	onViewCase,
 	onPutBack,
 	onDismiss,
@@ -492,7 +466,7 @@ function ReviewCaseCard({
 	readonly replaceDraft: ReplaceDraft | null;
 	readonly dismissedView: boolean;
 	readonly propertyDecl: (name: string) => CaseProperty | undefined;
-	readonly propertyLabel: (name: string) => string;
+	readonly propertyChip: (name: string) => ReactElement;
 	readonly onViewCase: () => void;
 	readonly onPutBack: (entry: ParkedValueEntryWire) => void;
 	readonly onDismiss: (entry: ParkedValueEntryWire) => void;
@@ -530,7 +504,7 @@ function ReviewCaseCard({
 						replaceDraft?.entryId === entry.id ? replaceDraft : null
 					}
 					currentDecl={propertyDecl(entry.property)}
-					label={propertyLabel(entry.property)}
+					chip={propertyChip(entry.property)}
 					caseName={group.caseName}
 					onPutBack={() => onPutBack(entry)}
 					onDismiss={() => onDismiss(entry)}
@@ -552,7 +526,7 @@ function ReviewEntryRow({
 	dismissedView,
 	replaceDraft,
 	currentDecl,
-	label,
+	chip,
 	caseName,
 	onPutBack,
 	onDismiss,
@@ -568,7 +542,7 @@ function ReviewEntryRow({
 	readonly dismissedView: boolean;
 	readonly replaceDraft: ReplaceDraft | null;
 	readonly currentDecl: CaseProperty | undefined;
-	readonly label: string;
+	readonly chip: ReactElement;
 	readonly caseName: string;
 	readonly onPutBack: () => void;
 	readonly onDismiss: () => void;
@@ -580,48 +554,25 @@ function ReviewEntryRow({
 }) {
 	const display = displayReviewValue(entry.originalValue);
 
-	// A row offers only the actions that apply to it: Put back when the
-	// value fits its property again, Replace when it can't go back
-	// as-is, Dismiss alongside either. A button that couldn't work is
-	// never rendered disabled next to one that can — that reads as a
-	// toggle group, not a choice. A park whose property is no longer
-	// declared at all (a rename's retired source, a removed property)
-	// gets NO primary action: the store rejects a write under an
-	// undeclared key, so Replace would fail on every save — Dismiss
-	// and View case are the honest choices, and a put-back reappears
-	// by itself if the property is ever declared again.
-	const primaryAction = entry.restorable ? (
-		<SimpleTooltip content="Saves this value on its case again">
-			<Button
-				type="button"
-				variant="outline"
-				className="min-h-10 text-[13px] text-nova-violet-bright"
-				disabled={busy}
-				onClick={onPutBack}
-			>
-				Put back
-			</Button>
-		</SimpleTooltip>
-	) : currentDecl !== undefined ? (
-		<SimpleTooltip content={`Enter a new ${label} for this case`}>
-			<Button
-				type="button"
-				variant="outline"
-				className="min-h-10 text-[13px] text-nova-violet-bright"
-				disabled={busy}
-				onClick={onOpenReplace}
-			>
-				Replace
-			</Button>
-		</SimpleTooltip>
-	) : null;
+	// A row offers every action that works for it: Put back when the
+	// value fits its property again, Replace whenever the property is
+	// still declared (both at once when both work — the leftmost,
+	// violet button is the suggested one), Dismiss always. A button
+	// that couldn't work is never rendered at all, let alone disabled
+	// beside a live one. A park whose property is no longer declared
+	// (a rename's retired source, a removed property) offers only
+	// Dismiss and View case: the store rejects a write under an
+	// undeclared key, so Put back and Replace would fail on every
+	// save — and a put-back reappears by itself if the property is
+	// ever declared again.
+	const restorable = entry.restorable;
+	const replaceable = currentDecl !== undefined;
 
 	return (
 		<div className="border-t border-nova-violet/[0.08]">
 			<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2">
 				<p className="min-w-52 flex-1 text-[13.5px] break-words text-nova-text">
-					<NameChip label={label} />{" "}
-					<span className="text-nova-text-muted">“</span>
+					{chip} <span className="text-nova-text-muted">“</span>
 					{display}
 					<span className="text-nova-text-muted">”</span>
 				</p>
@@ -640,7 +591,36 @@ function ReviewEntryRow({
 							</Button>
 						) : (
 							<>
-								{primaryAction}
+								{restorable && (
+									<SimpleTooltip content="Saves this value on its case again">
+										<Button
+											type="button"
+											variant="outline"
+											className="min-h-10 text-[13px] text-nova-violet-bright"
+											disabled={busy}
+											onClick={onPutBack}
+										>
+											Put back
+										</Button>
+									</SimpleTooltip>
+								)}
+								{replaceable && (
+									<SimpleTooltip content="Enter a new value to save instead">
+										<Button
+											type="button"
+											variant={restorable ? "ghost" : "outline"}
+											className={
+												restorable
+													? "min-h-10 text-[13px] text-nova-text-secondary"
+													: "min-h-10 text-[13px] text-nova-violet-bright"
+											}
+											disabled={busy}
+											onClick={onOpenReplace}
+										>
+											Replace
+										</Button>
+									</SimpleTooltip>
+								)}
 								<SimpleTooltip content="Moves this to the Dismissed list">
 									<Button
 										type="button"
@@ -662,7 +642,7 @@ function ReviewEntryRow({
 				<ReplaceEditor
 					draft={replaceDraft}
 					currentDecl={currentDecl}
-					label={label}
+					chip={chip}
 					caseName={caseName}
 					displayOriginal={display}
 					onDraftChange={onDraftChange}
@@ -677,7 +657,7 @@ function ReviewEntryRow({
 function ReplaceEditor({
 	draft,
 	currentDecl,
-	label,
+	chip,
 	caseName,
 	displayOriginal,
 	onDraftChange,
@@ -686,7 +666,7 @@ function ReplaceEditor({
 }: {
 	readonly draft: ReplaceDraft;
 	readonly currentDecl: CaseProperty | undefined;
-	readonly label: string;
+	readonly chip: ReactElement;
 	readonly caseName: string;
 	readonly displayOriginal: string;
 	readonly onDraftChange: (next: ReplaceDraft) => void;
@@ -702,7 +682,7 @@ function ReplaceEditor({
 	return (
 		<div className="mx-4 mb-3.5 rounded-lg border border-nova-violet/30 bg-nova-violet/[0.04] px-4 py-3.5">
 			<p className="text-[13px] font-medium text-nova-text">
-				New {label} for {caseName || "this case"}
+				A new {chip} value for {caseName || "this case"}
 			</p>
 			<div className="mt-2.5 flex flex-wrap items-center gap-3">
 				<ReplacementInput
@@ -745,7 +725,7 @@ function ReplaceEditor({
 				</ul>
 			)}
 			<p className="mt-2 text-xs text-nova-text-muted">
-				Saves to this case’s {label}. The original “{displayOriginal}” moves to
+				Saves to this case’s {chip}. The original “{displayOriginal}” moves to
 				Dismissed.
 			</p>
 		</div>

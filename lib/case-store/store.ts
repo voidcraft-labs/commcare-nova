@@ -389,23 +389,14 @@ export interface MigrationReport {
 
 /**
  * One kept value as the review surface reads it — a
- * `parked_case_values` row joined to its live case, with the
- * restore verdict computed server-side against the property's
- * CURRENT declaration (never promised from staleness):
- *
- *   - `restorable` — the original value conforms to the currently-
- *     stored schema AND the case's key holds no real value. Exactly
- *     the conditions `restoreParkedValues` re-proves at write time,
- *     so an enabled Restore can only fail by losing a race.
- *   - `blockedBy: "type"` — the value doesn't fit the property's
- *     current declaration; converting the property back is the way
- *     out (the disabled-Restore tooltip names it).
- *   - `blockedBy: "occupied"` — a real value holds the case's key
- *     (a concurrent write, a narrow-options survivor set, or a
- *     replacement); restoring would clobber it.
- *   - `fitsOriginalType` — whether the value still conforms to
- *     `fromType`'s schema shape: the convert-back callout's honesty
- *     condition ("all N still fit text").
+ * `parked_case_values` row joined to its live case, plus the one
+ * verdict computed server-side against the property's CURRENT
+ * declaration (never promised from staleness): `restorable`, true
+ * when the original value conforms to the currently-stored schema
+ * AND the case's key holds no real value. Exactly the conditions
+ * `restoreParkedValues` re-proves at write time, so an offered Put
+ * back can only fail by losing a race — to a concurrent write, a
+ * narrow-options survivor set, or a replacement occupying the key.
  */
 export interface ParkedValueEntry {
 	id: string;
@@ -424,8 +415,6 @@ export interface ParkedValueEntry {
 	/** Soft archive — non-null when the user dismissed the entry. Dismissed entries stay listed (and explicitly restorable) under the Dismissed filter. */
 	dismissedAt: Date | null;
 	restorable: boolean;
-	blockedBy: "type" | "occupied" | null;
-	fitsOriginalType: boolean;
 }
 
 /**

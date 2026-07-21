@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ParkedValueEntryWire } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
-	convertBackNotices,
-	dataTypePhrase,
 	displayReviewValue,
 	filterReviewEntries,
 	groupReviewByCase,
@@ -24,22 +22,19 @@ function entry(over: Partial<ParkedValueEntryWire>): ParkedValueEntryWire {
 		createdAt: "2026-07-20T09:41:00.000Z",
 		dismissedAt: null,
 		restorable: false,
-		blockedBy: "type",
-		fitsOriginalType: true,
 		...over,
 	};
 }
 
 describe("reviewCounts + filterReviewEntries", () => {
 	const entries = [
-		entry({ id: "a", restorable: true, blockedBy: null }),
+		entry({ id: "a", restorable: true }),
 		entry({ id: "b" }),
 		entry({ id: "c", dismissedAt: "2026-07-20T10:00:00.000Z" }),
 		entry({
 			id: "d",
 			dismissedAt: "2026-07-20T10:00:00.000Z",
 			restorable: true,
-			blockedBy: null,
 		}),
 	];
 
@@ -75,72 +70,6 @@ describe("groupReviewByCase", () => {
 			entry({ id: "2", caseId: "c-2", caseName: "Ada Obi" }),
 		]);
 		expect(groups).toHaveLength(2);
-	});
-});
-
-describe("convertBackNotices", () => {
-	it("notices a type change whose active values are all type-blocked and still fit the original", () => {
-		const notices = convertBackNotices([
-			entry({ id: "1", property: "next_visit" }),
-			entry({ id: "2", property: "next_visit", caseId: "c-2" }),
-			// Dismissed entries stay out of the derivation.
-			entry({
-				id: "3",
-				property: "next_visit",
-				dismissedAt: "2026-07-20T10:00:00.000Z",
-			}),
-		]);
-		expect(notices).toEqual([
-			{ property: "next_visit", fromType: "text", toType: "date", count: 2 },
-		]);
-	});
-
-	it("stays silent when any value is ready or occupied, and for option removals", () => {
-		expect(
-			convertBackNotices([
-				entry({ id: "1" }),
-				entry({ id: "2", restorable: true, blockedBy: null }),
-			]),
-		).toEqual([]);
-		expect(
-			convertBackNotices([
-				entry({ id: "1" }),
-				entry({ id: "2", blockedBy: "occupied" }),
-			]),
-		).toEqual([]);
-		expect(
-			convertBackNotices([
-				entry({
-					id: "1",
-					property: "risk_level",
-					fromType: "single_select",
-					toType: "single_select",
-				}),
-			]),
-		).toEqual([]);
-	});
-
-	it("requires at least one value that still fits the original type", () => {
-		expect(
-			convertBackNotices([entry({ id: "1", fitsOriginalType: false })]),
-		).toEqual([]);
-	});
-
-	it("splits distinct transitions of one property into distinct notices", () => {
-		const notices = convertBackNotices([
-			entry({ id: "1", property: "p", fromType: "text", toType: "date" }),
-			entry({ id: "2", property: "p", fromType: "int", toType: "date" }),
-		]);
-		expect(notices).toHaveLength(2);
-	});
-});
-
-describe("dataTypePhrase", () => {
-	it("adds the natural article for every countable type, none for text", () => {
-		expect(dataTypePhrase("text")).toBe("text");
-		expect(dataTypePhrase("date")).toBe("a date");
-		expect(dataTypePhrase("int")).toBe("a whole number");
-		expect(dataTypePhrase("single_select")).toBe("a select");
 	});
 });
 
