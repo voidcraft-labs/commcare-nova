@@ -19,9 +19,9 @@ import { Switch } from "@/components/shadcn/switch";
 export const CONSOLE_TRIGGER_CLS =
 	"group w-full flex items-center gap-2.5 px-3 py-2.5 min-h-11 text-[14px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30";
 
-/** Menu item sizing for the rail's pickers — full-size targets even
- *  for single-line items. */
-export const CONSOLE_MENU_ITEM_MIN = "min-h-11 text-[14px]";
+/** Menu items for the rail's pickers — the rail's type size over the
+ *  shared menu-item box (sizing and alignment come from `MENU_ITEM_BASE`). */
+export const CONSOLE_MENU_ITEM_CLS = "text-[14px]";
 
 /** The friendly label that titles a single control inside a section.
  *  Sentence case and ordinary type keep configuration readable instead

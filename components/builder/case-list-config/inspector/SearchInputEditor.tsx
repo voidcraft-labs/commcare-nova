@@ -1341,9 +1341,9 @@ function TypePicker({
 								key={t}
 								value={t}
 								disabled={!admitted}
-								className={`min-h-11 items-start py-2 ${
+								className={
 									isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-								}`}
+								}
 							>
 								<Icon
 									icon={SEARCH_INPUT_TYPE_ICONS[t]}
@@ -1468,9 +1468,9 @@ function MatchPicker({
 								key={kind}
 								value={kind}
 								disabled={!admitted}
-								className={`min-h-11 items-start py-2 ${
+								className={
 									isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-								}`}
+								}
 							>
 								<span className="flex-1 text-left">
 									<div>{SEARCH_MODE_LABELS[kind]}</div>
@@ -1492,9 +1492,9 @@ function MatchPicker({
 					<DropdownMenuSeparator />
 					<DropdownMenuRadioItem
 						value="custom"
-						className={`min-h-11 items-start py-2 ${
+						className={
 							isCustom ? "text-nova-violet-bright bg-nova-violet/10" : ""
-						}`}
+						}
 					>
 						<Icon
 							icon={tablerWand}

@@ -283,7 +283,6 @@ export function AddConditionMenu({
 						disabled={!comparisonApplicable}
 						closeOnClick
 						onClick={() => add(firstComparisonDefault(ctx))}
-						className="min-h-11"
 					>
 						<Icon icon={comparisonSchema.icon} />
 						<span className="min-w-0">
@@ -307,7 +306,6 @@ export function AddConditionMenu({
 								disabled={!applicable}
 								closeOnClick
 								onClick={() => add(buildStructure(kind, ctx))}
-								className="min-h-11"
 							>
 								<Icon icon={schema.icon} />
 								<span className="min-w-0">
@@ -1168,10 +1166,10 @@ function GroupConnectorMenu({
 					value={kind}
 					onValueChange={(next) => onChange(next as "and" | "or")}
 				>
-					<DropdownMenuRadioItem value="and" closeOnClick className="min-h-11">
+					<DropdownMenuRadioItem value="and" closeOnClick>
 						All conditions must match
 					</DropdownMenuRadioItem>
-					<DropdownMenuRadioItem value="or" closeOnClick className="min-h-11">
+					<DropdownMenuRadioItem value="or" closeOnClick>
 						Any condition can match
 					</DropdownMenuRadioItem>
 				</DropdownMenuRadioGroup>
@@ -1351,7 +1349,6 @@ function PredicateRowActions({
 								disabled={!actions.canMoveEarlier}
 								onClick={actions.onMoveEarlier}
 								closeOnClick
-								className="min-h-11"
 							>
 								Move earlier
 							</DropdownMenuItem>
@@ -1359,7 +1356,6 @@ function PredicateRowActions({
 								disabled={!actions.canMoveLater}
 								onClick={actions.onMoveLater}
 								closeOnClick
-								className="min-h-11"
 							>
 								Move later
 							</DropdownMenuItem>
@@ -1368,16 +1364,11 @@ function PredicateRowActions({
 								disabled={!actions.canGroupWithNext}
 								onClick={actions.onGroupWithNext}
 								closeOnClick
-								className="min-h-11"
 							>
 								{actions.groupLabel}
 							</DropdownMenuItem>
 							{actions.canUngroup && (
-								<DropdownMenuItem
-									onClick={actions.onUngroup}
-									closeOnClick
-									className="min-h-11"
-								>
+								<DropdownMenuItem onClick={actions.onUngroup} closeOnClick>
 									{actions.ungroupLabel}
 								</DropdownMenuItem>
 							)}
@@ -1390,7 +1381,6 @@ function PredicateRowActions({
 								variant="destructive"
 								onClick={onRemove}
 								closeOnClick
-								className="min-h-11"
 							>
 								{removeLabel}
 							</DropdownMenuItem>
