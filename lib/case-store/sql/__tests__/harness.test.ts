@@ -152,6 +152,9 @@ describe("case-store harness — schema", () => {
 				"property",
 				"original_value",
 				"reason",
+				"from_type",
+				"to_type",
+				"dismissed_at",
 				"created_at",
 			]),
 		);

@@ -158,6 +158,17 @@ export interface QueryArgs {
 	calculated?: ReadonlyArray<CalculatedColumn>;
 	limit?: number;
 	offset?: number;
+	/**
+	 * A case with an active (undismissed) kept value is HELD: it is
+	 * excluded from every read by default, so the running app — case
+	 * lists, search, counts, form loading — simply doesn't see it
+	 * until review resolves its waiting values. Only the surfaces
+	 * that EXIST to look at held cases opt in: the review screen's
+	 * View case dialog and the builder's case-data population count.
+	 * Defaulting to excluded means a new read surface inherits the
+	 * hold without knowing it exists.
+	 */
+	includeHeld?: boolean;
 }
 
 /**
@@ -180,6 +191,9 @@ export interface CountArgs {
 	/** Runtime values for input/session terms used by the predicate. */
 	bindings?: TermBindings;
 	predicate?: Predicate;
+	/** Same hold contract as `QueryArgs.includeHeld` — a count must
+	 * agree with the row list its caller pairs it with. */
+	includeHeld?: boolean;
 }
 
 /**
@@ -366,7 +380,7 @@ export interface ApplySchemaChangeArgs {
  *
  * `parkedIds` are the `parked_case_values` entries this call
  * created — one per VALUE that could not be carried (its count is
- * the "N values set aside" number). The saga's compensation path
+ * the review-toast count). The saga's compensation path
  * consumes the ids to un-park on a failed blueprint commit.
  * `restored` counts previously-parked values this sync wrote BACK:
  * every winning sync ends by restoring any parked entry of the case
@@ -385,6 +399,50 @@ export interface MigrationReport {
 	skipped: number;
 	parkedIds: string[];
 	failureReasons: string[];
+}
+
+/**
+ * Where a kept value stands against its property's CURRENT
+ * declaration — the one server-computed classification the review
+ * surface renders and acts on. `"fits"` alone permits Put back
+ * (exactly the condition `restoreParkedValues` re-proves at write
+ * time, so an offered Put back can only fail by losing a race);
+ * `"blocked"` — the declaration exists but rejects the value;
+ * `"undeclared"` — the schema no longer declares the property at all
+ * (also the answer for an absent or unparseable stored schema:
+ * restore refuses to guess). There is no occupancy arm: a case with
+ * an active kept value is HELD out of the running app (see
+ * `QueryArgs.includeHeld`), so the normal flow can't land a newer
+ * value in the parked slot. Where a dismissal round-trip did (dismiss
+ * releases → a form writes → move-back re-holds), the put back still
+ * proceeds — it is a human decision — and archives the displaced
+ * value as a new dismissed entry rather than destroying it.
+ */
+export type ParkedValueStanding = "fits" | "blocked" | "undeclared";
+
+/**
+ * One kept value as the review surface reads it — a
+ * `parked_case_values` row joined to its live case, plus the
+ * `standing` verdict computed server-side against the property's
+ * CURRENT declaration (never promised from staleness).
+ */
+export interface ParkedValueEntry {
+	id: string;
+	caseId: string;
+	/** The case's display name (`cases.case_name`). */
+	caseName: string;
+	caseType: string;
+	property: string;
+	originalValue: JsonValue;
+	/** Person-readable — the same voice as `MigrationReport.failureReasons`. */
+	reason: string;
+	/** The transition captured at park time (a narrow-options park carries its select type on both sides). */
+	fromType: CasePropertyDataType;
+	toType: CasePropertyDataType;
+	createdAt: Date;
+	/** Soft archive — non-null when the user dismissed the entry. Dismissed entries stay listed (and explicitly restorable) under the Dismissed filter. */
+	dismissedAt: Date | null;
+	standing: ParkedValueStanding;
 }
 
 /**
@@ -623,6 +681,67 @@ export interface CaseStore extends SchemaCaseStore {
 		deleted: number;
 		inserted: number;
 	}>;
+
+	/**
+	 * Every kept value of the case type, newest first, with the
+	 * restore verdict computed against the CURRENTLY-stored schema —
+	 * see {@link ParkedValueEntry}. Tenant-bound through the `cases`
+	 * join (an entry is only as visible as its case row).
+	 */
+	listParkedValues(args: {
+		appId: string;
+		caseType: string;
+	}): Promise<ParkedValueEntry[]>;
+
+	/**
+	 * The user-driven restore: write the named entries' values back
+	 * under their keys and delete the restored entries. Same safety
+	 * core as {@link SchemaCaseStore.unparkValues} — row exists, value
+	 * conforms to the currently-stored schema; a blocked entry is
+	 * KEPT — plus the tenant gate (an id whose case row sits outside
+	 * the bound Project counts as `kept`, never touched) and the
+	 * dismissed gate (a DISMISSED id counts as `kept`: its case may be
+	 * live with a peer's replacement under the slot, so a stale
+	 * client's Put back never overwrites — move back to review first).
+	 * Unlike the automatic restores, this human decision OVERWRITES an
+	 * occupied slot; a displaced value that isn't redundant with the
+	 * original is archived as a new dismissed entry (`displaced`
+	 * counts them), so no overwrite ever destroys data.
+	 */
+	restoreParkedValues(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+	}): Promise<{ restored: number; kept: number; displaced: number }>;
+
+	/**
+	 * Toggle the soft archive on the named entries. Dismissing never
+	 * deletes — the entry leaves the active list (and the discovery
+	 * badge count, and the winning-sync auto-restore's candidate set)
+	 * but stays findable and restorable under the Dismissed filter;
+	 * `dismissed: false` is the undo. Returns the toggled count;
+	 * tenant-gated like {@link CaseStore.restoreParkedValues}.
+	 */
+	setParkedValuesDismissed(args: {
+		appId: string;
+		ids: ReadonlyArray<string>;
+		dismissed: boolean;
+	}): Promise<number>;
+
+	/**
+	 * The "Replace" path: write `value` to the entry's case property
+	 * through the standard validated `update` (schema validation,
+	 * orphan shed, `modified_on` stamp), then dismiss the entry — the
+	 * original value stays readable under the Dismissed filter rather
+	 * than deleting. Throws `ParkedValueNotFoundError` when the bound
+	 * Project cannot see the entry and
+	 * `CasePropertiesValidationError` when the value doesn't fit the
+	 * property's current declaration.
+	 */
+	replaceParkedValue(args: {
+		appId: string;
+		id: string;
+		value: JsonValue;
+	}): Promise<void>;
 }
 
 /**

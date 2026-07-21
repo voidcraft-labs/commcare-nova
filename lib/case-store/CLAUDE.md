@@ -161,8 +161,13 @@ architecture.
      row's value attempts `tryCastValue` into the new type; an
      uncastable value PARKS (`parked_case_values`) with its key
      dropped, and the row STAYS. Identity widenings
-     (temporal/geopoint→text, int→decimal) are skipped — every
-     stored value already conforms. A numeric-SOURCE retype first
+     (temporal/geopoint→text OR →single_select, int→decimal,
+     text⇄single_select — the select's authored type survives via
+     the schema generator's `x-novaDataType` annotation, which
+     `dataTypeTokenOf` reads) rewrite no rows — every stored value
+     already conforms — but still count as type transitions for the
+     closing restore step below. A numeric-SOURCE
+     retype first
      drops the property's live `::integer`/`::numeric` expression
      index inside the transaction (`dropStaleNumericIndexes`) —
      writing an array through that stale cast would abort Phase A;
@@ -176,6 +181,68 @@ architecture.
    `getValidator`; uniform lock order: relationship advisory →
    schema row → `cases` rows), so no write validated against the
    old schema can land after the detection's scan.
+
+   Every park captures its transition (`from_type` / `to_type` — a
+   narrow-options park carries its select type on both sides), and
+   the winning sync's closing auto-restore (Phase A step 4) runs for
+   every property whose declared TYPE changed in the sync —
+   detected flips, retypes, AND identity widenings (a date→text
+   convert-back rewrites no rows but is exactly the transition its
+   parked values wait for) — while skipping DISMISSED entries: the
+   review surface's soft archive (`dismissed_at`) means "reviewed,
+   chose not to restore", so a later convert-back doesn't resurrect
+   them. Same-type syncs stay out of scope so a deliberate
+   narrow-options flush isn't undone by the next unrelated edit —
+   and the text→single_select diff is NEVER classified at all: a
+   bare-string stored schema can't distinguish a real text source
+   from a select stored before the annotation existed, so trusting
+   that diff would phantom-restore pre-annotation selects' parks on
+   their first post-deploy sync (the caller-intent retype scope
+   still restores a real text→select conversion). The tenant-bound
+   review slice on `CaseStore` (`listParkedValues` — standings
+   computed against the currently-stored schema: `fits` /
+   `blocked` / `undeclared`, no occupancy arm —
+   `restoreParkedValues` / `setParkedValuesDismissed` /
+   `replaceParkedValue`) reaches tenancy by joining through
+   `cases`; the schema store's `unparkValues` stays the saga's
+   compensation half, and both restores share one conformance-
+   gated core split on ONE axis (`restoreEntries.overwriteExisting`):
+   the review's explicit put back is a human decision and OVERWRITES
+   whatever the slot holds; the compensation and the auto-restore are
+   automatic and never overwrite. An overwrite never destroys: a
+   displaced value that isn't redundant with the original (equal, or
+   a multi-select survivors-subset) is archived as a NEW dismissed
+   entry — recoverable under Dismissed, holding nothing. And a
+   DISMISSED entry can't be put back directly (`restoreParkedValues`
+   filters them to `kept`): its case may be live with a peer's
+   replacement under the slot, so a stale client's Put back never
+   clobbers — move back to review first.
+
+   **The HOLD.** A case with an active (undismissed)
+   `parked_case_values` entry is held out of every default read:
+   `query` and `count` exclude it unless the caller passes
+   `includeHeld` (`QueryArgs` / `CountArgs`), so the running app —
+   case lists, search, counts, form loading via `readCaseData` —
+   simply doesn't see it until review resolves its waiting values.
+   Only the review's View case dialog and the builder's case-data
+   population count opt in. Availability is per-CASE; storage stays
+   per-value. Dismissal releases (loss accepted, the case runs
+   without the value); moving an entry back to review re-holds;
+   direct `update()` writes stay possible (the review's own Replace
+   path uses them) — the hold is a read-side contract, not a write
+   lock. Because the running app can't reach a held case, the NORMAL
+   flow can't land a newer value in a parked slot — the reason the
+   standing union has no occupancy arm. A dismissal round-trip can
+   (dismiss releases → a form writes → move-back re-holds); the put
+   back still proceeds and archives what it displaces. The hold also
+   applies JOIN-side: every `cases` row a relation walk reaches
+   (`compileRelationPath` — relation predicates, count-of-related,
+   calculated columns) carries the same active-park exclusion, so a
+   count never disagrees with the list beside it. The ancestor
+   ENRICHMENT walk (`traverse` for form preloads) deliberately still
+   reads held rows — a child's form showing its parent's name is
+   reference data, and blanking it would recreate the
+   hole-in-a-form trap the hold exists to prevent.
 3. **Per-row migration** — only when `change` is supplied. The
    three arms are `rename(renames[])`, `retype(fromType, toType)`,
    and `narrow-options(removedOptions)`. NO arm removes a row — a

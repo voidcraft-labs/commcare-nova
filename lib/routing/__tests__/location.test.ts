@@ -56,6 +56,14 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([modUuid, "details"]);
 	});
 
+	it("returns [moduleUuid, 'data-review'] for the data review screen", () => {
+		const loc: Location = {
+			kind: "data-review",
+			moduleUuid: modUuid,
+		};
+		expect(serializePath(loc)).toEqual([modUuid, "data-review"]);
+	});
+
 	it("returns [formUuid] for form without selection", () => {
 		const loc: Location = {
 			kind: "form",
@@ -193,6 +201,24 @@ describe("parsePathToLocation", () => {
 		expect(parsePathToLocation([modUuid, "search-config"], doc)).toEqual({
 			kind: "search-config",
 			moduleUuid: modUuid,
+		});
+	});
+
+	it("parses the data review path", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "data-review"], doc)).toEqual({
+			kind: "data-review",
+			moduleUuid: modUuid,
+		});
+	});
+
+	it("falls back to home when the data review module is missing", () => {
+		expect(
+			parsePathToLocation([modUuid, "data-review"], makeParseDoc({})),
+		).toEqual({
+			kind: "home",
 		});
 	});
 
@@ -354,6 +380,23 @@ describe("isValidLocation", () => {
 		});
 		expect(
 			isValidLocation({ kind: "search-config", moduleUuid: modUuid }, doc),
+		).toBe(true);
+	});
+
+	it("rejects data-review when module uuid is unknown", () => {
+		expect(
+			isValidLocation({ kind: "data-review", moduleUuid: modUuid }, emptyDoc),
+		).toBe(false);
+	});
+
+	it("accepts data-review when module exists", () => {
+		const doc = docWith({
+			modules: {
+				[modUuid]: { uuid: modUuid, name: "m" } as never,
+			},
+		});
+		expect(
+			isValidLocation({ kind: "data-review", moduleUuid: modUuid }, doc),
 		).toBe(true);
 	});
 

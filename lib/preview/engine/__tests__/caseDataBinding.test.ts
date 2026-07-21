@@ -1712,6 +1712,10 @@ describe("readCaseData", () => {
 			applySchemaChange: (a) => store.applySchemaChange(a),
 			dropSchema: (a) => store.dropSchema(a),
 			unparkValues: (a) => store.unparkValues(a),
+			listParkedValues: (a) => store.listParkedValues(a),
+			restoreParkedValues: (a) => store.restoreParkedValues(a),
+			setParkedValuesDismissed: (a) => store.setParkedValuesDismissed(a),
+			replaceParkedValue: (a) => store.replaceParkedValue(a),
 			generateSampleData: (a) => store.generateSampleData(a),
 			resetSampleData: (a) => store.resetSampleData(a),
 		};
@@ -3029,6 +3033,10 @@ describe("submitFormAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3065,6 +3073,10 @@ describe("submitFormAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3135,6 +3147,10 @@ describe("loadCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3185,6 +3201,10 @@ describe("loadCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3268,6 +3288,10 @@ describe("loadCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3311,6 +3335,10 @@ describe("loadCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3353,6 +3381,10 @@ describe("loadCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3420,6 +3452,10 @@ describe("loadCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3498,6 +3534,10 @@ describe("loadCaseCountAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -3510,9 +3550,15 @@ describe("loadCaseCountAction", () => {
 		});
 
 		expect(result).toEqual({ kind: "count", count: 37 });
+		// The flag is CALLER-controlled: only the builder's Case data
+		// manager passes true (its population includes held rows); this
+		// probe-style call leaves it unset and inherits the hold, so the
+		// running app's empty states attribute against the population
+		// the app can actually reach.
 		expect(stubStore.count).toHaveBeenCalledWith({
 			appId: APP_ID,
 			caseType: "patient",
+			includeHeld: false,
 		});
 	});
 
@@ -3579,6 +3625,10 @@ describe("resetSampleCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn().mockResolvedValueOnce({
 				deleted: SAMPLE_CASE_DEFAULT_COUNT,
@@ -3621,6 +3671,10 @@ describe("resetSampleCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi
 				.fn()
@@ -3670,6 +3724,10 @@ describe("resetSampleCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			// Persistent rejection — the healed retry must throw again for
 			// the typed arm to surface.
@@ -3716,6 +3774,10 @@ describe("loadCaseDataAction session projection", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
@@ -4185,6 +4247,10 @@ describe("loadFilterPreviewAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			unparkValues: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
 			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;

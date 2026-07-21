@@ -132,8 +132,9 @@ export function describeParkedOutcome(outcome: {
 			: "";
 	return (
 		`Data note: ${outcome.parked} saved case value${outcome.parked === 1 ? "" : "s"} ` +
-		`could not convert to the new type and ${outcome.parked === 1 ? "was" : "were"} set aside — ` +
-		`the cases themselves are intact. ${detail}${more}`
+		`could not convert to the new type, so Nova kept ${outcome.parked === 1 ? "it" : "them"} for review — ` +
+		`the cases themselves are intact, and the values can be reviewed and put back ` +
+		`under Case data in the builder. ${detail}${more}`
 	);
 }
 

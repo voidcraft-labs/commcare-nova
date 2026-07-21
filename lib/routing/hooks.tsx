@@ -132,6 +132,12 @@ export interface NavigateActions {
 	 * the case-list workspace alongside `openCaseList` / `openSearchConfig`.
 	 */
 	openDetailConfig: (moduleUuid: Uuid) => void;
+	/**
+	 * Open the data review screen for `moduleUuid`. Routes
+	 * to `/build/{appId}/{moduleUuid}/data-review` — reached from the
+	 * Case data popover, the conversion toast, and shared deep links.
+	 */
+	openDataReview: (moduleUuid: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -158,6 +164,7 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 			loc.kind === "cases" ||
 			loc.kind === "search-config" ||
 			loc.kind === "detail-config" ||
+			loc.kind === "data-review" ||
 			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
@@ -221,6 +228,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config" ||
+		loc.kind === "data-review" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
@@ -291,6 +299,13 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
 			});
 		}
+		if (loc.kind === "data-review") {
+			items.push({
+				key: `data-review:${moduleUuid}`,
+				label: "Data to review",
+				location: { kind: "data-review", moduleUuid: loc.moduleUuid },
+			});
+		}
 		if (loc.kind === "form" && formUuid && moduleUuid) {
 			items.push({
 				key: `f:${formUuid}`,
@@ -358,6 +373,8 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "search-config", moduleUuid }),
 			openDetailConfig: (moduleUuid: Uuid) =>
 				push({ kind: "detail-config", moduleUuid }),
+			openDataReview: (moduleUuid: Uuid) =>
+				push({ kind: "data-review", moduleUuid }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -391,6 +408,7 @@ export function parentLocation(loc: Location): Location | undefined {
 				: { kind: "module", moduleUuid: loc.moduleUuid };
 		case "search-config":
 		case "detail-config":
+		case "data-review":
 			return { kind: "module", moduleUuid: loc.moduleUuid };
 		case "form":
 			return loc.selectedUuid

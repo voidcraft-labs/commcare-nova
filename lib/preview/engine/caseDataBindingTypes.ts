@@ -23,7 +23,10 @@ import type {
 	CaseRowWithCalculated,
 	JsonObject,
 	JsonValue,
+	ParkedValueEntry,
+	ParkedValueStanding,
 } from "@/lib/case-store";
+import type { CasePropertyDataType } from "@/lib/domain";
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
 // import path for the binding's types. `CaseRowWithCalculated`
@@ -37,6 +40,7 @@ import type {
 // imports from it.
 export type {
 	CalculatedValue,
+	CasePropertyFailure,
 	CaseRow,
 	CaseRowWithCalculated,
 	JsonObject,
@@ -113,6 +117,62 @@ export type LoadCasesResult =
  */
 export type LoadCaseCountResult =
 	| { kind: "count"; count: number }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/**
+ * One kept value as it crosses the Server Action wire —
+ * `ParkedValueEntry` (see `lib/case-store`) with its timestamps as
+ * ISO strings so the payload stays plain JSON. The `standing`
+ * verdict is computed server-side against the property's CURRENT
+ * declaration; the client renders it, never re-derives it.
+ */
+export interface ParkedValueEntryWire
+	extends Omit<ParkedValueEntry, "createdAt" | "dismissedAt"> {
+	createdAt: string;
+	dismissedAt: string | null;
+}
+
+// The wire's transition tokens and the entry's standing union
+// re-exported beside the entry so the review screen types its
+// grouping and per-row story off this leaf module.
+export type { CasePropertyDataType, ParkedValueStanding };
+
+/**
+ * Result of listing a case type's kept values. One arm serves
+ * every reader — the review screen renders the full entries; the
+ * discovery surfaces (the Case data badge + popover section) derive
+ * their active count and property names from the same list, so one
+ * invalidation channel refreshes both.
+ */
+export type LoadParkedValuesResult =
+	| { kind: "entries"; entries: ParkedValueEntryWire[] }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/** Result of the review surface's explicit restore. `kept` counts entries that stayed parked (blocked, vanished, dismissed, or foreign) — the client re-lists to show why. `displaced` counts occupying values the put back archived under Dismissed instead of destroying. */
+export type RestoreParkedValuesResult =
+	| { kind: "restored"; restored: number; kept: number; displaced: number }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/** Result of toggling the soft archive on kept entries. */
+export type SetParkedValuesDismissedResult =
+	| { kind: "toggled"; count: number }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/**
+ * Result of the Replace path (write a replacement value to the case,
+ * archive the entry). `invalid-value` carries the schema's per-field
+ * failures for inline rendering; `not-found` means the entry vanished
+ * (a teammate restored/dismissed it, or its case row was replaced) —
+ * the client re-lists.
+ */
+export type ReplaceParkedValueResult =
+	| { kind: "replaced" }
+	| { kind: "invalid-value"; failures: readonly CasePropertyFailure[] }
+	| { kind: "not-found" }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 

@@ -36,8 +36,11 @@ import {
 } from "@/lib/collab/reconciler";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import type { Mutation } from "@/lib/doc/types";
+import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
+import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import { buildUrl } from "@/lib/routing/location";
+import { notifyPathChange } from "@/lib/routing/useClientPath";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
 
@@ -89,6 +92,9 @@ export interface ReconcilerProviderProps {
 function buildRuntime(
 	docStore: BlueprintDocStoreApi,
 	init: { appId?: string; baseSeq: number; userId: string },
+	/** Leaves preview mode — the conversion toast's "Review data" action
+	 *  navigates to an edit-only surface, which preview would mask. */
+	exitPreview: () => void,
 ): ReconcilerRuntime {
 	const appIdBox: { current: string | undefined } = { current: init.appId };
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
@@ -109,6 +115,33 @@ function buildRuntime(
 	// one `openStream`; assigned just below.
 	let reconciler: Reconciler;
 
+	/** Bump the shared case-data revision for every case type the (post-
+	 *  apply) doc declares. Case rows are keyed per type; a commit can
+	 *  migrate any type it touched, and over-invalidating an untouched
+	 *  type costs one bounded re-SELECT per mounted representation. */
+	function invalidateDocCaseTypes(): void {
+		const id = appIdBox.current;
+		if (!id) return;
+		for (const caseType of docStore.getState().caseTypes ?? []) {
+			invalidateCaseData(id, caseType.name);
+		}
+	}
+
+	/** Whether a committed batch could have touched case data (run a
+	 *  write-time migration, park, or restore). Everything except a
+	 *  cosmetic-only `updateField` qualifies — label/hint edits are the
+	 *  high-frequency typing stream and never change a property's
+	 *  derived schema, while the structural kinds arrive at click
+	 *  cadence where an occasional needless refetch is cheap. */
+	function frameMayTouchCaseData(frame: MutationFrame): boolean {
+		return frame.mutations.some((mutation) => {
+			if (mutation.kind !== "updateField") return true;
+			return Object.keys(mutation.patch ?? {}).some(
+				(key) => key !== "label" && key !== "hint",
+			);
+		});
+	}
+
 	function openStream(cursor: number): void {
 		const id = appIdBox.current;
 		if (!id || !active) return;
@@ -124,6 +157,16 @@ function buildRuntime(
 			try {
 				const frame = JSON.parse((ev as MessageEvent).data) as MutationFrame;
 				reconciler.onFrame(frame);
+				// Blueprint commits can change CASE DATA now (write-time
+				// migrations park/restore/reshape rows), and the stream is the
+				// one channel every commit path reaches this tab through —
+				// its own autosave echo, its own chat run's echo, a same-user
+				// MCP edit, and every teammate's commit. Bumping the shared
+				// per-type revision here is what keeps the data-review surfaces
+				// (and every other case-data representation) honest without a
+				// per-path invalidation. Filtered so a peer's label-typing
+				// stream doesn't refetch case data per keystroke-batch.
+				if (frameMayTouchCaseData(frame)) invalidateDocCaseTypes();
 			} catch (err) {
 				reportClientError({
 					message: `Reconciler: malformed mutation frame — ${
@@ -245,6 +288,7 @@ function buildRuntime(
 				seq?: number;
 				migration?: {
 					parked?: number;
+					parkedCaseTypes?: string[];
 					failureReasons?: string[];
 				};
 			};
@@ -259,17 +303,74 @@ function buildRuntime(
 				return { ok: false, kind: "network", detail: "200 without seq" };
 			}
 			// A commit whose row migration SET VALUES ASIDE must be loud — the
-			// values left the case rows (recoverable in the saved-values store,
-			// but invisible until the review surface ships). A fully-successful
-			// migration stays silent: the conversion did exactly what was asked.
+			// values left the case rows into the review surface's store. A
+			// fully-successful migration stays silent: the conversion did
+			// exactly what was asked. (No invalidation here — this batch's
+			// own stream echo runs the shared frame-layer invalidation, one
+			// bump per commit for every path alike.)
 			const parked = body.migration?.parked ?? 0;
+			const parkedCaseTypes = body.migration?.parkedCaseTypes ?? [];
 			if (parked > 0) {
 				showToast(
 					"warning",
 					parked === 1
-						? "1 saved value couldn't convert"
-						: `${parked} saved values couldn't convert`,
-					"The affected cases were kept; the values were set aside because they don't fit the field's new type.",
+						? "1 value needs review"
+						: `${parked} values need review`,
+					parked === 1
+						? "It doesn't fit the property's new type. Its case is held out of the app until you decide it."
+						: "They don't fit the property's new type. Their cases are held out of the app until you decide them.",
+					// The Review action only renders when the response NAMED the
+					// affected case types (a version-skewed server that reports
+					// `parked` without them gets the plain toast rather than a
+					// button that cannot navigate).
+					parkedCaseTypes.length === 0
+						? undefined
+						: {
+								action: {
+									label: "Review data",
+									onPress: () => {
+										// Resolve the destination at PRESS time from the live
+										// doc — a module bound to the first affected case type
+										// (the doc may have moved since the commit).
+										const doc = docStore.getState();
+										const moduleEntry = Object.entries(doc.modules).find(
+											([, module]) =>
+												module.caseType !== undefined &&
+												parkedCaseTypes.includes(module.caseType),
+										);
+										if (moduleEntry === undefined) {
+											// The bound module vanished (e.g. removed in the same
+											// batch) — say so instead of consuming the press
+											// silently. The values stay safe either way.
+											showToast(
+												"info",
+												"No screen shows them right now",
+												"No module uses that case type anymore. The values stay saved. Add a module for that case type, or ask Nova to add one, and you'll find them under Case data.",
+											);
+											return;
+										}
+										// The review screen is edit-only; in preview its URL
+										// renders the running case list, so leave preview
+										// before navigating.
+										exitPreview();
+										const url = buildUrl(`/build/${id}`, {
+											kind: "data-review",
+											moduleUuid: moduleEntry[0] as Uuid,
+										});
+										// The toast outlives the builder (ToastContainer is
+										// app-wide), and pushState + notifyPathChange render
+										// only while THIS app's builder is mounted to hear
+										// them — pressed from anywhere else, the button must
+										// be a real navigation, not a silent URL swap.
+										if (window.location.pathname.startsWith(`/build/${id}`)) {
+											window.history.pushState(null, "", url);
+											notifyPathChange();
+										} else {
+											window.location.assign(url);
+										}
+									},
+								},
+							},
 				);
 			}
 			return { ok: true, seq: body.seq };
@@ -326,7 +427,13 @@ function buildRuntime(
 	const deps: ReconcilerDeps = {
 		put,
 		reload,
-		resubscribe: (cursor) => openStream(cursor),
+		resubscribe: (cursor) => {
+			openStream(cursor);
+			// A resubscribe follows a reload, which folded frames this tab
+			// never saw individually — any of them could have migrated case
+			// data, so refresh the per-type caches wholesale.
+			invalidateDocCaseTypes();
+		},
 		scheduleRetry,
 		onReauthDenied: () => {
 			// The SINGLE 403 Sentry report: `useAutoSave` reports only for a 404
@@ -419,11 +526,16 @@ export function ReconcilerProvider({
 
 	const runtimeRef = useRef<ReconcilerRuntime | null>(null);
 	if (runtimeRef.current === null && docStore && sessionApi) {
-		runtimeRef.current = buildRuntime(docStore, {
-			appId,
-			baseSeq,
-			userId,
-		});
+		const sessionStore = sessionApi;
+		runtimeRef.current = buildRuntime(
+			docStore,
+			{
+				appId,
+				baseSeq,
+				userId,
+			},
+			() => sessionStore.getState().setPreviewing(false),
+		);
 	}
 
 	// Open the stream on mount for an existing app; a dormant new build waits

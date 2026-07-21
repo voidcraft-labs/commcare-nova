@@ -251,4 +251,19 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 			"Household Visit",
 		]);
 	});
+
+	it("treats the data review URL like the case list in preview", () => {
+		// Preview shows the RUNNING app — the data review screen is
+		// edit-only, so its URL follows the same running-app rewrite as
+		// the config kinds.
+		const trail = run({
+			loc: { kind: "data-review", moduleUuid },
+			previewCaseTarget: { formUuid: followupUuid },
+		});
+		expect(trail.map((t) => t.label)).toEqual([
+			"Home",
+			"Households",
+			"Household Visit",
+		]);
+	});
 });

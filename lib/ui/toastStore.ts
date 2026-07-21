@@ -6,6 +6,17 @@
 
 export type ToastSeverity = "error" | "warning" | "info";
 
+/**
+ * One follow-up action rendered as a labeled button under the toast
+ * body ("Review data", "Undo"). Pressing it runs
+ * `onPress` and dismisses the toast — the toast is the ephemeral
+ * announcement; the action hands off to a durable surface.
+ */
+export interface ToastAction {
+	label: string;
+	onPress: () => void;
+}
+
 export interface Toast {
 	id: string;
 	severity: ToastSeverity;
@@ -18,6 +29,7 @@ export interface Toast {
 	 * each row instead of relying on embedded newlines in one paragraph.
 	 */
 	lines?: string[];
+	action?: ToastAction;
 	persistent: boolean;
 	createdAt: number;
 }
@@ -25,6 +37,7 @@ export interface Toast {
 /** Presentation extras beyond the title + message. */
 export interface ToastOptions {
 	lines?: string[];
+	action?: ToastAction;
 	persistent?: boolean;
 }
 
@@ -61,6 +74,7 @@ class ToastStore {
 			title,
 			message,
 			lines: options?.lines,
+			action: options?.action,
 			persistent: options?.persistent ?? severity === "error",
 			createdAt: Date.now(),
 		};

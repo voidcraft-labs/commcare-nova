@@ -210,6 +210,13 @@ export interface MigrationOutcome {
 	readonly retyped: number;
 	readonly restored: number;
 	readonly parked: number;
+	/**
+	 * The case types whose syncs set values aside this commit — the
+	 * client's discovery signal (which module's Case data to point the
+	 * toast at, which per-type caches to refresh). Empty when nothing
+	 * parked.
+	 */
+	readonly parkedCaseTypes: readonly string[];
 	readonly failureReasons: readonly string[];
 }
 
@@ -217,6 +224,16 @@ export interface ApplyBlueprintChangeResult {
 	readonly seq: number;
 	readonly committedDoc?: BlueprintDoc;
 	readonly migration?: MigrationOutcome;
+}
+
+/**
+ * A sync's report paired with the case type it ran against —
+ * `MigrationReport` itself carries no type, and the outcome's
+ * `parkedCaseTypes` needs the attribution.
+ */
+interface AttributedReport {
+	readonly caseType: string;
+	readonly report: MigrationReport;
 }
 
 /**
@@ -356,20 +373,21 @@ export async function applyBlueprintChange(
 	// result's `migration` outcome; the parked ids additionally feed the
 	// compensation path — a failed commit un-parks what its forward
 	// applies set aside, restoring the values under the restored schema.
-	const forwardReports: MigrationReport[] = [];
+	const forwardReports: AttributedReport[] = [];
 	const forwardParkedIds = (): string[] =>
-		forwardReports.flatMap((report) => report.parkedIds);
+		forwardReports.flatMap(({ report }) => report.parkedIds);
 	try {
 		for (const entry of migrationEntries) {
-			forwardReports.push(
-				await store.applySchemaChange({
+			forwardReports.push({
+				caseType: entry.caseType,
+				report: await store.applySchemaChange({
 					appId: args.appId,
 					caseType: entry.caseType,
 					caseTypeSchemas: prospectiveSchemas,
 					...(entry.property !== undefined && { property: entry.property }),
 					...(entry.change !== undefined && { change: entry.change }),
 				}),
-			);
+			});
 		}
 	} catch (forwardErr) {
 		// A Phase-B failure is thrown AFTER Phase A committed its schema
@@ -378,7 +396,10 @@ export async function applyBlueprintChange(
 		// set aside (losing it here would strand those values with no
 		// restore path).
 		if (forwardErr instanceof SchemaChangePhaseBError) {
-			forwardReports.push(forwardErr.report);
+			forwardReports.push({
+				caseType: forwardErr.caseType,
+				report: forwardErr.report,
+			});
 		}
 		await compensate(args.appId, store, migrationEntries, forwardParkedIds());
 		throw forwardErr;
@@ -420,12 +441,19 @@ export async function applyBlueprintChange(
 		return {
 			...result,
 			migration: {
-				migrated: all.reduce((sum, r) => sum + r.migrated, 0),
-				reshaped: all.reduce((sum, r) => sum + r.reshaped, 0),
-				retyped: all.reduce((sum, r) => sum + r.retyped, 0),
-				restored: all.reduce((sum, r) => sum + r.restored, 0),
-				parked: all.reduce((sum, r) => sum + r.parkedIds.length, 0),
-				failureReasons: all.flatMap((r) => r.failureReasons),
+				migrated: all.reduce((sum, r) => sum + r.report.migrated, 0),
+				reshaped: all.reduce((sum, r) => sum + r.report.reshaped, 0),
+				retyped: all.reduce((sum, r) => sum + r.report.retyped, 0),
+				restored: all.reduce((sum, r) => sum + r.report.restored, 0),
+				parked: all.reduce((sum, r) => sum + r.report.parkedIds.length, 0),
+				parkedCaseTypes: [
+					...new Set(
+						all
+							.filter((r) => r.report.parkedIds.length > 0)
+							.map((r) => r.caseType),
+					),
+				],
+				failureReasons: all.flatMap((r) => r.report.failureReasons),
 			},
 		};
 	}
@@ -546,8 +574,8 @@ async function sweepCommittedSchemas(
 	appId: string,
 	result: ApplyBlueprintChangeResult,
 	entries: readonly CaseTypeChangeEntry[],
-): Promise<MigrationReport[]> {
-	const reports: MigrationReport[] = [];
+): Promise<AttributedReport[]> {
+	const reports: AttributedReport[] = [];
 	if (result.committedDoc === undefined) return reports;
 	const committedSchemas = buildCaseTypeMap(result.committedDoc);
 	// One sync per DISTINCT touched case type — the classifier can emit several
@@ -559,20 +587,21 @@ async function sweepCommittedSchemas(
 		// retire) has no schema to derive — skip rather than throw.
 		if (!committedSchemas.has(caseType)) continue;
 		try {
-			reports.push(
-				await store.applySchemaChange({
+			reports.push({
+				caseType,
+				report: await store.applySchemaChange({
 					appId,
 					caseType,
 					caseTypeSchemas: committedSchemas,
 					syncedSeq: result.seq,
 				}),
-			);
+			});
 		} catch (sweepErr) {
 			// A Phase-B failure committed its Phase A (possibly parking
 			// values) — keep its report so the aggregated outcome still
 			// surfaces the parks to the user.
 			if (sweepErr instanceof SchemaChangePhaseBError) {
-				reports.push(sweepErr.report);
+				reports.push({ caseType, report: sweepErr.report });
 			}
 			// Never rethrown — the commit already landed, so a sweep failure is
 			// not a 500. But split severity like the build materialize: a
