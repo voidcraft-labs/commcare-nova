@@ -97,6 +97,12 @@ function makeMcpCtx() {
 		runId: "run-1",
 		logWriter,
 		progress: { notify: vi.fn() },
+		conversionImpact: async () => ({
+			totalWithValue: 0,
+			uncastable: 0,
+			alreadyHeld: 0,
+			samples: [],
+		}),
 	});
 	return {
 		ctx,

@@ -52,6 +52,12 @@ function makeCtx() {
 		recordMutations,
 		recordMutationStages,
 		recordConversation: vi.fn(),
+		conversionImpact: async () => ({
+			totalWithValue: 0,
+			uncastable: 0,
+			alreadyHeld: 0,
+			samples: [],
+		}),
 	};
 	return { ctx, recordMutations };
 }

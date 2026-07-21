@@ -1175,6 +1175,11 @@ export function schemaHealingCaseStore(
 		traverse: (a) => heal(() => store.traverse(a)),
 		applySchemaChange: (a) => store.applySchemaChange(a),
 		dropSchema: (a) => store.dropSchema(a),
+		// Un-healed: a read-only preview over raw rows — its cast checks
+		// value shape against the DESTINATION type, never the stored
+		// schema row, so the heal's missing/stale-schema signal can't
+		// arise here.
+		conversionImpact: (a) => store.conversionImpact(a),
 		// Un-healed like the schema writers above: it validates nothing
 		// (migrations are the trusted writer layer), so the heal's
 		// missing/stale-schema remedy has nothing to catch here.

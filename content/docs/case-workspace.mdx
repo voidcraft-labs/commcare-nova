@@ -197,6 +197,18 @@ decided its waiting values on the **Data to review** screen. Holding the
 whole case keeps the app honest — no form opens onto a silently blank
 required field, and no calculation runs over a hole.
 
+Conversions that could set values aside ask first. Before a risky
+conversion — one where some saved values may not fit the new type — Nova
+checks the saved data and shows what would happen: how many values can't
+convert, what they look like, and how many cases would be held. Nothing
+changes until you confirm, and a conversion with nothing at stake proceeds
+without the question. The same check applies when the assistant converts a
+property in chat — it relays the impact and waits for your go-ahead. A type
+change that happens without a convert action — say, pointing a number field
+at a property that used to hold dates — skips the question, but the same
+safety net catches it: the values that don't fit are kept, their cases are
+held, and the notice points you at Data to review.
+
 You'll see a notice the moment it happens, and the **Case data** button
 carries a dot while any cases are held. Open Case data and choose **Review
 data** to see them, one card per case. Each value states in a few words why

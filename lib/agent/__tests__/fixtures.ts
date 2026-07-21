@@ -29,6 +29,7 @@ import { McpContext } from "@/lib/mcp/context";
 import type { ProgressEmitter } from "@/lib/mcp/progress";
 import { GenerationContext } from "../generationContext";
 import type {
+	ConversionImpactFn,
 	RecordMutationsResult,
 	StagedMutationBatch,
 	ToolExecutionContext,
@@ -57,6 +58,10 @@ export interface MakeTestContextOptions {
 	/** Whether the run holds an edit `run_lock` (enables the per-step lease
 	 * heartbeat). Defaults to `false` — a build-mode fixture. */
 	editLease?: boolean;
+	/** Override the retype-impact lookup. Defaults to a stub reporting an
+	 * empty population, so a failable conversion proceeds without a
+	 * needs-confirmation round in tests that don't exercise consent. */
+	conversionImpact?: ConversionImpactFn;
 }
 
 export interface TestContextHandles {
@@ -106,6 +111,7 @@ export function makeTestContext(
 		appId: opts.appId ?? "test-app",
 		// Build-mode fixture by default (no edit run_lock, so no lease heartbeat).
 		editLease: opts.editLease ?? false,
+		conversionImpact: opts.conversionImpact ?? emptyConversionImpact,
 	});
 	return {
 		ctx,
@@ -164,7 +170,20 @@ export interface MakeMcpTestContextOptions {
 	userId?: string;
 	/** Per-run grouping id. Defaults to `"run-1"`. */
 	runId?: string;
+	/** Override the retype-impact lookup. Defaults to the empty-population
+	 * stub (see `MakeTestContextOptions.conversionImpact`). */
+	conversionImpact?: ConversionImpactFn;
 }
+
+/** The default retype-impact stub both fixture factories share: an
+ *  empty population, so consent never triggers unless a test injects
+ *  real counts. */
+const emptyConversionImpact: ConversionImpactFn = async () => ({
+	totalWithValue: 0,
+	uncastable: 0,
+	alreadyHeld: 0,
+	samples: [],
+});
 
 /**
  * Build an `McpContext` wired to vi.fn stubs for its log writer and
@@ -192,6 +211,7 @@ export function makeMcpTestContext(
 		runId: opts.runId ?? "run-1",
 		logWriter: logWriterStub,
 		progress: progressStub,
+		conversionImpact: opts.conversionImpact ?? emptyConversionImpact,
 	});
 	return {
 		ctx,
@@ -211,6 +231,7 @@ export interface StubToolContextHandles {
 	recordMutations: ReturnType<typeof vi.fn>;
 	recordMutationStages: ReturnType<typeof vi.fn>;
 	recordConversation: ReturnType<typeof vi.fn>;
+	conversionImpact: ReturnType<typeof vi.fn>;
 }
 
 /**
@@ -229,7 +250,12 @@ export interface StubToolContextHandles {
  * `commitGuardedBatch` emulator suite and `generationContext-recordMutations`.)
  */
 export function makeStubToolContext(
-	opts: { appId?: string; userId?: string; runId?: string } = {},
+	opts: {
+		appId?: string;
+		userId?: string;
+		runId?: string;
+		conversionImpact?: ConversionImpactFn;
+	} = {},
 ): StubToolContextHandles {
 	const recordMutations = vi.fn(
 		async (
@@ -244,6 +270,9 @@ export function makeStubToolContext(
 		}),
 	);
 	const recordConversation = vi.fn();
+	const conversionImpact = vi.fn(
+		opts.conversionImpact ?? emptyConversionImpact,
+	);
 	const ctx: ToolExecutionContext = {
 		appId: opts.appId ?? "test-app",
 		userId: opts.userId ?? "user-1",
@@ -251,6 +280,13 @@ export function makeStubToolContext(
 		recordMutations,
 		recordMutationStages,
 		recordConversation,
+		conversionImpact,
 	};
-	return { ctx, recordMutations, recordMutationStages, recordConversation };
+	return {
+		ctx,
+		recordMutations,
+		recordMutationStages,
+		recordConversation,
+		conversionImpact,
+	};
 }

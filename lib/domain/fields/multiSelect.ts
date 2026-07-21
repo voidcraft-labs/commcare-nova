@@ -41,5 +41,9 @@ export const multiSelectFieldMetadata: FieldKindMetadata<"multi_select"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Multi-choice from a fixed option list.",
-	convertTargets: ["single_select"],
+	// Both targets store a plain string where this kind stores a JSONB
+	// array of selected values — the case store's string↔array reshape
+	// space-joins every stored selection (the XForms wire convention),
+	// so both demotions are total over existing rows.
+	convertTargets: ["single_select", "text"],
 };

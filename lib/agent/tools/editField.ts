@@ -18,7 +18,7 @@
  * rejected call saved nothing" holds for this tool exactly as for every
  * single-batch tool.
  *
- * Six exit branches:
+ * Seven exit branches:
  *
  *   1. Field not resolved at the given triple (missing, or a duplicated
  *      bare id `resolveFieldTarget` refuses as ambiguous — the uuid is
@@ -31,13 +31,17 @@
  *      the `options` the destination schema requires (they must ride
  *      the same call — the seed travels on the `convertField` mutation
  *      itself) → `{ error }`, no mutations.
- *   4. Conversion rejected by the reducer (reconcile returned a shape
+ *   4. A failable conversion (`plan.dataLossRisk`) whose counted
+ *      impact is non-empty, without `confirmConversion: true` →
+ *      `{ needsConfirmation, message }`, nothing persisted — the
+ *      consent round; the same call with the flag proceeds.
+ *   5. Conversion rejected by the reducer (reconcile returned a shape
  *      the target kind's schema rejects) → `{ error }`, nothing
  *      persisted (the candidate apply runs before anything commits).
- *   5. Commit-gate rejection of the whole edit (`guardedMutateStages` —
+ *   6. Commit-gate rejection of the whole edit (`guardedMutateStages` —
  *      the combined batches would introduce a validator finding) →
  *      `{ error }` listing the findings, nothing persisted.
- *   6. Success → a human-readable `message` referencing the final id +
+ *   7. Success → a human-readable `message` referencing the final id +
  *      changes, plus a UI `summary` for the chat transcript.
  */
 
@@ -51,6 +55,7 @@ import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
+	CasePropertyDataType,
 	Field,
 	FieldKind,
 	FieldPatchFor,
@@ -86,14 +91,42 @@ export const editFieldInputSchema = z
 		formIndex: z.number().describe("0-based form index"),
 		fieldId: z.string().describe(`Field to update — ${FIELD_REF_HINT}`),
 		updates: editFieldUpdatesSchema,
+		confirmConversion: z
+			.boolean()
+			.optional()
+			.describe(
+				"Consent flag for a kind conversion that would set saved case values aside. When a convert call returns needsConfirmation, tell the user what would happen, and repeat the same call with confirmConversion: true only after they agree. Meaningless on any other call — leave it out.",
+			),
 	})
 	.strict();
 
 export type EditFieldInput = z.infer<typeof editFieldInputSchema>;
 
 /** Success carries the LLM-facing `message` + a UI-only `summary` for the chat
- *  transcript; failure is an error record. */
-export type EditFieldResult = MutationSuccess | { error: string };
+ *  transcript; failure is an error record. The `needsConfirmation` arm is
+ *  the consent round for a failable kind conversion: nothing was changed,
+ *  the counts state what the conversion would set aside, and the same call
+ *  with `confirmConversion: true` proceeds. */
+export type EditFieldResult =
+	| MutationSuccess
+	| { error: string }
+	| {
+			needsConfirmation: {
+				property: string;
+				fromType: CasePropertyDataType;
+				toType: CasePropertyDataType;
+				totalWithValue: number;
+				uncastable: number;
+				alreadyHeld: number;
+				samples: readonly unknown[];
+			};
+			message: string;
+			/** Transcript presentation — `awaitingConsent` keeps the row
+			 *  from claiming a completed edit, and its presence keeps the
+			 *  model-directed `message` prose off the user-facing detail
+			 *  line. */
+			summary: ToolCallSummary;
+	  };
 
 /**
  * Coerce the scalar-patch portion of an `editField` call into the
@@ -215,14 +248,15 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id rename propagates every reference automatically.",
+		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id rename propagates every reference automatically. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<EditFieldResult>> {
-		const { moduleIndex, formIndex, fieldId, updates } = input;
+		const { moduleIndex, formIndex, fieldId, updates, confirmConversion } =
+			input;
 		try {
 			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
 			if (!resolved.ok) {
@@ -377,6 +411,7 @@ export const editFieldTool = {
 						},
 					};
 				}
+
 				const convertMuts: Mutation[] = plan.mutations;
 
 				// Apply the candidate first so we can verify the reducer
@@ -400,6 +435,66 @@ export const editFieldTool = {
 							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry and this call didn't supply. Pass the missing property in the same call, or report this if none applies.`,
 						},
 					};
+				}
+
+				// The consent round — AFTER the cheap local checks above, so
+				// the user is never asked to consent to an edit the reducer
+				// would refuse anyway (and the impact's row scan doesn't run
+				// for one). A flip whose per-row cast can fail
+				// (`plan.dataLossRisk`) counts its actual impact BEFORE
+				// anything commits: zero uncastable values means nothing to
+				// consent to, so the call proceeds; a non-empty count
+				// returns with nothing persisted so the model can relay the
+				// stakes and re-call with the user's consent. The committed
+				// mutations carry no consent flag — replay and undo re-run
+				// the migration unconditionally, and the review surface is
+				// the recovery path either way.
+				if (plan.dataLossRisk !== undefined && confirmConversion !== true) {
+					const risk = plan.dataLossRisk;
+					const impact = await ctx.conversionImpact({
+						caseType: risk.caseType,
+						property: risk.property,
+						toType: risk.toType,
+					});
+					if (impact.uncastable > 0) {
+						const newlyHeld = impact.uncastable - impact.alreadyHeld;
+						const examples = impact.samples
+							.map((sample) => JSON.stringify(sample))
+							.join(", ");
+						const fieldLabel =
+							"label" in resolved.field &&
+							typeof resolved.field.label === "string" &&
+							resolved.field.label.length > 0
+								? resolved.field.label
+								: currentId;
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								needsConfirmation: {
+									property: risk.property,
+									fromType: risk.fromType,
+									toType: risk.toType,
+									totalWithValue: impact.totalWithValue,
+									uncastable: impact.uncastable,
+									alreadyHeld: impact.alreadyHeld,
+									samples: impact.samples,
+								},
+								message:
+									`Nothing was changed. Converting "${currentId}" to ${newKind} retypes the case property "${risk.property}" from ${risk.fromType} to ${risk.toType}, and ${impact.uncastable} of ${impact.totalWithValue} saved values can't convert (for example: ${examples}). ` +
+									`Each of those values would move to Data to review, and its case would be held out of the running app until someone decides it there — ${newlyHeld} case${newlyHeld === 1 ? "" : "s"} newly held${impact.alreadyHeld > 0 ? `, ${impact.alreadyHeld} already held for other waiting values` : ""}. Converting the property back restores the values automatically. ` +
+									`Tell the user what would happen; if they agree, repeat this call with confirmConversion: true.`,
+								summary: {
+									location:
+										doc.forms[resolved.formUuid]?.name ??
+										`m${moduleIndex}-f${formIndex}`,
+									subject: fieldLabel,
+									awaitingConsent: true,
+								} satisfies ToolCallSummary,
+							},
+						};
+					}
 				}
 
 				stages.push({

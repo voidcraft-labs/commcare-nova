@@ -243,6 +243,18 @@ architecture.
    reads held rows — a child's form showing its parent's name is
    reference data, and blanking it would recreate the
    hole-in-a-form trap the hold exists to prevent.
+   **`conversionImpact` (on the schema slice) is the consent
+   preview**: given `(appId, caseType, property, toType)` it runs
+   the migration's OWN cast (`tryCastValue`, same blank-value drop)
+   over the migration's OWN population — every row of the app's
+   case type carrying the property, held cases included, no tenant
+   filter — and reports `totalWithValue` / `uncastable` /
+   `alreadyHeld` / value samples, so the consent surfaces (the
+   builder's convert dialog, the SA `editField`'s
+   needs-confirmation round) show exactly what the migration would
+   do. Read-only; the pure edge verdict it pairs with is
+   `castCanFail` in `lib/domain/casePropertyTypes.ts`, and the
+   contract suite's parity sweep keeps the two in lockstep.
 3. **Per-row migration** — only when `change` is supplied. The
    three arms are `rename(renames[])`, `retype(fromType, toType)`,
    and `narrow-options(removedOptions)`. NO arm removes a row — a

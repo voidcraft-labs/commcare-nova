@@ -23,6 +23,7 @@ import {
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveActiveProjectId, resolveOpenAIKey } from "@/lib/auth-utils";
+import { withSchemaContext } from "@/lib/case-store";
 import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
@@ -682,6 +683,8 @@ export async function POST(req: Request) {
 					 * via `status` (no lock) → no heartbeat. `appReady` is the build-vs-edit
 					 * signal. */
 					editLease: !!appReady,
+					conversionImpact: async (args) =>
+						(await withSchemaContext()).conversionImpact({ appId, ...args }),
 				});
 
 				/* Latch so the refund toast fires at most once per run. */

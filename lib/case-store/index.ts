@@ -43,6 +43,7 @@ export type {
 	CaseRowWithCalculated,
 	CaseStore,
 	CaseUpdate,
+	ConversionImpact,
 	CountArgs,
 	GenerateSampleDataArgs,
 	MigrationReport,
