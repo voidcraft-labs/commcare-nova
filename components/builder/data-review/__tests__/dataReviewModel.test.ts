@@ -142,6 +142,48 @@ describe("replacementDraftToValue", () => {
 		});
 	});
 
+	it("reads clock times the way people write them — 12-hour first, bare 24-hour still accepted", () => {
+		expect(replacementDraftToValue("time", "2:30 PM")).toEqual({
+			ok: true,
+			value: "14:30:00Z",
+		});
+		expect(replacementDraftToValue("time", "9:05am")).toEqual({
+			ok: true,
+			value: "09:05:00Z",
+		});
+		expect(replacementDraftToValue("time", "12:00 AM")).toEqual({
+			ok: true,
+			value: "00:00:00Z",
+		});
+		expect(replacementDraftToValue("time", "12:15 pm")).toEqual({
+			ok: true,
+			value: "12:15:00Z",
+		});
+		expect(replacementDraftToValue("time", "14:30:05")).toEqual({
+			ok: true,
+			value: "14:30:05Z",
+		});
+		expect(replacementDraftToValue("datetime", "2026-07-20T2:05 pm")).toEqual({
+			ok: true,
+			value: "2026-07-20T14:05:00Z",
+		});
+	});
+
+	it("rejects malformed or out-of-range clock times instead of trusting the text", () => {
+		expect(replacementDraftToValue("time", "25:00")).toEqual({ ok: false });
+		expect(replacementDraftToValue("time", "12:60")).toEqual({ ok: false });
+		expect(replacementDraftToValue("time", "13:00 PM")).toEqual({ ok: false });
+		expect(replacementDraftToValue("time", "noonish")).toEqual({ ok: false });
+		// A pending half of the datetime pair — date picked, time not
+		// typed yet (or the reverse) — is not submittable.
+		expect(replacementDraftToValue("datetime", "2026-07-20T")).toEqual({
+			ok: false,
+		});
+		expect(replacementDraftToValue("datetime", "T2:30 PM")).toEqual({
+			ok: false,
+		});
+	});
+
 	it("rejects empty drafts and multi-select scalar shapes", () => {
 		expect(replacementDraftToValue("text", "   ")).toEqual({ ok: false });
 		expect(replacementDraftToValue("multi_select", "fever")).toEqual({

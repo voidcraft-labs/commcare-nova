@@ -40,6 +40,7 @@ import { type ReactElement, useId, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
+import { DatePicker } from "@/components/shadcn/date-picker";
 import { Input } from "@/components/shadcn/input";
 import {
 	Select,
@@ -48,6 +49,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { TimeField } from "@/components/shadcn/time-field";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
@@ -813,40 +815,46 @@ function ReplacementInput({
 			);
 		case "date":
 			return (
-				<Input
-					autoComplete="off"
-					data-1p-ignore
-					type="date"
+				<DatePicker
 					value={draft.text}
-					onChange={(event) => setText(event.target.value)}
+					onValueChange={setText}
 					aria-label="Replacement date"
-					className="min-h-11 w-52"
+					className="w-56 text-[13px]"
 				/>
 			);
 		case "time":
 			return (
-				<Input
-					autoComplete="off"
-					data-1p-ignore
-					type="time"
+				<TimeField
 					value={draft.text}
-					onChange={(event) => setText(event.target.value)}
+					onValueChange={setText}
 					aria-label="Replacement time"
-					className="min-h-11 w-40"
 				/>
 			);
-		case "datetime":
+		case "datetime": {
+			// The draft's canonical shape is `<date>T<time>`; the two
+			// controls edit their own half and join, so either can lead.
+			const separator = draft.text.indexOf("T");
+			const datePart =
+				separator === -1 ? draft.text : draft.text.slice(0, separator);
+			const timePart = separator === -1 ? "" : draft.text.slice(separator + 1);
+			const join = (date: string, time: string) =>
+				setText(date === "" && time === "" ? "" : `${date}T${time}`);
 			return (
-				<Input
-					autoComplete="off"
-					data-1p-ignore
-					type="datetime-local"
-					value={draft.text}
-					onChange={(event) => setText(event.target.value)}
-					aria-label="Replacement date and time"
-					className="min-h-11 w-60"
-				/>
+				<div className="flex flex-wrap items-center gap-2">
+					<DatePicker
+						value={datePart}
+						onValueChange={(next) => join(next, timePart)}
+						aria-label="Replacement date"
+						className="w-56 text-[13px]"
+					/>
+					<TimeField
+						value={timePart}
+						onValueChange={(next) => join(datePart, next)}
+						aria-label="Replacement time"
+					/>
+				</div>
 			);
+		}
 		case "single_select":
 			return (
 				<Select

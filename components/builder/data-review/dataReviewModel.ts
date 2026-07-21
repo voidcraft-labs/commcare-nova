@@ -11,6 +11,7 @@ import type {
 	ParkedValueEntryWire,
 	ParkedValueStanding,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { parseClockTime } from "@/lib/ui/clockTime";
 
 /**
  * The two filter pills. "Ready to review" is the ACTIVE list
@@ -148,15 +149,17 @@ export function standingPhrase(
 
 /**
  * Normalize a Replace-editor draft into the typed value the property's
- * CURRENT declaration stores, or report it not-submittable (empty /
- * shape the widget can't hand over). The temporal arms stamp the
- * explicit UTC designator the strict row schema requires
- * (`format: "time"` / `"date-time"` demand an offset; Nova authors no
- * app timezone, so an offset-less widget value reads as UTC — the
- * same stance the cast matrix and the sample generator take). The
- * server's schema validation remains the authority — a value this
- * function admits can still come back as the typed `invalid-value`
- * arm (e.g. a geopoint that misses the pattern).
+ * CURRENT declaration stores, or report it not-submittable (empty,
+ * malformed, or a shape the control can't hand over). The temporal
+ * arms stamp the explicit UTC designator the strict row schema
+ * requires (`format: "time"` / `"date-time"` demand an offset; Nova
+ * authors no app timezone, so an offset-less value reads as UTC — the
+ * same stance the cast matrix and the sample generator take), and
+ * they parse strictly because the time half is HAND-TYPED (the date
+ * half comes from the Calendar picker as `YYYY-MM-DD`). The server's
+ * schema validation remains the authority — a value this function
+ * admits can still come back as the typed `invalid-value` arm (e.g. a
+ * geopoint that misses the pattern).
  */
 export function replacementDraftToValue(
 	dataType: CasePropertyDataType,
@@ -178,17 +181,18 @@ export function replacementDraftToValue(
 			return { ok: true, value: Number(text) };
 		}
 		case "time": {
-			// Native <input type="time"> yields HH:MM or HH:MM:SS.
-			const withSeconds = /^\d{2}:\d{2}$/.test(text) ? `${text}:00` : text;
-			return { ok: true, value: `${withSeconds}Z` };
+			const clock = parseClockTime(text);
+			if (clock === null) return { ok: false };
+			return { ok: true, value: `${clock}Z` };
 		}
 		case "datetime": {
-			// Native <input type="datetime-local"> yields
-			// YYYY-MM-DDTHH:MM or …:SS.
-			const withSeconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text)
-				? `${text}:00`
-				: text;
-			return { ok: true, value: `${withSeconds}Z` };
+			// The draft carries `<calendar date>T<typed time>`; either half
+			// may still be pending, and a pending half is not submittable.
+			const match = /^(\d{4}-\d{2}-\d{2})T(.+)$/.exec(text);
+			if (match === null) return { ok: false };
+			const clock = parseClockTime(match[2] as string);
+			if (clock === null) return { ok: false };
+			return { ok: true, value: `${match[1]}T${clock}Z` };
 		}
 		case "multi_select":
 			return { ok: false };

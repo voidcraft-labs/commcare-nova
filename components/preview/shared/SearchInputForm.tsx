@@ -23,10 +23,10 @@
 //              appears only when this secure browser exposes both
 //              BarcodeDetector and camera capture; unsupported
 //              browsers get truthful fallback copy, not a dead button.
-//   date     → `<Popover>` + `<Calendar mode="single">` —
+//   date     → the shared `DatePicker` (shadcn date-picker composition) —
 //              value emits as ISO `YYYY-MM-DD` to match the
 //              runtime-bindings layer's `parseDateBound` shape.
-//   date-range → two `<Popover>` + `<Calendar mode="single">`
+//   date-range → two `DatePicker`s
 //                pickers (one per bound). Values emit under
 //                `<name>:from` / `<name>:to`. Either bound may remain
 //                as a draft while the worker edits, but Search requires
@@ -45,14 +45,11 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
-import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerScan from "@iconify-icons/tabler/scan";
 import tablerSearch from "@iconify-icons/tabler/search";
-import tablerX from "@iconify-icons/tabler/x";
-import { format, isValid, parseISO } from "date-fns";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
-import { Calendar } from "@/components/shadcn/calendar";
+import { DatePicker } from "@/components/shadcn/date-picker";
 import {
 	Dialog,
 	DialogClose,
@@ -71,11 +68,6 @@ import {
 } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/shadcn/popover";
-import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -88,10 +80,7 @@ import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import {
-	ISO_DATE_PATTERN,
-	type SearchInputValues,
-} from "@/lib/preview/engine/runtimeBindings";
+import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { searchInputSubmissionErrors } from "@/lib/preview/engine/searchInputValidation";
 
@@ -136,31 +125,6 @@ interface SearchInputFormProps {
 }
 
 const DEBOUNCE_MS = 300;
-
-/** Wire-form date shape — the literal `date-fns` format string the
- *  form emits and `parseDateBound` reads. Matches the `ISO_DATE_PATTERN`
- *  the binding layer enforces; a drift between the format string
- *  and the pattern would silently drop bounds at parsing. */
-const ISO_DATE_FORMAT = "yyyy-MM-dd";
-
-/** Human-facing calendar-date format. Nova's authored interface copy is
- * currently English, so pinning the formatter to `en-US` keeps the server and
- * browser projection hydration-stable while long month names avoid exposing
- * the wire representation as interface copy. */
-const READABLE_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
-	day: "numeric",
-	month: "long",
-	year: "numeric",
-};
-
-const READABLE_DATE_FORMATTER = new Intl.DateTimeFormat(
-	"en-US",
-	READABLE_DATE_FORMAT_OPTIONS,
-);
-
-function formatReadableDate(date: Date): string {
-	return READABLE_DATE_FORMATTER.format(date);
-}
 
 /**
  * Running-app search-input form. Mounts at the top of the case-list
@@ -951,37 +915,16 @@ interface DatePopoverFieldProps {
 }
 
 /**
- * Date picker — Popover trigger + `mode="single"` Calendar. The
- * trigger button reads a locale-formatted calendar date or a
- * placeholder; the popover hosts the Calendar that emits the picked
- * `Date`. The display format is intentionally separate from the wire
- * format: `date-fns` `format(..., "yyyy-MM-dd")` lands at local-time
- * midnight for `onChange`, matching the runtime-bindings layer's
- * `parseDateBound` ISO-pattern gate without timezone drift (`new
- * Date("2024-01-01")` would parse as UTC midnight and shift negative
- * offsets back a day).
+ * Date picker row — the shared `DatePicker` component (the shadcn
+ * composition, `components/shadcn/date-picker.tsx`) wrapped in the form's
+ * `Field` chrome: label association, group-owned invalid state, and the
+ * error slot. The picker owns the trigger/calendar/Clear behavior and the
+ * wire-form `yyyy-MM-dd` contract that matches the binding layer's
+ * `ISO_DATE_PATTERN`; this wrapper only wires the form plumbing.
  *
- * Inbound values flow through two gates before reaching `format`:
- *
- *   - The shape gate (`ISO_DATE_PATTERN.test`) accepts only `YYYY-
- *     MM-DD` strings; everything else resolves to `undefined`.
- *   - The calendar-validity gate (`isValid(parseISO(...))`) catches
- *     shape-conforming-but-calendar-invalid values like
- *     `"2024-13-45"` that `parseISO` returns as Invalid Date. The
- *     gate exists because `format(invalidDate, ...)` throws
- *     `RangeError: Invalid time value` and would crash the entire
- *     `<search>` subtree — the regex alone isn't enough.
- *
- * Used as the single-date row AND as each bound of the date-range
- * row. The two callers differ only in label styling + the explicit
- * trigger `aria-label`; both knobs are optional props on this
- * primitive. Screen-reader accessibility lives on the `FieldLabel
- * htmlFor` association + the optional `aria-label` override.
- *
- * The trigger renders inside `PopoverTrigger`'s `render` prop slot —
- * Base UI's composition pattern. The Button component is a
- * `data-slot=button` shadcn primitive over the Base UI Button so
- * focus + keyboard semantics flow through.
+ * Used as the single-date row AND as each bound of the date-range row. The
+ * two callers differ only in label styling + the explicit trigger
+ * `aria-label`; both knobs are optional props.
  */
 function DatePopoverField({
 	label,
@@ -996,81 +939,20 @@ function DatePopoverField({
 	const id = useId();
 	const errorId = `${id}-error`;
 	const isInvalid = invalid || error !== undefined;
-	const parsed = ISO_DATE_PATTERN.test(value) ? parseISO(value) : undefined;
-	const selected = parsed !== undefined && isValid(parsed) ? parsed : undefined;
-	// `open` is lifted into local state so a day-pick or Clear can
-	// close the popover programmatically. Base UI's Popover dismisses
-	// on outside-press / escape / close-press / focus-out only —
-	// none fire when a descendant updates its own state, so an
-	// uncontrolled popover stays open after a pick. The expected
-	// pick → close → next-action cadence (most visible in the date-
-	// range where the from popover would otherwise block the user's
-	// reach to the to trigger) routes through `setOpen(false)`
-	// inside the relevant handlers.
-	const [open, setOpen] = useState(false);
 	return (
 		<Field className="min-w-0" data-invalid={isInvalid}>
 			<FieldLabel htmlFor={id} className={labelClassName}>
 				{label}
 			</FieldLabel>
-			<Popover open={open} onOpenChange={setOpen}>
-				<PopoverTrigger
-					id={id}
-					aria-label={ariaLabel}
-					aria-invalid={isInvalid}
-					aria-describedby={error !== undefined ? errorId : describedBy}
-					render={
-						<Button
-							variant="outline"
-							size="sm"
-							className="min-h-11 min-w-0 w-full justify-between whitespace-normal text-left text-[14px] font-normal leading-snug data-placeholder:text-muted-foreground"
-							data-placeholder={selected === undefined ? "" : undefined}
-						/>
-					}
-				>
-					<span className="min-w-0 break-words">
-						{selected === undefined
-							? "Pick a date"
-							: formatReadableDate(selected)}
-					</span>
-					<Icon
-						icon={tablerCalendar}
-						className="size-3.5 ml-auto"
-						aria-hidden="true"
-					/>
-				</PopoverTrigger>
-				<PopoverContent
-					align="start"
-					collisionPadding={8}
-					className="max-h-[var(--available-height)] w-auto overflow-y-auto overscroll-contain p-0"
-				>
-					<Calendar
-						mode="single"
-						selected={selected}
-						onSelect={(next) => {
-							onChange(next === undefined ? "" : format(next, ISO_DATE_FORMAT));
-							setOpen(false);
-						}}
-						autoFocus
-					/>
-					{selected !== undefined && (
-						<div className="flex justify-end border-t border-border p-1.5">
-							<Button
-								type="button"
-								variant="ghost"
-								size="xl"
-								onClick={() => {
-									onChange("");
-									setOpen(false);
-								}}
-							>
-								<Icon icon={tablerX} aria-hidden="true" />
-								Clear
-							</Button>
-						</div>
-					)}
-				</PopoverContent>
-			</Popover>
+			<DatePicker
+				id={id}
+				value={value}
+				onValueChange={onChange}
+				aria-label={ariaLabel}
+				aria-invalid={isInvalid || undefined}
+				aria-describedby={error !== undefined ? errorId : describedBy}
+				className="w-full"
+			/>
 			<FieldError id={errorId}>{error}</FieldError>
 		</Field>
 	);
