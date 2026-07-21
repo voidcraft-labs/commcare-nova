@@ -6,7 +6,6 @@ import {
 	displayReviewValue,
 	filterReviewEntries,
 	groupReviewByCase,
-	readyIds,
 	replacementDraftToValue,
 	reviewCounts,
 } from "../dataReviewModel";
@@ -57,10 +56,6 @@ describe("reviewCounts + filterReviewEntries", () => {
 			"c",
 			"d",
 		]);
-	});
-
-	it("readyIds skips dismissed entries even when they are restorable", () => {
-		expect(readyIds(entries)).toEqual(["a"]);
 	});
 });
 

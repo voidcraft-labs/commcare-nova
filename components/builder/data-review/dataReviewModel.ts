@@ -133,13 +133,6 @@ export function convertBackNotices(
 	return notices.sort((a, b) => a.property.localeCompare(b.property));
 }
 
-/** Ids a put-back would accept right now, across the active list. */
-export function readyIds(entries: readonly ParkedValueEntryWire[]): string[] {
-	return entries
-		.filter((entry) => entry.dismissedAt === null && entry.restorable)
-		.map((entry) => entry.id);
-}
-
 /**
  * Person-facing spelling for each data type — statuses, notices, and
  * the chat prefill all read these instead of the wire tokens

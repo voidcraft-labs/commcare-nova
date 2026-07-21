@@ -24,7 +24,6 @@ import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import tablerRestore from "@iconify-icons/tabler/restore";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerX from "@iconify-icons/tabler/x";
 import { useId, useState } from "react";
@@ -68,7 +67,6 @@ import {
 	groupReviewByCase,
 	type ReviewCaseGroup,
 	type ReviewFilter,
-	readyIds,
 	replacementDraftToValue,
 	reviewCounts,
 } from "./dataReviewModel";
@@ -299,34 +297,20 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 
 	const entries = state.kind === "entries" ? state.entries : [];
 	const counts = reviewCounts(entries);
-	const ready = readyIds(entries);
 	const notices = convertBackNotices(entries);
 	const groups = groupReviewByCase(filterReviewEntries(entries, filter));
 
 	return (
 		<div className="@container">
 			<ContentFrame width="5xl" className="px-6 pt-7 pb-16">
-				<div className="flex flex-wrap items-start gap-3">
-					<div className="min-w-0 flex-1">
-						<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
-							Data to review
-						</h1>
-						<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
-							Saved values that stopped fitting when a property changed. Nothing
-							was deleted.
-						</p>
-					</div>
-					{canEdit && ready.length > 1 && filter !== "dismissed" && (
-						<Button
-							type="button"
-							className="min-h-11"
-							disabled={ready.some((id) => busyIds.has(id))}
-							onClick={() => putBackEntries(ready)}
-						>
-							<Icon icon={tablerRestore} />
-							Put back all {ready.length}
-						</Button>
-					)}
+				<div className="min-w-0">
+					<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+						Data to review
+					</h1>
+					<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
+						Saved values that stopped fitting when a property changed. Nothing
+						was deleted.
+					</p>
 				</div>
 				{!canEdit && entries.length > 0 && (
 					<p className="mt-3 max-w-2xl rounded-lg bg-nova-elevated px-3 py-2.5 text-sm leading-relaxed text-nova-text-secondary">
