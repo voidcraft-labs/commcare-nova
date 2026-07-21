@@ -139,6 +139,9 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 						caseTypes: ctx.caseTypes,
 						currentCaseType: destinationCaseType,
 						knownInputs: ctx.knownInputs,
+						// A count's `where` runs against each counted related
+						// case row — per-case even under a global outer slot.
+						caseDataScope: "per-case",
 					}),
 		[destinationCaseType, ctx.caseTypes, ctx.knownInputs],
 	);

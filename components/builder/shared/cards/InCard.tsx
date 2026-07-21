@@ -24,6 +24,7 @@ import {
 	type Predicate,
 	prop,
 	type ResolvedType,
+	sessionContext,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -31,7 +32,7 @@ import {
 	usePredicateEditContext,
 	useResolvedType,
 } from "../editorContext";
-import type { PredicateEditContext } from "../editorSchemas";
+import { caseDataInScope, type PredicateEditContext } from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
@@ -48,6 +49,11 @@ import {
 export function inDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "in" }> {
+	// A global slot has no case to read; membership on a session value
+	// (text) is the meaningful shape there.
+	if (!caseDataInScope(ctx)) {
+		return isIn(sessionContext("username"), literal(""));
+	}
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const subjectConstraint = inSubjectConstraint();
 	const property = ct?.properties.find((candidate) =>

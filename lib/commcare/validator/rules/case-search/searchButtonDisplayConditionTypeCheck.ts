@@ -1,7 +1,19 @@
 /**
  * Rule: `caseSearchConfig.searchButtonDisplayCondition` (the
- * predicate gating whether the search button renders) type-checks
- * against the module's case-type schema map.
+ * predicate gating whether the search button renders) is a GLOBAL
+ * predicate — no case-data reads — that type-checks against the
+ * module's case-type schema map.
+ *
+ * The case-data guard mirrors `excludedOwnerIdsTypeCheck`: the
+ * condition emits as the case-list Search action's `relevant`,
+ * evaluated once against the session before any case is selected —
+ * there is no row for a property or relationship read to read. The
+ * on-device wire emits such a read as a bare relative path that
+ * resolves blank, so the predicate silently collapses to comparing
+ * against the empty string — a truth value the author never chose.
+ * The shared domain walker (`predicateReadsCaseData`) rejects
+ * property, count, exists, and missing reads at the gate; fixed
+ * values and session/current-user values remain valid.
  *
  * Routes through the shared `moduleTypeContext` admission set + the
  * shared `formatPath` for AST-path suffixes + the shared
@@ -21,7 +33,7 @@
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import { checkPredicate } from "@/lib/domain/predicate";
+import { checkPredicate, predicateReadsCaseData } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 import { formatPath, moduleTypeContext } from "../case-list/shared";
 
@@ -32,6 +44,21 @@ export function searchButtonDisplayConditionTypeCheck(
 ): ValidationError[] {
 	const condition = mod.caseSearchConfig?.searchButtonDisplayCondition;
 	if (!condition) return [];
+
+	if (predicateReadsCaseData(condition)) {
+		return [
+			validationError(
+				"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
+				"module",
+				`Module "${mod.name}" has a search-button display condition that reads a case property or relationship, but the condition is evaluated once — before any case is selected — to decide whether the Search action shows. There is no case to read, so the reference resolves blank on every runtime and the condition silently collapses. Compose the condition from fixed values and current-user/session values; to narrow which cases appear, use the case list filter or a search input instead — or clear the condition to show the button unconditionally.`,
+				{ moduleUuid, moduleName: mod.name },
+				{
+					slot: "caseSearchConfig.searchButtonDisplayCondition",
+					surface: "search-button",
+				},
+			),
+		];
+	}
 
 	const ctx = moduleTypeContext(mod, doc);
 	const result = checkPredicate(condition, ctx);

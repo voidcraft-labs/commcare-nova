@@ -15,7 +15,12 @@ import { matchAll, prop, today } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("searchInputDefaultTypeCheck", () => {
-	it("fires when a simple-arm input default references an unknown property", () => {
+	it("fires the case-data code when a simple-arm default reads a case property", () => {
+		// The search screen opens before any case is selected, so a
+		// property read in a seed has no row to read — it resolves blank
+		// on every runtime. The case-data guard intercepts BEFORE the
+		// type check, so the type-error code stays silent for the same
+		// expression.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -34,7 +39,7 @@ describe("searchInputDefaultTypeCheck", () => {
 								{
 									default: {
 										kind: "term",
-										term: prop("patient", "phantom_property"),
+										term: prop("patient", "region"),
 									},
 								},
 							),
@@ -72,18 +77,25 @@ describe("searchInputDefaultTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
-			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+		const results = runValidation(doc);
+		const hits = results.filter(
+			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 		);
-		expect(hits.length).toBeGreaterThan(0);
-		// Elm-style three-component message: identifies the offending
-		// input by name + index, and threads the inner per-checker
-		// message.
+		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain('"region_search"');
-		expect(hits[0].message).toContain("default value");
+		expect(hits[0].message).toContain("before any case is selected");
+		expect(hits[0].details).toMatchObject({
+			inputName: "region_search",
+			inputUuid: asUuid("si-region"),
+		});
+		expect(
+			results.some(
+				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			),
+		).toBe(false);
 	});
 
-	it("fires when an advanced-arm input default has a type error", () => {
+	it("fires the case-data code when an advanced-arm default reads a case property", () => {
 		// The rule covers BOTH arms of the discriminated union — the
 		// `default` slot is shared. Pin advanced-arm coverage explicitly.
 		const doc = buildDoc({
@@ -104,7 +116,7 @@ describe("searchInputDefaultTypeCheck", () => {
 								{
 									default: {
 										kind: "term",
-										term: prop("patient", "phantom_property"),
+										term: prop("patient", "case_name"),
 									},
 								},
 							),
@@ -134,7 +146,7 @@ describe("searchInputDefaultTypeCheck", () => {
 			],
 		});
 		const hits = runValidation(doc).filter(
-			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 		);
 		expect(hits.some((e) => e.message.includes('"adv_search"'))).toBe(true);
 	});
@@ -362,6 +374,10 @@ describe("searchInputDefaultTypeCheck", () => {
 	});
 
 	it("emits one error per input when multiple defaults are ill-typed", () => {
+		// Two `text` widgets each seeded with `today()` (resolves `date`,
+		// incompatible with the widget's pinned `text` expectation) — the
+		// non-case-data ill-typed shape, so the plain type-error path is
+		// what fires, once per offending input.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -377,7 +393,7 @@ describe("searchInputDefaultTypeCheck", () => {
 								"First",
 								"text",
 								"case_name",
-								{ default: { kind: "term", term: prop("patient", "ghost1") } },
+								{ default: today() },
 							),
 							simpleSearchInputDef(
 								asUuid("si-2"),
@@ -385,7 +401,7 @@ describe("searchInputDefaultTypeCheck", () => {
 								"Second",
 								"text",
 								"case_name",
-								{ default: { kind: "term", term: prop("patient", "ghost2") } },
+								{ default: today() },
 							),
 						],
 					},

@@ -96,6 +96,7 @@ import {
 	preservedOperandSwap,
 } from "./ChildPredicateEditor";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
+import { wrapSiblingDefault } from "./comparisonSeed";
 import {
 	reseedLiteralForConstraint,
 	reseedValueForConstraint,
@@ -790,7 +791,7 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 			if (p.kind === "match-all" || p.kind === "match-none") {
 				return predicateCardSchemas.and.defaultValue(ctx);
 			}
-			return and(p, predicateCardSchemas.eq.defaultValue(ctx));
+			return and(p, wrapSiblingDefault("and", ctx));
 		},
 	},
 	{
@@ -808,7 +809,7 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 			if (p.kind === "match-all" || p.kind === "match-none") {
 				return predicateCardSchemas.or.defaultValue(ctx);
 			}
-			return or(p, predicateCardSchemas.eq.defaultValue(ctx));
+			return or(p, wrapSiblingDefault("or", ctx));
 		},
 	},
 	{
@@ -943,6 +944,7 @@ export function PredicateVerbMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		caseDataScope: ctx.caseDataScope,
 	};
 	// The subject (left operand) drives which verbs are offerable — the
 	// same checker `checkComparison` / `checkMatch` validate against, so

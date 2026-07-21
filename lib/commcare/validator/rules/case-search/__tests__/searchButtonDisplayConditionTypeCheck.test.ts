@@ -3,19 +3,28 @@
  * invariant per `it(...)` block; the rule routes through the shared
  * `moduleTypeContext` + `checkPredicate` dispatch every predicate-
  * slot rule uses, so the test pattern is the canonical shape:
- * fires-on-bad / passes-on-clean / short-circuits.
+ * fires-on-bad / passes-on-clean / short-circuits — plus the
+ * case-data guard, which intercepts BEFORE the type check (the
+ * condition evaluates once, before any case is selected, so a
+ * property or relationship read has no row to read).
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, plainColumn, simpleSearchInputDef } from "@/lib/domain";
-import { eq, gt, input, literal, prop } from "@/lib/domain/predicate";
+import {
+	eq,
+	exists,
+	gt,
+	input,
+	literal,
+	prop,
+	sessionUser,
+} from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("searchButtonDisplayConditionTypeCheck", () => {
-	it("fires when the display condition has an operand-type mismatch", () => {
-		// `gt` against a `text` property — strings aren't ordered, so
-		// the type checker rejects the comparison.
+	it("fires the case-data code when the condition reads a case property", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -27,10 +36,117 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: {
-						searchButtonDisplayCondition: gt(
+						searchButtonDisplayCondition: eq(
 							prop("patient", "case_name"),
-							literal("M"),
+							literal("Alice"),
 						),
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+			],
+		});
+		const results = runValidation(doc);
+		const hits = results.filter(
+			(e) =>
+				e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
+		);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain('Module "Mod"');
+		expect(hits[0].message).toContain("before any case is selected");
+		// The guard intercepts before the type check — one finding, not two.
+		expect(
+			results.some(
+				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			),
+		).toBe(false);
+	});
+
+	it("fires the case-data code on a relationship read without a property term", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						searchButtonDisplayCondition: exists({
+							kind: "subcase",
+							identifier: "parent",
+							ofCaseType: "visit",
+						}),
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+				{ name: "visit", parent_type: "patient", properties: [] },
+			],
+		});
+		expect(
+			runValidation(doc).some(
+				(e) =>
+					e.code ===
+					"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
+			),
+		).toBe(true);
+	});
+
+	it("fires when the display condition has an operand-type mismatch", () => {
+		// `gt` against a session-user value — session-user reads resolve
+		// to `text`, and strings aren't ordered, so the type checker
+		// rejects the comparison.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						searchButtonDisplayCondition: gt(sessionUser("role"), literal("M")),
 					},
 					forms: [
 						{
@@ -90,10 +206,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						],
 					},
 					caseSearchConfig: {
-						searchButtonDisplayCondition: eq(
-							prop("patient", "case_name"),
-							input("ghost"),
-						),
+						searchButtonDisplayCondition: eq(input("ghost"), literal("x")),
 					},
 					forms: [
 						{
@@ -128,7 +241,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 		).toBe(true);
 	});
 
-	it("does not fire on a well-typed display condition", () => {
+	it("does not fire on a well-typed global display condition", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -141,8 +254,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					},
 					caseSearchConfig: {
 						searchButtonDisplayCondition: eq(
-							prop("patient", "case_name"),
-							literal("Alice"),
+							sessionUser("role"),
+							literal("supervisor"),
 						),
 					},
 					forms: [
@@ -168,9 +281,13 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 				},
 			],
 		});
+		const results = runValidation(doc);
 		expect(
-			runValidation(doc).some(
-				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			results.some(
+				(e) =>
+					e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR" ||
+					e.code ===
+						"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
 			),
 		).toBe(false);
 	});

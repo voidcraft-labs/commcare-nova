@@ -78,6 +78,7 @@ const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: [],
+	caseDataScope: "per-case",
 };
 
 describe("preservedOperandSwap — comparison ↔ comparison", () => {

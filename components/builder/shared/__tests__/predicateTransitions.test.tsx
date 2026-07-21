@@ -72,6 +72,7 @@ const EDIT_CTX: PredicateEditContext = {
 		{ name: "query", data_type: "text" },
 		{ name: "location_query", data_type: "geopoint" },
 	],
+	caseDataScope: "per-case",
 };
 
 afterEach(async () => {

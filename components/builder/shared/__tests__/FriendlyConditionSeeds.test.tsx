@@ -53,6 +53,7 @@ describe("friendly first-condition seeds", () => {
 				caseTypes: CASE_TYPES,
 				currentCaseType: "patient",
 				knownInputs: KNOWN_INPUTS,
+				caseDataScope: "per-case",
 			}),
 		).toEqual(whenInput(input("query"), PATIENT_FIRST));
 	});

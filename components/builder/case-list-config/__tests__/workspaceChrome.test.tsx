@@ -27,6 +27,7 @@ import {
 	eq,
 	literal,
 	matchAll,
+	neq,
 	not,
 	prop,
 	relationStep,
@@ -86,7 +87,12 @@ const SEARCH_CONDITION_CASE_TYPES: readonly CaseType[] = [
 		properties: [{ name: "status", label: "Status", data_type: "text" }],
 	},
 ];
-const FIRST_SEARCH_CONDITION = eq(prop("patient", "status"), literal(""));
+// The Search-button condition resolves before any case is selected, so
+// its friendly first condition compares a session value, never a case
+// property (the gate rejects case reads in that slot) — and it holds
+// true unedited, so the committed placeholder never hides the Search
+// action before the author writes the real rule.
+const FIRST_SEARCH_CONDITION = neq(sessionContext("username"), literal(""));
 
 /** Base UI Select commits from the pointer press that begins the option click. */
 function pressSelectOption(option: HTMLElement): void {

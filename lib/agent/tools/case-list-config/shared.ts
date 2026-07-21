@@ -41,6 +41,7 @@ import {
 	searchInputDefSchema,
 	type Uuid,
 } from "@/lib/domain";
+import { expressionReadsCaseData } from "@/lib/domain/predicate";
 import {
 	canonicalizeExpressionCaseProperties,
 	canonicalizePredicateCaseProperties,
@@ -182,6 +183,14 @@ export const searchInputDefInputSchema = z
 							: "A `date-range` field must use range mode. Choose a single-date field for a one-value match.",
 				});
 			}
+		}
+		if (input.default !== undefined && expressionReadsCaseData(input.default)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["default"],
+				message:
+					"A search input's starting value is evaluated before any case is selected, so it cannot read case properties or relationships. Use a fixed value, `today()`, or a current-user/session value — or leave `default` out to start the input empty.",
+			});
 		}
 		if (input.type !== "date-range" || input.default === undefined) return;
 		ctx.addIssue({

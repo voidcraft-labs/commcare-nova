@@ -11,8 +11,9 @@ import {
 	isBlank,
 	type Predicate,
 	prop,
+	sessionContext,
 } from "@/lib/domain/predicate";
-import type { PredicateEditContext } from "../editorSchemas";
+import { caseDataInScope, type PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
@@ -20,6 +21,10 @@ import { PredicateVerbMenu } from "./PredicateVerbMenu";
 export function isBlankDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "is-blank" }> {
+	// A global slot reads no case. Seed a REAL always-present session
+	// value (never an invented user-data field name); the author swaps
+	// the subject to their own current-user field from the picker.
+	if (!caseDataInScope(ctx)) return isBlank(sessionContext("username"));
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
 	const propName = canonicalCasePropertyName(property?.name ?? "");

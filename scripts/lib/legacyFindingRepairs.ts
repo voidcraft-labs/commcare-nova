@@ -200,6 +200,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR: owner(
 		"the default value expression is content",
 	),
+	CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE: owner(
+		"the seed already resolves blank on every runtime, but whether the author meant a session value, a fixed value, or nothing is content",
+	),
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: owner(
 		"the advanced predicate is content",
 	),
@@ -252,6 +255,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	// ── Case-search-config rules ─────────────────────────────────────
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: owner(
 		"the display condition is content",
+	),
+	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: owner(
+		"the row-dependent condition already collapses at runtime, but whether the author meant a session value or no gate at all is content",
 	),
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: owner(
 		"replacing a row-dependent assigned-case expression changes which cases appear",

@@ -1594,6 +1594,7 @@ function DefaultValueSlot({
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
 						knownInputs={NO_SEARCH_INPUTS}
+						caseDataScope="global"
 						constraint={constraint}
 					/>
 					<Button

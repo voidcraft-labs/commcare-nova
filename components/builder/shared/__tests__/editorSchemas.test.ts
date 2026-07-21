@@ -82,6 +82,7 @@ const ctx: PredicateEditContext = {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
+	caseDataScope: "per-case",
 };
 
 describe("predicateCardSchemas — registry exhaustivity", () => {
@@ -184,6 +185,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			],
 			currentCaseType: "geo",
 			knownInputs: [],
+			caseDataScope: "per-case",
 		};
 
 		expect(predicateCardSchemas.in.applicable(geopointOnly)).toBe(false);
@@ -219,6 +221,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 			currentCaseType: "patient",
 			knownInputs: KNOWN_INPUTS,
+			caseDataScope: "per-case",
 		};
 		expect(
 			predicateCardSchemas["when-input-present"].applicable(noInputs),
@@ -236,6 +239,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 			currentCaseType: "patient",
 			knownInputs: [],
+			caseDataScope: "per-case",
 		};
 		expect(predicateCardSchemas["match-all"].applicable(empty)).toBe(true);
 		expect(predicateCardSchemas["match-none"].applicable(empty)).toBe(true);
@@ -262,6 +266,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			],
 			currentCaseType: "patient",
 			knownInputs: [],
+			caseDataScope: "per-case",
 		};
 
 		expect(predicateCardSchemas.exists.applicable(parentContext)).toBe(true);
@@ -279,6 +284,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			],
 			currentCaseType: "household",
 			knownInputs: [],
+			caseDataScope: "per-case",
 		};
 
 		const seed = predicateCardSchemas.exists.defaultValue(childOnlyContext);
@@ -296,6 +302,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 			currentCaseType: "patient",
 			knownInputs: [],
+			caseDataScope: "per-case",
 		};
 		expect(predicateCardSchemas.exists.applicable(noRelation)).toBe(false);
 		expect(predicateCardSchemas.missing.applicable(noRelation)).toBe(false);
@@ -309,6 +316,7 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			],
 			currentCaseType: "household",
 			knownInputs: KNOWN_INPUTS,
+			caseDataScope: "per-case",
 		};
 
 		for (const kind of ["and", "or", "not", "when-input-present"] as const) {
@@ -323,5 +331,79 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			);
 			expect(result.ok, `${kind} relation-only seed`).toBe(true);
 		}
+	});
+});
+
+describe("predicateCardSchemas — global scope (no case selected)", () => {
+	// A `"global"` slot (a search input's starting value, the
+	// search-button display condition) resolves once, before any case is
+	// selected — the commit gate rejects every case-property /
+	// relationship read there, so the registry must not offer them.
+	const globalCtx: PredicateEditContext = { ...ctx, caseDataScope: "global" };
+
+	it("drops every case-data-dependent kind, whatever the schema holds", () => {
+		for (const kind of [
+			"lt",
+			"lte",
+			"gt",
+			"gte",
+			"between",
+			"match",
+			"within-distance",
+			"multi-select-contains",
+			"exists",
+			"missing",
+		] as const) {
+			expect(
+				predicateCardSchemas[kind].applicable(globalCtx),
+				`${kind} must be unavailable in a global slot`,
+			).toBe(false);
+		}
+	});
+
+	it("keeps session-value kinds available with case-data-free seeds", () => {
+		for (const kind of [
+			"eq",
+			"neq",
+			"in",
+			"is-blank",
+			"and",
+			"or",
+			"not",
+			"match-all",
+			"match-none",
+		] as const) {
+			expect(
+				predicateCardSchemas[kind].applicable(globalCtx),
+				`${kind} must stay available in a global slot`,
+			).toBe(true);
+			const seed = predicateCardSchemas[kind].defaultValue(globalCtx);
+			// Every global seed must type-check AND read no case data —
+			// otherwise the first dispatch bounces off the commit gate.
+			let readsCaseData = false;
+			walkTerms(seed, (term) => {
+				if (term.kind === "prop") readsCaseData = true;
+			});
+			expect(readsCaseData, `${kind} global seed reads case data`).toBe(false);
+			const result = checkPredicate(seed, {
+				caseTypes: [...globalCtx.caseTypes],
+				knownInputs: [...globalCtx.knownInputs],
+				currentCaseType: globalCtx.currentCaseType,
+			});
+			expect(result.ok, `${kind} global seed type-checks`).toBe(true);
+		}
+	});
+
+	it("stays available even when the case-type schema is empty", () => {
+		// The session values exist regardless of the catalog — a module
+		// whose case type has no properties still authors a global rule.
+		const emptyGlobal: PredicateEditContext = {
+			caseTypes: [{ name: "patient", properties: [] }],
+			currentCaseType: "patient",
+			knownInputs: [],
+			caseDataScope: "global",
+		};
+		expect(predicateCardSchemas.eq.applicable(emptyGlobal)).toBe(true);
+		expect(predicateCardSchemas.and.applicable(emptyGlobal)).toBe(true);
 	});
 });

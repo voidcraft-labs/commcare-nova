@@ -73,6 +73,7 @@ import {
 	literal,
 	matchAll,
 	prop,
+	sessionUser,
 	term,
 	toValueExpression,
 	whenInput,
@@ -175,8 +176,8 @@ function buildSearchBlueprint(): BlueprintDoc {
 					searchScreenTitle: "Find a patient",
 					searchButtonLabel: "Search patients",
 					searchButtonDisplayCondition: eq(
-						prop("patient", "case_name"),
-						literal("Alice"),
+						sessionUser("role"),
+						literal("supervisor"),
 					),
 					excludedOwnerIds: toValueExpression(literal("excluded-owner-id")),
 				},
@@ -294,15 +295,17 @@ describe("case-search integration — validator surface", () => {
 		const errors = runValidation(doc);
 		const caseSearchCodes = new Set([
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			"CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 		]);
 		expect(errors.filter((e) => caseSearchCodes.has(e.code))).toEqual([]);
 	});
 
-	it("fires CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR when the predicate references an unknown property", () => {
+	it("fires CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR when the predicate references an unknown search input", () => {
 		// One representative violation of one type-check rule confirms
 		// the rule wires through `runValidation` against this fixture
 		// shape. Per-rule fine-grained coverage lives in the rule's
@@ -317,10 +320,7 @@ describe("case-search integration — validator surface", () => {
 					...doc.modules[MOD_UUID],
 					caseSearchConfig: {
 						...doc.modules[MOD_UUID].caseSearchConfig,
-						searchButtonDisplayCondition: eq(
-							prop("patient", "phantom_property"),
-							literal("x"),
-						),
+						searchButtonDisplayCondition: eq(input("ghost"), literal("x")),
 					},
 				},
 			},
@@ -620,8 +620,11 @@ describe("case-search integration — suite XML wire emission", () => {
 		expect(caseShortBlock).toContain('auto_launch="false()"');
 		expect(caseShortBlock).toContain('redo_last="false"');
 		// `relevant` carries the compiled on-device XPath of the
-		// authored predicate (`case_name = 'Alice'`).
-		expect(caseShortBlock).toMatch(/relevant="[^"]*case_name[^"]*Alice/);
+		// authored predicate (the session-user read compared to
+		// 'supervisor' — the display condition is a global slot).
+		expect(caseShortBlock).toMatch(
+			/relevant="[^"]*session\/user\/data\/role[^"]*supervisor/,
+		);
 		// The search-target detail carries no `<action>` child.
 		const searchShortIdx = suite.indexOf('<detail id="m0_search_short">');
 		const searchShortEndIdx = suite.indexOf("</detail>", searchShortIdx);
@@ -937,10 +940,12 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		expect(searchConfig.search_button_label).toEqual({
 			en: "Search patients",
 		});
-		// `searchButtonDisplayCondition: eq(prop("patient","case_name"), literal("Alice"))`
-		// compiles to the bare on-device equality.
+		// `searchButtonDisplayCondition: eq(sessionUser("role"), literal("supervisor"))`
+		// compiles to the on-device session-user read — the slot resolves
+		// before any case is selected, so the fixture's condition is a
+		// global (session-value) comparison.
 		expect(searchConfig.search_button_display_condition).toBe(
-			"case_name = 'Alice'",
+			"instance('commcaresession')/session/user/data/role = 'supervisor'",
 		);
 	});
 

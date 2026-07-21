@@ -34,12 +34,16 @@ import { z } from "zod";
 import {
 	type CaseSearchConfig,
 	caseSearchConfigHasAuthoredSettings,
-	excludedOwnerIdsReadsCaseData,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
 	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
-import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
+import {
+	expressionReadsCaseData,
+	predicateReadsCaseData,
+	predicateSchema,
+	valueExpressionSchema,
+} from "@/lib/domain/predicate";
 
 // ── Cluster slot tuples — source of truth ───────────────────────────
 
@@ -190,11 +194,31 @@ export function slotsSetByInput<K extends keyof CaseSearchConfig>(
 
 const globallyResolvedOwnerExpressionSchema = valueExpressionSchema.superRefine(
 	(expression, ctx) => {
-		if (!excludedOwnerIdsReadsCaseData(expression)) return;
+		if (!expressionReadsCaseData(expression)) return;
 		ctx.addIssue({
 			code: "custom",
 			message:
 				"Assigned-case exclusions are resolved before a case is selected, so they cannot read case properties or relationships. Use a fixed owner-id list, a current-user/session value, a Search answer, or a calculation over those values.",
+		});
+	},
+);
+
+/**
+ * The search-button display condition evaluates on the case list /
+ * search screen, before any case is selected — the same global context
+ * the assigned-case exclusion resolves in. A case-property or
+ * relationship read there has no row to read: the emitted wire XPath
+ * resolves blank and the predicate silently collapses, so the boundary
+ * rejects the shape with the honest alternatives instead of letting
+ * the gate (or the runtime) break the news.
+ */
+const globallyResolvedDisplayConditionSchema = predicateSchema.superRefine(
+	(condition, ctx) => {
+		if (!predicateReadsCaseData(condition)) return;
+		ctx.addIssue({
+			code: "custom",
+			message:
+				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and current-user/session values; to filter which cases appear, use the case list filter or a search input instead.",
 		});
 	},
 );
@@ -242,10 +266,10 @@ export const setCaseSearchDisplayBodySchema = z
 			.describe(
 				"Label on the primary search submit button, or `null` to clear. Defaults to a generic 'Search' label when absent.",
 			),
-		searchButtonDisplayCondition: predicateSchema
+		searchButtonDisplayCondition: globallyResolvedDisplayConditionSchema
 			.nullable()
 			.describe(
-				"Predicate AST gating whether the search button is shown, or `null` to clear. Use this to hide the button once the form has executed once. When absent, the button is always shown.",
+				"Predicate AST gating whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it may use fixed values and current-user/session values but cannot read case properties or relationships. When absent, the button is always shown.",
 			),
 	})
 	.strict();
