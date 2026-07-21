@@ -263,6 +263,12 @@ export const toolAction = (part: ToolUIPart): string => {
 	const tense: keyof ActionPhrases =
 		toolStatus(part) === "done" ? "done" : "doing";
 	const summary = outputOf(part)?.summary;
+	// A consent round changed nothing on purpose — "Updated field" would
+	// lie about an edit that's waiting on the user's answer. What the
+	// call DID do (count the conversion's impact) carries the row.
+	if (summary?.awaitingConsent) {
+		return `Checked a conversion${summary.subject ? ` "${summary.subject}"` : ""}`;
+	}
 	if (name === "updateApp") return updateAppAction(summary, tense);
 	// Multi-item actions fold the count into the verb+noun ("Added 3 fields").
 	// Count lives on the summary, which only a completed call carries — so the

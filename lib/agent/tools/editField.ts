@@ -121,6 +121,11 @@ export type EditFieldResult =
 				samples: readonly unknown[];
 			};
 			message: string;
+			/** Transcript presentation — `awaitingConsent` keeps the row
+			 *  from claiming a completed edit, and its presence keeps the
+			 *  model-directed `message` prose off the user-facing detail
+			 *  line. */
+			summary: ToolCallSummary;
 	  };
 
 /**
@@ -407,50 +412,6 @@ export const editFieldTool = {
 					};
 				}
 
-				// The consent round. A flip whose per-row cast can fail
-				// (`plan.dataLossRisk`) counts its actual impact BEFORE
-				// anything commits: zero uncastable values means nothing to
-				// consent to, so the call proceeds; a non-empty count returns
-				// with nothing persisted so the model can relay the stakes
-				// and re-call with the user's consent. The committed
-				// mutations carry no consent flag — replay and undo re-run
-				// the migration unconditionally, and the review surface is
-				// the recovery path either way.
-				if (plan.dataLossRisk !== undefined && confirmConversion !== true) {
-					const risk = plan.dataLossRisk;
-					const impact = await ctx.conversionImpact({
-						caseType: risk.caseType,
-						property: risk.property,
-						toType: risk.toType,
-					});
-					if (impact.uncastable > 0) {
-						const newlyHeld = impact.uncastable - impact.alreadyHeld;
-						const examples = impact.samples
-							.map((sample) => JSON.stringify(sample))
-							.join(", ");
-						return {
-							kind: "mutate" as const,
-							mutations: [],
-							newDoc: doc,
-							result: {
-								needsConfirmation: {
-									property: risk.property,
-									fromType: risk.fromType,
-									toType: risk.toType,
-									totalWithValue: impact.totalWithValue,
-									uncastable: impact.uncastable,
-									alreadyHeld: impact.alreadyHeld,
-									samples: impact.samples,
-								},
-								message:
-									`Nothing was changed. Converting "${currentId}" to ${newKind} retypes the case property "${risk.property}" from ${risk.fromType} to ${risk.toType}, and ${impact.uncastable} of ${impact.totalWithValue} saved values can't convert (for example: ${examples}). ` +
-									`Each of those values would move to Data to review, and its case would be held out of the running app until someone decides it there — ${newlyHeld} case${newlyHeld === 1 ? "" : "s"} newly held${impact.alreadyHeld > 0 ? `, ${impact.alreadyHeld} already held for other waiting values` : ""}. Converting the property back restores the values automatically. ` +
-									`Tell the user what would happen; if they agree, repeat this call with confirmConversion: true.`,
-							},
-						};
-					}
-				}
-
 				const convertMuts: Mutation[] = plan.mutations;
 
 				// Apply the candidate first so we can verify the reducer
@@ -474,6 +435,66 @@ export const editFieldTool = {
 							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry and this call didn't supply. Pass the missing property in the same call, or report this if none applies.`,
 						},
 					};
+				}
+
+				// The consent round — AFTER the cheap local checks above, so
+				// the user is never asked to consent to an edit the reducer
+				// would refuse anyway (and the impact's row scan doesn't run
+				// for one). A flip whose per-row cast can fail
+				// (`plan.dataLossRisk`) counts its actual impact BEFORE
+				// anything commits: zero uncastable values means nothing to
+				// consent to, so the call proceeds; a non-empty count
+				// returns with nothing persisted so the model can relay the
+				// stakes and re-call with the user's consent. The committed
+				// mutations carry no consent flag — replay and undo re-run
+				// the migration unconditionally, and the review surface is
+				// the recovery path either way.
+				if (plan.dataLossRisk !== undefined && confirmConversion !== true) {
+					const risk = plan.dataLossRisk;
+					const impact = await ctx.conversionImpact({
+						caseType: risk.caseType,
+						property: risk.property,
+						toType: risk.toType,
+					});
+					if (impact.uncastable > 0) {
+						const newlyHeld = impact.uncastable - impact.alreadyHeld;
+						const examples = impact.samples
+							.map((sample) => JSON.stringify(sample))
+							.join(", ");
+						const fieldLabel =
+							"label" in resolved.field &&
+							typeof resolved.field.label === "string" &&
+							resolved.field.label.length > 0
+								? resolved.field.label
+								: currentId;
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								needsConfirmation: {
+									property: risk.property,
+									fromType: risk.fromType,
+									toType: risk.toType,
+									totalWithValue: impact.totalWithValue,
+									uncastable: impact.uncastable,
+									alreadyHeld: impact.alreadyHeld,
+									samples: impact.samples,
+								},
+								message:
+									`Nothing was changed. Converting "${currentId}" to ${newKind} retypes the case property "${risk.property}" from ${risk.fromType} to ${risk.toType}, and ${impact.uncastable} of ${impact.totalWithValue} saved values can't convert (for example: ${examples}). ` +
+									`Each of those values would move to Data to review, and its case would be held out of the running app until someone decides it there — ${newlyHeld} case${newlyHeld === 1 ? "" : "s"} newly held${impact.alreadyHeld > 0 ? `, ${impact.alreadyHeld} already held for other waiting values` : ""}. Converting the property back restores the values automatically. ` +
+									`Tell the user what would happen; if they agree, repeat this call with confirmConversion: true.`,
+								summary: {
+									location:
+										doc.forms[resolved.formUuid]?.name ??
+										`m${moduleIndex}-f${formIndex}`,
+									subject: fieldLabel,
+									awaitingConsent: true,
+								} satisfies ToolCallSummary,
+							},
+						};
+					}
 				}
 
 				stages.push({

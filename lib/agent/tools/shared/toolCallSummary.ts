@@ -57,6 +57,14 @@ export interface ToolCallSummary {
 	 * the prior state.
 	 */
 	connect?: "learn" | "deliver" | "off";
+	/**
+	 * For a call that deliberately changed NOTHING because it first needs the
+	 * user's go-ahead — `editField`'s conversion consent round. The transcript
+	 * renders "Checked a conversion" instead of claiming the edit landed (the
+	 * default done-tense action would lie), and the summary's presence keeps
+	 * the model-directed relay prose off the user-facing detail line.
+	 */
+	awaitingConsent?: boolean;
 }
 
 /**

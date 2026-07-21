@@ -19,6 +19,7 @@
  * MCP adapter).
  */
 
+import type { ConversionImpact } from "@/lib/case-store";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import type {
@@ -41,34 +42,17 @@ export interface RecordMutationsResult {
 	readonly committedDoc: BlueprintDoc;
 }
 
-/**
- * What a prospective case-property retype would do to the app's stored
- * rows — the consent preview `editField` renders before a failable
- * kind conversion commits. Structural mirror of the case store's
- * `ConversionImpact` (both surfaces implement the lookup by delegating
- * to `SchemaCaseStore.conversionImpact`); declared here so tool
- * modules stay free of storage imports.
- */
-export interface ConversionImpactSummary {
-	/** Rows holding a non-blank value under the property. */
-	readonly totalWithValue: number;
-	/** Values the cast cannot carry — each would park and HOLD its
-	 * case out of the app until review. */
-	readonly uncastable: number;
-	/** Of the uncastable values' cases, how many are already held. */
-	readonly alreadyHeld: number;
-	/** Up to a handful of uncastable values, in row order. */
-	readonly samples: readonly unknown[];
-}
-
 /** The impact lookup a surface injects at context construction —
  *  production passes the schema store's `conversionImpact` bound to
- *  the context's app; tests stub it. */
+ *  the context's app; tests stub it. The result is the case store's
+ *  own `ConversionImpact` (a type-only import — no storage code
+ *  enters any graph), so a field added to the store's preview reaches
+ *  every consumer or fails compile, never silently goes missing. */
 export type ConversionImpactFn = (args: {
 	caseType: string;
 	property: string;
 	toType: CasePropertyDataType;
-}) => Promise<ConversionImpactSummary>;
+}) => Promise<ConversionImpact>;
 
 export interface ToolExecutionContext {
 	/** Current app id. Every tool operates against one app. */
@@ -154,7 +138,7 @@ export interface ToolExecutionContext {
 	 */
 	conversionImpact(
 		args: Parameters<ConversionImpactFn>[0],
-	): Promise<ConversionImpactSummary>;
+	): Promise<ConversionImpact>;
 }
 
 /**

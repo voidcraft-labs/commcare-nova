@@ -21,6 +21,7 @@ import type {
 	CasePropertyFailure,
 	CaseRow,
 	CaseRowWithCalculated,
+	ConversionImpact,
 	JsonObject,
 	JsonValue,
 	ParkedValueEntry,
@@ -122,19 +123,14 @@ export type LoadCaseCountResult =
 
 /**
  * Result of `conversionImpactAction` — the consent preview for a
- * failable kind conversion. The `impact` arm mirrors the store's
- * `ConversionImpact`: counts computed with the migration's own cast
- * over the migration's own population (held cases included), so the
- * dialog's numbers are the migration's numbers for the same data.
+ * failable kind conversion. The `impact` arm IS the store's
+ * `ConversionImpact` (counts computed with the migration's own cast
+ * over the migration's own population, held cases included), so the
+ * dialog's numbers are the migration's numbers for the same data and
+ * a field added to the preview reaches the dialog by construction.
  */
 export type ConversionImpactResult =
-	| {
-			kind: "impact";
-			totalWithValue: number;
-			uncastable: number;
-			alreadyHeld: number;
-			samples: JsonValue[];
-	  }
+	| ({ kind: "impact" } & ConversionImpact)
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 

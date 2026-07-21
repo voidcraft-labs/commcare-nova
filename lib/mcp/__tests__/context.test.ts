@@ -30,6 +30,15 @@ import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
 import type { ProgressEmitter } from "../progress";
 
+/** Zero-impact retype stub — these tests exercise the commit path,
+ *  never the consent count. */
+const zeroConversionImpact = async () => ({
+	totalWithValue: 0,
+	uncastable: 0,
+	alreadyHeld: 0,
+	samples: [],
+});
+
 /* Mock the saga module wholesale so no Postgres client is
  * ever needed. `vi.mock` hoists above imports, so the mock is installed
  * before `../context` resolves `@/lib/db/applyBlueprintChange`.
@@ -101,12 +110,7 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
-			conversionImpact: async () => ({
-				totalWithValue: 0,
-				uncastable: 0,
-				alreadyHeld: 0,
-				samples: [],
-			}),
+			conversionImpact: zeroConversionImpact,
 		});
 		const muts: Mutation[] = [
 			{ kind: "setAppName", name: "x" },
@@ -148,12 +152,7 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter: mockLogWriter(),
 			progress: mockProgress(),
-			conversionImpact: async () => ({
-				totalWithValue: 0,
-				uncastable: 0,
-				alreadyHeld: 0,
-				samples: [],
-			}),
+			conversionImpact: zeroConversionImpact,
 		});
 
 		let settled = false;
@@ -187,12 +186,7 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
-			conversionImpact: async () => ({
-				totalWithValue: 0,
-				uncastable: 0,
-				alreadyHeld: 0,
-				samples: [],
-			}),
+			conversionImpact: zeroConversionImpact,
 		});
 		const doc = mockDoc();
 		const result = await ctx.recordMutations([], doc);
@@ -214,12 +208,7 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
-			conversionImpact: async () => ({
-				totalWithValue: 0,
-				uncastable: 0,
-				alreadyHeld: 0,
-				samples: [],
-			}),
+			conversionImpact: zeroConversionImpact,
 		});
 		const renameMut: Mutation = { kind: "setAppName", name: "renamed" };
 		const patchMut: Mutation = { kind: "setAppName", name: "patched" };
@@ -261,12 +250,7 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
-			conversionImpact: async () => ({
-				totalWithValue: 0,
-				uncastable: 0,
-				alreadyHeld: 0,
-				samples: [],
-			}),
+			conversionImpact: zeroConversionImpact,
 		});
 
 		await expect(

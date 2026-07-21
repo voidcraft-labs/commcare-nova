@@ -21,6 +21,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DATA_TYPE_LABELS } from "@/components/builder/data-review/dataReviewModel";
 import {
 	DATA_TYPE_ICONS,
 	NameChip,
@@ -53,7 +54,10 @@ export interface ConvertImpactRequest {
 }
 
 /** What saved values would have to become, per destination type — the
- *  plural noun the impact sentence hangs on. */
+ *  plural noun the "can’t become …" sentence hangs on. Sentence
+ *  vocabulary only: the property CHIP keeps announcing data-review's
+ *  `DATA_TYPE_LABELS`, so the same chip reads identically on every
+ *  surface that renders it. */
 const TYPE_NOUNS: Record<CasePropertyDataType, string> = {
 	text: "text",
 	int: "whole numbers",
@@ -64,20 +68,6 @@ const TYPE_NOUNS: Record<CasePropertyDataType, string> = {
 	single_select: "single choices",
 	multi_select: "choice lists",
 	geopoint: "locations",
-};
-
-/** The singular word for a type — the property chip's icon label
- *  (the chip shows what the property holds NOW, data-review's rule). */
-const TYPE_WORDS: Record<CasePropertyDataType, string> = {
-	text: "text",
-	int: "whole number",
-	decimal: "number",
-	date: "date",
-	time: "time of day",
-	datetime: "date with time",
-	single_select: "single choice",
-	multi_select: "choice list",
-	geopoint: "location",
 };
 
 /** A sample value as the dialog shows it: strings in quotes, a
@@ -117,7 +107,17 @@ export function ConvertImpactDialog({
 	/** Dispatch the conversion. The caller clears `request`. */
 	readonly onConfirm: (request: ConvertImpactRequest) => void;
 }) {
-	const [state, setState] = useState<ImpactState>({ kind: "checking" });
+	/* The answered state is BOUND to the request it answers — the
+	 * component stays mounted across requests (null-request renders
+	 * nothing but keeps state), so an unbound state would let request
+	 * A's zero-uncastable verdict auto-confirm request B before B's
+	 * check even starts, silently bypassing the consent this dialog
+	 * exists to collect. Any state whose request isn't the CURRENT one
+	 * reads as "checking". */
+	const [answered, setAnswered] = useState<{
+		request: ConvertImpactRequest;
+		state: ImpactState;
+	} | null>(null);
 	/* Generation counter: a result only lands while its fetch is still
 	 * the newest one, so a request switch (or unmount) can't let a slow
 	 * response clobber a fresher state. */
@@ -126,7 +126,11 @@ export function ConvertImpactDialog({
 	const check = useCallback(() => {
 		if (request === null) return;
 		const gen = ++generation.current;
-		setState({ kind: "checking" });
+		setAnswered(null);
+		const answer = (state: ImpactState) => {
+			if (gen !== generation.current) return;
+			setAnswered({ request, state });
+		};
 		conversionImpactAction({
 			appId,
 			caseType: request.caseType,
@@ -134,11 +138,10 @@ export function ConvertImpactDialog({
 			toType: request.toType,
 		}).then(
 			(result) => {
-				if (gen !== generation.current) return;
 				if (result.kind === "impact") {
-					setState(result);
+					answer(result);
 				} else {
-					setState({
+					answer({
 						kind: "error",
 						message:
 							result.kind === "unauthenticated"
@@ -152,8 +155,7 @@ export function ConvertImpactDialog({
 			// rejection would strand the dialog on "Checking saved data"
 			// with no way forward but Cancel.
 			(err: unknown) => {
-				if (gen !== generation.current) return;
-				setState({
+				answer({
 					kind: "error",
 					message:
 						err instanceof Error ? err.message : "The check didn’t complete.",
@@ -168,6 +170,11 @@ export function ConvertImpactDialog({
 			generation.current++;
 		};
 	}, [check]);
+
+	const state: ImpactState =
+		answered !== null && answered.request === request
+			? answered.state
+			: { kind: "checking" };
 
 	/* Nothing would be set aside → nothing to consent to: dispatch and
 	 * close without a question. Effect-driven so the render stays pure;
@@ -218,7 +225,7 @@ export function ConvertImpactDialog({
 							<NameChip
 								label={request.property}
 								icon={DATA_TYPE_ICONS[request.fromType]}
-								iconLabel={TYPE_WORDS[request.fromType]}
+								iconLabel={DATA_TYPE_LABELS[request.fromType]}
 							/>{" "}
 							can’t become {noun}. Each one moves to Data to review, and its
 							case is held out of the app until you decide it there. Convert
