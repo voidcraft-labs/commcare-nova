@@ -49,8 +49,18 @@
 // than four.
 
 import { describe, expect, it } from "vitest";
-import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
-import { asUuid, calculatedColumn } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseProperty,
+	CasePropertyDataType,
+	CaseType,
+} from "@/lib/domain";
+import {
+	asUuid,
+	calculatedColumn,
+	casePropertyDataTypes,
+	castCanFail,
+} from "@/lib/domain";
 import {
 	ancestorPath,
 	arith,
@@ -2150,6 +2160,184 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				includeHeld: true,
 			});
 			expect(rows[0]?.properties).toEqual({ symptoms: ["fever"] });
+		});
+
+		it("conversionImpact previews the retype's own outcome — counts, samples, blank drops, and the already-held split", async () => {
+			const store = await options.factory(TENANT_A);
+			const caseType: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "age", label: "Age", data_type: "text" },
+					{ name: "score", label: "Score", data_type: "text" },
+					{ name: "note", label: "Note", data_type: "text" },
+				],
+			};
+			const blueprint = buildBlueprint([caseType]);
+			await seedSchema(store, blueprint, "patient");
+
+			// Alice: castable everywhere. Bob: `age` fails an int cast.
+			// Carol: blank `age` (drops silently — the migration wouldn't
+			// touch it, so the preview mustn't count it). A fourth row has
+			// no `age` key at all.
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "30", score: "1" }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc", score: "n/a" }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_CAROL_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "" }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ note: "no age here" }),
+				},
+			});
+
+			const before = await store.conversionImpact({
+				appId: APP_ID,
+				caseType: "patient",
+				property: "age",
+				toType: "int",
+			});
+			expect(before).toEqual({
+				totalWithValue: 2,
+				uncastable: 1,
+				alreadyHeld: 0,
+				samples: ["abc"],
+			});
+			// The preview is read-only — nothing parked, nothing held.
+			const population = await store.count({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(population).toBe(4);
+
+			// Park a DIFFERENT property's value on Bob (score → int fails
+			// his "n/a"), holding his case. The next preview still reads
+			// him — the migration it previews has no hold filter — and
+			// reports his case as already held.
+			const scoreRetyped = buildBlueprint([
+				{
+					name: "patient",
+					properties: [
+						{ name: "age", label: "Age", data_type: "text" },
+						{ name: "score", label: "Score", data_type: "int" },
+						{ name: "note", label: "Note", data_type: "text" },
+					],
+				},
+			]);
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(scoreRetyped),
+				property: "score",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			expect(report.parkedIds).toHaveLength(1);
+
+			const after = await store.conversionImpact({
+				appId: APP_ID,
+				caseType: "patient",
+				property: "age",
+				toType: "int",
+			});
+			expect(after).toEqual({
+				totalWithValue: 2,
+				uncastable: 1,
+				alreadyHeld: 1,
+				samples: ["abc"],
+			});
+		});
+
+		it("conversionImpact stays in lockstep with the domain's castCanFail matrix — every ordered type pair", async () => {
+			// One row carries a worst-case representative value of every
+			// data type; the sweep then asks the store's preview about
+			// every ordered (from → to) pair and requires its answer to
+			// match `castCanFail` exactly. This is the tripwire that keeps
+			// the pure consent verdict honest against the migration's real
+			// cast: widen or narrow a cast arm without updating the
+			// matrix (or vice versa) and this test names the pair.
+			const store = await options.factory(TENANT_A);
+			const representatives: Record<CasePropertyDataType, unknown> = {
+				text: "hello world",
+				int: 7,
+				decimal: 17.5,
+				date: "2026-03-04",
+				time: "14:30:00Z",
+				datetime: "2026-03-04T14:30:00.000Z",
+				single_select: "maybe later",
+				multi_select: ["blue", "green"],
+				geopoint: "1.5 2.5 0 4",
+			};
+			const caseType: CaseType = {
+				name: "sweep",
+				properties: casePropertyDataTypes.map((dataType) => ({
+					name: `p_${dataType}`,
+					label: dataType,
+					data_type: dataType,
+				})),
+			};
+			await seedSchema(store, buildBlueprint([caseType]), "sweep");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_type: "sweep",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties(
+						Object.fromEntries(
+							casePropertyDataTypes.map((dataType) => [
+								`p_${dataType}`,
+								representatives[dataType],
+							]),
+						),
+					),
+				},
+			});
+
+			for (const fromType of casePropertyDataTypes) {
+				for (const toType of casePropertyDataTypes) {
+					if (fromType === toType) continue;
+					const impact = await store.conversionImpact({
+						appId: APP_ID,
+						caseType: "sweep",
+						property: `p_${fromType}`,
+						toType,
+					});
+					const expected = castCanFail(fromType, toType);
+					expect(
+						impact.uncastable > 0,
+						`castCanFail(${fromType}, ${toType}) = ${expected}, but the store's preview parked ${impact.uncastable} of ${impact.totalWithValue}`,
+					).toBe(expected);
+					expect(impact.totalWithValue).toBe(1);
+				}
+			}
 		});
 
 		it("an active kept value HOLDS its case: excluded from query and count, released by dismissal, re-held by move-back", async () => {

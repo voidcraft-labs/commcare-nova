@@ -1,5 +1,5 @@
 /**
- * `editField` kind-conversion behavior — the string-compatible tier.
+ * `editField` kind-conversion behavior — the select/text family.
  *
  * The conversion contract these tests pin:
  *
@@ -617,12 +617,12 @@ describe("editField — demotions", () => {
 		expect(peer?.kind).toBe("text");
 	});
 
-	it("does NOT escort the value-reshaping single→multi flip past a declared type", async () => {
-		// The plan carries no re-declare for this flip, so the agreement
-		// gate keeps blocking it on a DECLARED property — the escort work
-		// (peer carry + re-declare) is a separate feature. Stored rows are
-		// not the blocker: the case store reshapes them when the schema
-		// flips string↔array.
+	it("escorts the value-reshaping single→multi flip past a declared type", async () => {
+		// The generalized escort re-declares the property to the target
+		// type in the same batch, so a declared single_select converts to
+		// multi_select in one call. Stored rows are the case store's
+		// business — it lifts scalar rows when the schema flips
+		// string↔array — and the lift is total, so no consent fires.
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -684,9 +684,22 @@ describe("editField — demotions", () => {
 			ctx,
 			doc,
 		);
-		if (!("error" in result.result)) throw new Error("expected error");
-		expect(recordMutationStages).not.toHaveBeenCalled();
-		expect(result.newDoc).toBe(doc);
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(recordMutationStages).toHaveBeenCalledTimes(1);
+
+		const converted = Object.values(result.newDoc.fields).find(
+			(fld) => fld.id === "language",
+		);
+		expect(converted?.kind).toBe("multi_select");
+		// The declaration followed the writer — type flipped, options kept.
+		const entry = result.newDoc.caseTypes
+			?.find((ct) => ct.name === "patient")
+			?.properties.find((p) => p.name === "language");
+		expect(entry?.data_type).toBe("multi_select");
+		expect(entry?.options).toEqual([
+			{ value: "en", label: "English" },
+			{ value: "fr", label: "French" },
+		]);
 	});
 
 	it("text → hidden as the last typed writer pins the undeclared property to text", async () => {

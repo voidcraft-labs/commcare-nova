@@ -10,34 +10,32 @@
  * changes the property's data type can never land one field at a time —
  * the first converted writer disagrees with its unconverted peers, and
  * a declared type can't be corrected by any field edit. The subject of
- * such a conversion is the PROPERTY, and the plan makes that literal —
- * but ONLY for the flips whose stored case values are already valid in
- * the target type:
+ * such a conversion is the PROPERTY, and the plan makes that literal:
  *
- *   - The cascade escorts STRING-SCALAR flips (`text` ↔
- *     `single_select`) through the gate: every peer writer whose kind
- *     derives the same data type converts in the same gated batch, and
- *     a stale declared `data_type` is re-declared to the target type
- *     via `setCaseProperty` (the catalog entry describes the property;
- *     when the property's writers change type, the description
- *     follows), carrying the converted select's options onto the
- *     declaration as `{value, label}` pairs. Both sides of these flips
- *     store plain strings, so every existing row stays valid.
+ *   - The cascade escorts EVERY data-type flip through the gate: every
+ *     peer writer whose kind derives the same data type converts in
+ *     the same gated batch, and a stale declared `data_type` is
+ *     re-declared to the target type via `setCaseProperty` (the
+ *     catalog entry describes the property; when the property's
+ *     writers change type, the description follows), carrying a
+ *     converted select's options onto the declaration as
+ *     `{value, label}` pairs. Stored rows are the case store's
+ *     business — `applySchemaChange` reshapes string↔array flips
+ *     totally and casts every other transition per row, parking what
+ *     cannot carry — so no flip is gated on row data here.
  *   - A same-type peer whose kind CANNOT convert to the target (a
  *     barcode or secret writer on a text property being made a select)
  *     BLOCKS the plan with the peer named — the batch would otherwise
  *     bounce off the gate with a disagreement message that misreads a
  *     healthy property as broken. The expressible fix is to convert
  *     that peer to text first, then convert the property.
- *   - Value-RESHAPING flips (`single_select` ↔ `multi_select`, whose
- *     stored values change between scalar string and JSONB array) get
- *     NO cascade — no peer carry, no re-declare. Stored rows are the
- *     case store's business (`applySchemaChange` reshapes them when a
- *     property's schema flips string↔array), so the flip the gate
- *     admits (undeclared entry, single writer) lands with its data
- *     intact; the gate still blocks it on declared/multi-writer
- *     properties because the escort (peer carry + re-declare) is
- *     separate work, not because rows would strand.
+ *   - A flip whose per-row cast can fail (`castCanFail` — time↔date,
+ *     time→datetime, anything→int, …) additionally carries a
+ *     `dataLossRisk` verdict on the plan. The plan itself never
+ *     blocks on it: the CONSUMERS render consent (the builder's
+ *     impact dialog, the SA's needs-confirmation result) before
+ *     dispatching, and the committed mutations carry no consent —
+ *     replay and undo re-run the same migration unconditionally.
  *   - A conversion to `hidden` — whose writers the agreement rules
  *     exempt (`caseDataTypeForFieldKind` returns undefined) — converts
  *     ONLY the addressed field, and when it was the property's LAST
@@ -60,6 +58,7 @@ import {
 	type CaseProperty,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
+	castCanFail,
 	convertNeedsOptionSeed,
 	type Field,
 	type FieldKind,
@@ -86,10 +85,21 @@ export interface KindConversionPlan {
 	 *  it) — consumers name these in their success message. */
 	readonly peers: readonly KindConversionPeer[];
 	/** The data type the plan declared (or pinned) on the property's
-	 *  catalog entry, when it did — the target type on a string-scalar
+	 *  catalog entry, when it did — the target type on a data-type
 	 *  flip, the SOURCE type on a hidden pin. Consumers word their
 	 *  message from this, never from `toKind`. */
 	readonly redeclaredTo?: CasePropertyDataType;
+	/** Present when the flip's per-row cast can fail (`castCanFail`):
+	 *  a stored value the cast cannot carry parks and HOLDS its case
+	 *  out of the app until review. Consumers gate consent on it —
+	 *  count the actual impact and ask before dispatching — while the
+	 *  plan's mutations stay consent-free (replay purity). */
+	readonly dataLossRisk?: {
+		readonly caseType: string;
+		readonly property: string;
+		readonly fromType: CasePropertyDataType;
+		readonly toType: CasePropertyDataType;
+	};
 }
 
 /** A same-type peer writer whose kind can't convert to the target —
@@ -108,16 +118,6 @@ export interface KindConversionBlocked {
 export type KindConversionPlanResult =
 	| KindConversionPlan
 	| KindConversionBlocked;
-
-/** The flips whose stored case values are identical in both types —
- *  plain scalar strings. `multi_select` is deliberately absent: its
- *  values are JSONB arrays, so that flip is a value reshape (the case
- *  store rewrites rows when the schema flips string↔array) and its
- *  gate escort is separate work — see the header. */
-const STRING_SCALAR_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
-	"text",
-	"single_select",
-]);
 
 /**
  * Build the conversion batch for `field` → `toKind`.
@@ -172,14 +172,10 @@ export function planKindConversion(args: {
 	const peers: KindConversionPeer[] = [];
 	let redeclaredTo: CasePropertyDataType | undefined;
 
-	const isStringScalarFlip =
-		fromType !== undefined &&
-		toType !== undefined &&
-		toType !== fromType &&
-		STRING_SCALAR_TYPES.has(fromType) &&
-		STRING_SCALAR_TYPES.has(toType);
+	const isTypeFlip =
+		fromType !== undefined && toType !== undefined && toType !== fromType;
 
-	if (isStringScalarFlip) {
+	if (isTypeFlip) {
 		// Carry every peer writer of the property's CURRENT type across —
 		// selection is by derived data type, not kind identity, so a
 		// barcode/secret writer on a text property counts (it agrees
@@ -227,11 +223,23 @@ export function planKindConversion(args: {
 		}
 	}
 
+	// The consent verdict — pure, from the cast matrix. `castCanFail`
+	// answers false for a same-type conversion (text → barcode) and a
+	// hidden target never derives a type, so only genuine data-type
+	// flips can carry risk.
+	const dataLossRisk =
+		fromType !== undefined &&
+		toType !== undefined &&
+		castCanFail(fromType, toType)
+			? { caseType, property: field.id, fromType, toType }
+			: undefined;
+
 	return {
 		ok: true,
 		mutations,
 		peers,
 		...(redeclaredTo !== undefined && { redeclaredTo }),
+		...(dataLossRisk !== undefined && { dataLossRisk }),
 	};
 }
 

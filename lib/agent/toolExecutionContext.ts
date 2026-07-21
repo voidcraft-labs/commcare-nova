@@ -20,7 +20,7 @@
  */
 
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import type {
 	ConversationEvent,
 	ConversationPayload,
@@ -40,6 +40,35 @@ export interface RecordMutationsResult {
 	readonly events: MutationEvent[];
 	readonly committedDoc: BlueprintDoc;
 }
+
+/**
+ * What a prospective case-property retype would do to the app's stored
+ * rows — the consent preview `editField` renders before a failable
+ * kind conversion commits. Structural mirror of the case store's
+ * `ConversionImpact` (both surfaces implement the lookup by delegating
+ * to `SchemaCaseStore.conversionImpact`); declared here so tool
+ * modules stay free of storage imports.
+ */
+export interface ConversionImpactSummary {
+	/** Rows holding a non-blank value under the property. */
+	readonly totalWithValue: number;
+	/** Values the cast cannot carry — each would park and HOLD its
+	 * case out of the app until review. */
+	readonly uncastable: number;
+	/** Of the uncastable values' cases, how many are already held. */
+	readonly alreadyHeld: number;
+	/** Up to a handful of uncastable values, in row order. */
+	readonly samples: readonly unknown[];
+}
+
+/** The impact lookup a surface injects at context construction —
+ *  production passes the schema store's `conversionImpact` bound to
+ *  the context's app; tests stub it. */
+export type ConversionImpactFn = (args: {
+	caseType: string;
+	property: string;
+	toType: CasePropertyDataType;
+}) => Promise<ConversionImpactSummary>;
 
 export interface ToolExecutionContext {
 	/** Current app id. Every tool operates against one app. */
@@ -114,6 +143,18 @@ export interface ToolExecutionContext {
 	/** Persist a conversation event (assistant text/reasoning, tool
 	 * call/result, user message, error). */
 	recordConversation(payload: ConversationPayload): ConversationEvent;
+
+	/**
+	 * Preview what retyping `(caseType, property)` to `toType` would do
+	 * to this app's stored case rows — the consent gate `editField`
+	 * consults before a failable conversion commits. Runs the case
+	 * store's own cast over the migration's own population (held cases
+	 * included), so the counts a needs-confirmation result reports are
+	 * the counts the migration would produce for the same data.
+	 */
+	conversionImpact(
+		args: Parameters<ConversionImpactFn>[0],
+	): Promise<ConversionImpactSummary>;
 }
 
 /**

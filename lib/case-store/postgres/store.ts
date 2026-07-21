@@ -101,6 +101,7 @@ import type {
 	CaseRowWithCalculated,
 	CaseStore,
 	CaseUpdate,
+	ConversionImpact,
 	CountArgs,
 	GenerateSampleDataArgs,
 	MigrationReport,
@@ -1094,6 +1095,72 @@ export class PostgresCaseStore implements CaseStore {
 		// type. The projection above pulls each `CaseRow` field by
 		// name; the runtime shape matches exactly.
 		return rows as unknown as CaseRow[];
+	}
+
+	/**
+	 * The consent preview for a prospective retype — see
+	 * `ConversionImpact`. Runs the migration's OWN cast
+	 * (`tryCastValue`, with the same blank-value drop) over the
+	 * migration's OWN population (every row of the app's case type
+	 * carrying the property — no tenant filter, no hold filter), so
+	 * the numbers a consent surface shows are the numbers the
+	 * migration would produce for the same data. Read-only; plain
+	 * reads outside a transaction (a concurrent write can shift the
+	 * outcome regardless — the post-migration report is the truth).
+	 */
+	async conversionImpact(args: {
+		appId: string;
+		caseType: string;
+		property: string;
+		toType: CasePropertyDataType;
+	}): Promise<ConversionImpact> {
+		// Only rows holding the key leave Postgres, and only the one
+		// value per row — `?` tests key presence, `->` projects it. The
+		// property rides as a BOUND parameter (not the migration code's
+		// `sql.lit`): this method is reachable from a Server Action, so
+		// its property name is client input, not a blueprint-validated
+		// identifier.
+		const rows = await this.db
+			.selectFrom("cases as c")
+			.select("c.case_id")
+			.select(sql<JsonValue>`c.properties -> ${args.property}`.as("value"))
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_type", "=", args.caseType)
+			.where(sql<boolean>`c.properties ? ${args.property}`)
+			.execute();
+
+		let totalWithValue = 0;
+		const failingCaseIds: string[] = [];
+		const samples: JsonValue[] = [];
+		for (const row of rows) {
+			if (hasNoDataToKeep(row.value)) continue;
+			totalWithValue++;
+			const cast = tryCastValue(row.value, args.toType);
+			if (cast.ok) continue;
+			failingCaseIds.push(row.case_id);
+			if (samples.length < CONVERSION_IMPACT_SAMPLE_CAP) {
+				samples.push(row.value);
+			}
+		}
+
+		let alreadyHeld = 0;
+		if (failingCaseIds.length > 0) {
+			const heldRow = await this.db
+				.selectFrom("parked_case_values as held")
+				.select(sql<string>`count(DISTINCT held.case_id)`.as("held"))
+				.where("held.app_id", "=", args.appId)
+				.where("held.dismissed_at", "is", null)
+				.where(sql<boolean>`held.case_id = ANY(${failingCaseIds}::uuid[])`)
+				.executeTakeFirstOrThrow();
+			alreadyHeld = Number(heldRow.held);
+		}
+
+		return {
+			totalWithValue,
+			uncastable: failingCaseIds.length,
+			alreadyHeld,
+			samples,
+		};
 	}
 
 	async applySchemaChange(
@@ -3351,6 +3418,11 @@ function withoutKey(source: JsonObject, key: string): JsonObject {
 	const { [key]: _dropped, ...rest } = source;
 	return rest;
 }
+
+/** How many uncastable values `conversionImpact` returns as samples —
+ *  enough for a consent surface to show what would be set aside
+ *  without shipping the whole failing population. */
+const CONVERSION_IMPACT_SAMPLE_CAP = 3;
 
 /**
  * A value with nothing worth keeping through a migration: JSON

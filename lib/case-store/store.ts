@@ -402,6 +402,33 @@ export interface MigrationReport {
 }
 
 /**
+ * What a prospective retype of `(caseType, property)` into `toType`
+ * would do to the stored rows — the consent preview every conversion
+ * surface renders before the migration runs. Computed with the SAME
+ * cast the migration applies, over the SAME population it migrates
+ * (every row of the app's case type, held cases included — the
+ * migration carries no hold filter), so preview and outcome cannot
+ * drift. A concurrent write between preview and migration can still
+ * shift the numbers; the post-conversion report remains the truth.
+ */
+export interface ConversionImpact {
+	/** Rows holding a non-blank value under the property — the values
+	 * the migration would touch (blank values drop silently, exactly
+	 * as the migration drops them). */
+	totalWithValue: number;
+	/** Values the cast cannot carry — each would park and HOLD its
+	 * case out of the app until review. */
+	uncastable: number;
+	/** Of the uncastable values' cases, how many ALREADY carry an
+	 * active kept value (already held) — `uncastable - alreadyHeld`
+	 * is the count of cases the conversion would newly hold. */
+	alreadyHeld: number;
+	/** Up to a handful of uncastable values in row order, for the
+	 * consent surface to show what would be set aside. */
+	samples: JsonValue[];
+}
+
+/**
  * Where a kept value stands against its property's CURRENT
  * declaration — the one server-computed classification the review
  * surface renders and acts on. `"fits"` alone permits Put back
@@ -506,6 +533,21 @@ export interface SchemaCaseStore {
 	 * change is an app-wide event, not a per-tenant one.
 	 */
 	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
+
+	/**
+	 * Preview what retyping `(caseType, property)` to `toType` would
+	 * do to the stored rows — see {@link ConversionImpact}. Read-only,
+	 * app-scoped like `applySchemaChange` (the migration it previews
+	 * covers every member's rows), and computed with the migration's
+	 * own cast so an edge this reports clean cannot park at migration
+	 * time for the same data.
+	 */
+	conversionImpact(args: {
+		appId: string;
+		caseType: string;
+		property: string;
+		toType: CasePropertyDataType;
+	}): Promise<ConversionImpact>;
 
 	/**
 	 * Write parked values back under their keys and delete the restored

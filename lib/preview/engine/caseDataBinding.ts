@@ -30,6 +30,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
+	CasePropertyDataType,
 	CaseType,
 	SearchInputDef,
 } from "@/lib/domain";
@@ -59,6 +60,7 @@ import {
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
+	ConversionImpactResult,
 	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
@@ -378,6 +380,47 @@ export async function loadCaseCountAction(args: {
 		return {
 			kind: "error",
 			message: err instanceof Error ? err.message : "Failed to count cases.",
+		};
+	}
+}
+
+/**
+ * The consent preview for a failable kind conversion: what retyping
+ * `(caseType, property)` to `toType` would do to the stored rows —
+ * counts + samples computed with the migration's own cast over the
+ * migration's own population (held cases included), so the impact
+ * dialog and the migration can't disagree about the same data.
+ * Read-only; the convert itself commits through the ordinary gated
+ * mutation path after the user agrees.
+ */
+export async function conversionImpactAction(args: {
+	appId: string;
+	caseType: string;
+	property: string;
+	toType: CasePropertyDataType;
+}): Promise<ConversionImpactResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const impact = await store.conversionImpact({
+			appId: args.appId,
+			caseType: args.caseType,
+			property: args.property,
+			toType: args.toType,
+		});
+		return { kind: "impact", ...impact };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("conversionImpact", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
+		return {
+			kind: "error",
+			message:
+				err instanceof Error ? err.message : "Failed to check saved data.",
 		};
 	}
 }

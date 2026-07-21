@@ -39,6 +39,7 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import {
 	type CrossLevelFieldMoveTarget,
 	getCrossLevelFieldMoveTargets,
@@ -48,12 +49,14 @@ import { asUuid } from "@/lib/doc/types";
 import {
 	type CommitOutcome,
 	type Field,
+	type FieldKind,
 	fieldRegistry,
 	getConvertibleTypes,
 } from "@/lib/domain";
 import { shortcutLabel } from "@/lib/platform";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import {
+	useAppId,
 	useCanEdit,
 	useClearNewField,
 	useIsNewField,
@@ -68,6 +71,10 @@ import {
 	POPOVER_POPUP_CLS,
 } from "@/lib/styles";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
+import {
+	ConvertImpactDialog,
+	type ConvertImpactRequest,
+} from "./ConvertImpactDialog";
 import { classifyRenameOutcome } from "./renameOutcome";
 
 interface FieldIdentitySectionProps {
@@ -136,6 +143,34 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	 * subscription that would also fire on unrelated field edits (label,
 	 * hint, calculate). */
 	const docApi = useBlueprintDocApi();
+
+	const appId = useAppId();
+	/* A conversion the plan flags as failable (`dataLossRisk`) waits here
+	 * for the consent dialog; everything else dispatches directly. */
+	const [pendingConvert, setPendingConvert] =
+		useState<ConvertImpactRequest | null>(null);
+
+	const requestConvert = useCallback(
+		(target: FieldKind) => {
+			if (!selectedUuid) return;
+			/* The same plan `convertField` will build — its `dataLossRisk`
+			 * is the one verdict for "can this flip set saved values
+			 * aside". A blocked plan dispatches anyway: the mutation hook
+			 * surfaces the blocker message, and nothing commits. */
+			const plan = planKindConversion({
+				doc: docApi.getState(),
+				field,
+				toKind: target,
+			});
+			const risk = plan.ok ? plan.dataLossRisk : undefined;
+			if (risk === undefined || appId === undefined) {
+				convertField(asUuid(selectedUuid), target);
+				return;
+			}
+			setPendingConvert({ fieldUuid: selectedUuid, toKind: target, ...risk });
+		},
+		[selectedUuid, field, appId, convertField, docApi],
+	);
 
 	/* Raw session focus-hint. The hint is written by `useUndoRedo` and
 	 * read by whichever editor owns the matching data-field-id — no
@@ -521,7 +556,10 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 														 *  the target kind needs to be born valid — the
 														 *  starter option pair for a select, the picker's
 														 *  inert `''` default for hidden — so every offered
-														 *  target lands, mirroring the insert picker. */}
+														 *  target lands, mirroring the insert picker. A flip
+														 *  that could set saved case values aside detours
+														 *  through the consent dialog first
+														 *  (`requestConvert`). */}
 														{conversionTargets.map((target) => {
 															const targetMeta = fieldRegistry[target];
 															return (
@@ -529,9 +567,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 																	key={target}
 																	icon={targetMeta.icon}
 																	label={targetMeta.label}
-																	onClick={() =>
-																		convertField(asUuid(selectedUuid), target)
-																	}
+																	onClick={() => requestConvert(target)}
 																/>
 															);
 														})}
@@ -562,6 +598,18 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 					</Menu.Root>
 				)}
 			</div>
+
+			{appId !== undefined && (
+				<ConvertImpactDialog
+					appId={appId}
+					request={pendingConvert}
+					onCancel={() => setPendingConvert(null)}
+					onConfirm={(request) => {
+						setPendingConvert(null);
+						convertField(asUuid(request.fieldUuid), request.toKind);
+					}}
+				/>
+			)}
 		</InspectorSection>
 	);
 }

@@ -43,11 +43,10 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	// `text` is the demotion path — a select's stored value is a plain
 	// string, so freeing it to text drops the options and keeps every
 	// row's value valid. The select ↔ select edges (this `multi_select`
-	// target and multiSelect's `single_select` twin) RESHAPE stored case
-	// values between scalar string and JSONB array with no per-row lift
-	// on any conversion surface, so `planKindConversion` refuses to
-	// escort them through the agreement gate (no peer carry, no
-	// re-declare) — they land only where the gate always allowed them.
-	// The same reshape gap is why `multi_select` has no `text` target.
+	// target and multiSelect's twins) RESHAPE stored case values
+	// between scalar string and JSONB array — the case store rewrites
+	// rows when a property's schema flips string↔array, and
+	// `planKindConversion` escorts the flip through the agreement gate
+	// like any other type change.
 	convertTargets: ["multi_select", "text"],
 };

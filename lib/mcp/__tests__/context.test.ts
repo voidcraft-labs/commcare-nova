@@ -101,6 +101,12 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
+			conversionImpact: async () => ({
+				totalWithValue: 0,
+				uncastable: 0,
+				alreadyHeld: 0,
+				samples: [],
+			}),
 		});
 		const muts: Mutation[] = [
 			{ kind: "setAppName", name: "x" },
@@ -142,6 +148,12 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter: mockLogWriter(),
 			progress: mockProgress(),
+			conversionImpact: async () => ({
+				totalWithValue: 0,
+				uncastable: 0,
+				alreadyHeld: 0,
+				samples: [],
+			}),
 		});
 
 		let settled = false;
@@ -175,6 +187,12 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
+			conversionImpact: async () => ({
+				totalWithValue: 0,
+				uncastable: 0,
+				alreadyHeld: 0,
+				samples: [],
+			}),
 		});
 		const doc = mockDoc();
 		const result = await ctx.recordMutations([], doc);
@@ -196,6 +214,12 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
+			conversionImpact: async () => ({
+				totalWithValue: 0,
+				uncastable: 0,
+				alreadyHeld: 0,
+				samples: [],
+			}),
 		});
 		const renameMut: Mutation = { kind: "setAppName", name: "renamed" };
 		const patchMut: Mutation = { kind: "setAppName", name: "patched" };
@@ -237,6 +261,12 @@ describe("McpContext", () => {
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
+			conversionImpact: async () => ({
+				totalWithValue: 0,
+				uncastable: 0,
+				alreadyHeld: 0,
+				samples: [],
+			}),
 		});
 
 		await expect(

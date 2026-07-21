@@ -121,6 +121,24 @@ export type LoadCaseCountResult =
 	| { kind: "error"; message: string };
 
 /**
+ * Result of `conversionImpactAction` — the consent preview for a
+ * failable kind conversion. The `impact` arm mirrors the store's
+ * `ConversionImpact`: counts computed with the migration's own cast
+ * over the migration's own population (held cases included), so the
+ * dialog's numbers are the migration's numbers for the same data.
+ */
+export type ConversionImpactResult =
+	| {
+			kind: "impact";
+			totalWithValue: number;
+			uncastable: number;
+			alreadyHeld: number;
+			samples: JsonValue[];
+	  }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/**
  * One kept value as it crosses the Server Action wire —
  * `ParkedValueEntry` (see `lib/case-store`) with its timestamps as
  * ISO strings so the payload stays plain JSON. The `standing`

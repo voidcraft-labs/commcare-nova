@@ -82,6 +82,7 @@ import type {
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 import { streamObjectWith } from "./subGeneration";
 import type {
+	ConversionImpactFn,
 	RecordMutationsResult,
 	StagedMutationBatch,
 	ToolExecutionContext,
@@ -145,6 +146,10 @@ interface GenerationContextOptions {
 	 * reaped mid-run during a long no-commit stretch.
 	 */
 	editLease: boolean;
+	/** The retype-impact lookup behind `ToolExecutionContext.conversionImpact`
+	 * — the route binds the schema store's `conversionImpact` to this app;
+	 * tests stub it so no tool test touches Postgres. */
+	conversionImpact: ConversionImpactFn;
 }
 
 /**
@@ -251,7 +256,12 @@ export class GenerationContext implements ToolExecutionContext {
 		this.session = opts.session;
 		this.appId = opts.appId;
 		this.editLease = opts.editLease;
+		this.conversionImpact = opts.conversionImpact;
 	}
+
+	/** See {@link ToolExecutionContext.conversionImpact} — injected at
+	 * construction (`GenerationContextOptions.conversionImpact`). */
+	readonly conversionImpact: ConversionImpactFn;
 
 	/** Resolve an OpenAI model id to a `LanguageModel` (Responses API).
 	 *  One credential serves every model, so the SA and the document

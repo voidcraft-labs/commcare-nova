@@ -187,3 +187,69 @@ export function isTextShaped(p: PropertyDataTypeCarrier): boolean {
 export function isOrdered(p: PropertyDataTypeCarrier): boolean {
 	return ORDERED_DATA_TYPES.has(effectiveDataType(p));
 }
+
+// ── Cast failability ──────────────────────────────────────────────
+
+/**
+ * Whether retyping a property from `fromType` to `toType` can leave
+ * a stored value behind: `true` when SOME valid value of `fromType`
+ * has no faithful representation in `toType`, so the case store's
+ * per-row cast can fail and park that value (holding its case out of
+ * the app until review). `false` means the migration is total — every
+ * stored value carries — so the transition needs no consent.
+ *
+ * This is the pure verdict the conversion surfaces render BEFORE a
+ * conversion commits (the builder's impact dialog, the SA's
+ * needs-confirmation result). The cast itself lives in the case
+ * store (`tryCastValue` in `lib/case-store/postgres/store.ts`); the
+ * contract-suite parity sweep proves each `true` edge against a
+ * value the store actually parks, so this table can't quietly claim
+ * risk the cast doesn't have — keep the two in lockstep when a cast
+ * arm widens or narrows.
+ *
+ * The matrix by destination:
+ *   - `text` / `single_select`: every value string-projects (arrays
+ *     space-join — the XForms wire convention) — total.
+ *   - `multi_select`: a non-blank scalar lifts to a one-element
+ *     selection; blank values drop before the cast — total.
+ *   - `decimal`: only `int` is a subset; any other source can hold
+ *     a non-numeric value.
+ *   - `int`: nothing is safe — even `decimal` can hold a fraction
+ *     or overflow the int4 range.
+ *   - `date` / `time`: only `datetime` truncates faithfully; a bare
+ *     date has no time of day and vice versa.
+ *   - `datetime`: only `date` extends faithfully (midnight UTC); a
+ *     bare time has no calendar day.
+ *   - `geopoint`: no other type guarantees the `lat lon alt acc`
+ *     shape.
+ */
+export function castCanFail(
+	fromType: CasePropertyDataType,
+	toType: CasePropertyDataType,
+): boolean {
+	if (fromType === toType) return false;
+	switch (toType) {
+		case "text":
+		case "single_select":
+		case "multi_select":
+			return false;
+		case "decimal":
+			return fromType !== "int";
+		case "int":
+			return true;
+		case "date":
+		case "time":
+			return fromType !== "datetime";
+		case "datetime":
+			return fromType !== "date";
+		case "geopoint":
+			return true;
+		default: {
+			// Exhaustiveness — a new data type must take a position here
+			// before any conversion surface can offer it.
+			const _exhaustive: never = toType;
+			void _exhaustive;
+			return true;
+		}
+	}
+}

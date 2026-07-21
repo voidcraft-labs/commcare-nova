@@ -37,11 +37,13 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
+	ConversionImpactFn,
 	RecordMutationsResult,
 	StagedMutationBatch,
 	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
 import { describeParkedOutcome } from "@/lib/agent/toolExecutionContext";
+import { withSchemaContext } from "@/lib/case-store";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
@@ -75,6 +77,10 @@ export interface McpContextOptions {
 	logWriter: LogWriter;
 	/** MCP progress-notification emitter. No-op if the client didn't opt in. */
 	progress: ProgressEmitter;
+	/** The retype-impact lookup behind `ToolExecutionContext.conversionImpact`
+	 * — `initMcpCall` binds the schema store's `conversionImpact` to this
+	 * app; tests stub it so no tool test touches Postgres. */
+	conversionImpact: ConversionImpactFn;
 }
 
 export class McpContext implements ToolExecutionContext {
@@ -102,7 +108,12 @@ export class McpContext implements ToolExecutionContext {
 		this.runId = opts.runId;
 		this.logWriter = opts.logWriter;
 		this.progress = opts.progress;
+		this.conversionImpact = opts.conversionImpact;
 	}
+
+	/** See {@link ToolExecutionContext.conversionImpact} — injected at
+	 * construction (`McpContextOptions.conversionImpact`). */
+	readonly conversionImpact: ConversionImpactFn;
 
 	/**
 	 * Persist a batch of mutations to the event log + the blueprint.
@@ -370,6 +381,8 @@ export function initMcpCall(
 		runId,
 		logWriter,
 		progress,
+		conversionImpact: async (args) =>
+			(await withSchemaContext()).conversionImpact({ appId, ...args }),
 	});
 	return { mcpCtx, logWriter, runId, progress };
 }
