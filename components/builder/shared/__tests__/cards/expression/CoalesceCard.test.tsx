@@ -10,6 +10,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
+import { focusElement } from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import { coalesce, literal, term } from "@/lib/domain/predicate";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
@@ -76,7 +77,7 @@ describe("CoalesceCard — drag handle wiring", () => {
 			name: "Remove value",
 		});
 		const nextAction = removeActions[1];
-		removeActions[0].focus();
+		focusElement(removeActions[0]);
 		await act(async () => {
 			fireEvent.click(removeActions[0]);
 			await Promise.resolve();

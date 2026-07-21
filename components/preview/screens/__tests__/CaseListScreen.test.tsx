@@ -431,12 +431,22 @@ describe("CaseListScreen — heading", () => {
 	});
 
 	it("keeps the Search utility out of the page heading hierarchy", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [
+				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }),
+			],
+		});
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 			searchInputs: [
 				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
 			],
 		});
+
+		// Judge the heading order on the settled list: the case load commits
+		// after the first paint and can add headings of its own.
+		expect(await screen.findByText("Alice")).toBeDefined();
 
 		const pageHeading = screen.getByRole("heading", {
 			level: 1,

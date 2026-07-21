@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -61,19 +62,6 @@ function renderBuilder(
 			/>
 		</PredicateEditProvider>,
 	);
-}
-
-/** Drain Base UI's disclosure and popup transition frames inside the test. */
-async function settleBaseUiTransitions(): Promise<void> {
-	await act(async () => {
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-	});
 }
 
 describe("RelationPathBuilder candidate admission", () => {

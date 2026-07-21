@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import {
-	act,
 	fireEvent,
 	render,
 	screen,
@@ -9,6 +8,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -98,19 +98,6 @@ const FIRST_SEARCH_CONDITION = neq(sessionContext("username"), literal(""));
 function pressSelectOption(option: HTMLElement): void {
 	fireEvent.pointerDown(option, { pointerType: "mouse" });
 	fireEvent.click(option);
-}
-
-/** Let Base UI finish popup scroll-lock release and collapsible transitions. */
-async function settleBaseUiTransitions(): Promise<void> {
-	await act(async () => {
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-	});
 }
 
 /** Happy DOM does not synthesize a button's browser-owned click from Enter.

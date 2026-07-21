@@ -1,7 +1,8 @@
 /**
  * Global test setup — runs once per test file, before the tests themselves.
  *
- * Responsibility: intercept the structured logger at the module boundary so
+ * It gates React `act(...)` discipline, then replaces three modules at the
+ * boundary. First of those: intercept the structured logger so
  * passing tests never print to stderr. Production code emits diagnostic
  * warnings and errors through `@/lib/logger` — replaying those emissions
  * during a green run adds noise that drowns real failure output. Mocking
@@ -25,7 +26,53 @@ import {
 	type ReactNode,
 	useRef,
 } from "react";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+
+/**
+ * Fail any test that lets a React state update land outside `act(...)`.
+ *
+ * React reports those as a console warning, and vitest's reporter drops
+ * console output on a passing test in a non-TTY (CI, or any piped run), so
+ * the warnings were invisible to every automated check while the tests they
+ * came from silently asserted a pre-update render. They are never cosmetic:
+ * an update outside `act` means the work escaped the test — the assertions
+ * ran against DOM that React had not committed yet, and the commit landed
+ * during a later test or after teardown.
+ *
+ * Attribution is best-effort: the warning fails whichever test was running
+ * when the escaped update finally committed, which is usually — but not
+ * always — the test that started it. The message says so.
+ */
+const escapedActUpdates: string[] = [];
+const reportConsoleError = console.error;
+
+console.error = (...args: unknown[]): void => {
+	if (typeof args[0] === "string" && args[0].includes("not wrapped in act(")) {
+		escapedActUpdates.push(String(args[1] ?? "an unnamed component"));
+		return;
+	}
+	reportConsoleError(...args);
+};
+
+afterEach(() => {
+	if (escapedActUpdates.length === 0) return;
+	const components = [...new Set(escapedActUpdates)].join(", ");
+	escapedActUpdates.length = 0;
+	throw new Error(
+		`React committed an update to ${components} outside act(...) while this test ran.\n\n` +
+			"The update escaped the test, so the assertions above it ran against a render " +
+			"React had not committed. The usual causes are a bare `element.focus()` (it " +
+			"dispatches focus synchronously and Base UI menus and tooltips react to it), a " +
+			"bare `await new Promise(resolve => setTimeout(resolve, 0))` used to settle a " +
+			"popup, and a mounted component whose async load was never awaited.\n\n" +
+			"Wrap the interaction in `act(...)`, or await the settled UI with " +
+			"`findBy*` / `waitFor`. `@/__tests__/helpers/baseUiInteractions` has " +
+			"act-wrapped helpers for the focus, keyboard-activation, and popup-settle " +
+			"cases.\n\n" +
+			"If the named component is not one this test renders, the update was started " +
+			"by an earlier test that returned before its work committed — fix it there.",
+	);
+});
 
 vi.mock("@/lib/logger", () => ({
 	log: {
