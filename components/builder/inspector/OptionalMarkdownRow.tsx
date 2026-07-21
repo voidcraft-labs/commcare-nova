@@ -295,7 +295,7 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 					preferredMinWidth="16rem"
 				>
 					<DropdownMenuSub>
-						<DropdownMenuSubTrigger className="min-h-11">
+						<DropdownMenuSubTrigger>
 							<Icon icon={tablerHeading} />
 							Headings
 						</DropdownMenuSubTrigger>
@@ -310,7 +310,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 									disabled={!canToggleHeading(editor, level)}
 									closeOnClick
 									onClick={() => toggleHeading(editor, level)}
-									className="min-h-11"
 								>
 									Heading {level}
 								</DropdownMenuCheckboxItem>
@@ -319,7 +318,7 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 					</DropdownMenuSub>
 
 					<DropdownMenuSub>
-						<DropdownMenuSubTrigger className="min-h-11">
+						<DropdownMenuSubTrigger>
 							<Icon icon={tablerList} />
 							Lists
 						</DropdownMenuSubTrigger>
@@ -332,7 +331,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 								disabled={!canToggleList(editor, "bulletList")}
 								closeOnClick
 								onClick={() => toggleList(editor, "bulletList")}
-								className="min-h-11"
 							>
 								<Icon icon={tablerList} />
 								Bulleted list
@@ -342,7 +340,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 								disabled={!canToggleList(editor, "orderedList")}
 								closeOnClick
 								onClick={() => toggleList(editor, "orderedList")}
-								className="min-h-11"
 							>
 								<Icon icon={tablerListNumbers} />
 								Numbered list
@@ -355,7 +352,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 						disabled={!editor.isEditable || !editor.can().toggleCode()}
 						closeOnClick
 						onClick={() => editor.chain().focus().toggleCode().run()}
-						className="min-h-11"
 					>
 						<Icon icon={tablerCode} />
 						Inline code
@@ -365,7 +361,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 						disabled={!canToggleCodeBlock(editor)}
 						closeOnClick
 						onClick={() => toggleCodeBlock(editor)}
-						className="min-h-11"
 					>
 						<Icon icon={tablerCodeDots} />
 						Code block
@@ -376,7 +371,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 						disabled={!canInsertImage(editor)}
 						closeOnClick
 						onClick={openImageDialog}
-						className="min-h-11"
 					>
 						<Icon icon={tablerPhoto} />
 						Image
@@ -385,7 +379,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 						disabled={!canInsertTable(editor)}
 						closeOnClick
 						onClick={() => setTableDialogOpen(true)}
-						className="min-h-11"
 					>
 						<Icon icon={tablerTable} />
 						Table
@@ -394,7 +387,6 @@ function MoreFormattingMenu({ editor }: { readonly editor: Editor }) {
 						disabled={!canInsertHorizontalRule(editor)}
 						closeOnClick
 						onClick={() => insertHorizontalRule(editor)}
-						className="min-h-11"
 					>
 						<Icon icon={tablerSeparatorHorizontal} />
 						Divider

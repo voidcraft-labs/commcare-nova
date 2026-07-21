@@ -657,7 +657,6 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 										key={s.kind}
 										onClick={() => onAdd(s)}
 										disabled={!isApplicable}
-										className="h-auto min-h-11 items-start whitespace-normal py-2"
 									>
 										<Icon
 											icon={s.icon}

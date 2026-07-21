@@ -303,7 +303,7 @@ function UnitMenu({
 				</SelectTrigger>
 				<SelectContent align="end">
 					{DISTANCE_UNITS.map((nextUnit) => (
-						<SelectItem key={nextUnit} value={nextUnit} className="min-h-11">
+						<SelectItem key={nextUnit} value={nextUnit}>
 							{UNIT_LABELS[nextUnit]}
 						</SelectItem>
 					))}

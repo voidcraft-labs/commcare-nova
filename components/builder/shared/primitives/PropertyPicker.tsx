@@ -348,11 +348,11 @@ export function PropertyPicker({
 											key={p.name}
 											disabled={!admitted}
 											onClick={() => handleSelect(p.name)}
-											className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+											className={
 												isActive
 													? "bg-nova-violet/10 text-nova-violet-bright"
 													: ""
-											}`}
+											}
 										>
 											<Icon
 												icon={tablerDatabase}
@@ -402,14 +402,11 @@ export function PropertyPicker({
 						{(footerAction !== undefined || onCreateNew !== undefined) && (
 							<div className="shrink-0 border-t border-white/[0.06] p-1">
 								{footerAction !== undefined && (
-									<DropdownMenuItem
-										onClick={footerAction.onSelect}
-										className="h-auto min-h-11 items-start whitespace-normal py-2"
-									>
+									<DropdownMenuItem onClick={footerAction.onSelect}>
 										<Icon
 											icon={footerAction.icon}
 											width="15"
-											className="mt-0.5 shrink-0 text-nova-text-muted"
+											className="shrink-0 text-nova-text-muted"
 										/>
 										<span className="min-w-0 flex-1 text-left">
 											<span className="block break-words font-medium">

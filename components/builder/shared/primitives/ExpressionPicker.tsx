@@ -326,7 +326,6 @@ export function ExpressionPicker({
 											) ?? null;
 									setPendingTermReplacement({ source: value, target: s });
 								}}
-								className="h-auto min-h-11 items-start whitespace-normal py-2"
 							>
 								<Icon
 									icon={s.icon}
@@ -701,8 +700,8 @@ function KindReplaceMenu({
 											disabled={isCurrent || !admitted}
 											className={
 												isCurrent
-													? "h-auto min-h-11 items-start whitespace-normal bg-nova-violet/10 py-2 text-nova-violet-bright"
-													: "h-auto min-h-11 items-start whitespace-normal py-2"
+													? "bg-nova-violet/10 text-nova-violet-bright"
+													: ""
 											}
 										>
 											<Icon
