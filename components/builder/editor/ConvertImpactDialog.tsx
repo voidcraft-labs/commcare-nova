@@ -132,20 +132,34 @@ export function ConvertImpactDialog({
 			caseType: request.caseType,
 			property: request.property,
 			toType: request.toType,
-		}).then((result) => {
-			if (gen !== generation.current) return;
-			if (result.kind === "impact") {
-				setState(result);
-			} else {
+		}).then(
+			(result) => {
+				if (gen !== generation.current) return;
+				if (result.kind === "impact") {
+					setState(result);
+				} else {
+					setState({
+						kind: "error",
+						message:
+							result.kind === "unauthenticated"
+								? "Your session ended. Sign in again, then retry."
+								: result.message,
+					});
+				}
+			},
+			// A rejected action call (network failure, an interrupted
+			// deploy) must land in the error state — an unhandled
+			// rejection would strand the dialog on "Checking saved data"
+			// with no way forward but Cancel.
+			(err: unknown) => {
+				if (gen !== generation.current) return;
 				setState({
 					kind: "error",
 					message:
-						result.kind === "unauthenticated"
-							? "Your session ended. Sign in again, then retry."
-							: result.message,
+						err instanceof Error ? err.message : "The check didn’t complete.",
 				});
-			}
-		});
+			},
+		);
 	}, [appId, request]);
 
 	useEffect(() => {

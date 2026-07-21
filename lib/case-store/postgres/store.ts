@@ -1349,12 +1349,15 @@ export class PostgresCaseStore implements CaseStore {
 						? args.property
 						: undefined,
 				);
-				// A numeric-source transition writes non-numeric values (an
-				// array target) through the property's live `::integer` /
-				// `::numeric` expression index, which would abort the
-				// transaction — drop the stale index FIRST (plain in-txn
-				// DROP; Phase B recreates the new type's index after
-				// commit). The explicit `retype` arm shares the hazard.
+				// A numeric-source transition writes values the stale
+				// `::integer` / `::numeric` expression index can't cast (an
+				// array target's rows, an int→decimal widening's RESTORED
+				// fractions), which would abort the transaction — drop the
+				// stale index FIRST (plain in-txn DROP; Phase B recreates
+				// the new type's index after commit). The explicit `retype`
+				// arm shares the hazard; widenings ride along because their
+				// closing parked-value restore writes rows here in Phase A
+				// even though the widening itself rewrites none.
 				const explicitRetype =
 					args.change !== undefined && args.change.kind === "retype"
 						? [
@@ -1371,7 +1374,11 @@ export class PostgresCaseStore implements CaseStore {
 				await this.dropStaleNumericIndexes(trx, {
 					appId: args.appId,
 					caseType: args.caseType,
-					retypes: [...transitions.retypes, ...explicitRetype],
+					transitions: [
+						...transitions.retypes,
+						...transitions.widenings,
+						...explicitRetype,
+					],
 				});
 				if (transitions.flips.length > 0) {
 					reshaped = await this.runShapeReshape(trx, {
@@ -1426,7 +1433,7 @@ export class PostgresCaseStore implements CaseStore {
 			const transitionedProperties = new Set<string>([
 				...transitions.flips.map((flip) => flip.property),
 				...transitions.retypes.map((retype) => retype.property),
-				...transitions.widenings,
+				...transitions.widenings.map((widening) => widening.property),
 				...(args.change !== undefined && args.change.kind === "retype"
 					? [this.requireMigrationProperty(args.property, "retype")]
 					: []),
@@ -1586,17 +1593,26 @@ export class PostgresCaseStore implements CaseStore {
 		args: {
 			appId: string;
 			caseType: string;
-			retypes: ReadonlyArray<DetectedRetype>;
+			transitions: ReadonlyArray<DetectedRetype>;
 		},
 	): Promise<void> {
-		for (const retype of args.retypes) {
-			if (retype.fromType !== "int" && retype.fromType !== "decimal") continue;
-			if (retype.toType === "int" || retype.toType === "decimal") continue;
+		for (const transition of args.transitions) {
+			if (transition.fromType !== "int" && transition.fromType !== "decimal") {
+				continue;
+			}
+			// The one tolerated pair: every int the decimal→int migration
+			// writes still parses under the stale `::numeric` cast. The
+			// reverse does NOT hold — the int→decimal widening's restore
+			// writes fractions the stale `::integer` cast rejects — and no
+			// non-numeric target survives either cast.
+			if (transition.fromType === "decimal" && transition.toType === "int") {
+				continue;
+			}
 			const staleName = indexName(
 				args.appId,
 				args.caseType,
-				retype.property,
-				BTREE_SUFFIX_FOR_DATA_TYPE[retype.fromType],
+				transition.property,
+				BTREE_SUFFIX_FOR_DATA_TYPE[transition.fromType],
 			);
 			await sql`DROP INDEX IF EXISTS ${sql.id(staleName)}`.execute(trx);
 		}
@@ -3201,9 +3217,13 @@ interface PropertyTransitions {
 	 * yet the type change must still scope the winning sync's parked-
 	 * value restore: a date→text convert-back is exactly as much a
 	 * "convert the property back and the values return" transition as
-	 * the int→text one that rewrites rows.
+	 * the int→text one that rewrites rows. Carries the transition pair
+	 * (same shape as a retype) because the int→decimal widening must
+	 * ALSO pre-drop the stale `::integer` expression index — the
+	 * restore writes fractions back inside Phase A, before Phase B can
+	 * swap the index.
 	 */
-	widenings: string[];
+	widenings: DetectedRetype[];
 }
 
 /**
@@ -3354,7 +3374,7 @@ function detectPropertyTransitions(
 
 	const flips: ShapeFlip[] = [];
 	const retypes: DetectedRetype[] = [];
-	const widenings: string[] = [];
+	const widenings: DetectedRetype[] = [];
 	for (const [name, nextProp] of Object.entries(next.properties)) {
 		if (name === exclude) continue;
 		const fromType = dataTypeTokenOf(storedByName[name]);
@@ -3373,7 +3393,7 @@ function detectPropertyTransitions(
 		// the annotated direction (single_select→…) stays classified.
 		if (fromType === "text" && toType === "single_select") continue;
 		if (castIsIdentityWidening(fromType, toType)) {
-			widenings.push(name);
+			widenings.push({ property: name, fromType, toType });
 			continue;
 		}
 		const fromIsString =

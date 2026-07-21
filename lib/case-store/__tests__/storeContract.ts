@@ -2275,6 +2275,77 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 		});
 
+		it("an int→decimal convert-back restores parked fractions through the stale ::integer index", async () => {
+			// The forward decimal→int conversion parks every fractional
+			// value AND leaves the property's `::integer` expression index
+			// live. The convert-back is an identity WIDENING (no rows
+			// rewrite), but its closing auto-restore writes the parked
+			// fractions back INSIDE Phase A — before Phase B can swap the
+			// index — so the stale integer cast must be pre-dropped
+			// in-transaction exactly as a numeric-source retype's is, or
+			// the whole sync aborts on `invalid input syntax for type
+			// integer`.
+			const store = await options.factory(TENANT_A);
+			const decimalBlueprint = buildBlueprint([
+				{
+					name: "patient",
+					properties: [{ name: "score", label: "Score", data_type: "decimal" }],
+				},
+			]);
+			await seedSchema(store, decimalBlueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ score: 11.82 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ score: 42 }),
+				},
+			});
+
+			const intBlueprint = buildBlueprint([
+				{
+					name: "patient",
+					properties: [{ name: "score", label: "Score", data_type: "int" }],
+				},
+			]);
+			const forward = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(intBlueprint),
+			});
+			expect(forward.parkedIds).toHaveLength(1);
+
+			// The convert-back: an additive sync whose widening triggers
+			// the closing restore. Before the stale-index pre-drop covered
+			// widenings, this call threw out of Phase A.
+			const back = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(decimalBlueprint),
+			});
+			expect(back.restored).toBe(1);
+			expect(back.parkedIds).toEqual([]);
+
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const byId = new Map(rows.map((r) => [r.case_id, r]));
+			// Both cases visible again — the restore released the hold.
+			expect(rows).toHaveLength(2);
+			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({ score: 11.82 });
+			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({ score: 42 });
+		});
+
 		it("conversionImpact stays in lockstep with the domain's castCanFail matrix — every ordered type pair", async () => {
 			// One row carries a worst-case representative value of every
 			// data type; the sweep then asks the store's preview about
