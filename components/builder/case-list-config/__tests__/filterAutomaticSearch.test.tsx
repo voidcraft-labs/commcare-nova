@@ -8,6 +8,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
@@ -145,11 +146,6 @@ function composer(
 	);
 }
 
-/** Base UI releases dialog focus/scroll locks on the next macrotask. */
-async function settleDialogTeardown(): Promise<void> {
-	await new Promise<void>((resolve) => setTimeout(resolve, 0));
-}
-
 function addComparisonCondition(buttonName = "Add condition"): void {
 	fireEvent.click(screen.getByRole("button", { name: buttonName }));
 	fireEvent.click(
@@ -213,7 +209,7 @@ describe("Results Cases available composer", () => {
 		expect(onExcludedOwnerIdsChange).toHaveBeenCalledWith(undefined);
 	});
 
-	it("keeps on-device property comparisons available when the raw config only stores assigned-case rules", () => {
+	it("keeps on-device property comparisons available when the raw config only stores assigned-case rules", async () => {
 		renderComposer({
 			config: { ...EMPTY_CONFIG, filter: NORTH },
 			searchConfig: {
@@ -225,6 +221,9 @@ describe("Results Cases available composer", () => {
 			},
 			caseSearchEnabled: false,
 		});
+		// A filtered composer starts a matching-case count load on mount; open
+		// the menu on the settled render rather than mid-load.
+		await settleBaseUiTransitions();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Value source: A value" }),
@@ -546,7 +545,7 @@ describe("Results Cases available composer", () => {
 				screen.getByRole("button", { name: "Add condition" }),
 			),
 		);
-		await settleDialogTeardown();
+		await settleBaseUiTransitions();
 	});
 
 	it("keeps assigned cases and Search settings separate when clearing availability", async () => {
@@ -604,7 +603,7 @@ describe("Results Cases available composer", () => {
 				screen.getByRole("button", { name: "Add condition" }),
 			);
 		});
-		await settleDialogTeardown();
+		await settleBaseUiTransitions();
 	});
 
 	it("drills into one structural level without recursively rendering deeper groups", async () => {
@@ -805,6 +804,6 @@ describe("Results Cases available composer", () => {
 				screen.getByRole("button", { name: "Add condition" }),
 			),
 		);
-		await settleDialogTeardown();
+		await settleBaseUiTransitions();
 	});
 });

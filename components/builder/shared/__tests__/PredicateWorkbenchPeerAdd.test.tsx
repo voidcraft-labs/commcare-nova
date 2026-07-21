@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { activateWithEnter } from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -77,14 +78,6 @@ function addComparison(buttonName = "Add condition"): void {
 	fireEvent.click(
 		screen.getByRole("menuitem", { name: /^Compare case information/ }),
 	);
-}
-
-/** Happy DOM does not synthesize native button activation from Enter. */
-function activateWithEnter(element: HTMLElement): void {
-	element.focus();
-	fireEvent.keyDown(element, { key: "Enter", code: "Enter" });
-	fireEvent.click(element, { detail: 0 });
-	fireEvent.keyUp(element, { key: "Enter", code: "Enter" });
 }
 
 function ControlledWorkbench({ initial }: { readonly initial: Predicate }) {
