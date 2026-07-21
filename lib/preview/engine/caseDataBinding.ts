@@ -17,7 +17,14 @@
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
-import { buildCaseTypeMap, type TermBindings } from "@/lib/case-store";
+import {
+	buildCaseTypeMap,
+	CaseNotFoundError,
+	CasePropertiesValidationError,
+	type JsonValue,
+	ParkedValueNotFoundError,
+	type TermBindings,
+} from "@/lib/case-store";
 import { AppAccessError } from "@/lib/db/appAccess";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
@@ -56,7 +63,11 @@ import type {
 	LoadCaseDataResult,
 	LoadCasesResult,
 	LoadFilterPreviewResult,
+	LoadParkedValuesResult,
 	PopulateSampleCasesResult,
+	ReplaceParkedValueResult,
+	RestoreParkedValuesResult,
+	SetParkedValuesDismissedResult,
 	SubmissionMutation,
 	SubmissionResult,
 } from "./caseDataBindingTypes";
@@ -339,6 +350,13 @@ export async function loadCasesAction(args: {
 export async function loadCaseCountAction(args: {
 	appId: string;
 	caseType: string;
+	/** The builder's Case data manager passes true — it reports the
+	 * full stored population it governs (replace-all deletes held rows
+	 * too), with the held count named separately beside it. The
+	 * running app's empty-state probe leaves it unset so "no cases
+	 * exist" vs "your conditions exclude cases" attributes against the
+	 * population the app can actually reach. */
+	includeHeld?: boolean;
 }): Promise<LoadCaseCountResult> {
 	try {
 		const session = await getSession();
@@ -347,6 +365,7 @@ export async function loadCaseCountAction(args: {
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
+			includeHeld: args.includeHeld === true,
 		});
 		return { kind: "count", count };
 	} catch (err) {
@@ -383,6 +402,7 @@ export async function loadCaseDataAction(
 	caseListConfig?: CaseListConfig,
 	caseTypes?: readonly CaseType[],
 	viewerTimeZone?: string,
+	includeHeld?: boolean,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const session = await getSession();
@@ -402,6 +422,7 @@ export async function loadCaseDataAction(
 			caseId,
 			ancestorDepth,
 			caseListConfig,
+			includeHeld,
 			bindings: previewCaseStoreBindings(
 				searchSession,
 				caseListConfig?.searchInputs,
@@ -507,6 +528,164 @@ export async function resetSampleCasesAction(
 			{ treatValidationAsBug: true },
 		);
 		return mapPopulateSampleCasesError(err);
+	}
+}
+
+/**
+ * List a case type's kept values (`parked_case_values` joined to
+ * their live cases, verdicts computed server-side) for the review
+ * screen AND the discovery surfaces — the Case data badge/popover
+ * derive their active count from the same list so one invalidation
+ * refreshes every representation. Timestamps cross as ISO strings to
+ * keep the payload plain JSON.
+ */
+export async function loadParkedValuesAction(args: {
+	appId: string;
+	caseType: string;
+}): Promise<LoadParkedValuesResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const entries = await store.listParkedValues({
+			appId: args.appId,
+			caseType: args.caseType,
+		});
+		return {
+			kind: "entries",
+			entries: entries.map((entry) => ({
+				...entry,
+				createdAt: entry.createdAt.toISOString(),
+				dismissedAt: entry.dismissedAt?.toISOString() ?? null,
+			})),
+		};
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("loadParkedValues", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
+		return {
+			kind: "error",
+			message:
+				err instanceof Error
+					? err.message
+					: "Couldn’t load the data to review.",
+		};
+	}
+}
+
+/**
+ * Restore kept values onto their cases. The store re-proves
+ * every entry safe (row exists, key free, value conforms to the
+ * CURRENT schema) — a blocked entry counts in `kept`, so a stale
+ * client racing a teammate degrades to an honest partial rather than
+ * an error. The client re-lists afterwards either way.
+ */
+export async function restoreParkedValuesAction(args: {
+	appId: string;
+	ids: string[];
+}): Promise<RestoreParkedValuesResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, session.user.id, "edit");
+		const result = await store.restoreParkedValues({
+			appId: args.appId,
+			ids: args.ids,
+		});
+		return { kind: "restored", ...result };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("restoreParkedValues", err, {
+			appId: args.appId,
+		});
+		return {
+			kind: "error",
+			message: err instanceof Error ? err.message : "Failed to restore values.",
+		};
+	}
+}
+
+/**
+ * Toggle the soft archive on kept entries — `dismissed: true`
+ * for Dismiss (and its bulk form), `false` for the undo toast's
+ * un-dismiss. Never deletes.
+ */
+export async function setParkedValuesDismissedAction(args: {
+	appId: string;
+	ids: string[];
+	dismissed: boolean;
+}): Promise<SetParkedValuesDismissedResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, session.user.id, "edit");
+		const count = await store.setParkedValuesDismissed({
+			appId: args.appId,
+			ids: args.ids,
+			dismissed: args.dismissed,
+		});
+		return { kind: "toggled", count };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("setParkedValuesDismissed", err, {
+			appId: args.appId,
+		});
+		return {
+			kind: "error",
+			message:
+				err instanceof Error ? err.message : "Failed to update the entries.",
+		};
+	}
+}
+
+/**
+ * The Replace path: write a typed replacement value to the entry's case
+ * through the standard validated update, then archive the entry (its
+ * original value stays readable under Dismissed). Validation
+ * failures come back as the typed `invalid-value` arm for inline
+ * rendering in the Replace editor; a vanished entry (teammate restored
+ * it, case row replaced) is the `not-found` arm — both expected
+ * control flow, not faults.
+ */
+export async function replaceParkedValueAction(args: {
+	appId: string;
+	id: string;
+	value: JsonValue;
+}): Promise<ReplaceParkedValueResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, session.user.id, "edit");
+		await store.replaceParkedValue({
+			appId: args.appId,
+			id: args.id,
+			value: args.value,
+		});
+		return { kind: "replaced" };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		if (err instanceof CasePropertiesValidationError)
+			return { kind: "invalid-value", failures: err.failures };
+		if (err instanceof ParkedValueNotFoundError) return { kind: "not-found" };
+		// The entry lookup and the row write run in separate transactions,
+		// so the case can vanish between them (a sample-data replace's
+		// cascade) — the same "moved on" outcome as a vanished entry, not
+		// a fault to surface raw.
+		if (err instanceof CaseNotFoundError) return { kind: "not-found" };
+		reportUnexpectedActionError("replaceParkedValue", err, {
+			appId: args.appId,
+		});
+		return {
+			kind: "error",
+			message:
+				err instanceof Error ? err.message : "Failed to save the replacement.",
+		};
 	}
 }
 

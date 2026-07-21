@@ -118,7 +118,7 @@ describe("recoverLocation — case-list workspace without a case type", () => {
 		fields: {},
 	};
 
-	it.each(["cases", "search-config", "detail-config"] as const)(
+	it.each(["cases", "search-config", "detail-config", "data-review"] as const)(
 		"%s on a case-type-less module → module",
 		(kind) => {
 			const loc = { kind, moduleUuid: MOD_A } as Location;
@@ -128,6 +128,18 @@ describe("recoverLocation — case-list workspace without a case type", () => {
 			});
 		},
 	);
+});
+
+describe("recoverLocation — data-review", () => {
+	it("valid module uuid → identity", () => {
+		const loc: Location = { kind: "data-review", moduleUuid: MOD_A };
+		expect(recoverLocation(loc, doc)).toBe(loc);
+	});
+
+	it("missing module uuid → home", () => {
+		const loc: Location = { kind: "data-review", moduleUuid: MISSING_MOD };
+		expect(recoverLocation(loc, doc)).toEqual({ kind: "home" });
+	});
 });
 
 describe("recoverLocation — form", () => {

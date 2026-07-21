@@ -163,6 +163,7 @@ describe("GenerationContext.recordMutations", () => {
 				reshaped: 0,
 				retyped: 0,
 				restored: 0,
+				parkedCaseTypes: ["patient"],
 				parked: 1,
 				failureReasons: [
 					'rename age→years set aside a value on case c1: it cannot live under the destination\'s `int` declaration: value "abc" is not a whole number',
@@ -182,7 +183,7 @@ describe("GenerationContext.recordMutations", () => {
 		// SA relays the data consequence); the second returns nothing.
 		const note = ctx.consumeParkedNote();
 		expect(note).toContain("1 saved case value");
-		expect(note).toContain("set aside");
+		expect(note).toContain("kept it for review");
 		expect(note).toContain("age→years");
 		expect(ctx.consumeParkedNote()).toBeUndefined();
 	});

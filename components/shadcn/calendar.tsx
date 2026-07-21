@@ -129,7 +129,7 @@ function Calendar({
 					defaultClassNames.range_end,
 				),
 				today: cn(
-					"rounded-(--cell-radius) bg-muted text-foreground data-[selected=true]:rounded-none",
+					"rounded-(--cell-radius) text-foreground data-[selected=true]:rounded-none",
 					defaultClassNames.today,
 				),
 				outside: cn(
@@ -203,6 +203,7 @@ function CalendarDayButton({
 			variant="ghost"
 			size="icon"
 			data-day={day.date.toLocaleDateString(locale?.code)}
+			data-today={modifiers.today}
 			data-selected-single={
 				modifiers.selected &&
 				!modifiers.range_start &&
@@ -213,7 +214,26 @@ function CalendarDayButton({
 			data-range-end={modifiers.range_end}
 			data-range-middle={modifiers.range_middle}
 			className={cn(
-				"relative isolate z-10 flex h-(--cell-target-size) w-(--cell-size) min-w-(--cell-size) flex-col gap-1 border-0 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-[3px] group-data-[focused=true]/day:ring-ring/50 data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:bg-muted data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70",
+				// The painted plate (hover / today / selected) is INSET from the
+				// 44px hit target: a transparent 2px border + the Button base's
+				// `bg-clip-padding` keep every fill 4px narrower than the cell,
+				// so adjacent days always have visible breathing room and
+				// NOTHING — plate, border, or focus indicator — ever draws
+				// outside its own cell. The plate's radius is the calendar's
+				// own `--cell-radius`, not the Button base's `rounded-lg`, so
+				// every state shares one corner geometry. Hover and today use
+				// violet tints, not `bg-muted` — muted sits at the popover
+				// glass's own luminance and paints an invisible plate there.
+				// Selected is the theme's SELECTED vocabulary (violet tint +
+				// violet border, ordinary text), never the CTA button fill.
+				// Focus is `focus-visible` only — an inset ring inside the
+				// plate, replacing the Button base's outer 3px ring (which
+				// would bleed into the neighboring cell) — so opening the
+				// popover with a pointer paints no surprise ring while
+				// keyboard navigation stays clearly marked. Range fills opt
+				// back into full-bleed (border-0) — a band must run
+				// continuous across cells.
+				"relative isolate z-10 flex h-(--cell-target-size) w-(--cell-size) min-w-(--cell-size) flex-col gap-1 rounded-(--cell-radius) border-2 border-transparent leading-none font-normal not-disabled:hover:bg-nova-violet/[0.14] focus-visible:ring-0 focus-visible:inset-ring-2 focus-visible:inset-ring-ring/70 data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:border-0 data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:border-0 data-[range-middle=true]:bg-muted data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:border-0 data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[selected-single=true]:border-nova-violet data-[selected-single=true]:bg-nova-violet/[0.22] data-[selected-single=true]:text-nova-text data-[today=true]:not-data-[selected-single=true]:bg-nova-violet/[0.09] dark:not-disabled:hover:bg-nova-violet/[0.14] dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70",
 				defaultClassNames.day,
 				className,
 			)}

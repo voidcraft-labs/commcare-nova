@@ -85,6 +85,9 @@ describe("caseTypeToJsonSchema", () => {
 		};
 		expect(caseTypeToJsonSchema(ct).properties.status).toEqual({
 			type: "string",
+			// The annotation is data-type provenance, not a constraint — ajv
+			// ignores it; the case-store's transition detection reads it.
+			"x-novaDataType": "single_select",
 		});
 	});
 
@@ -129,7 +132,10 @@ describe("caseTypeToJsonSchema", () => {
 			],
 		};
 		const schema = caseTypeToJsonSchema(ct);
-		expect(schema.properties.status).toEqual({ type: "string" });
+		expect(schema.properties.status).toEqual({
+			type: "string",
+			"x-novaDataType": "single_select",
+		});
 		expect(schema.properties.languages).toEqual({
 			type: "array",
 			items: { type: "string" },

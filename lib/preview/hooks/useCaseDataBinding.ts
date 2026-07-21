@@ -27,16 +27,25 @@ import {
 	loadCaseCountAction,
 	loadCaseDataAction,
 	loadCasesAction,
+	loadParkedValuesAction,
 	populateSampleCasesAction,
+	replaceParkedValueAction,
 	resetSampleCasesAction,
+	restoreParkedValuesAction,
+	setParkedValuesDismissedAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CaseQueryConstraintContext,
+	JsonValue,
 	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
+	LoadParkedValuesResult,
 	PopulateSampleCasesResult,
+	ReplaceParkedValueResult,
+	RestoreParkedValuesResult,
+	SetParkedValuesDismissedResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	type SearchInputValues,
@@ -241,15 +250,53 @@ export function useCases(args: {
  * filter, so the case-data manager can safely distinguish "no cases exist"
  * from "no cases match this view."
  */
-export function useCaseCount(args: {
+/**
+ * The shared per-`(appId, caseType)` keyed-resource scaffolding under
+ * `useCaseCount` and `useParkedValues`: one Server Action call keyed
+ * by the pair, re-fired by the shared case-data revision, keeping the
+ * last settled value on screen through refetches (`settledKind`
+ * names the success arm worth keeping) — and rendering `loading`
+ * rather than a stale different-pair result when the identity moves.
+ */
+/**
+ * One in-flight Server Action call per `(resource, appId, caseType,
+ * revision)` across every mounted subscriber. The Case data badge and
+ * the review screen both list the same pair, and a shared
+ * invalidation bumps both mounts in the same commit — without this,
+ * each fires its own identical call. Entries evict on settle, so a
+ * later explicit reload (same key, empty map) always refetches.
+ */
+const inFlightPerCaseTypeCalls = new Map<string, Promise<unknown>>();
+function dedupedPerCaseTypeCall<T>(
+	key: string,
+	run: () => Promise<T>,
+): Promise<T> {
+	const existing = inFlightPerCaseTypeCalls.get(key);
+	if (existing !== undefined) return existing as Promise<T>;
+	const promise = run().finally(() => {
+		inFlightPerCaseTypeCalls.delete(key);
+	});
+	inFlightPerCaseTypeCalls.set(key, promise);
+	return promise;
+}
+
+function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
+	fetcher: (ids: { appId: string; caseType: string }) => Promise<T>;
+	settledKind: T["kind"];
+	/** Distinguishes callers whose fetchers differ beyond (appId,
+	 * caseType) — e.g. the count's includeHeld variants — in the
+	 * module-level in-flight dedupe key, so concurrent mounts of
+	 * DIFFERENT variants never share one call. */
+	variant?: string;
+	errorMessage: string;
 }): {
-	state: LoadingState<LoadCaseCountResult>;
+	state: LoadingState<T>;
 	fetching: boolean;
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType } = args;
+	const { appId, caseType, fetcher, settledKind, variant, errorMessage } = args;
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const ready = Boolean(appId && caseType);
 	const requestIdentity = ready ? `${appId}\u0000${caseType}` : "";
@@ -257,43 +304,46 @@ export function useCaseCount(args: {
 		() => [requestIdentity, caseDataRevision],
 		[requestIdentity, caseDataRevision],
 	);
-	interface KeyedCaseCountState {
-		readonly kind: "case-count";
+	interface KeyedState {
+		readonly kind: "per-case-type";
 		readonly key: string;
-		readonly value: LoadingState<LoadCaseCountResult>;
+		readonly value: LoadingState<T>;
 	}
-	const resource = useReloadableResource<KeyedCaseCountState>({
+	const resource = useReloadableResource<KeyedState>({
 		prepare: () =>
 			!appId || !caseType
 				? {
 						notReady: {
-							kind: "case-count",
+							kind: "per-case-type",
 							key: "",
 							value: { kind: "idle" },
 						},
 					}
 				: {
 						fetch: async () => ({
-							kind: "case-count" as const,
+							kind: "per-case-type" as const,
 							key: requestIdentity,
-							value: await loadCaseCountAction({ appId, caseType }),
+							value: await dedupedPerCaseTypeCall(
+								`${settledKind} ${variant ?? ""} ${requestIdentity} ${caseDataRevision}`,
+								() => fetcher({ appId, caseType }),
+							),
 						}),
 					},
 		loading: {
-			kind: "case-count",
+			kind: "per-case-type",
 			key: requestIdentity,
 			value: { kind: "loading" },
 		},
 		toError: (err) => ({
-			kind: "case-count",
+			kind: "per-case-type" as const,
 			key: requestIdentity,
 			value: {
 				kind: "error",
-				message: err instanceof Error ? err.message : "Failed to count cases.",
-			},
+				message: err instanceof Error ? err.message : errorMessage,
+			} as LoadingState<T>,
 		}),
 		keepStale: (prev) =>
-			prev.key === requestIdentity && prev.value.kind === "count",
+			prev.key === requestIdentity && prev.value.kind === settledKind,
 		reloadToken,
 	});
 	return {
@@ -305,6 +355,32 @@ export function useCaseCount(args: {
 		fetching: resource.fetching,
 		reload: resource.reload,
 	};
+}
+
+export function useCaseCount(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+	/** The builder's Case data manager passes true — the full stored
+	 * population it governs; the running app's probes leave it unset. */
+	includeHeld?: boolean;
+}): {
+	state: LoadingState<LoadCaseCountResult>;
+	fetching: boolean;
+	reload: () => Promise<void>;
+} {
+	const includeHeld = args.includeHeld === true;
+	return usePerCaseTypeResource<LoadCaseCountResult>({
+		appId: args.appId,
+		caseType: args.caseType,
+		fetcher: (ids) => loadCaseCountAction({ ...ids, includeHeld }),
+		// The variant is part of the dedupe identity — the manager's
+		// population count (held included) and the running list's
+		// empty-state probe (held excluded) may mount concurrently and
+		// must never share one in-flight result.
+		settledKind: "count",
+		variant: includeHeld ? "held-included" : undefined,
+		errorMessage: "Failed to count cases.",
+	});
 }
 
 /**
@@ -332,12 +408,22 @@ export function useCaseData(args: {
 	caseListConfig?: CaseListConfig;
 	/** Live compiler catalog paired with `caseListConfig`. */
 	caseTypes?: readonly CaseType[];
+	/** The review surface's View case dialog reads a HELD case by
+	 * design; running-app callers leave this unset. */
+	includeHeld?: boolean;
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType, caseId, ancestorDepth, caseListConfig, caseTypes } =
-		args;
+	const {
+		appId,
+		caseType,
+		caseId,
+		ancestorDepth,
+		caseListConfig,
+		caseTypes,
+		includeHeld,
+	} = args;
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const ready = Boolean(appId && caseType && caseId);
 	/* Keep the request identity beside its result. A dependency change renders
@@ -345,7 +431,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${caseDataRevision}`
+		? `${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${caseDataRevision}`
 		: "";
 	const reloadToken = useMemo(
 		() => [requestKey, caseListConfig, caseTypes],
@@ -384,6 +470,7 @@ export function useCaseData(args: {
 								caseListConfig,
 								caseTypes,
 								viewerTimeZone(),
+								includeHeld,
 							),
 						}),
 					},
@@ -478,6 +565,102 @@ export function useResetSampleCases(args: {
 		const result = await resetSampleCasesAction(appId, caseType);
 		if (result.kind === "ok")
 			invalidateCaseData(appId, caseType.name, "replacement");
+		return result;
+	};
+}
+
+/**
+ * Subscribe to a case type's kept values. One list serves every
+ * representation — the review screen renders the entries; the Case
+ * data badge + popover section derive their active count and property
+ * names from the same state — and all of them ride the shared
+ * per-type revision, so a restore/replace/dismiss (or any case-data
+ * write, including a schema conversion's park) refreshes each
+ * surface without manual reloads. Mirrors `useCaseCount`'s
+ * keyed-state shape: a stale settle for a different `(app, type)`
+ * renders as `loading`, never as the wrong list.
+ */
+export function useParkedValues(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): {
+	state: LoadingState<LoadParkedValuesResult>;
+	fetching: boolean;
+	reload: () => Promise<void>;
+} {
+	return usePerCaseTypeResource<LoadParkedValuesResult>({
+		...args,
+		fetcher: loadParkedValuesAction,
+		settledKind: "entries",
+		errorMessage: "Couldn’t load the data to review.",
+	});
+}
+
+/**
+ * Curried action callback for the review screen's Restore (single
+ * and restore-all). Any success invalidates the shared per-type
+ * revision — restored values changed case rows AND the entry list.
+ * The consuming component owns pressed-state and toast UX, like the
+ * sample-data hooks.
+ */
+export function useRestoreParkedValues(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): (ids: string[]) => Promise<RestoreParkedValuesResult> {
+	const { appId, caseType } = args;
+	return async (ids) => {
+		if (!appId || !caseType) {
+			return { kind: "error", message: "App or case type not yet available." };
+		}
+		const result = await restoreParkedValuesAction({ appId, ids });
+		if (result.kind === "restored") invalidateCaseData(appId, caseType);
+		return result;
+	};
+}
+
+/**
+ * Curried action callback for Dismiss / bulk dismiss and the undo
+ * toast's un-dismiss. Invalidation keeps the badge count and the
+ * Dismissed filter's tallies honest everywhere at once.
+ */
+export function useSetParkedValuesDismissed(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): (
+	ids: string[],
+	dismissed: boolean,
+) => Promise<SetParkedValuesDismissedResult> {
+	const { appId, caseType } = args;
+	return async (ids, dismissed) => {
+		if (!appId || !caseType) {
+			return { kind: "error", message: "App or case type not yet available." };
+		}
+		const result = await setParkedValuesDismissedAction({
+			appId,
+			ids,
+			dismissed,
+		});
+		if (result.kind === "toggled") invalidateCaseData(appId, caseType);
+		return result;
+	};
+}
+
+/**
+ * Curried action callback for the Replace editor's "Save to case". The
+ * typed `invalid-value` arm stays with the caller for inline
+ * rendering; only a successful replacement invalidates.
+ */
+export function useReplaceParkedValue(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): (id: string, value: JsonValue) => Promise<ReplaceParkedValueResult> {
+	const { appId, caseType } = args;
+	return async (id, value) => {
+		if (!appId || !caseType) {
+			return { kind: "error", message: "App or case type not yet available." };
+		}
+		const result = await replaceParkedValueAction({ appId, id, value });
+		if (result.kind === "replaced") invalidateCaseData(appId, caseType);
 		return result;
 	};
 }

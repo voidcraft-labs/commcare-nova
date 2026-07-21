@@ -9,6 +9,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Uuid } from "@/lib/doc/types";
 import type { CaseType } from "@/lib/domain";
 import type {
 	LoadCaseCountResult,
@@ -20,10 +21,13 @@ const mocks = vi.hoisted(() => ({
 		| LoadCaseCountResult
 		| { kind: "idle" }
 		| { kind: "loading" },
+	parkedState: { kind: "entries", entries: [] } as unknown,
 	populate: vi.fn(),
 	reset: vi.fn(),
 	reloadCount: vi.fn(),
 	showToast: vi.fn(),
+	openDataReview: vi.fn(),
+	setPreviewing: vi.fn(),
 }));
 
 vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
@@ -32,8 +36,21 @@ vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
 		fetching: false,
 		reload: mocks.reloadCount,
 	}),
+	useParkedValues: () => ({
+		state: mocks.parkedState,
+		fetching: false,
+		reload: vi.fn(),
+	}),
 	usePopulateSampleCases: () => mocks.populate,
 	useResetSampleCases: () => mocks.reset,
+}));
+
+vi.mock("@/lib/routing/hooks", () => ({
+	useNavigate: () => ({ openDataReview: mocks.openDataReview }),
+}));
+
+vi.mock("@/lib/session/hooks", () => ({
+	useSetPreviewing: () => mocks.setPreviewing,
 }));
 
 vi.mock("@/lib/ui/toastStore", () => ({
@@ -51,6 +68,18 @@ const POPULATED_TRIGGER_LABEL =
 const UNAVAILABLE_TRIGGER_LABEL =
 	"Case data for Patient. Case count unavailable. Case data is shared throughout your app";
 
+/** The popover description's full text, chip and all — the case-type
+ *  name renders as a reference-style chip inside the paragraph, so
+ *  assertions match the paragraph's assembled textContent rather than
+ *  one text node. The chip carries the case type's NAME (the id the
+ *  `#patient/…` references use), not a humanized label. */
+const scopeDescription =
+	(verb: "Add or replace" | "View", label: string) =>
+	(_content: string, element: Element | null) =>
+		element?.tagName === "P" &&
+		element.textContent ===
+			`${verb} the cases saved for the ${label} case type. They’re used throughout your app and in Preview.`;
+
 beforeEach(() => {
 	mocks.countState = { kind: "count", count: 0 };
 	mocks.populate.mockReset();
@@ -67,6 +96,7 @@ function renderManager(
 	return render(
 		<CaseDataManager
 			appId="app-case-manager"
+			moduleUuid={"00000000-0000-7000-8000-000000000001" as Uuid}
 			caseType={caseType}
 			canEdit={canEdit}
 			hasLinkedChildren={hasLinkedChildren}
@@ -145,7 +175,7 @@ describe("CaseDataManager", () => {
 			}),
 		).toBeTruthy();
 		expect(screen.getByRole("alertdialog").textContent).toContain(
-			"All case data for “Patient” will be replaced throughout the app",
+			"All “Patient” cases will be replaced throughout the app",
 		);
 		expect(
 			screen.getByText(/including cases added by hand or through Preview/i),
@@ -178,9 +208,7 @@ describe("CaseDataManager", () => {
 		fireEvent.click(trigger);
 
 		expect(
-			screen.getByText(
-				"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
-			),
+			screen.getByText(scopeDescription("Add or replace", "patient")),
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Replace case data" }));
 
@@ -222,15 +250,9 @@ describe("CaseDataManager", () => {
 				"No case data is available for Search, Results, or Details",
 			),
 		).toBeTruthy();
+		expect(screen.getByText(scopeDescription("View", "patient"))).toBeTruthy();
 		expect(
-			screen.getByText(
-				"View case data for “Patient”. It’s used throughout your app and in Preview.",
-			),
-		).toBeTruthy();
-		expect(
-			screen.queryByText(
-				"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
-			),
+			screen.queryByText(scopeDescription("Add or replace", "patient")),
 		).toBeNull();
 		expect(
 			screen.getByText(
@@ -429,9 +451,7 @@ describe("CaseDataManager", () => {
 		});
 		fireEvent.click(trigger);
 		expect(
-			screen.getByText(
-				"Add or replace case data for “Clients”. It’s used throughout your app and in Preview.",
-			),
+			screen.getByText(scopeDescription("Add or replace", "clients")),
 		).toBeTruthy();
 		expect(screen.queryByText(/Clients cases/i)).toBeNull();
 
@@ -442,7 +462,7 @@ describe("CaseDataManager", () => {
 			}),
 		).toBeTruthy();
 		expect(screen.getByRole("alertdialog").textContent).toContain(
-			"All case data for “Clients” will be replaced throughout the app",
+			"All “Clients” cases will be replaced throughout the app",
 		);
 		expect(screen.getByRole("alertdialog").textContent).not.toContain(
 			"Clients cases",

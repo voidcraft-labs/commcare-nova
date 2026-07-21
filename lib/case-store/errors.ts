@@ -65,6 +65,40 @@ export class CaseNotFoundError extends Error {
 }
 
 /**
+ * Thrown when a review-surface operation names a kept entry the
+ * bound `CaseStore` cannot reach. Mirrors {@link CaseNotFoundError}'s
+ * posture: "never existed", "already restored/deleted", and "outside
+ * the bound Project" are deliberately indistinguishable so the tenant
+ * boundary stays structural rather than message-leaked.
+ */
+export class ParkedValueNotFoundError extends Error {
+	/** Stable error name for log filters and instanceof-style checks. */
+	readonly name = "ParkedValueNotFoundError";
+	/** The kept entry's id the operation tried to reach. */
+	readonly parkedValueId: string;
+
+	constructor(parkedValueId: string) {
+		super(
+			[
+				`Review entry '${parkedValueId}' not found.`,
+				``,
+				`${INDENT}parked_value_id: '${parkedValueId}'`,
+				``,
+				"The bound `CaseStore` owner cannot reach this entry. It may never",
+				"have existed, may already be restored or deleted (entries die with",
+				"their case row), or may sit outside the bound owner's tenant — the",
+				"three are equivalent so the tenant boundary stays structural rather",
+				"than message-leaked.",
+				``,
+				"Hint: the review surface re-lists on resolve to pick up the latest",
+				"visible entry set.",
+			].join("\n"),
+		);
+		this.parkedValueId = parkedValueId;
+	}
+}
+
+/**
  * One field-level validation failure. `path` is the JSONB pointer
  * AJV emits (e.g. `/age`, or the empty string for the document
  * root); `message` is the AJV-reported reason. Form layers render
@@ -225,6 +259,8 @@ export class CaseTypeNotInBlueprintError extends Error {
 export class SchemaChangePhaseBError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */
 	readonly name = "SchemaChangePhaseBError";
+	/** The case type whose Phase A committed — harvesting callers attribute the report's parks to it. */
+	readonly caseType: string;
 	/** The COMMITTED Phase-A report — parked ids and all. */
 	readonly report: {
 		readonly migrated: number;
@@ -257,6 +293,7 @@ export class SchemaChangePhaseBError extends Error {
 			].join("\n"),
 			{ cause: args.cause },
 		);
+		this.caseType = args.caseType;
 		this.report = args.report;
 	}
 }
