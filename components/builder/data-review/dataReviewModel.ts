@@ -9,6 +9,7 @@ import type {
 	CasePropertyDataType,
 	JsonValue,
 	ParkedValueEntryWire,
+	ParkedValueStanding,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 
 /**
@@ -105,6 +106,44 @@ export const DATA_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 export function displayReviewValue(value: JsonValue): string {
 	if (Array.isArray(value)) return value.map(String).join(", ");
 	return String(value);
+}
+
+/**
+ * The row's one-clause story: why this value is waiting, told
+ * against the property's CURRENT state — the server's `standing`
+ * classification carries the fact, this maps it to words. The
+ * blocked arm names what the value fails to be ("Isn't a date"
+ * beside the literal "next Tuesday" and the date-iconed chip is the
+ * whole event). A select block is always a SHAPE mismatch — the
+ * stored select schema carries no option enum (a narrowed-away value
+ * lists as `occupied` behind its surviving selections, or `fits`
+ * when the key is free), so the only way a select declaration
+ * rejects a value is a list where a single choice goes or vice
+ * versa. `currentType` comes from the same declaration the chip icon
+ * reads, so the phrase and the icon can't disagree; when the client
+ * can't see a declaration for a blocked entry (a schema
+ * materialization beat), the phrase stays typeless rather than
+ * guessing.
+ */
+export function standingPhrase(
+	standing: ParkedValueStanding,
+	currentType: CasePropertyDataType | undefined,
+): string {
+	switch (standing) {
+		case "fits":
+			return "Fits the property again";
+		case "occupied":
+			return "Another value is saved there now";
+		case "undeclared":
+			return "The property was removed";
+		case "blocked": {
+			if (currentType === undefined) return "Doesn't fit the property now";
+			if (currentType === "single_select") return "Isn't a single choice";
+			if (currentType === "multi_select") return "Isn't a list of choices";
+			const label = DATA_TYPE_LABELS[currentType];
+			return currentType === "text" ? "Isn't text" : `Isn't a ${label}`;
+		}
+	}
 }
 
 /**

@@ -2467,7 +2467,7 @@ export class PostgresCaseStore implements CaseStore {
 			.forUpdate()
 			.execute();
 		const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
-		const conformance = await this.parkedValueConformance(
+		const classify = await this.parkedValueFitClassifier(
 			trx,
 			appId,
 			new Set(entries.map((entry) => entry.case_type)),
@@ -2499,7 +2499,10 @@ export class PostgresCaseStore implements CaseStore {
 				kept++;
 				continue;
 			}
-			if (!conformance(entry.case_type, entry.property, entry.original_value)) {
+			if (
+				classify(entry.case_type, entry.property, entry.original_value) !==
+				"fits"
+			) {
 				kept++;
 				continue;
 			}
@@ -2565,19 +2568,19 @@ export class PostgresCaseStore implements CaseStore {
 					.orderBy("p.id", "desc")
 					.execute();
 				if (rows.length === 0) return [];
-				const conformance = await this.parkedValueConformance(
+				const classify = await this.parkedValueFitClassifier(
 					trx,
 					args.appId,
 					new Set(rows.map((row) => row.case_type)),
 				);
 				return rows.map((row) => {
-					const conforms = conformance(
-						row.case_type,
-						row.property,
-						row.original_value,
-					);
+					const fit = classify(row.case_type, row.property, row.original_value);
 					// SQL NULL (key absent) and jsonb null both read back as
 					// JS null — identical to the old hasOwn + null check.
+					// Occupancy only refines a fitting value ("it could go
+					// back, but a real value sits there now"); a blocked or
+					// undeclared entry can't go back either way, so that arm
+					// carries the more actionable fact.
 					const held = row.held_value;
 					const occupied = held !== null && held !== "";
 					// `from_type`/`to_type` were written from typed tokens by
@@ -2596,7 +2599,7 @@ export class PostgresCaseStore implements CaseStore {
 						toType: row.to_type as CasePropertyDataType,
 						createdAt: row.created_at,
 						dismissedAt: row.dismissed_at,
-						restorable: conforms && !occupied,
+						standing: fit !== "fits" ? fit : occupied ? "occupied" : "fits",
 					};
 				});
 			});
@@ -2693,18 +2696,26 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Build the per-`(caseType, property)` conformance check restores
-	 * gate on: reads the involved types' CURRENTLY-STORED schema rows
-	 * inside the caller's transaction and compiles a per-property ajv
-	 * validator on demand. An absent schema row, an unparseable stored
-	 * document, or an undeclared property all answer `false` — a
-	 * restore never proceeds on a guess.
+	 * Build the per-`(caseType, property)` fit classifier both restores
+	 * and the review listing read: it loads the involved types'
+	 * CURRENTLY-STORED schema rows inside the caller's transaction and
+	 * compiles a per-property ajv validator on demand. `"fits"` is the
+	 * only arm a restore proceeds on; `"undeclared"` covers a property
+	 * the schema no longer declares AND an absent or unparseable stored
+	 * schema document (a restore never proceeds on a guess);
+	 * `"blocked"` is a live declaration rejecting the value.
 	 */
-	private async parkedValueConformance(
+	private async parkedValueFitClassifier(
 		trx: Transaction<Database>,
 		appId: string,
 		caseTypes: ReadonlySet<string>,
-	): Promise<(caseType: string, property: string, value: unknown) => boolean> {
+	): Promise<
+		(
+			caseType: string,
+			property: string,
+			value: unknown,
+		) => "fits" | "blocked" | "undeclared"
+	> {
 		const schemaRows = await trx
 			.selectFrom("case_type_schemas")
 			.select(["case_type", "schema"])
@@ -2733,7 +2744,8 @@ export class PostgresCaseStore implements CaseStore {
 						: null;
 				cache.set(key, validate);
 			}
-			return validate !== null && validate(value) === true;
+			if (validate === null) return "undeclared";
+			return validate(value) === true ? "fits" : "blocked";
 		};
 	}
 

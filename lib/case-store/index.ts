@@ -47,6 +47,7 @@ export type {
 	GenerateSampleDataArgs,
 	MigrationReport,
 	ParkedValueEntry,
+	ParkedValueStanding,
 	QueryArgs,
 	ResetSampleDataArgs,
 	SchemaCaseStore,

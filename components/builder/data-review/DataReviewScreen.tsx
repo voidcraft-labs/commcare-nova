@@ -4,7 +4,7 @@
  *
  * Everything shown is the Server Action's server-computed truth: the
  * case grouping / filter DERIVATIONS live in the pure
- * `dataReviewModel.ts`, the per-entry `restorable` verdict comes from
+ * `dataReviewModel.ts`, the per-entry `standing` verdict comes from
  * `listParkedValues` (computed against the property's current
  * declaration, re-proven at write time), and this component only
  * renders and dispatches.
@@ -14,13 +14,18 @@
  * View case dialog away so a decision is made against the record, not
  * a floating value. The page header explains the interface once (what
  * the list is, what the actions do, what returns on its own); each
- * row then SHOWS its state instead of narrating it — the property
- * renders as a reference-style chip whose icon is the property's
- * CURRENT type, beside the literal waiting value. Each row offers
- * every action that works for it as visible labeled buttons — never a
- * disabled button beside a live one. Plain words only, and
- * reassurance lives in the verbs ("kept", "put back"), not appended
- * disclaimers.
+ * row then tells ITS OWN story in one clause — the property renders
+ * as a reference-style chip whose icon is the property's CURRENT
+ * type, beside the literal waiting value, and under them the
+ * server-classified `standing` maps to a short present-tense fact
+ * ("Isn't a date", "No longer among the options") via
+ * `standingPhrase`. Never park-time history replayed as if current,
+ * never a paragraph. Each row offers every action that works for it
+ * as visible labeled buttons — never a disabled button beside a live
+ * one — and every action keeps ONE fixed appearance on every row
+ * (constructive actions in violet action text, Dismiss in secondary;
+ * no per-row "primary" promotion). Plain words only, and reassurance
+ * lives in the verbs ("kept", "put back"), not appended disclaimers.
  */
 "use client";
 
@@ -29,6 +34,7 @@ import tablerArchive from "@iconify-icons/tabler/archive";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
+import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { type ReactElement, useId, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
@@ -69,6 +75,7 @@ import {
 	type ReviewFilter,
 	replacementDraftToValue,
 	reviewCounts,
+	standingPhrase,
 } from "./dataReviewModel";
 import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
 
@@ -582,36 +589,50 @@ function ReviewEntryRow({
 	readonly onSaveReplace: () => void;
 }) {
 	const display = displayReviewValue(entry.originalValue);
+	const story = standingPhrase(
+		entry.standing,
+		currentDecl === undefined ? undefined : (currentDecl.data_type ?? "text"),
+	);
 
 	// A row offers every action that works for it: Put back when the
 	// value fits its property again, Replace whenever the property is
-	// still declared (both at once when both work — the leftmost,
-	// violet button is the suggested one), Dismiss always. A button
-	// that couldn't work is never rendered at all, let alone disabled
-	// beside a live one. A park whose property is no longer declared
-	// (a rename's retired source, a removed property) offers only
+	// still declared (both at once when both work), Dismiss always. A
+	// button that couldn't work is never rendered at all, let alone
+	// disabled beside a live one — and each action keeps ONE fixed
+	// appearance on every row (constructive actions in violet action
+	// text, Dismiss in secondary), so no row promotes an arbitrary
+	// "primary". A park whose property is no longer declared (a
+	// rename's retired source, a removed property) offers only
 	// Dismiss and View case: the store rejects a write under an
 	// undeclared key, so Put back and Replace would fail on every
 	// save — and a put-back reappears by itself if the property is
 	// ever declared again.
-	const restorable = entry.restorable;
+	const restorable = entry.standing === "fits";
 	const replaceable = currentDecl !== undefined;
+	// The ghost hover flips text to the neutral foreground; the
+	// override keeps a constructive action's violet through hover so
+	// it never reads as Dismiss mid-press.
+	const constructiveAction =
+		"min-h-11 text-[13px] text-nova-violet-bright not-disabled:hover:text-nova-violet-bright";
 
 	return (
 		<div className="border-t border-nova-violet/[0.08]">
-			<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2">
-				<p className="min-w-52 flex-1 text-[13.5px] break-words text-nova-text">
-					{chip} <span className="text-nova-text-muted">“</span>
-					{display}
-					<span className="text-nova-text-muted">”</span>
-				</p>
+			<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5">
+				<div className="min-w-52 flex-1">
+					<p className="text-[13.5px] break-words text-nova-text">
+						{chip} <span className="text-nova-text-muted">“</span>
+						{display}
+						<span className="text-nova-text-muted">”</span>
+					</p>
+					<p className="mt-1 text-xs text-nova-text-muted">{story}</p>
+				</div>
 				{canEdit && (
-					<div className="flex shrink-0 items-center gap-1.5">
+					<div className="flex shrink-0 items-center gap-1">
 						{dismissedView ? (
 							<Button
 								type="button"
 								variant="ghost"
-								className="min-h-11 text-[13px] text-nova-text-secondary"
+								className={constructiveAction}
 								disabled={busy}
 								onClick={onUndismiss}
 							>
@@ -624,11 +645,12 @@ function ReviewEntryRow({
 									<SimpleTooltip content="Saves this value on its case again">
 										<Button
 											type="button"
-											variant="outline"
-											className="min-h-11 text-[13px] text-nova-violet-bright"
+											variant="ghost"
+											className={constructiveAction}
 											disabled={busy}
 											onClick={onPutBack}
 										>
+											<Icon icon={tablerArrowBackUp} width="15" height="15" />
 											Put back
 										</Button>
 									</SimpleTooltip>
@@ -637,15 +659,12 @@ function ReviewEntryRow({
 									<SimpleTooltip content="Enter a new value to save instead">
 										<Button
 											type="button"
-											variant={restorable ? "ghost" : "outline"}
-											className={
-												restorable
-													? "min-h-11 text-[13px] text-nova-text-secondary"
-													: "min-h-11 text-[13px] text-nova-violet-bright"
-											}
+											variant="ghost"
+											className={constructiveAction}
 											disabled={busy}
 											onClick={onOpenReplace}
 										>
+											<Icon icon={tablerPencil} width="15" height="15" />
 											Replace
 										</Button>
 									</SimpleTooltip>
@@ -658,6 +677,7 @@ function ReviewEntryRow({
 										disabled={busy}
 										onClick={onDismiss}
 									>
+										<Icon icon={tablerArchive} width="15" height="15" />
 										Dismiss
 									</Button>
 								</SimpleTooltip>

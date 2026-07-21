@@ -388,15 +388,29 @@ export interface MigrationReport {
 }
 
 /**
+ * Where a kept value stands against its property's CURRENT
+ * declaration — the one server-computed classification the review
+ * surface renders and acts on. `"fits"` alone permits Put back
+ * (exactly the conditions `restoreParkedValues` re-proves at write
+ * time, so an offered Put back can only fail by losing a race); the
+ * other arms say why the value is still waiting: `"occupied"` — it
+ * fits, but the case's key holds a real value now; `"blocked"` — the
+ * declaration exists but rejects the value (wrong shape for the
+ * type, or no longer among a select's options); `"undeclared"` — the
+ * schema no longer declares the property at all (also the answer for
+ * an absent or unparseable stored schema: restore refuses to guess).
+ */
+export type ParkedValueStanding =
+	| "fits"
+	| "occupied"
+	| "blocked"
+	| "undeclared";
+
+/**
  * One kept value as the review surface reads it — a
- * `parked_case_values` row joined to its live case, plus the one
- * verdict computed server-side against the property's CURRENT
- * declaration (never promised from staleness): `restorable`, true
- * when the original value conforms to the currently-stored schema
- * AND the case's key holds no real value. Exactly the conditions
- * `restoreParkedValues` re-proves at write time, so an offered Put
- * back can only fail by losing a race — to a concurrent write, a
- * narrow-options survivor set, or a replacement occupying the key.
+ * `parked_case_values` row joined to its live case, plus the
+ * `standing` verdict computed server-side against the property's
+ * CURRENT declaration (never promised from staleness).
  */
 export interface ParkedValueEntry {
 	id: string;
@@ -414,7 +428,7 @@ export interface ParkedValueEntry {
 	createdAt: Date;
 	/** Soft archive — non-null when the user dismissed the entry. Dismissed entries stay listed (and explicitly restorable) under the Dismissed filter. */
 	dismissedAt: Date | null;
-	restorable: boolean;
+	standing: ParkedValueStanding;
 }
 
 /**

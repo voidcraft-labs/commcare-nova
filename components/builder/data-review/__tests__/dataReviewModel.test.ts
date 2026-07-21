@@ -6,6 +6,7 @@ import {
 	groupReviewByCase,
 	replacementDraftToValue,
 	reviewCounts,
+	standingPhrase,
 } from "../dataReviewModel";
 
 function entry(over: Partial<ParkedValueEntryWire>): ParkedValueEntryWire {
@@ -21,20 +22,20 @@ function entry(over: Partial<ParkedValueEntryWire>): ParkedValueEntryWire {
 		toType: "date",
 		createdAt: "2026-07-20T09:41:00.000Z",
 		dismissedAt: null,
-		restorable: false,
+		standing: "blocked",
 		...over,
 	};
 }
 
 describe("reviewCounts + filterReviewEntries", () => {
 	const entries = [
-		entry({ id: "a", restorable: true }),
+		entry({ id: "a", standing: "fits" }),
 		entry({ id: "b" }),
 		entry({ id: "c", dismissedAt: "2026-07-20T10:00:00.000Z" }),
 		entry({
 			id: "d",
 			dismissedAt: "2026-07-20T10:00:00.000Z",
-			restorable: true,
+			standing: "fits",
 		}),
 	];
 
@@ -78,6 +79,41 @@ describe("displayReviewValue", () => {
 		expect(displayReviewValue(["fever", "chills"])).toBe("fever, chills");
 		expect(displayReviewValue("around 1990")).toBe("around 1990");
 		expect(displayReviewValue(42)).toBe("42");
+	});
+});
+
+describe("standingPhrase", () => {
+	it("names what a blocked value fails to be, from the current type", () => {
+		expect(standingPhrase("blocked", "date")).toBe("Isn't a date");
+		expect(standingPhrase("blocked", "datetime")).toBe("Isn't a date & time");
+		expect(standingPhrase("blocked", "int")).toBe("Isn't a whole number");
+		expect(standingPhrase("blocked", "geopoint")).toBe("Isn't a GPS point");
+		expect(standingPhrase("blocked", "text")).toBe("Isn't text");
+	});
+
+	it("phrases select blocks as choice shape — a select schema carries no option enum, so only shape can block", () => {
+		expect(standingPhrase("blocked", "single_select")).toBe(
+			"Isn't a single choice",
+		);
+		expect(standingPhrase("blocked", "multi_select")).toBe(
+			"Isn't a list of choices",
+		);
+	});
+
+	it("stays typeless when the client sees no declaration for a blocked entry", () => {
+		expect(standingPhrase("blocked", undefined)).toBe(
+			"Doesn't fit the property now",
+		);
+	});
+
+	it("tells the non-blocked standings plainly", () => {
+		expect(standingPhrase("fits", "text")).toBe("Fits the property again");
+		expect(standingPhrase("occupied", "date")).toBe(
+			"Another value is saved there now",
+		);
+		expect(standingPhrase("undeclared", undefined)).toBe(
+			"The property was removed",
+		);
 	});
 });
 

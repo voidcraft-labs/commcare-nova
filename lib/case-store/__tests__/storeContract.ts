@@ -2175,8 +2175,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				toType: "int",
 				dismissedAt: null,
 				// "abc" fits text but not the CURRENT int declaration —
-				// not restorable until the property changes again.
-				restorable: false,
+				// blocked until the property changes again.
+				standing: "blocked",
 			});
 			expect(entry?.reason).toContain("age");
 			expect(entry?.createdAt).toBeInstanceOf(Date);
@@ -2267,7 +2267,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
-			expect(listed[0]?.restorable).toBe(true);
+			expect(listed[0]?.standing).toBe("fits");
 			expect(
 				await store.restoreParkedValues({
 					appId: APP_ID,
@@ -2399,15 +2399,16 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			expect(rows[0]?.properties).toEqual({ age: 42 });
 			// The entry archives rather than deletes — the original value
-			// stays readable under the Dismissed filter, now doubly
-			// blocked ("abc" no longer fits the int declaration AND the
-			// replacement occupies its key).
+			// stays readable under the Dismissed filter. "abc" fails the
+			// int declaration outright, so the standing reports the
+			// blocked fact (the replacement occupying the key is moot —
+			// occupancy only refines a value that fits).
 			const listed = await store.listParkedValues({
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(listed[0]?.dismissedAt).toBeInstanceOf(Date);
-			expect(listed[0]?.restorable).toBe(false);
+			expect(listed[0]?.standing).toBe("blocked");
 
 			await expect(
 				store.replaceParkedValue({
@@ -2578,23 +2579,25 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const symptomsEntry = listed.find((e) => e.property === "symptoms");
 			// Not a type change — the transition carries the select type
 			// on both sides, and the flushed single's key dropped so the
-			// entry is explicitly restorable (a select schema carries no
+			// entry stands fully restorable (a select schema carries no
 			// enum; the deliberate flush stays undone-able by hand).
 			expect(colorEntry).toMatchObject({
 				fromType: "single_select",
 				toType: "single_select",
-				restorable: true,
+				standing: "fits",
 			});
 			// The multi kept its SURVIVING elements on the row — the full
-			// pre-flush original parked, blocked by those survivors.
+			// pre-flush original parked, occupied behind those survivors
+			// (it would fit the enum-less schema; the row's kept subset is
+			// what stands in the way).
 			expect(symptomsEntry).toMatchObject({
 				originalValue: ["fever", "chills"],
 				fromType: "multi_select",
 				toType: "multi_select",
-				restorable: false,
+				standing: "occupied",
 			});
 
-			// Restore proves the verdicts: the blocked entry is KEPT, the
+			// Restore proves the verdicts: the occupied entry is KEPT, the
 			// free one lands.
 			const result = await store.restoreParkedValues({
 				appId: APP_ID,
@@ -2606,6 +2609,61 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				color: "red",
 				symptoms: ["fever"],
 			});
+		});
+
+		it("a park whose property leaves the schema stands undeclared, and restore keeps it", async () => {
+			const store = await options.factory(TENANT_A);
+			const textAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const intAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			const noAge: CaseType = { name: "patient", properties: [] };
+			await seedSchema(store, buildBlueprint([textAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intAge])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			expect(report.parkedIds).toHaveLength(1);
+
+			// Drop the property entirely. The waiting entry survives the
+			// removal (a park only leaves by restore, replace-archive, or
+			// its case vanishing) but now stands undeclared — the review
+			// surface offers neither Put back nor Replace, and a restore
+			// attempt proves the refusal.
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([noAge])),
+			});
+			const listed = await store.listParkedValues({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(listed).toHaveLength(1);
+			expect(listed[0]?.standing).toBe("undeclared");
+			expect(
+				await store.restoreParkedValues({
+					appId: APP_ID,
+					ids: report.parkedIds,
+				}),
+			).toEqual({ restored: 0, kept: 1 });
 		});
 
 		// -----------------------------------------------------------

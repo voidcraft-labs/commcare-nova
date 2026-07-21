@@ -24,6 +24,7 @@ import type {
 	JsonObject,
 	JsonValue,
 	ParkedValueEntry,
+	ParkedValueStanding,
 } from "@/lib/case-store";
 import type { CasePropertyDataType } from "@/lib/domain";
 
@@ -122,7 +123,7 @@ export type LoadCaseCountResult =
 /**
  * One kept value as it crosses the Server Action wire —
  * `ParkedValueEntry` (see `lib/case-store`) with its timestamps as
- * ISO strings so the payload stays plain JSON. The `restorable`
+ * ISO strings so the payload stays plain JSON. The `standing`
  * verdict is computed server-side against the property's CURRENT
  * declaration; the client renders it, never re-derives it.
  */
@@ -132,9 +133,10 @@ export interface ParkedValueEntryWire
 	dismissedAt: string | null;
 }
 
-// The wire's transition tokens re-exported beside the entry so the
-// review screen types its grouping off this leaf module.
-export type { CasePropertyDataType };
+// The wire's transition tokens and the entry's standing union
+// re-exported beside the entry so the review screen types its
+// grouping and per-row story off this leaf module.
+export type { CasePropertyDataType, ParkedValueStanding };
 
 /**
  * Result of listing a case type's kept values. One arm serves
