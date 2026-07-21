@@ -121,12 +121,25 @@ export interface PredicateEditContext {
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly caseDataScope: CaseDataScope;
+	/** In a global slot, the truth value an UNCHOSEN placeholder must
+	 *  evaluate to so committing it leaves the rule's meaning unchanged:
+	 *  true at the root and inside "all" groups (`and(p, true)` = `p`),
+	 *  false inside "any" groups (`or(p, false)` = `p`). Defaults to
+	 *  true. Ignored in per-case slots, whose seeds are friendly content
+	 *  rather than neutral placeholders. */
+	readonly globalPlaceholderHolds?: boolean;
 }
 
 /** Whether case-property / relationship reads are meaningful in this
  *  editor scope. */
 export function caseDataInScope(ctx: PredicateEditContext): boolean {
 	return ctx.caseDataScope !== "global";
+}
+
+/** The truth value an unchosen global placeholder must hold in this
+ *  editor scope (see `PredicateEditContext.globalPlaceholderHolds`). */
+export function globalPlaceholderTruth(ctx: PredicateEditContext): boolean {
+	return ctx.globalPlaceholderHolds ?? true;
 }
 
 /**

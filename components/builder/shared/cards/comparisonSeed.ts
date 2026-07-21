@@ -16,7 +16,11 @@ import {
 	prop,
 	sessionContext,
 } from "@/lib/domain/predicate";
-import { caseDataInScope, type PredicateEditContext } from "../editorSchemas";
+import {
+	caseDataInScope,
+	globalPlaceholderTruth,
+	type PredicateEditContext,
+} from "../editorSchemas";
 import { seedLiteralForProperty } from "./reseed";
 
 type ComparisonArm<K extends ComparisonKind> = Extract<
@@ -65,16 +69,43 @@ export function comparisonDefault<K extends ComparisonKind>(
 	);
 }
 
+/** An unchosen global placeholder with a chosen truth value. The subject
+ *  is the current user's username — a real, always-present text value —
+ *  so the verb fully determines the truth: "username is not blank"
+ *  always holds, "username is blank" never does. */
+export function globalPlaceholder(
+	holds: boolean,
+): ComparisonArm<"eq"> | ComparisonArm<"neq"> {
+	return holds
+		? neq(sessionContext("username"), literal(""))
+		: eq(sessionContext("username"), literal(""));
+}
+
+/** The unchosen sibling minted when wrapping a condition into a group.
+ *  In a global slot it is neutral for the combinator — `and(p, true)`
+ *  and `or(p, false)` both keep `p`'s meaning — so grouping never
+ *  changes what the rule decides (e.g. hides the Search action) before
+ *  the author fills the new row. Per-case slots keep the friendly
+ *  property comparison. */
+export function wrapSiblingDefault(
+	combinator: "and" | "or",
+	ctx: PredicateEditContext,
+): Predicate {
+	if (!caseDataInScope(ctx)) return globalPlaceholder(combinator === "and");
+	return comparisonDefault("eq", ctx);
+}
+
 /** The friendly initial state shared by every new-condition entry point.
  *  A global slot's placeholder commits before the author edits it and
- *  gates a whole surface (the Search action), so it must hold TRUE
- *  unedited — "username is not blank" always passes, keeping the surface
- *  visible until a real rule replaces it. Per-case slots keep the
+ *  gates a whole surface (the Search action), so it takes the truth
+ *  value that leaves the rule's meaning unchanged (the context's
+ *  placeholder polarity — true at the root, keeping the surface
+ *  visible until a real rule replaces it). Per-case slots keep the
  *  friendly "is" seed. */
 export function firstComparisonDefault(
 	ctx: PredicateEditContext,
 ): ComparisonArm<"eq"> | ComparisonArm<"neq"> {
 	return caseDataInScope(ctx)
 		? comparisonDefault("eq", ctx)
-		: comparisonDefault("neq", ctx);
+		: globalPlaceholder(globalPlaceholderTruth(ctx));
 }
