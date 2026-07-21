@@ -65,9 +65,16 @@ export function comparisonDefault<K extends ComparisonKind>(
 	);
 }
 
-/** The friendly initial state shared by every new-condition entry point. */
+/** The friendly initial state shared by every new-condition entry point.
+ *  A global slot's placeholder commits before the author edits it and
+ *  gates a whole surface (the Search action), so it must hold TRUE
+ *  unedited — "username is not blank" always passes, keeping the surface
+ *  visible until a real rule replaces it. Per-case slots keep the
+ *  friendly "is" seed. */
 export function firstComparisonDefault(
 	ctx: PredicateEditContext,
-): ComparisonArm<"eq"> {
-	return comparisonDefault("eq", ctx);
+): ComparisonArm<"eq"> | ComparisonArm<"neq"> {
+	return caseDataInScope(ctx)
+		? comparisonDefault("eq", ctx)
+		: comparisonDefault("neq", ctx);
 }
