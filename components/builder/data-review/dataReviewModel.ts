@@ -12,15 +12,13 @@ import type {
 } from "@/lib/preview/engine/caseDataBindingTypes";
 
 /**
- * The three filter pills. "All" is the ACTIVE list (undismissed);
- * "Dismissed" is the soft archive — an entry is in exactly one of the
- * two, so the pills partition rather than overlap ("Ready" narrows the
- * active list to what a put-back would accept right now).
+ * The two filter pills. "Ready to review" is the ACTIVE list
+ * (undismissed); "Dismissed" is the soft archive. An entry is in
+ * exactly one of the two, so the pills partition the list.
  */
-export type ReviewFilter = "all" | "ready" | "dismissed";
+export type ReviewFilter = "ready" | "dismissed";
 
 export interface ReviewCounts {
-	readonly all: number;
 	readonly ready: number;
 	readonly dismissed: number;
 }
@@ -28,13 +26,11 @@ export interface ReviewCounts {
 export function reviewCounts(
 	entries: readonly ParkedValueEntryWire[],
 ): ReviewCounts {
-	let ready = 0;
 	let dismissed = 0;
 	for (const entry of entries) {
 		if (entry.dismissedAt !== null) dismissed++;
-		else if (entry.restorable) ready++;
 	}
-	return { all: entries.length - dismissed, ready, dismissed };
+	return { ready: entries.length - dismissed, dismissed };
 }
 
 export function filterReviewEntries(
@@ -42,12 +38,8 @@ export function filterReviewEntries(
 	filter: ReviewFilter,
 ): ParkedValueEntryWire[] {
 	switch (filter) {
-		case "all":
-			return entries.filter((entry) => entry.dismissedAt === null);
 		case "ready":
-			return entries.filter(
-				(entry) => entry.dismissedAt === null && entry.restorable,
-			);
+			return entries.filter((entry) => entry.dismissedAt === null);
 		case "dismissed":
 			return entries.filter((entry) => entry.dismissedAt !== null);
 	}
@@ -134,9 +126,9 @@ export function convertBackNotices(
 }
 
 /**
- * Person-facing spelling for each data type — statuses, notices, and
- * the chat prefill all read these instead of the wire tokens
- * (`single_select` is authoring vocabulary, not user vocabulary).
+ * Person-facing spelling for each data type — the convert-back notice
+ * reads these instead of the wire tokens (`single_select` is authoring
+ * vocabulary, not user vocabulary).
  */
 export const DATA_TYPE_LABELS: Record<CasePropertyDataType, string> = {
 	text: "text",

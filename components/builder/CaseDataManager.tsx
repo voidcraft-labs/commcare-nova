@@ -23,6 +23,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
@@ -77,16 +78,6 @@ function caseLabel(count: number): string {
 	return `${count.toLocaleString()} ${count === 1 ? "case" : "cases"}`;
 }
 
-/**
- * "changes to Date of birth and Age (years)" — the popover section
- * names the affected properties so a teammate who didn't run the
- * conversion still understands what was kept for review.
- */
-function propertyListPhrase(labels: readonly string[]): string {
-	if (labels.length <= 2) return labels.join(" and ");
-	return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
-}
-
 export function CaseDataManager({
 	appId,
 	moduleUuid,
@@ -121,13 +112,6 @@ export function CaseDataManager({
 		parkedState.kind === "entries"
 			? parkedState.entries.filter((entry) => entry.dismissedAt === null)
 			: [];
-	const parkedPropertyLabels = [
-		...new Set(activeParked.map((entry) => entry.property)),
-	].map(
-		(name) =>
-			caseType.properties.find((property) => property.name === name)?.label ??
-			humanizeId(name),
-	);
 	const navigate = useNavigate();
 	const populate = usePopulateSampleCases({ appId, caseType });
 	const reset = useResetSampleCases({ appId, caseType });
@@ -358,9 +342,14 @@ export function CaseDataManager({
 							Case data
 						</PopoverTitle>
 						<PopoverDescription className="text-sm leading-relaxed text-nova-text-secondary">
-							{canEdit ? "Add or replace" : "View"} case data for “
-							{caseTypeDisplayName}”. It’s used throughout your app and in
-							Preview.
+							{canEdit ? "Add or replace" : "View"} the cases saved for the{" "}
+							<Badge
+								variant="outline"
+								className="h-auto min-h-5 align-middle whitespace-normal [overflow-wrap:anywhere]"
+							>
+								{caseTypeDisplayName}
+							</Badge>{" "}
+							case type. They’re used throughout your app and in Preview.
 						</PopoverDescription>
 					</PopoverHeader>
 					{operation === "create" && (
@@ -393,10 +382,7 @@ export function CaseDataManager({
 											: `${activeParked.length} values to review`}
 									</p>
 									<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-secondary">
-										{activeParked.length === 1 ? "It" : "They"} no longer{" "}
-										{activeParked.length === 1 ? "fits" : "fit"} after{" "}
-										{propertyListPhrase(parkedPropertyLabels)} changed. Nothing
-										was deleted.
+										Kept when a property changed
 									</p>
 								</div>
 							</div>
@@ -582,10 +568,9 @@ export function CaseDataManager({
 							Replace all {caseLabel(count ?? 0)}?
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left text-pretty">
-							All case data for “{caseTypeDisplayName}” will be replaced
-							throughout the app, including cases added by hand or through
-							Preview. New sample cases will appear everywhere this case type is
-							used.
+							All “{caseTypeDisplayName}” cases will be replaced throughout the
+							app, including cases added by hand or through Preview. New sample
+							cases will appear everywhere this case type is used.
 							{hasLinkedChildren && (
 								<>
 									{" "}

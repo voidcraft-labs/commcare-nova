@@ -43,14 +43,11 @@ describe("reviewCounts + filterReviewEntries", () => {
 		}),
 	];
 
-	it("partitions active and dismissed, with ready narrowing active", () => {
-		expect(reviewCounts(entries)).toEqual({ all: 2, ready: 1, dismissed: 2 });
-		expect(filterReviewEntries(entries, "all").map((e) => e.id)).toEqual([
-			"a",
-			"b",
-		]);
+	it("partitions the list into ready-to-review and dismissed", () => {
+		expect(reviewCounts(entries)).toEqual({ ready: 2, dismissed: 2 });
 		expect(filterReviewEntries(entries, "ready").map((e) => e.id)).toEqual([
 			"a",
+			"b",
 		]);
 		expect(filterReviewEntries(entries, "dismissed").map((e) => e.id)).toEqual([
 			"c",

@@ -311,8 +311,8 @@ function buildRuntime(
 					"warning",
 					parked === 1 ? "1 value to review" : `${parked} values to review`,
 					parked === 1
-						? "It doesn't fit the property's new type, so Nova kept it. Nothing was deleted. Review it anytime in Case data."
-						: "They don't fit the property's new type, so Nova kept them. Nothing was deleted. Review them anytime in Case data.",
+						? "It doesn't fit the property's new type, so Nova kept it for review."
+						: "They don't fit the property's new type, so Nova kept them for review.",
 					// The Review action only renders when the response NAMED the
 					// affected case types (a version-skewed server that reports
 					// `parked` without them gets the plain toast rather than a
