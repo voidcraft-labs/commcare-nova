@@ -164,11 +164,7 @@ function IntervalMenu({ interval, setInterval }: IntervalMenuProps) {
 			</SelectTrigger>
 			<SelectContent align="end">
 				{DATE_ADD_INTERVALS.map((nextInterval) => (
-					<SelectItem
-						key={nextInterval}
-						value={nextInterval}
-						className="min-h-11"
-					>
+					<SelectItem key={nextInterval} value={nextInterval}>
 						{INTERVAL_LABELS[nextInterval]}
 					</SelectItem>
 				))}

@@ -1,33 +1,12 @@
 // @vitest-environment happy-dom
 
-import {
-	act,
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-} from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { Ref } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { AddFormMenu } from "@/components/builder/appTree/insertion/AddFormMenu";
 import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModulePopover";
 import type { FormType, Uuid } from "@/lib/domain";
-
-/** Let Base UI finish popup scroll-lock release and close transitions.
- *  Both tests end on the click that closes the popover/menu; Base UI
- *  schedules that teardown on the next macrotask + frames, which must
- *  run inside the test or the async-leak gate pins the stray task. */
-async function settleBaseUiTransitions(): Promise<void> {
-	await act(async () => {
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-	});
-}
 
 afterEach(async () => {
 	await settleBaseUiTransitions();
@@ -89,17 +68,6 @@ vi.mock("@/lib/routing/hooks", () => ({
 vi.mock("@/lib/session/hooks", () => ({
 	useCanEdit: () => true,
 }));
-
-afterEach(async () => {
-	// RTL's auto-registered cleanup would unmount AFTER this hook (afterEach
-	// hooks run last-registered-first), so unmount explicitly here and then
-	// drain Base UI's zero-delay scroll-lock release (`useScrollLock`'s
-	// `timeoutUnlock.start(0, …)` fires on popup unmount) before the async-
-	// leak gate samples pending timers. Under CPU load the timer otherwise
-	// survives the test and trips the gate.
-	cleanup();
-	await new Promise<void>((resolve) => setTimeout(resolve, 0));
-});
 
 beforeEach(() => {
 	vi.clearAllMocks();

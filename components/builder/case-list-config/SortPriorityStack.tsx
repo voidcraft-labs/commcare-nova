@@ -637,7 +637,6 @@ function CaseOrderingRuleRow({
 										key={option.value}
 										value={option.value}
 										closeOnClick
-										className="min-h-11"
 									>
 										<span>{option.label}</span>
 									</DropdownMenuRadioItem>

@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import {
-	act,
 	fireEvent,
 	render,
 	screen,
@@ -10,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
@@ -72,18 +72,6 @@ function renderChooser({
 			onClosed={onClosed}
 		/>,
 	);
-}
-
-async function settleBaseUiTransitions(): Promise<void> {
-	await act(async () => {
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-	});
 }
 
 async function openChooser(): Promise<{

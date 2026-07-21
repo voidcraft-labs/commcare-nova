@@ -24,6 +24,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseType,
@@ -598,10 +599,10 @@ describe("ColumnEditor — round-trip preservation", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Display as: Date" }));
 		// Let FloatingFocusManager finish the menu's initial-focus microtask
 		// before selecting an item and closing the popup.
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		await settleBaseUiTransitions();
 		fireEvent.click(screen.getByRole("menuitem", { name: /^Text\b/ }));
 		// Let Base UI finish the closed menu's focus and scroll-lock cleanup.
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		await settleBaseUiTransitions();
 
 		expect(screen.queryByRole("alertdialog")).toBeNull();
 		expect(screen.getByTestId("active-column-kind").textContent).toBe("plain");

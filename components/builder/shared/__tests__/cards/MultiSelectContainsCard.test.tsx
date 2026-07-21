@@ -9,6 +9,10 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	activateWithEnter,
+	settleBaseUiTransitions,
+} from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import {
 	literal,
@@ -68,17 +72,9 @@ function Controlled({
 	);
 }
 
-/** Happy DOM does not synthesize native button activation from Enter. */
-function activateWithEnter(element: HTMLElement): void {
-	element.focus();
-	fireEvent.keyDown(element, { key: "Enter", code: "Enter" });
-	fireEvent.click(element, { detail: 0 });
-	fireEvent.keyUp(element, { key: "Enter", code: "Enter" });
-}
-
 afterEach(async () => {
 	cleanup();
-	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+	await settleBaseUiTransitions();
 });
 
 describe("MultiSelectContainsCard", () => {
@@ -132,7 +128,7 @@ describe("MultiSelectContainsCard", () => {
 		expect(screen.getByText("Saved as open_b")).toBeDefined();
 	});
 
-	it("removes an invalid non-string value by its authored chip index", () => {
+	it("removes an invalid non-string value by its authored chip index", async () => {
 		const onChange = vi.fn();
 		render(
 			<PredicateCardEditor
@@ -148,6 +144,9 @@ describe("MultiSelectContainsCard", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Remove 7" }));
+		// Removal restores focus to the surviving chip once React commits, and
+		// that chip's tooltip opens on focus.
+		await settleBaseUiTransitions();
 
 		expect(onChange).toHaveBeenLastCalledWith(seed("a"));
 	});

@@ -963,11 +963,9 @@ function ModeMenu({
 									key={item.mode}
 									disabled={!admitted}
 									onClick={() => setMode(item.mode)}
-									className={`h-auto min-h-11 whitespace-normal py-2 ${
-										hasReason ? "items-start" : "items-center"
-									} ${
+									className={
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-									}`}
+									}
 								>
 									<Icon
 										icon={item.icon}
@@ -1241,9 +1239,9 @@ function InputRefMenu({
 								<DropdownMenuItem
 									key={it.name}
 									onClick={() => onChange(it.name)}
-									className={`h-auto min-h-11 whitespace-normal py-2 ${
+									className={
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-									}`}
+									}
 								>
 									<span className="min-w-0 flex-1 break-words">
 										{searchInputDisplayLabel(it.name, ctx.knownInputs)}
@@ -1334,9 +1332,9 @@ function SessionContextMenu({
 								<DropdownMenuItem
 									key={it.field}
 									onClick={() => onChange(it.field)}
-									className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+									className={
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-									}`}
+									}
 								>
 									<span>{it.label}</span>
 								</DropdownMenuItem>
@@ -1480,7 +1478,7 @@ function LiteralShapeSubmenu({
 				Value options
 			</div>
 			<DropdownMenuSub>
-				<DropdownMenuSubTrigger className="h-auto min-h-11 items-start whitespace-normal py-2">
+				<DropdownMenuSubTrigger>
 					<span className="min-w-0 flex-1 text-left">
 						<span className="block">Value type</span>
 						<span className="block text-xs text-nova-text-muted">

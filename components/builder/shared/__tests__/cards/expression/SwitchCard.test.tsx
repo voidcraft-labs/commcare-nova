@@ -9,6 +9,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import {
+	focusElement,
+	settleBaseUiTransitions,
+} from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
@@ -31,13 +35,6 @@ const PATIENT: CaseType = {
 		{ name: "score", label: "Score", data_type: "int" },
 	],
 };
-
-async function settleTooltipTransition() {
-	await act(
-		() =>
-			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
-	);
-}
 
 describe("SwitchCard — reorder produces cases array in the new order", () => {
 	it("reordering cases produces a cases array in the new order", () => {
@@ -122,7 +119,7 @@ describe("SwitchCard — case removal contract", () => {
 			name: "Remove choice",
 		});
 		const nextAction = removeActions[1];
-		removeActions[0].focus();
+		focusElement(removeActions[0]);
 		await act(async () => {
 			fireEvent.click(removeActions[0]);
 			await Promise.resolve();
@@ -161,9 +158,9 @@ describe("SwitchCard — case removal contract", () => {
 		const second = screen.getByRole("button", {
 			name: "Move choice 2 of 2",
 		});
-		second.focus();
+		focusElement(second);
 		fireEvent.keyDown(second, { key: "ArrowUp" });
-		await settleTooltipTransition();
+		await settleBaseUiTransitions();
 
 		expect(document.activeElement).toBe(second);
 		expect(second.getAttribute("aria-label")).toBe("Move choice 1 of 2");

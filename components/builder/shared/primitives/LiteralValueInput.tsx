@@ -726,9 +726,9 @@ function SelectOptionInput({
 												: rebuildLiteralPreservingDataType(value, opt.value),
 										);
 									}}
-									className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+									className={
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-									}`}
+									}
 								>
 									<span className="flex-1 text-left min-w-0">
 										<div className="break-words">{opt.label}</div>

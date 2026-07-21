@@ -26,6 +26,10 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import {
+	activateWithEnter,
+	focusElement,
+} from "@/__tests__/helpers/baseUiInteractions";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -948,7 +952,7 @@ describe("RelationPathBuilder — lossless editing surface", () => {
 		const remove = screen.getByRole("button", {
 			name: "Remove connection from Visit to Patient",
 		});
-		remove.focus();
+		focusElement(remove);
 		fireEvent.click(remove);
 
 		await waitFor(() => {
@@ -1178,7 +1182,7 @@ describe("ExpressionPicker — exhaustive left-subject editing", () => {
 			name: "Remove value",
 		});
 		const nextAction = removeActions[1];
-		removeActions[0].focus();
+		focusElement(removeActions[0]);
 		await act(async () => {
 			fireEvent.click(removeActions[0]);
 			await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1561,13 +1565,7 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 		const useAnotherCase = await screen.findByRole("menuitem", {
 			name: /^Use information from another case/i,
 		});
-		// Happy DOM does not synthesize a native click from Enter. Dispatch the
-		// keyboard sequence plus its zero-detail activation so the Base UI item
-		// follows the same path as a real keyboard selection.
-		useAnotherCase.focus();
-		fireEvent.keyDown(useAnotherCase, { key: "Enter", code: "Enter" });
-		fireEvent.click(useAnotherCase, { detail: 0 });
-		fireEvent.keyUp(useAnotherCase, { key: "Enter", code: "Enter" });
+		activateWithEnter(useAnotherCase);
 
 		expect(
 			screen.getByRole("combobox", { name: "Where to look" }),

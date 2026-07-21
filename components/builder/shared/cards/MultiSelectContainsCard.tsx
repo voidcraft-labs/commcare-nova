@@ -351,7 +351,6 @@ function OptionPicker({
 								<DropdownMenuItem
 									key={opt.value}
 									onClick={() => onPick(opt.value)}
-									className="h-auto min-h-11 items-start whitespace-normal py-2"
 								>
 									<Icon
 										icon={tablerCheck}
