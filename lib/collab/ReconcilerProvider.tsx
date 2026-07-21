@@ -311,8 +311,8 @@ function buildRuntime(
 					"warning",
 					parked === 1 ? "1 value to review" : `${parked} values to review`,
 					parked === 1
-						? "It didn't fit the property's new type, so it was kept. Nothing was deleted. Review it anytime in Case data."
-						: "They didn't fit the property's new type, so they were kept. Nothing was deleted. Review them anytime in Case data.",
+						? "It doesn't fit the property's new type, so Nova kept it. Nothing was deleted. Review it anytime in Case data."
+						: "They don't fit the property's new type, so Nova kept them. Nothing was deleted. Review them anytime in Case data.",
 					// The Review action only renders when the response NAMED the
 					// affected case types (a version-skewed server that reports
 					// `parked` without them gets the plain toast rather than a
@@ -339,7 +339,7 @@ function buildRuntime(
 											showToast(
 												"info",
 												"No screen shows them right now",
-												"No module uses that case type anymore. The values stay saved. Add a module for it, or ask Nova to, and you'll find them under Case data.",
+												"No module uses that case type anymore. The values stay saved. Add a module for that case type, or ask Nova to add one, and you'll find them under Case data.",
 											);
 											return;
 										}

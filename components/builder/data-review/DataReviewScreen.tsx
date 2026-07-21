@@ -184,7 +184,9 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			} else {
 				showToast(
 					"warning",
-					result.kept === 1 ? "1 value not put back" : "No values put back",
+					result.kept === 1
+						? "It can't go back right now"
+						: "They can't go back right now",
 					result.kept === 1
 						? "It no longer fits the property's current type, or its case now holds a newer value."
 						: "They no longer fit the property's current type, or their cases now hold newer values.",
@@ -420,8 +422,8 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 									/>
 									<p className="min-w-60 flex-1 text-[13px] leading-relaxed text-nova-text-secondary">
 										{notice.count === 1
-											? `${propertyLabel(notice.property)} is now ${dataTypePhrase(notice.toType)} and 1 saved value doesn’t fit. Replace it below, or convert ${propertyLabel(notice.property)} back to ${DATA_TYPE_LABELS[notice.fromType]} and it goes back on its case automatically.`
-											: `${propertyLabel(notice.property)} is now ${dataTypePhrase(notice.toType)} and ${notice.count} saved values don’t fit. Replace them below, or convert ${propertyLabel(notice.property)} back to ${DATA_TYPE_LABELS[notice.fromType]} and they go back on their cases automatically.`}
+											? `${propertyLabel(notice.property)} is now ${dataTypePhrase(notice.toType)} and 1 saved value doesn’t fit. Replace it below, or convert ${propertyLabel(notice.property)} back to ${DATA_TYPE_LABELS[notice.fromType]} and it’ll go back automatically.`
+											: `${propertyLabel(notice.property)} is now ${dataTypePhrase(notice.toType)} and ${notice.count} saved values don’t fit. Replace them below, or convert ${propertyLabel(notice.property)} back to ${DATA_TYPE_LABELS[notice.fromType]} and they’ll go back automatically.`}
 									</p>
 									{canEdit && (
 										<SimpleTooltip content="Opens chat with the request written for you. Nova changes the property type, and values that fit go back automatically">
@@ -442,7 +444,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						{groups.length === 0 ? (
 							<p className="mt-8 text-sm text-nova-text-secondary">
 								{filter === "ready"
-									? "Nothing is ready to put back right now. A value becomes ready when its property fits it again."
+									? "Nothing is ready to put back right now. A value becomes ready when it fits its property again."
 									: "You haven’t dismissed anything"}
 							</p>
 						) : (
@@ -652,7 +654,7 @@ function ReviewEntryRow({
 			</Button>
 		</SimpleTooltip>
 	) : (
-		<SimpleTooltip content="Sets this value out of the way. Nothing is deleted">
+		<SimpleTooltip content="Moves this to the Dismissed list. Nothing is deleted">
 			<Button
 				type="button"
 				variant="ghost"

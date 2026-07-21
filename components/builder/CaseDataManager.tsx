@@ -393,9 +393,10 @@ export function CaseDataManager({
 											: `${activeParked.length} values to review`}
 									</p>
 									<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-secondary">
-										{activeParked.length === 1 ? "It" : "They"} stopped fitting
-										when {propertyListPhrase(parkedPropertyLabels)} changed.
-										Nothing was deleted.
+										{activeParked.length === 1 ? "It" : "They"} no longer{" "}
+										{activeParked.length === 1 ? "fits" : "fit"} after{" "}
+										{propertyListPhrase(parkedPropertyLabels)} changed. Nothing
+										was deleted.
 									</p>
 								</div>
 							</div>
