@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
 	reset: vi.fn(),
 	reloadCount: vi.fn(),
 	showToast: vi.fn(),
-	openSetAside: vi.fn(),
+	openDataReview: vi.fn(),
 }));
 
 vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
@@ -45,7 +45,7 @@ vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
 }));
 
 vi.mock("@/lib/routing/hooks", () => ({
-	useNavigate: () => ({ openSetAside: mocks.openSetAside }),
+	useNavigate: () => ({ openDataReview: mocks.openDataReview }),
 }));
 
 vi.mock("@/lib/ui/toastStore", () => ({
@@ -62,6 +62,16 @@ const POPULATED_TRIGGER_LABEL =
 	"Case data for Patient. 7 cases. Case data is shared throughout your app";
 const UNAVAILABLE_TRIGGER_LABEL =
 	"Case data for Patient. Case count unavailable. Case data is shared throughout your app";
+
+/** The popover description's full text, chip and all — the case-type
+ *  name renders as a Badge inside the paragraph, so assertions match
+ *  the paragraph's assembled textContent rather than one text node. */
+const scopeDescription =
+	(verb: "Add or replace" | "View", label: string) =>
+	(_content: string, element: Element | null) =>
+		element?.tagName === "P" &&
+		element.textContent ===
+			`${verb} the cases saved for the ${label} case type. They’re used throughout your app and in Preview.`;
 
 beforeEach(() => {
 	mocks.countState = { kind: "count", count: 0 };
@@ -158,7 +168,7 @@ describe("CaseDataManager", () => {
 			}),
 		).toBeTruthy();
 		expect(screen.getByRole("alertdialog").textContent).toContain(
-			"All case data for “Patient” will be replaced throughout the app",
+			"All “Patient” cases will be replaced throughout the app",
 		);
 		expect(
 			screen.getByText(/including cases added by hand or through Preview/i),
@@ -191,9 +201,7 @@ describe("CaseDataManager", () => {
 		fireEvent.click(trigger);
 
 		expect(
-			screen.getByText(
-				"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
-			),
+			screen.getByText(scopeDescription("Add or replace", "Patient")),
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Replace case data" }));
 
@@ -235,15 +243,9 @@ describe("CaseDataManager", () => {
 				"No case data is available for Search, Results, or Details",
 			),
 		).toBeTruthy();
+		expect(screen.getByText(scopeDescription("View", "Patient"))).toBeTruthy();
 		expect(
-			screen.getByText(
-				"View case data for “Patient”. It’s used throughout your app and in Preview.",
-			),
-		).toBeTruthy();
-		expect(
-			screen.queryByText(
-				"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
-			),
+			screen.queryByText(scopeDescription("Add or replace", "Patient")),
 		).toBeNull();
 		expect(
 			screen.getByText(
@@ -442,9 +444,7 @@ describe("CaseDataManager", () => {
 		});
 		fireEvent.click(trigger);
 		expect(
-			screen.getByText(
-				"Add or replace case data for “Clients”. It’s used throughout your app and in Preview.",
-			),
+			screen.getByText(scopeDescription("Add or replace", "Clients")),
 		).toBeTruthy();
 		expect(screen.queryByText(/Clients cases/i)).toBeNull();
 
@@ -455,7 +455,7 @@ describe("CaseDataManager", () => {
 			}),
 		).toBeTruthy();
 		expect(screen.getByRole("alertdialog").textContent).toContain(
-			"All case data for “Clients” will be replaced throughout the app",
+			"All “Clients” cases will be replaced throughout the app",
 		);
 		expect(screen.getByRole("alertdialog").textContent).not.toContain(
 			"Clients cases",
