@@ -23,6 +23,11 @@ const buttonVariants = cva(
 					"not-disabled:hover:bg-muted not-disabled:hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:not-disabled:hover:bg-muted/50",
 				destructive:
 					"bg-destructive/10 text-destructive not-disabled:hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:not-disabled:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+				// Warning commit (amber is light -> dark text, per the theme's
+				// light-accents-carry-dark-text rule; hover is the derived
+				// 14%-oklab darken token, same model as default/action).
+				warning:
+					"bg-nova-amber text-nova-void not-disabled:hover:bg-nova-amber-hover focus-visible:ring-nova-amber/40",
 				link: "text-nova-violet-bright underline-offset-4 not-disabled:hover:underline",
 			},
 			size: {

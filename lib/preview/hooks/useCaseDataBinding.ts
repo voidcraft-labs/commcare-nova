@@ -393,12 +393,22 @@ export function useCaseData(args: {
 	caseListConfig?: CaseListConfig;
 	/** Live compiler catalog paired with `caseListConfig`. */
 	caseTypes?: readonly CaseType[];
+	/** The review surface's View case dialog reads a HELD case by
+	 * design; running-app callers leave this unset. */
+	includeHeld?: boolean;
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType, caseId, ancestorDepth, caseListConfig, caseTypes } =
-		args;
+	const {
+		appId,
+		caseType,
+		caseId,
+		ancestorDepth,
+		caseListConfig,
+		caseTypes,
+		includeHeld,
+	} = args;
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const ready = Boolean(appId && caseType && caseId);
 	/* Keep the request identity beside its result. A dependency change renders
@@ -406,7 +416,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${caseDataRevision}`
+		? `${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${caseDataRevision}`
 		: "";
 	const reloadToken = useMemo(
 		() => [requestKey, caseListConfig, caseTypes],
@@ -445,6 +455,7 @@ export function useCaseData(args: {
 								caseListConfig,
 								caseTypes,
 								viewerTimeZone(),
+								includeHeld,
 							),
 						}),
 					},

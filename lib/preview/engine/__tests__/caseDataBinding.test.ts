@@ -3550,9 +3550,12 @@ describe("loadCaseCountAction", () => {
 		});
 
 		expect(result).toEqual({ kind: "count", count: 37 });
+		// The manager's count opts into HELD cases — it reports the full
+		// stored population it governs, not the running app's view.
 		expect(stubStore.count).toHaveBeenCalledWith({
 			appId: APP_ID,
 			caseType: "patient",
+			includeHeld: true,
 		});
 	});
 

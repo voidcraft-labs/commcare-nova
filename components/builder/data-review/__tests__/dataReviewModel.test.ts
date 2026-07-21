@@ -4,6 +4,7 @@ import {
 	displayReviewValue,
 	filterReviewEntries,
 	groupReviewByCase,
+	heldCaseCount,
 	replacementDraftToValue,
 	reviewCounts,
 	standingPhrase,
@@ -49,6 +50,24 @@ describe("reviewCounts + filterReviewEntries", () => {
 			"c",
 			"d",
 		]);
+	});
+});
+
+describe("heldCaseCount", () => {
+	it("counts distinct cases with active entries — dismissed entries hold nothing", () => {
+		expect(
+			heldCaseCount([
+				entry({ id: "1", caseId: "c-1" }),
+				entry({ id: "2", caseId: "c-1" }),
+				entry({ id: "3", caseId: "c-2" }),
+				entry({
+					id: "4",
+					caseId: "c-3",
+					dismissedAt: "2026-07-20T10:00:00.000Z",
+				}),
+			]),
+		).toBe(2);
+		expect(heldCaseCount([])).toBe(0);
 	});
 });
 
@@ -108,9 +127,6 @@ describe("standingPhrase", () => {
 
 	it("tells the non-blocked standings plainly", () => {
 		expect(standingPhrase("fits", "text")).toBe("Fits the property again");
-		expect(standingPhrase("occupied", "date")).toBe(
-			"Another value is saved there now",
-		);
 		expect(standingPhrase("undeclared", undefined)).toBe(
 			"The property was removed",
 		);

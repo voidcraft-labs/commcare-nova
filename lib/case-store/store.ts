@@ -158,6 +158,17 @@ export interface QueryArgs {
 	calculated?: ReadonlyArray<CalculatedColumn>;
 	limit?: number;
 	offset?: number;
+	/**
+	 * A case with an active (undismissed) kept value is HELD: it is
+	 * excluded from every read by default, so the running app — case
+	 * lists, search, counts, form loading — simply doesn't see it
+	 * until review resolves its waiting values. Only the surfaces
+	 * that EXIST to look at held cases opt in: the review screen's
+	 * View case dialog and the builder's case-data population count.
+	 * Defaulting to excluded means a new read surface inherits the
+	 * hold without knowing it exists.
+	 */
+	includeHeld?: boolean;
 }
 
 /**
@@ -180,6 +191,9 @@ export interface CountArgs {
 	/** Runtime values for input/session terms used by the predicate. */
 	bindings?: TermBindings;
 	predicate?: Predicate;
+	/** Same hold contract as `QueryArgs.includeHeld` — a count must
+	 * agree with the row list its caller pairs it with. */
+	includeHeld?: boolean;
 }
 
 /**
@@ -391,20 +405,19 @@ export interface MigrationReport {
  * Where a kept value stands against its property's CURRENT
  * declaration — the one server-computed classification the review
  * surface renders and acts on. `"fits"` alone permits Put back
- * (exactly the conditions `restoreParkedValues` re-proves at write
- * time, so an offered Put back can only fail by losing a race); the
- * other arms say why the value is still waiting: `"occupied"` — it
- * fits, but the case's key holds a real value now; `"blocked"` — the
- * declaration exists but rejects the value (wrong shape for the
- * type, or no longer among a select's options); `"undeclared"` — the
- * schema no longer declares the property at all (also the answer for
- * an absent or unparseable stored schema: restore refuses to guess).
+ * (exactly the condition `restoreParkedValues` re-proves at write
+ * time, so an offered Put back can only fail by losing a race);
+ * `"blocked"` — the declaration exists but rejects the value;
+ * `"undeclared"` — the schema no longer declares the property at all
+ * (also the answer for an absent or unparseable stored schema:
+ * restore refuses to guess). There is no occupancy arm: a case with
+ * an active kept value is HELD out of the running app (see
+ * `QueryArgs.includeHeld`), so nothing can land a newer value in the
+ * parked slot — a put-back writes the original over whatever the
+ * slot holds (a narrow-options flush's surviving selections are the
+ * one occupant, and they are a subset of the original).
  */
-export type ParkedValueStanding =
-	| "fits"
-	| "occupied"
-	| "blocked"
-	| "undeclared";
+export type ParkedValueStanding = "fits" | "blocked" | "undeclared";
 
 /**
  * One kept value as the review surface reads it — a

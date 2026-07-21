@@ -199,13 +199,34 @@ architecture.
    that diff would phantom-restore pre-annotation selects' parks on
    their first post-deploy sync (the caller-intent retype scope
    still restores a real text→select conversion). The tenant-bound
-   review slice on `CaseStore` (`listParkedValues` — verdicts
-   computed against the currently-stored schema —
+   review slice on `CaseStore` (`listParkedValues` — standings
+   computed against the currently-stored schema: `fits` /
+   `blocked` / `undeclared`, no occupancy arm —
    `restoreParkedValues` / `setParkedValuesDismissed` /
    `replaceParkedValue`) reaches tenancy by joining through
    `cases`; the schema store's `unparkValues` stays the saga's
    compensation half, and both restores share one conformance-
-   gated core.
+   gated core split on ONE axis (`restoreEntries.overwriteExisting`):
+   the review's explicit put back is a human decision and OVERWRITES
+   whatever the slot holds (a narrow flush's surviving subset, a
+   rename's standing destination value); the compensation and the
+   auto-restore are automatic and never overwrite.
+
+   **The HOLD.** A case with an active (undismissed)
+   `parked_case_values` entry is held out of every default read:
+   `query` and `count` exclude it unless the caller passes
+   `includeHeld` (`QueryArgs` / `CountArgs`), so the running app —
+   case lists, search, counts, form loading via `readCaseData` —
+   simply doesn't see it until review resolves its waiting values.
+   Only the review's View case dialog and the builder's case-data
+   population count opt in. Availability is per-CASE; storage stays
+   per-value. Dismissal releases (loss accepted, the case runs
+   without the value); moving an entry back to review re-holds;
+   direct `update()` writes stay possible (the review's own Replace
+   path uses them) — the hold is a read-side contract, not a write
+   lock. Because the running app can't reach a held case, no newer
+   value can land in a parked slot — the reason the standing union
+   has no occupancy arm.
 3. **Per-row migration** — only when `change` is supplied. The
    three arms are `rename(renames[])`, `retype(fromType, toType)`,
    and `narrow-options(removedOptions)`. NO arm removes a row — a

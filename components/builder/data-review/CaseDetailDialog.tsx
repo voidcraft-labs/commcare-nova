@@ -100,6 +100,9 @@ export function CaseDetailDialog({
 		caseType: caseType.name,
 		caseId,
 		ancestorDepth: 0,
+		// This dialog exists to inspect a case the review HOLDS out of
+		// the running app — the one read that must see held rows.
+		includeHeld: true,
 	});
 
 	const row = state.kind === "row" ? state.row : null;

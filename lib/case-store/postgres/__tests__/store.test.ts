@@ -2615,7 +2615,13 @@ describe("PostgresCaseStore — pre-annotation stored select schemas", () => {
 			caseTypeSchemas: buildSchemaMap(selectCaseType),
 		});
 		expect(sync.restored).toBe(0);
-		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		// The park holds the case out of default reads — opt in to
+		// assert the stored row's shape.
+		const rows = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+			includeHeld: true,
+		});
 		expect(rows[0]?.properties).toEqual({});
 		const listed = await store.listParkedValues({
 			appId: APP_ID,

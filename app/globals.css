@@ -68,6 +68,7 @@
 	--nova-action-hover: color-mix(in oklab, var(--nova-action), black 14%);
 	--nova-emerald: #86cebc;
 	--nova-amber: #d4a76a;
+	--nova-amber-hover: color-mix(in oklab, var(--nova-amber), black 14%);
 	--nova-rose: #d4708f;
 	--nova-orchid: #cda0d4;
 
@@ -155,6 +156,7 @@
 	--color-nova-action-hover: var(--nova-action-hover);
 	--color-nova-emerald: var(--nova-emerald);
 	--color-nova-amber: var(--nova-amber);
+	--color-nova-amber-hover: var(--nova-amber-hover);
 	--color-nova-rose: var(--nova-rose);
 	--color-nova-orchid: var(--nova-orchid);
 	--color-nova-periwinkle: var(--nova-periwinkle);

@@ -313,10 +313,12 @@ function buildRuntime(
 			if (parked > 0) {
 				showToast(
 					"warning",
-					parked === 1 ? "1 value to review" : `${parked} values to review`,
 					parked === 1
-						? "It doesn't fit the property's new type, so Nova kept it for review."
-						: "They don't fit the property's new type, so Nova kept them for review.",
+						? "1 value needs review"
+						: `${parked} values need review`,
+					parked === 1
+						? "It doesn't fit the property's new type. Its case is held out of the app until you decide it."
+						: "They don't fit the property's new type. Their cases are held out of the app until you decide them.",
 					// The Review action only renders when the response NAMED the
 					// affected case types (a version-skewed server that reports
 					// `parked` without them gets the plain toast rather than a

@@ -9,23 +9,27 @@
  * declaration, re-proven at write time), and this component only
  * renders and dispatches.
  *
- * Design rules (the review-round bar): the CASE is the anchor — one
- * card per case, its waiting values as rows, and the whole case one
- * View case dialog away so a decision is made against the record, not
- * a floating value. The page header explains the interface once (what
- * the list is, what the actions do, what returns on its own); each
- * row then tells ITS OWN story in one clause — the property renders
- * as a reference-style chip whose icon is the property's CURRENT
- * type, beside the literal waiting value, and under them the
- * server-classified `standing` maps to a short present-tense fact
- * ("Isn't a date", "No longer among the options") via
- * `standingPhrase`. Never park-time history replayed as if current,
- * never a paragraph. Each row offers every action that works for it
- * as visible labeled buttons — never a disabled button beside a live
- * one — and every action keeps ONE fixed appearance on every row
- * (constructive actions in violet action text, Dismiss in secondary;
- * no per-row "primary" promotion). Plain words only, and reassurance
- * lives in the verbs ("kept", "put back"), not appended disclaimers.
+ * Design rules (the review-round bar): the CASE is the anchor AND the
+ * unit — each card is a case the review HOLDS out of the running app
+ * until its waiting values are decided, its values as rows, the whole
+ * record one View case dialog away so a decision is made against the
+ * record, not a floating value. The page header explains the
+ * interface once (the hold, the actions, the release, what returns on
+ * its own); each row then tells ITS OWN story in one clause — the
+ * property renders as a reference-style chip whose icon is the
+ * property's CURRENT type, beside the literal waiting value, and
+ * under them the server-classified `standing` maps to a short
+ * present-tense fact ("Isn't a date") via `standingPhrase`. Never
+ * park-time history replayed as if current, never a paragraph. Each
+ * row offers every action that works for it as visible labeled
+ * buttons — never a disabled button beside a live one — and every
+ * action keeps ONE fixed appearance on every row (constructive
+ * actions in violet action text, Dismiss in secondary; no per-row
+ * "primary" promotion). The Replace editor commits with the
+ * warning-styled "Overwrite value" — the consequence in the verb, the
+ * aftermath in the toast, no forward-explaining footnote. Plain words
+ * only, and reassurance lives in the verbs ("kept", "put back"), not
+ * appended disclaimers.
  */
 "use client";
 
@@ -274,7 +278,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				);
 				showToast(
 					"error",
-					"Couldn't save the replacement",
+					"Couldn’t overwrite the value",
 					"The server couldn’t be reached. Your new value is still here — try again.",
 				);
 				return;
@@ -283,8 +287,8 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				setReplaceDraft(null);
 				showToast(
 					"info",
-					"Value replaced",
-					"The new value is saved on the case. The original moved to Dismissed.",
+					"Value overwritten",
+					"The new value is saved. The original is under Dismissed.",
 				);
 				return;
 			}
@@ -308,7 +312,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			}
 			showToast(
 				"error",
-				"Couldn't save the replacement",
+				"Couldn’t overwrite the value",
 				result.kind === "error"
 					? result.message
 					: "You're signed out. Reload the page to sign in again.",
@@ -339,10 +343,11 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					Data to review
 				</h1>
 				<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
-					When a property changes and a value it held no longer fits, that value
-					comes off its case and waits here. Put it back on the case, replace it
-					with one that fits, or dismiss it. If the property changes back,
-					waiting values that fit again return on their own.
+					When a property changes and a saved value no longer fits, its case is
+					held out of the app and waits here. Decide each value — put it back,
+					overwrite it, or dismiss it — and once nothing is left waiting, the
+					case returns to the app. If the property changes back, values that fit
+					again return on their own.
 				</p>
 			</div>
 			{!canEdit && entries.length > 0 && (
@@ -695,7 +700,6 @@ function ReviewEntryRow({
 					currentDecl={currentDecl}
 					chip={chip}
 					caseName={caseName}
-					displayOriginal={display}
 					onDraftChange={onDraftChange}
 					onCancel={onCancelReplace}
 					onSave={onSaveReplace}
@@ -710,7 +714,6 @@ function ReplaceEditor({
 	currentDecl,
 	chip,
 	caseName,
-	displayOriginal,
 	onDraftChange,
 	onCancel,
 	onSave,
@@ -719,7 +722,6 @@ function ReplaceEditor({
 	readonly currentDecl: CaseProperty | undefined;
 	readonly chip: ReactElement;
 	readonly caseName: string;
-	readonly displayOriginal: string;
 	readonly onDraftChange: (next: ReplaceDraft) => void;
 	readonly onCancel: () => void;
 	readonly onSave: () => void;
@@ -742,8 +744,13 @@ function ReplaceEditor({
 					draft={draft}
 					onDraftChange={onDraftChange}
 				/>
+				{/* The commit is warning-styled and names the consequence:
+				    saving discards the waiting original (it archives under
+				    Dismissed — the toast reports that after the fact; no
+				    forward-explaining footnote). */}
 				<Button
 					type="button"
+					variant="warning"
 					className="min-h-11"
 					disabled={!submittable || draft.saving}
 					onClick={onSave}
@@ -751,7 +758,7 @@ function ReplaceEditor({
 					{draft.saving && (
 						<Icon icon={tablerLoader2} className="animate-spin" />
 					)}
-					{draft.saving ? "Saving" : "Save to case"}
+					{draft.saving ? "Saving" : "Overwrite value"}
 				</Button>
 				<Button
 					type="button"
@@ -775,10 +782,6 @@ function ReplaceEditor({
 					))}
 				</ul>
 			)}
-			<p className="mt-2 text-xs text-nova-text-muted">
-				Saves to this case’s {chip}. The original “{displayOriginal}” moves to
-				Dismissed.
-			</p>
 		</div>
 	);
 }

@@ -1194,13 +1194,23 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			);
 			expect(conflictReason).toContain("age→years");
 
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			// Bob's and Carol's parks HOLD their cases out of default reads;
+			// the storage assertion opts in to see the held rows.
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+				includeHeld: true,
+			});
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
 			expect(rows).toHaveLength(3);
 			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({ years: 30 });
 			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({ years: 1 });
 			// Carol's row survives, writable, minus the uncastable value.
 			expect(byId.get(PATIENT_CAROL_ID)?.properties).toEqual({});
+			// The default read sees only Alice — the two parked cases are
+			// held until review resolves them.
+			const visible = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(visible.map((r) => r.case_id)).toEqual([PATIENT_ALICE_ID]);
 
 			// Both parks captured the rename's transition: the SOURCE
 			// declaration's type (`age` was text in the stored schema) to
@@ -1437,21 +1447,30 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(report.failureReasons[0]).toContain("int");
 			expect(report.failureReasons[0]).toContain("age");
 
-			// Alice's value is a JS number now; Bob's row STAYS with the
-			// parked key dropped and his other property intact.
-			const rows = await store.query({
+			// Alice's value is a JS number now; Bob's row STAYS in storage
+			// (held, never deleted) with the parked key dropped and his
+			// other property intact — but the default read no longer sees
+			// him: his park HOLDS the case out of the running app.
+			const visible = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
 			});
+			expect(visible.map((r) => r.case_id)).toEqual([PATIENT_ALICE_ID]);
+			expect(visible[0]?.properties).toEqual({ age: 30 });
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+				includeHeld: true,
+			});
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
 			expect(rows).toHaveLength(2);
-			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({ age: 30 });
 			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({
 				note: "keep me",
 			});
 
-			// Bob's row is immediately WRITABLE under the new schema —
-			// the whole point of parking over whole-row quarantine.
+			// Direct writes to a held row remain possible — the review
+			// surface's own Replace path writes through `update()`; only
+			// the default READS hide the case.
 			await store.update({
 				appId: APP_ID,
 				caseId: PATIENT_BOB_ID,
@@ -1460,6 +1479,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const afterWrite = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
+				includeHeld: true,
 			});
 			expect(
 				afterWrite.find((r) => r.case_id === PATIENT_BOB_ID)?.properties,
@@ -1816,7 +1836,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(report.reshaped).toBe(0);
 			expect(report.retyped).toBe(2);
 			expect(report.parkedIds).toHaveLength(1);
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			// Alice's park holds her case; the storage read opts in.
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+				includeHeld: true,
+			});
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
 			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({});
 			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({
@@ -2047,15 +2072,19 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				"option 'red' removed from property 'color'",
 			);
 
-			// BOTH rows remain; Alice's `color` key is gone.
+			// BOTH rows remain in storage; Alice's `color` key is gone and
+			// her park HOLDS her case out of the default read.
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
+				includeHeld: true,
 			});
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
 			expect(rows).toHaveLength(2);
 			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({});
 			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({ color: "blue" });
+			const visible = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(visible.map((r) => r.case_id)).toEqual([PATIENT_BOB_ID]);
 		});
 
 		it("applySchemaChange (narrow-options) keeps a multi-select's surviving elements while the full original parks", async () => {
@@ -2113,9 +2142,106 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// The surviving element stays selected on the row; the FULL
 			// pre-flush selection is what parked, so a restore is
-			// faithful rather than a merge puzzle.
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			// faithful rather than a merge puzzle. The park holds the
+			// case, so reading the row opts in.
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+				includeHeld: true,
+			});
 			expect(rows[0]?.properties).toEqual({ symptoms: ["fever"] });
+		});
+
+		it("an active kept value HOLDS its case: excluded from query and count, released by dismissal, re-held by move-back", async () => {
+			const store = await options.factory(TENANT_A);
+			const textAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "text" }],
+			};
+			const intAge: CaseType = {
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			};
+			await seedSchema(store, buildBlueprint([textAge]), "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "30" }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ age: "abc" }),
+				},
+			});
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([intAge])),
+				property: "age",
+				change: { kind: "retype", fromType: "text", toType: "int" },
+			});
+			expect(report.parkedIds).toHaveLength(1);
+
+			// Held: Bob is out of the default read AND the default count —
+			// the running app simply doesn't see him. The opt-in read (the
+			// review dialog, the case-data population count) still does.
+			const visible = await store.query({ appId: APP_ID, caseType: "patient" });
+			expect(visible.map((r) => r.case_id)).toEqual([PATIENT_ALICE_ID]);
+			expect(await store.count({ appId: APP_ID, caseType: "patient" })).toBe(1);
+			expect(
+				await store.count({
+					appId: APP_ID,
+					caseType: "patient",
+					includeHeld: true,
+				}),
+			).toBe(2);
+
+			// Dismissal is the release valve: the loss is accepted, the
+			// case runs again without the value.
+			expect(
+				await store.setParkedValuesDismissed({
+					appId: APP_ID,
+					ids: report.parkedIds,
+					dismissed: true,
+				}),
+			).toBe(1);
+			expect(await store.count({ appId: APP_ID, caseType: "patient" })).toBe(2);
+
+			// Moving the entry back to review re-holds the case.
+			expect(
+				await store.setParkedValuesDismissed({
+					appId: APP_ID,
+					ids: report.parkedIds,
+					dismissed: false,
+				}),
+			).toBe(1);
+			expect(await store.count({ appId: APP_ID, caseType: "patient" })).toBe(1);
+
+			// Resolving the value releases the case: replace writes a
+			// fitting value and archives the entry in one flow.
+			await store.replaceParkedValue({
+				appId: APP_ID,
+				id: report.parkedIds[0] as string,
+				value: 42,
+			});
+			const released = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(released).toHaveLength(2);
+			expect(
+				released.find((r) => r.case_id === PATIENT_BOB_ID)?.properties,
+			).toEqual({ age: 42 });
 		});
 
 		// -----------------------------------------------------------
@@ -2498,7 +2624,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(rows[0]?.properties).toEqual({ status: "well" });
 		});
 
-		it("narrow-options parks carry the select type on both sides; survivors block, a dropped key restores", async () => {
+		it("narrow-options parks carry the select type on both sides; an explicit put back overwrites survivors", async () => {
 			const store = await options.factory(TENANT_A);
 			const wide: CaseType = {
 				name: "patient",
@@ -2578,36 +2704,34 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const colorEntry = listed.find((e) => e.property === "color");
 			const symptomsEntry = listed.find((e) => e.property === "symptoms");
 			// Not a type change — the transition carries the select type
-			// on both sides, and the flushed single's key dropped so the
-			// entry stands fully restorable (a select schema carries no
-			// enum; the deliberate flush stays undone-able by hand).
+			// on both sides, and both entries stand `fits` (a select
+			// schema carries no enum; the deliberate flush stays
+			// undone-able by hand). The multi's surviving subset on the
+			// row is no obstacle: its case is HELD, so the survivors are
+			// the only occupant, and they are a subset of the original.
 			expect(colorEntry).toMatchObject({
 				fromType: "single_select",
 				toType: "single_select",
 				standing: "fits",
 			});
-			// The multi kept its SURVIVING elements on the row — the full
-			// pre-flush original parked, occupied behind those survivors
-			// (it would fit the enum-less schema; the row's kept subset is
-			// what stands in the way).
 			expect(symptomsEntry).toMatchObject({
 				originalValue: ["fever", "chills"],
 				fromType: "multi_select",
 				toType: "multi_select",
-				standing: "occupied",
+				standing: "fits",
 			});
 
-			// Restore proves the verdicts: the occupied entry is KEPT, the
-			// free one lands.
+			// The explicit put back is a human decision: it lands BOTH,
+			// writing the full pre-flush original over the survivors.
 			const result = await store.restoreParkedValues({
 				appId: APP_ID,
 				ids: listed.map((e) => e.id),
 			});
-			expect(result).toEqual({ restored: 1, kept: 1 });
+			expect(result).toEqual({ restored: 2, kept: 0 });
 			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
 			expect(rows[0]?.properties).toEqual({
 				color: "red",
-				symptoms: ["fever"],
+				symptoms: ["fever", "chills"],
 			});
 		});
 

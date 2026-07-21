@@ -35,6 +35,21 @@ export function reviewCounts(
 	return { ready: entries.length - dismissed, dismissed };
 }
 
+/**
+ * Distinct cases the active (undismissed) entries HOLD out of the
+ * running app. The discovery surfaces (the Case data badge/popover)
+ * speak in cases — that is the unit the app is missing.
+ */
+export function heldCaseCount(
+	entries: readonly ParkedValueEntryWire[],
+): number {
+	const held = new Set<string>();
+	for (const entry of entries) {
+		if (entry.dismissedAt === null) held.add(entry.caseId);
+	}
+	return held.size;
+}
+
 export function filterReviewEntries(
 	entries: readonly ParkedValueEntryWire[],
 	filter: ReviewFilter,
@@ -117,14 +132,13 @@ export function displayReviewValue(value: JsonValue): string {
  * beside the literal "next Tuesday" and the date-iconed chip is the
  * whole event). A select block is always a SHAPE mismatch — the
  * stored select schema carries no option enum (a narrowed-away value
- * lists as `occupied` behind its surviving selections, or `fits`
- * when the key is free), so the only way a select declaration
- * rejects a value is a list where a single choice goes or vice
- * versa. `currentType` comes from the same declaration the chip icon
- * reads, so the phrase and the icon can't disagree; when the client
- * can't see a declaration for a blocked entry (a schema
- * materialization beat), the phrase stays typeless rather than
- * guessing.
+ * stands `fits`; its case is held, so nothing else claims the slot),
+ * so the only way a select declaration rejects a value is a list
+ * where a single choice goes or vice versa. `currentType` comes from
+ * the same declaration the chip icon reads, so the phrase and the
+ * icon can't disagree; when the client can't see a declaration for a
+ * blocked entry (a schema materialization beat), the phrase stays
+ * typeless rather than guessing.
  */
 export function standingPhrase(
 	standing: ParkedValueStanding,
@@ -133,8 +147,6 @@ export function standingPhrase(
 	switch (standing) {
 		case "fits":
 			return "Fits the property again";
-		case "occupied":
-			return "Another value is saved there now";
 		case "undeclared":
 			return "The property was removed";
 		case "blocked": {

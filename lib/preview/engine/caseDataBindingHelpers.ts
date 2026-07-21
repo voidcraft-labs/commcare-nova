@@ -684,6 +684,10 @@ export async function readCaseData(
 		caseListConfig?: CaseListConfig;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
+		/** The review surface's View case dialog reads a HELD case by
+		 * design; running-app callers leave this unset and inherit the
+		 * hold (a held case reads as `missing`, like its list absence). */
+		includeHeld?: boolean;
 	},
 ): Promise<LoadCaseDataResult> {
 	// Postgres rejects malformed UUIDs at the parameter cast (the
@@ -698,6 +702,7 @@ export async function readCaseData(
 		predicate: eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
+		includeHeld: args.includeHeld,
 	});
 	const found = rows[0];
 	if (found === undefined) return { kind: "missing" };

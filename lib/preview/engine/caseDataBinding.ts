@@ -355,9 +355,13 @@ export async function loadCaseCountAction(args: {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		// The manager reports the full stored population — held cases
+		// are still rows it governs (replace-all deletes them too), and
+		// the popover's review section names the held count separately.
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
+			includeHeld: true,
 		});
 		return { kind: "count", count };
 	} catch (err) {
@@ -394,6 +398,7 @@ export async function loadCaseDataAction(
 	caseListConfig?: CaseListConfig,
 	caseTypes?: readonly CaseType[],
 	viewerTimeZone?: string,
+	includeHeld?: boolean,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const session = await getSession();
@@ -413,6 +418,7 @@ export async function loadCaseDataAction(
 			caseId,
 			ancestorDepth,
 			caseListConfig,
+			includeHeld,
 			bindings: previewCaseStoreBindings(
 				searchSession,
 				caseListConfig?.searchInputs,

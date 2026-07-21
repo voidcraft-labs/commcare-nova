@@ -13,6 +13,7 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useCallback, useRef, useState } from "react";
+import { heldCaseCount } from "@/components/builder/data-review/dataReviewModel";
 import { NameChip } from "@/components/builder/data-review/NameChip";
 import {
 	AlertDialog,
@@ -113,6 +114,9 @@ export function CaseDataManager({
 		parkedState.kind === "entries"
 			? parkedState.entries.filter((entry) => entry.dismissedAt === null)
 			: [];
+	const heldCases = heldCaseCount(
+		parkedState.kind === "entries" ? parkedState.entries : [],
+	);
 	const navigate = useNavigate();
 	const setPreviewing = useSetPreviewing();
 	const populate = usePopulateSampleCases({ appId, caseType });
@@ -374,12 +378,12 @@ export function CaseDataManager({
 								/>
 								<div className="min-w-0">
 									<p className="text-sm font-semibold text-nova-text">
-										{activeParked.length === 1
-											? "1 value to review"
-											: `${activeParked.length} values to review`}
+										{heldCases === 1
+											? "1 case held for review"
+											: `${heldCases} cases held for review`}
 									</p>
 									<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-secondary">
-										Kept when a property changed
+										Out of the app until their values are decided
 									</p>
 								</div>
 							</div>

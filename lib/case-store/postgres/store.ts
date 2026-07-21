@@ -365,6 +365,22 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where("c.project_id", "=", this.requireProjectId());
+		// The HOLD: a case with an active (undismissed) kept value is
+		// out of every read unless the caller opts in — the running app
+		// never sees a case whose data is waiting on review. Dismissal
+		// is the release valve, so archived entries hold nothing.
+		if (args.includeHeld !== true) {
+			qb = qb.where(({ not, exists, selectFrom }) =>
+				not(
+					exists(
+						selectFrom("parked_case_values as held")
+							.select("held.id")
+							.whereRef("held.case_id", "=", "c.case_id")
+							.where("held.dismissed_at", "is", null),
+					),
+				),
+			);
+		}
 
 		// Project each calculated column under its prefixed alias.
 		for (const column of calculated) {
@@ -503,6 +519,20 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where("c.project_id", "=", this.requireProjectId());
+		// Same HOLD exclusion `query` applies — a count must agree with
+		// the row list its caller pairs it with.
+		if (args.includeHeld !== true) {
+			qb = qb.where(({ not, exists, selectFrom }) =>
+				not(
+					exists(
+						selectFrom("parked_case_values as held")
+							.select("held.id")
+							.whereRef("held.case_id", "=", "c.case_id")
+							.where("held.dismissed_at", "is", null),
+					),
+				),
+			);
+		}
 
 		if (args.predicate !== undefined) {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
@@ -2436,7 +2466,9 @@ export class PostgresCaseStore implements CaseStore {
 			if (entries.length === 0) {
 				return { restored: 0, kept: args.ids.length };
 			}
-			return await this.restoreEntries(trx, args.appId, entries);
+			return await this.restoreEntries(trx, args.appId, entries, {
+				overwriteExisting: false,
+			});
 		});
 	}
 
@@ -2444,16 +2476,24 @@ export class PostgresCaseStore implements CaseStore {
 	 * The shared restore core `unparkValues` (the saga's compensation)
 	 * and `restoreParkedValues` (the review surface) both run on their
 	 * ALREADY-FETCHED entries: lock the case rows `FOR UPDATE`, prove
-	 * each entry safe on every axis (row exists, key free, value
-	 * conforms to the CURRENTLY-stored schema), write the safe values
-	 * back grouped per row, and delete exactly the restored entries. A
-	 * blocked entry is KEPT — lossless beats tidy; the review surface
-	 * settles it.
+	 * each entry safe (row exists, value conforms to the
+	 * CURRENTLY-stored schema), write the safe values back grouped per
+	 * row, and delete exactly the restored entries. A blocked entry is
+	 * KEPT — lossless beats tidy; the review surface settles it.
+	 *
+	 * `overwriteExisting` splits the two callers on the one axis where
+	 * they differ: the review's Put back is a HUMAN decision made
+	 * against the whole record, so it writes the original over
+	 * whatever the slot holds (a narrow-options flush's surviving
+	 * subset, a rename's standing destination value); the saga's
+	 * compensation is automatic and never overwrites — an occupied key
+	 * keeps its entry for review.
 	 */
 	private async restoreEntries(
 		trx: Transaction<Database>,
 		appId: string,
 		entries: ReadonlyArray<Selectable<ParkedCaseValuesTable>>,
+		opts: { overwriteExisting: boolean },
 	): Promise<{ restored: number; kept: number }> {
 		const rows = await trx
 			.selectFrom("cases as c")
@@ -2489,13 +2529,13 @@ export class PostgresCaseStore implements CaseStore {
 			}
 			const current = nextByCaseId.get(entry.case_id) ?? row.properties;
 			if (
+				!opts.overwriteExisting &&
 				Object.hasOwn(current, entry.property) &&
 				current[entry.property] !== null &&
 				current[entry.property] !== ""
 			) {
-				// A concurrent writer landed a real value under the key
-				// after the park. Keep the entry rather than clobber the
-				// newer value or delete the older one.
+				// Automatic caller + a real value under the key: keep the
+				// entry rather than clobber without a human decision.
 				kept++;
 				continue;
 			}
@@ -2538,15 +2578,13 @@ export class PostgresCaseStore implements CaseStore {
 	}): Promise<ParkedValueEntry[]> {
 		const projectId = this.requireProjectId();
 		// REPEATABLE READ so the two statements — the entry list and the
-		// schema read the verdicts are computed against — see one
+		// schema read the standings are computed against — see one
 		// snapshot (default READ COMMITTED snapshots per statement); the
 		// write paths re-prove every verdict anyway, so this only keeps
 		// the listing self-consistent. The `cases` join is the tenant
-		// gate — an entry is only as visible as its row. Each row
-		// carries just its OWN key's held value (`properties -> p.
-		// property`), never the whole case document: the occupied check
-		// needs one slot, and a case with N parked entries would ship
-		// its full JSONB N times otherwise.
+		// gate — an entry is only as visible as its row. No occupancy
+		// read: an active entry HOLDS its case out of the running app,
+		// so nothing can land a newer value in the parked slot.
 		return await this.db
 			.transaction()
 			.setIsolationLevel("repeatable read")
@@ -2555,12 +2593,7 @@ export class PostgresCaseStore implements CaseStore {
 					.selectFrom("parked_case_values as p")
 					.innerJoin("cases as c", "c.case_id", "p.case_id")
 					.selectAll("p")
-					.select((eb) => [
-						"c.case_name",
-						sql<JsonValue | null>`c.properties -> ${eb.ref("p.property")}`.as(
-							"held_value",
-						),
-					])
+					.select("c.case_name")
 					.where("p.app_id", "=", args.appId)
 					.where("p.case_type", "=", args.caseType)
 					.where("c.project_id", "=", projectId)
@@ -2573,35 +2606,24 @@ export class PostgresCaseStore implements CaseStore {
 					args.appId,
 					new Set(rows.map((row) => row.case_type)),
 				);
-				return rows.map((row) => {
-					const fit = classify(row.case_type, row.property, row.original_value);
-					// SQL NULL (key absent) and jsonb null both read back as
-					// JS null — identical to the old hasOwn + null check.
-					// Occupancy only refines a fitting value ("it could go
-					// back, but a real value sits there now"); a blocked or
-					// undeclared entry can't go back either way, so that arm
-					// carries the more actionable fact.
-					const held = row.held_value;
-					const occupied = held !== null && held !== "";
-					// `from_type`/`to_type` were written from typed tokens by
-					// `bulkPark` — the only writer — so the read-side narrowing
-					// trusts the column the same way `original_value` trusts
-					// its jsonb shape.
-					return {
-						id: row.id,
-						caseId: row.case_id,
-						caseName: row.case_name,
-						caseType: row.case_type,
-						property: row.property,
-						originalValue: row.original_value,
-						reason: row.reason,
-						fromType: row.from_type as CasePropertyDataType,
-						toType: row.to_type as CasePropertyDataType,
-						createdAt: row.created_at,
-						dismissedAt: row.dismissed_at,
-						standing: fit !== "fits" ? fit : occupied ? "occupied" : "fits",
-					};
-				});
+				// `from_type`/`to_type` were written from typed tokens by
+				// `bulkPark` — the only writer — so the read-side narrowing
+				// trusts the column the same way `original_value` trusts
+				// its jsonb shape.
+				return rows.map((row) => ({
+					id: row.id,
+					caseId: row.case_id,
+					caseName: row.case_name,
+					caseType: row.case_type,
+					property: row.property,
+					originalValue: row.original_value,
+					reason: row.reason,
+					fromType: row.from_type as CasePropertyDataType,
+					toType: row.to_type as CasePropertyDataType,
+					createdAt: row.created_at,
+					dismissedAt: row.dismissed_at,
+					standing: classify(row.case_type, row.property, row.original_value),
+				}));
 			});
 	}
 
@@ -2627,7 +2649,9 @@ export class PostgresCaseStore implements CaseStore {
 			if (entries.length === 0) {
 				return { restored: 0, kept: args.ids.length };
 			}
-			const result = await this.restoreEntries(trx, args.appId, entries);
+			const result = await this.restoreEntries(trx, args.appId, entries, {
+				overwriteExisting: true,
+			});
 			return {
 				restored: result.restored,
 				kept: result.kept + (args.ids.length - entries.length),
