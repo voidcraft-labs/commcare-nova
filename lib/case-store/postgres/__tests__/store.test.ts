@@ -2526,3 +2526,102 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		).rejects.toThrow(/mutually exclusive|change.*syncedSeq/i);
 	});
 });
+
+// ---------------------------------------------------------------
+// Pre-annotation stored select schemas — Postgres-specific
+// ---------------------------------------------------------------
+//
+// Lives here rather than in the contract harness because it must
+// rewrite the STORED `case_type_schemas` bytes to the shape the old
+// generator wrote before `x-novaDataType` existed — the contract
+// factory deliberately exposes no raw table access.
+
+describe("PostgresCaseStore — pre-annotation stored select schemas", () => {
+	it("never classifies the ambiguous text→single_select diff — a pre-annotation stored select can't phantom-restore a narrow-options flush", async () => {
+		const store = makeStore(OWNER_A);
+		const selectCaseType: CaseType = {
+			name: "patient",
+			properties: [
+				{
+					name: "color",
+					label: "Color",
+					data_type: "single_select",
+					options: [
+						{ value: "red", label: "Red" },
+						{ value: "blue", label: "Blue" },
+					],
+				},
+			],
+		};
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(selectCaseType),
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "40000000-0000-0000-0000-000000000001",
+				case_type: "patient",
+				case_name: "test-case",
+				properties: { color: "red" },
+			},
+		});
+		// A deliberate flush: "red" leaves the option list, its value
+		// parks, and the row's key drops.
+		const narrowed: CaseType = {
+			name: "patient",
+			properties: [
+				{
+					name: "color",
+					label: "Color",
+					data_type: "single_select",
+					options: [{ value: "blue", label: "Blue" }],
+				},
+			],
+		};
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(narrowed),
+			property: "color",
+			change: { kind: "narrow-options", removedOptions: ["red"] },
+		});
+
+		// Rewrite the stored schema to its pre-annotation shape: the
+		// select's property schema as a bare unconstrained string.
+		const storedRow = await dbHandle.pool.query<{ schema: unknown }>(
+			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		const raw = storedRow.rows[0]?.schema;
+		const schema = (typeof raw === "string" ? JSON.parse(raw) : raw) as {
+			properties: Record<string, Record<string, unknown>>;
+		};
+		delete schema.properties.color?.["x-novaDataType"];
+		await dbHandle.pool.query(
+			"UPDATE case_type_schemas SET schema = $1 WHERE app_id = $2 AND case_type = $3",
+			[JSON.stringify(schema), APP_ID, "patient"],
+		);
+
+		// The first sync after deploy re-derives the ANNOTATED schema.
+		// The stored bare string diffs as text→single_select — an
+		// ambiguity (a real text property stores the same bytes), never
+		// a transition — so the sync must NOT run the widening
+		// auto-restore and resurrect the flushed value.
+		const sync = await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(selectCaseType),
+		});
+		expect(sync.restored).toBe(0);
+		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(rows[0]?.properties).toEqual({});
+		const listed = await store.listParkedValues({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(listed).toHaveLength(1);
+		expect(listed[0]?.originalValue).toBe("red");
+	});
+});

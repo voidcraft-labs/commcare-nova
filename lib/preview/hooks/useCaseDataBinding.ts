@@ -258,6 +258,28 @@ export function useCases(args: {
  * names the success arm worth keeping) — and rendering `loading`
  * rather than a stale different-pair result when the identity moves.
  */
+/**
+ * One in-flight Server Action call per `(resource, appId, caseType,
+ * revision)` across every mounted subscriber. The Case data badge and
+ * the review screen both list the same pair, and a shared
+ * invalidation bumps both mounts in the same commit — without this,
+ * each fires its own identical call. Entries evict on settle, so a
+ * later explicit reload (same key, empty map) always refetches.
+ */
+const inFlightPerCaseTypeCalls = new Map<string, Promise<unknown>>();
+function dedupedPerCaseTypeCall<T>(
+	key: string,
+	run: () => Promise<T>,
+): Promise<T> {
+	const existing = inFlightPerCaseTypeCalls.get(key);
+	if (existing !== undefined) return existing as Promise<T>;
+	const promise = run().finally(() => {
+		inFlightPerCaseTypeCalls.delete(key);
+	});
+	inFlightPerCaseTypeCalls.set(key, promise);
+	return promise;
+}
+
 function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
@@ -296,7 +318,10 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 						fetch: async () => ({
 							kind: "per-case-type" as const,
 							key: requestIdentity,
-							value: await fetcher({ appId, caseType }),
+							value: await dedupedPerCaseTypeCall(
+								`${settledKind} ${requestIdentity} ${caseDataRevision}`,
+								() => fetcher({ appId, caseType }),
+							),
 						}),
 					},
 		loading: {

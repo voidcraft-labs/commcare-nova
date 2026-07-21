@@ -136,6 +136,16 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		setBusyIds((prev) => new Set([...prev, id]));
 		try {
 			await run();
+		} catch {
+			// A Server Action call is a fetch — it REJECTS on a dropped
+			// connection or a mid-deploy stale action id. Without this
+			// catch the press would fail silently (busy resets below, no
+			// toast, nothing changed on screen).
+			showToast(
+				"error",
+				"That didn’t go through",
+				"The server couldn’t be reached. Check your connection and try again.",
+			);
 		} finally {
 			setBusyIds((prev) => {
 				const next = new Set(prev);
@@ -241,7 +251,25 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		if (!draft.ok) return;
 		setReplaceDraft({ ...replaceDraft, saving: true, failures: null });
 		void (async () => {
-			const result = await replace(entry.id, draft.value);
+			let result: Awaited<ReturnType<typeof replace>>;
+			try {
+				result = await replace(entry.id, draft.value);
+			} catch {
+				// A rejected Server Action fetch (dropped connection, stale
+				// action id mid-deploy) must not strand the editor in its
+				// saving state — Cancel is disabled while saving, so an
+				// uncaught rejection would lock the row until a reload.
+				// The typed value stays in the draft for a retry.
+				setReplaceDraft((prev) =>
+					prev?.entryId === entry.id ? { ...prev, saving: false } : prev,
+				);
+				showToast(
+					"error",
+					"Couldn't save the replacement",
+					"The server couldn’t be reached. Your new value is still here — try again.",
+				);
+				return;
+			}
 			if (result.kind === "replaced") {
 				setReplaceDraft(null);
 				showToast(
@@ -362,20 +390,21 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 								["dismissed", "Dismissed", counts.dismissed],
 							] as const
 						).map(([value, label, count]) => (
-							<button
+							<Button
 								key={value}
 								type="button"
+								variant="ghost"
 								aria-pressed={filter === value}
 								disabled={count === 0 && value === "dismissed"}
 								onClick={() => setFilter(value)}
-								className={`min-h-11 rounded-full border px-4 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+								className={`min-h-11 rounded-full border px-4 text-[13px] ${
 									filter === value
 										? "border-nova-border-bright bg-nova-violet/[0.12] text-nova-text"
-										: "cursor-pointer border-nova-border text-nova-text-secondary not-disabled:hover:border-nova-border-bright not-disabled:hover:text-nova-text"
+										: "border-nova-border text-nova-text-secondary not-disabled:hover:border-nova-border-bright"
 								}`}
 							>
 								{label} · {count}
-							</button>
+							</Button>
 						))}
 						{fetching && (
 							<Icon
@@ -485,7 +514,7 @@ function ReviewCaseCard({
 				<Button
 					type="button"
 					variant="ghost"
-					className="min-h-10 text-[13px] text-nova-text-secondary"
+					className="min-h-11 text-[13px] text-nova-text-secondary"
 					onClick={onViewCase}
 				>
 					<Icon icon={tablerEye} width="15" height="15" />
@@ -582,7 +611,7 @@ function ReviewEntryRow({
 							<Button
 								type="button"
 								variant="ghost"
-								className="min-h-10 text-[13px] text-nova-text-secondary"
+								className="min-h-11 text-[13px] text-nova-text-secondary"
 								disabled={busy}
 								onClick={onUndismiss}
 							>
@@ -596,7 +625,7 @@ function ReviewEntryRow({
 										<Button
 											type="button"
 											variant="outline"
-											className="min-h-10 text-[13px] text-nova-violet-bright"
+											className="min-h-11 text-[13px] text-nova-violet-bright"
 											disabled={busy}
 											onClick={onPutBack}
 										>
@@ -611,8 +640,8 @@ function ReviewEntryRow({
 											variant={restorable ? "ghost" : "outline"}
 											className={
 												restorable
-													? "min-h-10 text-[13px] text-nova-text-secondary"
-													: "min-h-10 text-[13px] text-nova-violet-bright"
+													? "min-h-11 text-[13px] text-nova-text-secondary"
+													: "min-h-11 text-[13px] text-nova-violet-bright"
 											}
 											disabled={busy}
 											onClick={onOpenReplace}
@@ -625,7 +654,7 @@ function ReviewEntryRow({
 									<Button
 										type="button"
 										variant="ghost"
-										className="min-h-10 text-[13px] text-nova-text-secondary"
+										className="min-h-11 text-[13px] text-nova-text-secondary"
 										disabled={busy}
 										onClick={onDismiss}
 									>

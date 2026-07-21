@@ -2534,59 +2534,72 @@ export class PostgresCaseStore implements CaseStore {
 		caseType: string;
 	}): Promise<ParkedValueEntry[]> {
 		const projectId = this.requireProjectId();
-		// One transaction so the entries, their case rows, and the
-		// schema the verdicts are computed against are a single
-		// consistent snapshot. The `cases` join is the tenant gate — an
-		// entry is only as visible as its row.
-		return await this.db.transaction().execute(async (trx) => {
-			const rows = await trx
-				.selectFrom("parked_case_values as p")
-				.innerJoin("cases as c", "c.case_id", "p.case_id")
-				.selectAll("p")
-				.select(["c.case_name", "c.properties as case_properties"])
-				.where("p.app_id", "=", args.appId)
-				.where("p.case_type", "=", args.caseType)
-				.where("c.project_id", "=", projectId)
-				.orderBy("p.created_at", "desc")
-				.orderBy("p.id", "desc")
-				.execute();
-			if (rows.length === 0) return [];
-			const conformance = await this.parkedValueConformance(
-				trx,
-				args.appId,
-				new Set(rows.map((row) => row.case_type)),
-			);
-			return rows.map((row) => {
-				const conforms = conformance(
-					row.case_type,
-					row.property,
-					row.original_value,
+		// REPEATABLE READ so the two statements — the entry list and the
+		// schema read the verdicts are computed against — see one
+		// snapshot (default READ COMMITTED snapshots per statement); the
+		// write paths re-prove every verdict anyway, so this only keeps
+		// the listing self-consistent. The `cases` join is the tenant
+		// gate — an entry is only as visible as its row. Each row
+		// carries just its OWN key's held value (`properties -> p.
+		// property`), never the whole case document: the occupied check
+		// needs one slot, and a case with N parked entries would ship
+		// its full JSONB N times otherwise.
+		return await this.db
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.execute(async (trx) => {
+				const rows = await trx
+					.selectFrom("parked_case_values as p")
+					.innerJoin("cases as c", "c.case_id", "p.case_id")
+					.selectAll("p")
+					.select((eb) => [
+						"c.case_name",
+						sql<JsonValue | null>`c.properties -> ${eb.ref("p.property")}`.as(
+							"held_value",
+						),
+					])
+					.where("p.app_id", "=", args.appId)
+					.where("p.case_type", "=", args.caseType)
+					.where("c.project_id", "=", projectId)
+					.orderBy("p.created_at", "desc")
+					.orderBy("p.id", "desc")
+					.execute();
+				if (rows.length === 0) return [];
+				const conformance = await this.parkedValueConformance(
+					trx,
+					args.appId,
+					new Set(rows.map((row) => row.case_type)),
 				);
-				const held = row.case_properties[row.property];
-				const occupied =
-					Object.hasOwn(row.case_properties, row.property) &&
-					held !== null &&
-					held !== "";
-				// `from_type`/`to_type` were written from typed tokens by
-				// `bulkPark` — the only writer — so the read-side narrowing
-				// trusts the column the same way `original_value` trusts
-				// its jsonb shape.
-				return {
-					id: row.id,
-					caseId: row.case_id,
-					caseName: row.case_name,
-					caseType: row.case_type,
-					property: row.property,
-					originalValue: row.original_value,
-					reason: row.reason,
-					fromType: row.from_type as CasePropertyDataType,
-					toType: row.to_type as CasePropertyDataType,
-					createdAt: row.created_at,
-					dismissedAt: row.dismissed_at,
-					restorable: conforms && !occupied,
-				};
+				return rows.map((row) => {
+					const conforms = conformance(
+						row.case_type,
+						row.property,
+						row.original_value,
+					);
+					// SQL NULL (key absent) and jsonb null both read back as
+					// JS null — identical to the old hasOwn + null check.
+					const held = row.held_value;
+					const occupied = held !== null && held !== "";
+					// `from_type`/`to_type` were written from typed tokens by
+					// `bulkPark` — the only writer — so the read-side narrowing
+					// trusts the column the same way `original_value` trusts
+					// its jsonb shape.
+					return {
+						id: row.id,
+						caseId: row.case_id,
+						caseName: row.case_name,
+						caseType: row.case_type,
+						property: row.property,
+						originalValue: row.original_value,
+						reason: row.reason,
+						fromType: row.from_type as CasePropertyDataType,
+						toType: row.to_type as CasePropertyDataType,
+						createdAt: row.created_at,
+						dismissedAt: row.dismissed_at,
+						restorable: conforms && !occupied,
+					};
+				});
 			});
-		});
 	}
 
 	async restoreParkedValues(args: {
@@ -3027,10 +3040,14 @@ interface PropertyTransitions {
 /**
  * Read a property-schema shape back to the `data_type` that emits it —
  * the inverse of `schemaForDataType`, tolerant of the stored side's
- * `unknown`. `text` and `single_select` collapse to one token (their
- * schemas are byte-identical, so no migration can distinguish or need
- * them); an unrecognized shape returns `undefined` and detection skips
- * the property (fail open — the behavior of nothing stored to diff).
+ * `unknown`. A select survives only through the generator's
+ * `x-novaDataType` annotation (its validation shape is an
+ * unconstrained string); an UNANNOTATED bare string reads as `text`,
+ * which is ambiguous for schemas stored before the annotation existed
+ * — `detectPropertyTransitions` refuses to classify the ambiguous
+ * text→single_select pair for exactly that reason. An unrecognized
+ * shape returns `undefined` and detection skips the property (fail
+ * open — the behavior of nothing stored to diff).
  */
 function dataTypeTokenOf(
 	propSchema: unknown,
@@ -3051,9 +3068,8 @@ function dataTypeTokenOf(
 		// A select's VALIDATION shape is plain text (no enum — see the
 		// generator's `single_select` arm), so the authored type survives
 		// only through the generator's annotation keyword. A pre-annotation
-		// stored schema reads as `text` — value-compatible in every cast,
-		// so nothing depends on the distinction beyond the recorded park
-		// transition, and re-syncs converge the stored bytes.
+		// stored select reads as `text` — the ambiguity the detection
+		// loop's text→single_select skip exists for.
 		return annotation === "single_select" ? "single_select" : "text";
 	}
 	if (format === "date") return "date";
@@ -3159,6 +3175,17 @@ function detectPropertyTransitions(
 		const toType = dataTypeTokenOf(nextProp);
 		if (fromType === undefined || toType === undefined) continue;
 		if (fromType === toType) continue;
+		// A bare-string stored schema reads as `text` whether it was a
+		// real text property or a select written before the generator's
+		// annotation existed (only the select arm ever writes one), so
+		// a text→single_select diff cannot be trusted as a transition:
+		// classifying it would run the widening auto-restore over every
+		// pre-annotation select on its first post-deploy sync — undoing
+		// deliberate narrow-options flushes. The pair stays unclassified
+		// (parked values there restore by hand, or through the caller-
+		// intent retype scope when a user really converts text→select);
+		// the annotated direction (single_select→…) stays classified.
+		if (fromType === "text" && toType === "single_select") continue;
 		if (castIsIdentityWidening(fromType, toType)) {
 			widenings.push(name);
 			continue;

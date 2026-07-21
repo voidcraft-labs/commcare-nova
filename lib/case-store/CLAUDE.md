@@ -192,7 +192,13 @@ architecture.
    review surface's soft archive (`dismissed_at`) means "reviewed,
    chose not to restore", so a later convert-back doesn't resurrect
    them. Same-type syncs stay out of scope so a deliberate
-   narrow-options flush isn't undone by the next unrelated edit. The tenant-bound
+   narrow-options flush isn't undone by the next unrelated edit —
+   and the text→single_select diff is NEVER classified at all: a
+   bare-string stored schema can't distinguish a real text source
+   from a select stored before the annotation existed, so trusting
+   that diff would phantom-restore pre-annotation selects' parks on
+   their first post-deploy sync (the caller-intent retype scope
+   still restores a real text→select conversion). The tenant-bound
    review slice on `CaseStore` (`listParkedValues` — verdicts
    computed against the currently-stored schema —
    `restoreParkedValues` / `setParkedValuesDismissed` /

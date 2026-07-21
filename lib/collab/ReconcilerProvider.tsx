@@ -36,9 +36,10 @@ import {
 } from "@/lib/collab/reconciler";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import type { Mutation } from "@/lib/doc/types";
+import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import { buildUrl } from "@/lib/routing/location";
 import { notifyPathChange } from "@/lib/routing/useClientPath";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
@@ -350,12 +351,21 @@ function buildRuntime(
 										// renders the running case list, so leave preview
 										// before navigating.
 										exitPreview();
-										window.history.pushState(
-											null,
-											"",
-											`/build/${id}/${moduleEntry[0]}/data-review`,
-										);
-										notifyPathChange();
+										const url = buildUrl(`/build/${id}`, {
+											kind: "data-review",
+											moduleUuid: moduleEntry[0] as Uuid,
+										});
+										// The toast outlives the builder (ToastContainer is
+										// app-wide), and pushState + notifyPathChange render
+										// only while THIS app's builder is mounted to hear
+										// them — pressed from anywhere else, the button must
+										// be a real navigation, not a silent URL swap.
+										if (window.location.pathname.startsWith(`/build/${id}`)) {
+											window.history.pushState(null, "", url);
+											notifyPathChange();
+										} else {
+											window.location.assign(url);
+										}
 									},
 								},
 							},
