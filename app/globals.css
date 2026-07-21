@@ -1148,6 +1148,27 @@ html.dark {
 	}
 }
 
+/* Base UI wraps an OPEN menu / select / popover trigger with a run of
+   position:fixed helper spans — focus guards (`data-base-ui-focus-guard`) plus a
+   portal anchor — one immediately AFTER the trigger and one as the container's
+   last child. A trigger that is the last IN-FLOW child of a Tailwind `space-y` /
+   `space-x` container — whose spacing is `> :not(:last-child) { margin-block-end }`
+   — stops being `:last-child` the instant that run mounts, so it abruptly gains
+   an end margin and shoves the following page content by the gap while the popup
+   is open (the popup itself is portaled and unaffected). The helpers are out of
+   flow; the trigger is not, so it is the one that takes the margin. Match an
+   in-flow element that is immediately followed by a focus guard (the trigger and
+   its fixed helper run, never a real earlier sibling) AND whose container ends in
+   a focus guard (so no real content follows it), then restore the zero end margin
+   it carries while closed. Unlayered on purpose: it must outrank the
+   zero-specificity `:where(...)` space utility. */
+:not([data-base-ui-focus-guard]):has(+ [data-base-ui-focus-guard]):has(
+	~ [data-base-ui-focus-guard]:last-child
+) {
+	margin-block-end: 0;
+	margin-inline-end: 0;
+}
+
 /* Respect the operating system's reduced-motion preference across Nova's
  * CSS-driven transitions and progress indicators. Keep a near-zero duration
  * instead of removing transitions entirely so Base UI still receives the
