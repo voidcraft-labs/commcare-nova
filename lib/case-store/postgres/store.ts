@@ -1230,7 +1230,11 @@ export class PostgresCaseStore implements CaseStore {
 			let retyped = 0;
 			let detectedParkedIds: string[] = [];
 			let detectedFailureReasons: string[] = [];
-			let transitions: PropertyTransitions = { flips: [], retypes: [] };
+			let transitions: PropertyTransitions = {
+				flips: [],
+				retypes: [],
+				widenings: [],
+			};
 			if (won) {
 				// Exclude only a RETYPE/NARROW-targeted property — those
 				// migrations rewrite the same key their caller named, and a
@@ -1308,20 +1312,24 @@ export class PostgresCaseStore implements CaseStore {
 						});
 
 			// Step 4: restore previously-parked values whose property's
-			// validation semantics CHANGED in this sync and whose original
-			// value the new schema accepts — the winning sync's closing
-			// move, so a convert-back (a fresh conversion, an undo batch,
-			// the saga's compensating re-sync) automatically recovers what
-			// the forward conversion set aside. Scoped to the TRANSITIONED
-			// properties on purpose: a narrow-options park's select value
-			// always conforms (selects carry no enum), so an unscoped
-			// restore would silently undo the opt-in flush on the type's
-			// next sync. Runs AFTER the migrations, so a value parked
-			// moments ago in this same transaction is re-checked against
-			// the schema that parked it and stays put.
+			// declared TYPE changed in this sync and whose original value
+			// the new schema accepts — the winning sync's closing move, so
+			// a convert-back (a fresh conversion, an undo batch, the
+			// saga's compensating re-sync) automatically recovers what the
+			// forward conversion set aside. Identity WIDENINGS count: a
+			// date→text convert-back rewrites no rows, but it is exactly
+			// the transition the parked text values were waiting for.
+			// Scoped to type-changed properties on purpose: a
+			// narrow-options park's select value always conforms (selects
+			// carry no enum), so an unscoped restore would silently undo
+			// the opt-in flush on the type's next same-type sync. Runs
+			// AFTER the migrations, so a value parked moments ago in this
+			// same transaction is re-checked against the schema that
+			// parked it and stays put.
 			const transitionedProperties = new Set<string>([
 				...transitions.flips.map((flip) => flip.property),
 				...transitions.retypes.map((retype) => retype.property),
+				...transitions.widenings,
 				...(args.change !== undefined && args.change.kind === "retype"
 					? [this.requireMigrationProperty(args.property, "retype")]
 					: []),
@@ -3009,6 +3017,15 @@ interface DetectedRetype {
 interface PropertyTransitions {
 	flips: ShapeFlip[];
 	retypes: DetectedRetype[];
+	/**
+	 * Properties whose declared type CHANGED but whose stored values all
+	 * already conform (`castIsIdentityWidening`) — no row rewrite runs,
+	 * yet the type change must still scope the winning sync's parked-
+	 * value restore: a date→text convert-back is exactly as much a
+	 * "convert the property back and the values return" transition as
+	 * the int→text one that rewrites rows.
+	 */
+	widenings: string[];
 }
 
 /**
@@ -3072,7 +3089,18 @@ function castIsIdentityWidening(
 			fromType === "single_select"
 		);
 	}
-	if (toType === "single_select") return fromType === "text";
+	if (toType === "single_select") {
+		// A select's validation shape is an unconstrained string (no
+		// enum), so every string-shaped source already conforms — the
+		// same set the `text` target accepts.
+		return (
+			fromType === "text" ||
+			fromType === "date" ||
+			fromType === "time" ||
+			fromType === "datetime" ||
+			fromType === "geopoint"
+		);
+	}
 	return fromType === "int" && toType === "decimal";
 }
 
@@ -3120,7 +3148,7 @@ function detectPropertyTransitions(
 	next: CaseTypeJsonSchema,
 	exclude: string | undefined,
 ): PropertyTransitions {
-	const none: PropertyTransitions = { flips: [], retypes: [] };
+	const none: PropertyTransitions = { flips: [], retypes: [], widenings: [] };
 	if (typeof stored !== "object" || stored === null) return none;
 	const storedProps = (stored as { properties?: unknown }).properties;
 	if (typeof storedProps !== "object" || storedProps === null) return none;
@@ -3128,13 +3156,17 @@ function detectPropertyTransitions(
 
 	const flips: ShapeFlip[] = [];
 	const retypes: DetectedRetype[] = [];
+	const widenings: string[] = [];
 	for (const [name, nextProp] of Object.entries(next.properties)) {
 		if (name === exclude) continue;
 		const fromType = dataTypeTokenOf(storedByName[name]);
 		const toType = dataTypeTokenOf(nextProp);
 		if (fromType === undefined || toType === undefined) continue;
 		if (fromType === toType) continue;
-		if (castIsIdentityWidening(fromType, toType)) continue;
+		if (castIsIdentityWidening(fromType, toType)) {
+			widenings.push(name);
+			continue;
+		}
 		const fromIsString =
 			fromType !== "int" &&
 			fromType !== "decimal" &&
@@ -3150,7 +3182,7 @@ function detectPropertyTransitions(
 			retypes.push({ property: name, fromType, toType });
 		}
 	}
-	return { flips, retypes };
+	return { flips, retypes, widenings };
 }
 
 /** Cast result for a per-row migration's cast attempt. */

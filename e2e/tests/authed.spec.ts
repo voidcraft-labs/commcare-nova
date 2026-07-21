@@ -911,7 +911,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: /^Case data for / }).click();
 		const caseData = page.getByRole("dialog", { name: "Case data" });
 		const caseDataDescription = caseData.getByText(
-			"Add or replace case data for “Patient”. It’s used throughout your app and in Preview.",
+			"Add or replace the cases saved for the Patient case type. They’re used throughout your app and in Preview.",
 		);
 		await expect(caseDataDescription).toBeVisible();
 		const countValue = caseData.getByText("8", { exact: true });

@@ -161,10 +161,12 @@ architecture.
      row's value attempts `tryCastValue` into the new type; an
      uncastable value PARKS (`parked_case_values`) with its key
      dropped, and the row STAYS. Identity widenings
-     (temporal/geopoint→text, int→decimal, text⇄single_select — the
-     select's authored type survives via the schema generator's
-     `x-novaDataType` annotation, which `dataTypeTokenOf` reads) are
-     skipped — every stored value already conforms. A numeric-SOURCE
+     (temporal/geopoint→text OR →single_select, int→decimal,
+     text⇄single_select — the select's authored type survives via
+     the schema generator's `x-novaDataType` annotation, which
+     `dataTypeTokenOf` reads) rewrite no rows — every stored value
+     already conforms — but still count as type transitions for the
+     closing restore step below. A numeric-SOURCE
      retype first
      drops the property's live `::integer`/`::numeric` expression
      index inside the transaction (`dropStaleNumericIndexes`) —
@@ -182,10 +184,15 @@ architecture.
 
    Every park captures its transition (`from_type` / `to_type` — a
    narrow-options park carries its select type on both sides), and
-   the winning sync's closing auto-restore (Phase A step 4) skips
-   DISMISSED entries — the review surface's soft archive
-   (`dismissed_at`) means "reviewed, chose not to restore", so a
-   later convert-back doesn't resurrect them. The tenant-bound
+   the winning sync's closing auto-restore (Phase A step 4) runs for
+   every property whose declared TYPE changed in the sync —
+   detected flips, retypes, AND identity widenings (a date→text
+   convert-back rewrites no rows but is exactly the transition its
+   parked values wait for) — while skipping DISMISSED entries: the
+   review surface's soft archive (`dismissed_at`) means "reviewed,
+   chose not to restore", so a later convert-back doesn't resurrect
+   them. Same-type syncs stay out of scope so a deliberate
+   narrow-options flush isn't undone by the next unrelated edit. The tenant-bound
    review slice on `CaseStore` (`listParkedValues` — verdicts
    computed against the currently-stored schema —
    `restoreParkedValues` / `setParkedValuesDismissed` /

@@ -19,6 +19,7 @@
 import { getSession } from "@/lib/auth-utils";
 import {
 	buildCaseTypeMap,
+	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type JsonValue,
 	ParkedValueNotFoundError,
@@ -662,6 +663,11 @@ export async function replaceParkedValueAction(args: {
 		if (err instanceof CasePropertiesValidationError)
 			return { kind: "invalid-value", failures: err.failures };
 		if (err instanceof ParkedValueNotFoundError) return { kind: "not-found" };
+		// The entry lookup and the row write run in separate transactions,
+		// so the case can vanish between them (a sample-data replace's
+		// cascade) — the same "moved on" outcome as a vanished entry, not
+		// a fault to surface raw.
+		if (err instanceof CaseNotFoundError) return { kind: "not-found" };
 		reportUnexpectedActionError("replaceParkedValue", err, {
 			appId: args.appId,
 		});

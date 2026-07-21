@@ -10,7 +10,6 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -23,6 +22,7 @@ import type { CaseProperty, CaseType } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain";
 import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
+import { NameChip } from "./NameChip";
 
 /**
  * A stored value as the person who typed it knows it — select values
@@ -146,12 +146,7 @@ export function CaseDetailDialog({
 										scope="row"
 										className="w-40 py-2.5 pr-4 text-left align-top font-normal"
 									>
-										<Badge
-											variant="outline"
-											className="h-auto min-h-5 whitespace-normal [overflow-wrap:anywhere]"
-										>
-											{label}
-										</Badge>
+										<NameChip label={label} />
 									</th>
 									<td className="py-2.5 align-top text-sm leading-relaxed break-words text-nova-text [overflow-wrap:anywhere]">
 										{value === "" ? (

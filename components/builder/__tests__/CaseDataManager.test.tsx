@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 	reloadCount: vi.fn(),
 	showToast: vi.fn(),
 	openDataReview: vi.fn(),
+	setPreviewing: vi.fn(),
 }));
 
 vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
@@ -46,6 +47,10 @@ vi.mock("@/lib/preview/hooks/useCaseDataBinding", () => ({
 
 vi.mock("@/lib/routing/hooks", () => ({
 	useNavigate: () => ({ openDataReview: mocks.openDataReview }),
+}));
+
+vi.mock("@/lib/session/hooks", () => ({
+	useSetPreviewing: () => mocks.setPreviewing,
 }));
 
 vi.mock("@/lib/ui/toastStore", () => ({

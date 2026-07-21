@@ -13,6 +13,7 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useCallback, useRef, useState } from "react";
+import { NameChip } from "@/components/builder/data-review/NameChip";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -23,7 +24,6 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
-import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
@@ -44,6 +44,7 @@ import {
 	useResetSampleCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useNavigate } from "@/lib/routing/hooks";
+import { useSetPreviewing } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 
 type Operation = "create" | "replace" | null;
@@ -113,6 +114,7 @@ export function CaseDataManager({
 			? parkedState.entries.filter((entry) => entry.dismissedAt === null)
 			: [];
 	const navigate = useNavigate();
+	const setPreviewing = useSetPreviewing();
 	const populate = usePopulateSampleCases({ appId, caseType });
 	const reset = useResetSampleCases({ appId, caseType });
 	const [popoverOpen, setPopoverOpen] = useState(false);
@@ -343,13 +345,8 @@ export function CaseDataManager({
 						</PopoverTitle>
 						<PopoverDescription className="text-sm leading-relaxed text-nova-text-secondary">
 							{canEdit ? "Add or replace" : "View"} the cases saved for the{" "}
-							<Badge
-								variant="outline"
-								className="h-auto min-h-5 align-middle whitespace-normal [overflow-wrap:anywhere]"
-							>
-								{caseTypeDisplayName}
-							</Badge>{" "}
-							case type. They’re used throughout your app and in Preview.
+							<NameChip label={caseTypeDisplayName} /> case type. They’re used
+							throughout your app and in Preview.
 						</PopoverDescription>
 					</PopoverHeader>
 					{operation === "create" && (
@@ -392,6 +389,10 @@ export function CaseDataManager({
 								className="mt-2.5 min-h-11 w-full"
 								onClick={() => {
 									setPopoverOpen(false);
+									// The review screen is an edit surface — in preview the
+									// data-review URL renders the running case list, so the
+									// press would look like a no-op. Leave preview first.
+									setPreviewing(false);
 									navigate.openDataReview(moduleUuid);
 								}}
 							>

@@ -91,6 +91,9 @@ export interface ReconcilerProviderProps {
 function buildRuntime(
 	docStore: BlueprintDocStoreApi,
 	init: { appId?: string; baseSeq: number; userId: string },
+	/** Leaves preview mode — the conversion toast's "Review data" action
+	 *  navigates to an edit-only surface, which preview would mask. */
+	exitPreview: () => void,
 ): ReconcilerRuntime {
 	const appIdBox: { current: string | undefined } = { current: init.appId };
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
@@ -343,6 +346,10 @@ function buildRuntime(
 											);
 											return;
 										}
+										// The review screen is edit-only; in preview its URL
+										// renders the running case list, so leave preview
+										// before navigating.
+										exitPreview();
 										window.history.pushState(
 											null,
 											"",
@@ -507,11 +514,16 @@ export function ReconcilerProvider({
 
 	const runtimeRef = useRef<ReconcilerRuntime | null>(null);
 	if (runtimeRef.current === null && docStore && sessionApi) {
-		runtimeRef.current = buildRuntime(docStore, {
-			appId,
-			baseSeq,
-			userId,
-		});
+		const sessionStore = sessionApi;
+		runtimeRef.current = buildRuntime(
+			docStore,
+			{
+				appId,
+				baseSeq,
+				userId,
+			},
+			() => sessionStore.getState().setPreviewing(false),
+		);
 	}
 
 	// Open the stream on mount for an existing app; a dormant new build waits

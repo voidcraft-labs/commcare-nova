@@ -29,7 +29,6 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useId, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import { Input } from "@/components/shadcn/input";
@@ -71,6 +70,7 @@ import {
 	replacementDraftToValue,
 	reviewCounts,
 } from "./dataReviewModel";
+import { NameChip } from "./NameChip";
 
 /**
  * The property's CURRENT type for display copy. A declared property
@@ -95,18 +95,6 @@ interface ReplaceDraft {
 	readonly selections: readonly string[];
 	readonly failures: readonly CasePropertyFailure[] | null;
 	readonly saving: boolean;
-}
-
-/** The authored property name as a chip — never inline prose. */
-function PropertyChip({ label }: { readonly label: string }) {
-	return (
-		<Badge
-			variant="outline"
-			className="h-auto min-h-5 align-middle whitespace-normal [overflow-wrap:anywhere]"
-		>
-			{label}
-		</Badge>
-	);
 }
 
 export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
@@ -197,6 +185,14 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						? result.message
 						: "You're signed out. Reload the page to sign in again.",
 				);
+				return;
+			}
+			if (result.count === 0) {
+				showToast(
+					"info",
+					"This value moved on",
+					"It was put back, replaced, or its case was removed. The list is refreshed.",
+				);
 			}
 		});
 
@@ -210,6 +206,17 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 					result.kind === "error"
 						? result.message
 						: "You're signed out. Reload the page to sign in again.",
+				);
+				return;
+			}
+			// count 0: the entry left the list between render and press (a
+			// teammate put it back, or its case was replaced) — claiming
+			// it's "under Dismissed" with a dead Undo would be a lie.
+			if (result.count === 0) {
+				showToast(
+					"info",
+					"This value moved on",
+					"It was put back, replaced, or its case was removed. The list is refreshed.",
 				);
 				return;
 			}
@@ -238,6 +245,11 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			const result = await replace(entry.id, draft.value);
 			if (result.kind === "replaced") {
 				setReplaceDraft(null);
+				showToast(
+					"info",
+					"Value replaced",
+					"The new value is saved on the case. The original moved to Dismissed.",
+				);
 				return;
 			}
 			if (result.kind === "invalid-value") {
@@ -270,15 +282,20 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 
 	const entries = state.kind === "entries" ? state.entries : [];
 	const counts = reviewCounts(entries);
-	// The Dismissed pill disables at zero; if the view was sitting on
-	// Dismissed when its last entry left, fall back rather than render
-	// a filter whose pill can't be pressed.
-	const effectiveFilter: ReviewFilter =
-		counts.dismissed === 0 ? "ready" : filter;
+	// The Dismissed pill disables at zero. When the view sits on
+	// Dismissed as its last entry leaves, move the STATE itself back to
+	// Ready (a guarded render-time reset) — a display-only fallback
+	// would leave "dismissed" latched, and the next dismissal from the
+	// Ready list would yank the screen back to Dismissed mid-review.
+	if (
+		state.kind === "entries" &&
+		filter === "dismissed" &&
+		counts.dismissed === 0
+	) {
+		setFilter("ready");
+	}
 	const notices = convertBackNotices(entries);
-	const groups = groupReviewByCase(
-		filterReviewEntries(entries, effectiveFilter),
-	);
+	const groups = groupReviewByCase(filterReviewEntries(entries, filter));
 
 	return (
 		<ContentFrame width="5xl" className="px-6 pt-7 pb-16">
@@ -347,11 +364,11 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 							<button
 								key={value}
 								type="button"
-								aria-pressed={effectiveFilter === value}
+								aria-pressed={filter === value}
 								disabled={count === 0 && value === "dismissed"}
 								onClick={() => setFilter(value)}
 								className={`min-h-11 rounded-full border px-4 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-									effectiveFilter === value
+									filter === value
 										? "border-nova-border-bright bg-nova-violet/[0.12] text-nova-text"
 										: "cursor-pointer border-nova-border text-nova-text-secondary not-disabled:hover:border-nova-border-bright not-disabled:hover:text-nova-text"
 								}`}
@@ -370,7 +387,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						)}
 					</fieldset>
 
-					{effectiveFilter === "ready" &&
+					{filter === "ready" &&
 						notices.map((notice) => (
 							<div
 								key={`${notice.property}|${notice.fromType}|${notice.toType}`}
@@ -385,7 +402,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 								<p className="min-w-0 text-[13px] leading-relaxed text-nova-text-secondary">
 									{notice.count === 1 ? "This value" : "These values"} no longer{" "}
 									{notice.count === 1 ? "fits" : "fit"} since{" "}
-									<PropertyChip label={propertyLabel(notice.property)} /> became{" "}
+									<NameChip label={propertyLabel(notice.property)} /> became{" "}
 									{dataTypePhrase(
 										currentTypeOf(propertyDecl(notice.property), notice.toType),
 									)}
@@ -409,7 +426,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 								canEdit={canEdit}
 								busyIds={busyIds}
 								replaceDraft={replaceDraft}
-								dismissedView={effectiveFilter === "dismissed"}
+								dismissedView={filter === "dismissed"}
 								propertyDecl={propertyDecl}
 								propertyLabel={propertyLabel}
 								onViewCase={() =>
@@ -567,7 +584,12 @@ function ReviewEntryRow({
 	// value fits its property again, Replace when it can't go back
 	// as-is, Dismiss alongside either. A button that couldn't work is
 	// never rendered disabled next to one that can — that reads as a
-	// toggle group, not a choice.
+	// toggle group, not a choice. A park whose property is no longer
+	// declared at all (a rename's retired source, a removed property)
+	// gets NO primary action: the store rejects a write under an
+	// undeclared key, so Replace would fail on every save — Dismiss
+	// and View case are the honest choices, and a put-back reappears
+	// by itself if the property is ever declared again.
 	const primaryAction = entry.restorable ? (
 		<SimpleTooltip content="Saves this value on its case again">
 			<Button
@@ -580,7 +602,7 @@ function ReviewEntryRow({
 				Put back
 			</Button>
 		</SimpleTooltip>
-	) : (
+	) : currentDecl !== undefined ? (
 		<SimpleTooltip content={`Enter a new ${label} for this case`}>
 			<Button
 				type="button"
@@ -592,13 +614,13 @@ function ReviewEntryRow({
 				Replace
 			</Button>
 		</SimpleTooltip>
-	);
+	) : null;
 
 	return (
 		<div className="border-t border-nova-violet/[0.08]">
 			<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2">
 				<p className="min-w-52 flex-1 text-[13.5px] break-words text-nova-text">
-					<PropertyChip label={label} />{" "}
+					<NameChip label={label} />{" "}
 					<span className="text-nova-text-muted">“</span>
 					{display}
 					<span className="text-nova-text-muted">”</span>

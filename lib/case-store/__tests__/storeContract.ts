@@ -1504,6 +1504,73 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 		});
 
+		it("applySchemaChange restores parked values on an identity-widening convert-back (date → text rewrites no rows, yet the parked value returns)", async () => {
+			const store = await options.factory(TENANT_A);
+			const initialCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "visit", label: "Visit", data_type: "text" }],
+			};
+			const initialBlueprint = buildBlueprint([initialCaseType]);
+			await seedSchema(store, initialBlueprint, "patient");
+
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					// Castable to a date — survives the retype in place.
+					properties: makeProperties({ visit: "2026-01-05" }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_BOB_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					// Not castable — parks under text → date.
+					properties: makeProperties({ visit: "next Tuesday" }),
+				},
+			});
+
+			const datedCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "visit", label: "Visit", data_type: "date" }],
+			};
+			const report = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([datedCaseType])),
+				property: "visit",
+				change: { kind: "retype", fromType: "text", toType: "date" },
+			});
+			expect(report.parkedIds).toHaveLength(1);
+
+			// Convert BACK to text. date → text is an identity WIDENING —
+			// every stored value already conforms, so no row rewrites —
+			// but it is still the transition Bob's parked value was
+			// waiting for: the closing restore step must run for the
+			// property and write the value back on its own.
+			const revert = await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
+			});
+			expect(revert.retyped).toBe(0); // widening — rows untouched
+			expect(revert.restored).toBe(1); // Bob's value came back anyway
+			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const byId = new Map(rows.map((r) => [r.case_id, r]));
+			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({
+				visit: "2026-01-05",
+			});
+			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({
+				visit: "next Tuesday",
+			});
+		});
+
 		// -----------------------------------------------------------
 		// applySchemaChange — string↔array shape reshape (detection)
 		// -----------------------------------------------------------

@@ -11,11 +11,16 @@
 //     moved on (a `narrow-options` park carries its select type on
 //     both sides — the "conversion" was an option removal).
 //
-// The type columns are NOT NULL with no default — honest values exist
-// only at park time. `parked_case_values` shipped one deploy earlier
-// with zero rows in production and local, so the guard below RAISEs
-// if any row landed in that gap: such rows would need a hand-written
-// backfill (each `reason` names its cast) before this can proceed.
+// The type columns are NOT NULL with DEFAULT 'text'. The default is
+// the deploy-window safety net, not a data source: the migrate Job
+// runs while the PREVIOUS revision still serves, and that revision's
+// park INSERT predates these columns — without a default, a park
+// attempted in the window violates NOT NULL and aborts the user's
+// whole blueprint commit. New code always writes explicit values, so
+// the default only ever stamps a park from that window (displayed as
+// a same-type park; its live verdict is computed against the current
+// declaration either way). Pre-existing rows are guarded, not
+// defaulted — see below.
 //
 // Forward-only in production; `down` exists for local/test teardown only.
 
@@ -42,10 +47,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				END IF;
 			END IF;
 		END $$`.execute(db);
-	await sql`ALTER TABLE "parked_case_values" ADD COLUMN IF NOT EXISTS "from_type" text NOT NULL`.execute(
+	await sql`ALTER TABLE "parked_case_values" ADD COLUMN IF NOT EXISTS "from_type" text NOT NULL DEFAULT 'text'`.execute(
 		db,
 	);
-	await sql`ALTER TABLE "parked_case_values" ADD COLUMN IF NOT EXISTS "to_type" text NOT NULL`.execute(
+	await sql`ALTER TABLE "parked_case_values" ADD COLUMN IF NOT EXISTS "to_type" text NOT NULL DEFAULT 'text'`.execute(
 		db,
 	);
 	await sql`ALTER TABLE "parked_case_values" ADD COLUMN IF NOT EXISTS "dismissed_at" timestamptz`.execute(
