@@ -114,6 +114,9 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 						caseTypes: ctx.caseTypes,
 						currentCaseType: destinationCaseType,
 						knownInputs: ctx.knownInputs,
+						// A relation walk's `where` always runs against the
+						// destination case row, whatever the outer slot's scope.
+						caseDataScope: "per-case",
 					}),
 		[destinationCaseType, ctx.caseTypes, ctx.knownInputs],
 	);

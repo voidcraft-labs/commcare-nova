@@ -170,6 +170,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		det(e, "reason", "") === "date-range-default-unsupported"
 			? `The search field ${q(det(e, "inputName", "in this module"))} has an old one-date starting value, but a date range needs both dates. Remove the starting value.`
 			: `The starting value for search field ${q(det(e, "inputName", "in this module"))} doesn't match its field type. Change the starting value or clear it.`,
+	CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE: (e) =>
+		`The starting value for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use a fixed value, today's date, or current-user information — or clear it.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
 	CASE_LIST_BARE_SEARCH_INPUT_REF: (e) => {
@@ -343,6 +345,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`The assigned cases setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
+	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
+		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. Use fixed values or current-user information, or clear the condition to always show the button.`,
 
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>

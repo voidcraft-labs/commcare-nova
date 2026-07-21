@@ -54,6 +54,7 @@ const NEW_PEER = comparisonDefault("eq", {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
+	caseDataScope: "per-case",
 });
 const VIA = ancestorPath(relationStep("parent", "household"));
 

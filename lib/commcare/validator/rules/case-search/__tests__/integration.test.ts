@@ -24,6 +24,7 @@ import {
 	gt,
 	literal,
 	prop,
+	sessionUser,
 	toValueExpression,
 } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
@@ -32,12 +33,14 @@ describe("case-search validator — cross-rule integration", () => {
 	it("surfaces every case-search rule's error simultaneously when each violates", () => {
 		// Single blueprint that structurally violates all four rule slots:
 		//
-		//   1. searchButtonDisplayCondition: `eq` against unknown property
-		//      → CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR
+		//   1. searchButtonDisplayCondition: case-property read before a
+		//      row exists
+		//      → CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE
 		//   2. excludedOwnerIds: case-property read before a row exists
 		//      → CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE
-		//   3. searchInputs[0].default: ill-typed value
-		//      → CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR
+		//   3. searchInputs[0].default: case-property read before a row
+		//      exists
+		//      → CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE
 		//   4. searchInputs[1] (advanced).predicate: ill-typed
 		//      → CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR
 		const doc = buildDoc({
@@ -119,7 +122,9 @@ describe("case-search validator — cross-rule integration", () => {
 		const errors = runValidation(doc);
 		expect(
 			errors.some(
-				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+				(e) =>
+					e.code ===
+					"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
 			),
 		).toBe(true);
 		expect(
@@ -130,7 +135,8 @@ describe("case-search validator — cross-rule integration", () => {
 		).toBe(true);
 		expect(
 			errors.some(
-				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+				(e) =>
+					e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 			),
 		).toBe(true);
 		expect(
@@ -182,9 +188,12 @@ describe("case-search validator — cross-rule integration", () => {
 						],
 					},
 					caseSearchConfig: {
+						// A global (session-value) condition — the slot resolves
+						// before any case is selected, so case-property reads are
+						// rejected by the case-data guard, not admitted here.
 						searchButtonDisplayCondition: eq(
-							prop("patient", "case_name"),
-							literal("Alice"),
+							sessionUser("role"),
+							literal("supervisor"),
 						),
 						excludedOwnerIds: toValueExpression(literal("user-123")),
 					},
@@ -223,9 +232,11 @@ describe("case-search validator — cross-rule integration", () => {
 		const errors = runValidation(doc);
 		const caseSearchCodes = new Set([
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+			"CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 		]);
 		expect(errors.filter((e) => caseSearchCodes.has(e.code))).toEqual([]);

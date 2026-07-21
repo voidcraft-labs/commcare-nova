@@ -69,6 +69,7 @@ import {
 } from "../dragData";
 import { usePredicateEditContext } from "../editorContext";
 import {
+	globalPlaceholderTruth,
 	isAuthorablePredicateKind,
 	type PredicateCardSchema,
 	type PredicateEditContext,
@@ -120,7 +121,13 @@ export function orDefault(
 export function notDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "not" }> {
-	const inner = firstConditionSeed(ctx);
+	// The wrapper flips the truth, so the inner placeholder takes the
+	// OPPOSITE polarity: a fresh "Exclude when" at the root of a global
+	// slot excludes nothing (not(false) = true) until the author fills it.
+	const inner = firstConditionSeed({
+		...ctx,
+		globalPlaceholderHolds: !globalPlaceholderTruth(ctx),
+	});
 	if (inner === undefined) return { kind: "not", clause: matchAll() };
 	// Route through the builder so the reductions in
 	// `lib/domain/predicate/reduction.ts` apply on every
@@ -213,8 +220,19 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			caseTypes: ctx.caseTypes,
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
+			caseDataScope: ctx.caseDataScope,
+			// A clause added to THIS group must be neutral for its
+			// combinator, so the group's (and therefore the rule's)
+			// meaning is unchanged until the author edits the new row.
+			globalPlaceholderHolds: value.kind !== "or",
 		}),
-		[ctx.caseTypes, ctx.currentCaseType, ctx.knownInputs],
+		[
+			ctx.caseTypes,
+			ctx.currentCaseType,
+			ctx.knownInputs,
+			ctx.caseDataScope,
+			value.kind,
+		],
 	);
 	const containerKey = useId();
 	const rowIdentity = useStableListIdentity(value.clauses);
@@ -601,6 +619,7 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		caseDataScope: ctx.caseDataScope,
 	};
 
 	return (

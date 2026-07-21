@@ -124,6 +124,7 @@ export function SearchConditionCanvas({
 					currentCaseType={currentCaseType}
 					knownInputs={knownInputs}
 					evaluationTarget={inputCondition ? "case-search" : "on-device"}
+					caseDataScope={inputCondition ? "per-case" : "global"}
 					focusRequest={dependencyReview ?? focusRequest}
 				/>
 			</section>

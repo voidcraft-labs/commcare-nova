@@ -44,11 +44,6 @@ import {
 	valueExpressionSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "./predicate/types";
-import {
-	walkExpressionNodes,
-	walkExpressionPredicateNodes,
-	walkExpressionTerms,
-} from "./predicate/walk";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Sort + visibility — common column slots ──────────────────────
@@ -1303,34 +1298,6 @@ export const caseSearchConfigSchema = z
 	})
 	.strict();
 export type CaseSearchConfig = z.infer<typeof caseSearchConfigSchema>;
-
-/**
- * Whether an assigned-case exclusion expression needs a selected case row.
- *
- * This is the shared semantic guard for the validator and SA/MCP authoring
- * boundary. Property terms read the current or a related case directly;
- * `count`, `exists`, and `missing` read the relationship graph even when they
- * carry no property term. All other expression/predicate operators are pure
- * compositions over their descendants and remain available when those
- * descendants are global values.
- */
-export function excludedOwnerIdsReadsCaseData(
-	expression: ValueExpression,
-): boolean {
-	let readsCaseData = false;
-	walkExpressionTerms(expression, (value) => {
-		if (value.kind === "prop") readsCaseData = true;
-	});
-	walkExpressionNodes(expression, (value) => {
-		if (value.kind === "count") readsCaseData = true;
-	});
-	walkExpressionPredicateNodes(expression, (predicate) => {
-		if (predicate.kind === "exists" || predicate.kind === "missing") {
-			readsCaseData = true;
-		}
-	});
-	return readsCaseData;
-}
 
 /** Whether the optional search-settings bag contains a real authored
  * override. Explicit `undefined` keys can survive legacy/editor objects, so

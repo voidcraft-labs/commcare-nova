@@ -26,7 +26,6 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
@@ -103,13 +102,11 @@ export const setCaseSearchDisplayTool = {
 			// assertions in `shared.ts` catch cluster-home omissions at
 			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
+			// The display condition is a GLOBAL predicate — case-property
+			// reads are rejected at the schema boundary and the commit gate
+			// (`CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`),
+			// so no property-alias canonicalization applies to this cluster.
 			const displayPatch = applyClusterPatch(input, DISPLAY_SLOT_NAMES);
-			if (displayPatch.searchButtonDisplayCondition !== undefined) {
-				displayPatch.searchButtonDisplayCondition =
-					canonicalizePredicateCaseProperties(
-						displayPatch.searchButtonDisplayCondition,
-					);
-			}
 			const authoredDisplaySetting = Object.keys(displayPatch).length > 0;
 			const nextConfigCandidate: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),

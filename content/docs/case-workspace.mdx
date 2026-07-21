@@ -74,6 +74,12 @@ case list. Removing the final field does not discard an authored action label
 or availability condition. Those less-common action settings remain under
 **More settings**.
 
+A search field's starting value and the Search action's availability
+condition are decided before anyone has picked a case, so they work with
+fixed values and current-user information. Case information belongs in the
+field's own match behavior or in **Cases available**, which run against each
+case.
+
 Results owns **Cases available**, the rules that always decide which cases can
 appear before anyone searches. The conditions are listed and edited together
 in the canvas, above Default order. Choose **Add condition** for another rule,

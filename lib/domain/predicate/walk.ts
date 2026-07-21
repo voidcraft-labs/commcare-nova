@@ -348,6 +348,60 @@ export function walkPropertyRefs(
 	});
 }
 
+/**
+ * Whether an expression needs a case row to evaluate faithfully.
+ *
+ * This is the shared semantic guard for slots resolved in a GLOBAL
+ * context — before any case is selected: the assigned-case exclusion
+ * (`caseSearchConfig.excludedOwnerIds`), a search input's starting
+ * value (`searchInputs[].default`), and the search-button display
+ * condition (predicate-rooted sibling below). Property terms read the
+ * current or a related case directly; `count`, `exists`, and `missing`
+ * read the relationship graph even when they carry no property term.
+ * All other operators are pure compositions over their descendants and
+ * remain available when those descendants are global values (literals,
+ * session/current-user values, Search answers where the slot admits
+ * them).
+ */
+export function expressionReadsCaseData(expression: ValueExpression): boolean {
+	let readsCaseData = false;
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind === "prop") readsCaseData = true;
+	});
+	walkExpressionNodes(expression, (node) => {
+		if (node.kind === "count") readsCaseData = true;
+	});
+	walkExpressionPredicateNodes(expression, (predicate) => {
+		if (predicate.kind === "exists" || predicate.kind === "missing") {
+			readsCaseData = true;
+		}
+	});
+	return readsCaseData;
+}
+
+/**
+ * Predicate-rooted counterpart to `expressionReadsCaseData`. The
+ * `PropertyRef` slots on `within-distance` / `match` /
+ * `multi-select-contains` surface through `walkTerms` as prop-kinded
+ * terms, so every spelling of a case read is covered by the same three
+ * checks.
+ */
+export function predicateReadsCaseData(predicate: Predicate): boolean {
+	let readsCaseData = false;
+	walkTerms(predicate, (term) => {
+		if (term.kind === "prop") readsCaseData = true;
+	});
+	walkPredicateExpressionNodes(predicate, (node) => {
+		if (node.kind === "count") readsCaseData = true;
+	});
+	walkPredicateNodes(predicate, (node) => {
+		if (node.kind === "exists" || node.kind === "missing") {
+			readsCaseData = true;
+		}
+	});
+	return readsCaseData;
+}
+
 // ── Internal recursion ────────────────────────────────────────────
 
 interface AstVisitor {

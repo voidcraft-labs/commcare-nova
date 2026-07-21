@@ -30,10 +30,15 @@ import type { CaseType } from "@/lib/domain";
 import {
 	type CheckError,
 	checkExpression,
+	expressionReadsCaseData,
 	type ResolvedType,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { presentCheckErrorForEditor } from "./checkErrorPresentation";
+import {
+	type CaseDataScope,
+	GLOBAL_SCOPE_CASE_DATA_REASON,
+} from "./editorSchemas";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -77,6 +82,13 @@ interface PredicateEditContextValue {
 	/** Declared search inputs in scope at the editor's mount site. */
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	/**
+	 * Whether this slot evaluates against a case row (`"per-case"`) or
+	 * once before any case is selected (`"global"`). Kind menus and
+	 * seeds read it through the schemas' `PredicateEditContext`; value
+	 * sources are gated by the provider-derived admission oracle.
+	 */
+	readonly caseDataScope: CaseDataScope;
+	/**
 	 * Errors keyed by serialized path. Cards look up their own path
 	 * via `useEditorErrorsAt` to render inline diagnostics; the
 	 * top-level editor uses the index size to gate the parent's save
@@ -105,6 +117,8 @@ interface PredicateEditProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	/** Absent means the ordinary per-case scope. */
+	readonly caseDataScope?: CaseDataScope;
 	readonly validityIndex: ValidityIndex;
 	readonly admitExpressionChange?: AdmitExpressionChange | undefined;
 	readonly children: ReactNode;
@@ -115,31 +129,48 @@ interface PredicateEditProviderProps {
  * editor instance. The `validityIndex` is recomputed by the editor
  * on every onChange (via the type checker) and threaded through
  * here.
+ *
+ * In a `"global"` scope the provider composes the case-data admission
+ * oracle IN FRONT of any caller-supplied oracle, so every value-source
+ * and calculated-kind menu that consults `admitExpressionChange`
+ * disables case reads with one shared reason — no per-surface wiring.
  */
 export function PredicateEditProvider({
 	caseTypes,
 	currentCaseType,
 	knownInputs,
+	caseDataScope = "per-case",
 	validityIndex,
 	admitExpressionChange,
 	children,
 }: PredicateEditProviderProps) {
 	const expressionFocusTargets = useRef(new Map<string, HTMLElement>()).current;
+	const effectiveAdmit = useMemo<AdmitExpressionChange | undefined>(() => {
+		if (caseDataScope !== "global") return admitExpressionChange;
+		return (path, next) => {
+			if (expressionReadsCaseData(next)) {
+				return { admitted: false, reason: GLOBAL_SCOPE_CASE_DATA_REASON };
+			}
+			return admitExpressionChange?.(path, next) ?? { admitted: true };
+		};
+	}, [caseDataScope, admitExpressionChange]);
 	const value = useMemo<PredicateEditContextValue>(
 		() => ({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			caseDataScope,
 			validityIndex,
-			admitExpressionChange,
+			admitExpressionChange: effectiveAdmit,
 			expressionFocusTargets,
 		}),
 		[
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			caseDataScope,
 			validityIndex,
-			admitExpressionChange,
+			effectiveAdmit,
 			expressionFocusTargets,
 		],
 	);

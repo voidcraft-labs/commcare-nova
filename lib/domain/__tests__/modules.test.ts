@@ -38,7 +38,6 @@ import {
 	columnSchema,
 	dateColumn,
 	effectiveCaseSearchConfig,
-	excludedOwnerIdsReadsCaseData,
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
@@ -49,17 +48,7 @@ import {
 	searchInputDefSchema,
 	simpleSearchInputDef,
 } from "../modules";
-import {
-	concat,
-	count,
-	exists,
-	ifExpr,
-	input,
-	literal,
-	prop,
-	sessionContext,
-	term,
-} from "../predicate";
+import { literal, term } from "../predicate";
 import { asUuid, type Uuid } from "../uuid";
 
 // Sample uuids — sequential nibbles so test failure diffs are easy
@@ -939,50 +928,6 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 		if (parsed.success) {
 			expect(parsed.data.excludedOwnerIds).toBeUndefined();
 		}
-	});
-});
-
-describe("excludedOwnerIdsReadsCaseData", () => {
-	it("detects case reads at any expression depth", () => {
-		expect(
-			excludedOwnerIdsReadsCaseData(
-				concat(term(literal("owner-")), term(prop("patient", "owner_id"))),
-			),
-		).toBe(true);
-		expect(
-			excludedOwnerIdsReadsCaseData(
-				count({
-					kind: "subcase",
-					identifier: "parent",
-					ofCaseType: "visit",
-				}),
-			),
-		).toBe(true);
-		expect(
-			excludedOwnerIdsReadsCaseData(
-				ifExpr(
-					exists({
-						kind: "subcase",
-						identifier: "parent",
-						ofCaseType: "visit",
-					}),
-					term(literal("owner-a")),
-					term(literal("")),
-				),
-			),
-		).toBe(true);
-	});
-
-	it("keeps global session, Search, and literal expressions available", () => {
-		expect(
-			excludedOwnerIdsReadsCaseData(
-				concat(
-					term(sessionContext("userid")),
-					term(literal(" ")),
-					term(input("owner_ids")),
-				),
-			),
-		).toBe(false);
 	});
 });
 

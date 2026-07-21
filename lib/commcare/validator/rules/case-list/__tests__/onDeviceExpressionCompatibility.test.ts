@@ -315,12 +315,13 @@ describe("onDeviceExpressionCompatibility", () => {
 	});
 
 	it("leaves relation reads in predicate scopes to the quantifier normalizer", () => {
+		// Per-case slots only: the display condition is a GLOBAL slot where
+		// any relation read is rejected by its own case-data rule
+		// (`CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`),
+		// so it can't host this fixture's shared comparison.
 		const relatedComparison = eq(childNote(), literal("complete"));
 		const args = {
 			filter: relatedComparison,
-			caseSearchConfig: {
-				searchButtonDisplayCondition: relatedComparison,
-			},
 			columns: [
 				calculatedColumn(
 					asUuid("column-flag"),

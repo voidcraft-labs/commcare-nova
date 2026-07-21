@@ -72,6 +72,7 @@ import {
 	useRuleFocusContext,
 } from "../RuleFocusContext";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
+import { wrapSiblingDefault } from "./comparisonSeed";
 
 interface ChildPredicateEditorProps {
 	readonly value: Predicate;
@@ -681,7 +682,7 @@ export function buildPredicateKindReplacement(
 		) {
 			return predicateCardSchemas[targetKind].defaultValue(ctx);
 		}
-		const sibling = predicateCardSchemas.eq.defaultValue(ctx);
+		const sibling = wrapSiblingDefault(targetKind, ctx);
 		return targetKind === "and"
 			? and(currentValue, sibling)
 			: or(currentValue, sibling);
@@ -723,6 +724,7 @@ export function PredicateKindReplaceMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		caseDataScope: ctx.caseDataScope,
 	};
 	const currentKind = currentValue.kind;
 	const pendingPlan =

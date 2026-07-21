@@ -232,7 +232,14 @@ function SearchDisplayConditionSetting({
 
 	const add = () => {
 		onChange(
-			firstComparisonDefault({ caseTypes, currentCaseType, knownInputs }),
+			firstComparisonDefault({
+				caseTypes,
+				currentCaseType,
+				knownInputs,
+				// The display condition resolves before any case is selected,
+				// so the seed compares a session value, never a case property.
+				caseDataScope: "global",
+			}),
 		);
 		onEdit(true);
 	};
