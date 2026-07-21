@@ -691,21 +691,24 @@ function ReviewEntryRow({
 				)}
 			</div>
 
-			{/* Narrow layout — stacked, with the same visible buttons. */}
-			<div className="px-4 py-3 @3xl:hidden">
-				<div className="flex flex-wrap items-baseline gap-x-2">
-					<span className="text-[13px] font-medium text-nova-text-secondary">
-						{label}
-					</span>
-					<span className="text-xs text-nova-text-muted">{status}</span>
+			{/* Narrower canvases — one full-width band: text left, the same
+			 * buttons anchored right. A ~700px card is not a phone; the
+			 * cluster only wraps under the text when the container is
+			 * genuinely phone-narrow. */}
+			<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 @3xl:hidden">
+				<div className="min-w-52 flex-1">
+					<p className="text-[13.5px] break-words text-nova-text">
+						<span className="font-medium text-nova-text-secondary">
+							{label}
+						</span>{" "}
+						<span className="text-nova-text-muted">“</span>
+						{display}
+						<span className="text-nova-text-muted">”</span>
+					</p>
+					<p className="mt-0.5 text-xs text-nova-text-muted">{status}</p>
 				</div>
-				<p className="mt-0.5 text-[13.5px] break-words text-nova-text">
-					<span className="text-nova-text-muted">“</span>
-					{display}
-					<span className="text-nova-text-muted">”</span>
-				</p>
 				{canEdit && (
-					<div className="mt-1.5 flex flex-wrap items-center gap-1">
+					<div className="flex shrink-0 items-center gap-1">
 						{putBackButton}
 						{replaceButton}
 						{dismissButton}
