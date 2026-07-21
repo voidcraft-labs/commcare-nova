@@ -1036,9 +1036,7 @@ export function PredicateVerbMenu({
 				key={entry.id}
 				disabled={!admitted || isCurrent}
 				onClick={() => chooseEntry(entry)}
-				className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
-					isCurrent ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-				}`}
+				className={isCurrent ? "bg-nova-violet/10 text-nova-violet-bright" : ""}
 			>
 				<Icon
 					icon={entry.icon}

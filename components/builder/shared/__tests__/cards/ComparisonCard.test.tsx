@@ -135,7 +135,7 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		).toBeNull();
 	});
 
-	it("centers one-line source choices without misaligning explained choices", () => {
+	it("centers every source choice, one-line and explained alike", () => {
 		renderEditor(eq(prop("patient", "age"), literal(1)));
 
 		fireEvent.click(
@@ -148,10 +148,14 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 			name: /^App information/,
 		});
 
-		expect(searchAnswer.className).toContain("items-center");
-		expect(searchAnswer.className).not.toContain("items-start");
+		// A menu mixes one-line labels with label-plus-reason choices; both
+		// center in their own row, so a short label never hangs top-heavy
+		// beside its taller neighbors.
 		expect(appInformation.getAttribute("aria-disabled")).toBe("true");
-		expect(appInformation.className).toContain("items-start");
+		for (const item of [searchAnswer, appInformation]) {
+			expect(item.className).toContain("items-center");
+			expect(item.className).not.toContain("items-start");
+		}
 	});
 
 	it("authors a search answer as the subject and stays valid", async () => {

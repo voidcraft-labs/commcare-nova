@@ -216,16 +216,12 @@ export function AssignedCasesSetting({
 								<SelectValue>{MODE_LABELS[mode]}</SelectValue>
 							</SelectTrigger>
 							<SelectContent align="start">
-								<SelectItem value="all" className="min-h-11">
-									{MODE_LABELS.all}
-								</SelectItem>
-								<SelectItem value="current-user" className="min-h-11">
+								<SelectItem value="all">{MODE_LABELS.all}</SelectItem>
+								<SelectItem value="current-user">
 									{MODE_LABELS["current-user"]}
 								</SelectItem>
 								{mode === "custom" && (
-									<SelectItem value="custom" className="min-h-11">
-										{MODE_LABELS.custom}
-									</SelectItem>
+									<SelectItem value="custom">{MODE_LABELS.custom}</SelectItem>
 								)}
 							</SelectContent>
 						</Select>

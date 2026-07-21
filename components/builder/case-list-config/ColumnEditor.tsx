@@ -16,7 +16,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-	CONSOLE_MENU_ITEM_MIN,
+	CONSOLE_MENU_ITEM_CLS,
 	CONSOLE_TRIGGER_CLS,
 	InspectorSection,
 } from "@/components/builder/inspector/inspectorChrome";
@@ -442,7 +442,7 @@ function KindPicker({
 								key={s.kind}
 								onClick={() => replaceWith(s)}
 								disabled={isCurrent || !isApplicable}
-								className={`${CONSOLE_MENU_ITEM_MIN} ${
+								className={`${CONSOLE_MENU_ITEM_CLS} ${
 									isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
 								}`}
 							>

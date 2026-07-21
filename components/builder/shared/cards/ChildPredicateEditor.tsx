@@ -807,11 +807,11 @@ export function PredicateKindReplaceMenu({
 											// Symmetric with the kind-replace menu in
 											// `primitives/ExpressionPicker.tsx`.
 											disabled={isCurrent || !isApplicable}
-											className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+											className={
 												isCurrent
 													? "bg-nova-violet/10 text-nova-violet-bright"
 													: ""
-											}`}
+											}
 										>
 											<Icon
 												icon={s.icon}
