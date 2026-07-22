@@ -10,6 +10,7 @@
 import { sql, type Transaction } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";
 import type { AppDatabase } from "./pg";
+import { lockProjectMembershipGateShared } from "./projectMembershipGate";
 
 /**
  * The caller's role in `organizationId` (the internal noun for a Project), or
@@ -39,16 +40,20 @@ interface LockedProjectRoleRow {
  *
  * The raw query is intentional: Better Auth and Nova share the same Postgres,
  * while `AppDatabase` does not expose Better Auth's tables in its Kysely type.
- * `FOR SHARE` makes an existing membership/role row part of the writer's lock
- * set, so a concurrent downgrade or removal cannot commit until this app write
- * has made its decision. A missing row remains missing; S02c adds the separate
- * membership advisory gate needed to serialize absence for Project moves.
+ * The shared advisory gate serializes both existing and missing membership
+ * decisions against Better Auth's statement-level DML trigger. `FOR SHARE`
+ * then makes an existing membership/role row part of the writer's lock set.
+ *
+ * Lock order is load-bearing: existing-app callers lock `apps` before entering
+ * this helper. Atomic app creation is the explicit exception because no app row
+ * exists yet; it takes this gate before membership and then inserts the app.
  */
 export async function projectRoleForInTransaction(
 	tx: Transaction<AppDatabase>,
 	userId: string,
 	organizationId: string,
 ): Promise<string | null> {
+	await lockProjectMembershipGateShared(tx);
 	const result = await sql<LockedProjectRoleRow>`
 		SELECT role
 		FROM auth_member

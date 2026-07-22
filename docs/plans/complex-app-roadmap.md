@@ -947,11 +947,16 @@ fixed transaction-scoped advisory gate. The import-light helper owns one stable
 namespace/key: Better Auth membership `INSERT`, `UPDATE`, and `DELETE` take its
 **exclusive** transaction lock through a `BEFORE STATEMENT` trigger,
 while app transactions take its **shared** transaction lock before any
-membership-dependent read. `TRUNCATE` is unavailable to runtime/auth roles and
-a separate `BEFORE TRUNCATE` statement trigger immediately raises SQLSTATE
-`55000` without waiting on the advisory gate: Postgres acquires
+membership-dependent read. In S02c1, a separate `BEFORE TRUNCATE` statement
+trigger raises SQLSTATE `55000` once reached without waiting on the advisory
+gate. Ordinary table-lock waiting still applies: Postgres acquires
 `ACCESS EXCLUSIVE` before that trigger, so advisory waiting there would permit a
-table-lock/advisory-lock deadlock. Never use a row trigger that first holds a
+table-lock/advisory-lock deadlock. Because production currently uses one
+database-owner principal for migrations and runtime, this trigger is an honest
+operational barrier, not a privilege boundary an owner could not disable. S02c2
+separates the runtime/auth database identity from the migration owner and
+revokes `TRUNCATE` from the runtime identity while retaining the trigger as
+defense in depth. Never use a row trigger that first holds a
 tuple and then waits on the gate. Install the triggers through Nova's auth-app
 migration phase after Better Auth owns the tables, never by editing a shipped
 migration or through the earlier case-store migration phase. The shared gate is
@@ -1241,7 +1246,8 @@ guarded pipeline to dogfood the final move deployment:
    classification; and mutable client writability.
 2. **S02c2 — guarded deployment:** the no-traffic candidate path,
    least-privilege cutover/rollback controller, capability labels and health
-   contract, drain/status runbook, and structural CI guards. Apply the reviewed
+   contract, runtime/migration database-role separation, drain/status runbook,
+   and structural CI guards. Apply the reviewed
    IAM/Cloud SQL scaffolding before merging the pipeline switch. Its own first
    production cutover exercises the controller while every floor remains `0`
    and every activation flag remains false.

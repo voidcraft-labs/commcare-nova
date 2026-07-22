@@ -84,11 +84,13 @@ share one opaque error.
 `apps.ts` is the authoritative protocol. Every `createApp`,
 `commitGuardedBatch`, `appendSyntheticBatch`, and dormant
 `commitAppProjectMove` transaction declares lookup writer v0. Creation prepares
-the template exactly once outside the retryable transaction, then authorizes,
-inserts the root, locks/reads lookup definitions, evaluates, checks template
+the template exactly once outside the retryable transaction, then takes the
+shared Project-membership advisory gate, authorizes, inserts the root,
+locks/reads lookup definitions, evaluates, checks template
 export readiness, replaces edges, and inserts entity rows atomically. Ordinary
-commits lock the app, check the dedup latch, lock and authorize the actor's exact
-`auth_member` row in the SAME transaction, hydrate the fresh doc, reject
+commits lock the app, check the dedup latch, take the shared membership gate,
+lock and authorize the actor's exact `auth_member` row in the SAME transaction,
+hydrate the fresh doc, reject
 reducer-minted identity mutations, prepare once, lock the union of prior and
 candidate lookup tables, evaluate against that snapshot, replace the complete
 edge set, then write rows + history. Missing or foreign tables become one
@@ -103,9 +105,17 @@ target, proves replay identity, and persists the actual mutations; a true no-op
 writes no row and advances no sequence. The dormant Project move is deliberately
 closed while lookup targets exist: both structural and stored sets must be
 empty, the destination context is evaluated, source edges are cleared before
-the Project flip, and media remaps are deterministic attributed mutations. S02c
-adds the membership absence/advisory protocol; this S02b seam only locks existing
-source and destination membership rows. All destructive-schema,
+the Project flip, and media remaps are deterministic attributed mutations.
+Membership `INSERT`/`UPDATE`/`DELETE` take the matching exclusive transaction
+lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
+`55000` once its `BEFORE TRUNCATE` trigger fires, without ever waiting on the
+advisory gate (ordinary table locks still apply). Existing-app protocols lock
+the app first, while creation is the only shared-gate-first exception. This serializes
+missing rows and zero-row DML without a tuple/advisory deadlock. While runtime
+and migrations share their current database-owner principal, the TRUNCATE
+trigger is an operational barrier rather than a privilege boundary; S02c2 owns
+runtime/migration role separation and the runtime privilege revoke. All
+destructive-schema,
 carrier-commit, and true Project-move flags remain false.
 `lookup_stream_capability_leases` carries an
 app-scoped, database-minted connection UUID plus a required receiver version and

@@ -1241,9 +1241,9 @@ export async function commitAppProjectMove(
 					"This app changed Projects while the move was being prepared. Reload and try again.",
 				);
 			}
-			// S02b deliberately locks only the actor's existing membership tuples.
-			// The sorted order avoids opposite-direction lock inversion; S02c adds
-			// the membership advisory gate and owner-retention/absence protocol.
+			// The shared advisory gate now serializes existing and missing membership
+			// rows. The sorted order avoids opposite-direction tuple-lock inversion;
+			// S02c3 adds the full source-owner retention protocol.
 			for (const projectId of [
 				...new Set([args.expectedFromProjectId, args.toProjectId]),
 			].sort()) {
