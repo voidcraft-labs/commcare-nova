@@ -140,6 +140,7 @@ describe("lookup-reference infrastructure migration", () => {
 			minimum_writer_version: 0,
 			minimum_stream_receiver_version: 0,
 			minimum_runtime_reader_version: 0,
+			continuous_registry_traffic_since: null,
 			carrier_commits_enabled: false,
 			destructive_schema_actions_enabled: false,
 			project_moves_enabled: false,
