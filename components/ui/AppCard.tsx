@@ -277,7 +277,7 @@ export function AppCard({
 										setCardState({ type: "confirmingDelete" });
 									}}
 									className="inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose"
-									aria-label="Delete app"
+									aria-label={`Move ${displayName} to recently deleted`}
 								>
 									<Icon icon={tablerTrash} width="18" height="18" />
 								</button>
@@ -309,9 +309,7 @@ export function AppCard({
 						href={openHref}
 						aria-label={`Open ${displayName}`}
 						className="absolute inset-0 rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-					>
-						<span className="sr-only">Open {displayName}</span>
-					</Link>
+					/>
 				)}
 				<div className="pointer-events-none relative z-10">{content}</div>
 			</div>
