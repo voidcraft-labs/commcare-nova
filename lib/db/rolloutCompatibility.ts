@@ -29,6 +29,7 @@ export interface LookupReferenceCompatibilityState {
 	readonly minimumStreamReceiverVersion: number;
 	readonly minimumRuntimeReaderVersion: number;
 	readonly continuousRegistryTrafficSince: Date | null;
+	readonly runHolderNonceEnforced: boolean;
 	readonly carrierCommitsEnabled: boolean;
 	readonly destructiveSchemaActionsEnabled: boolean;
 	readonly projectMovesEnabled: boolean;
@@ -149,6 +150,7 @@ type CompatibilityRow = {
 	readonly minimum_stream_receiver_version: number;
 	readonly minimum_runtime_reader_version: number;
 	readonly continuous_registry_traffic_since: Date | null;
+	readonly run_holder_nonce_enforced: boolean;
 	readonly carrier_commits_enabled: boolean;
 	readonly destructive_schema_actions_enabled: boolean;
 	readonly project_moves_enabled: boolean;
@@ -163,6 +165,7 @@ function compatibilityState(
 		minimumStreamReceiverVersion: row.minimum_stream_receiver_version,
 		minimumRuntimeReaderVersion: row.minimum_runtime_reader_version,
 		continuousRegistryTrafficSince: row.continuous_registry_traffic_since,
+		runHolderNonceEnforced: row.run_holder_nonce_enforced,
 		carrierCommitsEnabled: row.carrier_commits_enabled,
 		destructiveSchemaActionsEnabled: row.destructive_schema_actions_enabled,
 		projectMovesEnabled: row.project_moves_enabled,
@@ -181,6 +184,7 @@ async function readCompatibilityRow(
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
 			"continuous_registry_traffic_since",
+			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
@@ -549,6 +553,7 @@ export async function raiseMinimumRuntimeReaderVersionInTransaction(
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
 			"continuous_registry_traffic_since",
+			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
@@ -616,6 +621,7 @@ export async function raiseMinimumStreamReceiverVersionInTransaction(
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
 			"continuous_registry_traffic_since",
+			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
@@ -660,6 +666,7 @@ export async function disableLookupReferenceActivationFlagInTransaction(
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
 			"continuous_registry_traffic_since",
+			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",

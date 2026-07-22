@@ -31,6 +31,7 @@ import { applyBlueprintChange } from "../applyBlueprintChange";
 import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	RunHolderLostError,
 } from "../commitGuard";
 
 const { loadAppMock, commitGuardedBatchMock, authorizedSideEffectMock } =
@@ -427,10 +428,11 @@ describe("applyBlueprintChange — locked admission before any Postgres DDL", ()
 			source: "chat" as const,
 			mode: "build" as const,
 			runId: "stale-build",
+			nonce: "00000000-0000-4000-8000-000000000001",
 		};
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		authorizedSideEffectMock.mockRejectedValue(
-			new BlueprintCommitRejectedError("chat holder changed"),
+			new RunHolderLostError("superseded"),
 		);
 
 		await expect(
@@ -445,7 +447,7 @@ describe("applyBlueprintChange — locked admission before any Postgres DDL", ()
 				kind: "chat",
 				guard: { mutations: renameVillageBatch(prior) },
 			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		).rejects.toBeInstanceOf(RunHolderLostError);
 
 		expect(authorizedSideEffectMock).toHaveBeenCalledWith(
 			"app-1",
@@ -785,6 +787,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			source: "chat" as const,
 			mode: "edit" as const,
 			runId: "edit-run-1",
+			nonce: "00000000-0000-4000-8000-000000000001",
 		};
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		authorizedSideEffectMock.mockImplementation(

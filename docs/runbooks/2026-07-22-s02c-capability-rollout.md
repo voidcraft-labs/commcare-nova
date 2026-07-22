@@ -16,7 +16,7 @@ floor or enables a feature flag.
 | Schema | 1 |
 | Lookup-reference writer | 0 |
 | Stream receiver | 1 |
-| Runtime reader | 0 |
+| Runtime reader | 1 |
 | Stream registry | 1 |
 | Cloud Run request cap | 3,600 seconds |
 | Stream lease grace | 300 seconds |
@@ -71,24 +71,56 @@ all compatibility floors remain 0, so this is intentionally non-activating.
 
 ## Runtime-holder writes
 
-The holder identity is database-defined and mode-sensitive: a build uses the
-reservation run id after booking and the root run id only in the just-created
-pre-reservation window; an edit uses the lock run id. Generating creation,
-intentional claim/replacement, exact-gated new-build reservation, and paused
-reacquisition declare the manifest runtime-reader version transaction-locally.
-The database trigger stamps only a genuinely new identity and preserves the
-old stamp for the same holder.
+Chat attribution and holder authority are deliberately separate. `runId`
+remains the stable thread/run attribution visible in events and summaries; each
+claim also mints a private UUID nonce. The database-defined holder is therefore
+`(mode, runId, nonce)`: a build reads its run id from the reservation after
+booking and from root `run_id` only in the just-created pre-reservation window;
+an edit reads it from `lock_run_id`. `apps.run_holder_nonce` stores the current
+generation, while `threads.active_holder_nonce` stores only the continuation
+capability for that thread. A loader projects the latter as transient
+`holder_nonce` only to the actor who owns the exact paused app holder; it never
+enters message history or the public thread metadata. The live POST sends the
+nonce directly to its authenticated caller, while `DurableStreamWriter` stores
+only a count-preserving private marker (thread id plus SHA-256 nonce digest) in
+the view-scoped chunk log. Reconnect rehydrates that marker from the thread's
+retained nonce plus current app holder only for the owning actor; a co-member
+receives the inert marker, preserving cursor math without receiving the
+capability. The digest also prevents an old same-run stream from receiving a
+successor claim's fresh nonce after the paused stream marker has cleared.
 
-Every terminal, failure, finalization, pause/heartbeat, recovery, and reaper
-`UPDATE` carries a SQL compare-and-set for the expected `(mode, runId)`.
-Credit terminal/reaper transactions require exactly one app row after any
-ledger refund or throw to roll the whole transaction back.
-Chat blueprint writes carry that authority as a dedicated
-`ChatRunHolderCapability`; their `runId` remains attribution because MCP also
-stamps one without owning a chat lease. Migration Phase A checks the capability
-while holding the app row, and the final committed-batch app update repeats it
-in SQL. Every build claim stamps root `run_id` before any mutation so even a
-no-mutation successor remains the latest-claim fence after reap.
+The manifest runtime reader is v1. Generating creation, intentional
+claim/replacement, exact-gated new-build reservation, and paused reacquisition
+declare it transaction-locally. A v1 holder must have a concrete run id and
+nonce. The trigger preserves an ordinary same-holder write, stamps a genuinely
+new v1 generation, and clears inherited nonce/version when an explicitly
+declared v0 successor takes over—even if a stable thread id leaves the visible
+`(mode, runId)` pair unchanged. Releases clear the runtime stamp but retain the
+nonce as the last-holder/reaper tombstone. It also fires on `awaiting_input`,
+`lock_expire_at`, and `updated_at`, because the deployed v0 paused-resume paths
+declare runtime 0 but update only those pause/lease columns; an undeclared
+same-generation heartbeat still preserves its stamp. Migration replay clears
+only present null-nonce holders, so it cannot erase live v1 state.
+
+`lookup_reference_compatibility.run_holder_nonce_enforced` is the activation
+switch and defaults to `false`. While false, lifecycle admission and SQL CAS use
+the legacy `(mode, runId)` projection, so old browser continuations without a
+nonce remain accepted. A paused v0 resume mints and stores a fresh server nonce
+in its app-locked write and returns that authoritative value to the client. Once
+the switch is true, missing or mismatched nonces fail closed with an explicit
+refresh response. The switch can change only `false → true`, and a database
+constraint forbids enabling it below runtime-reader floor 1.
+
+Every lifecycle/credit transaction locks the app first, then holds the
+compatibility singleton `FOR SHARE`, then touches any credit rows. Terminal,
+failure, finalization, pause/heartbeat, and reaper updates repeat the currently
+admitted holder predicate in SQL; credit writers require exactly one affected
+app row after any ledger refund or throw to roll the transaction back. Chat
+blueprint writes carry the full generation as `ChatRunHolderCapability`, while
+MCP's ordinary `runId` remains attribution only. Migration Phase A checks the
+capability while holding the app row, and the final committed-batch app update
+repeats it. Every build claim stamps root `run_id` before any mutation, so even
+a no-mutation successor remains the latest-claim fence after reap.
 Reaper queue entries include the identity observed by their scan; never enqueue
 or invoke a reaper with a bare app id, because a delayed bare-id reap can target
 a replacement that later becomes stale. The source guard in
@@ -104,13 +136,41 @@ whose marker was already settled retains `res_run_id` through the stale reap and
 is intentionally not self-healable.
 
 `scripts/recover-app.ts` remains dry-run by default. A free app can be recovered
-with `--confirm`; a present holder requires both its explicitly verified
-`--holder-mode` and `--holder-run-id`. A missing/corrupt run id cannot be proven
-and the tool refuses it. The confirmed writer re-locks the app and repeats the
+with `--confirm`; a present holder requires all three explicitly verified flags:
+`--holder-mode`, `--holder-run-id`, and `--holder-nonce` (a UUID). Operator
+recovery is always exact-generation authority even while runtime compatibility
+is still false; a v0/null-nonce or otherwise corrupt holder cannot be proven and
+the tool refuses it. The confirmed writer re-locks the app and repeats the
 free/exact-holder condition in SQL, so the preflight display is never write
 authority. Recovering an exact build holder settles its reservation as a kept
 charge while releasing the build through the status transition; recovering an
 edit repairs status/error only and leaves its proven lock and marker in place.
+
+## Non-blueprint side effects
+
+The source audit found one SA tool with a write behind a read-shaped tool
+contract: `remove_media_asset`. Its metadata delete now runs in the same
+app-locked transaction as fresh Project/edit authorization, compatibility
+`FOR SHARE`, and the holder predicate. GCS object and extract cleanup runs only
+after that transaction commits; losing the holder, Project, or authorization
+latches a terminal run error. This is a narrow zombie-delete fence, not the
+complete attach/delete winner protocol—S02c3 still owns that race.
+
+Document extraction has a separate permission split: `GET` remains a Project
+view operation, while the cost/status-writing `POST` requires Project edit
+capability. No other read-shaped SA tool found by this pass mutates durable
+state.
+
+## S02c2 activation boundary
+
+This commit stores and transports nonce generations but does not activate exact
+nonce authority. S02c2 must first serve 100% runtime-reader-v1 code, then drain
+the request epoch, every v0/null-nonce run holder, and every below-floor stream
+receiver lease. Under the deployment cutover gate it may then raise
+`minimum_runtime_reader_version` to 1 and irreversibly set
+`run_holder_nonce_enforced = true`. Rollback remains available only before that
+final switch; after activation an old tab without the exact nonce is required
+to refresh.
 
 ## Build behavior in S02c1
 
@@ -152,6 +212,7 @@ npx vitest run \
 npm run typecheck
 ```
 
-All compatibility floors remain `0`, and carrier-commit, schema-action, and
-Project-move flags remain false. Changing the manifest alone never raises a
-database floor or activates vocabulary.
+All compatibility floors remain `0`; `run_holder_nonce_enforced` and the
+carrier-commit, schema-action, and Project-move flags remain false. Changing the
+manifest alone never raises a database floor or activates exact nonce authority
+or lookup-reference vocabulary.

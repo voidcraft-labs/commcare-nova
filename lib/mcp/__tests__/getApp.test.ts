@@ -137,6 +137,7 @@ function mockAppDoc(
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
+		run_holder_nonce: null,
 		// Tool doesn't read timestamps — any `Date` works as a placeholder.
 		created_at: new Date(),
 		updated_at: new Date(),

@@ -29,10 +29,7 @@ import {
 	loadAppInTransaction,
 	withAuthorizedAppEditSideEffect,
 } from "../apps";
-import {
-	BlueprintCommitRejectedError,
-	CommitReauthError,
-} from "../commitGuard";
+import { CommitReauthError, RunHolderLostError } from "../commitGuard";
 import { projectRoleForInTransaction } from "../projectMembership";
 import {
 	lockProjectMembershipGateShared,
@@ -46,6 +43,7 @@ const h = setupAppStateTestDb("project_membership_tx_");
 const USER = "membership-user";
 const INSERTED_USER = "inserted-user";
 const PROJECT = "membership-project";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 interface MutationCase {
 	name: string;
@@ -627,7 +625,12 @@ describe("Project membership advisory gate", () => {
 				appId,
 				USER,
 				PROJECT,
-				{ source: "chat", mode: "build", runId: "stale-build" },
+				{
+					source: "chat",
+					mode: "build",
+					runId: "stale-build",
+					nonce: HOLDER_NONCE,
+				},
 				async (tx) => {
 					effectCalled = true;
 					await tx
@@ -640,7 +643,7 @@ describe("Project membership advisory gate", () => {
 						.execute();
 				},
 			),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		).rejects.toBeInstanceOf(RunHolderLostError);
 
 		expect(effectCalled).toBe(false);
 		const schemaRows = await h

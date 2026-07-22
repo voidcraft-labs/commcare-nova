@@ -1,6 +1,22 @@
 import { z } from "zod";
 
 /**
+ * Opaque chat-thread attribution accepted at the HTTP trust boundary. New ids
+ * are UUIDs, but older/raw clients were historically allowed to supply text,
+ * so compatibility requires an opaque bounded value rather than a UUID
+ * assertion. It is never holder authority; `holderNonce` is the separate,
+ * server-minted per-claim capability.
+ */
+export const chatRunIdSchema = z
+	.string()
+	.min(1)
+	.max(128)
+	.refine((value) => value.trim().length > 0);
+
+/** Server-minted per-claim holder generation echoed only by continuations. */
+export const chatHolderNonceSchema = z.string().uuid();
+
+/**
  * Wire shape of the chat endpoint's request body.
  *
  * The client sends only ids + signals — never the blueprint. The route LOADS
@@ -22,7 +38,12 @@ export const chatRequestSchema = z.object({
 	 *  caller) starts a fresh server-minted thread rather than 400ing —
 	 *  the conversation still persists, it just isn't continuing one. */
 	threadId: z.string().min(1).max(128).optional(),
-	runId: z.string().optional(),
+	runId: chatRunIdSchema.optional(),
+	/** Exact holder generation returned by Nova. A chargeable instruction never
+	 * trusts this value and receives a newly minted nonce; a free askQuestions
+	 * continuation must echo it so a stale same-thread tab cannot resume a
+	 * successor claim. */
+	holderNonce: chatHolderNonceSchema.optional(),
 	/** App ID — present after first save so subsequent saves update the same doc. */
 	appId: z.string().optional(),
 	/** True when the app has completed initial generation (builder phase is Ready

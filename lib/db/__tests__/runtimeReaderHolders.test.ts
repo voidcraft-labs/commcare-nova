@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_GENERATION_MINUTES } from "../constants";
-import { runLeaseState } from "../runLiveness";
+import { runLeaseState as deriveRunLeaseState } from "../runLiveness";
 import {
 	runtimeHolderBlocksTarget,
 	runtimeHolderState,
@@ -10,6 +10,11 @@ import type { AppDoc } from "../types";
 
 const NOW = Date.UTC(2026, 6, 22, 12, 0, 0);
 const RUN = "run-current";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
+const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
+
+const runLeaseState = (fresh: Partial<AppDoc>, now = Date.now()) =>
+	deriveRunLeaseState({ run_holder_nonce: HOLDER_NONCE, ...fresh }, now);
 
 const updatedAgo = (minutes: number) =>
 	new Date(NOW - minutes * 60_000) as AppDoc["updated_at"];
@@ -43,7 +48,7 @@ describe("runtime holder identity", () => {
 				{ status: "generating", run_id: RUN, updated_at: updatedAgo(1) },
 				NOW,
 			).holderIdentity,
-		).toEqual({ mode: "build", runId: RUN });
+		).toEqual({ mode: "build", runId: RUN, nonce: HOLDER_NONCE });
 	});
 
 	it("uses the reservation identity without falling back once reserved", () => {
@@ -57,7 +62,7 @@ describe("runtime holder identity", () => {
 				},
 				NOW,
 			).holderIdentity,
-		).toEqual({ mode: "build", runId: null });
+		).toEqual({ mode: "build", runId: null, nonce: HOLDER_NONCE });
 	});
 
 	it("uses edit lock identity and lets build mode win over a leftover lock", () => {
@@ -66,7 +71,7 @@ describe("runtime holder identity", () => {
 				{ status: "complete", run_lock: editLock(5, "edit-run") },
 				NOW,
 			).holderIdentity,
-		).toEqual({ mode: "edit", runId: "edit-run" });
+		).toEqual({ mode: "edit", runId: "edit-run", nonce: HOLDER_NONCE });
 		expect(
 			runLeaseState(
 				{
@@ -77,27 +82,33 @@ describe("runtime holder identity", () => {
 				},
 				NOW,
 			).holderIdentity,
-		).toEqual({ mode: "build", runId: "build-run" });
+		).toEqual({ mode: "build", runId: "build-run", nonce: HOLDER_NONCE });
 	});
 
-	it("compares both mode and run id exactly", () => {
+	it("compares mode, run id, and nonce exactly", () => {
 		expect(sameRunHolderIdentity(null, null)).toBe(true);
 		expect(
 			sameRunHolderIdentity(
-				{ mode: "build", runId: RUN },
-				{ mode: "build", runId: RUN },
+				{ mode: "build", runId: RUN, nonce: HOLDER_NONCE },
+				{ mode: "build", runId: RUN, nonce: HOLDER_NONCE },
 			),
 		).toBe(true);
 		expect(
 			sameRunHolderIdentity(
-				{ mode: "build", runId: RUN },
-				{ mode: "edit", runId: RUN },
+				{ mode: "build", runId: RUN, nonce: HOLDER_NONCE },
+				{ mode: "edit", runId: RUN, nonce: HOLDER_NONCE },
 			),
 		).toBe(false);
 		expect(
 			sameRunHolderIdentity(
-				{ mode: "edit", runId: RUN },
-				{ mode: "edit", runId: "replacement" },
+				{ mode: "edit", runId: RUN, nonce: HOLDER_NONCE },
+				{ mode: "edit", runId: "replacement", nonce: HOLDER_NONCE },
+			),
+		).toBe(false);
+		expect(
+			sameRunHolderIdentity(
+				{ mode: "edit", runId: RUN, nonce: HOLDER_NONCE },
+				{ mode: "edit", runId: RUN, nonce: OTHER_NONCE },
 			),
 		).toBe(false);
 	});
@@ -118,7 +129,7 @@ describe("runtime holder census state", () => {
 		);
 		expect(state).toEqual({
 			kind: "present",
-			identity: { mode: "build", runId: RUN },
+			identity: { mode: "build", runId: RUN, nonce: HOLDER_NONCE },
 			storedVersion: 2,
 			effectiveVersion: 2,
 			lifecycle: "live",
@@ -160,7 +171,11 @@ describe("runtime holder census state", () => {
 		);
 		expect(state).toMatchObject({
 			kind: "present",
-			identity: { mode: "edit", runId: "edit-run" },
+			identity: {
+				mode: "edit",
+				runId: "edit-run",
+				nonce: HOLDER_NONCE,
+			},
 			lifecycle: "reapable-stranded-edit",
 		});
 	});
@@ -185,6 +200,23 @@ describe("runtime holder census state", () => {
 			lifecycle: "corrupt-present",
 		});
 		expect(runtimeHolderBlocksTarget(corruptIdentity, 1)).toBe(true);
+
+		const missingNonce = runtimeHolderState(
+			runLeaseState(
+				{
+					status: "complete",
+					run_lock: editLock(5),
+					run_holder_nonce: null,
+				},
+				NOW,
+			),
+			7,
+		);
+		expect(missingNonce).toMatchObject({
+			kind: "present",
+			effectiveVersion: 0,
+			lifecycle: "corrupt-present",
+		});
 
 		for (const malformed of [null, undefined, -1, 1.5, "2"]) {
 			const state = runtimeHolderState(

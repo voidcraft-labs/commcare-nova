@@ -134,7 +134,11 @@ export default async function BuilderPage({
 	try {
 		threads = await listThreadMetas(id);
 		if (threads.length > 0) {
-			initialThread = await loadThread(id, threads[0].thread_id);
+			initialThread = await loadThread(
+				id,
+				threads[0].thread_id,
+				session.user.id,
+			);
 		}
 	} catch (err) {
 		log.error("[build-page] thread hydration failed", err, { appId: id });

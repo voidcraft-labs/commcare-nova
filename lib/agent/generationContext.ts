@@ -59,6 +59,7 @@ import {
 import {
 	AppProjectChangedError,
 	CommitReauthError,
+	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
@@ -144,6 +145,8 @@ interface GenerationContextOptions {
 	appId: string;
 	/** Project captured with the run's authoritative app admission. */
 	projectId: string;
+	/** Server-minted generation of this exact build/edit claim. */
+	holderNonce: string;
 	/**
 	 * True when this run holds an EDIT `run_lock` (an edit-mode run: a chargeable
 	 * edit that claimed, or an edit resume) — it selects WHICH horizon the
@@ -209,6 +212,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
 	readonly projectId: string;
+	private _holderNonce: string;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
 	 * each request; event row ids are Postgres-assigned, so no cross-request
@@ -245,6 +249,10 @@ export class GenerationContext implements ToolExecutionContext {
 	 * belongs to both Projects: every later write would reject until the caller
 	 * reloads authoritatively. */
 	private _projectChangedError: AppProjectChangedError | undefined;
+	/** The exact chat holder disappeared or changed while this run was active.
+	 * Terminal and replacement-safe: the route refunds/logs this run without
+	 * settling, releasing, failing, or otherwise touching the successor. */
+	private _holderLostError: RunHolderLostError | undefined;
 	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
@@ -270,6 +278,7 @@ export class GenerationContext implements ToolExecutionContext {
 		this.session = opts.session;
 		this.appId = opts.appId;
 		this.projectId = opts.projectId;
+		this._holderNonce = opts.holderNonce;
 		this.editLease = opts.editLease;
 		this.conversionImpact = opts.conversionImpact;
 	}
@@ -302,6 +311,30 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	get runId(): string {
 		return this.usage.runId;
+	}
+
+	/** Replace the provisional resume nonce with the app-locked capability
+	 * returned by `reacquireLease`. Chargeable runs never need this; it exists
+	 * solely so a pre-cutover browser that omitted the new field can be upgraded
+	 * server-side before any SA tool or heartbeat receives authority. */
+	setReacquiredHolderNonce(holderNonce: string): void {
+		this._holderNonce = holderNonce;
+	}
+
+	/** Current exact holder generation. */
+	get holderNonce(): string {
+		return this._holderNonce;
+	}
+
+	/** Chat-only holder capability exposed to shared tools that perform an
+	 * authoritative side effect outside the BlueprintDoc transaction. */
+	get chatRunHolder(): ChatRunHolderCapability {
+		return {
+			source: "chat",
+			mode: this.editLease ? "edit" : "build",
+			runId: this.runId,
+			nonce: this._holderNonce,
+		};
 	}
 
 	/**
@@ -466,11 +499,10 @@ export class GenerationContext implements ToolExecutionContext {
 	 * cursor. `_latestDoc` becomes the writer's committed `nextDoc` (a
 	 * concurrent peer edit merged in), which the next tool body builds on.
 	 *
-	 * A `CommitReauthError` (the actor lost edit access mid-run) is stashed on
-	 * `_reauthError` before RE-THROWING: the tool + SA still see the failure and
-	 * stop committing, but the throw becomes a non-fatal AI-SDK chunk, so the
-	 * flag is how the route's finalize learns to `failRun` instead of falsely
-	 * completing (and keeping the charge). Any other error rethrows unchanged.
+	 * Terminal authority errors (lost access, moved Project, or lost holder) are
+	 * latched before RE-THROWING: the tool + SA still see the failure and stop,
+	 * while the route can recover the signal after the AI SDK turns a tool throw
+	 * into a non-fatal chunk. Any other error rethrows unchanged.
 	 *
 	 * `mediaExpectations` forwards to the guarded commit so a media attach is
 	 * re-verified against asset rows read INSIDE the transaction — the same
@@ -484,11 +516,7 @@ export class GenerationContext implements ToolExecutionContext {
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
 		const batchId = crypto.randomUUID();
-		const chatRunHolder: ChatRunHolderCapability = {
-			source: "chat",
-			mode: this.editLease ? "edit" : "build",
-			runId: this.usage.runId,
-		};
+		const chatRunHolder = this.chatRunHolder;
 		let result: { seq: number; committedDoc: BlueprintDoc };
 		try {
 			// A batch that can RENAME a case property routes through the
@@ -573,7 +601,9 @@ export class GenerationContext implements ToolExecutionContext {
 				});
 			}
 		} catch (err) {
-			if (
+			if (err instanceof RunHolderLostError) {
+				this.latchRunHolderLost(err);
+			} else if (
 				err instanceof CommitReauthError ||
 				err instanceof AppProjectChangedError
 			) {
@@ -717,6 +747,16 @@ export class GenerationContext implements ToolExecutionContext {
 		return this._projectChangedError;
 	}
 
+	/** Exact holder-loss signal captured from a guarded write or finalizer. */
+	holderLostError(): RunHolderLostError | undefined {
+		return this._holderLostError;
+	}
+
+	/** Preserve the first authoritative holder-loss object for every run fence. */
+	latchRunHolderLost(error: RunHolderLostError): void {
+		this._holderLostError ??= error;
+	}
+
 	/**
 	 * Latch an authoritative terminal scope failure discovered outside the
 	 * guarded writer. Conflict recovery performs its own authorized snapshot
@@ -805,7 +845,7 @@ export class GenerationContext implements ToolExecutionContext {
 		if (nowMs - this.lastLeaseRefreshMs < LEASE_HEARTBEAT_INTERVAL_MS) return;
 		this.lastLeaseRefreshMs = nowMs;
 		const refresh = this.editLease ? refreshEditLease : refreshBuildLiveness;
-		refresh(this.appId, this.runId).catch((err) =>
+		refresh(this.appId, this.runId, this.holderNonce).catch((err) =>
 			log.error("[generation] run-lease heartbeat failed", err, {
 				appId: this.appId,
 			}),

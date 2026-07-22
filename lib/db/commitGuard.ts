@@ -26,6 +26,23 @@ export class BlueprintCommitRejectedError extends Error {
 }
 
 /**
+ * The chat run lost its exact app-holder capability before a guarded write or
+ * terminal transition committed. This is terminal for that run: reloading and
+ * retrying the same tool would spend more tokens under an authority that can
+ * never land, and any cleanup must leave the replacement holder untouched.
+ */
+export class RunHolderLostError extends Error {
+	constructor(readonly outcome: "superseded" | "released" = "superseded") {
+		super(
+			outcome === "superseded"
+				? "A newer request took over this app. Refresh to get the latest state, then try again."
+				: "This chat run was released. Refresh to get the latest state, then try again.",
+		);
+		this.name = "RunHolderLostError";
+	}
+}
+
+/**
  * The app changed Project after the caller captured its authoritative scope.
  * This is retryable for request/auto-save clients after an authoritative reload,
  * but terminal for an already-running SA turn: continuing would charge work

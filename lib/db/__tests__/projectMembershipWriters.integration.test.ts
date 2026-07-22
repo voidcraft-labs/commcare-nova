@@ -39,6 +39,7 @@ const h = setupAppStateTestDb("project_membership_writers_");
 
 const PROJECT = "membership-writer-project";
 const period = getCurrentPeriod();
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 type Outcome<T> =
 	| { readonly ok: true; readonly value: T }
@@ -186,10 +187,12 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 					claimActor,
 					CREDITS_PER_EDIT,
 					PROJECT,
+					HOLDER_NONCE,
 				),
 			assertCommitted: async (result) => {
 				expect(result).toMatchObject({
 					mode: "edit",
+					holderNonce: HOLDER_NONCE,
 					reservation: { period, reserved: CREDITS_PER_EDIT },
 				});
 				expect(await h.readRunLock(claimApp)).toMatchObject({
@@ -215,6 +218,7 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 					project_id: PROJECT,
 					status: "generating",
 					run_id: "membership-reserve-run",
+					run_holder_nonce: HOLDER_NONCE,
 				});
 			},
 			run: async () =>
@@ -224,6 +228,7 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 					CREDITS_PER_BUILD,
 					"membership-reserve-run",
 					PROJECT,
+					HOLDER_NONCE,
 				),
 			assertCommitted: async (result) => {
 				expect(result).toEqual({ period, reserved: CREDITS_PER_BUILD });
@@ -255,6 +260,7 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 					project_id: PROJECT,
 					status: "complete",
 					awaiting_input: true,
+					run_holder_nonce: HOLDER_NONCE,
 					reservation: {
 						period,
 						reserved: CREDITS_PER_EDIT,
@@ -273,6 +279,7 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 				await reacquireLease(
 					reacquireApp,
 					reacquireRun,
+					HOLDER_NONCE,
 					"edit",
 					reacquireActor,
 					PROJECT,
@@ -301,6 +308,7 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 					project_id: PROJECT,
 					status: "generating",
 					awaiting_input: false,
+					run_holder_nonce: HOLDER_NONCE,
 					reservation: {
 						period,
 						reserved: CREDITS_PER_BUILD,
@@ -314,6 +322,7 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 				await setAwaitingInput(
 					pauseApp,
 					pauseRun,
+					HOLDER_NONCE,
 					"build",
 					true,
 					pauseActor,

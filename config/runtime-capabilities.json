@@ -2,7 +2,7 @@
 	"schemaVersion": 1,
 	"writerVersion": 0,
 	"streamReceiverVersion": 1,
-	"runtimeReaderVersion": 0,
+	"runtimeReaderVersion": 1,
 	"streamRegistryVersion": 1,
 	"cloudRunRequestSeconds": 3600,
 	"streamLeaseGraceSeconds": 300,

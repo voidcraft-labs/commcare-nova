@@ -1,6 +1,7 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, test } from "vitest";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
+import { up as installRunHolderNonce } from "@/lib/case-store/migrations/20260722120000_run_holder_nonce";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import {
 	DEPLOYMENT_CUTOVER_GATE_KEY,
@@ -11,8 +12,12 @@ import {
 	RUNTIME_READER_VERSION_GUC,
 	setTransactionRuntimeReaderVersion,
 } from "@/lib/db/pg";
+import { raiseMinimumRuntimeReaderVersionInTransaction } from "@/lib/db/rolloutCompatibility";
 
 const h = setupPerTestDatabase({ databaseNamePrefix: "runtime_reader_" });
+const NONCE_A = "11111111-1111-4111-8111-111111111111";
+const NONCE_B = "22222222-2222-4222-8222-222222222222";
+const NONCE_C = "33333333-3333-4333-8333-333333333333";
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(h.db);
@@ -44,16 +49,27 @@ describe("runtime-reader rollout migration", () => {
 			 FROM information_schema.columns
 			 WHERE table_schema = 'public'
 				AND (
-					(table_name = 'apps' AND column_name = 'run_runtime_reader_version')
+					(table_name = 'apps' AND column_name IN (
+						'run_holder_nonce', 'run_runtime_reader_version'
+					))
+					OR (
+						table_name = 'threads' AND column_name = 'active_holder_nonce'
+					)
 					OR (
 						table_name = 'lookup_reference_compatibility'
-						AND column_name = 'continuous_registry_traffic_since'
+						AND column_name IN (
+							'continuous_registry_traffic_since',
+							'run_holder_nonce_enforced'
+						)
 					)
 				)
 			 ORDER BY column_name`,
 		);
 		expect(columns.rows.map((row) => row.column_name)).toEqual([
+			"active_holder_nonce",
 			"continuous_registry_traffic_since",
+			"run_holder_nonce",
+			"run_holder_nonce_enforced",
 			"run_runtime_reader_version",
 		]);
 
@@ -76,7 +92,7 @@ describe("runtime-reader rollout migration", () => {
 			triggers.rows.map((row) => [row.tgname, row.definition]),
 		);
 		expect(byName.get("apps_runtime_reader_holder_stamp")).toContain(
-			"BEFORE INSERT OR UPDATE OF status, run_id, res_period, res_run_id, lock_run_id, run_runtime_reader_version",
+			"BEFORE INSERT OR UPDATE OF status, run_id, res_period, res_run_id, lock_run_id, awaiting_input, lock_expire_at, updated_at, run_holder_nonce, run_runtime_reader_version",
 		);
 		for (const name of [
 			"lookup_reference_compatibility_cutover_gate",
@@ -112,6 +128,217 @@ describe("runtime-reader rollout migration", () => {
 		await expectSqlState("TRUNCATE runtime_reader_traffic_epochs", "55000");
 	});
 
+	test("defaults nonce enforcement off and makes activation floor-gated and irreversible", async () => {
+		const initial = await h.pool.query<{
+			enforced: boolean;
+			floor: number;
+		}>(
+			`SELECT run_holder_nonce_enforced AS enforced,
+				minimum_runtime_reader_version AS floor
+			 FROM lookup_reference_compatibility WHERE id = 1`,
+		);
+		expect(initial.rows[0]).toEqual({ enforced: false, floor: 0 });
+
+		await expectSqlState(
+			`UPDATE lookup_reference_compatibility
+			 SET run_holder_nonce_enforced = true WHERE id = 1`,
+			"23514",
+		);
+		await h.pool.query(
+			`UPDATE lookup_reference_compatibility
+			 SET minimum_runtime_reader_version = 1,
+				run_holder_nonce_enforced = true
+			 WHERE id = 1`,
+		);
+		await expectSqlState(
+			`UPDATE lookup_reference_compatibility
+			 SET run_holder_nonce_enforced = false WHERE id = 1`,
+			"23514",
+		);
+	});
+
+	test("migration replay preserves an active concrete v1 holder and stamp", async () => {
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`INSERT INTO apps (
+					id, owner, project_id, app_name, app_name_lower,
+					status, run_id, run_holder_nonce
+				 ) VALUES (
+					'replay-holder', 'actor', 'project-a', 'Replay', 'replay',
+					'generating', 'same-thread-run', $1
+				 )`,
+				[NONCE_A],
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+
+		await installRunHolderNonce(h.db);
+		const holder = await h.pool.query<{
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'replay-holder'`,
+		);
+		expect(holder.rows[0]).toEqual({ nonce: NONCE_A, stamp: 1 });
+	});
+
+	test("an explicit v0 same-run successor clears an inherited v1 generation", async () => {
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`INSERT INTO apps (
+					id, owner, project_id, app_name, app_name_lower,
+					status, run_id, run_holder_nonce
+				 ) VALUES (
+					'v0-successor', 'actor', 'project-a', 'Successor', 'successor',
+					'generating', 'same-thread-run', $1
+				 )`,
+				[NONCE_A],
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+
+		// An old revision explicitly declares runtime 0 and omits the nonce
+		// column. Reusing the same public thread/run id must still create a v0
+		// successor, not inherit the predecessor capability and v1 stamp.
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '0', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps SET run_id = 'same-thread-run'
+				 WHERE id = 'v0-successor'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+		const downgraded = await h.pool.query<{
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'v0-successor'`,
+		);
+		expect(downgraded.rows[0]).toEqual({ nonce: null, stamp: null });
+
+		await h.pool.query(
+			`INSERT INTO runtime_reader_traffic_epochs (
+				target_version, continuous_traffic_since
+			 ) VALUES (1, clock_timestamp() - interval '2 hours')`,
+		);
+		await expect(
+			(h.db as Kysely<AppDatabase>)
+				.transaction()
+				.execute((tx) => raiseMinimumRuntimeReaderVersionInTransaction(tx, 1)),
+		).rejects.toMatchObject({ code: "runtime_holders_not_drained" });
+	});
+
+	test("deployed v0 build and edit resumes clear inherited v1 generations", async () => {
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`INSERT INTO apps (
+					id, owner, project_id, app_name, app_name_lower,
+					status, run_id, awaiting_input, run_holder_nonce
+				 ) VALUES (
+					'v0-build-resume', 'actor', 'project-a', 'Build resume', 'build resume',
+					'generating', 'build-run', true, $1
+				 )`,
+				[NONCE_A],
+			);
+			await h.pool.query(
+				`INSERT INTO apps (
+					id, owner, project_id, app_name, app_name_lower,
+					status, lock_run_id, lock_actor_user_id, lock_expire_at,
+					awaiting_input, run_holder_nonce
+				 ) VALUES (
+					'v0-edit-resume', 'actor', 'project-a', 'Edit resume', 'edit resume',
+					'complete', 'edit-run', 'actor', now() + interval '15 minutes',
+					true, $1
+				 )`,
+				[NONCE_B],
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+
+		// These are the exact SET-column shapes emitted by the deployed v0
+		// reacquireLease implementation. It declares runtime 0, but never touches
+		// an identity column or the nonce itself.
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '0', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps
+				 SET updated_at = now(), awaiting_input = false
+				 WHERE id = 'v0-build-resume'`,
+			);
+			await h.pool.query(
+				`UPDATE apps
+				 SET lock_expire_at = now() + interval '15 minutes',
+					awaiting_input = false
+				 WHERE id = 'v0-edit-resume'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+
+		const downgraded = await h.pool.query<{
+			id: string;
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT id, run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps
+			 WHERE id IN ('v0-build-resume', 'v0-edit-resume')
+			 ORDER BY id`,
+		);
+		expect(downgraded.rows).toEqual([
+			{ id: "v0-build-resume", nonce: null, stamp: null },
+			{ id: "v0-edit-resume", nonce: null, stamp: null },
+		]);
+
+		await h.pool.query(
+			`INSERT INTO runtime_reader_traffic_epochs (
+				target_version, continuous_traffic_since
+			 ) VALUES (1, clock_timestamp() - interval '2 hours')`,
+		);
+		await expect(
+			(h.db as Kysely<AppDatabase>)
+				.transaction()
+				.execute((tx) => raiseMinimumRuntimeReaderVersionInTransaction(tx, 1)),
+		).rejects.toMatchObject({ code: "runtime_holders_not_drained" });
+	});
+
 	test("stamps exact holder changes, preserves same identity, and clears releases", async () => {
 		await h.pool.query("BEGIN");
 		try {
@@ -121,17 +348,27 @@ describe("runtime-reader rollout migration", () => {
 			await h.pool.query(
 				`INSERT INTO apps (
 					id, owner, project_id, app_name, app_name_lower,
-					status, run_id
+					status, run_id, run_holder_nonce
 				 ) VALUES (
 					'holder', 'actor', 'project-a', 'Holder', 'holder',
-					'generating', 'build-a'
+					'generating', 'build-a', $1
 				 )`,
+				[NONCE_A],
 			);
 			await h.pool.query("COMMIT");
 		} catch (error) {
 			await h.pool.query("ROLLBACK");
 			throw error;
 		}
+		expect(await runtimeStamp("holder")).toBe(2);
+
+		// The broadened trigger also sees ordinary build lease/pause writes. With
+		// no runtime declaration, an unchanged generation keeps its original stamp.
+		await h.pool.query(
+			`UPDATE apps
+			 SET updated_at = now(), awaiting_input = false
+			 WHERE id = 'holder'`,
+		);
 		expect(await runtimeStamp("holder")).toBe(2);
 
 		// Reservation booking keeps the same effective build identity. A newer
@@ -160,7 +397,8 @@ describe("runtime-reader rollout migration", () => {
 				"SELECT set_config('nova.runtime_reader_version', '3', true)",
 			);
 			await h.pool.query(
-				"UPDATE apps SET res_run_id = 'build-b' WHERE id = 'holder'",
+				"UPDATE apps SET res_run_id = 'build-b', run_holder_nonce = $1 WHERE id = 'holder'",
+				[NONCE_B],
 			);
 			await h.pool.query("COMMIT");
 		} catch (error) {
@@ -184,14 +422,24 @@ describe("runtime-reader rollout migration", () => {
 			await h.pool.query(
 				`UPDATE apps
 				 SET lock_run_id = 'edit-a', lock_actor_user_id = 'actor',
-					lock_expire_at = now() + interval '15 minutes'
+					lock_expire_at = now() + interval '15 minutes',
+					run_holder_nonce = $1
 				 WHERE id = 'holder'`,
+				[NONCE_C],
 			);
 			await h.pool.query("COMMIT");
 		} catch (error) {
 			await h.pool.query("ROLLBACK");
 			throw error;
 		}
+		expect(await runtimeStamp("holder")).toBe(4);
+
+		await h.pool.query(
+			`UPDATE apps
+			 SET lock_expire_at = now() + interval '15 minutes',
+				awaiting_input = false
+			 WHERE id = 'holder'`,
+		);
 		expect(await runtimeStamp("holder")).toBe(4);
 
 		await h.pool.query(
@@ -250,11 +498,13 @@ describe("runtime-reader rollout migration", () => {
 			);
 			await h.pool.query(
 				`INSERT INTO apps (
-					id, owner, project_id, app_name, app_name_lower, status, run_id
+					id, owner, project_id, app_name, app_name_lower, status, run_id,
+					run_holder_nonce
 				 ) VALUES (
 					'current-v1', 'actor', 'project-a', 'Current', 'current',
-					'generating', 'current-run'
+					'generating', 'current-run', $1
 				 )`,
+				[NONCE_A],
 			);
 			await h.pool.query("COMMIT");
 		} catch (error) {
@@ -280,10 +530,11 @@ describe("runtime-reader rollout migration", () => {
 			await setTransactionRuntimeReaderVersion(tx, 6);
 			await sql`
 				INSERT INTO apps (
-					id, owner, project_id, app_name, app_name_lower, status, run_id
+					id, owner, project_id, app_name, app_name_lower, status, run_id,
+					run_holder_nonce
 				) VALUES (
 					'helper-v6', 'actor', 'project-a', 'Helper', 'helper',
-					'generating', 'helper-run'
+					'generating', 'helper-run', ${NONCE_A}::uuid
 				)
 			`.execute(tx);
 		});

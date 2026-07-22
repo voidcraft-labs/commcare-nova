@@ -20,6 +20,8 @@ import type { AppDoc } from "../types";
 const NOW = Date.UTC(2026, 6, 1, 12, 0, 0);
 const RUN = "run-me";
 const OTHER = "run-other";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
+const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
 
 /** A `run_lock.expireAt` `mins` minutes from NOW (negative = already lapsed). */
 const lockAt = (mins: number, runId = RUN) => ({
@@ -42,7 +44,8 @@ const marker = (
 	...over,
 });
 
-const lease = (fresh: Partial<AppDoc>) => runLeaseState(fresh, NOW);
+const lease = (fresh: Partial<AppDoc>) =>
+	runLeaseState({ run_holder_nonce: HOLDER_NONCE, ...fresh }, NOW);
 
 describe("runLeaseState — mode", () => {
 	it("build: status generating (regardless of any stale lock)", () => {
@@ -334,12 +337,34 @@ describe("runLeaseState — buildFailureWriteOwned", () => {
 });
 
 describe("runLeaseState — ownedByResume (mode-specific to the RESUME's mode)", () => {
-	it("edit-resume: owns only when the app is STILL an edit run it holds", () => {
+	it("edit-resume: owns only its exact paused holder and actor", () => {
 		expect(
-			lease({ status: "complete", run_lock: lockAt(5, RUN) }).ownedByResume(
-				RUN,
-				"edit",
-			),
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", HOLDER_NONCE, true),
+		).toBe(true);
+		expect(
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u2", HOLDER_NONCE, true),
+		).toBe(false);
+		expect(
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", OTHER_NONCE, true),
+		).toBe(false);
+		expect(
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", OTHER_NONCE, false),
 		).toBe(true);
 		// The app is a build (status generating, no lock) → derived mode "build" →
 		// an edit-resume (which requires mode "edit") bails.
@@ -347,7 +372,8 @@ describe("runLeaseState — ownedByResume (mode-specific to the RESUME's mode)",
 			lease({
 				status: "generating",
 				reservation: marker({ runId: undefined }),
-			}).ownedByResume(RUN, "edit"),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", HOLDER_NONCE, true),
 		).toBe(false);
 	});
 	it("build-resume: owns only a PAUSED-build shape whose marker is mine", () => {
@@ -356,14 +382,14 @@ describe("runLeaseState — ownedByResume (mode-specific to the RESUME's mode)",
 				status: "generating",
 				awaiting_input: true,
 				reservation: marker({ runId: RUN }),
-			}).ownedByResume(RUN, "build"),
+			}).ownedByResume(RUN, "build", "u1", HOLDER_NONCE, true),
 		).toBe(true);
 		// Not paused → a build-resume (which requires the paused-build shape) bails.
 		expect(
 			lease({
 				status: "generating",
 				reservation: marker({ runId: undefined }),
-			}).ownedByResume(RUN, "build"),
+			}).ownedByResume(RUN, "build", "u1", HOLDER_NONCE, true),
 		).toBe(false);
 	});
 });
@@ -449,6 +475,11 @@ describe("runLeaseState — reapableStrandedEdit", () => {
 			lease({ ...strandedEdit, run_lock: lockAt(-1, "") }).reapableStrandedEdit,
 		).toBe(false);
 	});
+	it("true: a legacy v0 edit without a nonce remains reapable before cutover", () => {
+		expect(
+			lease({ ...strandedEdit, run_holder_nonce: null }).reapableStrandedEdit,
+		).toBe(true);
+	});
 });
 
 describe("runLeaseState — reapableStaleBuild", () => {
@@ -496,6 +527,16 @@ describe("runLeaseState — reapableStaleBuild", () => {
 				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
 			}).reapableStaleBuild,
 		).toBe(false);
+	});
+	it("true: a legacy v0 build without a nonce remains reapable before cutover", () => {
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				run_holder_nonce: null,
+				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
+			}).reapableStaleBuild,
+		).toBe(true);
 	});
 	it("false: an EDIT (mode edit) or a complete app is never a stale build", () => {
 		expect(

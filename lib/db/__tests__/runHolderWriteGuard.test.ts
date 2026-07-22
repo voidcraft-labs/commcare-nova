@@ -45,7 +45,7 @@ describe("run-holder write structural guard", () => {
 		expect(source("scripts/recover-app.ts")).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
-		).toBe(17);
+		).toBe(18);
 		expect(
 			source("lib/db/credits.ts").match(new RegExp(appDml, "g"))?.length,
 		).toBe(5);
@@ -82,7 +82,6 @@ describe("run-holder write structural guard", () => {
 			"refreshBuildLiveness",
 			"clearRunLock",
 			"clearRunLockAndSettle",
-			"reacquireLease",
 			"failApp",
 			"recoverAppStatus",
 			"setAwaitingInput",
@@ -91,6 +90,9 @@ describe("run-holder write structural guard", () => {
 				"expectedRunHolderPredicate",
 			);
 		}
+		expect(exportedFunction("lib/db/apps.ts", "reacquireLease")).toContain(
+			"expectedPausedRunResumePredicate",
+		);
 		expect(
 			exportedFunction("lib/db/apps.ts", "completeAndSettleRun"),
 		).toContain("expectedReapedBuildCompletionPredicate");
@@ -156,6 +158,7 @@ describe("run-holder write structural guard", () => {
 		const recover = source("scripts/recover-app.ts");
 		expect(recover).toContain('"--holder-mode <mode>"');
 		expect(recover).toContain('"--holder-run-id <runId>"');
+		expect(recover).toContain('"--holder-nonce <uuid>"');
 		expect(recover).toContain("recoverAppStatus(appId, expectedHolder)");
 		expect(recover).toContain("exactRunHolderMatches");
 	});

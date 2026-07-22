@@ -33,9 +33,12 @@
  */
 import type { UIMessage } from "ai";
 import { sql } from "kysely";
+import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
 import { log } from "@/lib/logger";
 import { appHeldLive } from "./apps";
+import { LEASE_COLUMNS, leaseView } from "./leaseView";
 import { getAppDb, withAppTx } from "./pg";
+import { runLeaseState } from "./runLiveness";
 import {
 	type ThreadDoc,
 	type ThreadMeta,
@@ -136,6 +139,8 @@ export async function upsertThreadTurn(args: {
 	threadId: string;
 	runId: string;
 	streamId: string;
+	/** Chat passes the exact holder; optional only for old fixtures/importers. */
+	holderNonce?: string;
 	threadType: "build" | "edit";
 	messages: UIMessage[];
 }): Promise<boolean> {
@@ -159,6 +164,7 @@ export async function upsertThreadTurn(args: {
 					summary: summarize(args.messages),
 					run_id: args.runId,
 					active_stream_id: args.streamId,
+					active_holder_nonce: args.holderNonce ?? null,
 					messages: JSON.stringify(args.messages),
 				})
 				.execute();
@@ -175,6 +181,7 @@ export async function upsertThreadTurn(args: {
 				updated_at: now,
 				run_id: args.runId,
 				active_stream_id: args.streamId,
+				active_holder_nonce: args.holderNonce ?? null,
 				messages: JSON.stringify(merged),
 			})
 			.where("thread_id", "=", args.threadId)
@@ -245,12 +252,15 @@ export async function appendThreadResponse(args: {
 	threadId: string;
 	streamId: string;
 	responseMessage: UIMessage | null;
+	/** A paused askQuestions round keeps its generation for the answer POST;
+	 * every terminal/unpaused finish clears it with the exact stream marker. */
+	retainHolderNonce?: boolean;
 }): Promise<void> {
 	const now = new Date().toISOString();
 	await withAppTx(async (tx) => {
 		const row = await tx
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id"])
+			.select(["messages", "active_stream_id", "active_holder_nonce"])
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
 			.forUpdate()
@@ -268,6 +278,9 @@ export async function appendThreadResponse(args: {
 			.set({
 				updated_at: now,
 				...(clearMarker ? { active_stream_id: null } : {}),
+				...(clearMarker && !args.retainHolderNonce
+					? { active_holder_nonce: null }
+					: {}),
 				...(merged ? { messages: JSON.stringify(merged) } : {}),
 			})
 			.where("thread_id", "=", args.threadId)
@@ -371,6 +384,7 @@ export async function listThreadMetas(
 export async function loadThread(
 	appId: string,
 	threadId: string,
+	actorUserId?: string,
 ): Promise<LoadedThread | null> {
 	const db = await getAppDb();
 	const row = await db
@@ -383,6 +397,7 @@ export async function loadThread(
 			"summary",
 			"run_id",
 			"active_stream_id",
+			"active_holder_nonce",
 			"messages",
 		])
 		.where("app_id", "=", appId)
@@ -390,12 +405,90 @@ export async function loadThread(
 		.executeTakeFirst();
 	if (!row) return null;
 	const [reconciled] = await reconcileDeadMarkers(appId, [row]);
-	const doc = threadDocSchema.parse(reconciled);
+	const { active_holder_nonce: storedHolderNonce, ...publicRow } = reconciled;
+	const doc = threadDocSchema.parse(publicRow);
+	/* A continuation nonce is projected only from fresh app authority and only
+	 * to the actor who owns this exact paused thread run. The operational nonce
+	 * is stored in its dedicated thread column, separate from public thread and
+	 * message/event payloads; a co-member who can view the same transcript
+	 * receives no nonce. */
+	let holderNonce: string | undefined;
+	if (actorUserId !== undefined) {
+		const app = await db
+			.selectFrom("apps")
+			.select(LEASE_COLUMNS)
+			.where("id", "=", appId)
+			.executeTakeFirst();
+		if (app) {
+			const lease = runLeaseState(leaseView(app));
+			if (
+				lease.paused &&
+				lease.pausedBy(actorUserId) &&
+				lease.holderIdentity?.runId === doc.run_id &&
+				lease.holderIdentity.nonce !== null &&
+				storedHolderNonce === lease.holderIdentity.nonce
+			) {
+				holderNonce = lease.holderIdentity.nonce;
+			}
+		}
+	}
+	const projected =
+		holderNonce === undefined ? doc : { ...doc, holder_nonce: holderNonce };
 	// Transient, deliberately outside the stored-shape schema — see
 	// `LoadedThread`.
 	return reconciled.resume_interrupted
-		? { ...doc, resume_interrupted: true }
-		: doc;
+		? { ...projected, resume_interrupted: true }
+		: projected;
+}
+
+/**
+ * Resolve the private holder capability represented by one durable-stream
+ * marker. The chunk log stores only a thread id + irreversible nonce digest;
+ * this projection re-reads that thread's retained nonce and the app's current
+ * holder, then returns the nonce only when the digest, run, generation, and
+ * authenticated actor all still match. It remains valid after a PAUSED
+ * finalize clears `active_stream_id`, but an old same-run stream cannot receive
+ * a successor generation. Completed, superseded, reaped, mismatched, and
+ * co-member replays receive `null`.
+ */
+export async function loadHolderNonceForReplayMarker(args: {
+	appId: string;
+	threadId: string;
+	holderDigest: string;
+	actorUserId: string;
+}): Promise<string | null> {
+	const db = await getAppDb();
+	const thread = await db
+		.selectFrom("threads")
+		.select(["run_id", "active_holder_nonce"])
+		.where("app_id", "=", args.appId)
+		.where("thread_id", "=", args.threadId)
+		.executeTakeFirst();
+	if (!thread?.active_holder_nonce) return null;
+	if (
+		holderNonceReplayDigest(thread.active_holder_nonce) !== args.holderDigest
+	) {
+		return null;
+	}
+
+	const app = await db
+		.selectFrom("apps")
+		.select(LEASE_COLUMNS)
+		.where("id", "=", args.appId)
+		.executeTakeFirst();
+	if (!app) return null;
+	const lease = runLeaseState(leaseView(app));
+	const holderActor =
+		lease.mode === "edit"
+			? app.lock_actor_user_id
+			: lease.mode === "build"
+				? (app.res_user_id ?? app.owner)
+				: null;
+	return lease.holderIdentity?.runId === thread.run_id &&
+		lease.holderIdentity.nonce === thread.active_holder_nonce &&
+		holderActor === args.actorUserId
+		? thread.active_holder_nonce
+		: null;
 }
 
 /**
@@ -409,13 +502,18 @@ export async function loadThread(
 export async function resolveThreadStream(threadId: string): Promise<{
 	appId: string;
 	activeStreamId: string | null;
+	runId: string;
 } | null> {
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("threads")
-		.select(["app_id", "active_stream_id"])
+		.select(["app_id", "active_stream_id", "run_id"])
 		.where("thread_id", "=", threadId)
 		.executeTakeFirst();
 	if (!row) return null;
-	return { appId: row.app_id, activeStreamId: row.active_stream_id };
+	return {
+		appId: row.app_id,
+		activeStreamId: row.active_stream_id,
+		runId: row.run_id,
+	};
 }

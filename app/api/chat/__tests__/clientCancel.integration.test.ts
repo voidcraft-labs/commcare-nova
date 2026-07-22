@@ -683,6 +683,8 @@ describe("pause-stamp ownership admission", () => {
 		expect(setAwaitingInputMock).toHaveBeenCalledWith(
 			expect.any(String),
 			expect.any(String),
+			expect.any(String),
+			"build",
 			true,
 			USER,
 			PROJECT,
@@ -781,6 +783,21 @@ describe("free-continuation resume admission", () => {
 				updated_at: new Date(),
 			})
 			.execute();
+		await appDb
+			.insertInto("threads")
+			.values({
+				thread_id: RESUME_THREAD,
+				app_id: RESUME_APP,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: "edit",
+				summary: "Paused answer",
+				run_id: RESUME_RUN,
+				active_stream_id: null,
+				active_holder_nonce: null,
+				messages: [],
+			})
+			.execute();
 
 		const { loadApp } = await import("@/lib/db/apps");
 		const app = await loadApp(RESUME_APP);
@@ -804,6 +821,7 @@ describe("free-continuation resume admission", () => {
 		expect(reacquireLeaseMock).toHaveBeenCalledWith(
 			RESUME_APP,
 			RESUME_RUN,
+			null,
 			"edit",
 			USER,
 			PROJECT,

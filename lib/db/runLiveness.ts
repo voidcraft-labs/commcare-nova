@@ -60,6 +60,10 @@ function generatingIsFresh(
 export interface RunHolderIdentity {
 	readonly mode: "build" | "edit";
 	readonly runId: string | null;
+	/** Concrete on every nonce-capable claim. Null denotes a legacy v0 holder:
+	 * compatibility mode may admit/reap it by mode + run id so rollout can drain
+	 * it, but post-cutover exact nonce authority can never match it. */
+	readonly nonce: string | null;
 }
 
 export interface RunLease {
@@ -165,22 +169,22 @@ export interface RunLease {
 	 */
 	buildFailureWriteOwned: (runId: string) => boolean;
 	/**
-	 * Whether `runId` still owns the PAUSED run it is RESUMING — keyed on the
-	 * resume's OWN mode, not the doc's derived `mode`. A paused run's lease lapses
-	 * while it waits for the user (no heartbeat during a pause), so it CAN be reaped
-	 * mid-answer and the freed app claimed by another run. `ownedByResume` requires
-	 * the app to STILL be in the shape the resume expects — which a reap + re-claim
-	 * destroys — so a resume of a superseded run bails and touches nothing:
-	 *  - `"edit"` resume → `mode === "edit" && mine` (its `run_lock.runId`); a reap
-	 *    cleared the lock or a re-claim overwrote it (`mode` no longer edit / a
-	 *    different runId) → not owned → bail.
-	 *  - `"build"` resume → `mode === "build" && paused && mine` (a paused-build shape
-	 *    with the marker's `runId`); a reap flipped it to `error` or a re-claim
-	 *    cleared `awaiting_input` (not paused) → not owned → bail.
+	 * Whether `runId` still owns the PAUSED run `actorUserId` is RESUMING — keyed
+	 * on the resume's OWN mode, not the doc's derived `mode`. Both modes require
+	 * the exact holder, `awaiting_input`, and the pause's original actor. A live
+	 * same-run request is not a free continuation, and a co-member cannot forge
+	 * another actor's paused run id. A reap or replacement claim destroys at
+	 * least one of these facts, so a superseded resume bails and touches nothing.
 	 * Keyed on the RESUME's mode (not the derived one) so it reads the right
 	 * discriminator even when the app was re-claimed in the OTHER mode.
 	 */
-	ownedByResume: (runId: string, resumeMode: "build" | "edit") => boolean;
+	ownedByResume: (
+		runId: string,
+		resumeMode: "build" | "edit",
+		actorUserId: string,
+		holderNonce: string | null,
+		enforceNonce: boolean,
+	) => boolean;
 	/**
 	 * An unsettled reservation marker exists — a credit hold owed a settle/refund.
 	 * The failure-path lock-clear and the reapers key on this, never on "my
@@ -249,9 +253,14 @@ export function runLeaseState(
 					runId: normalizedRunId(
 						reservation === undefined ? fresh.run_id : reservation.runId,
 					),
+					nonce: normalizedRunId(fresh.run_holder_nonce),
 				}
 			: mode === "edit"
-				? { mode, runId: normalizedRunId(lock?.runId) }
+				? {
+						mode,
+						runId: normalizedRunId(lock?.runId),
+						nonce: normalizedRunId(fresh.run_holder_nonce),
+					}
 				: null;
 	const paused = present && awaitingInput;
 	// Within the mode's liveness horizon (build: `updated_at` window; edit: the
@@ -317,9 +326,18 @@ export function runLeaseState(
 	const ownedByResume = (
 		runId: string,
 		resumeMode: "build" | "edit",
+		actorUserId: string,
+		holderNonce: string | null,
+		enforceNonce: boolean,
 	): boolean => {
-		if (resumeMode === "edit") return mode === "edit" && mine(runId);
-		return mode === "build" && paused && mine(runId);
+		return (
+			mode === resumeMode &&
+			paused &&
+			mine(runId) &&
+			(!enforceNonce ||
+				(holderNonce !== null && holderIdentity?.nonce === holderNonce)) &&
+			pausedBy(actorUserId)
+		);
 	};
 
 	// A stranded EDIT hold to reap: `complete`, an unsettled marker, and a

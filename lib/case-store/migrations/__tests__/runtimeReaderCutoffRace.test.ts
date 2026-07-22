@@ -110,7 +110,7 @@ describe("runtime-reader claim/floor cutoff", () => {
 				 CROSS JOIN apps AS app
 				 WHERE compatibility.id = 1 AND app.id = 'holder-first'`,
 			);
-			expect(afterHolderFirst.rows[0]).toEqual({ floor: 0, stamp: 0 });
+			expect(afterHolderFirst.rows[0]).toEqual({ floor: 0, stamp: null });
 
 			await floor.query(
 				`UPDATE apps SET status = 'complete' WHERE id = 'holder-first'`,

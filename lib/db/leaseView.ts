@@ -26,6 +26,7 @@ export const LEASE_COLUMNS = [
 	"lock_run_id",
 	"lock_actor_user_id",
 	"lock_expire_at",
+	"run_holder_nonce",
 ] as const;
 
 /** The selected shape of {@link LEASE_COLUMNS}. Wider rows (a full
@@ -44,6 +45,7 @@ export interface LeaseRow {
 	lock_run_id: string | null;
 	lock_actor_user_id: string | null;
 	lock_expire_at: Date | null;
+	run_holder_nonce: string | null;
 }
 
 /** The reservation marker — present iff `res_period` is set. */
@@ -78,6 +80,7 @@ export function leaseView(row: LeaseRow): Partial<AppDoc> {
 		updated_at: row.updated_at,
 		owner: row.owner,
 		run_id: row.run_id,
+		run_holder_nonce: row.run_holder_nonce,
 		reservation: rowReservation(row),
 		run_lock: rowRunLock(row),
 	};

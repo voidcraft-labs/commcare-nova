@@ -6,6 +6,7 @@ import { APICallError } from "ai";
 import {
 	AppProjectChangedError,
 	CommitReauthError,
+	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -129,6 +130,21 @@ function classifyByStatus(
 
 export function classifyError(error: unknown): ClassifiedError {
 	const raw = error instanceof Error ? error.message : String(error);
+
+	if (error instanceof RunHolderLostError) {
+		return {
+			type:
+				error.outcome === "released"
+					? "run_released"
+					: "generation_in_progress",
+			message:
+				error.outcome === "released"
+					? "This run no longer holds the app, so Nova stopped before applying any further changes. Refresh to continue from the latest state."
+					: "A newer request took over this app, so Nova stopped before applying any further changes. Refresh to continue from the latest state.",
+			recoverable: false,
+			raw,
+		};
+	}
 
 	if (error instanceof CommitReauthError) {
 		return {

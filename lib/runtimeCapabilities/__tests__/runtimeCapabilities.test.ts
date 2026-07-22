@@ -36,7 +36,7 @@ describe("runtime capability manifest", () => {
 			schemaVersion: 1,
 			writerVersion: 0,
 			streamReceiverVersion: 1,
-			runtimeReaderVersion: 0,
+			runtimeReaderVersion: 1,
 			streamRegistryVersion: 1,
 			cloudRunRequestSeconds: 3_600,
 			streamLeaseGraceSeconds: 300,
@@ -97,10 +97,10 @@ describe("runtime capability manifest", () => {
 	it("canonicalizes in schema order and hashes exact canonical bytes", () => {
 		const canonical = canonicalRuntimeCapabilityManifest(manifest);
 		expect(canonical).toBe(
-			'{"schemaVersion":1,"writerVersion":0,"streamReceiverVersion":1,"runtimeReaderVersion":0,"streamRegistryVersion":1,"cloudRunRequestSeconds":3600,"streamLeaseGraceSeconds":300,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
+			'{"schemaVersion":1,"writerVersion":0,"streamReceiverVersion":1,"runtimeReaderVersion":1,"streamRegistryVersion":1,"cloudRunRequestSeconds":3600,"streamLeaseGraceSeconds":300,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
 		);
 		expect(manifestHash).toBe(
-			"cbdddfe24916a2e4adf0bdc9dea6028654ade7bda2298a24748574a87efbee81",
+			"c151a1240c6508fe027f6cc04b36dba43122067bdf957798d8681a30483e7719",
 		);
 		expect(hashRuntimeCapabilityManifest(manifest)).toBe(manifestHash);
 	});
@@ -165,7 +165,7 @@ describe("runtime capability manifest", () => {
 		expect(environment).toEqual({
 			NOVA_WRITER_VERSION: "0",
 			NOVA_STREAM_RECEIVER_VERSION: "1",
-			NOVA_RUNTIME_READER_VERSION: "0",
+			NOVA_RUNTIME_READER_VERSION: "1",
 			NOVA_STREAM_REGISTRY_VERSION: "1",
 			NOVA_CLOUD_RUN_REQUEST_SECONDS: "3600",
 			NOVA_STREAM_LEASE_GRACE_SECONDS: "300",
@@ -173,15 +173,15 @@ describe("runtime capability manifest", () => {
 			NOVA_EDIT_RUN_LEASE_SECONDS: "900",
 			NOVA_BUILD_STALENESS_SECONDS: "600",
 			NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH:
-				"cbdddfe24916a2e4adf0bdc9dea6028654ade7bda2298a24748574a87efbee81",
+				"c151a1240c6508fe027f6cc04b36dba43122067bdf957798d8681a30483e7719",
 		});
 		expect(Object.isFrozen(environment)).toBe(true);
 		expect(runtimeCapabilityRevisionLabels(manifest, "build-123")).toEqual({
 			nova_writer: "0",
 			nova_stream_receiver: "1",
-			nova_runtime_reader: "0",
+			nova_runtime_reader: "1",
 			nova_stream_registry: "1",
-			nova_manifest: "cbdddfe24916a2e4",
+			nova_manifest: "c151a1240c6508fe",
 			nova_build: "build-123",
 		});
 		expect(() =>

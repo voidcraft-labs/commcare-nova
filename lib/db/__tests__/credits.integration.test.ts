@@ -33,6 +33,8 @@ const TEST_APP_ID = "app-credit-integration";
 const h = setupAppStateTestDb("credits_int_");
 const period = getCurrentPeriod();
 const PROJECT_ID = "project-test";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
+const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
 
 /** Read the raw credit-month row for the test user's current period. */
 async function readCreditMonth(): Promise<
@@ -74,6 +76,7 @@ describe("reserveForNewBuild credit debit", () => {
 			owner: TEST_USER_ID,
 			status: "generating",
 			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 		});
 	});
 
@@ -86,6 +89,7 @@ describe("reserveForNewBuild credit debit", () => {
 			CREDITS_PER_BUILD,
 			"run-1",
 			PROJECT_ID,
+			HOLDER_NONCE,
 		);
 		expect(result).toEqual({ period, reserved: CREDITS_PER_BUILD });
 
@@ -111,6 +115,7 @@ describe("reserveForNewBuild credit debit", () => {
 			CREDITS_PER_BUILD,
 			"run-1",
 			PROJECT_ID,
+			HOLDER_NONCE,
 		);
 		await expect(
 			reserveForNewBuild(
@@ -119,17 +124,21 @@ describe("reserveForNewBuild credit debit", () => {
 				CREDITS_PER_BUILD,
 				"run-b",
 				PROJECT_ID,
+				OTHER_NONCE,
 			),
 		).rejects.toBeInstanceOf(RunConflictError);
 		expect((await readCreditMonth())?.consumed).toBe(CREDITS_PER_BUILD);
 
 		// Now seed the user to the brink: 5 spendable, charging 100 must reject.
-		await completeAndSettleRun(TEST_APP_ID, "run-1");
+		expect(await completeAndSettleRun(TEST_APP_ID, "run-1", HOLDER_NONCE)).toBe(
+			"owned",
+		);
 		await h.seedApp({
 			id: "app-credit-affordability",
 			owner: TEST_USER_ID,
 			status: "generating",
 			run_id: "run-c",
+			run_holder_nonce: OTHER_NONCE,
 		});
 		await h.seedCreditMonth(TEST_USER_ID, period, {
 			allowance: MONTHLY_CREDIT_ALLOWANCE,
@@ -143,6 +152,7 @@ describe("reserveForNewBuild credit debit", () => {
 				CREDITS_PER_BUILD,
 				"run-c",
 				PROJECT_ID,
+				OTHER_NONCE,
 			),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 
@@ -302,6 +312,7 @@ describe("credit writers integration", () => {
 			owner: TEST_USER_ID,
 			status: "generating",
 			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -313,7 +324,7 @@ describe("credit writers integration", () => {
 
 		// The refund walks consumed 200 → 100 AND flips the marker settled, both
 		// committed in one cross-row transaction.
-		await refundReservation(TEST_APP_ID, "run-1", "build");
+		await refundReservation(TEST_APP_ID, "run-1", HOLDER_NONCE, "build");
 		expect((await readCreditMonth())?.consumed).toBe(CREDITS_PER_BUILD);
 		expect(await h.readReservation(TEST_APP_ID)).toMatchObject({
 			period,
@@ -322,7 +333,7 @@ describe("credit writers integration", () => {
 		});
 
 		// A second refund reads the settled marker and changes nothing.
-		await refundReservation(TEST_APP_ID, "run-1", "build");
+		await refundReservation(TEST_APP_ID, "run-1", HOLDER_NONCE, "build");
 		expect((await readCreditMonth())?.consumed).toBe(CREDITS_PER_BUILD);
 	});
 });

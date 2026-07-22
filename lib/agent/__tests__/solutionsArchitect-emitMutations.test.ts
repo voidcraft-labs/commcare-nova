@@ -46,6 +46,7 @@ import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
+import { removeMediaAssetTool } from "../tools/media/removeMediaAsset";
 import { makeTestContext } from "./fixtures";
 
 /* The SA commits every batch through `commitGuardedBatch` (kind:'chat') —
@@ -966,6 +967,42 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
 		expect(resolveAuthorizedAppSnapshotMock).not.toHaveBeenCalled();
 	});
+});
+
+describe("solutionsArchitect — read-shaped side-effect terminal fences", () => {
+	it.each([
+		[
+			"lost authorization",
+			() => new CommitReauthError("You no longer have edit access."),
+			"reauthError" as const,
+		],
+		[
+			"a Project move",
+			() => new AppProjectChangedError(),
+			"projectChangedError" as const,
+		],
+	])(
+		"latches %s from removeMediaAsset and fences the next queued tool",
+		async (_label, makeScopeError, latchGetter) => {
+			const { ctx } = buildCtx();
+			const sa = makeSa(ctx, makeFixtureDoc(), true);
+			const scopeError = makeScopeError();
+			const execute = vi
+				.spyOn(removeMediaAssetTool, "execute")
+				.mockRejectedValueOnce(scopeError);
+
+			const settled = await Promise.allSettled([
+				runTool(sa, "removeMediaAsset", { assetId: "asset-1" }),
+				runTool(sa, "getForm", { moduleIndex: 0, formIndex: 0 }),
+			]);
+
+			expect(settled[0]).toEqual({ status: "rejected", reason: scopeError });
+			expect(settled[1]).toEqual({ status: "rejected", reason: scopeError });
+			expect(ctx[latchGetter]()).toBe(scopeError);
+			expect(execute).toHaveBeenCalledTimes(1);
+			execute.mockRestore();
+		},
+	);
 });
 
 // ── Small helpers kept at the bottom to avoid pollution ─────────────────

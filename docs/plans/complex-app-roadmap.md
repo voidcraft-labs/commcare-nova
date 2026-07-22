@@ -1152,7 +1152,7 @@ expiry covers crashes and cleanup failure without expiring a still-live request.
 
 **S02c1 implementation status (2026-07-22):**
 `config/runtime-capabilities.json` is now the strict, version-controlled source
-for writer `0`, stream receiver `1`, runtime reader `0`, stream registry `1`,
+for writer `0`, stream receiver `1`, runtime reader `1`, stream registry `1`,
 the 3,600-second request cap, the 300-second stream grace, the independently
 declared 900-second renewable edit lease, and the independently declared
 600-second build-staleness horizon. The browser-safe shared parser produces
@@ -1183,27 +1183,46 @@ controller.
 
 The runtime-holder callsite slice is now source-complete too: generating
 creation, intentional claim/replacement, exact-gated just-created-build
-reservation, and paused-run reacquisition declare the manifest runtime reader.
+reservation, and paused-run reacquisition declare runtime reader v1. Each
+claim mints a private UUID generation stored beside stable `runId` attribution.
 `runHolderWrites.ts` is the shared SQL compare-and-set boundary for terminal,
 failure, pause/heartbeat, recovery, and reaper writes. Reaper scans and queues
-carry the `(mode, runId)` they observed instead of a bare app id, and credit
-reapers roll ledger changes back if the exact app-row write affects zero rows.
-Scans narrow to a concrete non-empty run id before queueing: a present
-`(mode, null)` holder is corrupt and fails closed because it cannot distinguish
-one corrupt generation from a later one. It remains visible in the runtime
-census for explicit repair instead of being tokenlessly reaped.
+carry the concrete holder they observed instead of a bare app id, and credit
+reapers roll ledger changes back if the admitted app-row write affects zero
+rows. A missing run id remains corrupt; a concrete run id with null nonce is a
+legacy v0 holder that remains census-visible and reapable during the rollout.
 `recover-app` has no direct app writer: a present holder requires explicit
-matching mode/run-id flags and the database service re-proves that token under
-lock and in SQL. Focused pure/integration tests and the app-DML structural guard
-ship with the slice; execution remains part of the integration/CI verification
-gate. This callsite work also changes no floor, flag, traffic, or production
-state.
+matching mode, run-id, and UUID nonce flags, and the database service re-proves
+that exact generation under lock and in SQL.
+
+Nonce storage is intentionally non-activating. The irreversible
+`run_holder_nonce_enforced` compatibility switch defaults false, so runtime
+admission and CAS still honor legacy `(mode, runId)` and accept an old paused
+browser continuation with no nonce. Such a v0 resume upgrades itself with a
+server nonce in the same app-locked write. The holder-stamp trigger includes the
+pause/lease columns used by the deployed v0 resume (`awaiting_input`,
+`lock_expire_at`, and `updated_at`), so that old runtime cannot inherit a v1
+nonce/stamp merely because its stable mode/run identity did not change. After
+S02c2 drains the request epoch, v0/null-nonce holders, and old receiver leases,
+it raises the runtime-reader floor to 1 and enables the switch; from then on,
+missing/mismatched nonces fail closed with an explicit refresh. Focused
+pure/integration tests and the app-DML structural guard ship with the slice;
+execution remains part of the integration/CI verification gate. This work
+changes no floor, switch, traffic, or production state.
 
 Chat blueprint writes now carry an explicit `ChatRunHolderCapability` in
 addition to their durable attribution `runId`; MCP continues to stamp `runId`
-without claiming chat-lease authority. Direct commits check the exact
-`(mode, runId)` under the app lock and repeat it in `writeCommittedBatch`'s SQL
-compare-and-set. Migration-bearing commits check the same capability before
+without claiming chat-lease authority. The capability includes the private
+nonce generation. It is sent live to the authenticated POST caller but is not
+stored in the view-scoped durable chunk log: that log carries an inert,
+count-preserving thread-id + SHA-256-digest marker, and reconnect rehydrates it
+from the retained thread nonce and current app holder only for the owning actor.
+The digest prevents an old same-run stream from receiving a successor
+generation. Direct commits check the
+compatibility-admitted projection under the app lock and repeat it in
+`writeCommittedBatch`'s SQL compare-and-set;
+once activated, that is the exact `(mode, runId, nonce)`. Migration-bearing
+commits check the same capability before
 their locked Phase A; if ownership changes after Phase A, the final guarded
 commit rejects and the existing compensation restores the current committed
 schema/data shape. Every build claim stamps root `run_id` immediately, so a
@@ -1218,15 +1237,14 @@ SA runs can outlive the browser connection that started them, so request and
 stream bounds alone cannot prove a runtime-reader drain. Every app run holder
 stores the runtime-reader version declared transaction-locally by its claimant;
 missing/unset is v0. The database owns the holder-identity state machine, using
-the effective `(mode, runId)` derived from the locked run fields: edit uses
-`lock_run_id`; build uses `res_run_id`, falling back to the row's `run_id` only
-for the just-created pre-reservation generating state. An
-absent-to-present or identity-changing claim (including same-actor paused-run
-supersession) stamps the transaction-local version and rejects it below the
-runtime floor; a same-identity heartbeat or reacquire preserves the existing
-stamp; and an identity-owned terminal transition clears it. Generating-app
-creation and later reservation form one current build identity rather than
-accidentally restamping an inherited holder. Every terminal/failure/reaper API
+the effective `(mode, runId, nonce)` derived from locked run fields: edit uses
+`lock_run_id`; build uses `res_run_id`, falling back to root `run_id` only for
+the just-created pre-reservation generating state. A declared v1 claim requires
+a concrete run id + nonce and stamps the transaction-local version; an explicit
+v0 successor clears any inherited nonce/stamp even when stable thread
+attribution leaves mode/run unchanged. An ordinary same-generation heartbeat
+preserves the existing stamp, and an identity-owned terminal transition clears
+the stamp while retaining the nonce tombstone. Every terminal/failure/reaper API
 includes the expected holder identity in its locked conditional write, so a
 stale writer affects zero rows and cannot clear or fail a replacement holder.
 Runtime-floor status combines that stamp with fresh `runLeaseState`; every

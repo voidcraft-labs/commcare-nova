@@ -114,6 +114,7 @@ describe("GenerationContext.recordMutations", () => {
 				source: "chat",
 				mode: "build",
 				runId: "run-1",
+				nonce: "00000000-0000-4000-8000-000000000001",
 			},
 			actorUserId: "user-1",
 			kind: "chat",
@@ -134,6 +135,7 @@ describe("GenerationContext.recordMutations", () => {
 				source: "chat",
 				mode: "edit",
 				runId: "run-1",
+				nonce: "00000000-0000-4000-8000-000000000001",
 			},
 		});
 	});
@@ -165,6 +167,7 @@ describe("GenerationContext.recordMutations", () => {
 				source: "chat",
 				mode: "build",
 				runId: "run-1",
+				nonce: "00000000-0000-4000-8000-000000000001",
 			},
 			userId: "user-1",
 			kind: "chat",

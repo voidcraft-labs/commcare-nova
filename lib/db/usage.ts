@@ -169,6 +169,9 @@ export interface AccumulatorSeed {
 	appId: string;
 	userId: string;
 	runId: string;
+	/** Server-minted holder generation for lifecycle/credit authority. Unlike
+	 * runId, this changes on every claim and never enters summaries/events. */
+	holderNonce: string;
 	model: string;
 	promptMode: "build" | "edit";
 	appReady: boolean;
@@ -208,6 +211,8 @@ export interface AccumulatorSeed {
 
 /** Fields that can be updated mid-request via `configureRun`. */
 interface AccumulatorRunConfig {
+	/** App-locked capability returned when a legacy continuation is upgraded. */
+	holderNonce: string;
 	promptMode: "build" | "edit";
 	appReady: boolean;
 	moduleCount: number;
@@ -435,6 +440,7 @@ export class UsageAccumulator {
 				await refundReservation(
 					this.seed.appId,
 					this.seed.runId,
+					this.seed.holderNonce,
 					this.seed.promptMode,
 				);
 			} catch (err) {

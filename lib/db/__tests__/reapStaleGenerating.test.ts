@@ -39,6 +39,7 @@ vi.mock("../credits", () => ({
 }));
 
 const h = setupAppStateTestDb("reap_stale_");
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 describe("reapStaleGenerating", () => {
 	beforeEach(() => {
@@ -52,11 +53,13 @@ describe("reapStaleGenerating", () => {
 		await reapStaleGenerating("app-1", {
 			mode: "build",
 			runId: "run-1",
+			nonce: HOLDER_NONCE,
 		});
 
 		expect(refundStaleGenerationMock).toHaveBeenCalledWith("app-1", {
 			mode: "build",
 			runId: "run-1",
+			nonce: HOLDER_NONCE,
 		});
 	});
 
@@ -66,7 +69,11 @@ describe("reapStaleGenerating", () => {
 
 		// A throw must not escape (fire-and-forget at the call sites).
 		await expect(
-			reapStaleGenerating("app-1", { mode: "build", runId: "run-1" }),
+			reapStaleGenerating("app-1", {
+				mode: "build",
+				runId: "run-1",
+				nonce: HOLDER_NONCE,
+			}),
 		).resolves.toBeUndefined();
 	});
 });
@@ -86,6 +93,7 @@ describe("setAwaitingInput", () => {
 			id: APP,
 			status: "generating",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			updated_at: stale,
 			reservation: {
 				period: PERIOD,
@@ -98,7 +106,15 @@ describe("setAwaitingInput", () => {
 		const { setAwaitingInput } = await import("../apps");
 
 		await expect(
-			setAwaitingInput(APP, RUN, "build", false, "owner-test", "project-test"),
+			setAwaitingInput(
+				APP,
+				RUN,
+				HOLDER_NONCE,
+				"build",
+				false,
+				"owner-test",
+				"project-test",
+			),
 		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);
@@ -116,6 +132,7 @@ describe("setAwaitingInput", () => {
 			id: APP,
 			status: "generating",
 			awaiting_input: false,
+			run_holder_nonce: HOLDER_NONCE,
 			updated_at: stale,
 			reservation: {
 				period: PERIOD,
@@ -128,7 +145,15 @@ describe("setAwaitingInput", () => {
 		const { setAwaitingInput } = await import("../apps");
 
 		await expect(
-			setAwaitingInput(APP, RUN, "build", true, "owner-test", "project-test"),
+			setAwaitingInput(
+				APP,
+				RUN,
+				HOLDER_NONCE,
+				"build",
+				true,
+				"owner-test",
+				"project-test",
+			),
 		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);

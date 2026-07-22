@@ -31,6 +31,7 @@ const h = setupAppStateTestDb("claimwindow_");
 const PERIOD = getCurrentPeriod();
 const APP = "app-1";
 const PROJECT_ID = "project-test";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 /** An `updated_at` past the build staleness window (a hard-killed build). */
 const staleClock = () => new Date(Date.now() - 60 * 60_000);
@@ -116,6 +117,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			id: APP,
 			owner: "user-1",
 			status: "generating",
+			run_holder_nonce: HOLDER_NONCE,
 			updated_at: staleClock(),
 			reservation: {
 				period: PERIOD,
@@ -131,7 +133,11 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			bonus: 0,
 		});
 
-		await reapStaleGenerating(APP, { mode: "build", runId: "run-dead" });
+		await reapStaleGenerating(APP, {
+			mode: "build",
+			runId: "run-dead",
+			nonce: HOLDER_NONCE,
+		});
 
 		const marker = await h.readReservation(APP);
 		expect(marker).toMatchObject({
@@ -158,6 +164,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			owner: "user-1",
 			status: "generating",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			// A RECENTLY-paused build (fresh clock): paused-alive, not reapable.
 			updated_at: freshClock(),
 			reservation: {
@@ -165,6 +172,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 				reserved: 100,
 				settled: false,
 				userId: "user-1",
+				runId: "paused-run",
 			},
 		});
 		await h.seedProjectMember("user-2", PROJECT_ID);

@@ -69,6 +69,18 @@ export interface ToolExecutionContext {
 	readonly runId: string;
 
 	/**
+	 * Exact chat-run capability for authoritative non-blueprint side effects.
+	 * Absent on MCP, whose request authorization is independent of the chat run
+	 * window. A tool must never reconstruct this from public `runId` attribution.
+	 */
+	readonly chatRunHolder?: {
+		readonly source: "chat";
+		readonly mode: "build" | "edit";
+		readonly runId: string;
+		readonly nonce: string;
+	};
+
+	/**
 	 * Persist a mutation batch to the durable event log and to Postgres.
 	 * Returns the built envelopes so callers can correlate with tool-
 	 * response metadata without rebuilding them.

@@ -29,6 +29,7 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
@@ -148,7 +149,7 @@ export function createSolutionsArchitect(
 	 * the `next` promise still rejects to its caller, preserving error
 	 * visibility at the AI SDK boundary (it's converted to a `tool-error`
 	 * content part). Terminal tenant-scope failures are the exception:
-	 * `throwIfTerminalScopeError` reads their durable GenerationContext latch
+	 * `throwIfTerminalRunError` reads their durable GenerationContext latch
 	 * at the start of every queued body, so the recovered promise chain stays
 	 * structurally coherent without permitting more work in a dead run. */
 	let chain: Promise<void> = Promise.resolve();
@@ -169,9 +170,10 @@ export function createSolutionsArchitect(
 	 * before it reads or writes the working doc. Re-throwing the stored instance
 	 * also preserves the route's authoritative error classification.
 	 */
-	function throwIfTerminalScopeError(): void {
-		const scopeError = ctx.projectChangedError() ?? ctx.reauthError();
-		if (scopeError !== undefined) throw scopeError;
+	function throwIfTerminalRunError(): void {
+		const terminalError =
+			ctx.holderLostError() ?? ctx.projectChangedError() ?? ctx.reauthError();
+		if (terminalError !== undefined) throw terminalError;
 	}
 
 	/**
@@ -229,7 +231,7 @@ export function createSolutionsArchitect(
 			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
-					throwIfTerminalScopeError();
+					throwIfTerminalRunError();
 					try {
 						/* `kind: "mutate"` discriminator is internal to the shared
 						 * tool contract — the chat-side AI SDK tool surface only
@@ -337,12 +339,29 @@ export function createSolutionsArchitect(
 			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
-					throwIfTerminalScopeError();
+					throwIfTerminalRunError();
 					/* `kind: "read"` discriminator is internal to the shared
 					 * tool contract — the AI SDK tool surface sees the bare
 					 * `data`. Unwrap. */
-					const { data } = await t.execute(input, ctx, doc);
-					return data;
+					try {
+						const { data } = await t.execute(input, ctx, doc);
+						return data;
+					} catch (error) {
+						/* Read-shaped tools can still own external side effects (currently
+						 * media deletion). Preserve every authoritative side-effect fence as
+						 * the same terminal latch a guarded blueprint commit sets, so queued
+						 * tools and finalization cannot continue after the delete loses its
+						 * holder, Project, or current edit authorization. */
+						if (error instanceof RunHolderLostError) {
+							ctx.latchRunHolderLost(error);
+						} else if (
+							error instanceof CommitReauthError ||
+							error instanceof AppProjectChangedError
+						) {
+							ctx.latchTerminalScopeError(error);
+						}
+						throw error;
+					}
 				}),
 		};
 	}
@@ -476,7 +495,7 @@ export function createSolutionsArchitect(
 			// loop explicitly once an authoritative scope error has been latched;
 			// otherwise the SDK would ask the model for another step in a run whose
 			// every future commit is guaranteed to fail.
-			throwIfTerminalScopeError();
+			throwIfTerminalRunError();
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
 			// streamed reasoning summaries the live-thinking feed needs, plus

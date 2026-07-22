@@ -1,13 +1,19 @@
 import { type RawBuilder, sql } from "kysely";
 import type { RunHolderIdentity } from "./runLiveness";
 
-/** A caller-supplied holder token. Corrupt persisted holders keep `runId: null`
- * in the database model, but an operator or terminal writer can prove only a
- * concrete, non-empty run id. */
+/** A concrete-run holder token carried by runtime writers and reaper scans.
+ * Persisted holders with `runId: null` are corrupt/unprovable. `nonce: null` is
+ * reserved for observed legacy v0 holders and is admissible only while the
+ * compatibility switch still projects authority to mode + run id. */
 export interface ExactRunHolderIdentity {
 	readonly mode: "build" | "edit";
 	readonly runId: string;
+	/** Null only for a v0 holder observed before nonce enforcement. */
+	readonly nonce: string | null;
 }
+
+/** Result of an exact-holder terminal compare-and-set. */
+export type RunHolderWriteOutcome = "owned" | "superseded" | "released";
 
 /** Narrow a database-derived holder identity to the token shape callers may
  * assert. Empty and missing ids remain unprovable rather than becoming a
@@ -17,22 +23,28 @@ export function toExactRunHolderIdentity(
 ): ExactRunHolderIdentity | null {
 	return identity !== null &&
 		identity.runId !== null &&
-		identity.runId.length > 0
-		? { mode: identity.mode, runId: identity.runId }
+		identity.runId.length > 0 &&
+		(identity.nonce === null || identity.nonce.length > 0)
+		? { mode: identity.mode, runId: identity.runId, nonce: identity.nonce }
 		: null;
 }
 
-/** Exact mode-and-run equality. A nullable/corrupt holder never matches a
- * caller token. */
+/** Compatibility-aware holder equality. Mode + run id are always required;
+ * nonce joins the proof only after the irreversible enforcement switch. */
 export function exactRunHolderMatches(
 	actual: RunHolderIdentity | null,
 	expected: ExactRunHolderIdentity,
+	enforceNonce: boolean,
 ): boolean {
 	return (
 		typeof expected.runId === "string" &&
 		expected.runId.length > 0 &&
 		actual?.mode === expected.mode &&
-		actual.runId === expected.runId
+		actual.runId === expected.runId &&
+		(!enforceNonce ||
+			(typeof expected.nonce === "string" &&
+				expected.nonce.length > 0 &&
+				actual.nonce === expected.nonce))
 	);
 }
 
@@ -47,10 +59,19 @@ export function exactRunHolderMatches(
  */
 export function expectedRunHolderPredicate(
 	expected: ExactRunHolderIdentity,
+	enforceNonce: boolean,
 ): RawBuilder<boolean> {
+	const noncePredicate = !enforceNonce
+		? sql<boolean>`TRUE`
+		: expected.nonce === null
+			? sql<boolean>`FALSE`
+			: sql<boolean>`
+				${sql.ref("run_holder_nonce")} = ${expected.nonce}
+			`;
 	if (expected.mode === "build") {
 		return sql<boolean>`
 			${sql.ref("status")} = 'generating'
+			AND ${noncePredicate}
 			AND (
 				(
 					${sql.ref("res_period")} IS NULL
@@ -65,8 +86,40 @@ export function expectedRunHolderPredicate(
 	}
 	return sql<boolean>`
 		${sql.ref("status")} <> 'generating'
+		AND ${noncePredicate}
 		AND ${sql.ref("lock_run_id")} IS NOT NULL
 		AND NULLIF(${sql.ref("lock_run_id")}, '') = ${expected.runId}
+	`;
+}
+
+/**
+ * Final compare-and-set for a free continuation. Holder equality alone is not
+ * enough: the row must still be paused and must still name the authenticated
+ * actor who owns that pause. Build actor identity normally comes from the
+ * reservation marker; migrated legacy markers without `res_user_id` retain
+ * the owner fallback used by the liveness reader.
+ */
+export function expectedPausedRunResumePredicate(
+	expected: ExactRunHolderIdentity,
+	actorUserId: string,
+	enforceNonce: boolean,
+): RawBuilder<boolean> {
+	const actorPredicate =
+		expected.mode === "build"
+			? sql<boolean>`
+				(
+					${sql.ref("res_user_id")} = ${actorUserId}
+					OR (
+						${sql.ref("res_user_id")} IS NULL
+						AND ${sql.ref("owner")} = ${actorUserId}
+					)
+				)
+			`
+			: sql<boolean>`${sql.ref("lock_actor_user_id")} = ${actorUserId}`;
+	return sql<boolean>`
+		(${expectedRunHolderPredicate(expected, enforceNonce)})
+		AND ${sql.ref("awaiting_input")} IS TRUE
+		AND (${actorPredicate})
 	`;
 }
 
@@ -85,12 +138,19 @@ export function noRunHolderPredicate(): RawBuilder<boolean> {
  * retains `res_run_id` and cannot match; any replacement holder or claim changes
  * the root identity and makes this predicate false. */
 export function expectedReapedBuildCompletionPredicate(
-	runId: string,
+	expected: ExactRunHolderIdentity,
+	enforceNonce: boolean,
 ): RawBuilder<boolean> {
+	const noncePredicate = !enforceNonce
+		? sql<boolean>`TRUE`
+		: expected.nonce === null
+			? sql<boolean>`FALSE`
+			: sql<boolean>`${sql.ref("run_holder_nonce")} = ${expected.nonce}`;
 	return sql<boolean>`
 		${noRunHolderPredicate()}
 		AND ${sql.ref("status")} = 'error'
-		AND NULLIF(${sql.ref("run_id")}, '') = ${runId}
+		AND NULLIF(${sql.ref("run_id")}, '') = ${expected.runId}
+		AND ${noncePredicate}
 		AND ${sql.ref("res_period")} IS NOT NULL
 		AND ${sql.ref("res_settled")} IS TRUE
 		AND ${sql.ref("res_run_id")} IS NULL

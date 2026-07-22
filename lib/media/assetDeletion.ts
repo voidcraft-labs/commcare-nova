@@ -139,8 +139,13 @@ export async function findAppReferencesToAsset(
  */
 export async function purgeAssetStorage(
 	asset: MediaAssetRecord,
-	opts: { alsoDelete?: ReadonlyArray<string | null> } = {},
-): Promise<void> {
+	opts: {
+		alsoDelete?: ReadonlyArray<string | null>;
+		/** Optional authoritative metadata delete. It must commit before this
+		 * function touches GCS and return false when the row no longer exists. */
+		deleteRow?: () => Promise<boolean>;
+	} = {},
+): Promise<boolean> {
 	const sharedObject = await hasOtherAssetForGcsObjectKey(
 		asset.gcsObjectKey,
 		asset.id,
@@ -153,7 +158,14 @@ export async function purgeAssetStorage(
 		return true;
 	});
 
-	await deleteAssetRow(asset.id);
+	let deleted: boolean;
+	if (opts.deleteRow) {
+		deleted = await opts.deleteRow();
+	} else {
+		await deleteAssetRow(asset.id);
+		deleted = true;
+	}
+	if (!deleted) return false;
 
 	if (!sharedObject) {
 		await deleteGcsObject(asset.gcsObjectKey);
@@ -161,4 +173,5 @@ export async function purgeAssetStorage(
 			if (key) await deleteGcsObject(key);
 		}
 	}
+	return true;
 }

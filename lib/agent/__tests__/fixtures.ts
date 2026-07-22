@@ -43,6 +43,7 @@ const DEFAULT_SEED: AccumulatorSeed = {
 	appId: "test-app",
 	userId: "user-1",
 	runId: "run-1",
+	holderNonce: "00000000-0000-4000-8000-000000000001",
 	model: "gpt-5.6-sol",
 	promptMode: "build",
 	appReady: false,
@@ -110,6 +111,8 @@ export function makeTestContext(
 		session,
 		appId: opts.appId ?? "test-app",
 		projectId: "project-test",
+		holderNonce:
+			opts.seed?.holderNonce ?? "00000000-0000-4000-8000-000000000001",
 		// Build-mode fixture by default (no edit run_lock, so no lease heartbeat).
 		editLease: opts.editLease ?? false,
 		conversionImpact: opts.conversionImpact ?? emptyConversionImpact,

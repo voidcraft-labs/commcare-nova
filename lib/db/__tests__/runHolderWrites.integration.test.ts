@@ -9,6 +9,7 @@
  * pair lost.
  */
 
+import { sql } from "kysely";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import {
@@ -28,7 +29,21 @@ const PROJECT = "run-holder-project";
 const ACTOR = "run-holder-actor";
 const OLD_RUN = "run-holder-old";
 const NEW_RUN = "run-holder-new";
+const OLD_NONCE = "00000000-0000-4000-8000-000000000001";
+const NEW_NONCE = "00000000-0000-4000-8000-000000000002";
 const period = getCurrentPeriod();
+
+async function enableNonceEnforcement(): Promise<void> {
+	await h
+		.db()
+		.updateTable("lookup_reference_compatibility")
+		.set({
+			minimum_runtime_reader_version: 1,
+			run_holder_nonce_enforced: true,
+		})
+		.where("id", "=", 1)
+		.execute();
+}
 
 type Outcome<T> =
 	| { readonly ok: true; readonly value: T }
@@ -107,7 +122,15 @@ async function commitTransitionWhileWriterWaits<T>(args: {
 }
 
 function pauseWriter(appId: string): Promise<ReacquireOutcome> {
-	return setAwaitingInput(appId, OLD_RUN, "build", true, ACTOR, PROJECT);
+	return setAwaitingInput(
+		appId,
+		OLD_RUN,
+		OLD_NONCE,
+		"build",
+		true,
+		ACTOR,
+		PROJECT,
+	);
 }
 
 describe("exact-holder pause and prelude-cleanup writers", () => {
@@ -120,6 +143,7 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 			project_id: PROJECT,
 			status: "generating",
 			awaiting_input: false,
+			run_holder_nonce: OLD_NONCE,
 			updated_at: replacementClock,
 			reservation: {
 				period,
@@ -133,10 +157,13 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 		const superseded = await commitTransitionWhileWriterWaits({
 			transition: async (client) => {
 				await client.query(
+					"SELECT set_config('nova.runtime_reader_version', '1', true)",
+				);
+				await client.query(
 					`UPDATE apps
-					 SET res_run_id = $2, updated_at = $3
+					 SET res_run_id = $2, run_holder_nonce = $4, updated_at = $3
 					 WHERE id = $1`,
-					[replacementApp, NEW_RUN, replacementClock],
+					[replacementApp, NEW_RUN, replacementClock, NEW_NONCE],
 				);
 			},
 			write: async () => await pauseWriter(replacementApp),
@@ -161,6 +188,7 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 			project_id: PROJECT,
 			status: "generating",
 			awaiting_input: false,
+			run_holder_nonce: OLD_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -204,6 +232,7 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 			owner: ACTOR,
 			project_id: PROJECT,
 			status: "complete",
+			run_holder_nonce: OLD_NONCE,
 			run_lock: {
 				runId: OLD_RUN,
 				actorUserId: ACTOR,
@@ -221,13 +250,16 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 		await commitTransitionWhileWriterWaits({
 			transition: async (client) => {
 				await client.query(
+					"SELECT set_config('nova.runtime_reader_version', '1', true)",
+				);
+				await client.query(
 					`UPDATE apps
-					 SET lock_run_id = $2, res_run_id = $2
+					 SET lock_run_id = $2, res_run_id = $2, run_holder_nonce = $3
 					 WHERE id = $1`,
-					[replacementApp, NEW_RUN],
+					[replacementApp, NEW_RUN, NEW_NONCE],
 				);
 			},
-			write: async () => await clearRunLock(replacementApp, OLD_RUN),
+			write: async () => await clearRunLock(replacementApp, OLD_RUN, OLD_NONCE),
 		});
 
 		expect(await h.readRunLock(replacementApp)).toMatchObject({
@@ -245,6 +277,7 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 			owner: ACTOR,
 			project_id: PROJECT,
 			status: "complete",
+			run_holder_nonce: OLD_NONCE,
 			run_lock: {
 				runId: OLD_RUN,
 				actorUserId: ACTOR,
@@ -270,7 +303,7 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 					[reapedApp],
 				);
 			},
-			write: async () => await clearRunLock(reapedApp, OLD_RUN),
+			write: async () => await clearRunLock(reapedApp, OLD_RUN, OLD_NONCE),
 		});
 
 		expect(await h.readRunLock(reapedApp)).toBeUndefined();
@@ -282,7 +315,40 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 });
 
 describe("exact-holder terminal and operator compare-and-set", () => {
-	it("a delayed build reaper cannot reap a later holder that also became stale", async () => {
+	it("keeps legacy mode/run reaper authority before nonce activation", async () => {
+		const appId = "legacy-build-reaper";
+		await h.seedCreditMonth(ACTOR, period, {
+			allowance: 2000,
+			consumed: CREDITS_PER_BUILD,
+			bonus: 0,
+		});
+		await h.seedApp({
+			id: appId,
+			owner: ACTOR,
+			project_id: PROJECT,
+			status: "generating",
+			run_holder_nonce: NEW_NONCE,
+			updated_at: new Date(Date.now() - 60 * 60_000),
+			reservation: {
+				period,
+				reserved: CREDITS_PER_BUILD,
+				settled: false,
+				userId: ACTOR,
+				runId: OLD_RUN,
+			},
+		});
+
+		await refundStaleGeneration(appId, {
+			mode: "build",
+			runId: OLD_RUN,
+			nonce: OLD_NONCE,
+		});
+
+		expect((await h.readAppRow(appId))?.status).toBe("error");
+		expect(await h.readConsumed(ACTOR, period)).toBe(0);
+	});
+
+	it("a delayed build reaper cannot reap a same-run-id successor with a new nonce", async () => {
 		const appId = "delayed-build-reaper";
 		await h.seedCreditMonth(ACTOR, period, {
 			allowance: 2000,
@@ -294,6 +360,7 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 			owner: ACTOR,
 			project_id: PROJECT,
 			status: "generating",
+			run_holder_nonce: OLD_NONCE,
 			updated_at: new Date(Date.now() - 60 * 60_000),
 			reservation: {
 				period,
@@ -304,21 +371,30 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 			},
 		});
 
-		// The scan captured OLD_RUN, but a later holder now occupies the row and
-		// has itself gone stale before the queued reap executes.
+		// A new claim in the same thread may intentionally reuse the public run id.
+		// Only the server-minted nonce distinguishes it from the queued old reap.
 		await h
 			.db()
-			.updateTable("apps")
-			.set({ res_run_id: NEW_RUN })
-			.where("id", "=", appId)
-			.execute();
+			.transaction()
+			.execute(async (tx) => {
+				await sql`SELECT set_config('nova.runtime_reader_version', '1', true)`.execute(
+					tx,
+				);
+				await tx
+					.updateTable("apps")
+					.set({ run_holder_nonce: NEW_NONCE })
+					.where("id", "=", appId)
+					.execute();
+			});
+		await enableNonceEnforcement();
 		await refundStaleGeneration(appId, {
 			mode: "build",
 			runId: OLD_RUN,
+			nonce: OLD_NONCE,
 		});
 
 		expect(await h.readReservation(appId)).toMatchObject({
-			runId: NEW_RUN,
+			runId: OLD_RUN,
 			settled: false,
 		});
 		expect((await h.readAppRow(appId))?.status).toBe("generating");
@@ -326,7 +402,8 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 
 		await refundStaleGeneration(appId, {
 			mode: "build",
-			runId: NEW_RUN,
+			runId: OLD_RUN,
+			nonce: NEW_NONCE,
 		});
 		expect((await h.readAppRow(appId))?.status).toBe("error");
 		expect(await h.readConsumed(ACTOR, period)).toBe(0);
@@ -340,6 +417,7 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 			project_id: PROJECT,
 			status: "generating",
 			run_id: OLD_RUN,
+			run_holder_nonce: OLD_NONCE,
 			module_count: 1,
 			reservation: {
 				period,
@@ -352,18 +430,26 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 
 		expect(await recoverAppStatus(appId, null)).toMatchObject({
 			kind: "holder_token_required",
-			holder: { mode: "build", runId: OLD_RUN },
+			holder: { mode: "build", runId: OLD_RUN, nonce: OLD_NONCE },
 		});
 		expect(
-			await recoverAppStatus(appId, { mode: "build", runId: NEW_RUN }),
+			await recoverAppStatus(appId, {
+				mode: "build",
+				runId: NEW_RUN,
+				nonce: NEW_NONCE,
+			}),
 		).toMatchObject({
 			kind: "holder_token_mismatch",
-			holder: { mode: "build", runId: OLD_RUN },
+			holder: { mode: "build", runId: OLD_RUN, nonce: OLD_NONCE },
 		});
 		expect((await h.readAppRow(appId))?.status).toBe("generating");
 
 		expect(
-			await recoverAppStatus(appId, { mode: "build", runId: OLD_RUN }),
+			await recoverAppStatus(appId, {
+				mode: "build",
+				runId: OLD_RUN,
+				nonce: OLD_NONCE,
+			}),
 		).toEqual({ kind: "recovered" });
 		expect((await h.readAppRow(appId))?.status).toBe("complete");
 		expect(await h.readReservation(appId)).toMatchObject({
@@ -383,10 +469,11 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 			await recoverAppStatus(corruptId, {
 				mode: "build",
 				runId: OLD_RUN,
+				nonce: OLD_NONCE,
 			}),
 		).toMatchObject({
 			kind: "holder_token_mismatch",
-			holder: { mode: "build", runId: null },
+			holder: { mode: "build", runId: null, nonce: null },
 		});
 		expect((await h.readAppRow(corruptId))?.status).toBe("generating");
 	});

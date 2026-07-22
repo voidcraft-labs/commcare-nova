@@ -12,6 +12,7 @@ import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
+	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import {
 	describeIntroducedErrors,
@@ -203,7 +204,7 @@ export interface ReadToolResult<R> {
  *
  * A tool wraps its whole body — including the guarded commit — in a blanket
  * `catch` so an unexpected throw surfaces to the model as a friendly `{ error }`
- * rather than an unhandled rejection. But the three AUTHORITATIVE commit signals
+ * rather than an unhandled rejection. But the four AUTHORITATIVE commit signals
  * MUST NOT be swallowed there: they are how the chat SA's `wrapMutating`
  * (`solutionsArchitect.ts`) recovers.
  *
@@ -218,6 +219,9 @@ export interface ReadToolResult<R> {
  * - `CommitReauthError` — the actor lost edit access mid-run. RE-THROWN so it
  *   propagates past `wrapMutating` (which does NOT catch it) and fails the run;
  *   a reload can't restore authorization, so continuing would just re-deny.
+ * - `RunHolderLostError` — this run no longer owns the app-holder generation.
+ *   RE-THROWN so neither a stale doc commit nor a read-shaped external side
+ *   effect can be reported as successful after a successor took over.
  *
  * Every other throw (a genuine tool-body fault) becomes the standard
  * `{ error }` envelope — the same shape + behavior the inline `catch` used
@@ -233,7 +237,8 @@ export function toToolErrorResult(
 	if (
 		err instanceof AppProjectChangedError ||
 		err instanceof BlueprintCommitRejectedError ||
-		err instanceof CommitReauthError
+		err instanceof CommitReauthError ||
+		err instanceof RunHolderLostError
 	) {
 		throw err;
 	}

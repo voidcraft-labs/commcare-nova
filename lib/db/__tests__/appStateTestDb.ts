@@ -48,6 +48,7 @@ export interface SeedAppOptions {
 	updated_at?: Date;
 	created_at?: Date;
 	run_id?: string | null;
+	run_holder_nonce?: string | null;
 	deleted_at?: Date | null;
 	recoverable_until?: Date | null;
 	module_count?: number;
@@ -163,37 +164,49 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			await seedProjectMember(owner, projectId, "owner");
 		}
 		await db()
-			.insertInto("apps")
-			.values({
-				id,
-				owner,
-				project_id: projectId,
-				app_name: appName,
-				app_name_lower: (appName || UNTITLED_APP_NAME).toLowerCase(),
-				connect_type: opts.connect_type ?? null,
-				case_types: null,
-				logo: null,
-				module_count: opts.module_count ?? 0,
-				form_count: opts.form_count ?? 0,
-				mutation_seq: 0,
-				status: opts.status ?? "complete",
-				awaiting_input: opts.awaiting_input ?? false,
-				error_type: opts.error_type ?? null,
-				deleted_at: opts.deleted_at ?? null,
-				recoverable_until: opts.recoverable_until ?? null,
-				run_id: opts.run_id ?? null,
-				res_period: reservation?.period ?? null,
-				res_reserved: reservation?.reserved ?? null,
-				res_settled: reservation ? reservation.settled : null,
-				res_user_id: reservation?.userId ?? null,
-				res_run_id: reservation?.runId ?? null,
-				lock_run_id: lock?.runId ?? null,
-				lock_actor_user_id: lock?.actorUserId ?? null,
-				lock_expire_at: lock?.expireAt ?? null,
-				...(opts.updated_at && { updated_at: opts.updated_at }),
-				...(opts.created_at && { created_at: opts.created_at }),
-			})
-			.execute();
+			.transaction()
+			.execute(async (tx) => {
+				// Direct fixture writes deliberately bypass the app API. Declare the
+				// nonce-aware reader in the same transaction so the production holder
+				// trigger stamps rather than downgrades an active fixture to v0.
+				const runtimeReaderVersion = opts.run_holder_nonce ? "1" : "0";
+				await sql`SELECT set_config('nova.runtime_reader_version', ${runtimeReaderVersion}, true)`.execute(
+					tx,
+				);
+				await tx
+					.insertInto("apps")
+					.values({
+						id,
+						owner,
+						project_id: projectId,
+						app_name: appName,
+						app_name_lower: (appName || UNTITLED_APP_NAME).toLowerCase(),
+						connect_type: opts.connect_type ?? null,
+						case_types: null,
+						logo: null,
+						module_count: opts.module_count ?? 0,
+						form_count: opts.form_count ?? 0,
+						mutation_seq: 0,
+						status: opts.status ?? "complete",
+						awaiting_input: opts.awaiting_input ?? false,
+						error_type: opts.error_type ?? null,
+						deleted_at: opts.deleted_at ?? null,
+						recoverable_until: opts.recoverable_until ?? null,
+						run_id: opts.run_id ?? null,
+						run_holder_nonce: opts.run_holder_nonce ?? null,
+						res_period: reservation?.period ?? null,
+						res_reserved: reservation?.reserved ?? null,
+						res_settled: reservation ? reservation.settled : null,
+						res_user_id: reservation?.userId ?? null,
+						res_run_id: reservation?.runId ?? null,
+						lock_run_id: lock?.runId ?? null,
+						lock_actor_user_id: lock?.actorUserId ?? null,
+						lock_expire_at: lock?.expireAt ?? null,
+						...(opts.updated_at && { updated_at: opts.updated_at }),
+						...(opts.created_at && { created_at: opts.created_at }),
+					})
+					.execute();
+			});
 		return id;
 	}
 

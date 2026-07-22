@@ -143,6 +143,11 @@ describe("POST extract (streamed result)", () => {
 
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(200);
+		expect(userInProjectMock).toHaveBeenCalledWith(
+			"user-1",
+			"project-1",
+			"edit",
+		);
 		expect(res.headers.get("Content-Type")).toContain("application/x-ndjson");
 		const { done } = await readNdjson(res);
 		expect(done).toEqual({
@@ -315,6 +320,11 @@ describe("GET extract", () => {
 		readTextObjectMock.mockResolvedValue("HELLO");
 		const res = await GET(req(), ctx());
 		expect(res.status).toBe(200);
+		expect(userInProjectMock).toHaveBeenCalledWith(
+			"user-1",
+			"project-1",
+			"view",
+		);
 		expect(res.headers.get("Content-Type")).toContain("text/markdown");
 		expect(await res.text()).toBe("HELLO");
 	});

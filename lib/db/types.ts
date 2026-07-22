@@ -212,6 +212,10 @@ export interface AppDoc {
 	recoverable_until: string | null;
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: string | null;
+	/** Server-minted generation of the current/last run holder. It never serves
+	 * as event/thread attribution and is exposed to a client only through the
+	 * actor-bound paused-continuation projection. */
+	run_holder_nonce: string | null;
 	reservation?: AppReservation;
 	run_lock?: AppRunLock;
 	created_at: Date;
@@ -300,6 +304,9 @@ export const threadDocSchema = threadMetaSchema
 	.omit({ message_count: true })
 	.extend({
 		messages: z.array(threadMessageSchema),
+		/** Transient actor-bound continuation projection. Its dedicated authority
+		 * column is not part of the public thread shape or message history. */
+		holder_nonce: z.string().uuid().optional(),
 	});
 export type ThreadDoc = z.infer<typeof threadDocSchema>;
 

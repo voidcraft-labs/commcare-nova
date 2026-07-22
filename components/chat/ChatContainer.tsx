@@ -106,6 +106,7 @@ function createChatInstance(
 	docStoreRef: { current: BlueprintDocStore | null },
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
+	holderNonceRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
 	appGeneratingRef: { current: boolean },
@@ -164,6 +165,7 @@ function createChatInstance(
 		return {
 			threadId: init.threadId,
 			runId: runIdRef.current,
+			holderNonce: holderNonceRef.current,
 			appId: sessionState.appId,
 			appReady,
 		};
@@ -235,6 +237,10 @@ function createChatInstance(
 				reconcilerCtxRef.current?.reconciler.setSelfActiveRunId(
 					data.runId as string,
 				);
+				return;
+			}
+			if (type === "data-holder-nonce") {
+				holderNonceRef.current = data.holderNonce as string;
 				return;
 			}
 			if (type === "data-credit-refund") {
@@ -368,6 +374,9 @@ export function ChatContainer({
 	const appGeneratingRef = useRef(!!appGenerating);
 	appGeneratingRef.current = !!appGenerating;
 	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
+	const holderNonceRef = useRef<string | undefined>(
+		initialThread?.holder_nonce,
+	);
 	/** Whether the SSE transport was open on the previous render — used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
 	 *  for the `beginRun` / `endRun` handoff. Local to this component so
@@ -458,12 +467,14 @@ export function ChatContainer({
 			init: ActiveThreadInit,
 			opts?: {
 				runId?: string;
+				holderNonce?: string;
 				resume?: boolean;
 				buildResume?: boolean;
 				redrive?: boolean;
 			},
 		): Chat<NovaUIMessage> => {
 			runIdRef.current = opts?.runId;
+			holderNonceRef.current = opts?.holderNonce;
 			pendingResumeRef.current = opts?.resume ? init.threadId : null;
 			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
@@ -472,6 +483,7 @@ export function ChatContainer({
 				docStoreRef,
 				sessionStoreRef,
 				runIdRef,
+				holderNonceRef,
 				reconcilerCtxRef,
 				ownUserIdRef,
 				appGeneratingRef,
@@ -496,6 +508,7 @@ export function ChatContainer({
 			docStoreRef,
 			sessionStoreRef,
 			runIdRef,
+			holderNonceRef,
 			reconcilerCtxRef,
 			ownUserIdRef,
 			appGeneratingRef,
@@ -589,6 +602,7 @@ export function ChatContainer({
 						},
 						{
 							runId: thread.run_id,
+							holderNonce: thread.holder_nonce,
 							resume: true,
 							buildResume: appGeneratingRef.current,
 						},
@@ -615,6 +629,7 @@ export function ChatContainer({
 						},
 						{
 							runId: thread.run_id,
+							holderNonce: thread.holder_nonce,
 							redrive: true,
 							buildResume: appGeneratingRef.current,
 						},
@@ -668,6 +683,7 @@ export function ChatContainer({
 					},
 					{
 						runId: thread.run_id,
+						holderNonce: thread.holder_nonce,
 						resume: live,
 						redrive,
 						/* `appGenerating` (not thread_type, which freezes at

@@ -61,12 +61,14 @@ const {
 	AppProjectChangedError,
 	CommitReauthError,
 	BlueprintCommitRejectedError,
+	RunHolderLostError,
 } = await import("../commitGuard");
 const { decomposeBlueprint } = await import("../blueprintRows");
 
 const OWNER = "user-owner";
 const MEMBER = "user-member";
 const PROJECT = "project-1";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 const h = setupAppStateTestDb("commit_guard_");
 
@@ -461,7 +463,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			runId: "e1",
-			chatRunHolder: { source: "chat", mode: "edit", runId: "e1" },
+			chatRunHolder: {
+				source: "chat",
+				mode: "edit",
+				runId: "e1",
+				nonce: HOLDER_NONCE,
+			},
 			mutations: renameVillageLabel(doc, "Lease refresh"),
 			actorUserId: OWNER,
 			kind: "chat",
@@ -533,12 +540,13 @@ describe("commitGuardedBatch (Postgres)", () => {
 					source: "chat",
 					mode: "build",
 					runId: "stale-build",
+					nonce: HOLDER_NONCE,
 				},
 				mutations: renameVillageLabel(doc, "Stale build write"),
 				actorUserId: OWNER,
 				kind: "chat",
 			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		).rejects.toBeInstanceOf(RunHolderLostError);
 
 		expect(await readRunFenceState(appId)).toEqual(before);
 		expect(await readStream(appId)).toEqual([]);
@@ -581,12 +589,13 @@ describe("commitGuardedBatch (Postgres)", () => {
 					source: "chat",
 					mode: "edit",
 					runId: "stale-edit",
+					nonce: HOLDER_NONCE,
 				},
 				mutations: renameVillageLabel(doc, "Stale edit write"),
 				actorUserId: OWNER,
 				kind: "chat",
 			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		).rejects.toBeInstanceOf(RunHolderLostError);
 
 		expect(await readRunFenceState(appId)).toEqual(before);
 		expect(await readStream(appId)).toEqual([]);

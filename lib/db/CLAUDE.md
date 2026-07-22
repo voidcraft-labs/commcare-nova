@@ -184,48 +184,73 @@ owns a second numeric literal. S05 changes the manifest's single
 `writerVersion` field from 0 to 1 when its first production carrier lands.
 
 Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
-exact holder identity: edit is `(edit, lock_run_id)`; build is
-`(build, res_run_id)`, with `run_id` used only while a generating build has no
-reservation marker. The `apps_runtime_reader_holder_stamp` row trigger stamps
-`run_runtime_reader_version` from transaction-local
-`nova.runtime_reader_version` only on absent→present or identity-changing
-writes, checks the runtime floor under `FOR SHARE`, preserves the old stamp for
-same-identity heartbeat/reacquire/reservation writes, and clears it when the
-holder disappears. Existing holders are deliberately not backfilled and
-therefore census as v0. `runtimeReaderVersion.ts` derives the declaration from
-the capability manifest. Generating creation, intentional build/edit claim,
-the exact-gated just-created-build reservation, and paused-run reacquisition
-all call `declareRuntimeReader(tx)` before their holder write; complete/template
-creation does not declare because it creates no holder. Reacquisition and
-same-run reservation preserve the original database stamp even though their
-transactions declare the current runtime. Every build claim also stamps the
-root `run_id` immediately, before the run has emitted any mutation, so a later
-no-mutation successor remains the durable latest-claim identity even after its
-reservation is reaped.
+holder identity: edit is `(edit, lock_run_id, run_holder_nonce)`; build is
+`(build, res_run_id, run_holder_nonce)`, with `run_id` used only while a
+generating build has no reservation marker. `runId` remains stable attribution;
+the server-minted UUID nonce is the per-claim generation. The
+`apps_runtime_reader_holder_stamp` row trigger reads transaction-local
+`nova.runtime_reader_version`, checks the runtime floor under `FOR SHARE`, and
+requires every declared v1 holder to have a concrete run id + nonce. It stamps a
+new generation, preserves an ordinary unchanged-holder write, clears inherited
+nonce/stamp for an explicitly declared v0 successor (even when a stable thread
+id makes mode/run appear unchanged), and clears the stamp—but retains the nonce
+tombstone—when the holder disappears. Existing null-nonce holders are not
+backfilled and census as v0; replay clears only present null-nonce stamps, so a
+v1 holder survives migration replay. The trigger includes `awaiting_input`,
+`lock_expire_at`, and `updated_at` because the deployed v0 paused-resume SQL
+declares version 0 while updating only those columns; an unchanged holder write
+with no declaration still preserves its stamp. `runtimeReaderVersion.ts`
+derives the v1 declaration from the capability manifest. Generating creation,
+intentional build/edit claim, exact-gated just-created-build reservation, and
+paused-run reacquisition call `declareRuntimeReader(tx)` before their holder
+write; complete/template creation does not declare because it creates no holder.
+Every build claim also stamps root `run_id` before emitting any mutation, so a
+later no-mutation successor remains the durable latest-claim identity after reap.
 
-`runHolderWrites.ts` owns the SQL compare-and-set predicates that mirror the
-trigger's exact `(mode, runId)` derivation. Every terminal, failure, heartbeat,
-pause, recovery, and reaper app-row write repeats its expected identity in the
-`UPDATE`; credit writers throw on a zero-row result so their earlier ledger
-refund rolls back too. An absent holder is never terminal authority, and a
+`runHolderWrites.ts` owns the shared SQL compare-and-set predicates.
+`lookup_reference_compatibility.run_holder_nonce_enforced` defaults false: in
+that compatibility state admission/CAS uses legacy `(mode, runId)`, and after
+its irreversible activation it requires `(mode, runId, nonce)`. The database
+constraint forbids activation below runtime-reader floor 1. Every lifecycle
+transaction locks the app row first and then reads compatibility `FOR SHARE`
+before credit rows or its holder write. Terminal, failure, heartbeat, pause,
+and reaper updates repeat the admitted predicate; credit writers throw on a
+zero-row result so their earlier ledger refund rolls back too. Operator
+recovery is deliberately stricter and always requires the exact generation,
+even before activation. An absent holder is never terminal authority, and a
 present holder with a missing/blank run id is corrupt rather than canonically
-reapable: `(mode, null)` cannot distinguish one corrupt generation from a later
-one. Chat mutation commits carry a separate `ChatRunHolderCapability`; their
-ordinary `runId` remains attribution because MCP also stamps one without owning
-a chat lease. Migration Phase A checks that capability while holding the app
-row, and the final guarded app-row write repeats it as a SQL compare-and-set;
+reapable; a concrete run id with null nonce is a legacy v0 holder and MUST stay
+reapable while compatibility is false so rollout can drain it. Chat mutation
+commits carry a separate full `ChatRunHolderCapability`; ordinary `runId`
+remains attribution because MCP also stamps one without owning a chat lease.
+Migration Phase A checks that capability while holding the app row, and the
+final guarded app-row write repeats it as a SQL compare-and-set;
 entity/reference/history work rolls back on a lost CAS. The sole absent-holder
 exception is the falsely-reaped-build self-heal, whose SQL predicate proves the
-free row, marker-cleared reaper signature, and exact last `run_id`. A stale
-build whose marker was already settled keeps `res_run_id`; that is deliberately
-not the reaper signature and is non-self-healable. Reaper scans and conflict
-nudge/list queues narrow the observed holder
+free row, marker-cleared reaper signature, and exact last `run_id` (plus nonce
+after activation). A stale build whose marker was already settled keeps
+`res_run_id`; that is deliberately not the reaper signature and is
+non-self-healable. Reaper scans and conflict nudge/list queues narrow the observed holder
 to a concrete identity before enqueueing it and carry that token all the way to
 the locked write, so an arbitrarily delayed reap cannot target a later holder
 that also went stale. `scripts/recover-app.ts` writes only through
-`recoverAppStatus`: a present holder requires paired explicit `--holder-mode`
-and `--holder-run-id` flags, and the service rechecks that token under the app
-lock and in SQL.
+`recoverAppStatus`: a present holder requires explicit `--holder-mode`,
+`--holder-run-id`, and UUID `--holder-nonce` flags, and the service rechecks the
+exact generation under the app lock and in SQL. A v0/null-nonce holder is not
+operator-recoverable through this command.
+
+Threads persist the active nonce in a dedicated `active_holder_nonce` column.
+`loadThread` projects it only when fresh app authority says this exact run and
+nonce is paused by the requesting actor; co-members, unscoped loaders,
+mismatches, unpaused holders, and reaped holders receive no nonce. A paused
+finalize retains it for the answer POST; a terminal finalize clears it only
+when its stream id still owns the marker. The durable chunk log never stores
+the nonce itself: the POST writer records one inert chunk at the same index,
+carrying only the thread id and a SHA-256 nonce digest. The reconnect route
+rehydrates it through the retained-thread/current-holder actor proof. Other
+Project viewers receive the inert marker, so shared replay stays count-identical
+without sharing continuation authority; an old same-run stream's digest also
+cannot resolve to a successor generation.
 
 `runtimeReaderHolders.ts` is the fail-closed census projection over
 `runLeaseState`: every present holder blocks a higher target when its effective
@@ -338,9 +363,11 @@ clarification round-trip.
 
 ## Claim and reserve are ONE transaction
 
-`claimAndReserveRun(appId, mode, runId, actorUserId, cost, expectedProjectId)`
+`claimAndReserveRun(appId, mode, runId, actorUserId, cost, expectedProjectId,
+holderNonce)`
 (and its new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
-transaction: fresh Project `edit` authorization, then the busy check
+transaction: fresh Project `edit` authorization, compatibility `FOR SHARE`,
+then the busy check
 (`lease.live`, or a paused run of ANOTHER actor →
 `RunConflictError`; the claimant's OWN paused run is SUPERSEDED instead — an
 abandoned `askQuestions` round must not lock its own user out until the lease
@@ -412,11 +439,12 @@ cleanly flips back to `complete` off the reaper's signature — settled marker,
 marker `runId` cleared, `run_id === runId`), `clearRunLockAndSettle` (edit: release +
 settle, one commit), `settleAndRelease` (the failed-run writer: refund-if-
 unsettled + settle + edit-lock release in one commit; its required mode and
-`settled` return answer the separate question "does this exact `(mode, runId)`
-still own the outcome — safe to `failApp`?"), and the flush-driven
-`refundReservation`. Every SQL update repeats the exact `(mode, runId)` holder
-predicate; credit-mutating writers require exactly one affected row so a lost
-CAS rolls the refund back. A reaped-then-re-claimed run's stale terminal write
+`settled` return answer the separate question "does this admitted holder
+capability still own the outcome—safe to `failApp`?"), and the flush-driven
+`refundReservation`. Every SQL update repeats legacy mode/run authority while
+the compatibility switch is false and the full nonce generation after it is
+true; credit-mutating writers require exactly one affected row so a lost CAS
+rolls the refund back. A reaped-then-re-claimed run's stale terminal write
 therefore affects zero rows rather than clobbering its successor. A failed EDIT
 never flips its `complete` app to `error` (that would brick a working app over
 a transient model error).
@@ -444,20 +472,23 @@ nor pre-reservation root id fails closed as corrupt and is never queued.
 calls `reacquireLease`: one transaction asserting `ownedByResume` (keyed on
 the RESUME's own mode), freshly authorizing its actor, and, on success,
 re-establishing the mode's horizon +
-clearing `awaiting_input`. A lost resume touched nothing; the return
-distinguishes `"superseded"` (another run occupies the app) from `"released"`
-(the reap simply freed it) so the route's message is true.
+clearing `awaiting_input`. Before activation, a legacy browser may omit the
+nonce; a v0 pause is upgraded with a server-minted nonce in this same locked
+write and the authoritative value is returned to the client. After activation,
+a missing/mismatch returns `"refresh_required"`. Other lost resumes touch
+nothing and distinguish `"superseded"` (another holder) from `"released"` (the
+reap freed it).
 
 **Pause and prelude cleanup are exact-holder writes.** `setAwaitingInput`
 locks the app, compares the caller's Project snapshot, freshly authorizes the
 actor, accepts the caller's mode, and applies the pause only while the locked
-holder identity equals that exact `(mode, runId)`; its SQL update repeats the
-same compare-and-set. It returns the same owned/superseded/released vocabulary
-as reacquire and throws infrastructure faults. The route treats either
-lost-ownership result as a terminal, non-owning, non-paused stream, so no stale
-question becomes a resumable claim on a successor. `clearRunLock(appId, runId)`
-is the awaited prelude-failure net: under the app lock and SQL CAS it clears
-only that exact edit holder; a replacement or reap is a clean no-op.
+holder identity equals the currently admitted capability; its SQL update
+repeats the same compare-and-set. It returns owned/superseded/released and
+throws infrastructure faults. The route treats lost ownership as a terminal,
+non-owning, non-paused stream, so no stale question becomes resumable on a
+successor. `clearRunLock(appId, runId, holderNonce)` is the awaited
+prelude-failure net: under the app lock and SQL CAS it clears only that admitted
+edit holder; a replacement or reap is a clean no-op.
 
 ## Guarded commit
 

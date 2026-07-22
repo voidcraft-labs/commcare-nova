@@ -24,7 +24,7 @@ export async function GET(
 
 		await resolveAppScope(id, session.user.id, "view");
 
-		const thread = await loadThread(id, threadId);
+		const thread = await loadThread(id, threadId, session.user.id);
 		if (!thread) throw new ApiError("Thread not found", 404);
 		return Response.json({ thread });
 	} catch (err) {

@@ -33,17 +33,20 @@ import { runLeaseState } from "@/lib/db/runLiveness";
 import type { AppDoc } from "@/lib/db/types";
 import {
 	claimAndReserveRun as claimAndReserveRunForProject,
-	clearRunLockAndSettle,
-	completeAndSettleRun,
+	clearRunLockAndSettle as clearRunLockAndSettleForHolder,
+	completeAndSettleRun as completeAndSettleRunForHolder,
 	hasActiveGeneration,
 	loadApp,
 	RunConflictError,
 	reacquireLease as reacquireLeaseForProject,
-	reapStaleGenerating,
-	reapStaleReservation,
-	refreshBuildLiveness,
+	reapStaleGenerating as reapStaleGeneratingForHolder,
+	reapStaleReservation as reapStaleReservationForHolder,
+	refreshBuildLiveness as refreshBuildLivenessForHolder,
 } from "../apps";
-import { refundReservation, settleAndRelease } from "../credits";
+import {
+	refundReservation as refundReservationForHolder,
+	settleAndRelease as settleAndReleaseForHolder,
+} from "../credits";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const OWNER = "user-lifecycle-owner";
@@ -51,6 +54,7 @@ const MEMBER = "user-lifecycle-member";
 const APP = "app-lifecycle";
 const APP_B = "app-lifecycle-b";
 const PROJECT_ID = "project-test";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 const h = setupAppStateTestDb("lifecycle_");
 const period = getCurrentPeriod();
@@ -69,6 +73,7 @@ async function claimAndReserveRun(
 		actorUserId,
 		cost,
 		PROJECT_ID,
+		HOLDER_NONCE,
 	);
 }
 
@@ -78,13 +83,64 @@ async function reacquireLease(
 	mode: "build" | "edit",
 	actorUserId: string,
 ) {
-	return await reacquireLeaseForProject(
-		appId,
-		runId,
-		mode,
-		actorUserId,
-		PROJECT_ID,
-	);
+	return (
+		await reacquireLeaseForProject(
+			appId,
+			runId,
+			HOLDER_NONCE,
+			mode,
+			actorUserId,
+			PROJECT_ID,
+		)
+	).outcome;
+}
+
+async function completeAndSettleRun(appId: string, runId: string) {
+	return await completeAndSettleRunForHolder(appId, runId, HOLDER_NONCE);
+}
+
+async function clearRunLockAndSettle(appId: string, runId: string) {
+	return await clearRunLockAndSettleForHolder(appId, runId, HOLDER_NONCE);
+}
+
+async function settleAndRelease(
+	appId: string,
+	runId: string,
+	opts: { mode: "build" | "edit" },
+) {
+	return await settleAndReleaseForHolder(appId, runId, HOLDER_NONCE, opts);
+}
+
+async function refundReservation(
+	appId: string,
+	runId: string,
+	mode: "build" | "edit",
+) {
+	return await refundReservationForHolder(appId, runId, HOLDER_NONCE, mode);
+}
+
+async function reapStaleGenerating(
+	appId: string,
+	identity: { mode: "build"; runId: string },
+) {
+	return await reapStaleGeneratingForHolder(appId, {
+		...identity,
+		nonce: HOLDER_NONCE,
+	});
+}
+
+async function reapStaleReservation(
+	appId: string,
+	identity: { mode: "edit"; runId: string },
+) {
+	return await reapStaleReservationForHolder(appId, {
+		...identity,
+		nonce: HOLDER_NONCE,
+	});
+}
+
+async function refreshBuildLiveness(appId: string, runId: string) {
+	return await refreshBuildLivenessForHolder(appId, runId, HOLDER_NONCE);
 }
 
 async function consumed(userId: string): Promise<number> {
@@ -148,7 +204,7 @@ describe("run-lifecycle invariant matrix", () => {
 	it("build · clean: charged once, settled-kept, not reaped (I1/I3)", async () => {
 		await seedApp(APP, { status: "complete" });
 		await claimAndReserveRun(APP, "build", "b1", OWNER, CREDITS_PER_BUILD);
-		await completeAndSettleRun(APP, "b1");
+		expect(await completeAndSettleRun(APP, "b1")).toBe("owned");
 
 		expect(await consumed(OWNER)).toBe(CREDITS_PER_BUILD); // I1
 		expect((await readApp(APP))?.reservation).toMatchObject({ settled: true });
@@ -161,10 +217,11 @@ describe("run-lifecycle invariant matrix", () => {
 		await seedApp(APP, { status: "complete" });
 		await claimAndReserveRun(APP, "build", "b1", OWNER, CREDITS_PER_BUILD);
 		// The route's failure funnel for a build: settle+refund (no lock to release).
-		const { settled } = await settleAndRelease(APP, "b1", {
+		const { settled, outcome } = await settleAndRelease(APP, "b1", {
 			mode: "build",
 		});
 		expect(settled).toBe(true);
+		expect(outcome).toBe("owned");
 		expect(await consumed(OWNER)).toBe(0); // I1 — refunded
 		await assertNoStrand(APP);
 	});
@@ -182,7 +239,7 @@ describe("run-lifecycle invariant matrix", () => {
 	it("edit · clean: charged once, lock released + settled atomically, not reaped (I1/I2/I3)", async () => {
 		await seedApp(APP, { status: "complete" });
 		await claimAndReserveRun(APP, "edit", "e1", OWNER, CREDITS_PER_EDIT);
-		await clearRunLockAndSettle(APP, "e1");
+		expect(await clearRunLockAndSettle(APP, "e1")).toBe("owned");
 
 		const app = await readApp(APP);
 		expect(app?.run_lock).toBeUndefined(); // released
@@ -196,10 +253,11 @@ describe("run-lifecycle invariant matrix", () => {
 		await seedApp(APP, { status: "complete" });
 		await claimAndReserveRun(APP, "edit", "e1", MEMBER, CREDITS_PER_EDIT);
 		// The route's failure funnel for an edit: refund + settle + release, ONE txn.
-		const { settled } = await settleAndRelease(APP, "e1", {
+		const { settled, outcome } = await settleAndRelease(APP, "e1", {
 			mode: "edit",
 		});
 		expect(settled).toBe(true);
+		expect(outcome).toBe("owned");
 		const app = await readApp(APP);
 		expect(app?.run_lock).toBeUndefined(); // released only because settled
 		expect(await consumed(MEMBER)).toBe(0); // I1 — refunded to the actor
@@ -269,7 +327,7 @@ describe("run-lifecycle invariant matrix", () => {
 		).rejects.toBeInstanceOf(RunConflictError);
 
 		// Once the holder releases, the next claim proceeds.
-		await clearRunLockAndSettle(APP, "e1");
+		expect(await clearRunLockAndSettle(APP, "e1")).toBe("owned");
 		await expect(
 			claimAndReserveRun(APP, "edit", "e2", MEMBER, CREDITS_PER_EDIT),
 		).resolves.toMatchObject({ mode: "edit" });
@@ -288,7 +346,7 @@ describe("run-lifecycle invariant matrix", () => {
 		await claimAndReserveRun(APP, "edit", "e2", MEMBER, CREDITS_PER_EDIT); // e2 claims
 
 		// e1's stale clean finalize must NO-OP (mode edit, but lock.runId === e2).
-		await clearRunLockAndSettle(APP, "e1");
+		expect(await clearRunLockAndSettle(APP, "e1")).toBe("superseded");
 
 		const app = await readApp(APP);
 		expect(runLeaseState(app ?? {}).mine("e2")).toBe(true);
@@ -309,10 +367,11 @@ describe("run-lifecycle invariant matrix", () => {
 		await reapStaleGenerating(APP, { mode: "build", runId: "b1" }); // frees the app
 		await claimAndReserveRun(APP, "build", "b2", MEMBER, CREDITS_PER_BUILD); // b2 claims
 
-		const { settled } = await settleAndRelease(APP, "b1", {
+		const { settled, outcome } = await settleAndRelease(APP, "b1", {
 			mode: "build",
 		});
 		expect(settled).toBe(false);
+		expect(outcome).toBe("superseded");
 		expect((await readApp(APP))?.reservation).toMatchObject({
 			settled: false,
 			runId: "b2",
@@ -329,10 +388,11 @@ describe("run-lifecycle invariant matrix", () => {
 		// Simulate the flush pre-settling THIS run's own marker (runId intact).
 		await patchApp(APP, { res_settled: true });
 
-		const { settled } = await settleAndRelease(APP, "b1", {
+		const { settled, outcome } = await settleAndRelease(APP, "b1", {
 			mode: "build",
 		});
 		expect(settled).toBe(true); // owns its outcome → failApp fires
+		expect(outcome).toBe("owned");
 	});
 
 	it("a LEGACY no-runId build marker is corrupt and fails closed", async () => {
@@ -370,6 +430,7 @@ describe("run-lifecycle invariant matrix", () => {
 		// A stale build row (b1) that a scan flagged as hard-killed…
 		await seedApp(APP, {
 			status: "generating",
+			run_holder_nonce: HOLDER_NONCE,
 			updated_at: new Date(Date.now() - 60 * 60_000),
 			reservation: {
 				period,
@@ -397,6 +458,7 @@ describe("run-lifecycle invariant matrix", () => {
 		// A stranded edit whose lock persists: complete, unsettled marker, lapsed lock.
 		await seedApp(APP, {
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
 				runId: "e1",
 				actorUserId: OWNER,
@@ -437,10 +499,11 @@ describe("run-lifecycle invariant matrix", () => {
 
 		// THEN settleAndRelease: the marker is already settled, but this run still
 		// OWNS the app → it must return settled:TRUE so the route's `failApp` fires.
-		const { settled } = await settleAndRelease(APP, "b1", {
+		const { settled, outcome } = await settleAndRelease(APP, "b1", {
 			mode: "build",
 		});
 		expect(settled).toBe(true);
+		expect(outcome).toBe("owned");
 		expect(await consumed(OWNER)).toBe(0); // stayed refunded (no double-touch)
 	});
 
@@ -470,7 +533,7 @@ describe("run-lifecycle invariant matrix", () => {
 			claimAndReserveRun(APP, "build", "b2", MEMBER, CREDITS_PER_BUILD),
 		).rejects.toBeInstanceOf(RunConflictError);
 
-		await clearRunLockAndSettle(APP, "e1");
+		expect(await clearRunLockAndSettle(APP, "e1")).toBe("owned");
 		await expect(
 			claimAndReserveRun(APP, "edit", "e2", MEMBER, CREDITS_PER_EDIT),
 		).resolves.toMatchObject({ mode: "edit" });
@@ -525,7 +588,7 @@ describe("run-lifecycle invariant matrix", () => {
 		// The surviving process finishes cleanly. Nothing re-claimed, the row IS this
 		// run's claim, so the completion flips the reaper's error back to complete —
 		// without re-charging and without touching the settled marker.
-		await completeAndSettleRun(APP, "b1");
+		expect(await completeAndSettleRun(APP, "b1")).toBe("owned");
 		const app = await readApp(APP);
 		expect(app?.status).toBe("complete");
 		expect(app?.error_type).toBeNull();
@@ -542,7 +605,7 @@ describe("run-lifecycle invariant matrix", () => {
 		await claimAndReserveRun(APP, "build", "b2", MEMBER, CREDITS_PER_BUILD);
 
 		// The ghost's completion must not flip the taker's live run.
-		await completeAndSettleRun(APP, "b1");
+		expect(await completeAndSettleRun(APP, "b1")).toBe("superseded");
 		const app = await readApp(APP);
 		expect(app?.status).toBe("generating");
 		expect(runLeaseState(app as Partial<AppDoc>).mine("b2")).toBe(true);
@@ -570,7 +633,7 @@ describe("run-lifecycle invariant matrix", () => {
 
 		// Zombie R1 finishes cleanly — but root identity names R2, so every
 		// successor field remains unchanged.
-		await completeAndSettleRun(APP, "b1");
+		expect(await completeAndSettleRun(APP, "b1")).toBe("released");
 		expect(await readApp(APP)).toEqual(beforeZombie);
 	});
 
@@ -589,7 +652,7 @@ describe("run-lifecycle invariant matrix", () => {
 			reservation: { runId: "b1", settled: true },
 		});
 
-		await completeAndSettleRun(APP, "b1");
+		expect(await completeAndSettleRun(APP, "b1")).toBe("released");
 		expect(await readApp(APP)).toEqual(reaped);
 	});
 

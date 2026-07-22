@@ -26,6 +26,7 @@ interface RecoverAppOptions {
 	confirm?: boolean;
 	holderMode?: "build" | "edit";
 	holderRunId?: string;
+	holderNonce?: string;
 }
 
 const program = new Command();
@@ -46,6 +47,10 @@ program
 		"--holder-run-id <runId>",
 		"exact present-holder run id required to recover a held app",
 	)
+	.option(
+		"--holder-nonce <uuid>",
+		"exact present-holder nonce required to recover a held app",
+	)
 	.addHelpText(
 		"after",
 		"\nWhat this does:\n" +
@@ -53,12 +58,12 @@ program
 			"  • Clears error_type\n" +
 			"  • Bumps updated_at\n" +
 			"  • Settles a proven build holder's reservation as a kept charge\n" +
-			"  • Requires both exact holder flags when a run currently holds the app\n" +
+			"  • Requires all three exact holder flags when a run currently holds the app\n" +
 			"\nRefuses to run if the blueprint has zero modules (nothing to recover).\n" +
 			"\nExamples:\n" +
 			"  $ npx tsx scripts/recover-app.ts <appId>             # dry run\n" +
 			"  $ npx tsx scripts/recover-app.ts <appId> --confirm    # write a free app\n" +
-			"  $ npx tsx scripts/recover-app.ts <appId> --confirm --holder-mode build --holder-run-id <runId>\n",
+			"  $ npx tsx scripts/recover-app.ts <appId> --confirm --holder-mode build --holder-run-id <runId> --holder-nonce <uuid>\n",
 	);
 
 program.parse();
@@ -66,12 +71,14 @@ program.parse();
 const appId = requireArg(program.args, 0, "appId");
 const options = program.opts<RecoverAppOptions>();
 const confirmed = options.confirm === true;
-if (
-	(options.holderMode === undefined) !==
-	(options.holderRunId === undefined)
-) {
+const holderFlagCount = [
+	options.holderMode,
+	options.holderRunId,
+	options.holderNonce,
+].filter((value) => value !== undefined).length;
+if (holderFlagCount !== 0 && holderFlagCount !== 3) {
 	console.error(
-		"Both --holder-mode and --holder-run-id are required together; neither is a wildcard.",
+		"--holder-mode, --holder-run-id, and --holder-nonce are required together; none is a wildcard.",
 	);
 	process.exit(1);
 }
@@ -79,9 +86,24 @@ if (options.holderRunId !== undefined && options.holderRunId.length === 0) {
 	console.error("--holder-run-id must be non-empty.");
 	process.exit(1);
 }
+if (
+	options.holderNonce !== undefined &&
+	!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+		options.holderNonce,
+	)
+) {
+	console.error("--holder-nonce must be a valid UUID.");
+	process.exit(1);
+}
 const expectedHolder: ExactRunHolderIdentity | null =
-	options.holderMode !== undefined && options.holderRunId !== undefined
-		? { mode: options.holderMode, runId: options.holderRunId }
+	options.holderMode !== undefined &&
+	options.holderRunId !== undefined &&
+	options.holderNonce !== undefined
+		? {
+				mode: options.holderMode,
+				runId: options.holderRunId,
+				nonce: options.holderNonce,
+			}
 		: null;
 
 async function main() {
@@ -116,30 +138,30 @@ async function main() {
 	const holder = runLeaseState(data).holderIdentity;
 	if (holder !== null) {
 		console.log(
-			`  Holder:    ${holder.mode}:${holder.runId ?? "(missing run id)"}`,
+			`  Holder:    ${holder.mode}:${holder.runId ?? "(missing run id)"}:${holder.nonce ?? "(missing nonce)"}`,
 		);
 		const exactHolder = toExactRunHolderIdentity(holder);
-		if (exactHolder === null) {
+		if (exactHolder === null || exactHolder.nonce === null) {
 			console.error(
-				"\n✗ The app has a corrupt present holder with no exact run id. This tool cannot prove ownership and will not write it; repair the holder data explicitly first.",
+				"\n✗ The app has a corrupt present holder with no exact run id and nonce. This tool cannot prove ownership and will not write it; repair the holder data explicitly first.",
 			);
 			process.exit(1);
 		}
 		if (expectedHolder === null) {
 			console.error(
-				`\n✗ A run currently holds this app. Re-run with --holder-mode ${exactHolder.mode} --holder-run-id ${exactHolder.runId} only after independently confirming that exact run may be recovered.`,
+				`\n✗ A run currently holds this app. Re-run with --holder-mode ${exactHolder.mode} --holder-run-id ${exactHolder.runId} --holder-nonce ${exactHolder.nonce} only after independently confirming that exact run may be recovered.`,
 			);
 			process.exit(1);
 		}
-		if (!exactRunHolderMatches(holder, expectedHolder)) {
+		if (!exactRunHolderMatches(holder, expectedHolder, true)) {
 			console.error(
-				`\n✗ Holder token mismatch. Expected ${expectedHolder.mode}:${expectedHolder.runId}, but the locked snapshot is ${exactHolder.mode}:${exactHolder.runId}. Nothing was written.`,
+				`\n✗ Holder token mismatch. Expected ${expectedHolder.mode}:${expectedHolder.runId}:${expectedHolder.nonce}, but the locked snapshot is ${exactHolder.mode}:${exactHolder.runId}:${exactHolder.nonce}. Nothing was written.`,
 			);
 			process.exit(1);
 		}
 	} else if (expectedHolder !== null) {
 		console.error(
-			`\n✗ Holder token ${expectedHolder.mode}:${expectedHolder.runId} does not match this currently free app. Nothing was written.`,
+			`\n✗ Holder token ${expectedHolder.mode}:${expectedHolder.runId}:${expectedHolder.nonce} does not match this currently free app. Nothing was written.`,
 		);
 		process.exit(1);
 	}
@@ -196,7 +218,7 @@ async function main() {
 		case "holder_token_required":
 		case "holder_token_mismatch":
 			console.error(
-				`\n✗ Holder changed before the write to ${outcome.holder.mode}:${outcome.holder.runId ?? "(missing run id)"}. Nothing was written.`,
+				`\n✗ Holder changed before the write to ${outcome.holder.mode}:${outcome.holder.runId ?? "(missing run id)"}:${outcome.holder.nonce ?? "(missing nonce)"}. Nothing was written.`,
 			);
 			break;
 		case "holder_state_changed":

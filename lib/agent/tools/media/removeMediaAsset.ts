@@ -24,6 +24,7 @@
  */
 
 import { z } from "zod";
+import { deleteMediaAssetForChatRun } from "@/lib/db/apps";
 import { listReferencingAppIds, loadAssetById } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain";
@@ -116,9 +117,30 @@ export const removeMediaAssetTool = {
 
 		// No live references — purge the row, the bytes, and the document-extract
 		// sibling (if any), keeping shared bytes intact.
-		await purgeAssetStorage(asset, {
+		const chatRunHolder = ctx.chatRunHolder;
+		const deleted = await purgeAssetStorage(asset, {
 			alsoDelete: [extractObjectKeyForAsset(asset)],
+			...(chatRunHolder
+				? {
+						deleteRow: () =>
+							deleteMediaAssetForChatRun({
+								appId: ctx.appId,
+								assetId,
+								actorUserId: ctx.userId,
+								expectedProjectId: projectId,
+								holder: chatRunHolder,
+							}),
+					}
+				: {}),
 		});
+		if (!deleted) {
+			return {
+				kind: "read" as const,
+				data: {
+					error: `No media asset with id "${input.assetId}" is in your library — it may already have been deleted. Run list_media_assets to see the current assets.`,
+				},
+			};
+		}
 
 		return {
 			kind: "read" as const,

@@ -541,14 +541,32 @@ and indexes, `ON CONFLICT` singleton seed, replaceable functions, and
 drop-before-create triggers replay-safe. Its `down` path is test/local teardown
 only; a deployed compatibility change always fixes forward in a new migration.
 
-The forward-only runtime-reader rollout migration adds the nullable app-holder
-stamp, the compatibility row's continuous-registry timestamp, and one
-`runtime_reader_traffic_epochs` row per explicitly prepared target. Its holder
-trigger derives exact `(mode, runId)` identity from the run columns, locks the
-compatibility singleton only for a new identity, and treats unset declarations,
-legacy null stamps, and malformed/corrupt holders as runtime reader v0. Do not
-backfill existing holders or add `lock_expire_at`/`updated_at` to the trigger:
-same-holder liveness renewal must not restamp an old run.
+The forward-only runtime-reader rollout migrations add the nullable holder
+stamp, server-minted `apps.run_holder_nonce`, actor-bound
+`threads.active_holder_nonce`, the compatibility row's continuous-registry
+timestamp + irreversible `run_holder_nonce_enforced` switch, and one
+`runtime_reader_traffic_epochs` row per explicitly prepared target. The holder
+trigger derives `(mode, runId, nonce)` from the run columns and locks the
+compatibility singleton when it must admit a declared holder version. A
+declared v1 holder requires a concrete run id + nonce; an explicit v0 successor
+clears inherited nonce/stamp even when stable thread attribution leaves the
+mode/run pair unchanged. An ordinary same-generation write with no declaration
+preserves the old stamp, and release clears the stamp while retaining the nonce
+tombstone. The trigger deliberately includes `awaiting_input`,
+`lock_expire_at`, and `updated_at`: the deployed v0 resume declares runtime 0
+but updates only those pause/lease columns, so omitting them would let it inherit
+a v1 nonce + stamp and falsely pass the cutover census. A same-holder renewal
+with no runtime declaration still takes the unchanged-identity branch and
+preserves its stamp. Do not backfill null-nonce holders: v0 holders must remain
+census-visible/reapable, and migration replay must preserve any
+already-concrete v1 generation.
+
+Nonce enforcement defaults false and may move only false→true. Its CHECK
+requires `minimum_runtime_reader_version >= 1`. Runtime lifecycle transactions
+lock the app row before compatibility `FOR SHARE`; the cutover keeps its fixed
+gate → compatibility-row → unlocked-census order. S02c2 must drain request
+epochs, v0 holders, and old receiver leases before raising the runtime floor
+and irreversibly enabling exact nonce authority.
 
 Compatibility and epoch `INSERT`/`UPDATE`/`DELETE` take the fixed deployment-
 cutover advisory lock from `BEFORE STATEMENT` triggers, before tuple locks. The

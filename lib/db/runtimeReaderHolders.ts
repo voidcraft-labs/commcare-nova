@@ -36,7 +36,11 @@ export function sameRunHolderIdentity(
 	right: RunHolderIdentity | null,
 ): boolean {
 	if (left === null || right === null) return left === right;
-	return left.mode === right.mode && left.runId === right.runId;
+	return (
+		left.mode === right.mode &&
+		left.runId === right.runId &&
+		left.nonce === right.nonce
+	);
 }
 
 /**
@@ -53,12 +57,14 @@ export function runtimeHolderState(
 
 	const storedVersion = validRuntimeReaderVersion(storedVersionInput);
 	const effectiveVersion =
-		identity.runId === null || storedVersion === null ? 0 : storedVersion;
+		identity.runId === null || identity.nonce === null || storedVersion === null
+			? 0
+			: storedVersion;
 	const lifecycle: RuntimeHolderLifecycle = lease.reapableStaleBuild
 		? "reapable-stale-build"
 		: lease.reapableStrandedEdit
 			? "reapable-stranded-edit"
-			: identity.runId === null
+			: identity.runId === null || identity.nonce === null
 				? "corrupt-present"
 				: lease.paused
 					? "paused"
