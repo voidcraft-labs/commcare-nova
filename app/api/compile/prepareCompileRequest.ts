@@ -8,44 +8,29 @@ import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
-import { resolveMediaManifest } from "@/lib/media/manifest";
+import type { PersistableDoc } from "@/lib/domain";
+import {
+	type ExportMode,
+	type PreparedExportBoundary,
+	prepareExportBoundary,
+} from "@/lib/export/boundaryValidation";
 
 /**
  * Everything the two CommCare export routes need once their shared front half
- * has run: the validated blueprint and its resolved media manifest. (The
- * app's project id stays internal — it scopes the boundary gate and manifest
- * here, and neither route needs it again, so it isn't surfaced.)
+ * has run: the validated blueprint and its exact external-resource generation.
+ * The lookup snapshot keeps its authorized Project identity because later
+ * emitters must consume the generation validated here; it remains server-only.
  */
-export interface PreparedCompileRequest {
-	/** The validated blueprint with its derived `fieldParent` index rebuilt. */
-	doc: BlueprintDoc;
-	/**
-	 * Resolved media assets (rows + bytes) keyed by asset id; an empty map when
-	 * the doc references no media. Inferred from `resolveMediaManifest` so this
-	 * module needn't import the `AssetManifest` type across the `@/lib/commcare`
-	 * emission boundary.
-	 */
-	assets: Awaited<ReturnType<typeof resolveMediaManifest>>;
-	/**
-	 * The `mutation_seq` the loaded blueprint committed at — read off the SAME
-	 * `resolveAppAccess` snapshot that carries `app.blueprint`, so the seq and
-	 * the doc it stamps can't drift. Each export names the exact document
-	 * version it emitted (the `.ccz` profile's `cc-content-version`, the JSON
-	 * export's `X-Compiled-At-Seq` header).
-	 */
-	compiledAtSeq: number;
-}
+export type PreparedCompileRequest = PreparedExportBoundary;
 
 /**
  * The shared front half of the two CommCare export routes — `/api/compile`
  * (`.ccz`) and `/api/compile/json` (HQ JSON). Both must authenticate, parse and
  * validate the posted `BlueprintDoc`, rebuild its derived `fieldParent` index,
- * run the zero-tolerance boundary gate, and resolve the app's project media
- * manifest BEFORE they diverge on how they emit (package an archive vs. expand to
- * JSON). That whole preamble lives here so the two routes can't drift on the
- * gate ordering, the schema-error shape, or the manifest options.
+ * run the zero-tolerance boundary gate, and resolve the app's Project resources
+ * BEFORE they diverge on how they emit (package an archive vs. expand to JSON).
+ * That whole preamble lives here so the routes can't drift on gate ordering,
+ * schema-error shape, or external-resource generation.
  *
  * Every failure boundary throws an {@link ApiError} carrying the right status
  * and detail lines; each route's `catch` hands it to `handleApiError`. The only
@@ -54,7 +39,13 @@ export interface PreparedCompileRequest {
  */
 export async function prepareCompileRequest(
 	req: NextRequest,
-	{ boundaryErrorVerb }: { boundaryErrorVerb: "compile" | "export" },
+	{
+		boundaryErrorVerb,
+		mode,
+	}: {
+		boundaryErrorVerb: "compile" | "export";
+		mode: Extract<ExportMode, "ccz" | "hq-json">;
+	},
 ): Promise<PreparedCompileRequest> {
 	const session = await requireSession(req);
 	// The client sends only the app id — the blueprint loads server-side, so no
@@ -70,11 +61,8 @@ export async function prepareCompileRequest(
 	// Membership gate (view) + load the persisted blueprint in one read. An
 	// `AppAccessError` (absent / non-member) maps to 404 — the IDOR-safe
 	// not-found posture.
-	const { app, projectId } = await resolveAppAccess(
-		appId,
-		session.user.id,
-		"view",
-	);
+	const access = await resolveAppAccess(appId, session.user.id, "view");
+	const { app } = access;
 
 	// The shared hydration chokepoint: fieldParent rebuilt + the
 	// deterministic `order`/option-`uuid` backfill a legacy stored doc needs,
@@ -91,23 +79,26 @@ export async function prepareCompileRequest(
 	// never leave for a device or CommCare HQ, and a stale media reference
 	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
 	// → opaque 500.
-	const violations = await collectBoundaryViolations(docWithParent, projectId);
-	if (violations.length > 0) {
+	const boundary = await prepareExportBoundary({
+		mode,
+		access: {
+			projectId: access.projectId,
+			role: access.role,
+			actorUserId: access.actorUserId,
+		},
+		doc: docWithParent,
+		compiledAtSeq: app.mutation_seq,
+	});
+	if (!boundary.ok) {
 		// The concise builder copy on the detail lines — this is a
 		// user-facing failure. (The SA's compile path reads the verbose
 		// `message` through its own envelope, not this route.)
 		throw new ApiError(
 			`This app isn't ready to ${boundaryErrorVerb} — fix the issues below, then try again.`,
 			422,
-			violations.map(userFacingError),
+			boundary.violations.map(userFacingError),
 		);
 	}
 
-	// Resolve the manifest (rows + bytes) at the app's project scope. A
-	// media-free doc resolves to an empty manifest at no byte cost.
-	const assets = await resolveMediaManifest(docWithParent, projectId, {
-		withBytes: true,
-	});
-
-	return { doc: docWithParent, assets, compiledAtSeq: app.mutation_seq };
+	return boundary.prepared;
 }

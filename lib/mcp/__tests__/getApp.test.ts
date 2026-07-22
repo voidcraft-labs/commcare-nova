@@ -151,8 +151,8 @@ beforeEach(() => {
 	vi.mocked(resolveAppAccess).mockReset();
 	/* Default: the caller passes the membership gate. The not-owner tests
 	 * override it to reject; the not-found tests never reach it (loadApp → null
-	 * throws first). The resolved value is unused by `loadAppBlueprint` (it only
-	 * awaits the gate), so a minimal AppAccess suffices. */
+	 * throws first). `loadAppBlueprint` retains the scope fields for downstream
+	 * server boundaries, so the mock supplies a complete AppAccess. */
 	vi.mocked(resolveAppAccess).mockResolvedValue({
 		app: mockAppDoc(mockBlueprint()),
 		projectId: "p1",

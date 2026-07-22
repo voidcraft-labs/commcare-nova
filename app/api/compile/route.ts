@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
 	try {
 		const { doc, assets, compiledAtSeq } = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "compile",
+			mode: "ccz",
 		});
 
 		// Compile is always media-ON — the archive bundles whatever the manifest

@@ -15,10 +15,12 @@
  * needs the fully-hydrated `BlueprintDoc`, so the rebuild lives here
  * rather than inlined at each call site.
  *
- * Returning `{ doc, app }` (rather than just the blueprint) lets
+ * Returning `{ doc, app, access }` (rather than just the blueprint) lets
  * callers that also need denormalized `AppDoc` columns — e.g.
  * `compile_app` consumes `app.app_name` for the ccz profile manifest —
- * share a single read. Callers that only need the blueprint
+ * share a single read. Export callers retain the freshly authorized Project
+ * scope for the shared boundary instead of reconstructing or trusting an app
+ * field after the gate. Callers that only need the blueprint
  * destructure `.doc` and ignore the rest.
  *
  * `LoadedApp.app` is narrowed to `Omit<AppDoc, "blueprint">` so a
@@ -34,7 +36,7 @@
  */
 
 import type { AppCapability } from "@/lib/auth/projectRoles";
-import { resolveAppAccess } from "@/lib/db/appAccess";
+import { type ProjectAccess, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -58,11 +60,13 @@ export interface LoadedApp {
 	 * blueprint lives on `.doc` and consumers that want it go there.
 	 */
 	app: Omit<AppDoc, "blueprint">;
+	/** Exact authorized Project scope retained for shared server boundaries. */
+	access: ProjectAccess;
 }
 
 /**
- * Fetch `appId`'s blueprint, verify the caller owns it, and rebuild
- * its `fieldParent` reverse index in-memory. Returns `{ doc, app }`
+ * Fetch `appId`'s blueprint, authorize the caller's Project capability, and rebuild
+ * its `fieldParent` reverse index in-memory. Returns `{ doc, app, access }`
  * for callers that need either the hydrated blueprint, denormalized
  * `AppDoc` fields, or both.
  *
@@ -80,8 +84,11 @@ export async function loadAppBlueprint(
 	/* Membership gate, reusing the doc we just loaded (no second read). Map the
 	 * resolver's three denial reasons onto the two-value MCP taxonomy; both
 	 * collapse to `not_found` on the wire. */
+	let resolvedAccess: Awaited<ReturnType<typeof resolveAppAccess>>;
 	try {
-		await resolveAppAccess(appId, userId, required, { app: loaded });
+		resolvedAccess = await resolveAppAccess(appId, userId, required, {
+			app: loaded,
+		});
 	} catch (err) {
 		rethrowAsMcpAccess(err);
 	}
@@ -97,5 +104,13 @@ export async function loadAppBlueprint(
 		blueprint as PersistableDoc,
 	);
 	ensureReferenceIndex(doc);
-	return { doc, app: appRest };
+	return {
+		doc,
+		app: appRest,
+		access: {
+			projectId: resolvedAccess.projectId,
+			role: resolvedAccess.role,
+			actorUserId: resolvedAccess.actorUserId,
+		},
+	};
 }

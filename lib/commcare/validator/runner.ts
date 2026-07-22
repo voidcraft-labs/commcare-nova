@@ -21,14 +21,13 @@
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
-	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 	type LookupReferenceExtractorRegistry,
 	type LookupValidationContext,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 import { validationError } from "./errors";
-import { validateLookupReferences } from "./lookupReferences";
 import {
 	type ConnectXPathSlot,
 	type ProseSurface,
@@ -38,6 +37,7 @@ import {
 	validateBlueprintDeep,
 	type XPathSurface,
 } from "./index";
+import { validateLookupReferences } from "./lookupReferences";
 import { APP_RULES } from "./rules/app";
 import { runFieldRules } from "./rules/field";
 import { runFormRules } from "./rules/form";
@@ -85,7 +85,7 @@ export interface RunValidationOptions {
  *     never run on the commit path (no caller passes both a manifest and
  *     a scope today), kept scope-exempt so the law below stays total;
  *   - `MEDIA_EXPORT_TOO_LARGE` — produced by the media-validation entry
- *     point (`lib/media/boundaryValidation.ts`), never by `runValidation`;
+ *     point (`lib/export/boundaryValidation.ts`), never by `runValidation`;
  *     listed so the filter is total over every code a boundary caller
  *     can see.
  *

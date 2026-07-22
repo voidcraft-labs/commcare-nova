@@ -74,9 +74,9 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { log } from "@/lib/logger";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
-import { assetWirePaths, resolveMediaManifest } from "@/lib/media/manifest";
+import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { initMcpCall } from "../context";
 import {
@@ -203,7 +203,11 @@ export function registerUploadAppToHq(
 				 * `not_found` on the wire so a probing client cannot
 				 * surface settings-level failure reasons for an app the
 				 * caller doesn't own. */
-				const { doc, app } = await loadAppBlueprint(appId, ctx.userId, "edit");
+				const { doc, app, access } = await loadAppBlueprint(
+					appId,
+					ctx.userId,
+					"edit",
+				);
 
 				/* Gate 2 — credentials + target-space resolution in one read.
 				 * The optional `domain` arg picks the target (required for a
@@ -248,19 +252,20 @@ export function registerUploadAppToHq(
 				 * boundary an app's media lives in), matching the web HQ-upload
 				 * path. A Project co-member uploads the project's media the same
 				 * way through MCP as through the browser. */
-				if (!app.project_id) {
+				const boundary = await prepareExportBoundary({
+					mode: "hq-upload",
+					access,
+					doc,
+					compiledAtSeq: app.mutation_seq,
+				});
+				if (!boundary.ok) {
 					throw new McpInvalidInputError(
-						"This app isn't ready to upload — it has no Project.",
-					);
-				}
-				const violations = await collectBoundaryViolations(doc, app.project_id);
-				if (violations.length > 0) {
-					throw new McpInvalidInputError(
-						`This app isn't ready to upload — fix these first: ${violations
+						`This app isn't ready to upload — fix these first: ${boundary.violations
 							.map(errorToString)
 							.join(" ")}`,
 					);
 				}
+				const prepared = boundary.prepared;
 
 				const targetDomain = credResult.domain.name;
 
@@ -300,9 +305,7 @@ export function registerUploadAppToHq(
 					 * references emitted and the files sent come from the
 					 * same source. An empty manifest (media-free app) makes
 					 * the upload step a no-op. */
-					const manifest = await resolveMediaManifest(doc, app.project_id, {
-						withBytes: true,
-					});
+					const manifest = prepared.assets;
 
 					/* Gate 3 — the only network call. The SSRF boundary
 					 * lives inside `importApp` via the closed server
@@ -311,7 +314,7 @@ export function registerUploadAppToHq(
 					 * `HqApplication` JSON HQ's `/api/import_app/`
 					 * endpoint expects; the app id it returns goes in the
 					 * media upload URL. */
-					const hqJson = expandDoc(doc, { assets: manifest });
+					const hqJson = expandDoc(prepared.doc, { assets: manifest });
 					/* App name defaulting: `?.trim() || app.app_name` maps
 					 * both omitted and whitespace-only inputs to the
 					 * blueprint's denormalized name — which is non-empty
@@ -376,7 +379,7 @@ export function registerUploadAppToHq(
 								...reportMediaAttach({
 									result: mediaResult,
 									assetWirePath: assetWirePaths(manifest),
-									doc,
+									doc: prepared.doc,
 									logPrefix: "[mcp/upload_app_to_hq]",
 									logContext: {
 										domain: targetDomain,

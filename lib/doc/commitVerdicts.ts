@@ -35,13 +35,13 @@ import {
 	type CsqlRepresentabilityIssue,
 	checkCsqlRepresentability,
 } from "@/lib/commcare/predicate";
+import type { ValidationScope } from "@/lib/commcare/validator";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
 	evaluateBoundary,
 	evaluateCommit,
 } from "@/lib/commcare/validator/gate";
 import { MODULE_RULES } from "@/lib/commcare/validator/rules/module";
-import type { ValidationScope } from "@/lib/commcare/validator";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -354,7 +354,7 @@ export function assertPersistenceSafeMutationIdentities(
  * The manifest is empty, so a doc carrying media references reports them
  * missing. Only callers whose docs hold no media may use this (today: the
  * creation templates in `scaffolds.ts`). The real export path threads the
- * Project's asset manifest through `lib/media/boundaryValidation.ts`.
+ * Project's external-resource snapshots through `lib/export/boundaryValidation.ts`.
  */
 export function exportReadinessFindings(
 	doc: BlueprintDoc,

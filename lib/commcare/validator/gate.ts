@@ -19,7 +19,7 @@
  *   - `evaluateCommit({ prevDoc, nextDoc, scope, lookupContext })` — the per-commit gate:
  *     a commit is accepted iff it introduces no shape, soundness, or
  *     completeness error. One rule, every surface, every app state.
- *   - `evaluateBoundary(doc, manifest)` — the zero-tolerance full run for
+ *   - `evaluateBoundary(doc, manifest, lookupContext)` — the zero-tolerance full run for
  *     transaction boundaries (export / upload / build completion),
  *     including the asset-context media rules.
  */
@@ -725,7 +725,7 @@ export function evaluateCommit({
  *
  * The aggregate export-budget guard (`MEDIA_EXPORT_TOO_LARGE`) is NOT run
  * here: it lives with the manifest loader
- * (`lib/media/boundaryValidation.ts::collectBoundaryViolations`) because
+ * (`lib/export/boundaryValidation.ts::collectExportBoundaryViolations`) because
  * it is a property of the loaded media-asset rows, which this pure function
  * never fetches. The boundary call sites all go through that composer.
  */
@@ -733,6 +733,12 @@ export function evaluateBoundary(
 	doc: BlueprintDoc,
 	manifest: ReadonlyMap<string, MediaAssetRecord>,
 	lookupContext: LookupValidationContext,
+	lookupReferenceExtractors?: LookupReferenceExtractorRegistry,
 ): ValidationError[] {
-	return runValidation(doc, lookupContext, { mediaAssets: manifest });
+	return runValidation(doc, lookupContext, {
+		mediaAssets: manifest,
+		...(lookupReferenceExtractors !== undefined && {
+			lookupReferenceExtractors,
+		}),
+	});
 }

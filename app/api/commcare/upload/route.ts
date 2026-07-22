@@ -36,9 +36,9 @@ import { getCredentialsForUpload } from "@/lib/db/settings";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { log } from "@/lib/logger";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
-import { assetWirePaths, resolveMediaManifest } from "@/lib/media/manifest";
+import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 
 export async function POST(req: NextRequest) {
@@ -80,11 +80,8 @@ export async function POST(req: NextRequest) {
 		 * reflects the same display sequence the builder shows. Media resolves
 		 * at the app's PROJECT scope (the sharing boundary the assets live in)
 		 * so a Project co-member can upload a shared app. */
-		const { app, projectId } = await resolveAppAccess(
-			body.appId,
-			session.user.id,
-			"edit",
-		);
+		const access = await resolveAppAccess(body.appId, session.user.id, "edit");
+		const { app } = access;
 		const docWithParent = hydratePersistedBlueprint(
 			app.blueprint as PersistableDoc,
 		);
@@ -122,31 +119,36 @@ export async function POST(req: NextRequest) {
 		// message and the carrier location. This also covers the media-ON
 		// expand's failure mode — a stale media reference would make
 		// `expandDoc` throw `requireAssetRef` → opaque 500.
-		const violations = await collectBoundaryViolations(
-			docWithParent,
-			projectId,
-		);
-		if (violations.length > 0) {
+		const boundary = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: {
+				projectId: access.projectId,
+				role: access.role,
+				actorUserId: access.actorUserId,
+			},
+			doc: docWithParent,
+			compiledAtSeq: app.mutation_seq,
+		});
+		if (!boundary.ok) {
 			throw new ApiError(
 				"This app isn't ready to upload — fix the issues below, then try again.",
 				422,
-				violations.map(userFacingError),
+				boundary.violations.map(userFacingError),
 			);
 		}
 
-		/* ── Resolve media manifest (with bytes) ─────────────────────── */
+		/* ── Use the exact prepared resource generation ──────────────── */
 		// The upload path is media-ON: the imported app's forms carry the
 		// `jr://file/commcare/<hash><ext>` itext references, and the bytes
 		// follow via the multimedia upload below. One resolution pass with
 		// bytes feeds BOTH the expander (references + multimedia_map) and
 		// the byte upload, so the references emitted and the files sent
 		// come from the same source and cannot drift.
-		const manifest = await resolveMediaManifest(docWithParent, projectId, {
-			withBytes: true,
-		});
+		const prepared = boundary.prepared;
+		const manifest = prepared.assets;
 
 		/* ── Expand domain doc to HQ JSON (media-ON) ─────────────────── */
-		const hqJson = expandDoc(docWithParent, { assets: manifest });
+		const hqJson = expandDoc(prepared.doc, { assets: manifest });
 
 		/* ── Import the app first ───────────────────────────────────── */
 		// The app must exist before any media upload — the app id goes in
@@ -209,7 +211,7 @@ export async function POST(req: NextRequest) {
 					...reportMediaAttach({
 						result: mediaResult,
 						assetWirePath: assetWirePaths(manifest),
-						doc: docWithParent,
+						doc: prepared.doc,
 						logPrefix: "[commcare/upload]",
 						logContext: { domain: body.domain, appId: result.appId },
 					}),

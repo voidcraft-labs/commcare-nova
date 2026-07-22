@@ -34,8 +34,10 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { errorToString } from "@/lib/commcare/validator/errors";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
-import { resolveMediaManifest } from "@/lib/media/manifest";
+import {
+	type ExportMode,
+	prepareExportBoundary,
+} from "@/lib/export/boundaryValidation";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -45,11 +47,18 @@ import {
 import { loadAppBlueprint } from "../loadApp";
 import type { ToolContext } from "../types";
 
+type CompileFormat = "json" | "ccz";
+
+export const COMPILE_EXPORT_MODE_BY_FORMAT = {
+	json: "hq-json",
+	ccz: "ccz",
+} as const satisfies Record<CompileFormat, ExportMode>;
+
 /**
  * Register the `compile_app` tool on an `McpServer`.
  *
- * One read suffices: `loadAppBlueprint` returns `{ doc, app }`
- * so both the hydrated blueprint (for `expandDoc`) and the denormalized
+ * One read suffices: `loadAppBlueprint` returns `{ doc, app, access }`
+ * so the hydrated blueprint, authorized Project scope, and denormalized
  * `app_name` (the ccz profile manifest + the json media bundle's filename)
  * come from the same load. `app.app_name` is non-empty by invariant —
  * `denormalize` writes `UNTITLED_APP_NAME` when the in-doc `appName` is
@@ -83,7 +92,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * denormalized app name in one read. Throws
 				 * `McpAccessError` on cross-tenant probe or vanished row;
 				 * the wire collapses both to `not_found`. */
-				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
+				const { doc, app, access } = await loadAppBlueprint(appId, ctx.userId);
 
 				/* Boundary gate — zero tolerance before any expensive work.
 				 * Every validator finding (soundness, completeness, media-
@@ -93,21 +102,22 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * and a stale media reference never reaches `expandDoc`'s
 				 * `requireAssetRef` throw (an opaque `internal` error). */
 				/* An app's media lives in its PROJECT (the sharing boundary), so
-				 * resolve/validate against `app.project_id`, not the acting caller —
+				 * resolve/validate against the authorized `access`, not the acting caller —
 				 * matches the web export path (`prepareCompileRequest`) so a Project
 				 * co-member (who reaches this tool at `view`) compiles the project's
 				 * media the same way through MCP as through the browser. No leak: the
 				 * manifest resolves only the ids the app's own blueprint references,
 				 * filtered to the project. */
-				if (!app.project_id) {
+				const mode = COMPILE_EXPORT_MODE_BY_FORMAT[args.format];
+				const boundary = await prepareExportBoundary({
+					mode,
+					access,
+					doc,
+					compiledAtSeq: app.mutation_seq,
+				});
+				if (!boundary.ok) {
 					throw new McpInvalidInputError(
-						"This app isn't ready to compile — it has no Project.",
-					);
-				}
-				const violations = await collectBoundaryViolations(doc, app.project_id);
-				if (violations.length > 0) {
-					throw new McpInvalidInputError(
-						`This app isn't ready to compile — fix these first: ${violations
+						`This app isn't ready to compile — fix these first: ${boundary.violations
 							.map(errorToString)
 							.join(" ")}`,
 					);
@@ -117,9 +127,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * expander's media references and — for a media-bearing app —
 				 * the byte bundle. A media-free app resolves to an empty
 				 * manifest at no byte cost. */
-				const assets = await resolveMediaManifest(doc, app.project_id, {
-					withBytes: true,
-				});
+				const { doc: preparedDoc, assets, compiledAtSeq } = boundary.prepared;
 				const hasMedia = assets.size > 0;
 
 				/* Exhaustive switch on the `format` enum: a future third
@@ -138,9 +146,9 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * is the byte-identical HQ-import artifact, so the seq
 						 * names its document version out-of-band. */
 						const compiledAtMeta = {
-							_meta: { "nova/compiledAtSeq": app.mutation_seq },
+							_meta: { "nova/compiledAtSeq": compiledAtSeq },
 						};
-						const hqJson = expandDoc(doc, hasMedia ? { assets } : {});
+						const hqJson = expandDoc(preparedDoc, hasMedia ? { assets } : {});
 						if (!hasMedia) {
 							/* Bare HQ JSON — the caller asked for JSON and, with
 							 * no media to carry, gets JSON. */
@@ -181,13 +189,13 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * content is UTF-8 only, so base64 is the safest
 						 * lossless escape, and the `encoding` field inside the
 						 * wrapper tells the caller to decode it. */
-						const hqJson = expandDoc(doc, { assets });
+						const hqJson = expandDoc(preparedDoc, { assets });
 						/* Stamp the blueprint's `mutation_seq` into the profile's
 						 * `cc-content-version` so the archive names the exact
 						 * document version it was built from. */
-						const cczBuf = compileCcz(hqJson, app.app_name, doc, {
+						const cczBuf = compileCcz(hqJson, app.app_name, preparedDoc, {
 							assets,
-							compiledAtSeq: app.mutation_seq,
+							compiledAtSeq,
 						});
 						return {
 							content: [

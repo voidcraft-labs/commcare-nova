@@ -23,7 +23,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
 
@@ -32,8 +32,8 @@ vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
 vi.mock("@/lib/db/settings", () => ({
 	getCredentialsForUpload: vi.fn(),
 }));
-vi.mock("@/lib/media/boundaryValidation", () => ({
-	collectBoundaryViolations: vi.fn(),
+vi.mock("@/lib/export/boundaryValidation", () => ({
+	prepareExportBoundary: vi.fn(),
 }));
 // `resolveMediaManifest` is mocked (it reads Postgres + GCS); `assetWirePaths`
 // is a pure projection, so give the mock its real behavior — the outcome
@@ -152,8 +152,10 @@ function reqWith(body: unknown) {
 /** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`. */
 function loadsDoc(doc: ReturnType<typeof validDoc>) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: doc, owner: "u1" },
+		app: { blueprint: doc, owner: "u1", mutation_seq: 12 },
 		projectId: "project-1",
+		role: "owner",
+		actorUserId: "u1",
 	} as never);
 }
 
@@ -161,7 +163,7 @@ beforeEach(() => {
 	vi.mocked(requireSession).mockReset();
 	vi.mocked(resolveAppAccess).mockReset();
 	vi.mocked(getCredentialsForUpload).mockReset();
-	vi.mocked(collectBoundaryViolations).mockReset();
+	vi.mocked(prepareExportBoundary).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(importApp).mockReset();
@@ -178,8 +180,21 @@ beforeEach(() => {
 		creds: { username: "alice", apiKey: "k" },
 		domain: { name: DOMAIN, displayName: "ACME" },
 	} as never);
-	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	vi.mocked(prepareExportBoundary).mockImplementation(
+		async (input) =>
+			({
+				ok: true,
+				prepared: {
+					...input,
+					assets: await resolveMediaManifest(
+						input.doc,
+						input.access.projectId,
+						{ withBytes: true },
+					),
+				},
+			}) as never,
+	);
 	vi.mocked(expandDoc).mockReturnValue({} as never);
 	vi.mocked(uploadAppMediaBundle).mockResolvedValue({
 		matched: 0,
@@ -192,14 +207,17 @@ beforeEach(() => {
 
 describe("POST /api/commcare/upload — boundary gate", () => {
 	it("returns 422 with the rule's message (not a 500) when a media ref is stale", async () => {
-		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
-			validationError(
-				"MEDIA_ASSET_NOT_READY",
-				"field",
-				'At the label media on field "case_name" in form "Reg", the media is still uploading.',
-				{ formName: "Reg", fieldId: "case_name" },
-			),
-		]);
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: false,
+			violations: [
+				validationError(
+					"MEDIA_ASSET_NOT_READY",
+					"field",
+					'At the label media on field "case_name" in form "Reg", the media is still uploading.',
+					{ formName: "Reg", fieldId: "case_name" },
+				),
+			],
+		} as never);
 
 		const res = await POST(
 			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
@@ -212,6 +230,24 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		 * never reaches HQ. */
 		expect(importApp).not.toHaveBeenCalled();
 		expect(expandDoc).not.toHaveBeenCalled();
+		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+	});
+
+	it("keeps an operational lookup-read failure operational and calls no HQ boundary", async () => {
+		vi.mocked(prepareExportBoundary).mockRejectedValueOnce(
+			new Error("lookup database unavailable"),
+		);
+
+		const res = await POST(
+			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
+		);
+		const body = (await res.json()) as { error: string };
+
+		expect(res.status).toBe(500);
+		expect(body.error).not.toContain("isn't ready to upload");
+		expect(expandDoc).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
 	});
 
 	it("proceeds to import + bulk media upload when the boundary gate is clean", async () => {
@@ -242,9 +278,11 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		// Uploading PUBLISHES the app, so the membership gate is EDIT, not view
 		// (a viewer can't push a shared app to HQ).
 		expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "edit");
-		expect(collectBoundaryViolations).toHaveBeenCalledWith(
-			expect.objectContaining({ appName: "Vaccine Tracker" }),
-			"project-1",
+		expect(prepareExportBoundary).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: "hq-upload",
+				doc: expect.objectContaining({ appName: "Vaccine Tracker" }),
+			}),
 		);
 		expect(importApp).toHaveBeenCalledTimes(1);
 		expect(uploadAppMediaBundle).toHaveBeenCalledTimes(1);

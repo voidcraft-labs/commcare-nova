@@ -33,7 +33,7 @@ import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
@@ -81,8 +81,8 @@ vi.mock("@/lib/media/manifest", () => ({
 /* The media-validation gate reads the DB; mock it so the unit suite
  * stays hermetic. Default `[]` = no media issues = proceed past the gate;
  * the media-rejection test overrides per-call. */
-vi.mock("@/lib/media/boundaryValidation", () => ({
-	collectBoundaryViolations: vi.fn(),
+vi.mock("@/lib/export/boundaryValidation", () => ({
+	prepareExportBoundary: vi.fn(),
 }));
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
@@ -148,9 +148,17 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 	};
 }
 
-/** `{ doc, app }` pair the mocked `loadAppBlueprint` returns on happy paths. */
+/** `{ doc, app, access }` value the mocked loader returns on happy paths. */
 function fixtureLoadedApp(appOverrides?: Partial<AppDoc>): LoadedApp {
-	return { doc: fixtureBlueprint(), app: fixtureAppDoc(appOverrides) };
+	return {
+		doc: fixtureBlueprint(),
+		app: fixtureAppDoc(appOverrides),
+		access: {
+			projectId: "project-1",
+			role: "owner",
+			actorUserId: "u1",
+		},
+	};
 }
 
 /**
@@ -197,7 +205,7 @@ beforeEach(() => {
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(uploadAppMediaBundle).mockReset();
-	vi.mocked(collectBoundaryViolations).mockReset();
+	vi.mocked(prepareExportBoundary).mockReset();
 	LogWriterMock.instances = [];
 
 	/* Default happy-path mocks — individual tests override via
@@ -216,9 +224,22 @@ beforeEach(() => {
 		errors: [],
 		timedOut: false,
 	});
-	/* Media gate transparent by default — no stale references. The
-	 * media-rejection test overrides with `mockResolvedValueOnce`. */
-	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
+	/* Neutral export prep is transparent by default. The media-rejection test
+	 * overrides with a rejected boundary result. */
+	vi.mocked(prepareExportBoundary).mockImplementation(
+		async (input) =>
+			({
+				ok: true,
+				prepared: {
+					...input,
+					assets: await resolveMediaManifest(
+						input.doc,
+						input.access.projectId,
+						{ withBytes: true },
+					),
+				},
+			}) as never,
+	);
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -389,6 +410,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce({
 			doc: { ...fixtureBlueprint(), logo: "logoA" },
 			app: fixtureAppDoc(),
+			access: fixtureLoadedApp().access,
 		});
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
@@ -621,14 +643,17 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		 * the media-ON `expandDoc` throw `requireAssetRef`, surfacing as a
 		 * generic `internal` error. The gate surfaces the rule's
 		 * actionable message as `invalid_input` instead. */
-		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
-			validationError(
-				"MEDIA_ASSET_NOT_FOUND",
-				"field",
-				"At the label on field 'photo' in form 'Intake', the referenced media asset no longer exists. Re-attach an asset or remove the reference.",
-				{ formName: "Intake", fieldId: "photo" },
-			),
-		]);
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: false,
+			violations: [
+				validationError(
+					"MEDIA_ASSET_NOT_FOUND",
+					"field",
+					"At the label on field 'photo' in form 'Intake', the referenced media asset no longer exists. Re-attach an asset or remove the reference.",
+					{ formName: "Intake", fieldId: "photo" },
+				),
+			],
+		} as never);
 
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
@@ -651,12 +676,37 @@ describe("registerUploadAppToHq — boundary gate", () => {
 
 		/* The gate fires BEFORE import + the LogWriter ctor — a
 		 * media-invalid doc never reaches HQ and never allocates a writer. */
+		expect(expandDoc).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
+		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+		expect(LogWriterMock.instances).toHaveLength(0);
+	});
+
+	it("does not recast an operational lookup-read failure as invalid_input", async () => {
+		vi.mocked(prepareExportBoundary).mockRejectedValueOnce(
+			new Error("lookup database unavailable"),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError?: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+		};
+
+		expect(out.isError).toBe(true);
+		expect(payload.error_type).not.toBe("invalid_input");
+		expect(expandDoc).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 
 	it("proceeds to import + upload when the boundary gate is clean", async () => {
-		/* `collectBoundaryViolations` defaults to `[]` (beforeEach) —
+		/* `prepareExportBoundary` defaults to a clean result (beforeEach) —
 		 * the gate is transparent and the normal flow runs. */
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
@@ -678,7 +728,9 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		};
 		expect(parsed.stage).toBe("upload_complete");
 		expect(parsed.hq_app_id).toBe("hq-clean");
-		expect(collectBoundaryViolations).toHaveBeenCalledTimes(1);
+		expect(prepareExportBoundary).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "hq-upload" }),
+		);
 		expect(importApp).toHaveBeenCalledTimes(1);
 	});
 });

@@ -4,7 +4,7 @@ The trust layer between a user-uploaded asset and the wire. This package owns fo
 
 ## Boundary
 
-`manifest.ts`, `boundaryValidation.ts`, and `builtinIconAssets.ts` are three of the only consumers of the `@/lib/commcare` emission boundary outside the emitter itself (allowlisted in `biome.json`): they resolve assets to wire paths and run the export-boundary validation. Everything else here is boundary-free.
+`manifest.ts` and `builtinIconAssets.ts` are two of the only consumers of the `@/lib/commcare` emission boundary outside the emitter itself (allowlisted in `biome.json`): they resolve assets to wire paths. The complete export composer, including media-row loading and the aggregate budget verdict, lives at `lib/export/boundaryValidation.ts`. Everything else here is boundary-free.
 
 ## The asset is the timeline; the attach is the last commit that can see it
 
@@ -36,7 +36,7 @@ Media-ON compile / HQ upload load every referenced ready asset's bytes into memo
 
 ## The export boundary — zero tolerance, every entry point
 
-`boundaryValidation.ts::collectBoundaryViolations` runs at EVERY media-ON export entry (`.ccz` compile, HQ upload, JSON export) before the emitter: it walks the doc's asset refs, loads the rows (ready AND pending, so a still-uploading ref surfaces "not ready" rather than "not found"), runs the validator's media group (`mediaAssetExists` / `mediaAssetReady` / `mediaKindMatches`), and appends the aggregate budget error. ANY finding rejects with actionable prose. This is defense-in-depth — legacy refs committed before the attach verdict existed, plus ops disasters (a hand-deleted row, a reaped object) — the same standing role the rest of the boundary plays. `manifest.ts::resolveMediaManifest` then resolves refs → wire paths and streams bytes under bounded concurrency; it filters to `ready` + media-kind, so a media-free app does zero I/O.
+`lib/export/boundaryValidation.ts::prepareExportBoundary` runs at EVERY media-ON export entry (`.ccz` compile, HQ upload, JSON export) before the emitter. It first loads one exact rows-free lookup snapshot, including for an empty target set, then walks the doc's asset refs, loads the rows (ready AND pending, so a still-uploading ref surfaces "not ready" rather than "not found"), runs the complete validator with the supplied lookup context and media group (`mediaAssetExists` / `mediaAssetReady` / `mediaKindMatches`), and appends the aggregate budget error. ANY finding rejects with actionable prose. Only a clean result proceeds to `manifest.ts::resolveMediaManifest`, which resolves refs → wire paths and streams bytes under bounded concurrency; it filters to `ready` + media-kind, so a media-free app does zero I/O.
 
 ## Built-in library icons — one shared copy, no asset row
 

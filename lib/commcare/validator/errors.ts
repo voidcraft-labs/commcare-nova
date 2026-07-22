@@ -263,7 +263,7 @@ export type ValidationErrorCode =
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
 	// memory at once, so the total count + bytes are bounded before any
-	// download. Fires from `collectBoundaryViolations`, not a rule file.
+	// download. Fires from `collectExportBoundaryViolations`, not a rule file.
 	| "MEDIA_EXPORT_TOO_LARGE"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
