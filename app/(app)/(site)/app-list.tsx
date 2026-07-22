@@ -17,20 +17,15 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
-import { roleIsOwner } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
-import { listUserProjects, projectOwnerId } from "@/lib/projects/membership";
-import {
-	canMoveAppsFrom,
-	eligibleMoveTargets,
-	type MoveTarget,
-} from "@/lib/projects/moveTargets";
+import { listUserProjects } from "@/lib/projects/membership";
+import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
 
 interface AppListProps {
 	/** Active Project id (Better Auth organizationId) — the tenancy scope. */
 	projectId: string;
-	/** Signed-in user — resolves which Projects an app may move into. */
+	/** Signed-in user — resolves their role in the active Project. */
 	userId: string;
 }
 
@@ -49,36 +44,14 @@ export async function AppList({ projectId, userId }: AppListProps) {
 		listUserProjects(userId),
 	]);
 
-	/* `canMove` — whether the user is admin/owner of the active Project (the bar
-	 * to move an app out of it); it drives whether the move menu appears at all
-	 * (even with no destinations, the menu shows an empty-state hint so a user with
-	 * only their personal Project can discover the path). `moveTargets` — the
-	 * eligible destinations: the admin/owner candidate list, refined by the move's
-	 * owner-protection rule (mirrored from the Server Action) when the caller isn't
-	 * the source owner — so the picker never offers a destination the move refuses. */
+	/* Admins/owners retain the old placement affordance while cross-Project moves
+	 * are temporarily unavailable. It is now an informational popover, not a target
+	 * picker, so the page deliberately performs no destination or owner-membership
+	 * reads that could imply an available move. */
 	const active = projects.find((p) => p.id === projectId);
-	const canMove = Boolean(active && canMoveAppsFrom(active.role));
-	let moveTargets: MoveTarget[] = [];
-	if (active && canMove) {
-		const candidates = eligibleMoveTargets(projects, projectId);
-		if (roleIsOwner(active.role)) {
-			moveTargets = candidates;
-		} else {
-			// Non-owner admin: keep only destinations the source Project's owner is
-			// also a member of (the owner must not lose access). One indexed read of
-			// the owner's Projects (cached), intersected in memory — not a query per
-			// candidate. Only on the less-common admin-moving-a-shared-app path.
-			const ownerId = await projectOwnerId(projectId);
-			if (!ownerId) {
-				moveTargets = candidates;
-			} else {
-				const ownerProjectIds = new Set(
-					(await listUserProjects(ownerId)).map((p) => p.id),
-				);
-				moveTargets = candidates.filter((c) => ownerProjectIds.has(c.id));
-			}
-		}
-	}
+	const showProjectMoveInfo = Boolean(
+		active && canManageAppPlacement(active.role),
+	);
 
 	return (
 		<>
@@ -98,8 +71,7 @@ export async function AppList({ projectId, userId }: AppListProps) {
 			<AppListBody
 				active={activeRes.apps}
 				deleted={deletedRes.apps}
-				canMove={canMove}
-				moveTargets={moveTargets}
+				showProjectMoveInfo={showProjectMoveInfo}
 			/>
 		</>
 	);

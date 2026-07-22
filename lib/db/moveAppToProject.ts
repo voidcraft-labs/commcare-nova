@@ -23,19 +23,23 @@
 // The one transient is the destination briefly seeing the app before its cases
 // arrive (it's mid-move), which closes the instant C runs and self-heals on re-run.
 //
-// Authorization is the Server Action's job (admin/owner of BOTH Projects, plus
-// owner-protection: a non-owner of the source may only target a Project the
-// source owner also belongs to); this orchestrator trusts its caller and only
-// guards data-shape preconditions (already-moved, source drift, mid-generation,
-// trashed).
+// S01 TEMPORARY POLICY: every true cross-Project request is rejected at this
+// boundary before media copying. The Server Action performs the same policy
+// check after source authorization, but the orchestrator owns an independent
+// guard so another server caller cannot bypass it. Exact same-Project calls keep
+// the idempotent case-row reconciliation path for historical partial moves.
 
 import { retenantAppCases } from "@/lib/case-store";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { asWalkableDoc, collectMovableAssetRefs } from "@/lib/domain/mediaRefs";
 import { log } from "@/lib/logger";
 import { copyAssetsIntoProject } from "@/lib/media/moveMedia";
+import {
+	appProjectMovePolicy,
+	CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
+	CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
+} from "@/lib/projects/moveTargets";
 import { commitAppProjectMove, loadApp } from "./apps";
-import type { AppDoc } from "./types";
 
 /** The app is mid-generation; a move would race the build's blueprint writes. */
 export class AppBusyError extends Error {
@@ -45,21 +49,26 @@ export class AppBusyError extends Error {
 	}
 }
 
+/** Defense-in-depth refusal for the temporary S01 cross-Project move block. */
+export class CrossProjectAppMoveBlockedError extends Error {
+	readonly name = "CrossProjectAppMoveBlockedError";
+	readonly code = CROSS_PROJECT_MOVE_UNAVAILABLE_CODE;
+
+	constructor() {
+		super(CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE);
+	}
+}
+
 /**
- * The app doc + media flipped to the destination, but re-tenanting the Postgres
- * case rows then failed (a sustained Cloud SQL outage outlasting the retries).
- * The app HAS moved; its case rows are stranded in the source Project but intact
- * and recoverable — re-running the move (the re-tenant is idempotent and keyed by
- * app_id, so any later move of the app reconciles them). Distinct from a clean
- * failure so the Server Action can tell the user the app moved rather than a
- * misleading "couldn't move."
+ * Re-tenanting the Postgres case rows failed after all retries. During S01 the
+ * only reachable path is an exact same-Project recovery, so the rows remain
+ * intact and retryable; the type lets the Server Action give specific recovery
+ * guidance without claiming that a move occurred.
  */
 export class CaseDataStrandedError extends Error {
 	readonly name = "CaseDataStrandedError";
 	constructor() {
-		super(
-			"App moved, but its case data could not be synced to the destination.",
-		);
+		super("App case data could not be synced to its Project.");
 	}
 }
 
@@ -85,20 +94,24 @@ const MAX_RETENANT_ATTEMPTS = 3;
 const RETENANT_RETRY_DELAY_MS = 250;
 
 /**
- * Move `appId` from `fromProjectId` to `toProjectId`, re-tenanting its case data
- * and media to match. Idempotent: a re-run after any partial failure converges
- * (media dedups on the destination, the flip no-ops once the doc is at the
- * destination, and the case re-tenant always reconciles the rows to the doc).
+ * Reconcile the app's tenant state. S01 permits only exact same-Project recovery;
+ * the dormant cross-Project saga remains below for S02 to replace with its
+ * reference-aware admission rule.
  */
 export async function moveAppToProject(args: {
 	appId: string;
 	fromProjectId: string;
 	toProjectId: string;
 	actorUserId: string;
-	/** Pre-loaded by the Server Action's source authz, to skip a re-read. */
-	app?: AppDoc;
 }): Promise<void> {
-	const app = args.app ?? (await loadApp(args.appId));
+	const policy = appProjectMovePolicy(args.fromProjectId, args.toProjectId);
+	if (policy.kind === "cross_project_blocked") {
+		// This must precede every load/copy/commit side effect. The action's check is
+		// the user-facing gate; this one protects all present and future server calls.
+		throw new CrossProjectAppMoveBlockedError();
+	}
+
+	const app = await loadApp(args.appId);
 	if (!app) {
 		throw new Error(`[moveAppToProject] app not found: ${args.appId}`);
 	}
@@ -213,12 +226,11 @@ export async function moveAppToProject(args: {
 			}
 		}
 	}
-	// The flip already committed, so the app is at its destination but its case
-	// rows are not. Log loudly (recoverable — any later move re-runs this) and
-	// raise the typed error so the caller reports "moved, sync failed" rather than
-	// a misleading "couldn't move."
+	// Rows remain intact and a same-Project retry re-runs this idempotent repair.
+	// Log loudly, then raise the typed error so the caller can give specific
+	// recovery guidance without claiming a cross-Project move succeeded.
 	log.error(
-		"[moveAppToProject] case re-tenant failed after the project flip; case rows stranded",
+		"[moveAppToProject] case re-tenant failed after retries; case rows remain intact",
 		caseErr,
 		{ appId: args.appId, toProjectId: args.toProjectId },
 	);

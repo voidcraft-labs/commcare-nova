@@ -160,6 +160,47 @@ export function keysBetween(
 }
 
 /**
+ * `count` ascending keys in (`lo`, `hi`), minted as a balanced bisection tree.
+ *
+ * `keysBetween` intentionally preserves its historic left-to-right insertion
+ * behavior: it is ideal for small multi-item gestures, but an unbounded append
+ * run grows one digit per item. Bulk replacement needs a different shape — a
+ * 5,000-row import must not manufacture a 5,000-character tail key. This helper
+ * bisects the interval recursively, writes each midpoint into its final sorted
+ * array slot, and therefore keeps depth logarithmic while preserving input
+ * order (`items[i]` takes `keys[i]`).
+ *
+ * Empty for `count <= 0`. A positive count must be a safe integer and inherits
+ * `keyBetween`'s ordered-interval precondition.
+ */
+export function balancedKeysBetween(
+	lo: string | null,
+	hi: string | null,
+	count: number,
+): string[] {
+	if (count <= 0) return [];
+	if (!Number.isSafeInteger(count)) {
+		throw new RangeError("balancedKeysBetween count must be a safe integer");
+	}
+	const keys = new Array<string>(count);
+	const fill = (
+		start: number,
+		end: number,
+		lower: string | null,
+		upper: string | null,
+	) => {
+		if (start >= end) return;
+		const middle = start + Math.floor((end - start) / 2);
+		const key = keyBetween(lower, upper);
+		keys[middle] = key;
+		fill(start, middle, lower, key);
+		fill(middle + 1, end, key, upper);
+	};
+	fill(0, count, lo, hi);
+	return keys;
+}
+
+/**
  * `count` keys for a NEW run landing at `slotIndex` in a list whose existing
  * keys are `sortedKeys` (ASCENDING). The interval is the slot's neighbors —
  * `sortedKeys[slotIndex - 1]` and `sortedKeys[slotIndex]` — EXCEPT when those

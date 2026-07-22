@@ -1,7 +1,7 @@
 # lib/db — the app-state data layer (Postgres) + the two-ledger credit model
 
 Everything Nova persists about apps, runs, credits, threads, media metadata,
-and settings lives in Postgres tables on the shared Cloud SQL pool. `pg.ts`
+lookup tables, and settings lives in Postgres tables on the shared Cloud SQL pool. `pg.ts`
 owns the wire: `getAppDb()` (a `Kysely<AppDatabase>` on the pool
 `lib/case-store/postgres/connection.ts` owns), `withAppTx` (the one
 transaction entry point — bounded deadlock/serialization retry; a body re-runs
@@ -46,6 +46,17 @@ endpoint SELECT since their cursor, so a missed notification degrades to the
 next poke/catch-up, never to lost data. The dedicated LISTEN connection lives
 in `streamListener.ts` (one per instance, outside the pool — see the
 connection budget in `lib/case-store/postgres/connection.ts`).
+
+**Lookup data uses snapshot invalidation, not mutation replay.**
+`lookup_project_state.revision` is the commit-ordered Project clock;
+definition and row revisions on each lookup table form its optimistic token.
+Every lookup writer locks the Project-state row first and its table row second,
+updates the service-maintained counts/bytes, then calls the transactional
+`notifyLookupProject` helper. S01a emits `nova_lookup_stream`; S01b adds that
+channel to the existing dedicated listener. There is no lookup revision log:
+catch-up replaces the complete manifest (and an opened table's complete body)
+from a consistent snapshot. The SQL and value rules live in `lib/lookup`, which
+is the only lookup write boundary.
 
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)

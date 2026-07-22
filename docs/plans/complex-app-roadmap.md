@@ -1,7 +1,8 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-21 against Nova
-> `db954a15`. This file owns execution order, product decisions, slice status, and
+> `db954a15`; S01 was re-audited 2026-07-21 against `3aa306d7`. This file
+> owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
 > executable instructions.
@@ -337,8 +338,8 @@ compiler verification remains serialized with other wire slices.
 
 | Slice | Deliverable | Depends on | Status | Legacy evidence |
 |---|---|---|---|---|
-| S00 | Roadmap rebaseline | — | review | execution index + all PR plans |
-| S01 | Lookup persistence and realtime | S00 | planned | PR-02, F5 |
+| S00 | Roadmap rebaseline | — | shipped | execution index + all PR plans |
+| S01 | Lookup persistence and realtime | S00 | in progress | PR-02, F5 |
 | S02 | External validation context and exact references | S01 | blocked | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02 | blocked | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02 | blocked | PR-01/03, F4 |
@@ -378,23 +379,302 @@ and cleanup path.
 
 ### S01 — lookup persistence and realtime
 
-Create Project-scoped Postgres definitions, stable table/column/row UUIDs, rows,
-revisions, indexes, authorization, transactional writes, and LISTEN/NOTIFY
-catch-up through one `lib/lookup` service boundary. Viewers read; editors manage
-rows and additive schema/display labels; admin or owner authority is required for
-wire-identity changes and destructive schema operations. Destructive operations
-remain disabled until S02 exact references exist.
+Readiness was frozen 2026-07-21 against Nova `3aa306d7` after independent audits
+of the migration owner, `AppDatabase`, Project authorization, Better Auth Project
+deletion, the app-move saga, the dedicated listener's exact-fit connection budget,
+the builder EventSource cursor, the Server Action body boundary, and fractional
+ordering. Worktree `agent/s01-lookup-persistence` owns S01a. The frozen contract
+passed `ready` and moved immediately to `in progress` when that branch claimed
+it; delegation remains bounded by the review units below. S01a ships and its
+branch/worktree is cleaned before S01b is cut fresh from the merged `main`, so
+the two review units never form a stacked-branch dependency.
 
-Acceptance includes tenant isolation, Project-member role matrix, concurrent tag
-uniqueness, atomic CSV coercion/errors, deterministic `(order, stable row UUID)` order,
-revision catch-up, the 5,000-row per-table cap, and app-Project move behavior
-explicitly blocked until S02. S05 owns the aggregate embedded-fixture budget,
-because only that slice can calculate the complete referenced artifact.
+S01 is delivered as two review units so persistence/authorization and long-lived
+stream behavior are independently understandable and leak-gated:
 
-Before changing S01 to `ready`, re-audit the current migration registry, Project
-role helpers, LISTEN connection budget, app-move path, and server-action boundary;
-then replace this readiness note with exact files, DDL, API signatures, migration
-and rollback behavior, and focused test commands.
+1. **S01a — storage and write boundary:** additive migration, `lib/lookup`, typed
+   actions, raw CSV import route, authorization, Project lifecycle guards, the
+   temporary move UX, the lookup channel constant plus transactional notify
+   helper/writes, and pure/integration tests. Shipping writes before readers is
+   safe because Postgres notifications are transient and the old revision ignores
+   the unknown channel.
+2. **S01b — realtime relay:** LISTEN/fan-out for the fourth channel on the one
+   existing listener, lookup manifest pokes on the existing builder EventSource,
+   reconnect/read-retry hardening, and stream lifecycle tests. The future zero-app
+   Project-data route is deferred to S09; the builder never opens a second
+   EventSource.
+
+#### Persistence and identity
+
+Migration `20260722053000_lookup_tables` is registered in the static case-store
+migration provider and adds these Project-scoped app-state tables. Their Kysely
+types live in `AppDatabase` (`lib/db/pg.ts`), never the case-runtime-only
+`lib/case-store/sql/database.ts`. Case-store migrations run before Better Auth
+creates its schema, so none of these tables foreign-key to `auth_organization`.
+
+- `lookup_project_state`: `project_id text` primary key,
+  `revision bigint not null default 0 check (revision >= 0)`, and millisecond
+  `updated_at`. The row survives an empty Project and its clock never resets.
+- `lookup_tables`: composite primary key `(project_id, id)` with server-defaulted
+  UUIDv7 `id`; exact, case-sensitive unique `(project_id, tag)`; nonblank display
+  `name`; nonnegative `definition_revision` and `rows_revision`; `row_count`
+  constrained to `0..5000`; `column_count` constrained to `1..250`;
+  `data_bytes` constrained to `0..8388608`; actor attribution; and millisecond
+  timestamps. Table list order is
+  `(lower(name), id)`; S01 persists no manual table order.
+- `lookup_columns`: composite primary key `(project_id, table_id, id)`, UUIDv7
+  identity, `wire_name`, display `label`, scalar `data_type`, and fractional
+  `order_key collate "C"`; composite cascading table foreign key, exact
+  per-table wire-name uniqueness, and `(project_id, table_id, order_key, id)`
+  index. The scalar set is `text | int | decimal | date | time | datetime`.
+- `lookup_rows`: composite primary key `(project_id, table_id, id)`, UUIDv7
+  identity, `order_key collate "C"`, UUID-keyed `values jsonb`, actor
+  attribution, millisecond timestamps, and `value_bytes integer generated always
+  as (octet_length(values::text)) stored` constrained to `0..262144`; the same
+  composite table foreign key, JSON-object check, and deterministic order index.
+
+Tags are 1–32 ASCII characters matching `[A-Za-z_][A-Za-z0-9_]*` and may not
+start with `xml` in any case. Column wire names use the same wire-safe grammar
+with a 255-character Nova cap. Table display names and column labels are trimmed
+to 1–120 characters. A table has 1–250 columns. Creation is atomic with at least
+one initial column; S01 has no empty schema/draft state. Order keys contain only
+Nova's base-62 alphabet, are nonempty/canonical (no trailing zero), are minted by
+the server, and compare
+under Postgres `C` collation exactly as they do in JavaScript. Full replacements
+use a reusable balanced midpoint generator rather than the current sequential
+5,000-key chain. Reads always order by `(order_key, stable UUID)`.
+
+Row values key by immutable column UUID, never `wire_name`. A missing key means a
+missing cell; JSON null, booleans, arrays, objects, and unknown column UUIDs are
+invalid. Empty text remains representable through typed row writes. Integer is a
+canonical signed base-10 int4; decimal is a canonical finite JSON number; temporal
+strings reuse the strict date/time/date-time schemas already used by case data.
+Every string cell is at most 65,536 UTF-8 bytes, every stored row is at most
+262,144 bytes by its generated canonical JSONB text size, and the sum of
+`value_bytes` in one table is at most 8 MiB. `data_bytes` is maintained exactly
+under the locked table row on create/update/delete/replacement, so concurrent
+writes cannot cross the cap; deleting or shrinking rows returns capacity. These
+limits apply identically to typed writes and CSV replacement. S01 permanently
+owns storage/import coercion; S05 owns expression and export semantics for
+missing versus empty values and cannot reinterpret persisted row values. Writers
+derive row deltas and replacement totals from SQL `returning value_bytes`; they
+never estimate Postgres JSONB text size with `JSON.stringify` or `TextEncoder`.
+Typed writes reject NUL and unpaired UTF-16 surrogates as `invalid_input` before
+Postgres sees them.
+
+`column_count` is likewise service-maintained under the locked table row: table
+creation writes the validated initial count and its child columns atomically, and
+add-column increments it only with the successful insert. S01 has no decrementing
+operation. The count is not a trigger-maintained parallel authority; `lib/lookup`
+is the only write boundary, matching the existing `row_count`/`data_bytes`
+contract.
+
+#### Revisions and transactions
+
+`lookup_project_state.revision` is the sole Project-wide invalidation clock. Every
+successful public mutation runs through `withAppTx`, locks or creates that Project
+state row first, locks its table row second, validates against the locked current
+definition, advances the Project clock exactly once, stamps the affected table
+axis, updates `row_count` and `data_bytes`, and issues the S01a-owned `pg_notify`
+helper inside the same transaction. Rejected and semantic no-op writes advance
+nothing and notify nobody. The Project lock makes revisions commit-ordered;
+unrelated Projects remain parallel.
+
+Creation stamps both table axes. Definition/display/column/order mutations stamp
+`definition_revision`; row create/update/delete/move/replacement stamps
+`rows_revision`. `tableRevision = max(definitionRevision, rowsRevision)` is the
+single optimistic token for every S01 table mutator. This deliberately conflicts
+simultaneous schema and row edits on one table; the Project revision is not a
+write-conflict token. All revision values are canonical nonnegative decimal
+strings in the signed-int64 range `0..9223372036854775807` on application wires and
+notification payloads, never JavaScript numbers or JSON `bigint`s and never
+lexically compared.
+
+Catch-up is level-triggered authoritative snapshot replacement, not event replay.
+`getLookupManifest` returns one consistent snapshot containing the Project
+revision and the complete current table UUID set with definition/rows revisions
+plus column/row/data-byte counts. `getLookupTable` returns the definition, those counts,
+and complete ordered row body from the same snapshot. Reads use one SQL-statement snapshot or a read-only
+`REPEATABLE READ` transaction; ordinary multi-query `READ COMMITTED` snapshots
+are forbidden because they can pair data N with revision N+1 and leave a client
+permanently stale. S01 has no `lookup_revisions` log and no incremental
+`listChanges` API. A future S02 hard delete advances the Project clock and appears
+as absence from the complete manifest; stable UUIDs are never reused.
+
+#### Authorization and service surface
+
+`lib/lookup` is the only lookup persistence boundary. Every resource query is
+structurally scoped by `(project_id, id)`; a missing UUID and a foreign-Project
+UUID are the same not-found result. Browser calls send the Project ID displayed
+by their URL/session state and authorize that exact ID freshly; a write never
+re-derives the mutable active Project and silently falls back elsewhere.
+`created_by`/`updated_by` are attribution, never access gates.
+
+The existing Project capability map remains the only role authority:
+
+| Operation | Capability | Roles |
+|---|---|---|
+| Manifest/table/row reads and realtime | `view` | member, viewer, editor, admin, owner |
+| Create table/column with initial identity; display/label/order edits; all row operations and CSV replacement | `edit` | editor, admin, owner |
+| Change an established table tag or column wire name | `delete` | admin, owner |
+| Retype/remove a column or delete a table | unavailable in S01 | nobody |
+
+The server-only service exposes consistent-snapshot reads; create/update table
+display/identity; add/update/move columns; create/update/delete/move rows; and
+atomic row replacement. It exports no destructive-schema operation. Thin
+`"use server"` actions authenticate, runtime-parse all untrusted arguments,
+freshly resolve the explicit Project capability, and return discriminated results;
+they contain no database logic. S02 adds exact-reference locking before it makes
+retype, removal, or table deletion constructible.
+
+The exact S01 service surface is:
+
+```ts
+getLookupManifest(scope)
+getLookupTable(scope, tableId)
+createLookupTable(scope, { name, tag, columns })
+updateLookupTableName(scope, { tableId, expectedTableRevision, name })
+updateLookupTableTag(scope, { tableId, expectedTableRevision, tag })
+addLookupColumn(scope, { tableId, expectedTableRevision, column })
+updateLookupColumnLabel(scope, { tableId, columnId, expectedTableRevision, label })
+updateLookupColumnWireName(scope, { tableId, columnId, expectedTableRevision, wireName })
+moveLookupColumn(scope, { tableId, columnId, expectedTableRevision, toIndex })
+createLookupRow(scope, { tableId, expectedTableRevision, toIndex, values })
+updateLookupRow(scope, { tableId, rowId, expectedTableRevision, values })
+deleteLookupRow(scope, { tableId, rowId, expectedTableRevision })
+moveLookupRow(scope, { tableId, rowId, expectedTableRevision, toIndex })
+replaceLookupRows(scope, { tableId, expectedTableRevision, rows })
+```
+
+`scope` is constructed server-side from fresh Project access and carries the
+actor, exact Project, and resolved role. Target indices are integers; clients
+never submit order keys. `values` is a full UUID-keyed row, not a patch.
+Table creation returns its table snapshot. Add-column and create-row return the
+server-minted stable resource UUID alongside the Project revision,
+definition/rows revisions, and derived table revision; every other mutation
+returns that revision receipt. A caller never waits for a realtime poke to learn
+the identity it just created. Expected-revision drift returns the current
+revisions without writing. Action results use stable codes
+`unauthenticated | invalid_input | not_found | conflict | tag_taken | row_limit |
+storage_limit | internal_error`; insufficient roles and nonmembership follow the
+existing opaque `not_found` wire posture. The import route additionally returns
+`invalid_csv` with structured details.
+
+`replaceLookupRows` is server-only and intentionally has no Server Action
+wrapper. The raw CSV route calls it directly after authentication, exact-Project
+authorization, byte validation, parsing, and coercion; no browser can submit a
+pre-parsed replacement array through the Server Action body path.
+
+#### CSV boundary
+
+CSV replacement is
+`POST /api/projects/[projectId]/lookup/tables/[tableId]/import?expectedTableRevision=<decimal>` with raw
+`text/csv; charset=utf-8`, not a Server Action, parsed rows, multipart, or a raised
+global action-body limit. The route is main-host-only through the `/api/projects`
+allowlist. It rejects a declared oversize before buffering, authorizes the exact
+Project before parsing, checks actual bytes after buffering, and decodes UTF-8
+fatally. Constants are 5,000 rows per table, 8 MiB per CSV, and at most 100
+returned validation details while retaining the total count. The raw-file cap is
+separate from the 64 KiB cell, 256 KiB stored-row, and 8 MiB stored-table limits;
+an import must satisfy all four.
+
+The parser accepts RFC-4180 commas, CRLF/LF, quoted separators/newlines, doubled
+quotes, one leading UTF-8 BOM, and one final empty record caused by a trailing
+newline. It rejects NUL, invalid UTF-8, unterminated quotes, interior blank rows,
+inconsistent widths, and empty/duplicate/unknown/missing headers. Headers match
+current column wire names exactly and resolve immediately to immutable UUIDs.
+Source row numbers are one-based including the header. Empty CSV cells omit the
+UUID key; nonempty text preserves whitespace exactly. Parsing, all coercion, and
+error collection finish before the write transaction; the transaction then
+requires the submitted `tableRevision`, re-reads the locked definition, and
+revalidates before replacing anything. Any error or drift writes nothing and
+emits no revision. Full replacement mints fresh row UUIDv7s and balanced keys in
+file order; it never guesses identity from content or position.
+
+#### Realtime, Project lifecycle, and rollout
+
+S01a defines and emits `nova_lookup_stream` with payload
+`{"projectId":"...","revision":"17"}` to the one process-wide dedicated
+listener; S01b adds that channel to the listener's LISTEN set.
+`subscribeLookupProject` fans Project pokes out in memory; notifications remain
+wake-ups only. Listener reconnect serializes bounded closure of the old client
+before opening its replacement, so transient overlap cannot exceed the exact
+Cloud SQL connection budget. No second `pg.Client` is introduced.
+
+The existing `/api/apps/[id]/stream` subscribes to the app's resolved Project
+before its initial manifest read and emits `event: lookup-revision` with the full
+manifest but **no `id:` line**. `Last-Event-ID` remains exclusively the app
+mutation sequence. Pokes coalesce; a poke during a read schedules one follow-up;
+a failed lookup-manifest read schedules a bounded unref'ed retry rather than
+waiting forever for another notification. S01b applies the same retry contract to
+the existing mutation pump: a failed accepted-mutation catch-up SELECT must retry
+without requiring another commit, poke, or reconnect. Abort and stream-cancel
+teardown clear both retry timers and both subscriptions. Reconnect pokes every
+lookup subscriber, which re-reads the current manifest, so revision jumps are
+expected and lossless.
+
+Every true cross-Project app move is temporarily blocked in both the Server
+Action, after source authorization, and the orchestrator, before media copying.
+Same-Project calls retain the idempotent case-retenant recovery path. Lookup
+resources are never copied or re-tenanted with an app. The existing move
+affordance remains keyboard/touch discoverable as an informational popover with a
+plain explanation that the app and shared data remain in their current Project;
+it does not masquerade as an enabled move or rely on a disabled control's hover
+tooltip. The target is at least 48 CSS pixels and uses existing semantic tokens,
+visible focus, sentence case, and no new decorative motion. S02 replaces the
+global block with the exact-edge rule: zero lookup references allows the move;
+any reference blocks with actionable resource information under S02's lock order.
+
+Project deletion is globally unavailable in the runtime Better Auth organization
+plugin through `disableOrganizationDeletion: true`. This rejects both HTTP and
+typed API deletion before session state or tenant data changes; it is not
+conditional on lookup presence. The installed conditional hook clears the active
+Project before it can veto and cannot close creation/deletion races. Deletion may
+return only through a separately reviewed whole-tenant lifecycle covering apps
+and history, cases and parked values, media metadata and GCS bytes, lookup data,
+membership/session state, recovery, audit, and concurrent writes. S02 does not
+implicitly re-enable it.
+
+The migration is additive with no backfill. The prior Cloud Run revision ignores
+the new tables and channel; the new revision starts only after the blocking
+migration Job succeeds. Production rollback redeploys old code and leaves schema,
+Project clocks, and Kysely ledger intact. `down` is local/test teardown only, in
+child-to-parent order. Shipped migration code is immutable. The S01 move block
+must be live before S02 makes lookup references constructible.
+
+#### Files and verification
+
+S01a adds the migration; `lib/lookup/{CLAUDE,types,constants,errors,schema,
+coercion,csv,service,actions}.ts`; the raw import route; the lookup channel
+constant and transactional notification helper; and focused tests. It
+updates the migration registry, `AppDatabase`, the balanced order helper, root
+and nearest subsystem guidance, Project-delete configuration/comments, app-move
+policy/action/presentation copy, the main-host allowlist/proxy contracts, and this
+roadmap. S01b updates the shared listener's LISTEN/fan-out behavior, app stream
+relay, collaboration guidance, and their tests. Public authoring docs wait for S09
+because S01 exposes no table-authoring UI.
+
+Run all pure and Postgres-focused S01a tests in one Vitest invocation so the
+16 GB machine boots one test container; include fresh migration/constraints,
+tenant isolation, every role/operation, duplicate-tag concurrency, revision/no-op/
+rollback, 4,999/5,000/5,001 plus concurrent row/byte-cap writes, exact cell/row/
+table/column boundaries with capacity recovery, deterministic ordering, UUID
+preservation/replacement, every coercion/blank rule, atomic CSV errors and
+stale-schema conflict, route byte/auth/host gates, move-before-copy plus same-home
+recovery, and deletion-without-session-mutation. Run typecheck and scoped lint,
+then one affected async-leak pass. Interactively verify the temporary move state
+at desktop and compact widths with pointer and keyboard before publication.
+
+S01b's single focused invocation covers Project-filtered fan-out, coalesced
+commits, forced listener disconnect plus a commit in the gap, serialized client
+replacement, transient manifest-read retry, transient accepted-mutation-read
+retry without a new poke, seq-less lookup frames preserving the mutation cursor,
+revocation, abort-only/cancel-only cleanup, idempotent unsubscribe, the one-listener/
+pool-size budget, and snapshot convergence. Then run typecheck, scoped lint, and
+one stream/timer/DB async-leak pass. Each review unit separately receives diff
+inspection, independent agent review, green CI, squash merge, blocking migration/
+Cloud Run follow-through, production probes/error check, and branch/worktree
+cleanup. S05 still owns the aggregate embedded-fixture budget.
 
 ### S02 — external validation context and exact references
 
@@ -440,9 +720,11 @@ select sources, deterministic embedded fixtures, and the complete web/MCP export
 matrix. Local CCZ may embed supported fixtures; HQ-target JSON/upload remains
 blocked until S20 can push the referenced resources.
 
-Define blank/missing/null cells, duplicate or blank option values, CSV types,
-no-match reads, answer-dependent filters, repeat scope, dependency cycles, and
-definition-plus-row snapshot consistency.
+Define wire/expression behavior for S01's already-frozen stored blank/missing/null
+cells and scalar types, plus duplicate or blank option values, no-match reads,
+answer-dependent filters, repeat scope, dependency cycles, and definition-plus-row
+snapshot consistency. S05 may reject an unrepresentable use at validation/export,
+but cannot change S01 import coercion or reinterpret stored rows.
 
 S05 also owns the aggregate embedded-fixture budget across every table an app
 references. Before the slice becomes `ready`, pin a row-and-byte limit against
@@ -573,7 +855,12 @@ can occur only after import, its failure leaves the deployment explicitly
 `incomplete` and withholds `released`/`runnable` status. Never store plaintext
 credentials. Specify username conflict, temporary-secret, update/adoption,
 archive, and partial-failure behavior. Lift HQ export guards only when required
-resources and ordering are verified end to end.
+resources and ordering are verified end to end. HQ's lookup-table detail REST PUT
+rejects an established tag change even though the storage model and legacy UI can
+rename it; therefore a Nova tag rename must use an explicitly preflighted
+replacement/adoption workflow, never an in-place REST PUT. Do not route through
+the legacy Manage Tables endpoint, whose tag-length check is narrower than HQ's
+32-character model/API bound.
 
 ### S21 — App setup UI, SA, MCP, and docs
 
@@ -617,6 +904,13 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-21 — S01 readiness:** Re-audited lookup persistence against the
+  Postgres app-state store, Project roles/lifecycle, app-move saga, Server Action
+  limit, order-key implementation, shared listener, and builder stream. Froze the
+  Project-clock/full-snapshot revision model, UUID-keyed row values, raw CSV
+  contract, role matrix, temporary move experience, global Project-deletion guard,
+  rolling-deploy behavior, and two review units; S00 is production-verified and
+  S01 is now owned in progress.
 - **2026-07-21 — S00:** Replaced the stale fifteen-PR execution model after the
   Firestore-to-Postgres migration and subsequent builder, mutation, data-review,
   agent, and deployment changes. Recorded the approved identity, persona,

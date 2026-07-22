@@ -351,6 +351,16 @@ describe("proxy: commcare.app (main) routing", () => {
 		expectBypassPassthrough(res);
 	});
 
+	it("passes through Project lookup imports on the main host", () => {
+		const res = proxy(
+			req(
+				"commcare.app",
+				"/api/projects/project-1/lookup/tables/table-1/import",
+			),
+		);
+		expectBypassPassthrough(res);
+	});
+
 	it("passes through /api/auth/sign-in (short-circuit, no CSP, no auth redirect)", () => {
 		/* Better Auth's own endpoints must not be redirected to / when
 		 * the user is unauthenticated — that would loop sign-in itself. */

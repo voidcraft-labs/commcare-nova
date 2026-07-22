@@ -1,9 +1,9 @@
 // Kysely typing + handle for the app-state tables (`apps`,
 // `blueprint_entities`, `accepted_mutations`, `events`, `threads`,
-// `run_summaries`, `presence`, `user_settings`, the two monthly ledgers, and
-// media assets) — the storage layer behind every `lib/db` module. DDL lives in
-// `lib/case-store/migrations/20260708000000_app_state.ts`; the two must move
-// in lockstep.
+// `run_summaries`, `presence`, `user_settings`, the two monthly ledgers, media
+// assets, and Project-scoped lookup data) — the storage layer behind every
+// `lib/db` module. DDL lives in `lib/case-store/migrations/`; these types and
+// their owning migration must move in lockstep.
 //
 // Runs on the SHARED case-store pool (one pool per instance — the connection
 // budget in `lib/case-store/postgres/connection.ts`), the same pattern as
@@ -34,8 +34,18 @@ import { delay } from "@/lib/utils/delay";
 
 /** Server-set timestamp: read as `Date`, write as `Date`/ISO, omit when defaulted. */
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
-/** `bigint` columns come back from pg as strings; every reader `Number(...)`s. */
+/** Legacy `bigint` counters whose bounded readers intentionally `Number(...)`. */
 type BigIntColumn = ColumnType<string | number, number, number>;
+/** Lookup revisions stay exact decimal strings on every application boundary. */
+type LookupRevisionColumn = ColumnType<string, string, string>;
+/** Exact lookup revision with a database default, so INSERT may omit it. */
+type DefaultedLookupRevisionColumn = ColumnType<
+	string,
+	string | undefined,
+	string
+>;
+/** Server-defaulted UUIDv7 identity: optional on INSERT, immutable on UPDATE. */
+type DefaultedUuidV7Column = ColumnType<string, string | undefined, never>;
 
 export interface AppsTable {
 	id: string;
@@ -260,6 +270,64 @@ export interface MediaAssetRefsTable {
 	app_id: string;
 }
 
+export interface LookupProjectStateTable {
+	project_id: string;
+	/** Project-wide invalidation clock; never coerce to a JavaScript number. */
+	revision: DefaultedLookupRevisionColumn;
+	updated_at: Timestamp;
+}
+
+export interface LookupTablesTable {
+	project_id: string;
+	id: DefaultedUuidV7Column;
+	name: string;
+	tag: string;
+	/** Definition and row revisions are exact signed-int64 decimal strings. */
+	definition_revision: LookupRevisionColumn;
+	rows_revision: LookupRevisionColumn;
+	/** Maintained with child writes under the locked table row. */
+	column_count: number;
+	row_count: ColumnType<number, number | undefined, number>;
+	data_bytes: ColumnType<number, number | undefined, number>;
+	created_by: string;
+	updated_by: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+export type StoredLookupColumnDataType =
+	| "text"
+	| "int"
+	| "decimal"
+	| "date"
+	| "time"
+	| "datetime";
+
+export interface LookupColumnsTable {
+	project_id: string;
+	table_id: string;
+	id: DefaultedUuidV7Column;
+	wire_name: string;
+	label: string;
+	data_type: StoredLookupColumnDataType;
+	order_key: string;
+}
+
+export interface LookupRowsTable {
+	project_id: string;
+	table_id: string;
+	id: DefaultedUuidV7Column;
+	order_key: string;
+	/** UUID-keyed scalar cells; runtime validation owns the per-column shape. */
+	values: JSONColumnType<Record<string, string | number>>;
+	/** Postgres-generated `octet_length(values::text)`; never caller-written. */
+	value_bytes: ColumnType<number, never, never>;
+	created_by: string;
+	updated_by: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
@@ -275,6 +343,10 @@ export interface AppDatabase {
 	credit_grants: CreditGrantsTable;
 	media_assets: MediaAssetsTable;
 	media_asset_refs: MediaAssetRefsTable;
+	lookup_project_state: LookupProjectStateTable;
+	lookup_tables: LookupTablesTable;
+	lookup_columns: LookupColumnsTable;
+	lookup_rows: LookupRowsTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;
@@ -337,16 +409,17 @@ export async function withAppTx<T>(
 // ── Realtime pokes ──────────────────────────────────────────────────
 //
 // LISTEN/NOTIFY carries only the POKE — `(appId, seq)` for a committed batch,
-// `(appId)` for a presence change. Payloads are capped at 8000 bytes by
-// Postgres, so the data itself never rides the channel: the relay SELECTs
-// rows since its cursor on each poke. A NOTIFY issued inside a transaction is
-// delivered only on commit, which is exactly the ordering the stream needs.
+// `(appId)` for a presence change, `(projectId, revision)` for lookup
+// invalidation. Payloads are capped at 8000 bytes by Postgres, so the data
+// itself never rides the channel: relays SELECT authoritative rows on each
+// poke. A NOTIFY issued inside a transaction is delivered only on commit,
+// which is exactly the ordering the streams need.
 
-/** One channel for committed mutation batches, one for presence churn, one
- *  for chat-stream chunk flushes. */
+/** One channel per poke kind, all consumed by the shared dedicated listener. */
 export const APP_STREAM_CHANNEL = "nova_app_stream";
 export const PRESENCE_CHANNEL = "nova_presence";
 export const CHAT_STREAM_CHANNEL = "nova_chat_stream";
+export const LOOKUP_STREAM_CHANNEL = "nova_lookup_stream";
 
 /** Poke the stream channel from INSIDE the commit transaction. */
 export async function notifyAppStream(
@@ -355,6 +428,18 @@ export async function notifyAppStream(
 	seq: number,
 ): Promise<void> {
 	await sql`SELECT pg_notify(${APP_STREAM_CHANNEL}, ${JSON.stringify({ appId, seq })})`.execute(
+		tx,
+	);
+}
+
+/** Poke lookup subscribers from INSIDE the mutation transaction. Revisions
+ * stay strings so JSON never rounds a signed-int64 value. */
+export async function notifyLookupProject(
+	tx: Transaction<AppDatabase>,
+	projectId: string,
+	revision: string,
+): Promise<void> {
+	await sql`SELECT pg_notify(${LOOKUP_STREAM_CHANNEL}, ${JSON.stringify({ projectId, revision })})`.execute(
 		tx,
 	);
 }

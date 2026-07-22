@@ -28,6 +28,7 @@ import * as openaiModelIds from "./20260719000000_openai_model_ids";
 import * as dropActualCost from "./20260720000000_drop_actual_cost";
 import * as parkedCaseValues from "./20260721000000_parked_case_values";
 import * as setAsideReview from "./20260722000000_set_aside_review";
+import * as lookupTables from "./20260722053000_lookup_tables";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -45,6 +46,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260720000000_drop_actual_cost": dropActualCost,
 	"20260721000000_parked_case_values": parkedCaseValues,
 	"20260722000000_set_aside_review": setAsideReview,
+	"20260722053000_lookup_tables": lookupTables,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {
