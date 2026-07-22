@@ -167,9 +167,9 @@ function ToastItem({
  */
 export function ToastContainer() {
 	const store = useToasts();
-	useEffect(
-		() =>
-			toastStore.subscribeProjectScopeRetirement((activeScope) => {
+	useEffect(() => {
+		const unsubscribe = toastStore.subscribeProjectScopeRetirement(
+			(activeScope) => {
 				const activeKey = projectScopeDomKey(activeScope);
 				for (const element of document.querySelectorAll<HTMLElement>(
 					"[data-nova-project-toast-scope]",
@@ -183,9 +183,13 @@ export function ToastContainer() {
 					element.setAttribute("aria-hidden", "true");
 					element.style.setProperty("display", "none", "important");
 				}
-			}),
-		[],
-	);
+			},
+		);
+
+		return () => {
+			unsubscribe();
+		};
+	}, []);
 
 	return (
 		<div className="fixed top-4 right-4 z-system flex flex-col gap-2 pointer-events-none">

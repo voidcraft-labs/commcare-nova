@@ -252,7 +252,7 @@ function openStream(args: {
 	/* `start` populates this so `cancel` can tear down too — see the `cancel`
 	 * handler at the bottom. `teardown` is idempotent, so a double invocation
 	 * (abort + cancel) is safe. */
-	let teardownRef: (() => void) | null = null;
+	const teardownRef: { current: (() => void) | null } = { current: null };
 
 	let stream: ReadableStream<Uint8Array>;
 	try {
@@ -329,7 +329,7 @@ function openStream(args: {
 				}
 				/* Expose teardown to `cancel` (a consumer/platform `cancel()` that does
 				 * not also abort `req.signal`). */
-				teardownRef = teardown;
+				teardownRef.current = teardown;
 
 				/* A gap or a retention overrun means the browser can't rebuild from the
 				 * deltas it has — tell it to GET the fresh blueprint. `reload` is
@@ -646,14 +646,14 @@ function openStream(args: {
 			 * Runs the same idempotent teardown, so an abort+cancel pair is a no-op the
 			 * second time. */
 			cancel() {
-				teardownRef?.();
+				teardownRef.current?.();
 			},
 		});
 	} catch (err) {
 		/* `ReadableStream.start` runs during construction. If setup throws after
 		 * attaching any subscription, the installed teardown disowns everything;
 		 * an earlier throw still removes the already-committed lease exactly. */
-		if (teardownRef) teardownRef();
+		if (teardownRef.current) teardownRef.current();
 		else deleteLeaseBestEffort();
 		throw err;
 	}
@@ -661,7 +661,7 @@ function openStream(args: {
 	try {
 		return new Response(stream, { headers: STREAM_HEADERS });
 	} catch (err) {
-		if (teardownRef) teardownRef();
+		if (teardownRef.current) teardownRef.current();
 		else deleteLeaseBestEffort();
 		throw err;
 	}
