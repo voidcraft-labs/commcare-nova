@@ -1,6 +1,7 @@
 /**
  * ReconcilerProvider — owns the single session-scoped reconciler AND the
- * single `EventSource` onto the app's durable mutation + presence stream.
+ * single `EventSource` onto the app's durable mutation, presence, and lookup
+ * invalidation stream.
  *
  * Mounted inside the builder provider stack (below `BlueprintDocProvider` +
  * `BuilderSessionProvider`, so it reads both stores). It:
@@ -8,9 +9,10 @@
  *     real PUT / reload-GET / resubscribe / retry side effects as deps;
  *   - opens ONE `EventSource` to `/api/apps/{appId}/stream?since=<baseSeq>` and
  *     routes `mutation` / `reload` / `revoked` frames into the reconciler and
- *     `presence` frames to `subscribePresence` subscribers;
+ *     `presence` frames to `subscribePresence` subscribers and seq-less full
+ *     lookup manifests to `subscribeLookupManifest` subscribers;
  *   - re-opens the stream at the reload cursor when the reconciler reloads;
- *   - exposes the reconciler + `subscribePresence` via `ReconcilerContext`.
+ *   - exposes the reconciler + both subscriptions via `ReconcilerContext`.
  *
  * A brand-new build mounts DORMANT (no `appId`): no stream opens and human
  * PUTs are disabled until `data-app-id` activates the reconciler (via
@@ -26,6 +28,10 @@
 import { type ReactNode, useContext, useEffect, useMemo, useRef } from "react";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { ReconcilerContext } from "@/lib/collab/context";
+import {
+	createLookupManifestBroker,
+	type LookupManifestBroker,
+} from "@/lib/collab/lookupManifestFrame";
 import type { PresenceFrame } from "@/lib/collab/presenceTypes";
 import {
 	createReconciler,
@@ -38,6 +44,7 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
+import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { buildUrl } from "@/lib/routing/location";
 import { notifyPathChange } from "@/lib/routing/useClientPath";
@@ -75,6 +82,7 @@ interface ReconcilerRuntime {
 	 *  every dev session ignoring frames + discarding PUT outcomes forever. */
 	suspend: () => void;
 	readonly presenceSubs: Set<(roster: PresenceFrame) => void>;
+	readonly lookupManifestBroker: LookupManifestBroker;
 }
 
 export interface ReconcilerProviderProps {
@@ -98,6 +106,7 @@ function buildRuntime(
 ): ReconcilerRuntime {
 	const appIdBox: { current: string | undefined } = { current: init.appId };
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
+	const lookupManifestBroker = createLookupManifestBroker();
 	const retryTimers = new Set<ReturnType<typeof setTimeout>>();
 	let eventSource: EventSource | null = null;
 	/* True between the mount effect's `start` and its `suspend` cleanup. Gates
@@ -189,6 +198,9 @@ function buildRuntime(
 			} catch {
 				/* a malformed presence frame is best-effort — skip it. */
 			}
+		});
+		es.addEventListener("lookup-revision", (ev) => {
+			lookupManifestBroker.dispatch((ev as MessageEvent).data);
 		});
 		es.addEventListener("open", () => {
 			streamRetryAttempt = 0;
@@ -512,6 +524,7 @@ function buildRuntime(
 		activate,
 		suspend,
 		presenceSubs,
+		lookupManifestBroker,
 	};
 }
 
@@ -570,6 +583,8 @@ export function ReconcilerProvider({
 							runtime.presenceSubs.add(cb);
 							return () => runtime.presenceSubs.delete(cb);
 						},
+						subscribeLookupManifest: (cb: (manifest: LookupManifest) => void) =>
+							runtime.lookupManifestBroker.subscribe(cb),
 					}
 				: null,
 		[runtime],

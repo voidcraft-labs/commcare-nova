@@ -9,6 +9,9 @@
  *   - LIVE delivery: a `commitGuardedBatch` after the stream is open pokes
  *     `nova_app_stream`, the dedicated LISTEN connection dispatches it, and the
  *     route's pump SELECTs + emits the new batch — end-to-end NOTIFY delivery.
+ *   - Lookup delivery: the initial and poke-driven frames are complete Project
+ *     manifests with exact decimal revisions and NO SSE `id:` line, so they
+ *     cannot advance the mutation reconnect cursor.
  *   - Reload below retention: a cursor under `head − RETENTION_COUNT` emits
  *     `event: reload` and closes without replaying.
  *   - Reconnect via `Last-Event-ID`: the header sets the cursor, so a reconnect
@@ -95,16 +98,33 @@ process.env.NOVA_STREAM_CADENCE_MS = "150";
 
 const { GET } = await import("../route");
 const { POST: presencePost } = await import("../../presence/route");
-const { __setListenerConfigForTests, closeStreamListener } = await import(
-	"@/lib/db/streamListener"
+const { __setStreamReadTestHooksForTests } = await import(
+	"@/lib/db/streamReadTestHooks"
 );
+const {
+	__forceListenerDisconnectForTests,
+	__setListenerConfigForTests,
+	__setNextListenerCloseBarrierForTests,
+	closeStreamListener,
+	subscribeLookupProject,
+} = await import("@/lib/db/streamListener");
 const { createApp, commitGuardedBatch } = await import("@/lib/db/apps");
+const { createLookupTable } = await import("@/lib/lookup/service");
 
 const USER = "user-1";
 const OTHER_USER = "user-2";
 const PROJECT = "project-1";
+const OTHER_PROJECT = "project-2";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
 
 const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "stream_relay_" });
 
@@ -178,6 +198,36 @@ async function writePresence(
 			expire_at: new Date(now.getTime() + 60_000),
 		})
 		.execute();
+}
+
+/** Create one lookup table through the real transactional write + NOTIFY path. */
+async function writeLookupTable(projectId: string, tag: string): Promise<void> {
+	await createLookupTable(
+		{ projectId, actorId: USER, role: "editor" },
+		{
+			name: `Table ${tag}`,
+			tag,
+			columns: [{ wireName: "code", label: "Code", dataType: "text" }],
+		},
+	);
+}
+
+/** Establish the shared listener before opening the route under test. This
+ * removes the listener's legitimate initial-connect catch-up poke, so a reader
+ * that recovers below proves its OWN timer retried without any new notification. */
+async function warmStreamListener(): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const timeout = setTimeout(
+			() => reject(new Error("stream listener did not connect")),
+			2_000,
+		);
+		let unsubscribe = () => {};
+		unsubscribe = subscribeLookupProject(PROJECT, () => {
+			clearTimeout(timeout);
+			unsubscribe();
+			resolve();
+		});
+	});
 }
 
 /** One parsed SSE frame. */
@@ -295,6 +345,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	__setStreamReadTestHooksForTests(null);
+	__setNextListenerCloseBarrierForTests(null);
 	// Close the dedicated LISTEN client BEFORE the per-test DROP DATABASE — a
 	// leaked LISTEN connection would be force-terminated by the drop and its
 	// reconnect timer would spin against a vanished database. `harness.destroy()`
@@ -351,6 +403,231 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect((frame.data as { mutations: unknown[] }).mutations).toEqual([
 			{ kind: "setAppName", name: "Live" },
 		]);
+	});
+
+	it("retries a failed accepted-mutation read without another poke", async () => {
+		const appId = await seedApp(1);
+		await writeEntry(appId, 1);
+		await warmStreamListener();
+
+		let attempts = 0;
+		__setStreamReadTestHooksForTests({
+			beforeMutationRead() {
+				attempts += 1;
+				if (attempts === 1) throw new Error("injected mutation read failure");
+			},
+		});
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "1"),
+		});
+
+		expect(attempts).toBe(2);
+		expect(frames.some((x) => x.event === "mutation" && x.id === "1")).toBe(
+			true,
+		);
+	});
+
+	it("retries a failed initial lookup-manifest read without another poke", async () => {
+		const appId = await seedApp(0);
+		await writeLookupTable(PROJECT, "retry_table");
+		await warmStreamListener();
+
+		let attempts = 0;
+		__setStreamReadTestHooksForTests({
+			beforeLookupManifestRead() {
+				attempts += 1;
+				if (attempts === 1) throw new Error("injected manifest read failure");
+			},
+		});
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (f) =>
+				f.some(
+					(x) =>
+						x.event === "lookup-revision" &&
+						(x.data as { tables?: { tag?: string }[] }).tables?.some(
+							(table) => table.tag === "retry_table",
+						),
+				),
+		});
+
+		expect(attempts).toBe(2);
+		expect(
+			frames.some(
+				(frame) =>
+					frame.event === "lookup-revision" &&
+					(frame.data as { projectRevision?: string }).projectRevision === "1",
+			),
+		).toBe(true);
+	});
+
+	it("emits an initial full lookup manifest without an SSE mutation id", async () => {
+		const appId = await seedApp(0);
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (f) => f.some((x) => x.event === "lookup-revision"),
+		});
+
+		const frame = frames.find((x) => x.event === "lookup-revision");
+		expect(frame?.id).toBeUndefined();
+		expect(frame?.data).toEqual({
+			projectId: PROJECT,
+			projectRevision: "0",
+			tables: [],
+		});
+	});
+
+	it("delivers a live lookup commit as an authoritative Project manifest", async () => {
+		const appId = await seedApp(0);
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			async onOpen() {
+				await delay(300);
+				await writeLookupTable(PROJECT, "live_table");
+			},
+			predicate: (f) =>
+				f.some(
+					(x) =>
+						x.event === "lookup-revision" &&
+						(x.data as { tables?: { tag?: string }[] }).tables?.some(
+							(table) => table.tag === "live_table",
+						),
+				),
+		});
+
+		const frame = frames
+			.filter((x) => x.event === "lookup-revision")
+			.find((x) =>
+				(x.data as { tables?: { tag?: string }[] }).tables?.some(
+					(table) => table.tag === "live_table",
+				),
+			);
+		if (!frame) throw new Error("live lookup manifest never arrived");
+		expect(frame.id).toBeUndefined();
+		expect((frame.data as { projectRevision?: string }).projectRevision).toBe(
+			"1",
+		);
+	});
+
+	it("reconnect catch-up reads durable lookup state committed while the listener is closing", async () => {
+		const appId = await seedApp(0);
+		await warmStreamListener();
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			async onOpen(currentFrames) {
+				await vi.waitFor(
+					() =>
+						expect(
+							currentFrames().some(
+								(frame) => frame.event === "lookup-revision",
+							),
+						).toBe(true),
+					{ timeout: 2_000 },
+				);
+
+				const closeBarrier = deferredVoid();
+				__setNextListenerCloseBarrierForTests(closeBarrier.promise);
+				try {
+					/* Detach the old client's notification handler synchronously, then
+					 * commit while replacement is blocked behind its serialized close. */
+					__forceListenerDisconnectForTests();
+					await writeLookupTable(PROJECT, "gap_table");
+					expect(
+						currentFrames().some(
+							(frame) =>
+								frame.event === "lookup-revision" &&
+								(frame.data as { tables?: { tag?: string }[] }).tables?.some(
+									(table) => table.tag === "gap_table",
+								),
+						),
+					).toBe(false);
+				} finally {
+					closeBarrier.resolve();
+				}
+			},
+			predicate: (f) =>
+				f.some(
+					(frame) =>
+						frame.event === "lookup-revision" &&
+						(frame.data as { tables?: { tag?: string }[] }).tables?.some(
+							(table) => table.tag === "gap_table",
+						),
+				),
+		});
+
+		const converged = frames
+			.filter((frame) => frame.event === "lookup-revision")
+			.at(-1);
+		if (!converged) throw new Error("reconnect manifest never arrived");
+		expect(
+			(converged.data as { projectRevision?: string }).projectRevision,
+		).toBe("1");
+	});
+
+	it("coalesced lookup pokes converge on the complete latest manifest", async () => {
+		const appId = await seedApp(0);
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			async onOpen() {
+				await delay(300);
+				await Promise.all([
+					writeLookupTable(PROJECT, "alpha_table"),
+					writeLookupTable(PROJECT, "beta_table"),
+				]);
+			},
+			predicate: (f) =>
+				f.some((x) => {
+					if (x.event !== "lookup-revision") return false;
+					const tags = (x.data as { tables?: { tag: string }[] }).tables?.map(
+						(table) => table.tag,
+					);
+					return tags?.includes("alpha_table") && tags.includes("beta_table");
+				}),
+		});
+
+		const latest = frames.filter((x) => x.event === "lookup-revision").at(-1);
+		if (!latest) throw new Error("coalesced lookup manifest never arrived");
+		expect(
+			(latest.data as { tables?: { tag: string }[] }).tables?.map(
+				(table) => table.tag,
+			),
+		).toEqual(["alpha_table", "beta_table"]);
+		expect((latest.data as { projectRevision?: string }).projectRevision).toBe(
+			"2",
+		);
+	});
+
+	it("does not relay lookup changes from another Project", async () => {
+		const appId = await seedApp(0);
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			timeoutMs: 1_200,
+			async onOpen() {
+				await delay(300);
+				await writeLookupTable(OTHER_PROJECT, "foreign_table");
+			},
+			predicate: () => false,
+		});
+
+		const manifests = frames.filter((x) => x.event === "lookup-revision");
+		expect(manifests.length).toBeGreaterThan(0);
+		expect(
+			manifests.every(
+				(frame) =>
+					(frame.data as { projectId?: string }).projectId === PROJECT &&
+					!(frame.data as { tables?: { tag: string }[] }).tables?.some(
+						(table) => table.tag === "foreign_table",
+					),
+			),
+		).toBe(true);
 	});
 
 	it("delivers a live presence roster frame after a POST to the presence route (real NOTIFY)", async () => {
@@ -447,11 +724,18 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		// Reconnect at Last-Event-ID=2 → only seq 3 replays.
 		const { frames } = await collectUntil(appId, {
 			lastEventId: "2",
-			predicate: (f) => f.some((x) => x.event === "mutation" && x.id === "3"),
+			predicate: (f) =>
+				f.some((x) => x.event === "mutation" && x.id === "3") &&
+				f.some((x) => x.event === "lookup-revision"),
 		});
 
 		const mutations = frames.filter((f) => f.event === "mutation");
 		expect(mutations.map((f) => f.id)).toEqual(["3"]);
+		/* The initial lookup manifest rides the same EventSource but is seq-less,
+		 * so the browser's mutation Last-Event-ID remains 3. */
+		const lookupFrames = frames.filter((f) => f.event === "lookup-revision");
+		expect(lookupFrames.length).toBeGreaterThan(0);
+		expect(lookupFrames.every((f) => f.id === undefined)).toBe(true);
 	});
 
 	it("mutation frame carries the projected client shape (runId ridden through, no ts)", async () => {
@@ -636,20 +920,87 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(res.headers.get("Content-Type")).not.toBe("text/event-stream");
 	});
 
-	it("tears down the subscription + intervals on a client abort (no leak)", async () => {
+	it("tears down pumps, subscriptions, intervals, and the abort listener on abort only", async () => {
 		const appId = await seedApp(1);
 		await writeEntry(appId, 1);
-
-		// `collectUntil` aborts the controller in its finally block, driving the
-		// route's `req.signal` abort → teardown. Under the async-leak detector an
-		// un-cleared interval or an un-unsubscribed listener would surface as a
-		// leak pinned to the route; a clean teardown reports none.
-		const { controller } = await collectUntil(appId, {
-			since: 0,
-			timeoutMs: 1_500,
-			predicate: (f) => f.some((x) => x.event === "mutation"),
+		await warmStreamListener();
+		let mutationAttempts = 0;
+		let lookupAttempts = 0;
+		__setStreamReadTestHooksForTests({
+			beforeMutationRead() {
+				mutationAttempts += 1;
+				throw new Error("keep mutation retry pending until abort");
+			},
+			beforeLookupManifestRead() {
+				lookupAttempts += 1;
+			},
 		});
+		requireSessionMock.mockResolvedValue(sessionFor(USER));
+		const controller = new AbortController();
+		const res = await GET(
+			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
+				signal: controller.signal,
+			}),
+			{ params: Promise.resolve({ id: appId }) },
+		);
+		const reader = res.body?.getReader();
+		if (!reader) throw new Error("stream had no body");
 
+		/* Let both readers start with a mutation retry pending, then exercise only
+		 * req.signal abort. Drain through
+		 * done without reader.cancel(), so this path cannot accidentally rely on the
+		 * underlying stream's cancel hook for cleanup. */
+		await vi.waitFor(() => expect(mutationAttempts).toBe(1));
+		await reader.read();
+		controller.abort();
+		let done = false;
+		while (!done) {
+			const result = await reader.read().catch(() => ({ done: true as const }));
+			done = result.done;
+		}
+
+		expect(controller.signal.aborted).toBe(true);
+		const attemptsAtAbort = { mutationAttempts, lookupAttempts };
+		await writeLookupTable(PROJECT, "after_abort");
+		await delay(400);
+		expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtAbort);
+	});
+
+	it("tears down on stream cancel without requiring request abort", async () => {
+		const appId = await seedApp(0);
+		await warmStreamListener();
+		let mutationAttempts = 0;
+		let lookupAttempts = 0;
+		__setStreamReadTestHooksForTests({
+			beforeMutationRead() {
+				mutationAttempts += 1;
+				throw new Error("keep mutation retry pending until cancel");
+			},
+			beforeLookupManifestRead() {
+				lookupAttempts += 1;
+			},
+		});
+		requireSessionMock.mockResolvedValue(sessionFor(USER));
+		const controller = new AbortController();
+		const res = await GET(
+			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
+				signal: controller.signal,
+			}),
+			{ params: Promise.resolve({ id: appId }) },
+		);
+		const reader = res.body?.getReader();
+		if (!reader) throw new Error("stream had no body");
+
+		await vi.waitFor(() => expect(mutationAttempts).toBe(1));
+		await reader.cancel();
+		expect(controller.signal.aborted).toBe(false);
+		const attemptsAtCancel = { mutationAttempts, lookupAttempts };
+		await writeLookupTable(PROJECT, "after_cancel");
+		await delay(400);
+		expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtCancel);
+		/* A second consumer-level cancel is a no-op at the stream layer; the
+		 * route's teardown is independently idempotent for cancel+abort races. */
+		controller.abort();
 		expect(controller.signal.aborted).toBe(true);
 	});
 });

@@ -76,10 +76,15 @@ Compose each from one SQL statement or a read-only `REPEATABLE READ`
 transaction. Multiple ordinary `READ COMMITTED` reads can pair data N with head
 N+1 and leave a client permanently stale.
 
-S01a owns `nova_lookup_stream` writes. S01b adds the channel to the one shared
-dedicated listener and relays seq-less full-manifest frames over the existing app
+`nova_lookup_stream` writes and reads are live. The one shared dedicated listener
+fans exact decimal revisions only to subscribers for that Project, and the app
+stream relays seq-less full-manifest frames over the builder's existing
 EventSource. Lookup frames never set SSE `id:`; that cursor belongs exclusively
-to accepted app mutations.
+to accepted app mutations. The relay subscribes before its initial snapshot,
+coalesces pokes, and retries failed manifest reads for the stream lifetime with
+a capped, unref'ed delay. The collaboration context exposes
+`subscribeLookupManifest`; lookup snapshots remain outside blueprint reconciler
+state and its mutation `baseSeq`.
 
 ## Boundaries
 

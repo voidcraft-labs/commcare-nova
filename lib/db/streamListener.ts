@@ -3,12 +3,10 @@
  *
  * One dedicated `pg.Client` per process (built from the SAME config source as
  * the case-store pool via `buildDedicatedClientConfig`) holds a persistent
- * `LISTEN nova_app_stream; LISTEN nova_presence; LISTEN nova_chat_stream;`.
- * The commit path pokes the first two from inside its transaction
- * (`lib/db/pg.ts::notifyAppStream` / `notifyPresence`) and the chat chunk log
- * pokes the third after each batch insert (`notifyChatStream`); this module
- * fans each poke out to the in-process subscribers registered by the
- * `/stream` relay routes.
+ * `LISTEN nova_app_stream; LISTEN nova_presence; LISTEN nova_chat_stream;
+ * LISTEN nova_lookup_stream;`. The commit paths poke the channels only after
+ * their authoritative rows are visible; this module fans each poke out to the
+ * in-process subscribers registered by the `/stream` relay routes.
  *
  * The connection is DEDICATED and lives outside the pool: LISTEN state is
  * per-connection, so a pooled connection Kysely reclaims per query can't hold
@@ -16,21 +14,21 @@
  * stream in the process (the relay is a fan-out point, not one connection per
  * tab).
  *
- * The poke carries only `(appId, seq?)`; no data rides the channel (Postgres
- * caps a NOTIFY payload at 8000 bytes). Every subscriber treats a poke as
- * "re-query from my cursor", so `seq` is advisory — a catch-up poke passes
- * `0`. That is what makes the reconnect gap loss-free: when the LISTEN
- * connection drops and re-establishes, we poke EVERY subscriber once, and each
- * re-SELECTs everything since its cursor, so no committed batch missed during
- * the gap is lost.
+ * The pokes carry only identity plus an advisory cursor/revision; no data rides
+ * a channel (Postgres caps a NOTIFY payload at 8000 bytes). Every subscriber
+ * treats a poke as "re-query authoritative state", so reconnect catch-up uses
+ * `0` / `"0"`. When the LISTEN connection re-establishes, every subscriber is
+ * poked once and state committed during the gap converges on its next SELECT.
  */
 
 import { Client, type ClientConfig } from "pg";
 import { buildDedicatedClientConfig } from "@/lib/case-store/postgres/connection";
 import { log } from "@/lib/logger";
+import { LOOKUP_REVISION_MAX } from "@/lib/lookup/constants";
 import {
 	APP_STREAM_CHANNEL,
 	CHAT_STREAM_CHANNEL,
+	LOOKUP_STREAM_CHANNEL,
 	PRESENCE_CHANNEL,
 } from "./pg";
 
@@ -49,10 +47,21 @@ const subscribers = new Map<string, Set<Subscriber>>();
  *  reconnect catch-up, never to lost chunks. */
 const chatSubscribers = new Map<string, Set<() => void>>();
 
+/** projectId → the lookup-manifest readers open for it in this process.
+ * Revisions remain decimal strings end to end because the Project clock is a
+ * Postgres bigint and can exceed JavaScript's safe-integer range. */
+const lookupSubscribers = new Map<string, Set<(revision: string) => void>>();
+
 /** The dedicated LISTEN connection; `null` until the first subscriber builds it. */
 let client: Client | null = null;
 /** In-flight `establish()` so concurrent first-callers share one connect. */
 let connecting: Promise<void> | null = null;
+/**
+ * Bounded closure of a discarded dedicated client. A replacement awaits this
+ * barrier before it is even constructed, so old and new listener connections
+ * never overlap against the exact-fit Cloud SQL connection budget.
+ */
+let closing: Promise<void> | null = null;
 /** Pending reconnect; `.unref()`ed so it never keeps the process alive. */
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 /** Grows the backoff on repeated failures; reset to 0 on a successful connect. */
@@ -61,17 +70,20 @@ let reconnectAttempt = 0;
 let torndown = false;
 /** Test seam: a connection string the listener uses instead of the pool config. */
 let testConnectionString: string | null = null;
+/** Test seam: hold the next discarded client open to create a deterministic
+ * notification gap while proving replacement waits behind the close barrier. */
+let nextCloseBarrierForTests: Promise<void> | null = null;
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 5_000;
 /**
- * Bounds on the dedicated client's three open-ended waits. Without them a
+ * Bounds on the dedicated client's open-ended operations. Without them a
  * wedged/starved server can hold `establish()` (and with it the `connecting`
  * promise every subscriber joins and `closeStreamListener` awaits) forever,
  * stranding the realtime listener for the process lifetime:
  *
  *   - `CONNECT_TIMEOUT_MS` bounds `Client.connect()` (pg default: no limit).
- *   - `QUERY_TIMEOUT_MS` bounds the two `LISTEN` commands (pg default: no
+ *   - `QUERY_TIMEOUT_MS` bounds the four `LISTEN` commands (pg default: no
  *     limit) — instant on a healthy server.
  *   - `END_TIMEOUT_MS` bounds the graceful `end()`'s wait for the server to
  *     close the socket; past it `endClientBounded` destroys the socket.
@@ -103,6 +115,30 @@ async function endClientBounded(c: Client): Promise<void> {
 }
 
 /**
+ * Detach and close one client behind the process-wide close barrier. Calls are
+ * serialized defensively: today only one client can be live, and preserving
+ * that property during later refactors is part of the connection-budget
+ * contract.
+ */
+function closeClientSerialized(c: Client): Promise<void> {
+	c.removeAllListeners("error");
+	c.removeAllListeners("notification");
+	const previous = closing;
+	const testBarrier = nextCloseBarrierForTests;
+	nextCloseBarrierForTests = null;
+	const operation = (async () => {
+		if (previous !== null) await previous;
+		if (testBarrier !== null) await testBarrier;
+		await endClientBounded(c);
+	})();
+	const tracked = operation.finally(() => {
+		if (closing === tracked) closing = null;
+	});
+	closing = tracked;
+	return tracked;
+}
+
+/**
  * Point the dedicated listener at an explicit connection string (the per-test
  * Postgres). Pass `null` to clear. Tests drive the REAL LISTEN/NOTIFY path
  * against the testcontainer through this seam rather than the Cloud SQL
@@ -112,6 +148,25 @@ export function __setListenerConfigForTests(
 	connectionString: string | null,
 ): void {
 	testConnectionString = connectionString;
+}
+
+/** Hold only the next listener close. The integration suite uses this to make
+ * the otherwise tiny reconnect gap deterministic while committing durable state. */
+export function __setNextListenerCloseBarrierForTests(
+	barrier: Promise<void> | null,
+): void {
+	nextCloseBarrierForTests = barrier;
+}
+
+/** Simulate the dedicated client's unexpected-error path without reaching into
+ * node-postgres internals from a route integration test. */
+export function __forceListenerDisconnectForTests(): void {
+	if (client === null) {
+		throw new Error(
+			"Cannot disconnect a stream listener that is not connected.",
+		);
+	}
+	handleClientError(new Error("Forced stream-listener disconnect for test."));
 }
 
 async function resolveConfig(): Promise<ClientConfig> {
@@ -158,11 +213,20 @@ function dispatchCatchUpAll(): void {
 	for (const set of chatSubscribers.values()) {
 		for (const onPoke of set) safeCall(onPoke);
 	}
+	for (const set of lookupSubscribers.values()) {
+		for (const onPoke of set) safeCall(() => onPoke("0"));
+	}
 }
 
 function onNotification(msg: { channel: string; payload?: string }): void {
 	if (!msg.payload) return;
-	let parsed: { appId?: unknown; seq?: unknown; streamId?: unknown };
+	let parsed: {
+		appId?: unknown;
+		seq?: unknown;
+		streamId?: unknown;
+		projectId?: unknown;
+		revision?: unknown;
+	};
 	try {
 		parsed = JSON.parse(msg.payload);
 	} catch (err) {
@@ -180,6 +244,21 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 		for (const onPoke of set) safeCall(onPoke);
 		return;
 	}
+	if (msg.channel === LOOKUP_STREAM_CHANNEL) {
+		const { projectId, revision } = parsed;
+		if (
+			typeof projectId !== "string" ||
+			projectId.length === 0 ||
+			typeof revision !== "string" ||
+			!/^(?:0|[1-9]\d*)$/.test(revision) ||
+			BigInt(revision) > LOOKUP_REVISION_MAX
+		)
+			return;
+		const set = lookupSubscribers.get(projectId);
+		if (set === undefined) return;
+		for (const onPoke of set) safeCall(() => onPoke(revision));
+		return;
+	}
 	const appId = parsed.appId;
 	if (typeof appId !== "string") return;
 	if (msg.channel === APP_STREAM_CHANNEL) {
@@ -192,6 +271,12 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 
 /** Connect a fresh client, LISTEN on all channels, and fire the catch-up poke. */
 async function establish(): Promise<void> {
+	// A dropped connection may still be inside its bounded graceful close. Do
+	// not even construct the replacement until that socket is gone: the Cloud
+	// SQL budget has exactly one slot for this process-wide listener.
+	const pendingClose = closing;
+	if (pendingClose !== null) await pendingClose;
+	if (torndown) return;
 	const config = await resolveConfig();
 	const c = new Client(config);
 	c.on("error", handleClientError);
@@ -201,23 +286,20 @@ async function establish(): Promise<void> {
 		await c.query(`LISTEN ${APP_STREAM_CHANNEL}`);
 		await c.query(`LISTEN ${PRESENCE_CHANNEL}`);
 		await c.query(`LISTEN ${CHAT_STREAM_CHANNEL}`);
+		await c.query(`LISTEN ${LOOKUP_STREAM_CHANNEL}`);
 	} catch (err) {
 		/* A throw AFTER a successful connect (a LISTEN query failing) would
 		 * otherwise leak a live connection that was never latched into `client`
 		 * — and its still-attached error handler would later discard the
 		 * CURRENT healthy client. End it before the reconnect path takes over. */
-		c.removeAllListeners("error");
-		c.removeAllListeners("notification");
-		await endClientBounded(c);
+		await closeClientSerialized(c);
 		throw err;
 	}
 	// Torn down while we were connecting — discard this client rather than latch
 	// it. The check + assignment are synchronous (no await between), so a
 	// concurrent `closeStreamListener` either wins here or clears `client` after.
 	if (torndown) {
-		c.removeAllListeners("error");
-		c.removeAllListeners("notification");
-		await endClientBounded(c);
+		await closeClientSerialized(c);
 		return;
 	}
 	client = c;
@@ -246,14 +328,10 @@ async function ensureConnected(): Promise<void> {
 }
 
 /** Drop the current client (a dead LISTEN connection) without touching state. */
-function discardClient(): void {
+function discardClient(): Promise<void> {
 	const c = client;
 	client = null;
-	if (c !== null) {
-		c.removeAllListeners("error");
-		c.removeAllListeners("notification");
-		void endClientBounded(c);
-	}
+	return c === null ? Promise.resolve() : closeClientSerialized(c);
 }
 
 /** The LISTEN connection errored/dropped — tear it down and reconnect. */
@@ -262,7 +340,7 @@ function handleClientError(err: Error): void {
 	log.warn("[streamListener] listen connection error (reconnecting)", {
 		err: err.message,
 	});
-	discardClient();
+	void discardClient();
 	scheduleReconnect();
 }
 
@@ -354,13 +432,45 @@ export function subscribeChatStream(
 }
 
 /**
+ * Subscribe to Project-wide lookup-manifest invalidations. The callback gets
+ * the exact decimal revision from Postgres; `"0"` is the advisory catch-up
+ * sentinel fired after an initial connect or reconnect. In either case the
+ * subscriber re-reads the authoritative full manifest.
+ */
+export function subscribeLookupProject(
+	projectId: string,
+	onPoke: (revision: string) => void,
+): () => void {
+	torndown = false;
+	let set = lookupSubscribers.get(projectId);
+	if (set === undefined) {
+		set = new Set();
+		lookupSubscribers.set(projectId, set);
+	}
+	set.add(onPoke);
+
+	void ensureConnected();
+
+	let unsubscribed = false;
+	return () => {
+		if (unsubscribed) return;
+		unsubscribed = true;
+		const current = lookupSubscribers.get(projectId);
+		if (current === undefined) return;
+		current.delete(onPoke);
+		if (current.size === 0) lookupSubscribers.delete(projectId);
+	};
+}
+
+/**
  * Tear down the dedicated LISTEN connection and cancel any pending reconnect.
  * For tests (and process teardown): drops every subscriber, ends the client, and
  * cancels the backoff timer so nothing survives into the next per-test database.
- * The next `subscribeAppStream` re-arms and reconnects fresh.
+ * The next subscription re-arms and reconnects fresh.
  */
 export async function closeStreamListener(): Promise<void> {
 	torndown = true;
+	nextCloseBarrierForTests = null;
 	if (reconnectTimer !== null) {
 		clearTimeout(reconnectTimer);
 		reconnectTimer = null;
@@ -368,6 +478,7 @@ export async function closeStreamListener(): Promise<void> {
 	reconnectAttempt = 0;
 	subscribers.clear();
 	chatSubscribers.clear();
+	lookupSubscribers.clear();
 	// Await any in-flight connect so a client it establishes can't latch AFTER
 	// this returns (its own `torndown` check discards it, but awaiting closes the
 	// race window against the next test's connection).
@@ -377,10 +488,10 @@ export async function closeStreamListener(): Promise<void> {
 	const c = client;
 	client = null;
 	if (c !== null) {
-		c.removeAllListeners("error");
-		c.removeAllListeners("notification");
 		// The connection may already be dead (e.g. a per-test database dropped
 		// out from under it) — a failed `end()` is expected teardown noise.
-		await endClientBounded(c);
+		await closeClientSerialized(c);
 	}
+	const pendingClose = closing;
+	if (pendingClose !== null) await pendingClose.catch(() => {});
 }
