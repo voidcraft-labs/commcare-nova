@@ -50,4 +50,11 @@ describe("asset metadata registry", () => {
 		store.getState().reset();
 		expect(store.getState().assetMeta).toEqual({});
 	});
+
+	it("Project-scope reset forgets source-Project rows", () => {
+		const store = createBuilderSessionStore();
+		store.getState().recordAssetMeta([{ id: "a", ...IMG }]);
+		store.getState().resetProjectScope();
+		expect(store.getState().assetMeta).toEqual({});
+	});
 });

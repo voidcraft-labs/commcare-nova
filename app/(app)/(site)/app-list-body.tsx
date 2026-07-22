@@ -26,6 +26,8 @@ import { deleteApp, restoreApp } from "./app-actions";
 interface AppListBodyProps {
 	active: AppSummary[];
 	deleted: DeletedAppSummary[];
+	/** Whether this member may soft-delete and restore Project apps. */
+	canDeleteApp: boolean;
 	/** Whether to retain the Project-placement affordance as an informational
 	 *  popover for the admins/owners who would otherwise manage app placement. */
 	showProjectMoveInfo: boolean;
@@ -36,6 +38,7 @@ type View = "active" | "deleted";
 export function AppListBody({
 	active,
 	deleted,
+	canDeleteApp,
 	showProjectMoveInfo,
 }: AppListBodyProps) {
 	const [view, setView] = useState<View>("active");
@@ -66,7 +69,7 @@ export function AppListBody({
 									app={app}
 									index={i}
 									href={app.status === "error" ? undefined : `/build/${app.id}`}
-									onDelete={deleteApp}
+									onDelete={canDeleteApp ? deleteApp : undefined}
 									showProjectMoveInfo={showProjectMoveInfo}
 								/>
 							</li>
@@ -79,7 +82,11 @@ export function AppListBody({
 				<ul className="grid gap-3">
 					{deleted.map((app, i) => (
 						<li key={app.id}>
-							<DeletedAppCard app={app} index={i} onRestore={restoreApp} />
+							<DeletedAppCard
+								app={app}
+								index={i}
+								onRestore={canDeleteApp ? restoreApp : undefined}
+							/>
 						</li>
 					))}
 				</ul>

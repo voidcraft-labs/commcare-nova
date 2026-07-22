@@ -34,7 +34,9 @@
 
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppAccessError } from "@/lib/db/appAccess";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
@@ -44,19 +46,20 @@ import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
+import { removeMediaAssetTool } from "../tools/media/removeMediaAsset";
 import { makeTestContext } from "./fixtures";
 
 /* The SA commits every batch through `commitGuardedBatch` (kind:'chat') —
  * except rename-carrying batches, which detour through the cross-store saga
  * (`applyBlueprintChange`). Mock both to re-apply the batch onto ONE TRACKED
  * server doc so the SA's working doc advances across tool calls exactly as it
- * would against the real writers, and expose `loadApp` for `wrapMutating`'s
- * conflict-reload path. `seedServerDoc` seeds the tracked doc to the SA's
- * initial doc per test. */
+ * would against the real writers. The authorized-snapshot mock backs
+ * `wrapMutating`'s conflict-reload path. `seedServerDoc` seeds the tracked doc
+ * to the SA's initial doc per test. */
 const {
 	commitGuardedBatchMock,
 	applyBlueprintChangeMock,
-	loadAppMock,
+	resolveAuthorizedAppSnapshotMock,
 	seedServerDoc,
 } = vi.hoisted(() => {
 	let serverDoc: unknown = null;
@@ -75,7 +78,7 @@ const {
 			serverDoc = doc;
 			seq = 0;
 		},
-		loadAppMock: vi.fn(),
+		resolveAuthorizedAppSnapshotMock: vi.fn(),
 		commitGuardedBatchMock: vi.fn(async (args: { mutations: unknown[] }) => {
 			return { ...applyBatch(args.mutations), deduped: false };
 		}),
@@ -630,12 +633,25 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 /* Every mutating tool call commits through `commitGuardedBatch` — rename
  * batches through `applyBlueprintChange` — and the hoisted mocks re-apply
- * each batch onto one tracked doc so no save reaches Postgres. `loadApp`
- * backs `wrapMutating`'s conflict-reload path. */
+ * each batch onto one tracked doc so no save reaches Postgres. The atomic
+ * authorized snapshot resolver backs `wrapMutating`'s conflict-reload path. */
 vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,
-	loadApp: loadAppMock,
 }));
+vi.mock("@/lib/db/appAccess", () => {
+	class MockAppAccessError extends Error {
+		readonly name = "AppAccessError";
+		constructor(
+			readonly reason: "not_found" | "not_member" | "insufficient_role",
+		) {
+			super(reason);
+		}
+	}
+	return {
+		AppAccessError: MockAppAccessError,
+		resolveAuthorizedAppSnapshot: resolveAuthorizedAppSnapshotMock,
+	};
+});
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: applyBlueprintChangeMock,
 }));
@@ -668,14 +684,17 @@ describe("solutionsArchitect — no finishing tool", () => {
 //
 // The P3 chat-SA port routes every mutating tool through the guarded writer,
 // and every tool's blanket `catch (err)` now runs through
-// `common.ts::toToolErrorResult`, which RE-THROWS the two authoritative commit
-// signals so they escape the tool body and reach `wrapMutating`. Three distinct
+// `common.ts::toToolErrorResult`, which RE-THROWS the three authoritative commit
+// signals so they escape the tool body and reach `wrapMutating`. Four distinct
 // behaviors, all exercised here through a REAL tool (`addFields`):
 //
 //   - a RETRYABLE `BlueprintCommitRejectedError` (a peer deleted/changed the
-//     target, or the app moved Projects) escapes the tool → `wrapMutating`
-//     catches it → returns `{ error }` to the SA AND reloads fresh via
-//     `loadApp`, so the NEXT tool builds on the current server state;
+//     target) escapes the tool → `wrapMutating` catches it → returns `{ error }`
+//     to the SA AND reloads one authorized snapshot, so the NEXT tool builds on
+//     current server state without straddling authorization + blueprint;
+//   - a TERMINAL `AppProjectChangedError` (the run's admitted tenant scope is
+//     stale) escapes the tool → `wrapMutating` does NOT catch it → it propagates
+//     without reloading or retrying inside the stale run;
 //   - a TERMINAL `CommitReauthError` (the actor lost edit access) escapes the
 //     tool → `wrapMutating` does NOT catch it → it propagates out of the tool's
 //     execute and fails the run (a reload can't restore authorization);
@@ -684,7 +703,7 @@ describe("solutionsArchitect — no finishing tool", () => {
 
 describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth", () => {
 	/** A reloaded doc that adds a second field so a follow-up read can prove the
-	 *  SA rebased onto `loadApp`'s fresh blueprint after a conflict. */
+	 *  SA rebased onto the authorized snapshot after a conflict. */
 	function reloadedDoc(): BlueprintDoc {
 		const base = makeFixtureDoc();
 		const PEER_FIELD = asUuid("99999999-9999-9999-9999-999999999999");
@@ -715,7 +734,14 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 				"This app changed while you were editing — reload.",
 			),
 		);
-		loadAppMock.mockResolvedValueOnce({ blueprint: reloadedDoc() });
+		resolveAuthorizedAppSnapshotMock.mockResolvedValueOnce({
+			app: { blueprint: reloadedDoc() },
+			projectId: "project-test",
+			role: "editor",
+			canEdit: true,
+			baseSeq: 7,
+			actorUserId: "user-1",
+		});
 
 		const result = (await runTool(sa, "addFields", {
 			moduleIndex: 0,
@@ -725,8 +751,13 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 		// The tool surfaced the conflict as the standard `{ error }` envelope.
 		expect(result.error).toContain("reload");
-		// And `wrapMutating` reloaded fresh.
-		expect(loadAppMock).toHaveBeenCalledWith("test-app");
+		// And `wrapMutating` reloaded one authorized snapshot in the admitted
+		// Project.
+		expect(resolveAuthorizedAppSnapshotMock).toHaveBeenCalledWith(
+			"test-app",
+			"user-1",
+			"edit",
+		);
 
 		// The NEXT read builds on the reloaded doc — the peer's field is visible.
 		const formResult = (await runTool(sa, "getForm", {
@@ -736,6 +767,103 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		expect(formResult.form.fields.map((f) => f.id).sort()).toEqual([
 			"case_name",
 			"peer_added",
+		]);
+	});
+
+	it("maps conflict-reload membership loss to one exact terminal CommitReauthError", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		commitGuardedBatchMock.mockRejectedValueOnce(
+			new BlueprintCommitRejectedError("Reload after a peer edit."),
+		);
+		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
+			new AppAccessError("not_member"),
+		);
+
+		const settled = await Promise.allSettled([
+			runTool(sa, "addFields", {
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			}),
+			runTool(sa, "getForm", { moduleIndex: 0, formIndex: 0 }),
+		]);
+		const thrown =
+			settled[0].status === "rejected" ? settled[0].reason : undefined;
+
+		expect(thrown).toBeInstanceOf(CommitReauthError);
+		expect(settled[1]).toEqual({ status: "rejected", reason: thrown });
+		expect(ctx.reauthError()).toBe(thrown);
+		expect(ctx.projectChangedError()).toBeUndefined();
+		expect(resolveAuthorizedAppSnapshotMock).toHaveBeenCalledTimes(1);
+		// The exact reload-derived signal fences every later model step: no
+		// unauthorized snapshot can be adopted and no queued work can run.
+		await expect(sa.generate({ prompt: "Continue." })).rejects.toBe(thrown);
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("latches an exact AppProjectChangedError before reading or adopting a cross-Project snapshot", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const readMovedBlueprint = vi.fn(() => reloadedDoc());
+		commitGuardedBatchMock.mockRejectedValueOnce(
+			new BlueprintCommitRejectedError("Reload after a peer edit."),
+		);
+		resolveAuthorizedAppSnapshotMock.mockResolvedValueOnce({
+			app: {
+				get blueprint() {
+					return readMovedBlueprint();
+				},
+			},
+			projectId: "project-moved",
+			role: "editor",
+			canEdit: true,
+			baseSeq: 8,
+			actorUserId: "user-1",
+		});
+
+		const thrown = await runTool(sa, "addFields", {
+			moduleIndex: 0,
+			formIndex: 0,
+			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+		}).catch((error: unknown) => error);
+
+		expect(thrown).toBeInstanceOf(AppProjectChangedError);
+		expect(ctx.projectChangedError()).toBe(thrown);
+		expect(ctx.reauthError()).toBeUndefined();
+		// Scope is checked before even reading the moved snapshot's blueprint.
+		expect(readMovedBlueprint).not.toHaveBeenCalled();
+		await expect(sa.generate({ prompt: "Continue." })).rejects.toBe(thrown);
+	});
+
+	it("propagates a conflict-reload database fault without adopting any snapshot", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const databaseFault = new Error("snapshot database unavailable");
+		commitGuardedBatchMock.mockRejectedValueOnce(
+			new BlueprintCommitRejectedError("Reload after a peer edit."),
+		);
+		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(databaseFault);
+
+		await expect(
+			runTool(sa, "addFields", {
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			}),
+		).rejects.toBe(databaseFault);
+		expect(ctx.reauthError()).toBeUndefined();
+		expect(ctx.projectChangedError()).toBeUndefined();
+
+		// An infrastructure fault is not latched. The next read can run, but it
+		// must still see the original closure doc — never a partially adopted
+		// reload.
+		const formResult = (await runTool(sa, "getForm", {
+			moduleIndex: 0,
+			formIndex: 0,
+		})) as { form: { fields: Array<{ id: string }> } };
+		expect(formResult.form.fields.map((field) => field.id)).toEqual([
+			"case_name",
 		]);
 	});
 
@@ -755,8 +883,72 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
-		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(resolveAuthorizedAppSnapshotMock).not.toHaveBeenCalled();
 	});
+
+	it("propagates AppProjectChangedError past wrapMutating without reload or retry", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const projectChanged = new AppProjectChangedError();
+		// The tool's blanket catch re-throws the scope signal. Unlike a document
+		// conflict, wrapMutating must not reload into a different Project inside
+		// the already-admitted run.
+		commitGuardedBatchMock.mockRejectedValueOnce(projectChanged);
+
+		await expect(
+			runTool(sa, "addFields", {
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			}),
+		).rejects.toBe(projectChanged);
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+		expect(resolveAuthorizedAppSnapshotMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			"lost authorization",
+			() => new CommitReauthError("You no longer have edit access."),
+		],
+		["a Project move", () => new AppProjectChangedError()],
+	])(
+		"poisons queued same-step tools and the next model step after %s",
+		async (_label, makeScopeError) => {
+			const { ctx } = buildCtx();
+			const sa = makeSa(ctx, makeFixtureDoc(), true);
+			const scopeError = makeScopeError();
+			commitGuardedBatchMock.mockRejectedValueOnce(scopeError);
+
+			// AI SDK dispatches parallel tool calls together. The serializer starts
+			// the second body only after the first body has latched this terminal
+			// signal; it must then reject with that SAME signal before committing.
+			const settled = await Promise.allSettled([
+				runTool(sa, "addFields", {
+					moduleIndex: 0,
+					formIndex: 0,
+					fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+				}),
+				runTool(sa, "addFields", {
+					moduleIndex: 0,
+					formIndex: 0,
+					fields: [{ id: "nickname", kind: "text", label: "Nickname" }],
+				}),
+			]);
+
+			expect(settled).toEqual([
+				{ status: "rejected", reason: scopeError },
+				{ status: "rejected", reason: scopeError },
+			]);
+			expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+
+			// `prepareStep` is the second fence: even after the recovered promise
+			// chain settles, the agent must not make another model step in this run.
+			await expect(
+				sa.generate({ prompt: "Continue editing this app." }),
+			).rejects.toBe(scopeError);
+		},
+	);
 
 	it("does NOT reload on a pre-commit validity finding (the tool returns { error }, commit never runs)", async () => {
 		const { ctx } = buildCtx();
@@ -773,8 +965,44 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		expect(result.error).toBeDefined();
 		// Neither the commit nor a reload fired — nothing threw.
 		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
-		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(resolveAuthorizedAppSnapshotMock).not.toHaveBeenCalled();
 	});
+});
+
+describe("solutionsArchitect — read-shaped side-effect terminal fences", () => {
+	it.each([
+		[
+			"lost authorization",
+			() => new CommitReauthError("You no longer have edit access."),
+			"reauthError" as const,
+		],
+		[
+			"a Project move",
+			() => new AppProjectChangedError(),
+			"projectChangedError" as const,
+		],
+	])(
+		"latches %s from removeMediaAsset and fences the next queued tool",
+		async (_label, makeScopeError, latchGetter) => {
+			const { ctx } = buildCtx();
+			const sa = makeSa(ctx, makeFixtureDoc(), true);
+			const scopeError = makeScopeError();
+			const execute = vi
+				.spyOn(removeMediaAssetTool, "execute")
+				.mockRejectedValueOnce(scopeError);
+
+			const settled = await Promise.allSettled([
+				runTool(sa, "removeMediaAsset", { assetId: "asset-1" }),
+				runTool(sa, "getForm", { moduleIndex: 0, formIndex: 0 }),
+			]);
+
+			expect(settled[0]).toEqual({ status: "rejected", reason: scopeError });
+			expect(settled[1]).toEqual({ status: "rejected", reason: scopeError });
+			expect(ctx[latchGetter]()).toBe(scopeError);
+			expect(execute).toHaveBeenCalledTimes(1);
+			execute.mockRestore();
+		},
+	);
 });
 
 // ── Small helpers kept at the bottom to avoid pollution ─────────────────

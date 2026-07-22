@@ -5,10 +5,8 @@
  *   - Happy path: an owned app soft-deletes, the returned content
  *     JSON carries `stage: "app_deleted"` + `app_id` + `deleted: true`
  *     + `recoverable_until`.
- *   - Ownership failure: the wire collapses `"not_owner"` to
- *     `"not_found"` (IDOR hardening). `softDeleteApp` must not run.
- *   - App not found: the app load returns null — a probe for an
- *     arbitrary id must not leave soft-delete state behind.
+ *   - Authorization and missing-row failures from the authoritative locked
+ *     writer both collapse to `"not_found"` (IDOR hardening).
  *   - `softDeleteApp` throws: the DB write rejection surfaces
  *     as an `isError: true` MCP envelope classified through the shared
  *     taxonomy (not the `McpAccessError` fast path).
@@ -18,8 +16,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { softDeleteApp } from "@/lib/db/apps";
+import { CommitReauthError } from "@/lib/db/commitGuard";
 import { registerDeleteApp } from "../tools/deleteApp";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -29,14 +27,6 @@ import { makeFakeServer } from "./fakeServer";
  * the ownership gate, one for the write) are replaced. */
 vi.mock("@/lib/db/apps", () => ({
 	softDeleteApp: vi.fn(),
-}));
-
-/* The ownership gate now runs through the membership resolver `resolveAppScope`
- * (inside `requireOwnedApp`). Mock it — keeping the real `AppAccessError` for the
- * instanceof mapping — so the tool's gate is driven without an auth DB. */
-vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
-	resolveAppScope: vi.fn(),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -49,7 +39,6 @@ const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 const FIXED_RECOVERABLE_UNTIL = "2026-05-23T12:00:00.000Z";
 
 beforeEach(() => {
-	vi.mocked(resolveAppScope).mockReset();
 	vi.mocked(softDeleteApp).mockReset();
 });
 
@@ -57,11 +46,6 @@ beforeEach(() => {
 
 describe("registerDeleteApp — happy path", () => {
 	it("soft-deletes an owned app and surfaces the recovery deadline", async () => {
-		vi.mocked(resolveAppScope).mockResolvedValueOnce({
-			projectId: "p1",
-			role: "owner",
-			actorUserId: "u1",
-		});
 		vi.mocked(softDeleteApp).mockResolvedValueOnce(FIXED_RECOVERABLE_UNTIL);
 
 		const { server, capture } = makeFakeServer();
@@ -71,7 +55,7 @@ describe("registerDeleteApp — happy path", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
-		expect(softDeleteApp).toHaveBeenCalledWith("a1");
+		expect(softDeleteApp).toHaveBeenCalledWith("a1", "u1");
 		expect(JSON.parse(out.content[0]?.text ?? "{}")).toEqual({
 			stage: "app_deleted",
 			app_id: "a1",
@@ -88,8 +72,8 @@ describe("registerDeleteApp — ownership failure", () => {
 		 * watching for a `"not_owner"` signal. The wire collapses to
 		 * `"not_found"` with the same text a genuinely missing id
 		 * would produce. */
-		vi.mocked(resolveAppScope).mockRejectedValueOnce(
-			new AppAccessError("not_member"),
+		vi.mocked(softDeleteApp).mockRejectedValueOnce(
+			new CommitReauthError("permission denied"),
 		);
 
 		const { server, capture } = makeFakeServer();
@@ -108,16 +92,14 @@ describe("registerDeleteApp — ownership failure", () => {
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.message).toBe("App not found.");
 		expect(payload.app_id).toBe("a1");
-		/* Hard invariant: a cross-tenant probe must not leave soft-delete
-		 * state behind. `softDeleteApp` must not run at all. */
-		expect(softDeleteApp).not.toHaveBeenCalled();
+		expect(softDeleteApp).toHaveBeenCalledWith("a1", "u1");
 	});
 });
 
 describe("registerDeleteApp — not found", () => {
 	it("maps ownership-null to error_type = 'not_found' and never writes", async () => {
-		vi.mocked(resolveAppScope).mockRejectedValueOnce(
-			new AppAccessError("not_found"),
+		vi.mocked(softDeleteApp).mockRejectedValueOnce(
+			new CommitReauthError("App not found."),
 		);
 
 		const { server, capture } = makeFakeServer();
@@ -134,11 +116,7 @@ describe("registerDeleteApp — not found", () => {
 		};
 		expect(payload.error_type).toBe("not_found");
 		expect(payload.app_id).toBe("ghost");
-		/* A probe against a nonexistent id must not reach softDeleteApp —
-		 * the helper's `update()` would reject with NOT_FOUND, which is
-		 * a correct signal for a real caller but wasteful noise when
-		 * the ownership gate can rule it out first. */
-		expect(softDeleteApp).not.toHaveBeenCalled();
+		expect(softDeleteApp).toHaveBeenCalledWith("ghost", "u1");
 	});
 });
 
@@ -147,35 +125,27 @@ describe("registerDeleteApp — wire parity (IDOR regression lock)", () => {
 		/* Regression lock for the IDOR hardening: both access-failure
 		 * shapes must be byte-identical so a probing client has no
 		 * signal to distinguish them. */
-		vi.mocked(resolveAppScope).mockRejectedValueOnce(
-			new AppAccessError("not_member"),
+		vi.mocked(softDeleteApp).mockRejectedValueOnce(
+			new CommitReauthError("permission denied"),
 		);
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerDeleteApp(sA, toolCtx);
 		const ownerMismatch = await capA()({ app_id: "probe-id" }, {});
 
-		vi.mocked(resolveAppScope).mockRejectedValueOnce(
-			new AppAccessError("not_found"),
+		vi.mocked(softDeleteApp).mockRejectedValueOnce(
+			new CommitReauthError("App not found."),
 		);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerDeleteApp(sB, toolCtx);
 		const notFound = await capB()({ app_id: "probe-id" }, {});
 
 		expect(JSON.stringify(ownerMismatch)).toBe(JSON.stringify(notFound));
-		/* softDeleteApp was never invoked for either branch — probes
-		 * must not leave state behind regardless of which path they
-		 * hit. */
-		expect(softDeleteApp).not.toHaveBeenCalled();
+		expect(softDeleteApp).toHaveBeenCalledTimes(2);
 	});
 });
 
 describe("registerDeleteApp — softDeleteApp throws", () => {
 	it("surfaces the db write rejection through the shared taxonomy", async () => {
-		vi.mocked(resolveAppScope).mockResolvedValueOnce({
-			projectId: "p1",
-			role: "owner",
-			actorUserId: "u1",
-		});
 		vi.mocked(softDeleteApp).mockRejectedValueOnce(
 			new Error("db write failed"),
 		);

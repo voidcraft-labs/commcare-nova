@@ -9,6 +9,7 @@ import {
 import {
 	buildAppStateMessage,
 	buildTurnRetryContinuation,
+	type ClassifiedError,
 	classifyError,
 	countDocumentsNeedingRead,
 	createSolutionsArchitect,
@@ -22,7 +23,8 @@ import {
 	turnRetryDelayMs,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { resolveActiveProjectId, resolveOpenAIKey } from "@/lib/auth-utils";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
 import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
@@ -33,7 +35,7 @@ import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	AppAccessError,
-	resolveAppAccess,
+	resolveAuthorizedAppSnapshot,
 	resolveProjectAccess,
 } from "@/lib/db/appAccess";
 import {
@@ -43,10 +45,8 @@ import {
 	clearRunLockAndSettle,
 	completeAndSettleRun,
 	createApp,
-	editRunLockHeldBy,
 	failApp,
 	GenerationInProgressError,
-	loadApp,
 	loadAppHolder,
 	type ReacquireOutcome,
 	RunConflictError,
@@ -54,6 +54,11 @@ import {
 	reserveForNewBuild,
 	setAwaitingInput,
 } from "@/lib/db/apps";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+	RunHolderLostError,
+} from "@/lib/db/commitGuard";
 import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import {
 	getCurrentCreditBalance,
@@ -80,7 +85,7 @@ import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { SA_BUILD_MODEL, SA_EDIT_MODEL } from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
-import { chatRequestSchema } from "./schema";
+import { chatRequestSchema, chatRunIdSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
 
 /* Advisory only. The real per-request ceiling is the Cloud Run service's
@@ -159,6 +164,16 @@ export async function POST(req: Request) {
 			status: 400,
 		});
 	}
+	if (!parsed.data.appId && !parsed.data.expectedProjectId) {
+		return Response.json(
+			{
+				error:
+					"This new-app page is missing its Project scope. Reload the page and try again.",
+				type: "invalid_request",
+			},
+			{ status: 400 },
+		);
+	}
 
 	// Reject an over-length typed message — defense in depth behind the
 	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
@@ -201,6 +216,18 @@ export async function POST(req: Request) {
 		rawMessages: messages,
 		appReady: !!body.appReady,
 	});
+	/* A holder nonce is a per-CLAIM capability, never thread attribution. A
+	 * chargeable instruction/redrive always gets a fresh server value even if a
+	 * stale or malicious client supplied one. Only a free askQuestions
+	 * continuation may echo the nonce Nova previously issued. */
+	const presentedHolderNonce = parsed.data.holderNonce ?? null;
+	/* A free pre-cutover continuation may come from old JS that knows no nonce.
+	 * Give request-local collaborators a non-authoritative placeholder until the
+	 * app-locked resume resolves (or upgrades) the stored capability; no tool,
+	 * heartbeat, lifecycle write, or client emission uses it before then. */
+	let holderNonce = chargeable
+		? crypto.randomUUID()
+		: (presentedHolderNonce ?? crypto.randomUUID());
 
 	/* Credit gate — fast-fail read. Sits where the dollar cap used to, at the top
 	 * of the handler, and FAILS CLOSED: any database read error rejects with 503
@@ -256,11 +283,12 @@ export async function POST(req: Request) {
 	 * schema): the conversation persists either way. */
 	const threadId = parsed.data.threadId ?? crypto.randomUUID();
 
-	/* Stable per-request run identifier. Every event envelope (mutation or
-	 * conversation) carries this value; the client echoes it back on follow-up
-	 * requests so threads stay aligned across turns. Minted here — before any
-	 * persistence work — so failure paths below can still surface it if needed. */
-	const effectiveRunId = runId ?? crypto.randomUUID();
+	/* Stable public thread/run attribution. Every event envelope (mutation or
+	 * conversation) carries this value, and the client echoes it across the
+	 * thread's follow-up POSTs. It is deliberately NOT holder authority; multiple
+	 * claims may share it, which is why `holderNonce` is separate. Minted before
+	 * persistence so failure paths below can still surface it if needed. */
+	const effectiveRunId = chatRunIdSchema.parse(runId ?? crypto.randomUUID());
 
 	/* Thread-identity guard — BEFORE any persistence work (a rejection here
 	 * must not mint an orphan app). `threadId` is client-minted, so an id that
@@ -270,8 +298,9 @@ export async function POST(req: Request) {
 	 * `app_id`); this read just turns the failure into a clean 400. Fails
 	 * CLOSED on a read error — proceeding unguarded would let the later
 	 * guarded write silently drop the conversation instead. */
+	let existingThread: Awaited<ReturnType<typeof resolveThreadStream>> = null;
 	try {
-		const existingThread = await resolveThreadStream(threadId);
+		existingThread = await resolveThreadStream(threadId);
 		if (
 			existingThread !== null &&
 			(!parsed.data.appId || existingThread.appId !== parsed.data.appId)
@@ -280,6 +309,19 @@ export async function POST(req: Request) {
 				{
 					error:
 						"That conversation belongs to a different app. Reload the page to pick up the right conversation list.",
+					type: "invalid_request",
+				},
+				{ status: 400 },
+			);
+		}
+		if (
+			!chargeable &&
+			(existingThread === null || existingThread.runId !== effectiveRunId)
+		) {
+			return Response.json(
+				{
+					error:
+						"This answer round was superseded. Refresh to continue from the current conversation.",
 					type: "invalid_request",
 				},
 				{ status: 400 },
@@ -327,6 +369,14 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	let createdAppAccess:
+		| {
+				projectId: string;
+				role: string;
+				canEdit: boolean;
+				baseSeq: number;
+		  }
+		| undefined;
 	/* The credit reservation this run booked — set atomically with the claim
 	 * (`claimAndReserveRun` / `reserveForNewBuild`) pre-stream on the free /
 	 * first-claim paths, or inside `execute` after the serialize-with-wait poll
@@ -338,10 +388,10 @@ export async function POST(req: Request) {
 	 * blueprint with no extra load. Undefined for a new build (no
 	 * app exists yet); the seed falls back to the empty doc there. */
 	let loadedApp:
-		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
+		| Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>["app"]
 		| undefined;
 	/* The app's Project — the media tenant. Set in BOTH branches below (the
-	 * active Project for a new build, the app's Project for an existing one) and
+	 * page-bound expected Project for a new build, the app's Project for an existing one) and
 	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
 	 * Project the documents live in. */
 	let projectId: string | undefined;
@@ -372,16 +422,31 @@ export async function POST(req: Request) {
 	 * (needs `ctx`), uniform across both paused shapes via `reacquireLease`. */
 	let resumeMustCheckSupersede = false;
 	if (!appId) {
-		/* New builds land in the caller's active Project (shared resolver: the
-		 * session's stamped activeOrganizationId, self-healing to the personal
-		 * Project for pre-Projects sessions). Creating an app is a WRITE, so the
-		 * caller must hold the active Project at EDIT — a viewer in a shared
-		 * Project must not create apps there (resolveActiveProjectId only proves
-		 * membership). An AppAccessError is a permission denial (403), not a save
-		 * failure. */
+		const expectedProjectId = parsed.data.expectedProjectId;
+		if (expectedProjectId === undefined) {
+			return Response.json(
+				{
+					error:
+						"This new-app page is missing its Project scope. Reload the page and try again.",
+					type: "invalid_request",
+				},
+				{ status: 400 },
+			);
+		}
+		/* `/build/new` captured this Project in its server-rendered access tuple.
+		 * Another tab may have switched the session's active Project since then;
+		 * bind creation to the captured id and freshly authorize it at EDIT instead
+		 * of re-reading mutable session state. The client supplies no capability —
+		 * role/canEdit below come only from this server-side gate. */
 		try {
-			projectId = await resolveActiveProjectId(keyResult.session);
-			await resolveProjectAccess(userId, projectId, "edit");
+			projectId = expectedProjectId;
+			const access = await resolveProjectAccess(userId, projectId, "edit");
+			createdAppAccess = {
+				projectId,
+				role: access.role,
+				canEdit: roleAllowsApp(access.role, "edit"),
+				baseSeq: 0,
+			};
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -392,7 +457,7 @@ export async function POST(req: Request) {
 					{ status: 403 },
 				);
 			}
-			log.error("[chat] active-Project resolution failed", err);
+			log.error("[chat] expected-Project authorization failed", err);
 			return Response.json(
 				{
 					error: "Unable to save app. Please try again shortly.",
@@ -402,9 +467,20 @@ export async function POST(req: Request) {
 			);
 		}
 		try {
-			appId = await createApp(userId, projectId, effectiveRunId);
+			appId = await createApp(userId, projectId, effectiveRunId, {
+				runHolderNonce: holderNonce,
+			});
 			appCreated = true;
 		} catch (err) {
+			if (err instanceof CommitReauthError) {
+				return Response.json(
+					{
+						error: "You don't have permission to create apps in this Project.",
+						type: "forbidden",
+					},
+					{ status: 403 },
+				);
+			}
 			log.error("[chat] app creation failed", err);
 			return Response.json(
 				{
@@ -428,13 +504,34 @@ export async function POST(req: Request) {
 					userId,
 					cost,
 					effectiveRunId,
+					projectId,
+					holderNonce,
 				);
 			} catch (err) {
+				if (err instanceof AppProjectChangedError) {
+					await failApp(appId, effectiveRunId, holderNonce, "app_changed");
+					return Response.json(
+						{ error: MESSAGES.app_changed, type: "app_changed" },
+						{ status: 409 },
+					);
+				}
+				if (err instanceof CommitReauthError) {
+					await failApp(appId, effectiveRunId, holderNonce, "access_revoked");
+					return Response.json(
+						{ error: "App not found", type: "not_found" },
+						{ status: 404 },
+					);
+				}
 				if (err instanceof GenerationInProgressError) {
 					/* Awaited: the reserve rolled back, so this fresh `generating` row
 					 * carries no marker — until it flips to `error` it reads as the
 					 * user's own live build and blocks their next POST. */
-					await failApp(appId, "generation_in_progress");
+					await failApp(
+						appId,
+						effectiveRunId,
+						holderNonce,
+						"generation_in_progress",
+					);
 					return Response.json(
 						{
 							error: MESSAGES.generation_in_progress,
@@ -444,7 +541,7 @@ export async function POST(req: Request) {
 					);
 				}
 				if (err instanceof OutOfCreditsError) {
-					await failApp(appId, "out_of_credits");
+					await failApp(appId, effectiveRunId, holderNonce, "out_of_credits");
 					return Response.json(
 						{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
 						{ status: 429 },
@@ -467,13 +564,19 @@ export async function POST(req: Request) {
 	} else {
 		/* Project-membership gate (edit) — apps are a root-level collection, so
 		 * the path doesn't scope writes; without this a crafted request with
-		 * another Project's appId could drive a build against it. The same
-		 * authorization read yields the persisted app doc, so the SA's working
-		 * doc seeds from `loadedApp.blueprint` below without a second fetch. */
+		 * another Project's appId could drive a build against it. Authorization,
+		 * Project scope, the persisted blueprint, and its mutation cursor come
+		 * from ONE locked snapshot. The SA therefore never seeds from an app row,
+		 * entity set, or membership decision taken on different sides of a move or
+		 * membership write. */
 		try {
-			const access = await resolveAppAccess(appId, userId, "edit");
-			loadedApp = access.app;
-			projectId = access.projectId;
+			const snapshot = await resolveAuthorizedAppSnapshot(
+				appId,
+				userId,
+				"edit",
+			);
+			loadedApp = snapshot.app;
+			projectId = snapshot.projectId;
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -508,12 +611,25 @@ export async function POST(req: Request) {
 					effectiveRunId,
 					userId,
 					cost,
+					projectId,
+					holderNonce,
 				);
 				reservation = claimedRun.reservation;
+				holderNonce = claimedRun.holderNonce;
 			} catch (err) {
 				if (err instanceof RunConflictError) {
 					/* The app is held — wait inside the stream (below), don't reject. */
 					waitForClaim = true;
+				} else if (err instanceof AppProjectChangedError) {
+					return Response.json(
+						{ error: MESSAGES.app_changed, type: "app_changed" },
+						{ status: 409 },
+					);
+				} else if (err instanceof CommitReauthError) {
+					return Response.json(
+						{ error: "App not found", type: "not_found" },
+						{ status: 404 },
+					);
 				} else if (err instanceof GenerationInProgressError) {
 					return Response.json(
 						{
@@ -552,6 +668,11 @@ export async function POST(req: Request) {
 			resumeMustCheckSupersede = true;
 		}
 	}
+	if (projectId === undefined) {
+		throw new Error(
+			"[chat] compiler invariant: app admission completed without a Project scope",
+		);
+	}
 
 	/* The paused-run resume's pause-flag clear does NOT happen pre-stream — it
 	 * moves INSIDE `execute`, folded into `reacquireLease`'s success transaction,
@@ -587,6 +708,7 @@ export async function POST(req: Request) {
 		appId,
 		userId,
 		runId: effectiveRunId,
+		holderNonce,
 		// Must match the model `createSolutionsArchitect` picks off the same
 		// signal (one model today; the constants stay separate so the roles
 		// can diverge again).
@@ -644,6 +766,7 @@ export async function POST(req: Request) {
 				streamId,
 				appId,
 				runId: effectiveRunId,
+				threadId,
 				inner: rawWriter,
 			});
 			try {
@@ -653,20 +776,20 @@ export async function POST(req: Request) {
 					data: { runId: effectiveRunId },
 					transient: true,
 				});
-
-				/* Announce the freshly-minted appId to the client exactly once, on
-				 * the request that created it, so a new build can promote its URL
+				/* Announce the freshly-minted app and its server-derived access tuple
+				 * to the client exactly once, on the request that created it, so a new
+				 * build can promote its URL
 				 * from `/build/new` to `/build/{appId}`. The client's handler for
 				 * this event unconditionally rewrites the URL to `/build/{appId}`;
 				 * emitting on edit requests would clobber any form/field selection
 				 * segments (e.g. `/build/{id}/{formUuid}/{fieldUuid}`) that the
-				 * user has already navigated into. This is a one-shot identity
-				 * signal, not a save receipt — per-mutation persistence happens
-				 * silently server-side inside the mutation tool handlers. */
-				if (appCreated) {
+				 * user has already navigated into. This is a one-shot creation receipt;
+				 * per-mutation persistence happens silently server-side inside the
+				 * mutation tool handlers. */
+				if (appCreated && createdAppAccess) {
 					writer.write({
 						type: "data-app-id",
-						data: { appId },
+						data: { appId, ...createdAppAccess },
 						transient: true,
 					});
 				}
@@ -678,6 +801,8 @@ export async function POST(req: Request) {
 					usage,
 					session: keyResult.session,
 					appId,
+					projectId,
+					holderNonce,
 					/* An EDIT run (chargeable claim OR free-continuation resume) holds a
 					 * `run_lock`, so it heartbeats the lease off SA activity. A BUILD holds
 					 * via `status` (no lock) → no heartbeat. `appReady` is the build-vs-edit
@@ -728,8 +853,12 @@ export async function POST(req: Request) {
 				 * reaches the failure funnel from a pause.
 				 */
 				const finalizeRun = async (
-					failure?: { type: ErrorType },
-					opts?: { paused?: boolean; heldApp?: boolean },
+					failure?: ClassifiedError,
+					opts?: {
+						paused?: boolean;
+						heldApp?: boolean;
+						failureSource?: string;
+					},
 				): Promise<void> => {
 					if (finalized) return;
 					finalized = true;
@@ -753,10 +882,9 @@ export async function POST(req: Request) {
 					 * reserved nothing. Every other terminal path — the drain-end finally,
 					 * `failRun`, the paused arm — is a POST that owns or continues the
 					 * holding run, so it defaults true. */
-					const heldApp = opts?.heldApp ?? true;
+					let heldApp = opts?.heldApp ?? true;
 					if (failure) usage.markRunFailed();
 					await usage.flush();
-					await logWriter.flush();
 					if (failure && heldApp) {
 						/* Failed-run terminal write — refund + settle the marker AND (for an
 						 * EDIT) release the `run_lock`, ATOMICALLY (`settleAndRelease`). `flush`
@@ -768,20 +896,44 @@ export async function POST(req: Request) {
 						 * released ONLY inside the same commit that settles the marker, so
 						 * "lock cleared + marker unsettled" (the state that stranded credits) is
 						 * impossible — if the txn throws NOTHING changed (the lock stays for the
-						 * reaper) and `settled` reports `false`. A build passes `releaseLock:
-						 * false` (it has no lock). A failure never reaches here paused. */
-						let refundSettled = true;
+						 * reaper) and `settled` reports `false`. The explicit mode is part of
+						 * the holder token (a build has no lock). A failure never reaches here
+						 * paused. */
+						let refundSettled = false;
+						let settleOutcome: ReacquireOutcome | "failed" = "failed";
 						try {
-							({ settled: refundSettled } = await settleAndRelease(
-								appId,
-								effectiveRunId,
-								{ releaseLock: !!appReady },
-							));
+							({ settled: refundSettled, outcome: settleOutcome } =
+								await settleAndRelease(appId, effectiveRunId, holderNonce, {
+									mode: appReady ? "edit" : "build",
+								}));
 						} catch (err) {
-							refundSettled = false;
 							log.error("[chat] failed-run settle+release failed", err, {
 								appId,
 							});
+						}
+						if (settleOutcome === "owned") {
+							ctx.emitError(failure, opts?.failureSource ?? "route:failure");
+							if (chargeable && refundSettled && !refundSignalled) {
+								refundSignalled = true;
+								writer.write({
+									type: "data-credit-refund",
+									data: { amount: cost, userId },
+									transient: true,
+								});
+							}
+						} else if (settleOutcome !== "failed") {
+							const holderLost = new RunHolderLostError(settleOutcome);
+							ctx.latchRunHolderLost(holderLost);
+							ctx.emitError(
+								classifyError(holderLost),
+								"route:failed-run-holder-lost",
+							);
+							heldApp = false;
+						} else {
+							/* Infrastructure uncertainty is not proof of holder loss. Surface the
+							 * original failure, but make no refund claim; the exact-holder reaper
+							 * remains the settlement backstop. */
+							ctx.emitError(failure, opts?.failureSource ?? "route:failure");
 						}
 						/* Flip to `error` only for a BUILD (the app is `generating`). A failed
 						 * EDIT must NOT flip its already-`complete` app to `error`: that would
@@ -793,8 +945,8 @@ export async function POST(req: Request) {
 						 * open. `refundSettled` gates the build flip: an uncommitted settle
 						 * leaves the build `generating` for the reaper to retry (mirroring
 						 * `reapStaleGenerating`'s refund-before-flip). */
-						if (refundSettled && !appReady) {
-							failApp(appId, failure.type);
+						if (settleOutcome === "owned" && refundSettled && !appReady) {
+							await failApp(appId, effectiveRunId, holderNonce, failure.type);
 						}
 					} else if (!failure && !paused && heldApp && appReady) {
 						/* Clean, non-paused EDIT completion — release the `run_lock` AND
@@ -812,13 +964,27 @@ export async function POST(req: Request) {
 						 * AND settled atomically (a build has no `run_lock` to release), for the
 						 * same window-closing reason. */
 						try {
-							await clearRunLockAndSettle(appId, effectiveRunId);
+							const releaseOutcome = await clearRunLockAndSettle(
+								appId,
+								effectiveRunId,
+								holderNonce,
+							);
+							if (releaseOutcome !== "owned") {
+								const holderLost = new RunHolderLostError(releaseOutcome);
+								ctx.latchRunHolderLost(holderLost);
+								ctx.emitError(
+									classifyError(holderLost),
+									"route:edit-finalize-holder-lost",
+								);
+								heldApp = false;
+							}
 						} catch (err) {
 							log.error("[chat] edit clean release+settle failed", err, {
 								appId,
 							});
 						}
 					}
+					await logWriter.flush();
 					/* Terminate the durable chunk log LAST — every user-visible write on
 					 * every terminal path (the failure funnel's error event + refund
 					 * toast, the clean build's `data-done`) precedes its path's
@@ -871,6 +1037,7 @@ export async function POST(req: Request) {
 									threadId,
 									streamId,
 									responseMessage,
+									retainHolderNonce: paused,
 								});
 								appended = true;
 							} catch (err) {
@@ -888,6 +1055,7 @@ export async function POST(req: Request) {
 									threadId,
 									streamId,
 									responseMessage: null,
+									retainHolderNonce: paused,
 								});
 							} catch (err) {
 								log.error(
@@ -903,28 +1071,23 @@ export async function POST(req: Request) {
 				/**
 				 * Classify + surface a generation error, then finalize the run as failed —
 				 * the single failure funnel for both an init/build throw and a streamed
-				 * model error. Emits the classified error as a conversation event and, on a
-				 * chargeable run, the optimistic `data-credit-refund` toast (the
-				 * authoritative decrement lands in `flush()` inside `finalizeRun`).
+				 * model error. Finalization first proves the exact holder and settles its
+				 * refund; only then does it emit the classified error and, for a chargeable
+				 * run, the authoritative `data-credit-refund` toast. A lost holder emits the
+				 * existing superseded/released error and never claims a refund.
 				 */
 				const failRun = async (
 					error: unknown,
 					source: string,
 				): Promise<void> => {
 					const classified = classifyError(error);
-					ctx.emitError(classified, source);
-					if (chargeable && !refundSignalled) {
-						refundSignalled = true;
-						/* `userId` names the CHARGED actor — a co-member replaying this
-						 * run's stream (a shared thread's refresh-resume) must not be
-						 * told THEIR credits were refunded. */
-						writer.write({
-							type: "data-credit-refund",
-							data: { amount: cost, userId },
-							transient: true,
-						});
+					if (error instanceof RunHolderLostError) {
+						ctx.latchRunHolderLost(error);
+						ctx.emitError(classified, source);
+						await finalizeRun(undefined, { heldApp: false });
+						return;
 					}
-					await finalizeRun(classified);
+					await finalizeRun(classified, { failureSource: source });
 				};
 
 				/**
@@ -1010,7 +1173,11 @@ export async function POST(req: Request) {
 					 * transaction rolled back). */
 					let gateBail:
 						| {
-								type: "generation_in_progress" | "out_of_credits";
+								type:
+									| "generation_in_progress"
+									| "out_of_credits"
+									| "access_revoked"
+									| "app_changed";
 								message: string;
 						  }
 						| undefined;
@@ -1023,11 +1190,28 @@ export async function POST(req: Request) {
 								effectiveRunId,
 								userId,
 								cost,
+								projectId,
+								holderNonce,
 							);
 							reservation = claimedRun.reservation;
+							holderNonce = claimedRun.holderNonce;
 							break;
 						} catch (err) {
 							if (err instanceof RunConflictError) continue; // still held — keep waiting
+							if (err instanceof AppProjectChangedError) {
+								gateBail = {
+									type: "app_changed",
+									message: MESSAGES.app_changed,
+								};
+								break;
+							}
+							if (err instanceof CommitReauthError) {
+								gateBail = {
+									type: "access_revoked",
+									message: MESSAGES.access_revoked,
+								};
+								break;
+							}
 							if (err instanceof GenerationInProgressError) {
 								gateBail = {
 									type: "generation_in_progress",
@@ -1105,15 +1289,42 @@ export async function POST(req: Request) {
 					});
 
 					/* A held app may have advanced while we waited (the prior holder
-					 * committed batches), so re-read the persisted blueprint for the SA's
-					 * seed rather than trusting the pre-wait `loadedApp`. */
+					 * committed batches), so re-read one authorized persisted snapshot for
+					 * the SA's seed rather than trusting the pre-wait `loadedApp`. This
+					 * admission happens AFTER this POST owns the claim + reservation. It
+					 * therefore fails through the normal run failure funnel: refund/settle
+					 * and exact-holder release happen before the stream closes, and the SA
+					 * never starts on an unknown or cross-Project document. */
 					try {
-						const fresh = await loadApp(appId);
-						if (fresh) loadedApp = fresh;
-					} catch (err) {
-						log.error("[chat] serialize-wait blueprint reload failed", err, {
+						const fresh = await resolveAuthorizedAppSnapshot(
 							appId,
-						});
+							userId,
+							"edit",
+						);
+						if (fresh.projectId !== projectId) {
+							throw new AppProjectChangedError();
+						}
+						loadedApp = fresh.app;
+					} catch (err) {
+						const failure =
+							err instanceof AppAccessError
+								? new CommitReauthError(
+										"You no longer have edit access to this app's Project.",
+									)
+								: err;
+						if (
+							!(failure instanceof CommitReauthError) &&
+							!(failure instanceof AppProjectChangedError)
+						) {
+							log.error(
+								"[chat] serialize-wait authorized snapshot reload failed",
+								failure,
+								{ appId },
+							);
+						}
+						await persistBailedHistory();
+						await failRun(failure, "route:serialize-wait-snapshot");
+						return;
 					}
 				}
 
@@ -1128,21 +1339,76 @@ export async function POST(req: Request) {
 				 * `run_lock.expireAt`; build → re-arm `updated_at`) AND clears
 				 * `awaiting_input` in the SAME transaction, so a resume RENEWS its lease
 				 * rather than proceeding on an already-lapsed one and being reaped mid-run.
-				 * If superseded (returns `false`), it touched NOTHING and we BAIL gracefully
+				 * If superseded or released, it touched NOTHING and we BAIL gracefully
 				 * rather than start a second SA loop on an app it no longer owns.
 				 * Nothing was claimed/reserved on this free continuation, so
-				 * `heldApp: false` keeps the finalize from touching the holder's state. A
-				 * transient failure fails OPEN (proceed): the solo-editor resume is the
-				 * common case, and the guarded per-commit writer stays the backstop. */
+				 * `heldApp: false` keeps the finalize from touching the holder's state.
+				 * Authorization, Project-scope, and infrastructure failures all fail CLOSED:
+				 * the route emits one terminal error and never starts the SA. */
 				if (resumeMustCheckSupersede) {
 					const resumeMode = appReady ? "edit" : "build";
-					let reacquire: ReacquireOutcome = "owned";
+					let reacquire:
+						| ReacquireOutcome
+						| "refresh_required"
+						| "access_revoked"
+						| "app_changed"
+						| "failed" = "failed";
 					try {
-						reacquire = await reacquireLease(appId, effectiveRunId, resumeMode);
+						const result = await reacquireLease(
+							appId,
+							effectiveRunId,
+							presentedHolderNonce,
+							resumeMode,
+							userId,
+							projectId,
+						);
+						reacquire = result.outcome;
+						if (result.outcome === "owned") {
+							holderNonce = result.holderNonce;
+							ctx.setReacquiredHolderNonce(holderNonce);
+							usage.configureRun({ holderNonce });
+						}
 					} catch (err) {
-						log.error("[chat] resume reacquire failed", err, { appId });
+						if (err instanceof CommitReauthError) {
+							reacquire = "access_revoked";
+						} else if (err instanceof AppProjectChangedError) {
+							reacquire = "app_changed";
+						} else {
+							log.error("[chat] resume reacquire failed", err, { appId });
+						}
 					}
 					if (reacquire !== "owned") {
+						if (
+							reacquire === "access_revoked" ||
+							reacquire === "app_changed" ||
+							reacquire === "failed"
+						) {
+							const failure =
+								reacquire === "access_revoked"
+									? {
+											type: "access_revoked" as const,
+											message: MESSAGES.access_revoked,
+										}
+									: reacquire === "app_changed"
+										? {
+												type: "app_changed" as const,
+												message: MESSAGES.app_changed,
+											}
+										: {
+												type: "internal" as const,
+												message: MESSAGES.internal,
+											};
+							ctx.emitError(
+								{
+									...failure,
+									recoverable: false,
+								},
+								`route:resume-${reacquire}`,
+							);
+							await persistBailedHistory();
+							await finalizeRun(undefined, { heldApp: false });
+							return;
+						}
 						/* The lost shapes read very differently to the person answering, so
 						 * tell the truth per shape: "superseded" means another run actually
 						 * holds the app now — the requester's OWN newer request (a paused
@@ -1150,6 +1416,20 @@ export async function POST(req: Request) {
 						 * "released" means the run simply timed out waiting and a scan
 						 * reaped it (refund + free) with no re-claim. The holder read is a
 						 * best-effort projection for the message only. */
+						if (reacquire === "refresh_required") {
+							ctx.emitError(
+								{
+									type: "run_released",
+									message:
+										"This tab predates Nova's updated run protection and can no longer resume this answer safely. Refresh to load the current conversation, then send your answer again.",
+									recoverable: false,
+								},
+								"route:resume-refresh-required",
+							);
+							await persistBailedHistory();
+							await finalizeRun(undefined, { heldApp: false });
+							return;
+						}
 						let superseded: { type: ErrorType; message: string } | undefined;
 						if (reacquire === "superseded") {
 							const holder = await loadAppHolder(appId);
@@ -1195,17 +1475,24 @@ export async function POST(req: Request) {
 				 * `false` means the id belongs to another app (the pre-stream guard
 				 * catches this before any claim; this is the structural backstop) —
 				 * surfaced as a failed run rather than silently streaming a
-				 * conversation that will never persist. */
+				 * conversation that will never persist. A holder lost between claim
+				 * and this write throws after preserving any mergeable transcript; it
+				 * must terminate before publishing a stale continuation capability. */
 				try {
 					threadPersisted = await upsertThreadTurn({
 						appId,
 						threadId,
 						runId: effectiveRunId,
 						streamId,
+						holderNonce,
 						threadType: appReady ? "edit" : "build",
 						messages,
 					});
 				} catch (err) {
+					if (err instanceof RunHolderLostError) {
+						await failRun(err, "route:thread-marker-holder-lost");
+						return;
+					}
 					log.error("[chat] thread turn upsert failed", err, {
 						appId,
 						threadId,
@@ -1221,6 +1508,13 @@ export async function POST(req: Request) {
 						threadId,
 					});
 				}
+				/* Dedicated operational capability: forward the real value only to
+				 * this authenticated POST caller. The durable stream stores an inert,
+				 * count-preserving marker; reconnect resolves it from the actor-bound
+				 * active thread/app holder, so a Project viewer can replay shared chat
+				 * without gaining another actor's continuation authority. Emit only
+				 * after the authoritative claim/reacquire and thread binding. */
+				writer.writePrivateHolderNonce(holderNonce);
 
 				/* Build the SA's working doc. For an existing app the seed is the
 				 * SAVED blueprint (`loadedApp.blueprint`, the persistable slice with
@@ -1693,7 +1987,13 @@ export async function POST(req: Request) {
 						 * than carry a stale pause latch into a retried attempt — a clean
 						 * attempt 2 would then wrongly park a finished run as
 						 * awaiting-input. */
-						if (!sawFatalError || ctx.reauthError() || ctx.pausedOnInput()) {
+						if (
+							!sawFatalError ||
+							ctx.holderLostError() ||
+							ctx.reauthError() ||
+							ctx.projectChangedError() ||
+							ctx.pausedOnInput()
+						) {
 							if (heldFinish !== undefined) writer.write(heldFinish);
 							break;
 						}
@@ -1730,29 +2030,68 @@ export async function POST(req: Request) {
 						);
 					}
 
-					/* A guarded commit that threw `CommitReauthError` (the actor lost
-					 * edit access mid-run) is a FATAL run failure that must take
+					/* A guarded commit that observed revoked access or a moved Project is
+					 * a FATAL run failure that must take
 					 * precedence over the clean-completion writers (`completeAndSettleRun` / `clearRunLockAndSettle`) / `awaiting_input` / the edit arm — a
-					 * deauthorized run must refund and end in `error`, never report
+					 * stale-scope run must refund and end in `error`, never report
 					 * success and keep its charge. The AI SDK turns the tool `execute()`
 					 * throw into a NON-fatal chunk (so `sawFatalError` stays false), which
 					 * is why the context flag, not the stream, carries the signal. */
-					const reauthErr = ctx.reauthError();
-					if (sawFatalError || reauthErr) {
+					const holderErr = ctx.holderLostError();
+					const scopeErr = ctx.reauthError() ?? ctx.projectChangedError();
+					if (holderErr) {
+						await failRun(holderErr, "route:holder-lost");
+					} else if (sawFatalError || scopeErr) {
 						await failRun(
-							reauthErr ??
+							scopeErr ??
 								pendingError ??
 								new Error("The generation stream ended in an error."),
-							reauthErr ? "route:reauth" : "route:stream",
+							scopeErr ? "route:scope-change" : "route:stream",
 						);
 					} else if (ctx.pausedOnInput()) {
 						/* The run paused on an `askQuestions` round (awaiting the user's
-						 * answer) rather than finishing. Mark the build `awaiting_input` so the
-						 * staleness reaper skips it — it's alive, not hard-killed, and a later
-						 * POST will resume it. The charge stands (the clean finally's
-						 * `finalizeRun()` flushes it); the flag is cleared when that POST
-						 * resumes the run. */
-						await setAwaitingInput(appId, true);
+						 * answer) rather than finishing. Stamp `awaiting_input` only while this
+						 * exact run still owns the app. A durable `"owned"` leaves the live hold
+						 * paused for the answer POST. A reaped/replaced outcome is terminal for
+						 * THIS stream: tell the truth, finalize as non-owning/non-paused, and never
+						 * leave a resumable question claim on the successor. Infrastructure faults
+						 * are not ownership answers, so they take the ordinary failure funnel. */
+						let pauseOutcome: ReacquireOutcome | "failed" = "failed";
+						try {
+							pauseOutcome = await setAwaitingInput(
+								appId,
+								effectiveRunId,
+								holderNonce,
+								editing ? "edit" : "build",
+								true,
+								userId,
+								projectId,
+							);
+						} catch (error) {
+							await failRun(error, "route:pause-stamp");
+						}
+						if (pauseOutcome === "superseded" || pauseOutcome === "released") {
+							ctx.emitError(
+								pauseOutcome === "superseded"
+									? {
+											type: "generation_in_progress",
+											message:
+												"A newer request took over this app before this question round could pause. Refresh to pick up its changes, then continue there.",
+											recoverable: false,
+										}
+									: {
+											type: "run_released",
+											message:
+												"This run was released before its question round could pause. Refresh to get the latest state, then send your answer again.",
+											recoverable: false,
+										},
+								`route:pause-${pauseOutcome}`,
+							);
+							await finalizeRun(undefined, {
+								heldApp: false,
+								paused: false,
+							});
+						}
 					} else if (editing) {
 						/* Tripwire, not a gate: with every committed batch gated against
 						 * introducing findings, an edit run that ends with a NEW
@@ -1845,7 +2184,14 @@ export async function POST(req: Request) {
 									...(finalSeq !== undefined && { syncedSeq: finalSeq }),
 								});
 							}
-							await completeAndSettleRun(appId, effectiveRunId);
+							const completionOutcome = await completeAndSettleRun(
+								appId,
+								effectiveRunId,
+								holderNonce,
+							);
+							if (completionOutcome !== "owned") {
+								throw new RunHolderLostError(completionOutcome);
+							}
 							if (finalDoc) {
 								ctx.emit("data-done", {
 									doc: toPersistableDoc(finalDoc),
@@ -1907,21 +2253,13 @@ export async function POST(req: Request) {
 				 * busy"). Release it, but ONLY when `finalizeRun` never ran (the
 				 * prelude-throw case) — a run that DID finalize already made the right
 				 * lock decision, and a PAUSED edit deliberately keeps its lock. Also
-				 * gated on this run STILL holding the lock (its `runId`): a
-				 * superseded/taken-over app now carries a co-member's lock this must not
-				 * touch. Gated on `claimedRun.mode === "edit"` so a build or a lock-less
-				 * run pays no extra read. The flush above already settled the marker, so
-				 * this release can't strand the hold. */
+				 * exact-holder gated on this run's `runId` INSIDE the app-row-locked
+				 * clear: a superseded/taken-over app now carries a co-member's lock this
+				 * must not touch. Gated on `claimedRun.mode === "edit"` so a build or a
+				 * lock-less run pays no extra transaction. The flush above already settled
+				 * the marker, so this release can't strand the hold. */
 				if (!finalizeRan && claimedRun?.mode === "edit") {
-					try {
-						if (await editRunLockHeldBy(appId, effectiveRunId)) {
-							void clearRunLock(appId);
-						}
-					} catch (err) {
-						log.error("[chat] prelude-net run-lock release check failed", err, {
-							appId,
-						});
-					}
+					await clearRunLock(appId, effectiveRunId, holderNonce);
 				}
 			}
 		},

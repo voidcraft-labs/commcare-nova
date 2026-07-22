@@ -219,4 +219,21 @@ describe("lookup manifest stream frames", () => {
 		broker.dispatch(JSON.stringify(MANIFEST));
 		expect(healthy).toHaveBeenCalledTimes(2);
 	});
+
+	it("notifies every subscriber then propagates a tenant-boundary reset failure", () => {
+		const broker = createLookupManifestBroker();
+		const healthy = vi.fn<(manifest: LookupManifest | null) => void>();
+		broker.subscribe((manifest) => {
+			if (manifest === null) throw new Error("retained old Project");
+		});
+		broker.subscribe(healthy);
+		broker.dispatch(JSON.stringify(MANIFEST));
+
+		expect(() => broker.reset()).toThrow(AggregateError);
+		expect(healthy).toHaveBeenLastCalledWith(null);
+
+		const late = vi.fn<(manifest: LookupManifest | null) => void>();
+		broker.subscribe(late);
+		expect(late).not.toHaveBeenCalled();
+	});
 });

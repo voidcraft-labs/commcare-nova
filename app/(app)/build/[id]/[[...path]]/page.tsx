@@ -31,12 +31,13 @@ import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import { getSession } from "@/lib/auth-utils";
-import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
+import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
-	type CommCareSettingsPublic,
-	getCommCareSettings,
-} from "@/lib/db/settings";
+	AppAccessError,
+	resolveAuthorizedAppSnapshot,
+	resolveProjectAccess,
+} from "@/lib/db/appAccess";
+import { getCommCareSettings } from "@/lib/db/settings";
 import {
 	type LoadedThread,
 	type LoadedThreadMeta,
@@ -54,23 +55,39 @@ export default async function BuilderPage({
 	const { id } = await params;
 
 	const session = await getSession();
-	const commcareSettings = session
-		? await getCommCareSettings(session.user.id)
-		: ({ configured: false } satisfies CommCareSettingsPublic);
+	if (!session) redirect("/");
+	const commcareSettings = await getCommCareSettings(session.user.id);
 
 	/* During impersonation, session.user is the target — surface their
 	 * identity so BuilderHeader shows the banner, mirroring the site
 	 * header in `(site)/layout.tsx`. */
-	const impersonating = session?.session?.impersonatedBy
+	const impersonating = session.session.impersonatedBy
 		? { userName: session.user.name, userEmail: session.user.email }
 		: null;
 
-	/* New apps — no blueprint fetch needed. The reconciler mounts dormant
-	 * (no appId yet) and activates when the run mints one via `data-app-id`;
-	 * still pass the user id so echo classification works once it activates. */
+	/* New apps have no blueprint/cursor yet, but they DO have a Project
+	 * authority: creation targets the active Project. Resolve that role on the
+	 * server and seed `{ baseSeq: 0 }` so a viewer's first client frame is
+	 * truthfully read-only instead of defaulting to editor until the write route
+	 * refuses them. The reconciler remains dormant until `data-app-id`. */
 	if (id === "new") {
+		const projectId = await resolveActiveProjectId(session);
+		const access = await resolveProjectAccess(
+			session.user.id,
+			projectId,
+			"view",
+		);
 		return (
-			<BuilderProvider buildId={id} userId={session?.user.id}>
+			<BuilderProvider
+				buildId={id}
+				userId={session.user.id}
+				initialAccess={{
+					projectId,
+					role: access.role,
+					canEdit: roleAllowsApp(access.role, "edit"),
+					baseSeq: 0,
+				}}
+			>
 				<BuilderLayout
 					commcareSettings={commcareSettings}
 					impersonating={impersonating}
@@ -79,17 +96,29 @@ export default async function BuilderPage({
 		);
 	}
 
-	if (!session) redirect("/");
-
 	/* Project-membership gate (view) — any member may open the builder; edit
 	 * is enforced at the write paths (PUT / chat / MCP). Denials collapse to
 	 * notFound() to avoid leaking another Project's app. */
 	let app: AppDoc;
-	let role: string;
+	let initialAccess: {
+		projectId: string;
+		role: string;
+		canEdit: boolean;
+		baseSeq: number;
+	};
 	try {
-		const access = await resolveAppAccess(id, session.user.id, "view");
-		app = access.app;
-		role = access.role;
+		const snapshot = await resolveAuthorizedAppSnapshot(
+			id,
+			session.user.id,
+			"view",
+		);
+		app = snapshot.app;
+		initialAccess = {
+			projectId: snapshot.projectId,
+			role: snapshot.role,
+			canEdit: snapshot.canEdit,
+			baseSeq: snapshot.baseSeq,
+		};
 	} catch (err) {
 		if (err instanceof AppAccessError) notFound();
 		throw err;
@@ -114,8 +143,6 @@ export default async function BuilderPage({
 	/* Viewers (view-only members) get the read-only builder — every edit
 	 * affordance hides and auto-save is suppressed. Editors/admins/owners
 	 * edit normally. The write paths enforce this server-side regardless. */
-	const canEdit = roleAllowsApp(role, "edit");
-
 	/* Conversations — the list plus the most recent thread's transcript.
 	 * Best-effort for a COMPLETE app (the builder is fully usable without
 	 * chat history, so a read fault degrades to an empty conversation, never
@@ -128,7 +155,11 @@ export default async function BuilderPage({
 	try {
 		threads = await listThreadMetas(id);
 		if (threads.length > 0) {
-			initialThread = await loadThread(id, threads[0].thread_id);
+			initialThread = await loadThread(
+				id,
+				threads[0].thread_id,
+				session.user.id,
+			);
 		}
 	} catch (err) {
 		log.error("[build-page] thread hydration failed", err, { appId: id });
@@ -150,8 +181,7 @@ export default async function BuilderPage({
 		<BuilderProvider
 			buildId={id}
 			initialDoc={app.blueprint}
-			canEdit={canEdit}
-			baseSeq={app.mutation_seq}
+			initialAccess={initialAccess}
 			userId={session.user.id}
 		>
 			<BuilderLayout

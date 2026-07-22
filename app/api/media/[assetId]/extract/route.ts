@@ -22,7 +22,9 @@
  *     tab; 404 when no current-version extract exists yet (the client reads the
  *     `extracting`/`failed` status off the asset itself).
  *
- * Project-gated on every path (a non-member reads as 404, never enumerable).
+ * Project-gated on every path (a non-member reads as 404, never enumerable):
+ * POST requires edit because it writes metadata/GCS and incurs model cost;
+ * GET remains view-only.
  * Not on a chat run, so it passes the standalone extraction condenser rather than
  * a `GenerationContext` — the summarizer call's cost isn't folded into a run's usage
  * accumulator. It IS gated by the same monthly actual-cost backstop as the chat
@@ -64,7 +66,11 @@ export const maxDuration = 300;
  * not-yet-validated upload (409 — the bytes must be `ready` before there's
  * anything to extract).
  */
-async function loadExtractableDocument(req: NextRequest, rawAssetId: string) {
+async function loadExtractableDocument(
+	req: NextRequest,
+	rawAssetId: string,
+	capability: "view" | "edit",
+) {
 	const session = await requireSession(req);
 	const assetId = asAssetId(rawAssetId);
 	const asset = await loadAssetById(assetId);
@@ -72,7 +78,7 @@ async function loadExtractableDocument(req: NextRequest, rawAssetId: string) {
 	// enumerated.
 	if (
 		!asset ||
-		!(await userInProject(session.user.id, asset.project_id, "view"))
+		!(await userInProject(session.user.id, asset.project_id, capability))
 	) {
 		throw new ApiError(
 			"We couldn't find that file — it may have been deleted, or it isn't yours.",
@@ -117,6 +123,7 @@ export async function POST(
 		const { session, asset, documentKind } = await loadExtractableDocument(
 			req,
 			rawAssetId,
+			"edit",
 		);
 
 		// Gate eager extraction by the same monthly actual-cost backstop as the chat route — a
@@ -259,18 +266,21 @@ export async function GET(
 ) {
 	const { assetId: rawAssetId } = await params;
 	try {
-		const { asset } = await loadExtractableDocument(req, rawAssetId);
+		const { asset } = await loadExtractableDocument(req, rawAssetId, "view");
 
 		if (new URL(req.url).searchParams.get("meta") === "1") {
 			const ready =
 				asset.extract?.status === "ready" &&
 				asset.extract.version === EXTRACTOR_VERSION;
-			return NextResponse.json({
-				status: asset.extract?.status ?? null,
-				...(ready && asset.extract?.title && { title: asset.extract.title }),
-				...(ready &&
-					asset.extract?.summary && { summary: asset.extract.summary }),
-			});
+			return NextResponse.json(
+				{
+					status: asset.extract?.status ?? null,
+					...(ready && asset.extract?.title && { title: asset.extract.title }),
+					...(ready &&
+						asset.extract?.summary && { summary: asset.extract.summary }),
+				},
+				{ headers: { "Cache-Control": "private, no-store" } },
+			);
 		}
 
 		if (
@@ -313,8 +323,10 @@ export async function GET(
 		if (!(err instanceof ApiError)) {
 			log.error("[media:extract] unhandled GET", err);
 		}
-		return handleApiError(
+		const response = handleApiError(
 			err instanceof Error ? err : new ApiError("Extract read failed", 500),
 		);
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
 	}
 }

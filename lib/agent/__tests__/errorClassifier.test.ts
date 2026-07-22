@@ -1,5 +1,9 @@
 import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import { classifyError } from "../errorClassifier";
 
 // `classifyError` maps raw thrown values to a stable, user-safe bucket. The
@@ -10,6 +14,27 @@ import { classifyError } from "../errorClassifier";
 // future branch reorder can't silently drop a transient upstream failure back
 // into the scary `internal` bucket.
 describe("classifyError", () => {
+	it("classifies authoritative access loss as a terminal revocation", () => {
+		const result = classifyError(
+			new CommitReauthError("You no longer have edit access."),
+		);
+		expect(result).toMatchObject({
+			type: "access_revoked",
+			message:
+				"You no longer have permission to edit this app, so Nova stopped. No further changes were applied.",
+			recoverable: false,
+		});
+	});
+
+	it("classifies an authoritative Project change as terminal reload work", () => {
+		const result = classifyError(new AppProjectChangedError());
+		expect(result).toMatchObject({
+			type: "app_changed",
+			recoverable: false,
+		});
+		expect(result.message).toContain("Reload");
+	});
+
 	it("recognizes a bare 'Internal server error' phrase as api_server", () => {
 		expect(classifyError(new Error("Internal server error")).type).toBe(
 			"api_server",

@@ -1,10 +1,19 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { TooltipProvider } from "@/components/shadcn/tooltip";
 import { ICON_CATALOG } from "@/lib/domain/builtinIcons";
 import { asAssetId } from "@/lib/domain/multimedia";
+import { BuilderSessionContext } from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 import { MediaPickerDialog } from "../MediaPickerDialog";
 import type { MediaAssetView } from "../mediaClient";
 
@@ -12,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 	retry: vi.fn(),
 	assets: [] as MediaAssetView[],
 	useMediaLibrary: vi.fn(),
+	deleteMediaAsset: vi.fn(),
 }));
 
 vi.mock("../useMedia", () => ({
@@ -22,11 +32,18 @@ vi.mock("../useMedia", () => ({
 	}),
 }));
 
+vi.mock("../mediaClient", async () => {
+	const actual =
+		await vi.importActual<typeof import("../mediaClient")>("../mediaClient");
+	return { ...actual, deleteMediaAsset: mocks.deleteMediaAsset };
+});
+
 describe("MediaPickerDialog", () => {
 	beforeEach(() => {
 		mocks.retry.mockReset();
 		mocks.assets.length = 0;
 		mocks.useMediaLibrary.mockReset();
+		mocks.deleteMediaAsset.mockReset();
 		mocks.useMediaLibrary.mockImplementation(() => ({
 			assets: mocks.assets,
 			isLoading: false,
@@ -113,6 +130,85 @@ describe("MediaPickerDialog", () => {
 				screen.queryByRole("heading", { name: "This file will be deleted" }),
 			).toBeNull(),
 		);
+	});
+
+	it("keeps the library preview-only for a Project viewer", () => {
+		mocks.assets.push({
+			id: asAssetId("asset-viewer"),
+			contentHash: "hash-viewer",
+			mimeType: "image/png",
+			kind: "image",
+			extension: ".png",
+			sizeBytes: 1200,
+			originalFilename: "viewer-photo.png",
+			status: "ready",
+			createdAt: "2026-07-17T00:00:00.000Z",
+		});
+		render(
+			<TooltipProvider>
+				<MediaPickerDialog
+					open
+					onOpenChange={vi.fn()}
+					kinds={["image"]}
+					canWrite={false}
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(screen.queryByRole("tab", { name: "Upload" })).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Preview viewer-photo.png" }),
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Delete viewer-photo.png" }),
+		).toBeNull();
+	});
+
+	it("rechecks the live session capability before deleting", async () => {
+		mocks.assets.push({
+			id: asAssetId("asset-stale-delete"),
+			contentHash: "hash-stale-delete",
+			mimeType: "image/png",
+			kind: "image",
+			extension: ".png",
+			sizeBytes: 1200,
+			originalFilename: "stale-delete.png",
+			status: "ready",
+			createdAt: "2026-07-17T00:00:00.000Z",
+		});
+		const session = createBuilderSessionStore({
+			projectId: "project-1",
+			role: "editor",
+			canEdit: true,
+		});
+		const view = render(
+			<BuilderSessionContext value={session}>
+				<TooltipProvider>
+					<MediaPickerDialog
+						open
+						onOpenChange={vi.fn()}
+						kinds={["image"]}
+						canWrite
+					/>
+				</TooltipProvider>
+			</BuilderSessionContext>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Delete stale-delete.png" }),
+		);
+		await waitFor(() =>
+			expect(
+				screen.getByRole("heading", { name: "This file will be deleted" }),
+			).toBeTruthy(),
+		);
+		act(() => session.setState({ canEdit: false, role: "viewer" }));
+		fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+		expect(mocks.deleteMediaAsset).not.toHaveBeenCalled();
+		await settleBaseUiTransitions();
+		view.unmount();
+		await settleBaseUiTransitions();
 	});
 
 	it("discloses compact library captions from the existing thumbnail action", () => {

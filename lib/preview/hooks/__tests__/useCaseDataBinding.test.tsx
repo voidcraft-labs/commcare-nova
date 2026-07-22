@@ -20,9 +20,14 @@
 //      blueprint) — and returns the action's resolved result.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ReconcilerContext } from "@/lib/collab/context";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
+import type { LoadCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import { BuilderSessionContext } from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 
 // The hook imports a Server Action from a `"use server"` module.
 // Vitest's `vi.mock` is hoisted above every import, so the mocked
@@ -187,6 +192,92 @@ describe("useResetSampleCases", () => {
 });
 
 describe("useCases query constraints", () => {
+	it("masks source-Project rows at the epoch boundary and rejects their late settle", async () => {
+		let resolveSource: ((value: LoadCasesResult) => void) | undefined;
+		let resolveDestination: ((value: LoadCasesResult) => void) | undefined;
+		vi.mocked(loadCasesAction)
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveSource = resolve;
+					}),
+			)
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveDestination = resolve;
+					}),
+			);
+		const store = createBuilderSessionStore({ appId: APP_ID });
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+		);
+		const hook = renderHook(
+			() => useCases({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper },
+		);
+
+		await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(1));
+		act(() => {
+			store.getState().beginAccessRefresh();
+		});
+		// The epoch is part of the render identity, so source rows disappear in
+		// the same render. The query is deliberately idle while no authoritative
+		// Project snapshot exists; it becomes loading only after authorization.
+		expect(hook.result.current.state).toEqual({ kind: "idle" });
+		/* The new epoch is intentionally dormant until GET installs its atomic
+		 * Project/role/doc snapshot. A pre-snapshot read could otherwise publish
+		 * source-authorized data under the destination generation. */
+		await Promise.resolve();
+		expect(loadCasesAction).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			resolveSource?.({
+				kind: "rows",
+				rows: [
+					{
+						case_id: "source-case",
+						app_id: APP_ID,
+						case_type: PATIENT.name,
+						owner_id: "source-owner",
+						status: "open",
+						opened_on: null,
+						modified_on: null,
+						closed_on: null,
+						case_name: "Source household",
+						external_id: null,
+						parent_case_id: null,
+						properties: {},
+						calculated: {},
+					},
+				],
+				constraintSource: "unconstrained",
+			});
+		});
+		expect(hook.result.current.state).toEqual({ kind: "idle" });
+		act(() => {
+			store.getState().applyAccessSnapshot({
+				projectId: "destination-project",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(2));
+
+		await act(async () => {
+			resolveDestination?.({
+				kind: "empty",
+				constraintSource: "unconstrained",
+			});
+		});
+		await waitFor(() =>
+			expect(hook.result.current.state).toEqual({
+				kind: "empty",
+				constraintSource: "unconstrained",
+			}),
+		);
+	});
+
 	it("keeps a legacy action result neutral when constraint metadata is unavailable", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({ kind: "empty" });
 		const hook = renderHook(() =>
@@ -467,6 +558,50 @@ describe("useCases query constraints", () => {
 });
 
 describe("useCaseCount request identity", () => {
+	it("does not dedupe stalled calls across remounted reconciler runtimes at epoch zero", async () => {
+		const resolvers: Array<(value: { kind: "count"; count: number }) => void> =
+			[];
+		vi.mocked(loadCaseCountAction).mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolvers.push(resolve);
+				}),
+		);
+		const wrapperFor = (projectScopeId: string) => {
+			const session = createBuilderSessionStore({ appId: APP_ID });
+			return ({ children }: { children: ReactNode }) => (
+				<BuilderSessionContext value={session}>
+					<ReconcilerContext.Provider value={{ projectScopeId } as never}>
+						{children}
+					</ReconcilerContext.Provider>
+				</BuilderSessionContext>
+			);
+		};
+
+		const source = renderHook(
+			() => useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper: wrapperFor("source-runtime") },
+		);
+		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(1));
+		const destination = renderHook(
+			() => useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper: wrapperFor("destination-runtime") },
+		);
+		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(2));
+
+		await act(async () => {
+			resolvers[0]?.({ kind: "count", count: 1 });
+			resolvers[1]?.({ kind: "count", count: 2 });
+		});
+		await waitFor(() =>
+			expect(destination.result.current.state).toEqual({
+				kind: "count",
+				count: 2,
+			}),
+		);
+		expect(source.result.current.state).toEqual({ kind: "count", count: 1 });
+	});
+
 	it("hides the prior count synchronously when the case type changes", async () => {
 		let resolveNext:
 			| ((value: { kind: "count"; count: number }) => void)

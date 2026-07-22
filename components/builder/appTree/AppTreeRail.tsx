@@ -17,7 +17,7 @@ import tablerLayoutSidebarLeftExpand from "@iconify-icons/tabler/layout-sidebar-
 import tablerTable from "@iconify-icons/tabler/table";
 import { memo } from "react";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
-import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
@@ -87,9 +87,8 @@ const RailModuleGroup = memo(function RailModuleGroup({
 				onClick={() => onSelect({ kind: "module", moduleUuid })}
 			>
 				{mod.icon ? (
-					// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-					<img
-						src={mediaSrc(mod.icon)}
+					<ProjectMediaImage
+						assetId={mod.icon}
 						alt=""
 						className="size-6 rounded-md object-cover"
 					/>
@@ -135,9 +134,8 @@ function RailFormButton({
 			onClick={() => onSelect({ kind: "form", moduleUuid, formUuid })}
 		>
 			{form.icon ? (
-				// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-				<img
-					src={mediaSrc(form.icon)}
+				<ProjectMediaImage
+					assetId={form.icon}
 					alt=""
 					className="size-5 rounded object-cover"
 				/>

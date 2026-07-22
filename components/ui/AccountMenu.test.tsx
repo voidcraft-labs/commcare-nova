@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/components/builder/media/MediaPickerDialog", () => ({
-	MediaPickerDialog: () => null,
+	MediaPickerDialog: ({ canWrite }: { canWrite?: boolean }) => (
+		<span data-testid="file-manager" data-can-write={String(canWrite)} />
+	),
 }));
 
 vi.mock("@/lib/auth/hooks/useAuth", () => ({
@@ -41,7 +43,7 @@ describe("AccountMenu", () => {
 	});
 
 	it("uses shared 44px controls and keeps account values readable", async () => {
-		render(<AccountMenu />);
+		render(<AccountMenu canManageFiles={false} />);
 
 		const trigger = await screen.findByRole("button", {
 			name: "Account menu",
@@ -66,5 +68,6 @@ describe("AccountMenu", () => {
 		expect(
 			screen.getByRole("button", { name: "Sign out" }).className,
 		).toContain("h-11");
+		expect(screen.getByTestId("file-manager").dataset.canWrite).toBe("false");
 	});
 });

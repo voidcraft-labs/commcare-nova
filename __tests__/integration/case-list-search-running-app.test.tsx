@@ -100,6 +100,7 @@ import type {
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import type { Location } from "@/lib/routing/types";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 
 // ── Per-test database harness ────────────────────────────────────
 //
@@ -432,9 +433,17 @@ function buildStore(): CaseStore {
 function renderCaseListScreen(doc: BlueprintDoc) {
 	return render(
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
-			<CaseListScreen
-				screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
-			/>
+			<BuilderSessionProvider
+				init={{
+					projectId: "project-case-list-search-int",
+					role: "editor",
+					canEdit: true,
+				}}
+			>
+				<CaseListScreen
+					screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
+				/>
+			</BuilderSessionProvider>
 		</BlueprintDocProvider>,
 	);
 }
@@ -451,17 +460,25 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 	currentLocation = { kind: "form", moduleUuid: MODULE_UUID, formUuid };
 	return render(
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
-			<BuilderFormEngineProvider>
-				<FormScreen
-					screen={{
-						type: "form",
-						moduleIndex: 0,
-						formIndex: 0,
-						caseId,
-					}}
-					onBack={() => {}}
-				/>
-			</BuilderFormEngineProvider>
+			<BuilderSessionProvider
+				init={{
+					projectId: "project-case-list-search-int",
+					role: "editor",
+					canEdit: true,
+				}}
+			>
+				<BuilderFormEngineProvider>
+					<FormScreen
+						screen={{
+							type: "form",
+							moduleIndex: 0,
+							formIndex: 0,
+							caseId,
+						}}
+						onBack={() => {}}
+					/>
+				</BuilderFormEngineProvider>
+			</BuilderSessionProvider>
 		</BlueprintDocProvider>,
 	);
 }

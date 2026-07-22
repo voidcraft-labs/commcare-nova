@@ -1,7 +1,7 @@
 /**
  * The claim's credit-transfer + the build reaper's runId-clear, against a REAL
- * Postgres (the per-test-database harness). Composes `reserveForNewBuild` /
- * `claimAndReserveRun` (apps.ts) with `refundStaleGeneration` via
+ * Postgres (the per-test-database harness). Composes `claimAndReserveRun`
+ * (apps.ts) with `refundStaleGeneration` via
  * `reapStaleGenerating` — sharing one database, so each reads what the prior wrote.
  *
  * The descoped + atomic model: claim and reserve are ONE transaction, so there is
@@ -30,6 +30,8 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 const h = setupAppStateTestDb("claimwindow_");
 const PERIOD = getCurrentPeriod();
 const APP = "app-1";
+const PROJECT_ID = "project-test";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 /** An `updated_at` past the build staleness window (a hard-killed build). */
 const staleClock = () => new Date(Date.now() - 60 * 60_000);
@@ -37,8 +39,8 @@ const staleClock = () => new Date(Date.now() - 60 * 60_000);
 const freshClock = () => new Date();
 
 describe("claim credit-transfer + build reaper runId-clear", () => {
-	it("reserveForNewBuild refunds a hard-killed leftover before booking the fresh charge (net one cost)", async () => {
-		const { reserveForNewBuild } = await import("../apps");
+	it("claimAndReserveRun refunds a hard-killed leftover before booking the fresh charge (net one cost)", async () => {
+		const { claimAndReserveRun } = await import("../apps");
 		// A prior hard-killed run left an unsettled 100-credit hold on user-1's own
 		// current month; the retry reserves before the reaper fired.
 		await h.seedApp({
@@ -58,7 +60,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			bonus: 0,
 		});
 
-		await reserveForNewBuild(APP, "user-1", 100, "run-2");
+		await claimAndReserveRun(APP, "build", "run-2", "user-1", 100, PROJECT_ID);
 
 		// Leftover 100 refunded, fresh 100 booked → net stays 100.
 		expect(await h.readConsumed("user-1", PERIOD)).toBe(100);
@@ -72,7 +74,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 	});
 
 	it("the leftover-refund targets the CHARGED ACTOR of the marker, not the owner (owner != actor)", async () => {
-		const { reserveForNewBuild } = await import("../apps");
+		const { claimAndReserveRun } = await import("../apps");
 		// A Project co-member (NOT the owner) ran a build, was charged 100, then
 		// hard-killed. The retry's leftover-refund must un-book the ACTOR's hold
 		// (`res_user_id`), NOT `owner`.
@@ -99,7 +101,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 		});
 
 		// The owner books fresh; the leftover refunds to the dead member.
-		await reserveForNewBuild(APP, "owner-1", 100, "run-2");
+		await claimAndReserveRun(APP, "build", "run-2", "owner-1", 100, PROJECT_ID);
 
 		expect(await h.readConsumed("member-2", PERIOD)).toBe(0); // dead member's hold handed back
 		expect(await h.readConsumed("owner-1", PERIOD)).toBe(100); // fresh on owner's ledger
@@ -115,6 +117,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			id: APP,
 			owner: "user-1",
 			status: "generating",
+			run_holder_nonce: HOLDER_NONCE,
 			updated_at: staleClock(),
 			reservation: {
 				period: PERIOD,
@@ -130,7 +133,11 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			bonus: 0,
 		});
 
-		await reapStaleGenerating(APP);
+		await reapStaleGenerating(APP, {
+			mode: "build",
+			runId: "run-dead",
+			nonce: HOLDER_NONCE,
+		});
 
 		const marker = await h.readReservation(APP);
 		expect(marker).toMatchObject({
@@ -157,6 +164,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			owner: "user-1",
 			status: "generating",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			// A RECENTLY-paused build (fresh clock): paused-alive, not reapable.
 			updated_at: freshClock(),
 			reservation: {
@@ -164,11 +172,13 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 				reserved: 100,
 				settled: false,
 				userId: "user-1",
+				runId: "paused-run",
 			},
 		});
+		await h.seedProjectMember("user-2", PROJECT_ID);
 
 		await expect(
-			claimAndReserveRun(APP, "build", "waiter", "user-2", 100),
+			claimAndReserveRun(APP, "build", "waiter", "user-2", 100, PROJECT_ID),
 		).rejects.toBeInstanceOf(RunConflictError);
 		// Nothing written — the paused run's marker is untouched.
 		expect(await h.readReservation(APP)).toMatchObject({

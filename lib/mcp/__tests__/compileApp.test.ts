@@ -114,6 +114,7 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
+		run_holder_nonce: null,
 		created_at: new Date(),
 		updated_at: new Date(),
 		...overrides,

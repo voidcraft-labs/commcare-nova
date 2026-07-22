@@ -43,7 +43,7 @@ import type { Field, Form, Module } from "@/lib/domain";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 import {
-	notifyPathChange,
+	pushBuilderHistory,
 	useBuilderPathSegments,
 } from "@/lib/routing/useClientPath";
 import { useClearFocusHint } from "@/lib/session/hooks";
@@ -349,16 +349,13 @@ export function useNavigate(): NavigateActions {
 		/** Push a new location (history entry). Use for screen changes. */
 		const push = (next: Location, opts?: { replace?: boolean }): void => {
 			const url = buildUrl(getBasePath(), next);
-			if (opts?.replace) window.history.replaceState(null, "", url);
-			else window.history.pushState(null, "", url);
-			notifyPathChange();
+			pushBuilderHistory(url, opts?.replace);
 		};
 
 		/** Replace the current location (no history entry). */
 		const replace = (next: Location): void => {
 			const url = buildUrl(getBasePath(), next);
-			window.history.replaceState(null, "", url);
-			notifyPathChange();
+			pushBuilderHistory(url, true);
 		};
 
 		return {
@@ -473,8 +470,7 @@ export function useSelect(): SelectAction {
 				selectedUuid: uuid,
 			};
 			const url = buildUrl(getBasePath(), next);
-			window.history.replaceState(null, "", url);
-			notifyPathChange();
+			pushBuilderHistory(url, true);
 		};
 	}, [consultGuard, clearFocusHint]);
 }

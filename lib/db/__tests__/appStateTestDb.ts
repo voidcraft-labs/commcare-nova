@@ -21,9 +21,10 @@
 // handle inside test bodies (`h.db()` / `h.pool()` throw outside a test, the
 // same guard `setupPerTestDatabase` imposes).
 
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
 import type { Pool } from "pg";
 import { afterEach, beforeEach } from "vitest";
+import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { UNTITLED_APP_NAME } from "@/lib/db/apps";
@@ -47,6 +48,7 @@ export interface SeedAppOptions {
 	updated_at?: Date;
 	created_at?: Date;
 	run_id?: string | null;
+	run_holder_nonce?: string | null;
 	deleted_at?: Date | null;
 	recoverable_until?: Date | null;
 	module_count?: number;
@@ -81,6 +83,12 @@ export interface AppStateTestDb {
 			projectId?: string | null;
 		},
 	): Promise<string>;
+	/** Insert or replace a Project membership used by authoritative app writers. */
+	seedProjectMember(
+		userId: string,
+		projectId: string,
+		role?: "viewer" | "editor" | "admin" | "owner",
+	): Promise<void>;
 	/** Insert (or replace) a `credit_months` row for a user's current/other period. */
 	seedCreditMonth(
 		userId: string,
@@ -110,12 +118,24 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 
 	beforeEach(async () => {
 		await runCaseStoreMigrations(handle.db);
+		await handle.pool.query(`
+			CREATE TABLE auth_member (
+				id text PRIMARY KEY,
+				"userId" text NOT NULL,
+				"organizationId" text NOT NULL,
+				role text NOT NULL,
+				UNIQUE ("organizationId", "userId")
+			)
+		`);
 		injected = new Kysely<AppDatabase>({
 			dialect: new PostgresDialect({
 				pool: handle.pool as unknown as PostgresPool,
 			}),
 		});
 		__setAppDbForTests(injected);
+		await installAuthMemberSerialization(
+			injected as unknown as Kysely<unknown>,
+		);
 	});
 
 	afterEach(async () => {
@@ -137,38 +157,56 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		const appName = opts.app_name ?? "";
 		const reservation = opts.reservation ?? undefined;
 		const lock = opts.run_lock ?? undefined;
+		const owner = opts.owner ?? "owner-test";
+		const projectId =
+			opts.project_id === undefined ? "project-test" : opts.project_id;
+		if (projectId !== null) {
+			await seedProjectMember(owner, projectId, "owner");
+		}
 		await db()
-			.insertInto("apps")
-			.values({
-				id,
-				owner: opts.owner ?? "owner-test",
-				project_id: opts.project_id ?? "project-test",
-				app_name: appName,
-				app_name_lower: (appName || UNTITLED_APP_NAME).toLowerCase(),
-				connect_type: opts.connect_type ?? null,
-				case_types: null,
-				logo: null,
-				module_count: opts.module_count ?? 0,
-				form_count: opts.form_count ?? 0,
-				mutation_seq: 0,
-				status: opts.status ?? "complete",
-				awaiting_input: opts.awaiting_input ?? false,
-				error_type: opts.error_type ?? null,
-				deleted_at: opts.deleted_at ?? null,
-				recoverable_until: opts.recoverable_until ?? null,
-				run_id: opts.run_id ?? null,
-				res_period: reservation?.period ?? null,
-				res_reserved: reservation?.reserved ?? null,
-				res_settled: reservation ? reservation.settled : null,
-				res_user_id: reservation?.userId ?? null,
-				res_run_id: reservation?.runId ?? null,
-				lock_run_id: lock?.runId ?? null,
-				lock_actor_user_id: lock?.actorUserId ?? null,
-				lock_expire_at: lock?.expireAt ?? null,
-				...(opts.updated_at && { updated_at: opts.updated_at }),
-				...(opts.created_at && { created_at: opts.created_at }),
-			})
-			.execute();
+			.transaction()
+			.execute(async (tx) => {
+				// Direct fixture writes deliberately bypass the app API. Declare the
+				// nonce-aware reader in the same transaction so the production holder
+				// trigger stamps rather than downgrades an active fixture to v0.
+				const runtimeReaderVersion = opts.run_holder_nonce ? "1" : "0";
+				await sql`SELECT set_config('nova.runtime_reader_version', ${runtimeReaderVersion}, true)`.execute(
+					tx,
+				);
+				await tx
+					.insertInto("apps")
+					.values({
+						id,
+						owner,
+						project_id: projectId,
+						app_name: appName,
+						app_name_lower: (appName || UNTITLED_APP_NAME).toLowerCase(),
+						connect_type: opts.connect_type ?? null,
+						case_types: null,
+						logo: null,
+						module_count: opts.module_count ?? 0,
+						form_count: opts.form_count ?? 0,
+						mutation_seq: 0,
+						status: opts.status ?? "complete",
+						awaiting_input: opts.awaiting_input ?? false,
+						error_type: opts.error_type ?? null,
+						deleted_at: opts.deleted_at ?? null,
+						recoverable_until: opts.recoverable_until ?? null,
+						run_id: opts.run_id ?? null,
+						run_holder_nonce: opts.run_holder_nonce ?? null,
+						res_period: reservation?.period ?? null,
+						res_reserved: reservation?.reserved ?? null,
+						res_settled: reservation ? reservation.settled : null,
+						res_user_id: reservation?.userId ?? null,
+						res_run_id: reservation?.runId ?? null,
+						lock_run_id: lock?.runId ?? null,
+						lock_actor_user_id: lock?.actorUserId ?? null,
+						lock_expire_at: lock?.expireAt ?? null,
+						...(opts.updated_at && { updated_at: opts.updated_at }),
+						...(opts.created_at && { created_at: opts.created_at }),
+					})
+					.execute();
+			});
 		return id;
 	}
 
@@ -178,6 +216,12 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 	): Promise<string> {
 		const persistable = toPersistableDoc(doc);
 		const id = opts.id ?? crypto.randomUUID();
+		const owner = opts.owner ?? "owner-test";
+		const projectId =
+			opts.projectId === undefined ? "project-test" : opts.projectId;
+		if (projectId !== null) {
+			await seedProjectMember(owner, projectId, "owner");
+		}
 		const formCount = persistable.moduleOrder.reduce(
 			(sum, m) => sum + (persistable.formOrder[m]?.length ?? 0),
 			0,
@@ -186,9 +230,8 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			.insertInto("apps")
 			.values({
 				id,
-				owner: opts.owner ?? "owner-test",
-				project_id:
-					opts.projectId === undefined ? "project-test" : opts.projectId,
+				owner,
+				project_id: projectId,
 				app_name: persistable.appName,
 				app_name_lower: (
 					persistable.appName || UNTITLED_APP_NAME
@@ -227,6 +270,19 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 				.execute();
 		}
 		return id;
+	}
+
+	async function seedProjectMember(
+		userId: string,
+		projectId: string,
+		role: "viewer" | "editor" | "admin" | "owner" = "editor",
+	): Promise<void> {
+		await sql`
+			INSERT INTO auth_member (id, "userId", "organizationId", role)
+			VALUES (${crypto.randomUUID()}, ${userId}, ${projectId}, ${role})
+			ON CONFLICT ("organizationId", "userId")
+			DO UPDATE SET role = EXCLUDED.role
+		`.execute(db());
 	}
 
 	async function seedCreditMonth(
@@ -315,6 +371,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		uri: () => handle.uri,
 		seedApp,
 		seedAppWithBlueprint,
+		seedProjectMember,
 		seedCreditMonth,
 		readConsumed,
 		readAppRow,

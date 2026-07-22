@@ -77,6 +77,7 @@ describe("GET /api/media/library kind filter", () => {
 	it("accepts a single document kind and passes it as a one-element set", async () => {
 		const res = await GET(reqWith("?kind=pdf"));
 		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
 			kinds: ["pdf"],
 			cursor: undefined,
@@ -163,6 +164,7 @@ describe("GET /api/media/library resolve mode", () => {
 		loadAssetsByIdsMock.mockResolvedValue([{ id: "a" }, { id: "b" }]);
 		const res = await GET(reqWith("?id=a&id=b"));
 		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(loadAssetsByIds).toHaveBeenCalledWith(["a", "b"], "project-1");
 		expect(listReadyAssetsForProject).not.toHaveBeenCalled();
 		const body = JSON.parse(await drainBody(res));

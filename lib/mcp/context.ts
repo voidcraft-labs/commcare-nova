@@ -71,6 +71,8 @@ export interface McpContextOptions {
 	appId: string;
 	/** Better Auth user id from the verified JWT's `sub` claim. */
 	userId: string;
+	/** Project captured by the adapter's authorized app load. */
+	projectId: string;
 	/** Run id — derived by the adapter from the app doc's current state. */
 	runId: string;
 	/** Event-log sink. Always constructed with `source: "mcp"` by the adapter. */
@@ -86,6 +88,7 @@ export interface McpContextOptions {
 export class McpContext implements ToolExecutionContext {
 	readonly appId: string;
 	readonly userId: string;
+	readonly projectId: string;
 	readonly runId: string;
 	readonly logWriter: LogWriter;
 	readonly progress: ProgressEmitter;
@@ -105,6 +108,7 @@ export class McpContext implements ToolExecutionContext {
 	constructor(opts: McpContextOptions) {
 		this.appId = opts.appId;
 		this.userId = opts.userId;
+		this.projectId = opts.projectId;
 		this.runId = opts.runId;
 		this.logWriter = opts.logWriter;
 		this.progress = opts.progress;
@@ -278,6 +282,7 @@ export class McpContext implements ToolExecutionContext {
 		const result = await applyBlueprintChange({
 			appId: this.appId,
 			userId: this.userId,
+			expectedProjectId: this.projectId,
 			prospective: toPersistableDoc(doc),
 			runId: this.runId,
 			batchId: crypto.randomUUID(),
@@ -369,6 +374,7 @@ export function initMcpCall(
 	server: McpServer,
 	ctx: ToolContext,
 	appId: string,
+	projectId: string,
 	runId: string,
 	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
@@ -378,6 +384,7 @@ export function initMcpCall(
 	const mcpCtx = new McpContext({
 		appId,
 		userId: ctx.userId,
+		projectId,
 		runId,
 		logWriter,
 		progress,

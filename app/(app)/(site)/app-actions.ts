@@ -7,8 +7,8 @@
  * unhandled Server Action errors as full-page error boundaries, which
  * would tear down the per-card state machine mid-flight.
  *
- * Delete and restore follow the same pre-flight: session → ownership → write
- * → `revalidatePath("/")`. The revalidate is the primary refresh
+ * Delete and restore follow the same path: session → input validation → one
+ * app-locked, freshly authorized write → `revalidatePath("/")`. The revalidate is the primary refresh
  * mechanism — it re-runs the home page's RSC, both lists re-fetch, and
  * the row drops out of (or into) the appropriate list naturally. No
  * client-side optimistic moves to coordinate.
@@ -18,12 +18,9 @@
 
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth-utils";
-import {
-	AppAccessError,
-	resolveAppAccess,
-	resolveAppScope,
-} from "@/lib/db/appAccess";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
+import { CommitReauthError } from "@/lib/db/commitGuard";
 import {
 	AppBusyError,
 	CaseDataStrandedError,
@@ -74,34 +71,18 @@ export type MoveAppResult =
 type AuthResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Pre-flight that both actions share. Validates `appId` survived JSON
- * deserialization as a non-empty string and the caller actually owns
- * the row. Session validation is the caller's responsibility — `userId`
- * is passed in already trusted. Returns a tagged failure rather than
- * throwing so each action can map directly to its result type without
- * a try/catch around the gate itself.
+ * Input gate that both actions share. Authorization deliberately belongs to
+ * the app-row transaction in `softDeleteApp` / `restoreApp`; an earlier read
+ * must never decide a later write. Returns a tagged input failure so each
+ * action can map malformed Server Action payloads without throwing.
  *
  * Server Actions deserialize JSON and the `string` annotation alone
  * does NOT enforce shape at runtime — a malformed client could send
  * anything — so the trim guard is real, not theatre.
  */
-async function authorizeAppMutation(
-	appId: string,
-	userId: string,
-): Promise<AuthResult> {
+function validateAppMutationInput(appId: string): AuthResult {
 	if (typeof appId !== "string" || !appId.trim()) {
 		return { ok: false, error: "Missing app identifier." };
-	}
-	/* Soft-delete / restore require the `delete` capability (admin/owner).
-	 * Every denial collapses to the same "App not found" so a cross-Project
-	 * probe can't tell a real app apart from a missing one. */
-	try {
-		await resolveAppScope(appId, userId, "delete");
-	} catch (err) {
-		if (err instanceof AppAccessError) {
-			return { ok: false, error: "App not found." };
-		}
-		throw err;
 	}
 	return { ok: true };
 }
@@ -109,7 +90,7 @@ async function authorizeAppMutation(
 // ── Actions ────────────────────────────────────────────────────────
 
 /**
- * Soft-delete the user's own app. Wraps `softDeleteApp` (which sets
+ * Soft-delete an app the user may administer. Wraps `softDeleteApp` (which sets
  * `deleted_at` + `recoverable_until` and leaves lifecycle status
  * untouched) with the standard auth pre-flight, and surfaces the
  * recovery deadline back to the UI for the "permanently deletes on
@@ -122,13 +103,16 @@ export async function deleteApp(appId: string): Promise<DeleteAppResult> {
 			return { success: false, error: "Authentication required." };
 		}
 
-		const auth = await authorizeAppMutation(appId, session.user.id);
+		const auth = validateAppMutationInput(appId);
 		if (!auth.ok) return { success: false, error: auth.error };
 
-		const recoverableUntil = await softDeleteApp(appId);
+		const recoverableUntil = await softDeleteApp(appId, session.user.id);
 		revalidatePath("/");
 		return { success: true, recoverableUntil };
 	} catch (err) {
+		if (err instanceof CommitReauthError) {
+			return { success: false, error: "App not found." };
+		}
 		log.error("[home/delete-app] error", err);
 		return {
 			success: false,
@@ -138,7 +122,7 @@ export async function deleteApp(appId: string): Promise<DeleteAppResult> {
 }
 
 /**
- * Restore a soft-deleted app the user owns. Inverse of `deleteApp` —
+ * Restore a soft-deleted app the user may administer. Inverse of `deleteApp` —
  * clears the two soft-delete fields without touching lifecycle status,
  * so a deleted `error` app comes back as `error`. Cross-tenant restore
  * probes hit the same `App not found` branch as unknown ids.
@@ -150,13 +134,16 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 			return { success: false, error: "Authentication required." };
 		}
 
-		const auth = await authorizeAppMutation(appId, session.user.id);
+		const auth = validateAppMutationInput(appId);
 		if (!auth.ok) return { success: false, error: auth.error };
 
-		await restoreAppDoc(appId);
+		await restoreAppDoc(appId, session.user.id);
 		revalidatePath("/");
 		return { success: true };
 	} catch (err) {
+		if (err instanceof CommitReauthError) {
+			return { success: false, error: "App not found." };
+		}
 		log.error("[home/restore-app] error", err);
 		return {
 			success: false,

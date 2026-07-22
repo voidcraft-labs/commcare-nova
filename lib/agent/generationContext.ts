@@ -51,11 +51,16 @@ import { classifyError as classifyValidityError } from "@/lib/commcare/validator
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
+	type ChatRunHolderCapability,
 	commitGuardedBatch,
 	refreshBuildLiveness,
 	refreshEditLease,
 } from "@/lib/db/apps";
-import { CommitReauthError } from "@/lib/db/commitGuard";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+	RunHolderLostError,
+} from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -138,6 +143,10 @@ interface GenerationContextOptions {
 	/** App id. The chat route creates the app doc before this
 	 * constructor runs so every context has a valid target app. */
 	appId: string;
+	/** Project captured with the run's authoritative app admission. */
+	projectId: string;
+	/** Server-minted generation of this exact build/edit claim. */
+	holderNonce: string;
 	/**
 	 * True when this run holds an EDIT `run_lock` (an edit-mode run: a chargeable
 	 * edit that claimed, or an edit resume) — it selects WHICH horizon the
@@ -202,6 +211,8 @@ export class GenerationContext implements ToolExecutionContext {
 	/** App id — required. Created before construction by the
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
+	readonly projectId: string;
+	private _holderNonce: string;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
 	 * each request; event row ids are Postgres-assigned, so no cross-request
@@ -225,13 +236,23 @@ export class GenerationContext implements ToolExecutionContext {
 	 * `data-done` so a reconnecting client knows the run's terminal cursor.
 	 * Absent until the first mutation batch lands. */
 	private _latestSeq: number | undefined;
-	/** Set when a guarded commit threw `CommitReauthError` — the actor lost
-	 * edit access mid-run. Load-bearing for finalization: a tool `execute()`
-	 * throw becomes a NON-fatal AI-SDK chunk, so the route can't key run
-	 * failure on it; it reads this flag after the drain and routes the run
-	 * through `failRun` (refund, never keep the charge) instead. TERMINAL — a
-	 * reload can't restore access, so it's never cleared within a run. */
+	/** Set when an authoritative commit or conflict-reload check produced
+	 * `CommitReauthError` — the actor lost edit access mid-run. Load-bearing for
+	 * finalization: a tool `execute()` throw becomes a NON-fatal AI-SDK chunk,
+	 * so the route can't key run failure on it; it reads this flag after the
+	 * drain and routes the run through `failRun` (refund, never keep the charge)
+	 * instead. TERMINAL — a reload can't restore access, so it's never cleared
+	 * within a run. */
 	private _reauthError: CommitReauthError | undefined;
+	/** A guarded write or authorized conflict reload observed a Project different
+	 * from this run's admitted scope. Terminal for this run even when the actor
+	 * belongs to both Projects: every later write would reject until the caller
+	 * reloads authoritatively. */
+	private _projectChangedError: AppProjectChangedError | undefined;
+	/** The exact chat holder disappeared or changed while this run was active.
+	 * Terminal and replacement-safe: the route refunds/logs this run without
+	 * settling, releasing, failing, or otherwise touching the successor. */
+	private _holderLostError: RunHolderLostError | undefined;
 	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
@@ -256,6 +277,8 @@ export class GenerationContext implements ToolExecutionContext {
 		this.usage = opts.usage;
 		this.session = opts.session;
 		this.appId = opts.appId;
+		this.projectId = opts.projectId;
+		this._holderNonce = opts.holderNonce;
 		this.editLease = opts.editLease;
 		this.conversionImpact = opts.conversionImpact;
 	}
@@ -288,6 +311,30 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	get runId(): string {
 		return this.usage.runId;
+	}
+
+	/** Replace the provisional resume nonce with the app-locked capability
+	 * returned by `reacquireLease`. Chargeable runs never need this; it exists
+	 * solely so a pre-cutover browser that omitted the new field can be upgraded
+	 * server-side before any SA tool or heartbeat receives authority. */
+	setReacquiredHolderNonce(holderNonce: string): void {
+		this._holderNonce = holderNonce;
+	}
+
+	/** Current exact holder generation. */
+	get holderNonce(): string {
+		return this._holderNonce;
+	}
+
+	/** Chat-only holder capability exposed to shared tools that perform an
+	 * authoritative side effect outside the BlueprintDoc transaction. */
+	get chatRunHolder(): ChatRunHolderCapability {
+		return {
+			source: "chat",
+			mode: this.editLease ? "edit" : "build",
+			runId: this.runId,
+			nonce: this._holderNonce,
+		};
 	}
 
 	/**
@@ -452,11 +499,10 @@ export class GenerationContext implements ToolExecutionContext {
 	 * cursor. `_latestDoc` becomes the writer's committed `nextDoc` (a
 	 * concurrent peer edit merged in), which the next tool body builds on.
 	 *
-	 * A `CommitReauthError` (the actor lost edit access mid-run) is stashed on
-	 * `_reauthError` before RE-THROWING: the tool + SA still see the failure and
-	 * stop committing, but the throw becomes a non-fatal AI-SDK chunk, so the
-	 * flag is how the route's finalize learns to `failRun` instead of falsely
-	 * completing (and keeping the charge). Any other error rethrows unchanged.
+	 * Terminal authority errors (lost access, moved Project, or lost holder) are
+	 * latched before RE-THROWING: the tool + SA still see the failure and stop,
+	 * while the route can recover the signal after the AI SDK turns a tool throw
+	 * into a non-fatal chunk. Any other error rethrows unchanged.
 	 *
 	 * `mediaExpectations` forwards to the guarded commit so a media attach is
 	 * re-verified against asset rows read INSIDE the transaction — the same
@@ -470,6 +516,7 @@ export class GenerationContext implements ToolExecutionContext {
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
 		const batchId = crypto.randomUUID();
+		const chatRunHolder = this.chatRunHolder;
 		let result: { seq: number; committedDoc: BlueprintDoc };
 		try {
 			// A batch that can RENAME a case property routes through the
@@ -505,7 +552,9 @@ export class GenerationContext implements ToolExecutionContext {
 				const saga = await applyBlueprintChange({
 					appId: this.appId,
 					userId: this.session.user.id,
+					expectedProjectId: this.projectId,
 					runId: this.usage.runId,
+					chatRunHolder,
 					batchId,
 					kind: "chat",
 					...(this._latestDoc !== undefined && {
@@ -543,14 +592,23 @@ export class GenerationContext implements ToolExecutionContext {
 					appId: this.appId,
 					batchId,
 					runId: this.usage.runId,
+					chatRunHolder,
 					mutations,
 					actorUserId: this.session.user.id,
+					expectedProjectId: this.projectId,
 					kind: "chat",
 					...(mediaExpectations !== undefined && { mediaExpectations }),
 				});
 			}
 		} catch (err) {
-			if (err instanceof CommitReauthError) this._reauthError = err;
+			if (err instanceof RunHolderLostError) {
+				this.latchRunHolderLost(err);
+			} else if (
+				err instanceof CommitReauthError ||
+				err instanceof AppProjectChangedError
+			) {
+				this.latchTerminalScopeError(err);
+			}
 			throw err;
 		}
 		this._latestDoc = result.committedDoc;
@@ -674,14 +732,47 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * The `CommitReauthError` a guarded commit threw when the actor lost edit
-	 * access mid-run, or `undefined` if none did. The route's drain-end finalize
-	 * reads it and routes the run through `failRun` (a deauthorized run must
-	 * refund, not keep the charge) — a tool `execute()` throw alone becomes a
-	 * non-fatal AI-SDK chunk that can't fail the run.
+	 * The `CommitReauthError` an authoritative write/reload check produced when
+	 * the actor lost edit access mid-run, or `undefined` if none did. The route's
+	 * drain-end finalize reads it and routes the run through `failRun` (a
+	 * deauthorized run must refund, not keep the charge) — a tool `execute()`
+	 * throw alone becomes a non-fatal AI-SDK chunk that can't fail the run.
 	 */
 	reauthError(): CommitReauthError | undefined {
 		return this._reauthError;
+	}
+
+	/** Project-scope mismatch captured from a guarded write/reload; see the field. */
+	projectChangedError(): AppProjectChangedError | undefined {
+		return this._projectChangedError;
+	}
+
+	/** Exact holder-loss signal captured from a guarded write or finalizer. */
+	holderLostError(): RunHolderLostError | undefined {
+		return this._holderLostError;
+	}
+
+	/** Preserve the first authoritative holder-loss object for every run fence. */
+	latchRunHolderLost(error: RunHolderLostError): void {
+		this._holderLostError ??= error;
+	}
+
+	/**
+	 * Latch an authoritative terminal scope failure discovered outside the
+	 * guarded writer. Conflict recovery performs its own authorized snapshot
+	 * read after `recordMutations` has already returned a conflict, so that read
+	 * cannot rely on `commitBatch`'s catch to make the failure visible to queued
+	 * tools, `prepareStep`, and the route's drain-end finalizer. Preserve the
+	 * exact error object so every fence rethrows and classifies one signal.
+	 */
+	latchTerminalScopeError(
+		error: CommitReauthError | AppProjectChangedError,
+	): void {
+		if (error instanceof AppProjectChangedError) {
+			this._projectChangedError ??= error;
+		} else {
+			this._reauthError ??= error;
+		}
 	}
 
 	/**
@@ -754,7 +845,7 @@ export class GenerationContext implements ToolExecutionContext {
 		if (nowMs - this.lastLeaseRefreshMs < LEASE_HEARTBEAT_INTERVAL_MS) return;
 		this.lastLeaseRefreshMs = nowMs;
 		const refresh = this.editLease ? refreshEditLease : refreshBuildLiveness;
-		refresh(this.appId, this.runId).catch((err) =>
+		refresh(this.appId, this.runId, this.holderNonce).catch((err) =>
 			log.error("[generation] run-lease heartbeat failed", err, {
 				appId: this.appId,
 			}),

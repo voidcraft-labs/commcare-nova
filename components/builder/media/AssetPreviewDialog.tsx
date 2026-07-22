@@ -21,7 +21,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerDownload from "@iconify-icons/tabler/download";
 import tablerX from "@iconify-icons/tabler/x";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -36,15 +36,20 @@ import {
 	TabsList,
 	TabsTrigger,
 } from "@/components/shadcn/tabs";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
 import { ChatMarkdown } from "@/lib/markdown";
+import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
+import { fetchAssetExtract, fetchAssetExtractMeta } from "./mediaClient";
 import {
-	fetchAssetExtract,
-	fetchAssetExtractMeta,
-	mediaSrc,
-} from "./mediaClient";
+	ProjectMediaAudio,
+	ProjectMediaFrame,
+	ProjectMediaImage,
+	ProjectMediaVideo,
+	useProjectMediaUrl,
+} from "./ProjectMediaResource";
 
 /**
  * The minimal handle the preview needs: the asset id (for the bytes proxy +
@@ -75,6 +80,15 @@ export function AssetPreviewDialog({
 	target,
 	onOpenChange,
 }: AssetPreviewDialogProps) {
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const previousScopeEpochRef = useRef(scopeEpoch);
+	useEffect(() => {
+		if (previousScopeEpochRef.current === scopeEpoch) return;
+		previousScopeEpochRef.current = scopeEpoch;
+		if (target !== null) onOpenChange(false);
+	}, [onOpenChange, scopeEpoch, target]);
+	if (accessPhase !== "authorized") return null;
 	return (
 		<Dialog open={target !== null} onOpenChange={onOpenChange}>
 			<DialogContent
@@ -90,6 +104,7 @@ export function AssetPreviewDialog({
 /** Mounted only while open (child of `DialogContent`), so the extract fetch fires
  *  on open, not on every chip mount. */
 function PreviewBody({ target }: { target: AssetPreviewTarget }) {
+	const reconciler = useReconcilerContext();
 	const name = target.filename;
 	const isDocument = isDocumentKind(target.kind);
 
@@ -104,13 +119,20 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 	useEffect(() => {
 		if (!isDocument || target.title || target.summary) return;
 		let cancelled = false;
-		fetchAssetExtractMeta(target.id).then((meta) => {
+		const controller = new AbortController();
+		const unsubscribe = reconciler?.subscribeProjectScopeReset(() => {
+			cancelled = true;
+			controller.abort();
+		});
+		fetchAssetExtractMeta(target.id, controller.signal).then((meta) => {
 			if (!cancelled && meta) setFetched(meta);
 		});
 		return () => {
 			cancelled = true;
+			controller.abort();
+			unsubscribe?.();
 		};
-	}, [isDocument, target.id, target.title, target.summary]);
+	}, [isDocument, reconciler, target.id, target.title, target.summary]);
 	const title = target.title ?? fetched?.title;
 	const summary = target.summary ?? fetched?.summary;
 
@@ -204,33 +226,37 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
  * (the proxy 404s a deleted/foreign asset) rather than a broken image / frame.
  */
 function DocumentView({ target }: { target: AssetPreviewTarget }) {
-	const src = mediaSrc(target.id);
+	const { src } = useProjectMediaUrl(target.id);
 	const name = target.filename;
 	// A deleted (or foreign) asset 404s on the bytes proxy; the media element's
 	// onError flips this so we show an honest fallback, not a broken tile.
 	const [unavailable, setUnavailable] = useState(false);
-	if (unavailable) return <AssetUnavailable kind={target.kind} />;
+	if (unavailable || !src) return <AssetUnavailable kind={target.kind} />;
 	const onError = () => setUnavailable(true);
 	switch (target.kind) {
 		case "image":
 			return (
-				// biome-ignore lint/performance/noImgElement: the proxy route is session-authed; next/image can't carry the cookie auth
-				<img
-					src={src}
+				<ProjectMediaImage
+					assetId={target.id}
 					alt={name}
 					onError={onError}
 					className="mx-auto max-h-[65vh] rounded-md object-contain"
 				/>
 			);
 		case "audio":
-			// biome-ignore lint/a11y/useMediaCaption: user-uploaded media has no caption track
-			return <audio controls src={src} onError={onError} className="w-full" />;
+			return (
+				<ProjectMediaAudio
+					assetId={target.id}
+					controls
+					onError={onError}
+					className="w-full"
+				/>
+			);
 		case "video":
 			return (
-				// biome-ignore lint/a11y/useMediaCaption: user-uploaded media has no caption track
-				<video
+				<ProjectMediaVideo
+					assetId={target.id}
 					controls
-					src={src}
 					onError={onError}
 					className="max-h-[65vh] w-full"
 				/>
@@ -242,8 +268,8 @@ function DocumentView({ target }: { target: AssetPreviewTarget }) {
 			// own error page instead — so a deleted PDF shows that rather than the
 			// tile; not misleading, just less polished than the image case.)
 			return (
-				<iframe
-					src={src}
+				<ProjectMediaFrame
+					assetId={target.id}
 					title={name}
 					onError={onError}
 					className="h-[65vh] w-full rounded-md border border-nova-border bg-white"
@@ -324,6 +350,7 @@ type ExtractState =
 
 /** The "What Nova reads" panel — fetches the stored extract for the document. */
 function ExtractView({ assetId }: { assetId: string }) {
+	const reconciler = useReconcilerContext();
 	const [extract, setExtract] = useState<ExtractState>({ state: "loading" });
 	const [attempt, setAttempt] = useState(0);
 
@@ -332,8 +359,13 @@ function ExtractView({ assetId }: { assetId: string }) {
 		// when the asset itself has not changed.
 		void attempt;
 		let cancelled = false;
+		const controller = new AbortController();
+		const unsubscribe = reconciler?.subscribeProjectScopeReset(() => {
+			cancelled = true;
+			controller.abort();
+		});
 		setExtract({ state: "loading" });
-		fetchAssetExtract(assetId)
+		fetchAssetExtract(assetId, controller.signal)
 			.then((text) => {
 				if (cancelled) return;
 				setExtract(
@@ -341,7 +373,7 @@ function ExtractView({ assetId }: { assetId: string }) {
 				);
 			})
 			.catch((err: unknown) => {
-				if (cancelled) return;
+				if (cancelled || controller.signal.aborted) return;
 				setExtract({
 					state: "error",
 					message:
@@ -352,8 +384,10 @@ function ExtractView({ assetId }: { assetId: string }) {
 			});
 		return () => {
 			cancelled = true;
+			controller.abort();
+			unsubscribe?.();
 		};
-	}, [assetId, attempt]);
+	}, [assetId, attempt, reconciler]);
 
 	if (extract.state === "loading") {
 		return (

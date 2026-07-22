@@ -47,6 +47,7 @@ import { log } from "@/lib/logger";
 import { UsageAccumulator } from "../usage";
 
 const h = setupAppStateTestDb("usage_acc_");
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 /** The `usage_months.request_count` for a user this period, or undefined when
  *  `incrementUsage` never wrote (a zero-cost run short-circuits it). */
@@ -67,6 +68,7 @@ describe("UsageAccumulator", () => {
 			appId: "app-1",
 			userId: "user-1",
 			runId: "run-1",
+			holderNonce: HOLDER_NONCE,
 			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
@@ -106,6 +108,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			holderNonce: HOLDER_NONCE,
 			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
@@ -124,6 +127,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			holderNonce: HOLDER_NONCE,
 			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
@@ -145,6 +149,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			holderNonce: HOLDER_NONCE,
 			model: "gpt-5.6-sol",
 			promptMode: "edit",
 			appReady: true,
@@ -164,6 +169,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "run-getter-test",
+			holderNonce: HOLDER_NONCE,
 			model: "gpt-5.6-sol",
 			promptMode: "build",
 			appReady: false,
@@ -185,6 +191,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			holderNonce: HOLDER_NONCE,
 			model: "gpt-5.6-sol",
 			promptMode: "build" as const,
 			appReady: false,
@@ -204,7 +211,12 @@ describe("UsageAccumulator", () => {
 			// Reservation handed straight back — flush calls refundReservation by
 			// appId; the amount + booked period live on the durable marker.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith(
+				"a",
+				"r",
+				HOLDER_NONCE,
+				"build",
+			);
 			// Zero cost short-circuits the increment — no usage_months row at all.
 			expect(await requestCount("u")).toBeUndefined();
 		});
@@ -235,7 +247,12 @@ describe("UsageAccumulator", () => {
 			expect(await requestCount("u")).toBe(1);
 			// …while the user's credits are made whole because the app broke.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith(
+				"a",
+				"r",
+				HOLDER_NONCE,
+				"build",
+			);
 		});
 
 		it("never refunds a free continuation that was never reserved", async () => {
@@ -284,11 +301,17 @@ describe("UsageAccumulator", () => {
 			// non-build reservation, delegating by appId.
 			const acc = new UsageAccumulator({
 				...reservedSeed,
+				promptMode: "edit",
 				reservedAmount: 5,
 			});
 			await acc.flush();
 
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith(
+				"a",
+				"r",
+				HOLDER_NONCE,
+				"edit",
+			);
 		});
 
 		it("refunds at most once across repeated flush() calls", async () => {
@@ -316,7 +339,12 @@ describe("UsageAccumulator", () => {
 			});
 			await acc.flush();
 
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith(
+				"a",
+				"r",
+				HOLDER_NONCE,
+				"build",
+			);
 		});
 	});
 
@@ -333,6 +361,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			holderNonce: HOLDER_NONCE,
 			model: "gpt-5.6-sol",
 			promptMode: "build" as const,
 			appReady: false,

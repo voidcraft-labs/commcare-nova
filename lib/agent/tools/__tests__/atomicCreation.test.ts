@@ -48,6 +48,7 @@ function makeCtx() {
 		});
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
+		projectId: "project-1",
 		userId: "user-1",
 		runId: "run-1",
 		recordMutations,

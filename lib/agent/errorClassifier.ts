@@ -3,6 +3,11 @@
  * a structured classification with a human-readable message safe for display.
  */
 import { APICallError } from "ai";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+	RunHolderLostError,
+} from "@/lib/db/commitGuard";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -17,6 +22,8 @@ export type ErrorType =
 	| "out_of_credits"
 	| "generation_in_progress"
 	| "run_released"
+	| "access_revoked"
+	| "app_changed"
 	| "internal";
 
 export interface ClassifiedError {
@@ -43,6 +50,10 @@ export const MESSAGES: Record<ErrorType, string> = {
 		"You already have a build in progress. Please wait for it to finish before starting another.",
 	run_released:
 		"This run waited for your answer longer than its window allows, so it was released and its hold was refunded. Send your answer again to continue.",
+	access_revoked:
+		"You no longer have permission to edit this app, so Nova stopped. No further changes were applied.",
+	app_changed:
+		"This app moved to another Project while Nova was working. Nova stopped before applying the pending change. Reload to continue.",
 	internal: "Something went wrong during generation.",
 };
 
@@ -119,6 +130,39 @@ function classifyByStatus(
 
 export function classifyError(error: unknown): ClassifiedError {
 	const raw = error instanceof Error ? error.message : String(error);
+
+	if (error instanceof RunHolderLostError) {
+		return {
+			type:
+				error.outcome === "released"
+					? "run_released"
+					: "generation_in_progress",
+			message:
+				error.outcome === "released"
+					? "This run no longer holds the app, so Nova stopped before applying any further changes. Refresh to continue from the latest state."
+					: "A newer request took over this app, so Nova stopped before applying any further changes. Refresh to continue from the latest state.",
+			recoverable: false,
+			raw,
+		};
+	}
+
+	if (error instanceof CommitReauthError) {
+		return {
+			type: "access_revoked",
+			message: MESSAGES.access_revoked,
+			recoverable: false,
+			raw,
+		};
+	}
+
+	if (error instanceof AppProjectChangedError) {
+		return {
+			type: "app_changed",
+			message: MESSAGES.app_changed,
+			recoverable: false,
+			raw,
+		};
+	}
 
 	// AI SDK APICallError — has statusCode and responseBody
 	if (APICallError.isInstance(error)) {

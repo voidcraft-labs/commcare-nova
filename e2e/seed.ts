@@ -35,7 +35,13 @@ import {
 	closeCaseStoreDatabase,
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
-import { appendSyntheticBatch, createApp } from "@/lib/db/apps";
+import {
+	appendSyntheticBatch,
+	claimAndReserveRun,
+	clearRunLockAndSettle,
+	completeAndSettleRun,
+	createApp,
+} from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -130,17 +136,35 @@ async function seedSettledThread(args: {
 	firstUserText: string;
 	finalAssistantText: string;
 	threadType: "build" | "edit";
+	projectId: string;
 }): Promise<void> {
 	const streamId = randomUUID();
+	const runId = randomUUID();
+	const claimed = await claimAndReserveRun(
+		args.appId,
+		args.threadType,
+		runId,
+		SEED.userId,
+		0,
+		args.projectId,
+	);
 	const written = await upsertThreadTurn({
 		appId: args.appId,
 		threadId: args.threadId,
-		runId: randomUUID(),
+		runId,
 		streamId,
+		holderNonce: claimed.holderNonce,
 		threadType: args.threadType,
 		messages: tallThreadHistory(args.prefix, args.firstUserText),
 	});
 	if (!written) throw new Error("e2e/seed.ts: thread seed write failed");
+	const releaseOutcome =
+		args.threadType === "build"
+			? await completeAndSettleRun(args.appId, runId, claimed.holderNonce)
+			: await clearRunLockAndSettle(args.appId, runId, claimed.holderNonce);
+	if (releaseOutcome !== "owned") {
+		throw new Error(`e2e/seed.ts: thread seed lost holder (${releaseOutcome})`);
+	}
 	await appendThreadResponse({
 		appId: args.appId,
 		threadId: args.threadId,
@@ -378,6 +402,7 @@ async function main(): Promise<void> {
 		firstUserText: SEED.olderThreadUserText,
 		finalAssistantText: SEED.olderThreadAssistantText,
 		threadType: "edit",
+		projectId: seedProjectId,
 	});
 	const threadId = randomUUID();
 	await seedSettledThread({
@@ -387,6 +412,7 @@ async function main(): Promise<void> {
 		firstUserText: SEED.threadUserText,
 		finalAssistantText: SEED.threadAssistantText,
 		threadType: "build",
+		projectId: seedProjectId,
 	});
 	/* Stable ordering even when both writes land in the same millisecond. */
 	await pool.query(
@@ -452,11 +478,21 @@ async function main(): Promise<void> {
 	const scrollQuestionThreadId = randomUUID();
 	{
 		const streamId = randomUUID();
+		const runId = randomUUID();
+		const claimed = await claimAndReserveRun(
+			scrollAppId,
+			"edit",
+			runId,
+			SEED.userId,
+			0,
+			seedProjectId,
+		);
 		const written = await upsertThreadTurn({
 			appId: scrollAppId,
 			threadId: scrollQuestionThreadId,
-			runId: randomUUID(),
+			runId,
 			streamId,
+			holderNonce: claimed.holderNonce,
 			threadType: "edit",
 			messages: tallThreadHistory(
 				"smoke-scroll-q",
@@ -465,6 +501,16 @@ async function main(): Promise<void> {
 		});
 		if (!written) {
 			throw new Error("e2e/seed.ts: scroll question thread seed write failed");
+		}
+		const releaseOutcome = await clearRunLockAndSettle(
+			scrollAppId,
+			runId,
+			claimed.holderNonce,
+		);
+		if (releaseOutcome !== "owned") {
+			throw new Error(
+				`e2e/seed.ts: scroll question thread lost holder (${releaseOutcome})`,
+			);
 		}
 		await appendThreadResponse({
 			appId: scrollAppId,
@@ -515,6 +561,7 @@ async function main(): Promise<void> {
 		firstUserText: SEED.scrollThreadUserText,
 		finalAssistantText: SEED.scrollThreadAssistantText,
 		threadType: "edit",
+		projectId: seedProjectId,
 	});
 	/* Stable ordering even when both writes land in the same millisecond. */
 	await pool.query(

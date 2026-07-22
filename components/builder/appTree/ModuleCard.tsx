@@ -24,7 +24,7 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -136,9 +136,8 @@ export const ModuleCard = memo(function ModuleCard({
 					/>
 					{mod.icon ? (
 						// Module menu-tile icon, shown on the tree row too.
-						// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-						<img
-							src={mediaSrc(mod.icon)}
+						<ProjectMediaImage
+							assetId={mod.icon}
 							alt=""
 							className="w-8 h-8 rounded-lg object-cover"
 						/>

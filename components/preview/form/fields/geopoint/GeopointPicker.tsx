@@ -18,7 +18,8 @@ import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { showToast } from "@/lib/ui/toastStore";
+import { useReconcilerContext } from "@/lib/collab/context";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { ValidationError } from "../ValidationError";
 import { AddressSearch, type PlacePick } from "./AddressSearch";
 import { GeolocationError, requestGeolocation } from "./geolocation";
@@ -56,6 +57,8 @@ export function GeopointPicker({
 }: GeopointPickerProps) {
 	const point = parseGeopoint(value);
 	const configured = googleMapsConfigured();
+	const reconciler = useReconcilerContext();
+	const projectToast = useProjectToast();
 
 	const mapRef = useRef<MapHandle | null>(null);
 	// The map box is the IntersectionObserver target; the Google map mounts
@@ -74,11 +77,29 @@ export function GeopointPicker({
 	// drops a stale response (the Geocoder has no abort).
 	const reverseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reverseReqRef = useRef(0);
+	const locateReqRef = useRef(0);
+	const ownsContinuationRef = useRef(true);
 	useEffect(() => {
-		return () => {
-			if (reverseTimerRef.current) clearTimeout(reverseTimerRef.current);
+		ownsContinuationRef.current = true;
+		const disownContinuations = () => {
+			/* Geolocation and Maps promises are not abortable. Invalidate them in
+			 * the synchronous Project-reset stack; the epoch-keyed renderer will
+			 * mount a fresh owner once destination authority is established. */
+			ownsContinuationRef.current = false;
+			locateReqRef.current += 1;
+			reverseReqRef.current += 1;
+			if (reverseTimerRef.current) {
+				clearTimeout(reverseTimerRef.current);
+				reverseTimerRef.current = null;
+			}
 		};
-	}, []);
+		const unsubscribeReset =
+			reconciler?.subscribeProjectScopeReset(disownContinuations);
+		return () => {
+			unsubscribeReset?.();
+			disownContinuations();
+		};
+	}, [reconciler]);
 
 	const reverseGeocode = useCallback((p: GeoPoint) => {
 		if (reverseTimerRef.current) clearTimeout(reverseTimerRef.current);
@@ -86,10 +107,13 @@ export function GeopointPicker({
 			const reqId = ++reverseReqRef.current;
 			try {
 				const { Geocoder } = await loadGeocoding();
+				if (!ownsContinuationRef.current || reqId !== reverseReqRef.current)
+					return;
 				const { results } = await new Geocoder().geocode({
 					location: { lat: p.lat, lng: p.lon },
 				});
-				if (reqId !== reverseReqRef.current) return; // superseded
+				if (!ownsContinuationRef.current || reqId !== reverseReqRef.current)
+					return; // superseded or Project reset
 				setAddress(results[0]?.formatted_address ?? "");
 			} catch {
 				/* reverse lookup is best-effort — leave the address as-is */
@@ -102,6 +126,7 @@ export function GeopointPicker({
 	 *  the camera where the user already positioned it. */
 	const commit = useCallback(
 		(p: GeoPoint, opts: { recenter?: boolean; label?: string } = {}) => {
+			if (!ownsContinuationRef.current) return;
 			onChange(formatGeopoint(p));
 			onBlur();
 			if (opts.label !== undefined) {
@@ -135,22 +160,31 @@ export function GeopointPicker({
 	);
 
 	const handleUseMyLocation = useCallback(async () => {
+		if (!ownsContinuationRef.current) return;
+		const reqId = ++locateReqRef.current;
 		setLocating(true);
 		try {
 			const p = await requestGeolocation();
+			if (!ownsContinuationRef.current || reqId !== locateReqRef.current)
+				return;
 			commit(p, { recenter: true });
 		} catch (err) {
+			if (!ownsContinuationRef.current || reqId !== locateReqRef.current)
+				return;
 			const message =
 				err instanceof GeolocationError
 					? err.message
 					: "Couldn't get your location.";
-			showToast("error", "Location unavailable", message);
+			projectToast("error", "Location unavailable", message);
 		} finally {
-			setLocating(false);
+			if (ownsContinuationRef.current && reqId === locateReqRef.current) {
+				setLocating(false);
+			}
 		}
-	}, [commit]);
+	}, [commit, projectToast]);
 
 	const handleClear = useCallback(() => {
+		if (!ownsContinuationRef.current) return;
 		onChange("");
 		onBlur();
 		setAddress("");

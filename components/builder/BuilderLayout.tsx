@@ -34,6 +34,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { BuilderAccessGate } from "@/components/builder/AccessStatus";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderHeader } from "@/components/builder/BuilderHeader";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
@@ -408,15 +409,17 @@ export function BuilderLayout({
 					impersonating={impersonating ?? null}
 				/>
 
-				{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
-				<BuilderContentArea
-					isCentered={isCentered}
-					isExistingApp={!!isExistingApp}
-					threads={threads}
-					initialThread={initialThread}
-					appGenerating={appGenerating}
-					currentUserId={currentUserId}
-				/>
+				<BuilderAccessGate>
+					{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
+					<BuilderContentArea
+						isCentered={isCentered}
+						isExistingApp={!!isExistingApp}
+						threads={threads}
+						initialThread={initialThread}
+						appGenerating={appGenerating}
+						currentUserId={currentUserId}
+					/>
+				</BuilderAccessGate>
 			</div>
 		</BuilderReferenceProvider>
 	);

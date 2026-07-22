@@ -34,6 +34,7 @@ import { Chat, useChat } from "@ai-sdk/react";
 import { WorkflowChatTransport } from "@ai-sdk/workflow";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createBlankApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { StartBlankApp } from "@/components/chat/StartBlankApp";
@@ -46,6 +47,7 @@ import {
 } from "@/lib/chat/attachmentRefs";
 import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import {
 	BlueprintDocContext,
@@ -53,11 +55,24 @@ import {
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { useExternalNavigate } from "@/lib/routing/hooks";
+import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { BuilderPhase } from "@/lib/session/builderTypes";
-import { derivePhase, useCanEdit } from "@/lib/session/hooks";
+import {
+	derivePhase,
+	useAccessPhase,
+	useCanEdit,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { BuilderSessionContext } from "@/lib/session/provider";
-import { showToast } from "@/lib/ui/toastStore";
+import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
+
+type ProjectToastEmitter = (
+	severity: ToastSeverity,
+	title: string,
+	message?: string,
+	options?: ToastOptions,
+) => string;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -91,12 +106,174 @@ interface ActiveThreadInit {
 	messages: NovaUIMessage[];
 }
 
+const chatOwnerEpochs = new WeakMap<Chat<NovaUIMessage>, number>();
+
+/** Keep app-owned conversation text while retiring Project-owned asset
+ * references and their source filenames/extract summaries. The destination
+ * thread reload supplies S02c3's authoritatively remapped refs. */
+export function retireProjectAttachmentRefs(
+	messages: readonly NovaUIMessage[],
+): NovaUIMessage[] {
+	return messages.map((message) => {
+		if (!message.metadata?.attachments?.length) return message;
+		const { attachments: _retired, ...metadata } = message.metadata;
+		return {
+			...message,
+			metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+		};
+	});
+}
+
+/** Reconcile a destination-owned thread with the only local state the server
+ * may legitimately not know yet: an optimistic trailing user turn whose POST
+ * was stopped at the Project boundary before the chat route persisted it.
+ *
+ * The authoritative transcript always wins for shared ids and ordering. Only
+ * the local suffix after the last shared id is considered, and only fresh
+ * user text objects are appended: no metadata, attachment references, tool
+ * parts, or assistant output can cross the Project boundary through this
+ * recovery seam. With no shared id, at most the final local message is eligible
+ * (the new-thread-before-first-persist case). */
+export function mergeRetainedUserTextSuffix(
+	authoritative: readonly NovaUIMessage[],
+	retainedLocal: readonly NovaUIMessage[],
+): NovaUIMessage[] {
+	const authoritativeIds = new Set(
+		authoritative.map((message) => message.id).filter(Boolean),
+	);
+	let lastSharedIndex = -1;
+	for (let index = retainedLocal.length - 1; index >= 0; index--) {
+		const id = retainedLocal[index]?.id;
+		if (id && authoritativeIds.has(id)) {
+			lastSharedIndex = index;
+			break;
+		}
+	}
+	const suffix =
+		lastSharedIndex >= 0
+			? retainedLocal.slice(lastSharedIndex + 1)
+			: retainedLocal.slice(-1);
+	const recovered: NovaUIMessage[] = [];
+	for (const message of suffix) {
+		if (
+			message.role !== "user" ||
+			!message.id ||
+			authoritativeIds.has(message.id)
+		)
+			continue;
+		const textParts = message.parts.flatMap((part) =>
+			part.type === "text" && part.text.length > 0
+				? [{ type: "text" as const, text: part.text }]
+				: [],
+		);
+		if (textParts.length === 0) continue;
+		recovered.push({ id: message.id, role: "user", parts: textParts });
+	}
+	return [...authoritative, ...recovered];
+}
+
+export function chatGenerationCanWrite(
+	session:
+		| { accessPhase: string; canEdit: boolean; scopeEpoch: number }
+		| undefined,
+	ownerScopeEpoch: number,
+	threadHydrationState: "ready" | "pending" | "failed",
+): boolean {
+	return (
+		chatCallbackCanPublish(session, ownerScopeEpoch, threadHydrationState) &&
+		session?.canEdit === true
+	);
+}
+
+/** Shared continuation gate for callbacks that may publish after their Chat was
+ * stopped. Reads do not require edit capability, but they must belong to the
+ * current authorized Project generation and an authoritative transcript. */
+export function chatCallbackCanPublish(
+	session: { accessPhase: string; scopeEpoch: number } | undefined,
+	ownerScopeEpoch: number,
+	threadHydrationState: "ready" | "pending" | "failed",
+): boolean {
+	return (
+		session !== undefined &&
+		session.accessPhase === "authorized" &&
+		session.scopeEpoch === ownerScopeEpoch &&
+		threadHydrationState === "ready"
+	);
+}
+
 /** A thread doc as the LOADERS return it: the stored shape plus the derived
  *  `resume_interrupted` stamp — set whenever the row holds a live-stream
  *  marker whose app no live run holds (a run killed before finalize). The
  *  auto-re-drive trigger: level-triggered server-side (it stands until a
  *  re-drive's run retires the marker), consumed once per activation here. */
 type LoadedThreadDoc = ThreadDoc & { resume_interrupted?: boolean };
+
+/** Authority carried by a server-loaded thread. Every activation must adopt
+ * both values together; an omitted nonce is itself authoritative and clears a
+ * capability retained from an older activation. */
+export function authoritativeThreadActivationOptions(
+	thread: Pick<
+		LoadedThreadDoc,
+		"run_id" | "holder_nonce" | "active_stream_id" | "resume_interrupted"
+	>,
+	appGenerating: boolean,
+	options?: { allowRedrive?: boolean },
+) {
+	const resume = thread.active_stream_id != null;
+	const redrive =
+		!resume &&
+		thread.resume_interrupted === true &&
+		options?.allowRedrive !== false;
+	return {
+		runId: thread.run_id,
+		holderNonce: thread.holder_nonce,
+		resume,
+		redrive,
+		buildResume: (resume || redrive) && appGenerating,
+	};
+}
+
+/** `/build/new` keeps the Project captured by its RSC render even if another
+ * tab later changes the session's active Project cookie. Existing apps are
+ * already scoped by app id and send no creation target. */
+export function expectedProjectIdForChatRequest(session: {
+	appId: string | undefined;
+	projectId: string | undefined;
+}): string | undefined {
+	return session.appId === undefined ? session.projectId : undefined;
+}
+
+export interface CreatedAppActivation {
+	readonly appId: string;
+	readonly projectId: string;
+	readonly role: string;
+	readonly canEdit: boolean;
+	readonly baseSeq: number;
+}
+
+/** Strict boundary for the server's one-shot new-app handoff. Never activate
+ * multiplayer from a partial event: the app id, Project capability, and
+ * confirmed cursor are one authority. */
+export function parseCreatedAppActivation(
+	data: Record<string, unknown>,
+): CreatedAppActivation | null {
+	const { appId, projectId, role, canEdit, baseSeq } = data;
+	if (
+		typeof appId !== "string" ||
+		appId.trim().length === 0 ||
+		typeof projectId !== "string" ||
+		projectId.trim().length === 0 ||
+		typeof role !== "string" ||
+		role.trim().length === 0 ||
+		typeof canEdit !== "boolean" ||
+		typeof baseSeq !== "number" ||
+		!Number.isSafeInteger(baseSeq) ||
+		baseSeq < 0
+	) {
+		return null;
+	}
+	return { appId, projectId, role, canEdit, baseSeq };
+}
 
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
@@ -106,9 +283,15 @@ function createChatInstance(
 	docStoreRef: { current: BlueprintDocStore | null },
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
+	holderNonceRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
 	appGeneratingRef: { current: boolean },
+	threadHydrationStateRef: {
+		current: "ready" | "pending" | "failed";
+	},
+	projectToast: ProjectToastEmitter,
+	ownerScopeEpoch: number,
 ): Chat<NovaUIMessage> {
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent — the route loads the persisted doc server-side off the
@@ -164,12 +347,14 @@ function createChatInstance(
 		return {
 			threadId: init.threadId,
 			runId: runIdRef.current,
+			holderNonce: holderNonceRef.current,
 			appId: sessionState.appId,
+			expectedProjectId: expectedProjectIdForChatRequest(sessionState),
 			appReady,
 		};
 	};
 
-	return new Chat<NovaUIMessage>({
+	const instance = new Chat<NovaUIMessage>({
 		/* The thread id IS the chat id: the transport's cold reconnect
 		 * (`resumeStream` → `reconnectToStream({chatId})`) hits
 		 * `/api/chat/{chatId}/stream`, and the endpoint resolves a thread id
@@ -220,8 +405,29 @@ function createChatInstance(
 				},
 			}),
 		}),
-		sendAutomaticallyWhen: shouldAutoResend,
+		sendAutomaticallyWhen: (args) => {
+			const owner = sessionStoreRef.current?.getState();
+			return (
+				chatGenerationCanWrite(
+					owner,
+					ownerScopeEpoch,
+					threadHydrationStateRef.current,
+				) && shouldAutoResend(args)
+			);
+		},
 		onData: (part) => {
+			const ownerSession = sessionStoreRef.current?.getState();
+			/* A Chat transport can deliver a buffered chunk after its Project was
+			 * reset. Its callbacks close over the generation that created it; never
+			 * reinterpret source chunks under the destination session. */
+			if (
+				!chatCallbackCanPublish(
+					ownerSession,
+					ownerScopeEpoch,
+					threadHydrationStateRef.current,
+				)
+			)
+				return;
 			const { type, data } = part as {
 				type: string;
 				data: Record<string, unknown>;
@@ -237,6 +443,10 @@ function createChatInstance(
 				);
 				return;
 			}
+			if (type === "data-holder-nonce") {
+				holderNonceRef.current = data.holderNonce as string;
+				return;
+			}
 			if (type === "data-credit-refund") {
 				/* Owner check: a shared thread's refresh-resume replays another
 				 * member's run, refund chunk included — "you weren't charged" must
@@ -250,7 +460,7 @@ function createChatInstance(
 				// payload). Use "info" (neutral, auto-dismissing); the error toast is the
 				// one that persists. The refund is server-authoritative and once-latched,
 				// so this only fires once per failed run.
-				showToast(
+				projectToast(
 					"info",
 					"You weren't charged",
 					`This run hit an error, so your ${amount} credits were refunded.`,
@@ -262,16 +472,10 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* `data-app-id` is the one-shot identity announcement the server
-			 * emits only on the request that actually minted the app (see
-			 * the `appCreated` gate in app/api/chat/route.ts). Receiving it
-			 * is unambiguous proof that this is the /build/new → /build/{id}
-			 * transition, so we can stamp the session store and rewrite the
-			 * URL without any further checks. Edit requests never emit this
-			 * event, so the handler never runs for them. (A RESUMED build
-			 * replays it: the session setAppId and the URL rewrite are
-			 * idempotent there, and the reconciler provider's `activate`
-			 * no-ops once active.) */
+			/* `data-app-id` is the one-shot authoritative creation handoff. It
+			 * carries identity, Project capability, and cursor together; a replay is
+			 * idempotent, while a partial or cross-scope frame must not activate the
+			 * dormant reconciler. */
 			/* The build finished — sends from this tab are edit-mode from here
 			 * on. One-way latch: without it the `unfinishedBuild` guard in
 			 * `requestFields` re-arms once `acknowledgeCompletion` clears
@@ -283,13 +487,36 @@ function createChatInstance(
 			}
 
 			if (type === "data-app-id") {
-				const newAppId = data.appId as string;
-				sessionApi.getState().setAppId(newAppId);
-				window.history.replaceState({}, "", `/build/${newAppId}`);
+				const activation = parseCreatedAppActivation(data);
+				const current = sessionApi.getState();
+				if (activation === null || current.projectId !== activation.projectId) {
+					projectToast(
+						"error",
+						"Reload to finish opening this app",
+						"Nova kept your work in this tab, but couldn't verify the new app's Project scope.",
+						{
+							persistent: true,
+							action: {
+								label: "Reload page",
+								onPress: () => window.location.reload(),
+							},
+						},
+					);
+					return;
+				}
+				sessionApi.getState().activateCreatedApp(activation.appId, {
+					projectId: activation.projectId,
+					role: activation.role,
+					canEdit: activation.canEdit,
+				});
+				pushBuilderHistory(`/build/${activation.appId}`, true);
 				/* Activate the dormant new-build reconciler: seed it at
-				 * `{ appId, baseSeq: 0, baseDoc: current doc }` and open the stream
-				 * at cursor 0, so subsequent chat batches + human edits reconcile. */
-				reconcilerCtxRef.current?.activate(newAppId);
+				 * the receipt's confirmed cursor with the current doc, so subsequent
+				 * chat batches + human edits reconcile. */
+				reconcilerCtxRef.current?.activate(
+					activation.appId,
+					activation.baseSeq,
+				);
 				return;
 			}
 
@@ -300,9 +527,12 @@ function createChatInstance(
 				sessionApi,
 				reconcilerCtxRef.current?.reconciler ?? null,
 				runIdRef.current,
+				projectToast,
 			);
 		},
 	});
+	chatOwnerEpochs.set(instance, ownerScopeEpoch);
+	return instance;
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -345,6 +575,9 @@ export function ChatContainer({
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const reconcilerCtx = useReconcilerContext();
+	const projectToast = useProjectToast();
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
 	/* Viewers (view-only Project members) get a read-only conversation — the
 	 * SA is the edit mechanism, so the composer hides. The write paths reject
 	 * their edits server-side regardless. */
@@ -368,6 +601,9 @@ export function ChatContainer({
 	const appGeneratingRef = useRef(!!appGenerating);
 	appGeneratingRef.current = !!appGenerating;
 	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
+	const holderNonceRef = useRef<string | undefined>(
+		initialThread?.holder_nonce,
+	);
 	/** Whether the SSE transport was open on the previous render — used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
 	 *  for the `beginRun` / `endRun` handoff. Local to this component so
@@ -375,6 +611,9 @@ export function ChatContainer({
 	 *  shadow field. Initial false matches the SDK's initial `status:
 	 *  "ready"` so the very first render is a no-op. */
 	const prevStreamOpenRef = useRef(false);
+	const threadHydrationStateRef = useRef<"ready" | "pending" | "failed">(
+		"ready",
+	);
 
 	// ── Threads ──────────────────────────────────────────────────────────
 
@@ -458,12 +697,14 @@ export function ChatContainer({
 			init: ActiveThreadInit,
 			opts?: {
 				runId?: string;
+				holderNonce?: string;
 				resume?: boolean;
 				buildResume?: boolean;
 				redrive?: boolean;
 			},
 		): Chat<NovaUIMessage> => {
 			runIdRef.current = opts?.runId;
+			holderNonceRef.current = opts?.holderNonce;
 			pendingResumeRef.current = opts?.resume ? init.threadId : null;
 			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
@@ -472,12 +713,16 @@ export function ChatContainer({
 				docStoreRef,
 				sessionStoreRef,
 				runIdRef,
+				holderNonceRef,
 				reconcilerCtxRef,
 				ownUserIdRef,
 				appGeneratingRef,
+				threadHydrationStateRef,
+				projectToast,
+				scopeEpoch,
 			);
 		},
-		[],
+		[projectToast, scopeEpoch],
 	);
 
 	/* The session store is recreated inside `BuilderSessionProvider` on every
@@ -496,9 +741,13 @@ export function ChatContainer({
 			docStoreRef,
 			sessionStoreRef,
 			runIdRef,
+			holderNonceRef,
 			reconcilerCtxRef,
 			ownUserIdRef,
 			appGeneratingRef,
+			threadHydrationStateRef,
+			projectToast,
+			scopeEpoch,
 		),
 	);
 
@@ -524,6 +773,199 @@ export function ChatContainer({
 	} = useChat({ chat });
 	const stopRef = useRef(stop);
 	stopRef.current = stop;
+	const messagesRef = useRef(messages);
+	messagesRef.current = messages;
+	const chatRef = useRef(chat);
+	chatRef.current = chat;
+	const activeThreadReadsRef = useRef(new Set<AbortController>());
+	const pendingProjectThreadReloadRef = useRef<{
+		epoch: number;
+		threadId: string;
+		retainedMessages: NovaUIMessage[];
+	} | null>(null);
+	const [threadScopeReloading, setThreadScopeReloading] = useState(false);
+	const [threadScopeHydrationFailed, setThreadScopeHydrationFailed] =
+		useState(false);
+	useEffect(
+		() => () => {
+			for (const controller of activeThreadReadsRef.current) controller.abort();
+			activeThreadReadsRef.current.clear();
+		},
+		[],
+	);
+
+	/* A same-app Project move keeps this component mounted. Retire attachment
+	 * refs (ids + filenames + extracts) and every in-flight transcript read in
+	 * the synchronous reset stack; app-owned text may remain as a masked bridge
+	 * until the destination-authorized thread reload lands. */
+	useEffect(() => {
+		if (!reconcilerCtx) return;
+		return reconcilerCtx.subscribeProjectScopeReset((nextEpoch) => {
+			for (const controller of activeThreadReadsRef.current) controller.abort();
+			activeThreadReadsRef.current.clear();
+			const retired = retireProjectAttachmentRefs(messagesRef.current);
+			void stopRef.current?.();
+			if (prevStreamOpenRef.current) {
+				/* `resetProjectScope` already removed the source event payload. Pair
+				 * the transport's open run bracket before suppressing the later status
+				 * edge, so destination edits do not remain undo-paused. */
+				sessionStoreRef.current?.getState().endRun();
+			}
+			prevStreamOpenRef.current = false;
+			pendingResumeRef.current = null;
+			pendingRedriveRef.current = null;
+			resumeHealRef.current = null;
+			pendingProjectThreadReloadRef.current = {
+				epoch: nextEpoch,
+				threadId: chatRef.current.id,
+				retainedMessages: retired,
+			};
+			threadHydrationStateRef.current = "pending";
+			/* `useChat` owns both the rendered projection and Chat's retained send
+			 * history. Flush the stripped projection before the reset returns so an
+			 * exit frame cannot retain a source asset id or filename. */
+			flushSync(() => {
+				setMessages(retired);
+				setThreadScopeHydrationFailed(false);
+				setThreadScopeReloading(true);
+			});
+		});
+	}, [reconcilerCtx, setMessages]);
+
+	/* Once destination view authority is established, replace the masked bridge
+	 * with the authoritative stored thread. S02c3 remaps any attachment ids in
+	 * that server row as part of the Project move; this client never guesses. An
+	 * optimistic trailing user-text suffix absent from that read is the sole
+	 * exception: preserve its app-owned text without any source metadata. */
+	useEffect(() => {
+		const pending = pendingProjectThreadReloadRef.current;
+		if (
+			accessPhase !== "authorized" ||
+			!pending ||
+			pending.epoch !== scopeEpoch
+		)
+			return;
+		const session = sessionStoreRef.current?.getState();
+		if (
+			session?.accessPhase !== "authorized" ||
+			session.scopeEpoch !== pending.epoch
+		)
+			return;
+		const appId = session.appId;
+		if (!appId) {
+			pendingProjectThreadReloadRef.current = null;
+			setChat(
+				activateThread({
+					threadId: pending.threadId,
+					messages: pending.retainedMessages,
+				}),
+			);
+			setThreadScopeReloading(false);
+			setThreadScopeHydrationFailed(false);
+			threadHydrationStateRef.current = "ready";
+			return;
+		}
+		/* Re-own the safe bridge before authorized controls can dispatch. Keep the
+		 * composer/tool answers disabled until the authoritative fetch settles so
+		 * it cannot overwrite a turn sent into this temporary instance. */
+		setChat(
+			activateThread({
+				threadId: pending.threadId,
+				messages: pending.retainedMessages,
+			}),
+		);
+		const controller = new AbortController();
+		activeThreadReadsRef.current.add(controller);
+		const ownsRead = () => {
+			const current = sessionStoreRef.current?.getState();
+			return (
+				!controller.signal.aborted &&
+				current?.accessPhase === "authorized" &&
+				current.scopeEpoch === pending.epoch &&
+				current.appId === appId
+			);
+		};
+		void fetch(
+			`/api/apps/${appId}/threads/${encodeURIComponent(pending.threadId)}`,
+			{ cache: "no-store", signal: controller.signal },
+		)
+			.then(async (res) => {
+				if (!ownsRead()) return;
+				if (res.status === 404) {
+					pendingProjectThreadReloadRef.current = null;
+					setChat(
+						activateThread({
+							threadId: pending.threadId,
+							messages: pending.retainedMessages,
+						}),
+					);
+					setThreadScopeReloading(false);
+					setThreadScopeHydrationFailed(false);
+					threadHydrationStateRef.current = "ready";
+					return;
+				}
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const { thread } = (await res.json()) as { thread: LoadedThreadDoc };
+				if (!ownsRead()) return;
+				pendingProjectThreadReloadRef.current = null;
+				setChat(
+					activateThread(
+						{
+							threadId: thread.thread_id,
+							messages: mergeRetainedUserTextSuffix(
+								thread.messages as NovaUIMessage[],
+								pending.retainedMessages,
+							),
+						},
+						authoritativeThreadActivationOptions(
+							thread,
+							appGeneratingRef.current,
+						),
+					),
+				);
+				setThreadScopeReloading(false);
+				setThreadScopeHydrationFailed(false);
+				threadHydrationStateRef.current = "ready";
+			})
+			.catch(() => {
+				if (!ownsRead()) return;
+				/* Do not leave the old-epoch Chat active behind an authorized UI when
+				 * the destination read itself failed. Re-own the attachment-free bridge
+				 * for rendering under this epoch while its callbacks remain blocked; a
+				 * page reload (or a later Project-scope refresh) retries the authoritative
+				 * transcript. */
+				pendingProjectThreadReloadRef.current = null;
+				setChat(
+					activateThread({
+						threadId: pending.threadId,
+						messages: pending.retainedMessages,
+					}),
+				);
+				/* A same-id bridge is safe to display, but never safe to submit: the
+				 * server's equal-part-count merge can prefer this stripped message and
+				 * permanently erase S02c3's remapped attachment metadata. Stay blocked
+				 * until a full page reload can hydrate the authoritative transcript. */
+				threadHydrationStateRef.current = "failed";
+				setThreadScopeHydrationFailed(true);
+				projectToast(
+					"warning",
+					"Reload to restore this conversation",
+					"Nova couldn't verify this conversation's files, so sending stays paused to protect them.",
+					{
+						persistent: true,
+						action: {
+							label: "Reload page",
+							onPress: () => window.location.reload(),
+						},
+					},
+				);
+			})
+			.finally(() => activeThreadReadsRef.current.delete(controller));
+		return () => {
+			controller.abort();
+			activeThreadReadsRef.current.delete(controller);
+		};
+	}, [accessPhase, scopeEpoch, activateThread, projectToast]);
 
 	// ── Live-run resume ───────────────────────────────────────────────────
 	/* A hydrated thread with a run in flight reconnects HERE: `resumeStream`
@@ -567,14 +1009,29 @@ export function ChatContainer({
 	 * once and adopt its messages (a no-op when nothing newer exists, e.g. a
 	 * failed run's dangling user turn). */
 	const healAfterResume = useCallback(async () => {
-		const appId = sessionStoreRef.current?.getState().appId;
-		if (!appId) return;
+		const start = sessionStoreRef.current?.getState();
+		if (!start?.appId || start.accessPhase !== "authorized") return;
+		const appId = start.appId;
+		const readEpoch = start.scopeEpoch;
+		const controller = new AbortController();
+		activeThreadReadsRef.current.add(controller);
+		const ownsRead = () => {
+			const current = sessionStoreRef.current?.getState();
+			return (
+				!controller.signal.aborted &&
+				current?.accessPhase === "authorized" &&
+				current.scopeEpoch === readEpoch &&
+				current.appId === appId
+			);
+		};
 		try {
 			const res = await fetch(
 				`/api/apps/${appId}/threads/${encodeURIComponent(chat.id)}`,
+				{ cache: "no-store", signal: controller.signal },
 			);
-			if (!res.ok) return;
+			if (!res.ok || !ownsRead()) return;
 			const { thread } = (await res.json()) as { thread: LoadedThreadDoc };
+			if (!ownsRead()) return;
 			/* A LIVE marker here means another session's run owns this thread
 			 * right now — the shape a lost re-drive race leaves behind (this
 			 * send bailed clean while the winner streams). Attach to it: swap in
@@ -587,11 +1044,10 @@ export function ChatContainer({
 							threadId: thread.thread_id,
 							messages: thread.messages as NovaUIMessage[],
 						},
-						{
-							runId: thread.run_id,
-							resume: true,
-							buildResume: appGeneratingRef.current,
-						},
+						authoritativeThreadActivationOptions(
+							thread,
+							appGeneratingRef.current,
+						),
 					),
 				);
 				return;
@@ -613,77 +1069,108 @@ export function ChatContainer({
 							threadId: thread.thread_id,
 							messages: thread.messages as NovaUIMessage[],
 						},
-						{
-							runId: thread.run_id,
-							redrive: true,
-							buildResume: appGeneratingRef.current,
-						},
+						authoritativeThreadActivationOptions(
+							thread,
+							appGeneratingRef.current,
+						),
 					),
 				);
 				return;
 			}
-			if (thread.messages.length > 0) {
-				setMessages(thread.messages as NovaUIMessage[]);
-			}
+			/* Even a terminal/empty projection authoritatively clears run-holder
+			 * capability. Keep a local optimistic transcript when the server has no
+			 * messages, but re-own it through the same activation seam. */
+			setChat(
+				activateThread(
+					{
+						threadId: thread.thread_id,
+						messages:
+							thread.messages.length > 0
+								? (thread.messages as NovaUIMessage[])
+								: messagesRef.current,
+					},
+					authoritativeThreadActivationOptions(
+						thread,
+						appGeneratingRef.current,
+						{ allowRedrive: false },
+					),
+				),
+			);
 		} catch {
 			/* Best-effort — the conversation still works; the response shows on
 			 * the next open. */
+		} finally {
+			activeThreadReadsRef.current.delete(controller);
 		}
-	}, [chat, setMessages, activateThread]);
+	}, [chat, activateThread]);
 
 	// ── Thread switching ──────────────────────────────────────────────────
 
 	const openThread = useCallback(
 		async (threadId: string): Promise<boolean> => {
+			if (threadHydrationStateRef.current !== "ready") return false;
 			if (threadId === chat.id) return true;
-			const appId = sessionStoreRef.current?.getState().appId;
-			if (!appId) return false;
+			const start = sessionStoreRef.current?.getState();
+			if (!start?.appId || start.accessPhase !== "authorized") return false;
+			const appId = start.appId;
+			const readEpoch = start.scopeEpoch;
+			const controller = new AbortController();
+			activeThreadReadsRef.current.add(controller);
+			const ownsRead = () => {
+				const current = sessionStoreRef.current?.getState();
+				return (
+					!controller.signal.aborted &&
+					current?.accessPhase === "authorized" &&
+					current.scopeEpoch === readEpoch &&
+					current.appId === appId
+				);
+			};
 			let thread: LoadedThreadDoc;
 			try {
 				const res = await fetch(
 					`/api/apps/${appId}/threads/${encodeURIComponent(threadId)}`,
+					{ cache: "no-store", signal: controller.signal },
 				);
 				if (!res.ok) throw new Error(`HTTP ${res.status}`);
 				({ thread } = (await res.json()) as { thread: LoadedThreadDoc });
+				if (!ownsRead()) return false;
 			} catch {
-				showToast(
+				if (!ownsRead()) return false;
+				projectToast(
 					"error",
 					"Couldn't open the conversation",
 					"Check your connection and try again.",
 				);
 				return false;
+			} finally {
+				activeThreadReadsRef.current.delete(controller);
 			}
 			/* Abort the current thread's client-side stream read (the run — if
 			 * any — continues server-side and stays resumable from its row). */
 			stopRef.current?.();
-			const live = thread.active_stream_id != null;
-			/* This fetch just HEALED a dead marker on the opened thread — the
-			 * same instance-death signal the page load acts on. Re-drive it. */
-			const redrive = !live && thread.resume_interrupted === true;
 			setChat(
 				activateThread(
 					{
 						threadId: thread.thread_id,
 						messages: thread.messages as NovaUIMessage[],
 					},
-					{
-						runId: thread.run_id,
-						resume: live,
-						redrive,
+					authoritativeThreadActivationOptions(
+						thread,
 						/* `appGenerating` (not thread_type, which freezes at
 						 * creation) is the build-run signal — an edit run resumed
 						 * in the app's original build-typed thread must keep the
 						 * edit-mode capture. */
-						buildResume: (live || redrive) && !!appGenerating,
-					},
+						!!appGenerating,
+					),
 				),
 			);
 			return true;
 		},
-		[chat, appGenerating, activateThread],
+		[chat, appGenerating, activateThread, projectToast],
 	);
 
 	const startNewChat = useCallback(() => {
+		if (threadHydrationStateRef.current !== "ready") return;
 		if (messages.length === 0) return; // already a fresh conversation
 		stopRef.current?.();
 		setChat(activateThread({ threadId: crypto.randomUUID(), messages: [] }));
@@ -707,8 +1194,17 @@ export function ChatContainer({
 	 * `data-done` handler via `markRunCompleted()`. So askQuestions
 	 * runs, clarifying text, and edit-tool responses close silently
 	 * without any animation. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeEpoch intentionally re-runs the owner gate at the synchronous Project boundary
 	useEffect(() => {
 		if (!sessionApi) return;
+		if (
+			!chatCallbackCanPublish(
+				sessionApi.getState(),
+				chatOwnerEpochs.get(chat) ?? -1,
+				threadHydrationStateRef.current,
+			)
+		)
+			return;
 		const streamOpen = status === "submitted" || status === "streaming";
 		const wasOpen = prevStreamOpenRef.current;
 		prevStreamOpenRef.current = streamOpen;
@@ -744,7 +1240,7 @@ export function ChatContainer({
 				if (chat.lastMessage?.role === "user") void healAfterResume();
 			}
 		}
-	}, [status, sessionApi, chat, healAfterResume]);
+	}, [status, sessionApi, chat, healAfterResume, scopeEpoch]);
 
 	/* Surface stream-level failures (network drops, spend cap, auth,
 	 * server crashes) that never got a chance to produce a
@@ -753,10 +1249,19 @@ export function ChatContainer({
 	 * it up identically to a server-emitted error. Toast is fired here
 	 * because the synthetic event doesn't flow through the dispatcher's
 	 * conversation-event handler. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeEpoch intentionally re-runs the owner gate at the synchronous Project boundary
 	useEffect(() => {
 		if (!chatError || !sessionApi) return;
 		const message = parseApiErrorMessage(chatError.message);
 		const session = sessionApi.getState();
+		if (
+			!chatCallbackCanPublish(
+				session,
+				chatOwnerEpochs.get(chat) ?? -1,
+				threadHydrationStateRef.current,
+			)
+		)
+			return;
 		const runId = runIdRef.current ?? "client-error";
 		session.pushEvent({
 			kind: "conversation",
@@ -779,7 +1284,7 @@ export function ChatContainer({
 				error: { type: "network", message, fatal: true },
 			},
 		});
-		showToast("error", "Generation failed", message);
+		projectToast("error", "Generation failed", message);
 
 		/* A pre-stream rejection (out of credits, a build already running in
 		 * another tab, a 5xx) fails before the route mints an app, leaving the
@@ -792,7 +1297,7 @@ export function ChatContainer({
 			agentEngagedRef.current = false;
 			setSendFailedBeforeApp(true);
 		}
-	}, [chatError, sessionApi]);
+	}, [chat, chatError, projectToast, scopeEpoch, sessionApi]);
 
 	/* Refresh the thread list after each run settles. The server is the
 	 * writer (the route persists the turn at claim and the response at
@@ -804,18 +1309,36 @@ export function ChatContainer({
 		if (status !== "ready" || messages.length === 0) return;
 		const appId = sessionStoreRef.current?.getState().appId;
 		if (!appId) return;
-		let cancelled = false;
-		fetch(`/api/apps/${appId}/threads`)
+		const start = sessionStoreRef.current?.getState();
+		if (start?.accessPhase !== "authorized") return;
+		const readEpoch = start.scopeEpoch;
+		const controller = new AbortController();
+		activeThreadReadsRef.current.add(controller);
+		const ownsRead = () => {
+			const current = sessionStoreRef.current?.getState();
+			return (
+				!controller.signal.aborted &&
+				current?.accessPhase === "authorized" &&
+				current.scopeEpoch === readEpoch &&
+				current.appId === appId
+			);
+		};
+		fetch(`/api/apps/${appId}/threads`, {
+			cache: "no-store",
+			signal: controller.signal,
+		})
 			.then(async (res) => {
-				if (!res.ok || cancelled) return;
+				if (!res.ok || !ownsRead()) return;
 				const { threads: fresh } = (await res.json()) as {
 					threads: ThreadMeta[];
 				};
-				if (!cancelled) setThreadMetas(fresh);
+				if (ownsRead()) setThreadMetas(fresh);
 			})
-			.catch(() => {});
+			.catch(() => {})
+			.finally(() => activeThreadReadsRef.current.delete(controller));
 		return () => {
-			cancelled = true;
+			controller.abort();
+			activeThreadReadsRef.current.delete(controller);
 		};
 	}, [status]);
 
@@ -828,6 +1351,14 @@ export function ChatContainer({
 			attachments?: AttachmentRef[];
 		}) => {
 			if (creatingBlankAppRef.current) return;
+			if (threadHydrationStateRef.current !== "ready") return;
+			const session = sessionStoreRef.current?.getState();
+			if (
+				session?.accessPhase !== "authorized" ||
+				!session.canEdit ||
+				session.scopeEpoch !== scopeEpoch
+			)
+				return;
 			if (!text.trim() && !attachments?.length) return;
 			agentEngagedRef.current = true;
 			setSendFailedBeforeApp(false);
@@ -840,21 +1371,45 @@ export function ChatContainer({
 				metadata: attachments?.length ? { attachments } : undefined,
 			});
 		},
-		[sendMessage],
+		[scopeEpoch, sendMessage],
+	);
+
+	const handleToolOutput = useCallback(
+		(params: { tool: string; toolCallId: string; output: unknown }) => {
+			if (threadHydrationStateRef.current !== "ready") return;
+			const session = sessionStoreRef.current?.getState();
+			if (
+				session?.accessPhase !== "authorized" ||
+				!session.canEdit ||
+				session.scopeEpoch !== scopeEpoch
+			)
+				return;
+			addToolOutput(params);
+		},
+		[addToolOutput, scopeEpoch],
 	);
 
 	const handleCreateBlankApp = useCallback(() => {
 		if (agentEngagedRef.current || creatingBlankAppRef.current) return;
+		const session = sessionStoreRef.current?.getState();
+		if (
+			session?.accessPhase !== "authorized" ||
+			!session.canEdit ||
+			!session.projectId ||
+			session.scopeEpoch !== scopeEpoch
+		)
+			return;
+		const expectedProjectId = session.projectId;
 		creatingBlankAppRef.current = true;
 		setCreatingBlankApp(true);
-		createBlankApp().then(
+		createBlankApp(expectedProjectId).then(
 			(result) => {
 				/* The app was created either way; we just no longer own the screen. */
 				if (!mountedRef.current) return;
 				if (!result.success) {
 					creatingBlankAppRef.current = false;
 					setCreatingBlankApp(false);
-					showToast("error", "Couldn't create the app", result.error);
+					projectToast("error", "Couldn't create the app", result.error);
 					return;
 				}
 				/* `replace`, not `push` — the app exists now, so `/build/new` is not
@@ -872,14 +1427,14 @@ export function ChatContainer({
 				if (!mountedRef.current) return;
 				creatingBlankAppRef.current = false;
 				setCreatingBlankApp(false);
-				showToast(
+				projectToast(
 					"error",
 					"Couldn't confirm the app was created",
 					"Check your connection, then look in your app list before trying again. The app may already be there.",
 				);
 			},
 		);
-	}, [replace]);
+	}, [projectToast, replace, scopeEpoch]);
 
 	// ── Derived values ───────────────────────────────────────────────────
 
@@ -895,12 +1450,9 @@ export function ChatContainer({
 	const agentEngaged = messages.length > 0 && !sendFailedBeforeApp;
 
 	/* Only on a brand-new build, and only where the composer itself is offered
-	 * — a surface that can't send can't create either. Note this does NOT gate
-	 * out a view-only member: `canEdit` defaults to `true` on `/build/new`
-	 * (BuilderProvider has no role to consult before an app exists), so they see
-	 * this exactly as they see the composer, and `createBlankApp` refuses them
-	 * server-side exactly as `/api/chat` does. That Project `edit` check is the
-	 * gate; this is only about which surfaces make sense to show. */
+	 * — a surface that can't send can't create either. `/build/new` is seeded
+	 * from the active Project's server-resolved role, so a viewer never sees this
+	 * authoring action; the create route remains the enforcement authority. */
 	const showBlankAppStarter = centered && !isExistingApp && !readOnly;
 
 	return (
@@ -917,15 +1469,29 @@ export function ChatContainer({
 					/>
 				) : undefined
 			}
-			composerBusy={creatingBlankApp}
+			composerBusy={creatingBlankApp || threadScopeReloading}
+			interactionBlocked={threadScopeReloading}
+			interactionBlockedRecovery={
+				threadScopeHydrationFailed
+					? {
+							title: "Conversation paused",
+							message:
+								"Reload Nova to verify this conversation's files before sending.",
+							actionLabel: "Reload page",
+							onAction: () => window.location.reload(),
+						}
+					: undefined
+			}
 			messages={messages}
 			status={status}
 			onSend={handleSend}
-			addToolOutput={addToolOutput}
+			addToolOutput={handleToolOutput}
 			readOnly={readOnly}
 			readOnlyNotice={
 				!canEdit
-					? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
+					? isExistingApp
+						? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
+						: "You have view-only access to this Project. Ask a Project admin for edit access to create an app."
 					: undefined
 			}
 			isExistingApp={isExistingApp}

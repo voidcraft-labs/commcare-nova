@@ -15,6 +15,7 @@ import type {
 	LoadCaseCountResult,
 	PopulateSampleCasesResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 
 const mocks = vi.hoisted(() => ({
 	countState: { kind: "count", count: 0 } as
@@ -50,6 +51,8 @@ vi.mock("@/lib/routing/hooks", () => ({
 }));
 
 vi.mock("@/lib/session/hooks", () => ({
+	useAccessPhase: () => "authorized",
+	useProjectScopeEpoch: () => 0,
 	useSetPreviewing: () => mocks.setPreviewing,
 }));
 
@@ -94,13 +97,21 @@ function renderManager(
 	caseType = PATIENT,
 ) {
 	return render(
-		<CaseDataManager
-			appId="app-case-manager"
-			moduleUuid={"00000000-0000-7000-8000-000000000001" as Uuid}
-			caseType={caseType}
-			canEdit={canEdit}
-			hasLinkedChildren={hasLinkedChildren}
-		/>,
+		<BuilderSessionProvider
+			init={{
+				projectId: "project-case-manager",
+				role: canEdit ? "editor" : "viewer",
+				canEdit,
+			}}
+		>
+			<CaseDataManager
+				appId="app-case-manager"
+				moduleUuid={"00000000-0000-7000-8000-000000000001" as Uuid}
+				caseType={caseType}
+				canEdit={canEdit}
+				hasLinkedChildren={hasLinkedChildren}
+			/>
+		</BuilderSessionProvider>,
 	);
 }
 
@@ -149,6 +160,7 @@ describe("CaseDataManager", () => {
 			"info",
 			"Sample cases created",
 			"1 case is ready to use in Preview",
+			undefined,
 		);
 	});
 
@@ -189,6 +201,7 @@ describe("CaseDataManager", () => {
 			"info",
 			"Case data replaced",
 			"30 cases are ready to use in Preview",
+			undefined,
 		);
 	});
 

@@ -14,6 +14,7 @@ import { useContext, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import {
 	describeIntroducedErrors,
 	mutationCommitVerdict,
@@ -29,7 +30,6 @@ import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
 import { findFieldElement, flashUndoHighlight } from "@/lib/routing/domQueries";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
-import { showToast } from "@/lib/ui/toastStore";
 
 /**
  * Undo / redo with scroll + flash affordance. Both actions are no-ops
@@ -113,6 +113,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const loc = useLocation();
 	const activeFieldId = useActiveFieldId();
 	const setFocusHint = useSetFocusHint();
+	const projectToast = useProjectToast();
 
 	return useMemo(() => {
 		function run(action: "undo" | "redo"): void {
@@ -135,7 +136,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			const target = stack[stack.length - 1] as Partial<BlueprintDoc>;
 			const verdict = undoRedoGateVerdict(displayed, target, localBase);
 			if (!verdict.ok) {
-				showToast(
+				projectToast(
 					"warning",
 					action === "undo" ? "Can't undo" : "Can't redo",
 					verdict.message,
@@ -186,7 +187,15 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			undo: () => run("undo"),
 			redo: () => run("redo"),
 		};
-	}, [docStore, reconcilerCtx, scrollTo, loc, activeFieldId, setFocusHint]);
+	}, [
+		docStore,
+		reconcilerCtx,
+		scrollTo,
+		loc,
+		activeFieldId,
+		setFocusHint,
+		projectToast,
+	]);
 }
 
 /**

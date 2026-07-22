@@ -28,6 +28,7 @@ interface ThreadListProps {
 	 *  its active badge even before the server-side marker round-trips. */
 	activeThreadStreaming: boolean;
 	openingThreadId: string | null;
+	disabled?: boolean;
 	onSelect: (threadId: string) => void | Promise<void>;
 }
 
@@ -36,6 +37,7 @@ export function ThreadList({
 	activeThreadId,
 	activeThreadStreaming,
 	openingThreadId,
+	disabled = false,
 	onSelect,
 }: ThreadListProps) {
 	if (threads.length === 0) {
@@ -61,7 +63,7 @@ export function ThreadList({
 							type="button"
 							variant="ghost"
 							onClick={() => void onSelect(thread.thread_id)}
-							disabled={openingThreadId !== null}
+							disabled={disabled || openingThreadId !== null}
 							aria-current={active ? "true" : undefined}
 							aria-busy={opening || undefined}
 							className={`relative h-auto min-h-11 w-full flex-col items-stretch gap-0 whitespace-normal rounded-none border-b border-nova-border px-4 py-3 text-left focus-visible:z-10 focus-visible:ring-inset ${

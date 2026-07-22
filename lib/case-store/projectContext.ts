@@ -36,7 +36,7 @@
 import { getCaseStoreDatabase } from "./postgres/connection";
 import { PostgresCaseStore } from "./postgres/store";
 import { HeuristicCaseGenerator } from "./sample/heuristic";
-import type { CaseStore, SchemaCaseStore } from "./store";
+import type { CaseStore, TransactionalSchemaCaseStore } from "./store";
 
 /**
  * Construct a tenant-bound `CaseStore` scoped to `projectId`, stamping
@@ -65,7 +65,7 @@ export async function withProjectContext(
  * case type, so they need neither. The narrow return type prevents a
  * schema-only caller from reaching a tenant-bound read/write.
  */
-export async function withSchemaContext(): Promise<SchemaCaseStore> {
+export async function withSchemaContext(): Promise<TransactionalSchemaCaseStore> {
 	const db = await getCaseStoreDatabase();
 	return new PostgresCaseStore({
 		projectId: null,

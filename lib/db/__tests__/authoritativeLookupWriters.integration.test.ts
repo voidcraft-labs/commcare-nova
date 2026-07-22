@@ -312,6 +312,7 @@ describe("guarded and synthetic writers", () => {
 
 		await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT_A,
 			batchId: crypto.randomUUID(),
 			mutations: [{ kind: "setAppName", name: "Guarded" }],
 			actorUserId: ACTOR,
@@ -359,6 +360,7 @@ describe("guarded and synthetic writers", () => {
 		const appId = await createEmptyApp();
 		await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT_A,
 			batchId: crypto.randomUUID(),
 			mutations: [{ kind: "setAppName", name: "Advanced" }],
 			actorUserId: ACTOR,
@@ -492,6 +494,7 @@ describe("lookup introduction versus resource deletion", () => {
 
 		await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT_A,
 			batchId: crypto.randomUUID(),
 			mutations: [{ kind: "setAppName", name: "References table" }],
 			actorUserId: ACTOR,
@@ -511,6 +514,7 @@ describe("lookup introduction versus resource deletion", () => {
 		setExtractionPair(targets, EMPTY_LOOKUP_REFERENCE_TARGETS);
 		await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT_A,
 			batchId: crypto.randomUUID(),
 			mutations: [{ kind: "setAppName", name: "Reference removed" }],
 			actorUserId: ACTOR,
@@ -558,6 +562,7 @@ describe("lookup introduction versus resource deletion", () => {
 			const blockerPid = await backendPid(blocker);
 			const writer = commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT_A,
 				batchId: crypto.randomUUID(),
 				mutations: [{ kind: "setAppName", name: "Admitted writer" }],
 				actorUserId: ACTOR,
@@ -678,6 +683,7 @@ describe("lookup introduction versus resource deletion", () => {
 			setExtractionPair(EMPTY_LOOKUP_REFERENCE_TARGETS, tableTargets(table.id));
 			const writer = commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT_A,
 				batchId: crypto.randomUUID(),
 				mutations: [{ kind: "setAppName", name: "Must not land" }],
 				actorUserId: ACTOR,
@@ -738,6 +744,7 @@ describe("lookup introduction versus resource deletion", () => {
 			setExtractionPair(EMPTY_LOOKUP_REFERENCE_TARGETS, tableTargets(tableId));
 			const error = await commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT_A,
 				batchId: crypto.randomUUID(),
 				mutations: [{ kind: "setAppName", name: "Unavailable" }],
 				actorUserId: ACTOR,

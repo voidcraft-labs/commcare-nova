@@ -232,4 +232,17 @@ describe("purgeAssetStorage", () => {
 			"projects/project-1/asset-1.pdf",
 		);
 	});
+
+	it("runs an authoritative row delete before GCS and stops when it lost the row", async () => {
+		const deleteRow = vi.fn(() => Promise.resolve(false));
+		expect(
+			await purgeAssetStorage(asset(), {
+				alsoDelete: ["x.extract"],
+				deleteRow,
+			}),
+		).toBe(false);
+		expect(deleteRow).toHaveBeenCalledOnce();
+		expect(deleteAssetRow).not.toHaveBeenCalled();
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
 });

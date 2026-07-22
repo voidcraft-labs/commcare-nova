@@ -10,9 +10,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
 import { createApp } from "@/lib/db/apps";
+import { CommitReauthError } from "@/lib/db/commitGuard";
 import { BLANK_APP_NAME, blankAppMutations } from "@/lib/doc/scaffolds";
 import { log } from "@/lib/logger";
 
@@ -35,19 +36,28 @@ export type CreateBlankAppResult =
  * Born `complete` with no run behind it, so nothing to charge, reserve or
  * finalize — the credit ledger only meters generation.
  */
-export async function createBlankApp(): Promise<CreateBlankAppResult> {
+export async function createBlankApp(
+	expectedProjectId: string,
+): Promise<CreateBlankAppResult> {
 	try {
 		const session = await getSession();
 		if (!session) {
 			return { success: false, error: "Authentication required." };
 		}
+		if (
+			typeof expectedProjectId !== "string" ||
+			!expectedProjectId.trim() ||
+			expectedProjectId.length > 255
+		) {
+			return { success: false, error: "Reload the page and try again." };
+		}
 
-		/* `resolveActiveProjectId` only proves the caller can VIEW the active
-		 * Project — a viewer must not create apps in it. Same gate, same
-		 * ordering as the chat route's app-minting path. */
-		const projectId = await resolveActiveProjectId(session);
+		/* The page captured this Project when it rendered `/build/new`. A different
+		 * tab may have switched the session's active Project since then, so creation
+		 * authorizes and writes the captured id directly instead of re-resolving a
+		 * mutable cookie. */
 		try {
-			await resolveProjectAccess(session.user.id, projectId, "edit");
+			await resolveProjectAccess(session.user.id, expectedProjectId, "edit");
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return {
@@ -58,16 +68,27 @@ export async function createBlankApp(): Promise<CreateBlankAppResult> {
 			throw err;
 		}
 
-		const appId = await createApp(
-			session.user.id,
-			projectId,
-			crypto.randomUUID(),
-			{
-				appName: BLANK_APP_NAME,
-				status: "complete",
-				seedMutations: blankAppMutations,
-			},
-		);
+		let appId: string;
+		try {
+			appId = await createApp(
+				session.user.id,
+				expectedProjectId,
+				crypto.randomUUID(),
+				{
+					appName: BLANK_APP_NAME,
+					status: "complete",
+					seedMutations: blankAppMutations,
+				},
+			);
+		} catch (err) {
+			if (err instanceof CommitReauthError) {
+				return {
+					success: false,
+					error: "You don't have permission to create apps in this Project.",
+				};
+			}
+			throw err;
+		}
 
 		revalidatePath("/");
 		return { success: true, appId };

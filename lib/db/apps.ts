@@ -21,10 +21,17 @@
  */
 
 import Fuse from "fuse.js";
-import type { Selectable, Transaction } from "kysely";
+import type {
+	Kysely,
+	RawBuilder,
+	Selectable,
+	Transaction,
+	UpdateResult,
+} from "kysely";
 import type { ErrorType } from "@/lib/agent";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import { log } from "@/lib/logger";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import {
@@ -64,6 +71,7 @@ import {
 	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../domain/mediaRefs";
+import type { AssetId } from "../domain/multimedia";
 import {
 	assembleBlueprint,
 	decomposeBlueprint,
@@ -75,10 +83,11 @@ import {
 	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 	CommitReauthError,
-	reauthorizeActorForCommit,
+	RunHolderLostError,
 } from "./commitGuard";
 import {
 	debitAndBookReservation,
@@ -109,10 +118,39 @@ import {
 	withAppTx,
 } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
-import { editLeaseDeadlineMs, runLeaseState } from "./runLiveness";
+import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
+import {
+	type ExactRunHolderIdentity,
+	exactRunHolderMatches,
+	expectedPausedRunResumePredicate,
+	expectedReapedBuildCompletionPredicate,
+	expectedRunHolderPredicate,
+	noRunHolderPredicate,
+	type RunHolderWriteOutcome,
+	toExactRunHolderIdentity,
+	updatedExactlyOne,
+} from "./runHolderWrites";
+import {
+	editLeaseDeadlineMs,
+	type RunHolderIdentity,
+	runLeaseState,
+} from "./runLiveness";
+import { declareRuntimeReader } from "./runtimeReaderVersion";
 import type { AcceptedMutationDoc, AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
+
+/**
+ * Exact holder authority carried only by a chat Solutions Architect run.
+ *
+ * `runId` on a committed batch is attribution: MCP also stamps one, but an MCP
+ * call does not own the app's chat build/edit lease. This separate capability
+ * is what authorizes a chat run to keep mutating after its claim. The literal
+ * source tag prevents a plain attribution object from being passed by accident.
+ */
+export interface ChatRunHolderCapability extends ExactRunHolderIdentity {
+	readonly source: "chat";
+}
 
 /** Subset of AppDoc fields returned by list queries (no blueprint assembly). */
 export interface AppSummary {
@@ -238,6 +276,7 @@ function rowToAppDoc(row: AppRow, entities: EntityRow[]): AppDoc {
 		deleted_at: row.deleted_at?.toISOString() ?? null,
 		recoverable_until: row.recoverable_until?.toISOString() ?? null,
 		run_id: row.run_id,
+		run_holder_nonce: row.run_holder_nonce,
 		...(rowReservation(row) && { reservation: rowReservation(row) }),
 		...(rowRunLock(row) && { run_lock: rowRunLock(row) }),
 		created_at: row.created_at,
@@ -363,6 +402,148 @@ async function assertProjectCapabilityInTransaction(
 	}
 }
 
+/**
+ * Authorize an actor against the Project carried by the freshly locked app
+ * row. Legacy rows without a Project retain their owner-only recovery path;
+ * normal Project apps join the shared membership gate and lock the actor's
+ * exact membership row before the caller makes any write-side decision.
+ */
+async function assertAppCapabilityInTransaction(
+	tx: Transaction<AppDatabase>,
+	app: Pick<Selectable<AppsTable>, "owner" | "project_id">,
+	actorUserId: string,
+	capability: AppCapability,
+	message: string,
+): Promise<void> {
+	if (app.project_id === null) {
+		if (app.owner !== actorUserId) throw new CommitReauthError(message);
+		return;
+	}
+	await assertProjectCapabilityInTransaction(
+		tx,
+		actorUserId,
+		app.project_id,
+		capability,
+		message,
+	);
+}
+
+/** Reject a writer whose admitted Project snapshot no longer matches the app. */
+function assertExpectedAppProject(
+	app: Pick<Selectable<AppsTable>, "project_id">,
+	expectedProjectId: string | null,
+): void {
+	if (app.project_id !== expectedProjectId) {
+		throw new AppProjectChangedError();
+	}
+}
+
+/** Result of one app-locked, authoritatively admitted external side effect. */
+export interface AuthorizedAppSideEffectResult<T> {
+	readonly projectId: string | null;
+	readonly value: T;
+}
+
+/**
+ * Hold the app row, fresh edit authorization, and any exact chat-holder
+ * capability while `effect` applies case schema/data Phase A on the SAME
+ * transaction and connection. This avoids the small-pool deadlock created by
+ * nesting a second transaction behind locks held by the first. The transaction
+ * runs exactly once because the caller's Phase A plan is not replay-safe;
+ * callers compensate any already-committed result if a later phase fails.
+ *
+ * This is intentionally narrower than a general transaction escape hatch. It
+ * exists for the migration-bearing blueprint saga, whose case-schema Phase A
+ * commits before the blueprint and must not run after a membership removal or
+ * Project move. Normal app transactions stay on retrying {@link withAppTx}.
+ */
+export async function withAuthorizedAppEditSideEffect<T>(
+	appId: string,
+	actorUserId: string,
+	expectedProjectId: string | null,
+	chatRunHolder: ChatRunHolderCapability | undefined,
+	effect: (
+		tx: Transaction<CaseDatabase>,
+		scope: { readonly projectId: string | null },
+	) => Promise<T>,
+): Promise<AuthorizedAppSideEffectResult<T>> {
+	// App state and case data deliberately share one physical Postgres database
+	// and pool. Kysely keeps their table maps separate at the package boundary,
+	// so join the generic types at this one explicit cross-store transaction
+	// seam without changing the runtime handle or checking out another client.
+	const db = (await getAppDb()) as unknown as Kysely<
+		AppDatabase & CaseDatabase
+	>;
+	return await db.transaction().execute(async (fullTx) => {
+		const tx = fullTx.$pickTables<keyof AppDatabase>();
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new CommitReauthError("App not found.");
+		}
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
+		const lease = runLeaseState(leaseView(fresh));
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		if (
+			chatRunHolder !== undefined &&
+			!exactRunHolderMatches(lease.holderIdentity, chatRunHolder, enforceNonce)
+		) {
+			throw new RunHolderLostError(lease.present ? "superseded" : "released");
+		}
+		const scope = { projectId: fresh.project_id } as const;
+		const caseTx = fullTx.$pickTables<keyof CaseDatabase>();
+		return { ...scope, value: await effect(caseTx, scope) };
+	});
+}
+
+/**
+ * Delete one media metadata row for a live chat run under the same app-row,
+ * authorization, Project, and holder fence used by blueprint side effects.
+ * The reference scan remains an optimistic preflight (S02c3 owns its complete
+ * attach/delete race protocol); this boundary guarantees only that an SA
+ * process which lost its run cannot perform the irreversible row delete.
+ * Object-store cleanup happens after this transaction commits.
+ */
+export async function deleteMediaAssetForChatRun(args: {
+	appId: string;
+	assetId: AssetId;
+	actorUserId: string;
+	expectedProjectId: string;
+	holder: ChatRunHolderCapability;
+}): Promise<boolean> {
+	return await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, args.appId);
+		if (!fresh) throw new CommitReauthError("App not found.");
+		assertExpectedAppProject(fresh, args.expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			args.actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		const lease = runLeaseState(leaseView(fresh));
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, args.holder, enforceNonce)
+		) {
+			throw new RunHolderLostError(lease.present ? "superseded" : "released");
+		}
+		const result = await tx
+			.deleteFrom("media_assets")
+			.where("id", "=", args.assetId)
+			.where("project_id", "=", args.expectedProjectId)
+			.executeTakeFirst();
+		return result.numDeletedRows === BigInt(1);
+	});
+}
+
 /** Map a replay-unsafe payload to the commit rejection shape wire callers know. */
 function assertDeterministicPersistedMutations(
 	mutations: readonly Mutation[],
@@ -406,7 +587,9 @@ export async function hasActiveGeneration(
 		actorUserId,
 		excludeAppId,
 	);
-	for (const appId of reapable) void reapStaleGenerating(appId);
+	for (const target of reapable) {
+		void reapStaleGenerating(target.appId, target.identity);
+	}
 	return live;
 }
 
@@ -416,7 +599,10 @@ async function scanActiveGeneration(
 	db: Pick<Transaction<AppDatabase>, "selectFrom">,
 	actorUserId: string,
 	excludeAppId?: string,
-): Promise<{ live: boolean; reapable: string[] }> {
+): Promise<{
+	live: boolean;
+	reapable: Array<{ appId: string; identity: ExactRunHolderIdentity }>;
+}> {
 	let query = db
 		.selectFrom("apps")
 		.select(["id", ...LEASE_COLUMNS])
@@ -437,7 +623,8 @@ async function scanActiveGeneration(
 	}
 	const rows = await query.execute();
 	const now = Date.now();
-	const reapable: string[] = [];
+	const reapable: Array<{ appId: string; identity: ExactRunHolderIdentity }> =
+		[];
 	let live = false;
 	for (const row of rows) {
 		/* A co-member's run on THIS user's owned app is the co-member's
@@ -447,7 +634,10 @@ async function scanActiveGeneration(
 		if (runActor !== undefined && runActor !== actorUserId) continue;
 		const lease = runLeaseState(leaseView(row as AppRow), now);
 		if (lease.live) live = true;
-		else if (lease.reapableStaleBuild) reapable.push(row.id);
+		else if (lease.reapableStaleBuild) {
+			const identity = toExactRunHolderIdentity(lease.holderIdentity);
+			if (identity !== null) reapable.push({ appId: row.id, identity });
+		}
 	}
 	return { live, reapable };
 }
@@ -481,6 +671,9 @@ export interface CreateAppOptions {
 	 * app has failed at nothing and soft-delete is out-of-band.
 	 */
 	status?: "generating" | "complete";
+	/** Internal chat lifecycle generation. The chat route mints this server-side
+	 * before creating a build; non-chat complete app creation leaves it null. */
+	runHolderNonce?: string;
 	/**
 	 * The contents the app is BORN with — a template expressed as a mutation
 	 * batch against the empty doc. The callback and reducer each run exactly once
@@ -503,6 +696,10 @@ export async function createApp(
 	opts?: CreateAppOptions,
 ): Promise<string> {
 	const appId = crypto.randomUUID();
+	const runHolderNonce =
+		(opts?.status ?? "generating") === "generating"
+			? (opts?.runHolderNonce ?? crypto.randomUUID())
+			: null;
 	const emptyDoc: BlueprintDoc = {
 		appId,
 		appName: opts?.appName ?? "",
@@ -527,6 +724,9 @@ export async function createApp(
 	const denorm = denormalize(persistable);
 	await withAppTx(async (tx) => {
 		await declareLookupReferenceWriter(tx);
+		if ((opts?.status ?? "generating") === "generating") {
+			await declareRuntimeReader(tx);
+		}
 		await assertProjectCapabilityInTransaction(
 			tx,
 			owner,
@@ -548,6 +748,7 @@ export async function createApp(
 				deleted_at: null,
 				recoverable_until: null,
 				run_id: runId,
+				run_holder_nonce: runHolderNonce,
 			})
 			.execute();
 		const lookupContext = await lookupContextForAuthoritativeWrite(
@@ -628,12 +829,21 @@ async function writeCommittedBatch(
 		mutations: Mutation[];
 		actorUserId: string;
 		kind: AcceptedMutationDoc["kind"];
+		/** Exact chat holder authority. The conditional app-row write is the final
+		 * SQL compare-and-set after every entity/reference preparation step. */
+		expectedHolder?: ExactRunHolderIdentity;
+		enforceHolderNonce?: boolean;
 		extraAppFields?: Partial<{
 			project_id: string;
 			lock_expire_at: Date;
 		}>;
 	},
 ): Promise<void> {
+	/* Every current-revision app write that can touch a present holder declares
+	 * v1, including same-generation commits. An absent GUC is the deployed v0
+	 * signal; the database trigger must never infer "current" from an unchanged
+	 * identity. Keep the declaration ahead of every mutation-batch DML. */
+	await declareRuntimeReader(tx);
 	const { upserts, deletedUuids } = diffBlueprints(
 		args.prevDoc,
 		args.committedDoc,
@@ -668,7 +878,7 @@ async function writeCommittedBatch(
 			)
 			.execute();
 	}
-	await tx
+	let appUpdate = tx
 		.updateTable("apps")
 		.set({
 			...denormalize(args.committedDoc),
@@ -677,8 +887,24 @@ async function writeCommittedBatch(
 			...(args.runId !== undefined && { run_id: args.runId }),
 			...args.extraAppFields,
 		})
-		.where("id", "=", args.appId)
-		.execute();
+		.where("id", "=", args.appId);
+	if (args.expectedHolder !== undefined) {
+		appUpdate = appUpdate.where(
+			expectedRunHolderPredicate(
+				args.expectedHolder,
+				args.enforceHolderNonce ?? false,
+			),
+		);
+	}
+	const appUpdateResult = await appUpdate.executeTakeFirst();
+	if (!updatedExactlyOne(appUpdateResult)) {
+		if (args.expectedHolder !== undefined) {
+			throw new RunHolderLostError("superseded");
+		}
+		throw new Error(
+			`[writeCommittedBatch] app row missing for appId=${args.appId}`,
+		);
+	}
 	await tx
 		.insertInto("accepted_mutations")
 		.values({
@@ -701,6 +927,11 @@ export interface CommitGuardedBatchArgs {
 	readonly batchId: string;
 	/** The SA run that produced the batch (chat/mcp); absent for an autosave. */
 	readonly runId?: string;
+	/**
+	 * Exact chat lease authority, distinct from the attribution `runId` above.
+	 * GenerationContext supplies it; MCP deliberately never does.
+	 */
+	readonly chatRunHolder?: ChatRunHolderCapability;
 	readonly mutations: Mutation[];
 	/** The acting user — reauth + attribution key, never the tenant. */
 	readonly actorUserId: string;
@@ -710,23 +941,23 @@ export interface CommitGuardedBatchArgs {
 	 * The rename pairs the caller's Phase-1 case-store migration covered
 	 * (the cross-store saga passes this, possibly EMPTY). When present,
 	 * the commit re-proves renames against the FRESH doc pair inside the
-	 * transaction (`provenRenamePairs`) and REJECTS if the re-apply
-	 * would rename a pair not in this list — the batch was prepared
-	 * against a prior that trailed a concurrent commit, and letting it
-	 * land would strand row values with the rename evidence expired
-	 * (both sides of every later diff would already hold the new name).
+	 * transaction (`provenRenamePairs`) and requires the two pair sets to
+	 * match exactly. Either direction of mismatch means Phase A migrated a
+	 * different property population from the one this fresh commit would
+	 * rename. In particular, an expected pair can disappear when a peer added
+	 * another unchanged writer that keeps the old property alive; accepting
+	 * that shape would move the keeper's saved values to the new property.
 	 * Absent (direct chat fast-path / cross-Project-move callers, whose
 	 * batches carry no rename kinds): no check.
 	 */
 	readonly renameExpectations?: readonly RenameExpectation[];
 	/**
-	 * A `{ projectId }` the caller ALREADY resolved and reauthed the actor's
-	 * role against moments ago (the migration-bearing `applyBlueprintChange`
-	 * path, which reauths before its Phase-1 DDL). When present, the
-	 * pre-transaction reauth here is skipped; the IN-transaction checks remain
-	 * the authoritative gate either way.
+	 * Project captured with the caller's admitted blueprint/scope snapshot. A
+	 * move before this commit rejects so stale work reloads instead of silently
+	 * crossing tenant scope. This is only a scope expectation: fresh
+	 * authorization below always runs transactionally.
 	 */
-	readonly preauthorized?: { readonly projectId: string | null };
+	readonly expectedProjectId: string | null;
 }
 
 /** Outcome of {@link commitGuardedBatch}. */
@@ -752,7 +983,9 @@ function isUniqueViolation(err: unknown): boolean {
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
  * committed doc, writing nothing; lock + reauthorize the actor's exact Project
  * membership against the fresh row (owner fallback for a null Project; a
- * concurrent MOVE rejects retryably);
+ * concurrent MOVE rejects retryably); when chat supplied holder authority,
+ * compare its exact mode/run identity before evaluation and again on the final
+ * app-row SQL update (MCP's attribution-only run id supplies no authority);
  * re-check media expectations against rows read `FOR SHARE` (a racing delete
  * blocks behind this commit); assemble + hydrate the fresh doc; reject a
  * batch targeting a concurrently-removed entity or one the re-run verdict
@@ -768,15 +1001,16 @@ export async function commitGuardedBatch(
 ): Promise<CommitGuardedBatchResult> {
 	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
 	const mediaExpectations = args.mediaExpectations;
-
-	// Pre-transaction reauth for the common (non-null project) case — out of
-	// the lock. A null `project_id` defers to the in-transaction owner check.
-	let projectId: string | null;
-	if (args.preauthorized !== undefined) {
-		projectId = args.preauthorized.projectId;
-	} else {
-		projectId = await loadAppProjectId(appId);
-		await reauthorizeActorForCommit(projectId, actorUserId);
+	if (
+		(kind === "chat" &&
+			(args.chatRunHolder?.source !== "chat" ||
+				runId === undefined ||
+				runId !== args.chatRunHolder?.runId)) ||
+		(kind !== "chat" && args.chatRunHolder !== undefined)
+	) {
+		throw new Error(
+			"[commitGuardedBatch] chat writes require matching chat holder authority; non-chat writes cannot supply it",
+		);
 	}
 
 	type InternalResult = CommitGuardedBatchResult & {
@@ -800,14 +1034,10 @@ export async function commitGuardedBatch(
 				.where("app_id", "=", appId)
 				.where("batch_id", "=", batchId)
 				.executeTakeFirst();
-			// The outside role read is only an early rejection optimization. The app
-			// row and the actor's exact membership row now join this transaction's
-			// lock set before either a real commit OR an idempotent return.
-			if (fresh.project_id !== projectId) {
-				throw new BlueprintCommitRejectedError(
-					"This app moved to a different Project while you were editing. Reload to get the latest state.",
-				);
-			}
+			// A migration-bearing saga held this Project while its separately
+			// committed schema Phase A ran. If the app moved after that lock released,
+			// reject so the saga compensates instead of committing mismatched work.
+			assertExpectedAppProject(fresh, args.expectedProjectId);
 			if (fresh.project_id === null) {
 				if (fresh.owner !== actorUserId) {
 					throw new CommitReauthError(
@@ -822,6 +1052,18 @@ export async function commitGuardedBatch(
 					"edit",
 					"You no longer have edit access to this app's Project.",
 				);
+			}
+			const lease = runLeaseState(leaseView(fresh));
+			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+			if (
+				args.chatRunHolder !== undefined &&
+				!exactRunHolderMatches(
+					lease.holderIdentity,
+					args.chatRunHolder,
+					enforceNonce,
+				)
+			) {
+				throw new RunHolderLostError(lease.present ? "superseded" : "released");
 			}
 			const entities = await loadEntities(tx, appId);
 			const freshPersistable = assembleBlueprint(
@@ -903,19 +1145,24 @@ export async function commitGuardedBatch(
 				);
 			}
 			// Rename-expectation gate — re-prove renames against the FRESH
-			// pair. A fresh-proven pair the caller's Phase-1 migration did
-			// not cover means the batch renames something other than what
-			// was migrated (its prior trailed a concurrent commit);
-			// committing it would strand row values permanently, because
-			// after this commit both sides of every future diff hold the
-			// new name and no sync can ever prove the migration again. The
-			// reverse asymmetry is fine: an expected pair the fresh diff
-			// does NOT prove means a peer already committed the same
-			// rename (the forward migration no-oped) — nothing to reject.
+			// pair and require exact set equality with what Phase A migrated.
+			// A fresh-only pair would strand values after commit. An
+			// expected-only pair is unsafe too: it can mean a peer added an
+			// unchanged writer that now KEEPS the old property, in which case
+			// stale Phase A moved that keeper's values even though the fresh
+			// mutation is no longer a property rename. Conservatively reject
+			// even the harmless peer-already-renamed case; compensation is
+			// idempotent, while guessing wrong here relocates saved case data.
 			if (args.renameExpectations !== undefined) {
 				const proven = provenRenamePairs(freshDoc, verdict.nextDoc);
+				const freshExpectations: RenameExpectation[] = [];
 				for (const [renamedType, pairs] of proven) {
 					for (const pair of pairs) {
+						freshExpectations.push({
+							caseType: renamedType,
+							from: pair.from,
+							to: pair.to,
+						});
 						const covered = args.renameExpectations.some(
 							(expectation) =>
 								expectation.caseType === renamedType &&
@@ -929,6 +1176,19 @@ export async function commitGuardedBatch(
 						}
 					}
 				}
+				for (const expectation of args.renameExpectations) {
+					const stillProven = freshExpectations.some(
+						(freshExpectation) =>
+							freshExpectation.caseType === expectation.caseType &&
+							freshExpectation.from === expectation.from &&
+							freshExpectation.to === expectation.to,
+					);
+					if (!stillProven) {
+						throw new BlueprintCommitRejectedError(
+							`Saved case data was prepared for a rename of "${expectation.from}" to "${expectation.to}" on "${expectation.caseType}", but the current app no longer proves that exact rename. Reload to get the latest state, then redo the rename.`,
+						);
+					}
+				}
 			}
 			const seq = Number(fresh.mutation_seq) + 1;
 			const persistable = toPersistableDoc(verdict.nextDoc);
@@ -936,11 +1196,16 @@ export async function commitGuardedBatch(
 			 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
 			 * the edit lock (through the one liveness reader). */
 			const commitLease =
-				runId !== undefined ? runLeaseState(leaseView(fresh)) : undefined;
+				args.chatRunHolder !== undefined
+					? runLeaseState(leaseView(fresh))
+					: undefined;
 			const ownsEditLock =
-				runId !== undefined &&
-				commitLease?.mode === "edit" &&
-				commitLease?.mine(runId);
+				args.chatRunHolder?.mode === "edit" &&
+				exactRunHolderMatches(
+					commitLease?.holderIdentity ?? null,
+					args.chatRunHolder,
+					enforceNonce,
+				);
 			await replaceLookupReferenceEdges(tx, {
 				appId,
 				projectId: fresh.project_id,
@@ -956,6 +1221,10 @@ export async function commitGuardedBatch(
 				mutations,
 				actorUserId,
 				kind,
+				...(args.chatRunHolder !== undefined && {
+					expectedHolder: args.chatRunHolder,
+					enforceHolderNonce: enforceNonce,
+				}),
 				...(ownsEditLock && {
 					extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
 				}),
@@ -1241,9 +1510,9 @@ export async function commitAppProjectMove(
 					"This app changed Projects while the move was being prepared. Reload and try again.",
 				);
 			}
-			// S02b deliberately locks only the actor's existing membership tuples.
-			// The sorted order avoids opposite-direction lock inversion; S02c adds
-			// the membership advisory gate and owner-retention/absence protocol.
+			// The shared advisory gate now serializes existing and missing membership
+			// rows. The sorted order avoids opposite-direction tuple-lock inversion;
+			// S02c3 adds the full source-owner retention protocol.
 			for (const projectId of [
 				...new Set([args.expectedFromProjectId, args.toProjectId]),
 			].sort()) {
@@ -1368,6 +1637,7 @@ export class RunConflictError extends Error {
 	constructor(
 		readonly reapableStaleBuild = false,
 		readonly reapableStrandedEdit = false,
+		readonly reapableIdentity: ExactRunHolderIdentity | null = null,
 	) {
 		super(
 			"Another request is already running on this app — only one run can work on an app at a time.",
@@ -1394,6 +1664,7 @@ export class GenerationInProgressError extends Error {
 export interface ClaimedRun {
 	mode: "build" | "edit";
 	reservation: Reservation;
+	holderNonce: string;
 }
 
 /**
@@ -1416,8 +1687,9 @@ export interface ClaimedRun {
  *  3. Refund any leftover UNSETTLED marker (a superseded run's stranded
  *     hold), check affordability against the literal balance, debit, and
  *     book the fresh marker — `debitAndBookReservation`.
- *  4. The claim writes: build → `status: generating` + fresh `updated_at`,
- *     clear `error_type`/`awaiting_input`/any stale lock; edit → fresh
+ *  4. The claim writes: build → `status: generating` + root `run_id = runId`
+ *     + fresh `updated_at`, clear `error_type`/`awaiting_input`/any stale lock;
+ *     edit → fresh
  *     `run_lock` lease + normalize `status → complete`.
  *
  * Because claim and reserve commit together, a claimed app ALWAYS carries the
@@ -1435,10 +1707,15 @@ export async function claimAndReserveRun(
 	runId: string,
 	actorUserId: string,
 	cost: number,
+	expectedProjectId: string | null,
+	holderNonce: string = crypto.randomUUID(),
 ): Promise<ClaimedRun> {
 	const period = getCurrentPeriod();
 	try {
-		const reapable: string[] = [];
+		const reapable: Array<{
+			appId: string;
+			identity: ExactRunHolderIdentity;
+		}> = [];
 		const claimed = await withAppTx(async (tx) => {
 			/* The body re-runs from scratch on a deadlock/serialization retry —
 			 * reset the collector so a retried scan doesn't double-book reaps. */
@@ -1449,6 +1726,19 @@ export async function claimAndReserveRun(
 					`[claimAndReserveRun] app row missing for appId=${appId}`,
 				);
 			}
+			assertExpectedAppProject(fresh, expectedProjectId);
+			await assertAppCapabilityInTransaction(
+				tx,
+				fresh,
+				actorUserId,
+				"edit",
+				"You no longer have edit access to this app's Project.",
+			);
+			/* Fixed rollout lock order: app row -> compatibility row -> credit
+			 * rows. The subsequent holder-stamp trigger also reads compatibility;
+			 * taking SHARE now prevents a queued cutover writer from inverting that
+			 * order against a terminal/refund transaction. */
+			await readRunHolderNonceEnforcementForShare(tx);
 			const lease = runLeaseState(leaseView(fresh));
 			/* Busy — with one carve-out: the claimant's OWN paused run does not
 			 * block. A paused run is process-less and its ask card may be gone
@@ -1463,6 +1753,7 @@ export async function claimAndReserveRun(
 				throw new RunConflictError(
 					lease.reapableStaleBuild,
 					lease.reapableStrandedEdit,
+					toExactRunHolderIdentity(lease.holderIdentity),
 				);
 			}
 			if (mode === "build") {
@@ -1470,11 +1761,13 @@ export async function claimAndReserveRun(
 				reapable.push(...scan.reapable);
 				if (scan.live) throw new GenerationInProgressError();
 			}
+			await declareRuntimeReader(tx);
 			await debitAndBookReservation(tx, {
 				appId,
 				userId: actorUserId,
 				cost,
 				runId,
+				holderNonce,
 				period,
 				priorMarker: rowReservation(fresh),
 				owner: fresh.owner,
@@ -1507,6 +1800,10 @@ export async function claimAndReserveRun(
 						status: "generating",
 						error_type: null,
 						awaiting_input: false,
+						/* Durable latest-build claim identity. Even if this run never
+						 * commits a mutation and is later reaped, an older zombie cannot
+						 * satisfy the false-reap self-heal's root `run_id` check. */
+						run_id: runId,
 						updated_at: new Date(),
 						lock_run_id: null,
 						lock_actor_user_id: null,
@@ -1515,9 +1812,11 @@ export async function claimAndReserveRun(
 					.where("id", "=", appId)
 					.execute();
 			}
-			return { mode, reservation: { period, reserved: cost } };
+			return { mode, reservation: { period, reserved: cost }, holderNonce };
 		});
-		for (const id of reapable) void reapStaleGenerating(id);
+		for (const target of reapable) {
+			void reapStaleGenerating(target.appId, target.identity);
+		}
 		return claimed;
 	} catch (err) {
 		/* A conflict with a REAPABLE holder — an abandoned run whose lease
@@ -1525,8 +1824,13 @@ export async function claimAndReserveRun(
 		 * the next poll deterministically finds the freed app); each reaper
 		 * re-validates its staleness in-txn and swallows its own faults. */
 		if (err instanceof RunConflictError) {
-			if (err.reapableStaleBuild) await reapStaleGenerating(appId);
-			else if (err.reapableStrandedEdit) await reapStaleReservation(appId);
+			if (err.reapableIdentity !== null) {
+				if (err.reapableStaleBuild) {
+					await reapStaleGenerating(appId, err.reapableIdentity);
+				} else if (err.reapableStrandedEdit) {
+					await reapStaleReservation(appId, err.reapableIdentity);
+				}
+			}
 		}
 		throw err;
 	}
@@ -1543,9 +1847,14 @@ export async function reserveForNewBuild(
 	actorUserId: string,
 	cost: number,
 	runId: string,
+	expectedProjectId: string | null,
+	holderNonce: string,
 ): Promise<Reservation> {
 	const period = getCurrentPeriod();
-	const reapable: string[] = [];
+	const reapable: Array<{
+		appId: string;
+		identity: ExactRunHolderIdentity;
+	}> = [];
 	const reservation = await withAppTx(async (tx) => {
 		reapable.length = 0;
 		const fresh = await lockAppRow(tx, appId);
@@ -1554,21 +1863,49 @@ export async function reserveForNewBuild(
 				`[reserveForNewBuild] app row missing for appId=${appId}`,
 			);
 		}
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
+		const lease = runLeaseState(leaseView(fresh));
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		const expectedHolder = {
+			mode: "build",
+			runId,
+			nonce: holderNonce,
+		} as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
+		) {
+			throw new RunConflictError(
+				lease.reapableStaleBuild,
+				lease.reapableStrandedEdit,
+				toExactRunHolderIdentity(lease.holderIdentity),
+			);
+		}
 		const scan = await scanActiveGeneration(tx, actorUserId, appId);
 		reapable.push(...scan.reapable);
 		if (scan.live) throw new GenerationInProgressError();
+		await declareRuntimeReader(tx);
 		await debitAndBookReservation(tx, {
 			appId,
 			userId: actorUserId,
 			cost,
 			runId,
+			holderNonce,
 			period,
 			priorMarker: rowReservation(fresh),
 			owner: fresh.owner,
 		});
 		return { period, reserved: cost };
 	});
-	for (const id of reapable) void reapStaleGenerating(id);
+	for (const target of reapable) {
+		void reapStaleGenerating(target.appId, target.identity);
+	}
 	return reservation;
 }
 
@@ -1586,37 +1923,64 @@ export async function reserveForNewBuild(
  * run whose clock lapsed was refunded + flipped to `error`, then finished
  * cleanly) takes the SELF-HEAL branch — the reaper's signature (settled
  * marker, `runId` cleared) + `mode: "none"` + `status: "error"` +
- * `run_id === runId` (the last committed batch is THIS run's) flips the row
- * back to `complete` without touching the marker; the reaper's refund stands.
+ * `run_id === runId` (the latest build claim or committed batch is THIS run's)
+ * flips the row back to `complete` without touching the marker; the reaper's
+ * refund stands. A pre-settled stale marker retains `runId`, so it is not this
+ * signature and cannot enter the self-heal branch.
  */
 export async function completeAndSettleRun(
 	appId: string,
 	runId: string,
-): Promise<void> {
-	await withAppTx(async (tx) => {
+	holderNonce: string,
+): Promise<RunHolderWriteOutcome> {
+	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) return;
+		if (!fresh) return "released";
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		await declareRuntimeReader(tx);
 		const lease = runLeaseState(leaseView(fresh));
-		if (lease.mode !== "build" || !lease.terminalWriteOwned(runId)) {
+		const expectedHolder = {
+			mode: "build",
+			runId,
+			nonce: holderNonce,
+		} as const;
+		if (
+			!exactRunHolderMatches(
+				lease.holderIdentity,
+				expectedHolder,
+				enforceNonce,
+			) ||
+			!lease.terminalWriteOwned(runId)
+		) {
 			if (
 				fresh.status === "error" &&
 				lease.mode === "none" &&
 				lease.reaperResolved &&
-				fresh.run_id === runId
+				fresh.run_id === runId &&
+				(!enforceNonce || fresh.run_holder_nonce === holderNonce)
 			) {
-				await tx
+				const result = await tx
 					.updateTable("apps")
 					.set({ status: "complete", error_type: null })
 					.where("id", "=", appId)
-					.execute();
+					.where(
+						expectedReapedBuildCompletionPredicate(
+							expectedHolder,
+							enforceNonce,
+						),
+					)
+					.executeTakeFirst();
+				return updatedExactlyOne(result) ? "owned" : "released";
 			}
-			return;
+			return lease.present ? "superseded" : "released";
 		}
-		await tx
+		const result = await tx
 			.updateTable("apps")
 			.set({ status: "complete", error_type: null, res_settled: true })
 			.where("id", "=", appId)
-			.execute();
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.executeTakeFirst();
+		return updatedExactlyOne(result) ? "owned" : "superseded";
 	});
 }
 
@@ -1629,16 +1993,25 @@ export async function completeAndSettleRun(
 export async function refreshEditLease(
 	appId: string,
 	runId: string,
+	holderNonce: string,
 ): Promise<void> {
 	await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
-		if (!(lease.mode === "edit" && lease.mine(runId))) return;
+		const expectedHolder = { mode: "edit", runId, nonce: holderNonce } as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
+		) {
+			return;
+		}
+		await declareRuntimeReader(tx);
 		await tx
 			.updateTable("apps")
 			.set({ lock_expire_at: new Date(editLeaseDeadlineMs()) })
 			.where("id", "=", appId)
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
 			.execute();
 	});
 }
@@ -1654,16 +2027,29 @@ export async function refreshEditLease(
 export async function refreshBuildLiveness(
 	appId: string,
 	runId: string,
+	holderNonce: string,
 ): Promise<void> {
 	await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
-		if (!(lease.mode === "build" && lease.mine(runId))) return;
+		const expectedHolder = {
+			mode: "build",
+			runId,
+			nonce: holderNonce,
+		} as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
+		) {
+			return;
+		}
+		await declareRuntimeReader(tx);
 		await tx
 			.updateTable("apps")
 			.set({ updated_at: new Date() })
 			.where("id", "=", appId)
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
 			.execute();
 	});
 }
@@ -1672,13 +2058,40 @@ export async function refreshBuildLiveness(
  * Release an edit run's `run_lock` WITHOUT touching the reservation marker —
  * for terminal states that are NOT a clean kept-charge completion (a failed
  * edit whose marker the failure funnel already settled, the prelude-throw
- * net's release of a stranded lock). Fire-and-forget; a dropped clear
- * degrades to the lock expiring at `expireAt`.
+ * net's release of a stranded lock).
+ *
+ * The exact `runId` is re-checked through the one liveness reader while the app
+ * row is locked. A reaped run or a replacement holder therefore makes this a
+ * no-op instead of letting a stale prelude cleanup clear the new run's lock.
+ * Best-effort: a storage failure degrades to the lock expiring at `expireAt`.
  */
-export function clearRunLock(appId: string): Promise<void> {
-	return getAppDb()
-		.then((db) =>
-			db
+export async function clearRunLock(
+	appId: string,
+	runId: string,
+	holderNonce: string,
+): Promise<void> {
+	try {
+		await withAppTx(async (tx) => {
+			const fresh = await lockAppRow(tx, appId);
+			if (!fresh) return;
+			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+			const lease = runLeaseState(leaseView(fresh));
+			const expectedHolder = {
+				mode: "edit",
+				runId,
+				nonce: holderNonce,
+			} as const;
+			if (
+				!exactRunHolderMatches(
+					lease.holderIdentity,
+					expectedHolder,
+					enforceNonce,
+				)
+			) {
+				return;
+			}
+			await declareRuntimeReader(tx);
+			await tx
 				.updateTable("apps")
 				.set({
 					lock_run_id: null,
@@ -1686,14 +2099,12 @@ export function clearRunLock(appId: string): Promise<void> {
 					lock_expire_at: null,
 				})
 				.where("id", "=", appId)
-				.execute(),
-		)
-		.then(
-			() => {},
-			(err) => {
-				log.error("[clearRunLock] write failed", err, { appId });
-			},
-		);
+				.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+				.execute();
+		});
+	} catch (err) {
+		log.error("[clearRunLock] write failed", err, { appId, runId });
+	}
 }
 
 /**
@@ -1705,14 +2116,27 @@ export function clearRunLock(appId: string): Promise<void> {
 export async function clearRunLockAndSettle(
 	appId: string,
 	runId: string,
-): Promise<void> {
-	await withAppTx(async (tx) => {
+	holderNonce: string,
+): Promise<RunHolderWriteOutcome> {
+	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) return;
+		if (!fresh) return "released";
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
-		if (lease.mode !== "edit" || !lease.terminalWriteOwned(runId)) return;
+		const expectedHolder = { mode: "edit", runId, nonce: holderNonce } as const;
+		if (
+			!exactRunHolderMatches(
+				lease.holderIdentity,
+				expectedHolder,
+				enforceNonce,
+			) ||
+			!lease.terminalWriteOwned(runId)
+		) {
+			return lease.present ? "superseded" : "released";
+		}
+		await declareRuntimeReader(tx);
 		const reservation = rowReservation(fresh);
-		await tx
+		const result = await tx
 			.updateTable("apps")
 			.set({
 				lock_run_id: null,
@@ -1721,27 +2145,10 @@ export async function clearRunLockAndSettle(
 				...(reservation && !reservation.settled && { res_settled: true }),
 			})
 			.where("id", "=", appId)
-			.execute();
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.executeTakeFirst();
+		return updatedExactlyOne(result) ? "owned" : "superseded";
 	});
-}
-
-/**
- * Whether the app is STILL an EDIT run owned by `runId` — the guard the
- * route's prelude-throw net runs before releasing a stranded lock.
- */
-export async function editRunLockHeldBy(
-	appId: string,
-	runId: string,
-): Promise<boolean> {
-	const db = await getAppDb();
-	const row = await db
-		.selectFrom("apps")
-		.select(LEASE_COLUMNS)
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	if (!row) return false;
-	const lease = runLeaseState(leaseView(row as AppRow));
-	return lease.mode === "edit" && lease.mine(runId);
 }
 
 /**
@@ -1772,7 +2179,8 @@ export async function appHeldLive(appId: string): Promise<boolean> {
  * AND lease re-establishment in one transaction, uniform across both modes.
  * A paused run's lease lapses while the user answers (no heartbeat during a
  * pause), so it can be reaped and the freed app re-claimed; the resume must
- * still OWN the run (`ownedByResume`, keyed on the resume's own mode) and
+ * still OWN the PAUSED run as its original actor (`ownedByResume`, keyed on
+ * the resume's own mode) and
  * RENEW its horizon (edit → re-stamp the lease; build → re-arm `updated_at`)
  * + clear `awaiting_input` atomically. A lost resume touched nothing; the
  * return distinguishes WHY so the route's message can be true:
@@ -1780,89 +2188,302 @@ export async function appHeldLive(appId: string): Promise<boolean> {
  * reap simply freed it — on a personal Project the only lost shape).
  */
 export type ReacquireOutcome = "owned" | "superseded" | "released";
+export type ReacquireLeaseResult =
+	| { readonly outcome: "owned"; readonly holderNonce: string }
+	| {
+			readonly outcome: "superseded" | "released" | "refresh_required";
+	  };
 
 export async function reacquireLease(
 	appId: string,
 	runId: string,
+	presentedHolderNonce: string | null,
 	mode: "build" | "edit",
-): Promise<ReacquireOutcome> {
+	actorUserId: string,
+	expectedProjectId: string | null,
+): Promise<ReacquireLeaseResult> {
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) return "released";
+		if (!fresh) return { outcome: "released" };
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
-		if (!lease.ownedByResume(runId, mode)) {
-			return lease.present ? "superseded" : "released";
+		/* First prove the historical mode/run/actor pause identity. During the
+		 * compatibility window this is the authority contract, and a legacy
+		 * browser may omit the nonce entirely. Once enforcement is enabled, the
+		 * same proof distinguishes "refresh your old tab" from a genuinely
+		 * superseded/released run without weakening the exact nonce check below. */
+		if (!lease.ownedByResume(runId, mode, actorUserId, null, false)) {
+			return { outcome: lease.present ? "superseded" : "released" };
 		}
+		if (
+			enforceNonce &&
+			(presentedHolderNonce === null ||
+				!lease.ownedByResume(
+					runId,
+					mode,
+					actorUserId,
+					presentedHolderNonce,
+					true,
+				))
+		) {
+			return { outcome: "refresh_required" };
+		}
+		/* A v1 holder already has a server nonce; an old v0 holder is upgraded
+		 * in this same app-locked resume write. Never trust a client-supplied
+		 * value while compatibility mode ignores nonce authority. */
+		const effectiveHolderNonce = enforceNonce
+			? (presentedHolderNonce as string)
+			: (lease.holderIdentity?.nonce ?? crypto.randomUUID());
+		const expectedHolder = {
+			mode,
+			runId,
+			nonce: effectiveHolderNonce,
+		} as const;
+		await declareRuntimeReader(tx);
+		let result: UpdateResult;
 		if (mode === "edit") {
-			await tx
+			result = await tx
 				.updateTable("apps")
 				.set({
 					lock_expire_at: new Date(editLeaseDeadlineMs()),
 					awaiting_input: false,
+					run_holder_nonce: effectiveHolderNonce,
 				})
 				.where("id", "=", appId)
-				.execute();
+				.where(
+					expectedPausedRunResumePredicate(
+						expectedHolder,
+						actorUserId,
+						enforceNonce,
+					),
+				)
+				.executeTakeFirst();
 		} else {
-			await tx
+			result = await tx
 				.updateTable("apps")
-				.set({ updated_at: new Date(), awaiting_input: false })
+				.set({
+					updated_at: new Date(),
+					awaiting_input: false,
+					run_holder_nonce: effectiveHolderNonce,
+				})
 				.where("id", "=", appId)
-				.execute();
+				.where(
+					expectedPausedRunResumePredicate(
+						expectedHolder,
+						actorUserId,
+						enforceNonce,
+					),
+				)
+				.executeTakeFirst();
 		}
-		return "owned";
+		return updatedExactlyOne(result)
+			? { outcome: "owned", holderNonce: effectiveHolderNonce }
+			: { outcome: "superseded" };
 	});
 }
 
 /**
- * Mark an app as failed after an error during generation. Fire-and-forget —
- * a storage outage must never block the error response; the staleness reaper
+ * Mark a BUILD as failed only while `runId` still owns that exact holder.
+ * Ownership is re-checked under the app lock, including the just-created
+ * pre-reservation fallback; a reaped or replacement run makes this a no-op.
+ * Storage failure remains best-effort because the canonical stale-build reaper
  * is the backstop.
  */
-export function failApp(appId: string, errorType: ErrorType): Promise<void> {
-	return getAppDb()
-		.then((db) =>
-			db
+export async function failApp(
+	appId: string,
+	runId: string,
+	holderNonce: string,
+	errorType: ErrorType,
+): Promise<boolean> {
+	try {
+		return await withAppTx(async (tx) => {
+			const fresh = await lockAppRow(tx, appId);
+			if (!fresh) return false;
+			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+			const lease = runLeaseState(leaseView(fresh));
+			const expectedHolder = {
+				mode: "build",
+				runId,
+				nonce: holderNonce,
+			} as const;
+			if (
+				!exactRunHolderMatches(
+					lease.holderIdentity,
+					expectedHolder,
+					enforceNonce,
+				) ||
+				!lease.buildFailureWriteOwned(runId)
+			) {
+				return false;
+			}
+			await declareRuntimeReader(tx);
+			const result = await tx
 				.updateTable("apps")
 				.set({ status: "error", error_type: errorType })
 				.where("id", "=", appId)
-				.execute(),
-		)
-		.then(
-			() => {},
-			(err) => log.error("[failApp] write failed", err),
-		);
+				.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+				.executeTakeFirst();
+			return updatedExactlyOne(result);
+		});
+	} catch (err) {
+		log.error("[failApp] write failed", err, { appId, runId });
+		return false;
+	}
+}
+
+export type RecoverAppStatusOutcome =
+	| { readonly kind: "recovered" }
+	| { readonly kind: "already_complete" }
+	| { readonly kind: "not_found" }
+	| { readonly kind: "empty_blueprint" }
+	| {
+			readonly kind: "holder_token_required" | "holder_token_mismatch";
+			readonly holder: RunHolderIdentity;
+	  }
+	| { readonly kind: "holder_state_changed" };
+
+/**
+ * Operator-only status recovery with a locked exact-holder compare-and-set.
+ *
+ * A free app may be repaired without a holder token. A present holder may be
+ * touched only when the operator supplied its exact `(mode, runId, nonce)`
+ * capability;
+ * corrupt/null identities are therefore intentionally not recoverable here.
+ * The SQL predicate repeats that proof on the write itself, so a future
+ * refactor that weakens the locking pre-read still cannot release a successor.
+ * Edit recovery repairs status/error only and leaves the proven live lock and
+ * marker in place. Build recovery's status transition releases that exact
+ * build and settles its reservation as a kept charge, matching clean build
+ * completion rather than stranding an unsettled debit behind no holder.
+ */
+export async function recoverAppStatus(
+	appId: string,
+	expectedHolder: ExactRunHolderIdentity | null,
+): Promise<RecoverAppStatusOutcome> {
+	return await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) return { kind: "not_found" };
+		await readRunHolderNonceEnforcementForShare(tx);
+		const lease = runLeaseState(leaseView(fresh));
+		const recoveringBuildHolder = lease.holderIdentity?.mode === "build";
+		let holderPredicate: RawBuilder<boolean>;
+		if (lease.holderIdentity !== null) {
+			if (expectedHolder === null) {
+				return {
+					kind: "holder_token_required",
+					holder: lease.holderIdentity,
+				};
+			}
+			/* Operator recovery is deliberately stricter than rolling serving
+			 * compatibility: it is new manual code and requires the full concrete
+			 * triple even before the fleet-wide nonce cutover. A v0 holder cannot be
+			 * recovered safely because its generation is unknowable. */
+			if (
+				expectedHolder.nonce === null ||
+				!exactRunHolderMatches(lease.holderIdentity, expectedHolder, true)
+			) {
+				return {
+					kind: "holder_token_mismatch",
+					holder: lease.holderIdentity,
+				};
+			}
+			holderPredicate = expectedRunHolderPredicate(expectedHolder, true);
+		} else if (expectedHolder !== null) {
+			return { kind: "holder_state_changed" };
+		} else {
+			holderPredicate = noRunHolderPredicate();
+		}
+		if (fresh.module_count === 0) return { kind: "empty_blueprint" };
+		if (fresh.status === "complete" && !fresh.error_type) {
+			return { kind: "already_complete" };
+		}
+
+		await declareRuntimeReader(tx);
+		const result = await tx
+			.updateTable("apps")
+			.set({
+				status: "complete",
+				error_type: null,
+				updated_at: new Date(),
+				// A build holder owns the reservation outcome. Declaring that build
+				// usable must keep its charge just like completeAndSettleRun; leaving
+				// the marker unsettled would strand a debit behind an absent holder.
+				...(recoveringBuildHolder && { res_settled: true }),
+			})
+			.where("id", "=", appId)
+			.where(holderPredicate)
+			.executeTakeFirst();
+		return updatedExactlyOne(result)
+			? { kind: "recovered" }
+			: { kind: "holder_state_changed" };
+	});
 }
 
 /**
- * Set or clear a build's `awaiting_input` pause flag. Clearing ALSO re-arms
- * `updated_at` — the flag (not a fresh timestamp) is what spared the row from
- * staleness during the pause, so removing it must hand the resuming run a
- * fresh window; the SET path must NOT bump the clock. The route AWAITS the
- * pause SET (durably recorded before the response resolves); the resume CLEAR
- * is fire-and-forget.
+ * Set or clear a run's `awaiting_input` pause flag. The exact `runId` is
+ * re-checked through the one liveness reader while the app row is locked, so a
+ * stale drain cannot pause a replacement holder and a late clear cannot unpause
+ * it. Clearing ALSO re-arms `updated_at` — the flag (not a fresh timestamp) is
+ * what spared a paused BUILD from staleness, so removing it must hand the
+ * resuming build a fresh window; the SET path must NOT bump the clock. The
+ * route AWAITS the pause SET (durably recorded before the response resolves).
+ * Production resume clears through `reacquireLease`; the clear arm remains for
+ * exact-holder repair/tests. The outcome distinguishes a replacement holder
+ * (`"superseded"`) from a fully released/reaped run (`"released"`), and
+ * infrastructure errors throw so callers never mistake an unknown write for a
+ * durable pause. Project scope + fresh edit authorization are checked after the
+ * app lock, matching resume admission: even a no-mutation question turn cannot
+ * park a run after its actor loses access or its app moves Projects.
  */
-export function setAwaitingInput(
+export async function setAwaitingInput(
 	appId: string,
+	runId: string,
+	holderNonce: string,
+	mode: "build" | "edit",
 	awaiting: boolean,
-): Promise<void> {
-	return getAppDb()
-		.then((db) =>
-			db
-				.updateTable("apps")
-				.set(
-					awaiting
-						? { awaiting_input: true }
-						: { awaiting_input: false, updated_at: new Date() },
-				)
-				.where("id", "=", appId)
-				.execute(),
-		)
-		.then(
-			() => {},
-			(err) => {
-				log.error("[setAwaitingInput] write failed", err);
-			},
+	actorUserId: string,
+	expectedProjectId: string | null,
+): Promise<ReacquireOutcome> {
+	return await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) return "released";
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
 		);
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		const lease = runLeaseState(leaseView(fresh));
+		const expectedHolder = { mode, runId, nonce: holderNonce } as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
+		) {
+			return lease.present ? "superseded" : "released";
+		}
+		await declareRuntimeReader(tx);
+		const result = await tx
+			.updateTable("apps")
+			.set(
+				awaiting
+					? { awaiting_input: true }
+					: { awaiting_input: false, updated_at: new Date() },
+			)
+			.where("id", "=", appId)
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.executeTakeFirst();
+		return updatedExactlyOne(result) ? "owned" : "superseded";
+	});
 }
 
 /**
@@ -1873,9 +2494,13 @@ export function setAwaitingInput(
  * fire-and-forget at the scan call sites and AWAITED from the claim's
  * conflict nudge.
  */
-export async function reapStaleGenerating(appId: string): Promise<void> {
+export async function reapStaleGenerating(
+	appId: string,
+	expectedIdentity: ExactRunHolderIdentity,
+): Promise<void> {
 	try {
-		await refundStaleGeneration(appId);
+		if (expectedIdentity.mode !== "build") return;
+		await refundStaleGeneration(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleGenerating] stale-build reap failed", err, { appId });
 	}
@@ -1884,20 +2509,17 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
 /**
  * Reap a stranded EDIT reservation: refund an unsettled hold whose run never
  * reached a clean completion, releasing the lapsed `run_lock` in the same
- * commit, WITHOUT flipping status. The pre-filter here only avoids opening a
- * transaction on the common not-reapable row; `refundStaleReservation`
- * re-validates the whole guard inside its transaction.
+ * commit, WITHOUT flipping status. The wrapper rejects a build-mode target;
+ * `refundStaleReservation` re-validates the concrete identity and the whole
+ * staleness guard inside its transaction.
  */
-export async function reapStaleReservation(appId: string): Promise<void> {
+export async function reapStaleReservation(
+	appId: string,
+	expectedIdentity: ExactRunHolderIdentity,
+): Promise<void> {
 	try {
-		const db = await getAppDb();
-		const row = await db
-			.selectFrom("apps")
-			.select(LEASE_COLUMNS)
-			.where("id", "=", appId)
-			.executeTakeFirst();
-		if (!row || !runLeaseState(leaseView(row)).reapableStrandedEdit) return;
-		await refundStaleReservation(appId);
+		if (expectedIdentity.mode !== "edit") return;
+		await refundStaleReservation(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleReservation] reservation refund failed", err, {
 			appId,
@@ -1913,34 +2535,58 @@ export async function reapStaleReservation(appId: string): Promise<void> {
  * axes. Throws on a missing row (matching the update-a-ghost posture).
  * Returns the ISO `recoverable_until` so callers surface the deadline.
  */
-export async function softDeleteApp(appId: string): Promise<string> {
+export async function softDeleteApp(
+	appId: string,
+	actorUserId: string,
+): Promise<string> {
 	const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 	const now = new Date();
 	const recoverableUntil = new Date(now.getTime() + RETENTION_MS);
-	const db = await getAppDb();
-	const result = await db
-		.updateTable("apps")
-		.set({ deleted_at: now, recoverable_until: recoverableUntil })
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	if (Number(result.numUpdatedRows) === 0) {
-		throw new Error(`[softDeleteApp] app row missing for appId=${appId}`);
-	}
+	await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new CommitReauthError("App not found.");
+		}
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"delete",
+			"You no longer have permission to delete this app.",
+		);
+		await tx
+			.updateTable("apps")
+			.set({ deleted_at: now, recoverable_until: recoverableUntil })
+			.where("id", "=", appId)
+			.execute();
+	});
 	return recoverableUntil.toISOString();
 }
 
 /** Restore a soft-deleted app — clears both soft-delete fields as a pair;
  *  status untouched; `updated_at` deliberately not bumped. */
-export async function restoreApp(appId: string): Promise<void> {
-	const db = await getAppDb();
-	const result = await db
-		.updateTable("apps")
-		.set({ deleted_at: null, recoverable_until: null })
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	if (Number(result.numUpdatedRows) === 0) {
-		throw new Error(`[restoreApp] app row missing for appId=${appId}`);
-	}
+export async function restoreApp(
+	appId: string,
+	actorUserId: string,
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new CommitReauthError("App not found.");
+		}
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"delete",
+			"You no longer have permission to restore this app.",
+		);
+		await tx
+			.updateTable("apps")
+			.set({ deleted_at: null, recoverable_until: null })
+			.where("id", "=", appId)
+			.execute();
+	});
 }
 
 // ── Loads ───────────────────────────────────────────────────────────
@@ -1959,6 +2605,32 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 		.executeTakeFirst()) as AppRow | undefined;
 	if (!row) return null;
 	const entities = await loadEntities(null, appId);
+	return rowToAppDoc(row, entities);
+}
+
+/**
+ * Load one complete app snapshot on an existing app-state transaction.
+ *
+ * The `FOR SHARE` app-row lock is the snapshot boundary: every authoritative
+ * blueprint writer locks this row before changing either its scalar columns or
+ * `blueprint_entities`, so the row (including `mutation_seq`) and the assembled
+ * blueprint cannot come from different commits. The lock is intentionally held
+ * until the caller's surrounding transaction ends. This function performs no
+ * authorization; user-facing readers pair it with the transaction-scoped
+ * resolver in `appAccess.ts`.
+ */
+export async function loadAppInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<AppDoc | null> {
+	const row = (await tx
+		.selectFrom("apps")
+		.selectAll()
+		.where("id", "=", appId)
+		.forShare()
+		.executeTakeFirst()) as AppRow | undefined;
+	if (!row) return null;
+	const entities = await loadEntities(tx, appId);
 	return rowToAppDoc(row, entities);
 }
 
@@ -2083,8 +2755,13 @@ function cursorFor(
 function projectAppSummary(row: AppRow, now: number): AppSummary {
 	const lease = runLeaseState(leaseView(row), now);
 	const isStale = lease.reapableStaleBuild;
-	if (isStale) void reapStaleGenerating(row.id);
-	if (lease.reapableStrandedEdit) void reapStaleReservation(row.id);
+	const exactIdentity = toExactRunHolderIdentity(lease.holderIdentity);
+	if (isStale && exactIdentity?.mode === "build") {
+		void reapStaleGenerating(row.id, exactIdentity);
+	}
+	if (lease.reapableStrandedEdit && exactIdentity?.mode === "edit") {
+		void reapStaleReservation(row.id, exactIdentity);
+	}
 	return {
 		id: row.id,
 		app_name: row.app_name || UNTITLED_APP_NAME,

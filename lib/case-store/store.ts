@@ -24,7 +24,7 @@
 // `buildCaseTypeMap` so the interface stays decoupled from the full
 // blueprint shape.
 
-import type { Insertable, Selectable } from "kysely";
+import type { Insertable, Selectable, Transaction } from "kysely";
 import {
 	type CasePropertyDataType,
 	type CaseType,
@@ -38,7 +38,12 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
 import type { TermBindings } from "./sql/compileTerm";
-import type { CasesTable, JsonObject, JsonValue } from "./sql/database";
+import type {
+	CasesTable,
+	Database,
+	JsonObject,
+	JsonValue,
+} from "./sql/database";
 
 /**
  * Calculated-column projection arm — the `kind: "calculated"` slice of
@@ -500,6 +505,16 @@ export interface ResetSampleDataArgs {
 }
 
 /**
+ * The result prepared by schema/data Phase A plus its post-commit
+ * concurrent-index completion. The token becomes durable only when the caller's
+ * transaction commits; `completeAfterCommit` must run after that point.
+ */
+export interface PreparedSchemaChangePhaseB {
+	readonly report: MigrationReport;
+	readonly completeAfterCommit: () => Promise<void>;
+}
+
+/**
  * The tenant-free slice of the store: schema-change operations that
  * are APP-scoped (they apply to every row of an app's case type
  * regardless of which member created it), so they bind no Project.
@@ -585,6 +600,24 @@ export interface SchemaCaseStore {
 	 * CONCURRENTLY index DDL inside a transaction).
 	 */
 	dropSchema(args: { appId: string; caseType: string }): Promise<void>;
+}
+
+/**
+ * Schema store with the explicit caller-transaction seam used only by the
+ * cross-store blueprint saga. Keeping this method off `SchemaCaseStore` and
+ * `CaseStore` means ordinary consumers and test doubles cannot accidentally
+ * depend on transaction composition they do not own.
+ */
+export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
+	/**
+	 * Apply only the transactional schema/data phase on a caller-owned
+	 * transaction. The returned concurrent-index completion must run after
+	 * `tx` commits successfully.
+	 */
+	applySchemaChangePhaseA(
+		tx: Transaction<Database>,
+		args: ApplySchemaChangeArgs,
+	): Promise<PreparedSchemaChangePhaseB>;
 }
 
 /**

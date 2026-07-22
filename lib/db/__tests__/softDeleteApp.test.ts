@@ -26,7 +26,7 @@ describe("softDeleteApp", () => {
 		await h.seedApp({ id: APP, status: "complete" });
 		const { softDeleteApp } = await import("../apps");
 
-		const recoverableUntil = await softDeleteApp(APP);
+		const recoverableUntil = await softDeleteApp(APP, "owner-test");
 
 		const row = await h.readAppRow(APP);
 		if (!row) throw new Error("soft-deleted app row missing");
@@ -47,6 +47,8 @@ describe("softDeleteApp", () => {
 
 	it("throws on a missing row so callers can surface a missing-row error", async () => {
 		const { softDeleteApp } = await import("../apps");
-		await expect(softDeleteApp("does-not-exist")).rejects.toThrow();
+		await expect(
+			softDeleteApp("does-not-exist", "owner-test"),
+		).rejects.toThrow();
 	});
 });

@@ -41,6 +41,7 @@
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
@@ -242,6 +243,22 @@ export function toMcpErrorResult(
 			userId: ctx?.userId ?? null,
 			appId: ctx?.appId ?? null,
 			message: err.message,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof AppProjectChangedError) {
+		log.warn("[mcp] app Project changed during the call", {
+			userId: ctx?.userId ?? null,
+			appId: ctx?.appId ?? null,
 		});
 		return {
 			isError: true,

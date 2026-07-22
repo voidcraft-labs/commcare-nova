@@ -89,6 +89,15 @@ export interface AppsTable {
 		Date | string | null,
 		Date | string | null
 	>;
+	/** Server-minted generation of the current (or most recently reaped) holder.
+	 * Concrete on every nonce-capable holder; null marks legacy/corrupt state. */
+	run_holder_nonce: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** Database-stamped capability of the exact currently-present run holder. */
+	run_runtime_reader_version: ColumnType<number | null, undefined, never>;
 	created_at: Timestamp;
 	updated_at: Timestamp;
 }
@@ -149,6 +158,13 @@ export interface ThreadsTable {
 	summary: string;
 	run_id: string;
 	active_stream_id: string | null;
+	/** Operational continuation binding; never selected into ordinary thread
+	 * metadata/messages and cleared when its exact stream finishes unpaused. */
+	active_holder_nonce: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	messages: JSONColumnType<unknown[]>;
 }
 
@@ -360,8 +376,9 @@ export interface LookupStreamCapabilityLeasesTable {
 }
 
 /**
- * The one persistent compatibility row. Floors only increase; activation flags
- * may turn back off for emergency response without lowering a floor.
+ * The one persistent compatibility row. Floors only increase; ordinary feature
+ * flags may turn back off for emergency response without lowering a floor. The
+ * run-holder nonce switch is a protocol cutover and is irreversible once true.
  */
 export interface LookupReferenceCompatibilityTable {
 	id: ColumnType<1, 1 | undefined, never>;
@@ -376,6 +393,12 @@ export interface LookupReferenceCompatibilityTable {
 		number | undefined,
 		number
 	>;
+	continuous_registry_traffic_since: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	run_holder_nonce_enforced: ColumnType<boolean, boolean | undefined, boolean>;
 	carrier_commits_enabled: ColumnType<boolean, boolean | undefined, boolean>;
 	destructive_schema_actions_enabled: ColumnType<
 		boolean,
@@ -384,6 +407,12 @@ export interface LookupReferenceCompatibilityTable {
 	>;
 	project_moves_enabled: ColumnType<boolean, boolean | undefined, boolean>;
 	updated_at: Timestamp;
+}
+
+/** One explicitly prepared uninterrupted traffic epoch per runtime target. */
+export interface RuntimeReaderTrafficEpochsTable {
+	target_version: number;
+	continuous_traffic_since: ColumnType<Date, undefined, never>;
 }
 
 export interface AppDatabase {
@@ -409,6 +438,7 @@ export interface AppDatabase {
 	lookup_column_references: LookupColumnReferencesTable;
 	lookup_stream_capability_leases: LookupStreamCapabilityLeasesTable;
 	lookup_reference_compatibility: LookupReferenceCompatibilityTable;
+	runtime_reader_traffic_epochs: RuntimeReaderTrafficEpochsTable;
 }
 
 /**
@@ -417,6 +447,9 @@ export interface AppDatabase {
  * guards; migrations must not import mutable runtime constants.
  */
 export const WRITER_VERSION_GUC = "nova.writer_version";
+
+/** Transaction-local declaration consumed by the run-holder stamp trigger. */
+export const RUNTIME_READER_VERSION_GUC = "nova.runtime_reader_version";
 
 /**
  * Declare this code's compatibility version for the CURRENT transaction.
@@ -437,6 +470,33 @@ export async function setTransactionWriterVersion(
 	await sql`SELECT set_config(${WRITER_VERSION_GUC}, ${String(version)}, true)`.execute(
 		tx,
 	);
+}
+
+/**
+ * Declare this code's runtime-reader compatibility for the CURRENT transaction
+ * before every holder-touching DML, including same-holder heartbeats and
+ * terminal writes. Absence is the deployed-v0 signal. A declared v1 holder
+ * must carry the server-minted nonce; an unchanged declared generation
+ * preserves its original stamp rather than restamping it.
+ */
+export async function setTransactionRuntimeReaderVersion(
+	tx: Transaction<AppDatabase>,
+	version: number,
+): Promise<void> {
+	if (
+		!Number.isSafeInteger(version) ||
+		version < 0 ||
+		version > 2_147_483_647
+	) {
+		throw new RangeError("runtime reader version must be a nonnegative int4");
+	}
+	await sql`
+		SELECT set_config(
+			${RUNTIME_READER_VERSION_GUC},
+			${String(version)},
+			true
+		)
+	`.execute(tx);
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;

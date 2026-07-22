@@ -53,6 +53,8 @@ import {
 	TabsTrigger,
 } from "@/components/shadcn/tabs";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useReconcilerContext } from "@/lib/collab/context";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import {
 	builtinIconPublicPath,
 	builtinIconRef,
@@ -68,7 +70,12 @@ import {
 	isDocumentKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
-import { showToast } from "@/lib/ui/toastStore";
+import {
+	useAccessPhase,
+	useCanEdit,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	AssetPreviewDialog,
 	type AssetPreviewTarget,
@@ -79,8 +86,8 @@ import {
 	deleteMediaAsset,
 	type ExtractMeta,
 	type MediaAssetView,
-	mediaSrc,
 } from "./mediaClient";
+import { ProjectMediaImage } from "./ProjectMediaResource";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
 
 type Tab = "upload" | "library" | "icons";
@@ -157,6 +164,10 @@ export interface MediaPickerDialogProps {
 	 * reserved `nova-icon:<slug>` ref, resolved to shared bytes at emit.
 	 */
 	iconLibrary?: IconSlotKind | "all";
+	/** Explicit Project write capability for standalone surfaces that do not
+	 *  mount BuilderSessionProvider. Inside the builder, omit this and the live
+	 *  session capability is authoritative. */
+	canWrite?: boolean;
 }
 
 export function MediaPickerDialog({
@@ -170,7 +181,18 @@ export function MediaPickerDialog({
 	attachedAssetIds,
 	onAssetDeleted,
 	iconLibrary,
+	canWrite: canWriteOverride,
 }: MediaPickerDialogProps) {
+	const accessPhase = useAccessPhase();
+	const sessionCanEdit = useCanEdit();
+	const canWrite = canWriteOverride ?? sessionCanEdit;
+	const scopeEpoch = useProjectScopeEpoch();
+	const previousScopeEpochRef = useRef(scopeEpoch);
+	useEffect(() => {
+		if (previousScopeEpochRef.current === scopeEpoch) return;
+		previousScopeEpochRef.current = scopeEpoch;
+		if (open) onOpenChange(false);
+	}, [onOpenChange, open, scopeEpoch]);
 	// No `onPick` → this is the standalone file manager (see the prop doc): no
 	// carrier to pick into, so library clicks preview and Upload just lands files.
 	const manage = onPick === undefined;
@@ -181,6 +203,10 @@ export function MediaPickerDialog({
 	// (An always-mounted hook here would fire one library GET per slot
 	// before any click.) The thin shell stays mounted so the open/close
 	// transition still animates.
+	/* Dialog content portals to body, outside the builder's inert access gate.
+	 * Unmount it at once so source-Project rows cannot linger through an exit
+	 * animation or remain interactive while authority reloads. */
+	if (accessPhase !== "authorized") return null;
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
@@ -189,6 +215,7 @@ export function MediaPickerDialog({
 			>
 				<PickerBody
 					manage={manage}
+					canWrite={canWrite}
 					kinds={kinds}
 					appId={appId}
 					onPick={(asset) => {
@@ -220,6 +247,7 @@ export function MediaPickerDialog({
  *  the library fetch + tab/filter state so none of it runs until open. */
 function PickerBody({
 	manage,
+	canWrite,
 	kinds,
 	appId,
 	onPick,
@@ -230,6 +258,7 @@ function PickerBody({
 	iconLibrary,
 }: {
 	manage: boolean;
+	canWrite: boolean;
 	kinds: readonly AssetKind[];
 	appId?: string;
 	onPick: (asset: MediaAssetView) => void;
@@ -239,6 +268,33 @@ function PickerBody({
 	onAssetDeleted?: (assetId: string) => void;
 	iconLibrary?: IconSlotKind | "all";
 }) {
+	const scopeEpoch = useProjectScopeEpoch();
+	const projectToast = useProjectToast();
+	const accessPhase = useAccessPhase();
+	const session = useOptionalBuilderSessionApi();
+	const reconciler = useReconcilerContext();
+	const deleteControllerRef = useRef<AbortController | null>(null);
+	useEffect(() => {
+		const abortDelete = () => {
+			deleteControllerRef.current?.abort();
+			deleteControllerRef.current = null;
+		};
+		const unsubscribeReset =
+			reconciler?.subscribeProjectScopeReset(abortDelete);
+		return () => {
+			unsubscribeReset?.();
+			abortDelete();
+		};
+	}, [reconciler]);
+	const ownsScope = (epoch = scopeEpoch) => {
+		if (!session) return accessPhase === "authorized" && epoch === scopeEpoch;
+		const current = session.getState();
+		return current.accessPhase === "authorized" && current.scopeEpoch === epoch;
+	};
+	const ownsWritableScope = (epoch = scopeEpoch) => {
+		if (!canWrite || !ownsScope(epoch)) return false;
+		return session ? session.getState().canEdit : true;
+	};
 	// The built-in icons offered: a slot's family (`module`/`form`) for a picker,
 	// the whole set (`all`) for the file manager. Empty → no Icon Library tab.
 	const iconEntries = useMemo<readonly IconCatalogEntry[]>(
@@ -255,7 +311,7 @@ function PickerBody({
 	// opens on the curated Icon Library (the point of the click); any other picker
 	// opens on Upload (you came here to add something to a slot).
 	const [tab, setTab] = useState<Tab>(
-		manage ? "library" : showIcons ? "icons" : "upload",
+		manage || !canWrite ? "library" : showIcons ? "icons" : "upload",
 	);
 	// A multi-kind slot gets a browse filter (defaulting to "all"); a
 	// single-kind slot is pinned to its one kind with no filter UI.
@@ -271,10 +327,16 @@ function PickerBody({
 			: `Attach ${ASSET_KIND_META[kinds[0]].label.toLowerCase()}`;
 	const { nounPhrase } = describeKinds(kinds);
 	const description = manage
-		? "Upload, preview, or remove files in this project"
+		? canWrite
+			? "Upload, preview, or remove files in this project"
+			: "Preview files in this project"
 		: showIcons
-			? "Choose an icon, upload an image, or use a file you already added"
-			: `Choose a file you already added, or upload ${nounPhrase}`;
+			? canWrite
+				? "Choose an icon, upload an image, or use a file you already added"
+				: "Preview icons and files in this project"
+			: canWrite
+				? `Choose a file you already added, or upload ${nounPhrase}`
+				: "Preview files in this project";
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
@@ -309,6 +371,7 @@ function PickerBody({
 	}, [assets, onAssetsLoaded]);
 
 	const commit = (asset: MediaAssetView) => {
+		if (!ownsWritableScope()) return;
 		addUploaded(asset);
 		onPick(asset);
 	};
@@ -322,7 +385,8 @@ function PickerBody({
 	// Open an asset's preview without picking it — the eye affordance everywhere,
 	// and (in the manager, which has no carrier to pick into) the library item's
 	// own click target.
-	const openPreview = (asset: MediaAssetView) =>
+	const openPreview = (asset: MediaAssetView) => {
+		if (!ownsScope()) return;
 		setPreviewTarget({
 			id: asset.id,
 			kind: asset.kind,
@@ -330,13 +394,15 @@ function PickerBody({
 			title: asset.extract?.title,
 			summary: asset.extract?.summary,
 		});
+	};
 
 	// An Icon Library click: a picker ATTACHES the built-in (the synthetic view
 	// carries the reserved `nova-icon:<slug>` id; the attach-budget guard
 	// short-circuits it); the file manager (no carrier) PREVIEWS the bitmap.
 	const pickIcon = (entry: IconCatalogEntry) => {
+		if (!ownsScope()) return;
 		const asset = builtinIconAssetView(entry);
-		if (manage) openPreview(asset);
+		if (manage || !ownsWritableScope()) openPreview(asset);
 		else onPick(asset);
 	};
 
@@ -347,6 +413,7 @@ function PickerBody({
 	// and then vanish on the next fetch; "all" keeps it in scope (and is the
 	// natural "here's everything you have" post-upload view).
 	const onManagedUpload = (asset: MediaAssetView) => {
+		if (!ownsWritableScope()) return;
 		addUploaded(asset);
 		setFilter("all");
 		setQuery("");
@@ -358,31 +425,49 @@ function PickerBody({
 	// controls while the request is in flight.
 	const [deleteTarget, setDeleteTarget] = useState<MediaAssetView | null>(null);
 	const [deleting, setDeleting] = useState(false);
+	useEffect(() => {
+		if (canWrite) return;
+		deleteControllerRef.current?.abort();
+		deleteControllerRef.current = null;
+		setDeleteTarget(null);
+		setDeleting(false);
+		if (tab === "upload") setTab("library");
+	}, [canWrite, tab]);
 
 	const confirmDelete = async () => {
-		if (!deleteTarget) return;
+		if (!deleteTarget || !ownsWritableScope()) return;
+		const deleteScopeEpoch = session?.getState().scopeEpoch ?? scopeEpoch;
 		const asset = deleteTarget;
 		const name = asset.displayName ?? asset.originalFilename;
+		deleteControllerRef.current?.abort();
+		const controller = new AbortController();
+		deleteControllerRef.current = controller;
 		setDeleting(true);
 		try {
-			await deleteMediaAsset(asset.id);
+			await deleteMediaAsset(asset.id, controller.signal);
+			if (!ownsWritableScope(deleteScopeEpoch)) return;
 			removeAsset(asset.id);
 			// Pull any staged reference to the now-gone asset (e.g. the chat
 			// composer's chip). A no-op for a caller that wasn't staging it.
 			onAssetDeleted?.(asset.id);
-			showToast("info", "File deleted", name);
+			projectToast("info", "File deleted", name);
 			setDeleteTarget(null);
 		} catch (err) {
+			if (controller.signal.aborted) return;
+			if (!ownsWritableScope(deleteScopeEpoch)) return;
 			// A 409 (still referenced by one of your apps) or any failure: tell the
 			// user WHY — the message names the carriers — and leave the asset.
-			showToast(
+			projectToast(
 				"warning",
 				"Couldn't delete file",
 				err instanceof Error ? err.message : "Try again",
 			);
 			setDeleteTarget(null);
 		} finally {
-			setDeleting(false);
+			if (deleteControllerRef.current === controller) {
+				deleteControllerRef.current = null;
+			}
+			if (ownsWritableScope(deleteScopeEpoch)) setDeleting(false);
 		}
 	};
 
@@ -421,9 +506,11 @@ function PickerBody({
 							Icons
 						</TabsTrigger>
 					)}
-					<TabsTrigger value="upload" className="min-h-11 flex-none px-3">
-						Upload
-					</TabsTrigger>
+					{canWrite && (
+						<TabsTrigger value="upload" className="min-h-11 flex-none px-3">
+							Upload
+						</TabsTrigger>
+					)}
 					<TabsTrigger value="library" className="min-h-11 flex-none px-3">
 						Library
 					</TabsTrigger>
@@ -437,26 +524,29 @@ function PickerBody({
 						<IconLibraryTab
 							icons={iconEntries}
 							onPickIcon={pickIcon}
-							primaryAction={manage ? "Preview" : "Choose"}
+							primaryAction={manage || !canWrite ? "Preview" : "Choose"}
 						/>
 					</TabsContent>
 				)}
-				<TabsContent
-					value="upload"
-					className="min-h-0 overflow-y-auto overscroll-contain p-5"
-				>
-					<UploadTab
-						kinds={kinds}
-						onUploaded={manage ? onManagedUpload : commit}
-						onUploadStart={onUploadStart}
-						appId={appId}
-					/>
-				</TabsContent>
+				{canWrite && (
+					<TabsContent
+						value="upload"
+						className="min-h-0 overflow-y-auto overscroll-contain p-5"
+					>
+						<UploadTab
+							kinds={kinds}
+							onUploaded={manage ? onManagedUpload : commit}
+							onUploadStart={onUploadStart}
+							appId={appId}
+						/>
+					</TabsContent>
+				)}
 				<TabsContent
 					value="library"
 					className="min-h-0 overflow-y-auto overscroll-contain p-5"
 				>
 					<LibraryTab
+						canWrite={canWrite}
 						assets={assets}
 						query={query}
 						onQueryChange={setQuery}
@@ -466,12 +556,14 @@ function PickerBody({
 						loadMore={loadMore}
 						retry={retry}
 						onUpload={() => setTab("upload")}
-						primaryAction={manage ? "Preview" : "Choose"}
+						primaryAction={manage || !canWrite ? "Preview" : "Choose"}
 						// In the manager a click previews (nothing to pick into); in a
 						// picker it commits the choice and closes.
-						onPick={manage ? openPreview : commit}
+						onPick={manage || !canWrite ? openPreview : commit}
 						onPreview={openPreview}
-						onDelete={setDeleteTarget}
+						onDelete={(asset) => {
+							if (ownsWritableScope()) setDeleteTarget(asset);
+						}}
 						// Fold a freshly completed extract into the list so a preview
 						// opened right after upload shows its title/summary without
 						// waiting for a re-fetch.
@@ -718,6 +810,7 @@ function UploadTab({
 }
 
 function LibraryTab({
+	canWrite,
 	assets,
 	query,
 	onQueryChange,
@@ -736,6 +829,7 @@ function LibraryTab({
 	kinds,
 	onFilterChange,
 }: {
+	canWrite: boolean;
 	assets: MediaAssetView[];
 	/** Search text sent to the server before pagination. */
 	query: string;
@@ -856,10 +950,24 @@ function LibraryTab({
 					description={
 						normalizedQuery
 							? "Try a different name or clear your search"
-							: "Upload a file to use it here"
+							: canWrite
+								? "Upload a file to use it here"
+								: "Files added by Project editors appear here"
 					}
-					action={normalizedQuery ? "Clear search" : "Upload file"}
-					onAction={normalizedQuery ? () => onQueryChange("") : onUpload}
+					action={
+						normalizedQuery
+							? "Clear search"
+							: canWrite
+								? "Upload file"
+								: undefined
+					}
+					onAction={
+						normalizedQuery
+							? () => onQueryChange("")
+							: canWrite
+								? onUpload
+								: undefined
+					}
 				/>
 			) : (
 				<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -909,36 +1017,42 @@ function LibraryTab({
 									{/* Preview without picking — a sibling of the pick button
 									 *  (not nested), revealed on hover/focus. Lets a user check
 									 *  a document's "What Nova reads" extract before attaching.
+									 *  When the thumbnail's primary action already previews (the
+									 *  manager or a viewer), omit this duplicate affordance.
 									 *  Tooltip.Root emits no DOM, so the button stays an absolute
 									 *  sibling anchored to the relative wrapper. */}
-									<SimpleTooltip content="Preview">
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon"
-											onClick={() => onPreview(asset)}
-											aria-label={`Preview ${fileName}`}
-											className="pointer-events-none absolute top-1 right-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-										>
-											<Icon icon={tablerEye} className="size-4" />
-										</Button>
-									</SimpleTooltip>
+									{primaryAction === "Choose" && (
+										<SimpleTooltip content="Preview">
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												onClick={() => onPreview(asset)}
+												aria-label={`Preview ${fileName}`}
+												className="pointer-events-none absolute top-1 right-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+											>
+												<Icon icon={tablerEye} className="size-4" />
+											</Button>
+										</SimpleTooltip>
+									)}
 									{/* Delete — a sibling of the pick button (not nested),
 									 *  top-left so it doesn't collide with the preview
 									 *  affordance. Opens a confirmation before removing the
 									 *  asset from the library. */}
-									<SimpleTooltip content="Delete">
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon"
-											onClick={() => onDelete(asset)}
-											aria-label={`Delete ${fileName}`}
-											className="pointer-events-none absolute top-1 left-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-										>
-											<Icon icon={tablerTrash} className="size-4" />
-										</Button>
-									</SimpleTooltip>
+									{canWrite && (
+										<SimpleTooltip content="Delete">
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												onClick={() => onDelete(asset)}
+												aria-label={`Delete ${fileName}`}
+												className="pointer-events-none absolute top-1 left-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+											>
+												<Icon icon={tablerTrash} className="size-4" />
+											</Button>
+										</SimpleTooltip>
+									)}
 									{/* Extraction indicator for documents — a sibling of the
 									 *  pick button (not nested), so the failed-state retry
 									 *  control isn't interactive content inside a button.
@@ -947,6 +1061,7 @@ function LibraryTab({
 										<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
 											<ExtractionStatusBadge
 												asset={asset}
+												canExtract={canWrite}
 												onExtracted={(extract) =>
 													onExtracted(asset.id, extract)
 												}
@@ -1027,8 +1142,8 @@ function LibraryState({
 }: {
 	title: string;
 	description: string;
-	action: string;
-	onAction: () => void;
+	action?: string;
+	onAction?: () => void;
 	error?: boolean;
 }) {
 	return (
@@ -1040,14 +1155,16 @@ function LibraryState({
 				<p className="text-base font-medium text-nova-text">{title}</p>
 				<p className="text-[13px] text-nova-text-secondary">{description}</p>
 			</div>
-			<Button
-				type="button"
-				variant="outline"
-				className="h-11 px-4"
-				onClick={onAction}
-			>
-				{action}
-			</Button>
+			{action && onAction ? (
+				<Button
+					type="button"
+					variant="outline"
+					className="h-11 px-4"
+					onClick={onAction}
+				>
+					{action}
+				</Button>
+			) : null}
 		</div>
 	);
 }
@@ -1055,7 +1172,7 @@ function LibraryState({
 /**
  * A `MediaAssetView` standing in for a built-in icon, built from its catalog
  * entry. Its id is the reserved `nova-icon:<slug>` ref the slot stores; the
- * other fields back the preview header + `mediaSrc` (which routes a built-in id
+ * other fields back the preview header + the scoped media resource (which routes a built-in id
  * to its static bytes). There is no `media_assets` row — built-ins never reach the
  * library list or the budget fetch.
  */
@@ -1234,9 +1351,8 @@ function MediaDeleteConfirmDialog({
 function LibraryThumb({ asset }: { asset: MediaAssetView }) {
 	if (asset.kind === "image") {
 		return (
-			// biome-ignore lint/performance/noImgElement: the proxy route is session-authed; next/image can't carry the cookie auth
-			<img
-				src={mediaSrc(asset.id)}
+			<ProjectMediaImage
+				assetId={asset.id}
 				alt={asset.displayName ?? asset.originalFilename}
 				className="size-full object-cover"
 			/>

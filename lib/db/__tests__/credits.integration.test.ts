@@ -8,8 +8,8 @@
  *
  * `reserveForNewBuild` is the build-reservation entry point (the credit debit
  * `claimAndReserveRun` shares via `debitAndBookReservation`); the apps here are
- * seeded `complete` so the build-concurrency scan finds no OTHER live build and
- * the case exercises the debit in isolation.
+ * seeded as the exact just-created markerless build holder, so reservation may
+ * only attach to the run that created the row.
  *
  * Multi-writer contention needs no separate emulator carve-out here: two
  * reservations on one app serialize behind the app row's `FOR UPDATE` lock, so
@@ -32,6 +32,9 @@ const TEST_APP_ID = "app-credit-integration";
 
 const h = setupAppStateTestDb("credits_int_");
 const period = getCurrentPeriod();
+const PROJECT_ID = "project-test";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
+const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
 
 /** Read the raw credit-month row for the test user's current period. */
 async function readCreditMonth(): Promise<
@@ -66,29 +69,14 @@ async function readCreditGrants(): Promise<
 		.execute();
 }
 
-/** Clear the reservation marker columns on an app row (so a later reserve books
- *  cleanly against the seeded balance rather than netting a leftover refund). */
-async function clearAppMarker(appId: string): Promise<void> {
-	await h
-		.db()
-		.updateTable("apps")
-		.set({
-			res_period: null,
-			res_reserved: null,
-			res_settled: null,
-			res_user_id: null,
-			res_run_id: null,
-		})
-		.where("id", "=", appId)
-		.execute();
-}
-
 describe("reserveForNewBuild credit debit", () => {
 	beforeEach(async () => {
 		await h.seedApp({
 			id: TEST_APP_ID,
 			owner: TEST_USER_ID,
-			status: "complete",
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 		});
 	});
 
@@ -100,6 +88,8 @@ describe("reserveForNewBuild credit debit", () => {
 			TEST_USER_ID,
 			CREDITS_PER_BUILD,
 			"run-1",
+			PROJECT_ID,
+			HOLDER_NONCE,
 		);
 		expect(result).toEqual({ period, reserved: CREDITS_PER_BUILD });
 
@@ -112,39 +102,58 @@ describe("reserveForNewBuild credit debit", () => {
 		});
 	});
 
-	it("a second reservation refunds the first's stranded unsettled hold before booking its own", async () => {
+	it("a stale second reservation cannot replace the first holder, and later affordability still fails atomically", async () => {
 		const { OutOfCreditsError } = await import("../credits");
-		const { reserveForNewBuild } = await import("../apps");
+		const { completeAndSettleRun, reserveForNewBuild, RunConflictError } =
+			await import("../apps");
 
-		// Two reservations in sequence on ONE app with no settle between — under
-		// at-most-one-run this is a superseded run's stranded hold, so the SECOND
-		// reserve refunds that leftover UNCONDITIONALLY before booking its own — net
-		// consumed stays at ONE build's cost, not two.
+		// A delayed reservation for another run must not overwrite/refund the
+		// just-created build holder that already booked its marker.
 		await reserveForNewBuild(
 			TEST_APP_ID,
 			TEST_USER_ID,
 			CREDITS_PER_BUILD,
-			"run-a",
+			"run-1",
+			PROJECT_ID,
+			HOLDER_NONCE,
 		);
-		await reserveForNewBuild(
-			TEST_APP_ID,
-			TEST_USER_ID,
-			CREDITS_PER_BUILD,
-			"run-b",
-		);
+		await expect(
+			reserveForNewBuild(
+				TEST_APP_ID,
+				TEST_USER_ID,
+				CREDITS_PER_BUILD,
+				"run-b",
+				PROJECT_ID,
+				OTHER_NONCE,
+			),
+		).rejects.toBeInstanceOf(RunConflictError);
 		expect((await readCreditMonth())?.consumed).toBe(CREDITS_PER_BUILD);
 
 		// Now seed the user to the brink: 5 spendable, charging 100 must reject.
-		// (Clear the app marker first so this reserve books cleanly against the
-		// seeded balance rather than netting the leftover it would otherwise refund.)
-		await clearAppMarker(TEST_APP_ID);
+		expect(await completeAndSettleRun(TEST_APP_ID, "run-1", HOLDER_NONCE)).toBe(
+			"owned",
+		);
+		await h.seedApp({
+			id: "app-credit-affordability",
+			owner: TEST_USER_ID,
+			status: "generating",
+			run_id: "run-c",
+			run_holder_nonce: OTHER_NONCE,
+		});
 		await h.seedCreditMonth(TEST_USER_ID, period, {
 			allowance: MONTHLY_CREDIT_ALLOWANCE,
 			consumed: MONTHLY_CREDIT_ALLOWANCE - 5,
 			bonus: 0,
 		});
 		await expect(
-			reserveForNewBuild(TEST_APP_ID, TEST_USER_ID, CREDITS_PER_BUILD, "run-c"),
+			reserveForNewBuild(
+				"app-credit-affordability",
+				TEST_USER_ID,
+				CREDITS_PER_BUILD,
+				"run-c",
+				PROJECT_ID,
+				OTHER_NONCE,
+			),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 
 		// The rejected reservation booked nothing — the row is exactly as seeded.
@@ -292,8 +301,7 @@ describe("credit writers integration", () => {
 		const { refundReservation } = await import("../credits");
 
 		// A row that booked two builds, plus an app carrying an unsettled 100-credit
-		// hold owned by the test user (a `complete` app → marker owned by "none",
-		// so the terminal-write gate passes).
+		// hold owned by the test user's exact active build holder.
 		await h.seedCreditMonth(TEST_USER_ID, period, {
 			allowance: MONTHLY_CREDIT_ALLOWANCE,
 			consumed: 2 * CREDITS_PER_BUILD,
@@ -302,18 +310,21 @@ describe("credit writers integration", () => {
 		await h.seedApp({
 			id: TEST_APP_ID,
 			owner: TEST_USER_ID,
-			status: "complete",
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
 				settled: false,
 				userId: TEST_USER_ID,
+				runId: "run-1",
 			},
 		});
 
 		// The refund walks consumed 200 → 100 AND flips the marker settled, both
 		// committed in one cross-row transaction.
-		await refundReservation(TEST_APP_ID, "run-1");
+		await refundReservation(TEST_APP_ID, "run-1", HOLDER_NONCE, "build");
 		expect((await readCreditMonth())?.consumed).toBe(CREDITS_PER_BUILD);
 		expect(await h.readReservation(TEST_APP_ID)).toMatchObject({
 			period,
@@ -322,7 +333,7 @@ describe("credit writers integration", () => {
 		});
 
 		// A second refund reads the settled marker and changes nothing.
-		await refundReservation(TEST_APP_ID, "run-1");
+		await refundReservation(TEST_APP_ID, "run-1", HOLDER_NONCE, "build");
 		expect((await readCreditMonth())?.consumed).toBe(CREDITS_PER_BUILD);
 	});
 });

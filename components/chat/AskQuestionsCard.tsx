@@ -23,6 +23,7 @@ interface AskQuestionsCardProps {
 		output: unknown;
 	}) => void;
 	pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>;
+	disabled?: boolean;
 }
 
 export function AskQuestionsCard({
@@ -32,6 +33,7 @@ export function AskQuestionsCard({
 	output,
 	addToolOutput,
 	pendingAnswerRef,
+	disabled = false,
 }: AskQuestionsCardProps) {
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -60,6 +62,7 @@ export function AskQuestionsCard({
 	/** Apply an answer keyed by the current question index. Questions are
 	 * immutable after the SA emits them — index is a stable identity key. */
 	const applyAnswer = (answerText: string) => {
+		if (disabled) return;
 		const { answers: ans, currentIndex: ci } = stateRef.current;
 		const newAnswers = { ...ans, [String(ci)]: answerText };
 		setAnswers(newAnswers);
@@ -76,7 +79,7 @@ export function AskQuestionsCard({
 
 	// Register handler so ChatSidebar can route typed messages as question answers
 	if (pendingAnswerRef) {
-		if (isWaiting) {
+		if (isWaiting && !disabled) {
 			pendingAnswerRef.current = (text: string) => {
 				if (stateRef.current.currentIndex < questions.length) {
 					applyAnswer(`User Responded: ${text}`);
@@ -173,7 +176,8 @@ export function AskQuestionsCard({
 														whileHover={{ scale: 1.01 }}
 														whileTap={{ scale: 0.99 }}
 														onClick={() => applyAnswer(opt.label)}
-														className="w-full text-left px-3 py-2 rounded-lg border border-nova-border bg-nova-surface hover:border-nova-violet/40 hover:bg-nova-violet/5 transition-colors cursor-pointer"
+														disabled={disabled}
+														className="w-full text-left px-3 py-2 rounded-lg border border-nova-border bg-nova-surface not-disabled:hover:border-nova-violet/40 not-disabled:hover:bg-nova-violet/5 transition-colors not-disabled:cursor-pointer disabled:opacity-60"
 													>
 														<div className="text-sm text-nova-text">
 															{opt.label}

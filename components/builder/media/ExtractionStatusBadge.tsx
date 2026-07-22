@@ -38,14 +38,30 @@ import {
 export function ExtractionStatusBadge({
 	asset,
 	onExtracted,
+	canExtract = true,
 }: {
 	asset: ExtractableAsset;
 	/** Forwarded to `useDocumentExtraction`: fires with the fresh metadata when
 	 *  extraction completes, so a staged snapshot (composer / library) reconciles. */
 	onExtracted?: (extract: ExtractMeta) => void;
+	/** Viewers may inspect an existing extract but never start/retry the
+	 *  Project-scoped extraction write. */
+	canExtract?: boolean;
 }) {
-	const { status, retry } = useDocumentExtraction(asset, onExtracted);
-	return <ExtractionStatusBadgeView status={status} retry={retry} />;
+	const { status, retry } = useDocumentExtraction(
+		asset,
+		onExtracted,
+		undefined,
+		undefined,
+		canExtract,
+	);
+	return (
+		<ExtractionStatusBadgeView
+			status={status}
+			retry={retry}
+			canRetry={canExtract}
+		/>
+	);
 }
 
 /**
@@ -57,9 +73,11 @@ export function ExtractionStatusBadge({
 export function ExtractionStatusBadgeView({
 	status,
 	retry,
+	canRetry = true,
 }: {
 	status: MediaExtractStatus | null;
 	retry: () => void;
+	canRetry?: boolean;
 }) {
 	if (status === null) return null;
 
@@ -82,6 +100,14 @@ export function ExtractionStatusBadgeView({
 	}
 
 	if (status === "failed") {
+		if (!canRetry) {
+			return (
+				<Badge variant="destructive" className="min-h-11 gap-1.5 px-3">
+					<Icon icon={tablerAlertTriangle} />
+					Couldn't read
+				</Badge>
+			);
+		}
 		// A failed extract is one clear, full-size action rather than a tiny badge
 		// that happens to be clickable.
 		return (

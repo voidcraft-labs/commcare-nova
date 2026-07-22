@@ -541,6 +541,45 @@ and indexes, `ON CONFLICT` singleton seed, replaceable functions, and
 drop-before-create triggers replay-safe. Its `down` path is test/local teardown
 only; a deployed compatibility change always fixes forward in a new migration.
 
+The forward-only runtime-reader rollout migrations add the nullable holder
+stamp, server-minted `apps.run_holder_nonce`, actor-bound
+`threads.active_holder_nonce`, the compatibility row's continuous-registry
+timestamp + irreversible `run_holder_nonce_enforced` switch, and one
+`runtime_reader_traffic_epochs` row per explicitly prepared target. The holder
+trigger derives `(mode, runId, nonce)` from the run columns and locks the
+compatibility singleton for every transition with a holder on either side; only
+an at-rest→at-rest write bypasses that lock. A v1 declaration identifies the
+writer, not ownership over an unchanged holder. Below cutoff, an exact unchanged
+legacy holder stays v0 and census-visible; an old stamp below the active floor
+fails closed. A new/replaced v1 holder requires a concrete run id + nonce. An
+absent declaration is the deployed-v0 signal and clears inherited nonce/stamp
+even when stable thread attribution leaves mode/run unchanged. A declared
+same-generation write preserves the admitted old stamp, and a declared release
+clears the stamp while retaining the nonce tombstone. The trigger deliberately includes
+`awaiting_input`, `lock_expire_at`, and `updated_at`: the deployed v0 resume sets
+no runtime GUC and updates only those pause/lease columns, so omitting them would
+let it inherit a v1 nonce + stamp and falsely pass the cutover census. Every
+current holder-touching writer—including same-holder renewals and terminal
+paths—must declare v1 before DML. Do not backfill null-nonce holders: v0 holders
+must remain census-visible/reapable, and migration replay must preserve any
+already-concrete v1 generation.
+
+Nonce enforcement defaults false and may move only false→true. Its CHECK
+requires `minimum_runtime_reader_version >= 1`. Runtime lifecycle transactions
+lock the app row before compatibility `FOR SHARE`; the cutover keeps its fixed
+gate → compatibility-row → unlocked-census order. S02c2 must drain request
+epochs, v0 holders, and old receiver leases before raising the runtime floor
+and irreversibly enabling exact nonce authority.
+
+Compatibility and epoch `INSERT`/`UPDATE`/`DELETE` take the fixed deployment-
+cutover advisory lock from `BEFORE STATEMENT` triggers, before tuple locks. The
+service takes that same transaction lock explicitly at operation entry. Epoch
+`TRUNCATE` raises SQLSTATE `55000` directly and never waits on the advisory gate,
+because PostgreSQL has already acquired `ACCESS EXCLUSIVE` when a TRUNCATE
+trigger runs. The runtime-floor lock order is cutover gate → compatibility row
+`FOR UPDATE` → unlocked app census. Reversing the last two by locking apps after
+compatibility would deadlock with app-first claims; keep the census MVCC-only.
+
 ### Destructive changes — expand-contract
 
 There is no automated destructive-change lint. A schema change that

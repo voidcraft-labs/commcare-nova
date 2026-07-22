@@ -6,8 +6,9 @@ import type { AppDoc } from "./types";
  *
  * Every credit/claim decision — claimRun's busy check, `reacquireLease`, both
  * reapers, the terminal WRITERS (`completeAndSettleRun` / `clearRunLockAndSettle` /
- * `settleAndRelease` / the flush `refundReservation`, which re-check ownership IN
- * THEIR TXN before mutating), the concurrency gate — derives from
+ * `settleAndRelease` / `failApp` / the flush `refundReservation`, which re-check
+ * ownership IN THEIR TXN before mutating), the exact-holder pause/prelude writers
+ * (`setAwaitingInput` / `clearRunLock`), the concurrency gate — derives from
  * {@link runLeaseState}. NO other module reads `run_lock.expireAt`,
  * `run_lock.runId`, or `reservation.runId` for a decision (a build-time grep guard
  * fails on a raw read of those three PURE fields outside this file; see
@@ -56,6 +57,15 @@ function generatingIsFresh(
  * The derived run-lease view of an app doc. Every field is a DECISION, not a raw
  * read — consumers branch on these, never on the underlying row fields.
  */
+export interface RunHolderIdentity {
+	readonly mode: "build" | "edit";
+	readonly runId: string | null;
+	/** Concrete on every nonce-capable claim. Null denotes a legacy v0 holder:
+	 * compatibility mode may admit/reap it by mode + run id so rollout can drain
+	 * it, but post-cutover exact nonce authority can never match it. */
+	readonly nonce: string | null;
+}
+
 export interface RunLease {
 	/**
 	 * What kind of run occupies the app:
@@ -67,6 +77,13 @@ export interface RunLease {
 	 * claim deletes the lock), so `mode` keys on status first.
 	 */
 	mode: "build" | "edit" | "none";
+	/**
+	 * Exact database holder identity. A reserved build is identified only by
+	 * its reservation run id; the root `run_id` fallback applies solely to the
+	 * pre-reservation generating shape. Missing/blank ids stay explicitly null
+	 * so rollout census fails closed instead of inventing ownership.
+	 */
+	holderIdentity: RunHolderIdentity | null;
 	/** A run occupies the app at all (build `generating`, or an edit `run_lock`). */
 	present: boolean;
 	/**
@@ -112,9 +129,10 @@ export interface RunLease {
 	 * correct), while a `runId`-cleared marker is a reaped GHOST — `mine` returns
 	 * false, so the ghost's stale terminal writer can't `failApp` a taker that
 	 * re-claimed the freed app. A migrated
-	 * legacy marker may also lack a `runId` and is likewise unowned by `mine`; both a
-	 * ghost and a legacy marker are resolved by the reapers' OWN lenient clauses
-	 * (`reapableStrandedEdit`/`reapableStaleBuild`), never through `mine`.
+	 * legacy marker may also lack a `runId` and is likewise unowned by `mine`.
+	 * An edit can still reap a legacy marker because its concrete lock identifies
+	 * the holder; a build with no concrete marker/root identity fails closed as
+	 * corrupt rather than letting `(build, null)` target a later corrupt holder.
 	 */
 	mine: (runId: string) => boolean;
 	/**
@@ -136,27 +154,37 @@ export interface RunLease {
 	 *    so a reaped run's marker fails BOTH `markerSettleable` and `mine`. Every
 	 *    build reaching a terminal write reserved, so a genuine live one has an
 	 *    unsettled marker carrying its own `runId`.
-	 *  - `none`  → `true` — no run occupies the app, so the caller's own stranded
-	 *    hold is safe to resolve.
+	 *  - `none`  → `false` — an absent holder proves no caller identity. Orphan
+	 *    markers are resolved only by a canonical reaper carrying the exact
+	 *    identity it scanned; a terminal writer never gets a tokenless bypass.
 	 */
 	terminalWriteOwned: (runId: string) => boolean;
 	/**
-	 * Whether `runId` still owns the PAUSED run it is RESUMING — keyed on the
-	 * resume's OWN mode, not the doc's derived `mode`. A paused run's lease lapses
-	 * while it waits for the user (no heartbeat during a pause), so it CAN be reaped
-	 * mid-answer and the freed app claimed by another run. `ownedByResume` requires
-	 * the app to STILL be in the shape the resume expects — which a reap + re-claim
-	 * destroys — so a resume of a superseded run bails and touches nothing:
-	 *  - `"edit"` resume → `mode === "edit" && mine` (its `run_lock.runId`); a reap
-	 *    cleared the lock or a re-claim overwrote it (`mode` no longer edit / a
-	 *    different runId) → not owned → bail.
-	 *  - `"build"` resume → `mode === "build" && paused && mine` (a paused-build shape
-	 *    with the marker's `runId`); a reap flipped it to `error` or a re-claim
-	 *    cleared `awaiting_input` (not paused) → not owned → bail.
+	 * Whether a BUILD may stamp its terminal error. Unlike marker settlement,
+	 * this remains true after this run's marker was settled so the subsequent
+	 * status flip can land. A just-created build may fail before reservation;
+	 * only that marker-absent shape falls back to the root `run_id`. A reaper
+	 * clears the marker run id and a replacement claim writes a new one, so a
+	 * stale build cannot fail its successor.
+	 */
+	buildFailureWriteOwned: (runId: string) => boolean;
+	/**
+	 * Whether `runId` still owns the PAUSED run `actorUserId` is RESUMING — keyed
+	 * on the resume's OWN mode, not the doc's derived `mode`. Both modes require
+	 * the exact holder, `awaiting_input`, and the pause's original actor. A live
+	 * same-run request is not a free continuation, and a co-member cannot forge
+	 * another actor's paused run id. A reap or replacement claim destroys at
+	 * least one of these facts, so a superseded resume bails and touches nothing.
 	 * Keyed on the RESUME's mode (not the derived one) so it reads the right
 	 * discriminator even when the app was re-claimed in the OTHER mode.
 	 */
-	ownedByResume: (runId: string, resumeMode: "build" | "edit") => boolean;
+	ownedByResume: (
+		runId: string,
+		resumeMode: "build" | "edit",
+		actorUserId: string,
+		holderNonce: string | null,
+		enforceNonce: boolean,
+	) => boolean;
 	/**
 	 * An unsettled reservation marker exists — a credit hold owed a settle/refund.
 	 * The failure-path lock-clear and the reapers key on this, never on "my
@@ -177,7 +205,7 @@ export interface RunLease {
 	reaperResolved: boolean;
 	/**
 	 * A hard-killed EDIT with a stranded, unsettled hold — the edit reaper's target
-	 * (complete + non-paused + an unsettled marker + a `run_lock` present-and-lapsed).
+	 * (complete + an unsettled marker + a concrete `run_lock` present-and-lapsed).
 	 * The lock-present requirement distinguishes a stranded edit from a BUILD's
 	 * (lock-less) kept charge, which its clean completion already settled.
 	 */
@@ -193,8 +221,9 @@ export interface RunLease {
 	 * {@link reapableStrandedEdit}, so `reapStaleGenerating` /
 	 * `refundStaleGeneration` re-validate the SAME derivation in-transaction
 	 * (closing the TOCTOU where a fresh build re-claims between the scan and the
-	 * refund). NOT gated on the marker — a marker-less dead build still reaps to
-	 * `error` (its refund is then a no-op).
+	 * refund). NOT gated on a reservation marker — a marker-less dead build with
+	 * a concrete root `run_id` still reaps to `error` (its refund is then a no-op).
+	 * A build missing both identities is corrupt and fails closed.
 	 */
 	reapableStaleBuild: boolean;
 }
@@ -215,6 +244,24 @@ export function runLeaseState(
 	const mode: RunLease["mode"] =
 		fresh.status === "generating" ? "build" : lock ? "edit" : "none";
 	const present = mode !== "none";
+	const normalizedRunId = (value: string | null | undefined): string | null =>
+		typeof value === "string" && value.length > 0 ? value : null;
+	const holderIdentity: RunLease["holderIdentity"] =
+		mode === "build"
+			? {
+					mode,
+					runId: normalizedRunId(
+						reservation === undefined ? fresh.run_id : reservation.runId,
+					),
+					nonce: normalizedRunId(fresh.run_holder_nonce),
+				}
+			: mode === "edit"
+				? {
+						mode,
+						runId: normalizedRunId(lock?.runId),
+						nonce: normalizedRunId(fresh.run_holder_nonce),
+					}
+				: null;
 	const paused = present && awaitingInput;
 	// Within the mode's liveness horizon (build: `updated_at` window; edit: the
 	// `run_lock` lease). Keyed on `lock`/`status` directly so no non-null
@@ -237,8 +284,9 @@ export function runLeaseState(
 			// resolved (its stale terminal writer must NOT failApp a taker's
 			// re-claim). A marker ALWAYS carries a runId once reserved
 			// (`debitAndBookReservation` writes it); an absent runId is
-			// either a migrated legacy marker (resolved by the reapers' own lenient
-			// clauses, never through `mine`) or a reaped ghost — neither is "mine".
+			// either a migrated legacy marker or a reaped ghost — neither is "mine".
+			// A build whose present identity is missing also cannot be canonically
+			// reaped: null is corrupt state, not a replacement-safe token.
 			return reservation?.runId === runId;
 		}
 		return false;
@@ -266,15 +314,30 @@ export function runLeaseState(
 	const terminalWriteOwned = (runId: string): boolean => {
 		if (mode === "edit") return mine(runId); // lock runId — authoritative
 		if (mode === "build") return markerSettleable && mine(runId); // unsettled marker
-		return true; // mode "none": no run occupies the app
+		return false; // no holder means no caller can prove terminal ownership
+	};
+
+	const buildFailureWriteOwned = (runId: string): boolean => {
+		if (mode !== "build") return false;
+		if (reservation !== undefined) return reservation.runId === runId;
+		return fresh.run_id === runId;
 	};
 
 	const ownedByResume = (
 		runId: string,
 		resumeMode: "build" | "edit",
+		actorUserId: string,
+		holderNonce: string | null,
+		enforceNonce: boolean,
 	): boolean => {
-		if (resumeMode === "edit") return mode === "edit" && mine(runId);
-		return mode === "build" && paused && mine(runId);
+		return (
+			mode === resumeMode &&
+			paused &&
+			mine(runId) &&
+			(!enforceNonce ||
+				(holderNonce !== null && holderIdentity?.nonce === holderNonce)) &&
+			pausedBy(actorUserId)
+		);
 	};
 
 	// A stranded EDIT hold to reap: `complete`, an unsettled marker, and a
@@ -296,6 +359,9 @@ export function runLeaseState(
 	// refund targets the marker's own charged actor.
 	const reapableStrandedEdit =
 		fresh.status === "complete" &&
+		holderIdentity !== null &&
+		holderIdentity.mode === "edit" &&
+		holderIdentity.runId !== null &&
 		markerSettleable &&
 		!!lock &&
 		lockExpired(lock, now);
@@ -308,16 +374,21 @@ export function runLeaseState(
 	// `updated_at` via `reacquireLease`, so it stays fresh). `paused` is NOT excluded
 	// — the stale clock is the reap signal.
 	const reapableStaleBuild =
-		mode === "build" && !generatingIsFresh(fresh.updated_at, now);
+		holderIdentity !== null &&
+		holderIdentity.mode === "build" &&
+		holderIdentity.runId !== null &&
+		!generatingIsFresh(fresh.updated_at, now);
 
 	return {
 		mode,
+		holderIdentity,
 		present,
 		live,
 		paused,
 		pausedBy,
 		mine,
 		terminalWriteOwned,
+		buildFailureWriteOwned,
 		ownedByResume,
 		markerSettleable,
 		reaperResolved,

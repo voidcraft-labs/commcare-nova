@@ -1,10 +1,18 @@
 /**
  * DurableStreamWriter — the chat route's one write choke point, wrapping the
- * live response writer so every UI message chunk is BOTH forwarded to the open
- * POST response (best-effort) and appended to the durable chunk log
+ * live response writer so every ordinary UI message chunk is BOTH forwarded to
+ * the open POST response (best-effort) and appended to the durable chunk log
  * (`lib/db/streamChunks`). The log is what makes the stream resumable: a
  * client whose connection broke replays from its cursor via
  * `app/api/chat/[streamId]/stream` instead of losing the run.
+ *
+ * One chunk is deliberately split: `writePrivateHolderNonce` sends the real
+ * run-holder capability only on the authenticated POST response and persists
+ * an inert marker at the same index. The reconnect route replaces that marker
+ * from the actor-bound thread/app projection for the owning actor and leaves it
+ * redacted for every other Project viewer. The one-for-one marker preserves the
+ * transport's count-based cursor without putting the capability in the
+ * view-scoped chunk log.
  *
  * Semantics, in order of importance:
  *
@@ -34,6 +42,10 @@
 import type { UIMessageChunk, UIMessageStreamWriter } from "ai";
 import { appendStreamChunks } from "@/lib/db/streamChunks";
 import { log } from "@/lib/logger";
+import {
+	holderNonceReplayDigest,
+	PRIVATE_HOLDER_NONCE_CHUNK_TYPE,
+} from "./privateHolderNonce";
 
 /** Batch window — chunks buffered up to this long before an append. */
 const FLUSH_MS = 300;
@@ -44,6 +56,7 @@ export interface DurableStreamWriterOptions {
 	streamId: string;
 	appId: string;
 	runId: string;
+	threadId: string;
 	inner: UIMessageStreamWriter;
 }
 
@@ -51,6 +64,7 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	private readonly streamId: string;
 	private readonly appId: string;
 	private readonly runId: string;
+	private readonly threadId: string;
 	private readonly inner: UIMessageStreamWriter;
 
 	/** Chunks written but not yet appended; `buffer[0]` sits at `flushedCount`. */
@@ -71,20 +85,62 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 		this.streamId = options.streamId;
 		this.appId = options.appId;
 		this.runId = options.runId;
+		this.threadId = options.threadId;
 		this.inner = options.inner;
 	}
 
 	write(part: UIMessageChunk): void {
+		/* Defense at the choke point: even if a future caller uses the generic
+		 * writer for this private part, never serialize the capability into the
+		 * view-scoped log. */
+		if (part.type === "data-holder-nonce") {
+			const holderNonce = (part.data as { holderNonce?: unknown }).holderNonce;
+			if (typeof holderNonce === "string") {
+				this.writePrivateHolderNonce(holderNonce);
+				return;
+			}
+		}
+		this.writePair(part, part);
+	}
+
+	/**
+	 * Forward a holder nonce to the POST caller without persisting the token.
+	 * The durable marker occupies exactly one chunk index; the actor-bound
+	 * reconnect route resolves it back to `data-holder-nonce` when authorized.
+	 */
+	writePrivateHolderNonce(holderNonce: string): void {
+		this.writePair(
+			{
+				type: "data-holder-nonce",
+				data: { holderNonce },
+				transient: true,
+			},
+			{
+				type: PRIVATE_HOLDER_NONCE_CHUNK_TYPE,
+				data: {
+					threadId: this.threadId,
+					holderDigest: holderNonceReplayDigest(holderNonce),
+				},
+				transient: true,
+			},
+		);
+	}
+
+	/** Persist `durablePart` and forward `livePart` at the same chunk index. */
+	private writePair(
+		livePart: UIMessageChunk,
+		durablePart: UIMessageChunk,
+	): void {
 		if (this.closed) {
 			log.warn("[durableStream] write after close dropped", {
 				streamId: this.streamId,
-				type: part.type,
+				type: livePart.type,
 			});
 			return;
 		}
-		if (part.type === "finish") this.sawFinish = true;
+		if (livePart.type === "finish") this.sawFinish = true;
 		if (!this.broken) {
-			this.buffer.push(part);
+			this.buffer.push(durablePart);
 			if (this.buffer.length >= FLUSH_CHUNK_COUNT) {
 				this.enqueueFlush(false);
 			} else {
@@ -93,7 +149,7 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 		}
 		if (!this.forwardingDead) {
 			try {
-				this.inner.write(part);
+				this.inner.write(livePart);
 			} catch {
 				this.forwardingDead = true;
 			}

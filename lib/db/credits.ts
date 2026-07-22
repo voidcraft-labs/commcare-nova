@@ -23,7 +23,16 @@ import {
 } from "./leaseView";
 import { getCurrentPeriod } from "./period";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
+import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
+import {
+	type ExactRunHolderIdentity,
+	exactRunHolderMatches,
+	expectedRunHolderPredicate,
+	type RunHolderWriteOutcome,
+	updatedExactlyOne,
+} from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
+import { declareRuntimeReader } from "./runtimeReaderVersion";
 import type { AppReservation, CreditGrantDoc } from "./types";
 
 /**
@@ -48,6 +57,24 @@ export class OutOfCreditsError extends Error {
 export interface Reservation {
 	period: string;
 	reserved: number;
+}
+
+/** A conditional holder write lost its exact compare-and-set. Throwing rolls
+ * back any credit-row refund already made in the same transaction. */
+class RunHolderWriteConflictError extends Error {
+	constructor(operation: string) {
+		super(`${operation} lost exact run-holder ownership`);
+		this.name = "RunHolderWriteConflictError";
+	}
+}
+
+function requireExactHolderWrite(
+	operation: string,
+	result: { readonly numUpdatedRows: bigint },
+): void {
+	if (!updatedExactlyOne(result)) {
+		throw new RunHolderWriteConflictError(operation);
+	}
 }
 
 /** Lock + read one app's liveness slice inside a refund transaction. */
@@ -180,12 +207,25 @@ export async function debitAndBookReservation(
 		userId: string;
 		cost: number;
 		runId: string;
+		holderNonce: string;
 		period: string;
 		priorMarker: AppReservation | undefined;
 		owner: string;
 	},
 ): Promise<void> {
-	const { appId, userId, cost, runId, period, priorMarker, owner } = args;
+	const {
+		appId,
+		userId,
+		cost,
+		runId,
+		holderNonce,
+		period,
+		priorMarker,
+		owner,
+	} = args;
+	// An absent declaration is the deployed-v0 signal at the migration gate.
+	// Declare before any credit or holder DML in this transaction.
+	await declareRuntimeReader(tx);
 
 	let priorRefundSameRow = 0;
 	let crossRefund: { user: string; period: string; amount: number } | undefined;
@@ -248,6 +288,7 @@ export async function debitAndBookReservation(
 			res_settled: false,
 			res_user_id: userId,
 			res_run_id: runId,
+			run_holder_nonce: holderNonce,
 		})
 		.where("id", "=", appId)
 		.execute();
@@ -256,34 +297,53 @@ export async function debitAndBookReservation(
 /**
  * Refund the credits a reservation booked AND atomically settle its marker —
  * the FLUSH path's refund (a failed / zero-cost run un-booking its OWN hold).
- * OWNERSHIP-GATED through `terminalWriteOwned`: it no-ops when a different
- * run owns the app (this run was reaped + the freed app re-claimed), so it
- * can't claw the new run's live marker. Idempotent via `settled`; refunds the
- * CHARGED actor (`res_user_id`, falling back to `owner` for legacy markers).
+ * OWNERSHIP-GATED by the caller's holder capability. During compatibility the
+ * database admits the legacy `(mode, runId)` projection; after activation it
+ * requires the exact `(mode, runId, nonce)`. In either mode,
+ * `terminalWriteOwned`: it no-ops when the holder is absent or different, so
+ * it cannot claw a replacement run's live marker. Idempotent via `settled`;
+ * refunds the CHARGED actor (`res_user_id`, falling back to `owner` for legacy
+ * markers).
  */
 export async function refundReservation(
 	appId: string,
 	runId: string,
+	holderNonce: string,
+	mode: "build" | "edit",
 ): Promise<void> {
 	await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return;
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
-		if (!lease.terminalWriteOwned(runId)) return;
+		const expectedHolder = { mode, runId, nonce: holderNonce } as const;
+		if (
+			!exactRunHolderMatches(
+				lease.holderIdentity,
+				expectedHolder,
+				enforceNonce,
+			) ||
+			!lease.terminalWriteOwned(runId)
+		) {
+			return;
+		}
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
 		if (!reservation || reservation.settled || !chargedUserId) return;
+		await declareRuntimeReader(tx);
 		await refundToMonth(
 			tx,
 			chargedUserId,
 			reservation.period,
 			reservation.reserved,
 		);
-		await tx
+		const result = await tx
 			.updateTable("apps")
 			.set({ res_settled: true })
 			.where("id", "=", appId)
-			.execute();
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.executeTakeFirst();
+		requireExactHolderWrite("refundReservation", result);
 	});
 }
 
@@ -293,26 +353,39 @@ export async function refundReservation(
  * marker unsettled" is impossible by construction (a thrown transaction
  * changes nothing; the lock stays for `reapStaleReservation`).
  *
- * The RETURN (`settled`) answers the SEPARATE question "is this run's credit
- * RESOLVED — safe for the route to `failApp`?": true when the app is mine or
- * unowned (whether flush pre-settled or this call settles), false only when a
- * DIFFERENT run owns it (the reaper-race — reaped + re-claimed), when the
- * route must not flip the taker's app to `error`. A reaped ghost's marker had
- * its `runId` CLEARED by the reaper, so non-lenient `mine` reads it unowned
- * only when a taker's fresh marker replaced it; a bare reaper-resolved marker
- * on a free app reads `mode: "none"` → owned → resolved.
+ * The RETURN (`settled`) answers the SEPARATE question "does this admitted
+ * holder capability still own the outcome — safe for the route to `failApp`?":
+ * true when that holder remains (whether flush pre-settled or this call
+ * settles), false when it is absent or different. A reaped ghost therefore
+ * has no terminal authority even before another run claims the app.
  */
 export async function settleAndRelease(
 	appId: string,
 	runId: string,
-	opts: { releaseLock: boolean },
-): Promise<{ settled: boolean }> {
+	holderNonce: string,
+	opts: { mode: "build" | "edit" },
+): Promise<{ settled: boolean; outcome: RunHolderWriteOutcome }> {
 	return await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
-		if (!row) return { settled: false };
+		if (!row) return { settled: false, outcome: "released" };
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
-		const ownedByMe = lease.mode === "none" || lease.mine(runId);
-		if (!ownedByMe) return { settled: false };
+		const expectedHolder = {
+			mode: opts.mode,
+			runId,
+			nonce: holderNonce,
+		} as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
+		) {
+			return {
+				settled: false,
+				outcome: lease.present ? "superseded" : "released",
+			};
+		}
+		// Keep the declaration ahead of both the refund ledger write and the
+		// terminal holder update: absence is how the trigger identifies v0.
+		await declareRuntimeReader(tx);
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
 		if (reservation && !reservation.settled && chargedUserId) {
@@ -325,24 +398,27 @@ export async function settleAndRelease(
 		}
 		const settleField =
 			reservation && !reservation.settled ? { res_settled: true } : {};
-		const releaseField = opts.releaseLock
-			? {
-					lock_run_id: null,
-					lock_actor_user_id: null,
-					lock_expire_at: null,
-				}
-			: {};
+		const releaseField =
+			opts.mode === "edit"
+				? {
+						lock_run_id: null,
+						lock_actor_user_id: null,
+						lock_expire_at: null,
+					}
+				: {};
 		if (
 			Object.keys(settleField).length + Object.keys(releaseField).length >
 			0
 		) {
-			await tx
+			const result = await tx
 				.updateTable("apps")
 				.set({ ...settleField, ...releaseField })
 				.where("id", "=", appId)
-				.execute();
+				.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+				.executeTakeFirst();
+			requireExactHolderWrite("settleAndRelease", result);
 		}
-		return { settled: true };
+		return { settled: true, outcome: "owned" };
 	});
 }
 
@@ -355,21 +431,37 @@ export async function settleAndRelease(
  * terminal writer must not read it as `mine`), RELEASES the lapsed lock, and
  * clears `awaiting_input`, all in one commit. Idempotent via `settled`.
  */
-export async function refundStaleReservation(appId: string): Promise<void> {
+export async function refundStaleReservation(
+	appId: string,
+	expectedHolder: ExactRunHolderIdentity,
+): Promise<void> {
 	await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return;
-		if (!runLeaseState(leaseView(row)).reapableStrandedEdit) return;
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		const lease = runLeaseState(leaseView(row));
+		if (
+			expectedHolder.mode !== "edit" ||
+			!exactRunHolderMatches(
+				lease.holderIdentity,
+				expectedHolder,
+				enforceNonce,
+			) ||
+			!lease.reapableStrandedEdit
+		) {
+			return;
+		}
 		const reservation = rowReservation(row) as AppReservation;
 		const chargedUserId = reservation.userId ?? row.owner;
 		if (!chargedUserId) return;
+		await declareRuntimeReader(tx);
 		await refundToMonth(
 			tx,
 			chargedUserId,
 			reservation.period,
 			reservation.reserved,
 		);
-		await tx
+		const result = await tx
 			.updateTable("apps")
 			.set({
 				res_settled: true,
@@ -380,7 +472,9 @@ export async function refundStaleReservation(appId: string): Promise<void> {
 				awaiting_input: false,
 			})
 			.where("id", "=", appId)
-			.execute();
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.executeTakeFirst();
+		requireExactHolderWrite("refundStaleReservation", result);
 	});
 }
 
@@ -391,15 +485,35 @@ export async function refundStaleReservation(appId: string): Promise<void> {
  * and this no-ops). Clears the marker's `runId` (the reaper's signature) and
  * `awaiting_input` (an ABANDONED PAUSED build reaps with the distinct
  * `paused_timeout` classification — it expired waiting, it didn't crash).
- * A marker-less dead build still flips to `error` with no credit write.
+ * The reaper clears `res_run_id` only while it refunds an unsettled marker;
+ * a marker pre-settled by the run's own failure flush retains its identity and
+ * is deliberately not eligible for false-reap self-heal. A marker-less dead
+ * build with a concrete root `run_id` still flips to `error` with no credit
+ * write; a missing holder identity fails closed.
  */
-export async function refundStaleGeneration(appId: string): Promise<void> {
+export async function refundStaleGeneration(
+	appId: string,
+	expectedHolder: ExactRunHolderIdentity,
+): Promise<void> {
 	await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return;
-		if (!runLeaseState(leaseView(row)).reapableStaleBuild) return;
+		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		const lease = runLeaseState(leaseView(row));
+		if (
+			expectedHolder.mode !== "build" ||
+			!exactRunHolderMatches(
+				lease.holderIdentity,
+				expectedHolder,
+				enforceNonce,
+			) ||
+			!lease.reapableStaleBuild
+		) {
+			return;
+		}
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
+		await declareRuntimeReader(tx);
 		if (reservation && !reservation.settled && chargedUserId) {
 			await refundToMonth(
 				tx,
@@ -408,7 +522,7 @@ export async function refundStaleGeneration(appId: string): Promise<void> {
 				reservation.reserved,
 			);
 		}
-		await tx
+		const result = await tx
 			.updateTable("apps")
 			.set({
 				status: "error",
@@ -419,7 +533,9 @@ export async function refundStaleGeneration(appId: string): Promise<void> {
 					: {}),
 			})
 			.where("id", "=", appId)
-			.execute();
+			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.executeTakeFirst();
+		requireExactHolderWrite("refundStaleGeneration", result);
 	});
 }
 

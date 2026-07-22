@@ -21,6 +21,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import {
@@ -57,6 +58,41 @@ import {
 	useCaseDataRevision,
 } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
+import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+
+/** Mutation hooks also render in a few provider-light tests. In a live builder,
+ * read the store imperatively so a reset-stack completion cannot invalidate the
+ * destination generation before React updates hook closures. */
+function useProjectActionAuthority(): {
+	capture: () => number | null;
+	isCurrent: (epoch: number) => boolean;
+} {
+	const session = useOptionalBuilderSessionApi();
+	const renderedEpoch = useProjectScopeEpoch();
+	const renderedPhase = useAccessPhase();
+	return {
+		capture: () => {
+			if (!session)
+				return renderedPhase === "authorized" ? renderedEpoch : null;
+			const current = session.getState();
+			return current.accessPhase === "authorized" && current.canEdit
+				? current.scopeEpoch
+				: null;
+		},
+		isCurrent: (epoch) => {
+			if (!session) {
+				return renderedPhase === "authorized" && renderedEpoch === epoch;
+			}
+			const current = session.getState();
+			return (
+				current.accessPhase === "authorized" &&
+				current.canEdit &&
+				current.scopeEpoch === epoch
+			);
+		},
+	};
+}
 
 /**
  * Adds `idle` / `loading` arms to a load result. `idle` covers
@@ -145,15 +181,19 @@ export function useCases(args: {
 	} = args;
 	const pageOffset = page?.offset;
 	const pageLimit = page?.limit;
+	const scopeEpoch = useProjectScopeEpoch();
+	const runtimeScopeId =
+		useReconcilerContext()?.projectScopeId ?? "provider-light";
+	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const replacementRevision = useCaseDataReplacementRevision(appId, caseType);
-	const ready = Boolean(appId && caseType);
+	const ready = Boolean(appId && caseType && accessPhase === "authorized");
 	/* Query edits within one case type deliberately keep settled rows visible,
 	 * but an app/case-type change is an identity boundary. Keep that identity
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -180,7 +220,7 @@ export function useCases(args: {
 	}
 	const resource = useReloadableResource<KeyedCasesState>({
 		prepare: () =>
-			!appId || !caseType
+			!ready || !appId || !caseType
 				? {
 						notReady: {
 							kind: "cases",
@@ -259,9 +299,11 @@ export function useCases(args: {
  * rather than a stale different-pair result when the identity moves.
  */
 /**
- * One in-flight Server Action call per `(resource, appId, caseType,
- * revision)` across every mounted subscriber. The Case data badge and
- * the review screen both list the same pair, and a shared
+ * One in-flight Server Action call per `(runtime provenance, scopeEpoch,
+ * resource variant, appId, caseType, revision)`. Subscribers inside one
+ * authorized runtime generation share the call; a remounted runtime or a
+ * Project boundary never adopts another generation's promise. The Case data
+ * badge and the review screen both list the same pair, and a shared
  * invalidation bumps both mounts in the same commit — without this,
  * each fires its own identical call. Entries evict on settle, so a
  * later explicit reload (same key, empty map) always refetches.
@@ -297,9 +339,15 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	reload: () => Promise<void>;
 } {
 	const { appId, caseType, fetcher, settledKind, variant, errorMessage } = args;
+	const scopeEpoch = useProjectScopeEpoch();
+	const runtimeScopeId =
+		useReconcilerContext()?.projectScopeId ?? "provider-light";
+	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
-	const ready = Boolean(appId && caseType);
-	const requestIdentity = ready ? `${appId}\u0000${caseType}` : "";
+	const ready = Boolean(appId && caseType && accessPhase === "authorized");
+	const requestIdentity = ready
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}`
+		: "";
 	const reloadToken = useMemo(
 		() => [requestIdentity, caseDataRevision],
 		[requestIdentity, caseDataRevision],
@@ -311,7 +359,7 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	}
 	const resource = useReloadableResource<KeyedState>({
 		prepare: () =>
-			!appId || !caseType
+			!ready || !appId || !caseType
 				? {
 						notReady: {
 							kind: "per-case-type",
@@ -424,14 +472,18 @@ export function useCaseData(args: {
 		caseTypes,
 		includeHeld,
 	} = args;
+	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
-	const ready = Boolean(appId && caseType && caseId);
+	const ready = Boolean(
+		appId && caseType && caseId && accessPhase === "authorized",
+	);
 	/* Keep the request identity beside its result. A dependency change renders
 	 * before this hook's effect can set `loading`; returning a row from the prior
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${caseDataRevision}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${caseDataRevision}`
 		: "";
 	const reloadToken = useMemo(
 		() => [requestKey, caseListConfig, caseTypes],
@@ -446,7 +498,7 @@ export function useCaseData(args: {
 	}
 	const resource = useReloadableResource<KeyedCaseDataState>({
 		prepare: () =>
-			!appId || !caseType || !caseId
+			!ready || !appId || !caseType || !caseId
 				? {
 						notReady: {
 							kind: "case-data",
@@ -522,16 +574,22 @@ export function usePopulateSampleCases(args: {
 	caseType: CaseType | undefined;
 }): () => Promise<PopulateSampleCasesResult> {
 	const { appId, caseType } = args;
+	const authority = useProjectActionAuthority();
 
 	return async () => {
+		const operationEpoch = authority.capture();
 		if (!appId || !caseType) {
 			return {
 				kind: "error",
 				message: "App or case type not yet available.",
 			};
 		}
+		if (operationEpoch === null) {
+			return { kind: "error", message: "Project access is refreshing." };
+		}
 		const result = await populateSampleCasesAction(appId, caseType);
-		if (result.kind === "ok") invalidateCaseData(appId, caseType.name);
+		if (result.kind === "ok" && authority.isCurrent(operationEpoch))
+			invalidateCaseData(appId, caseType.name);
 		return result;
 	};
 }
@@ -554,16 +612,21 @@ export function useResetSampleCases(args: {
 	caseType: CaseType | undefined;
 }): () => Promise<PopulateSampleCasesResult> {
 	const { appId, caseType } = args;
+	const authority = useProjectActionAuthority();
 
 	return async () => {
+		const operationEpoch = authority.capture();
 		if (!appId || !caseType) {
 			return {
 				kind: "error",
 				message: "App or case type not yet available.",
 			};
 		}
+		if (operationEpoch === null) {
+			return { kind: "error", message: "Project access is refreshing." };
+		}
 		const result = await resetSampleCasesAction(appId, caseType);
-		if (result.kind === "ok")
+		if (result.kind === "ok" && authority.isCurrent(operationEpoch))
 			invalidateCaseData(appId, caseType.name, "replacement");
 		return result;
 	};
@@ -608,12 +671,18 @@ export function useRestoreParkedValues(args: {
 	caseType: string | undefined;
 }): (ids: string[]) => Promise<RestoreParkedValuesResult> {
 	const { appId, caseType } = args;
+	const authority = useProjectActionAuthority();
 	return async (ids) => {
+		const operationEpoch = authority.capture();
 		if (!appId || !caseType) {
 			return { kind: "error", message: "App or case type not yet available." };
 		}
+		if (operationEpoch === null) {
+			return { kind: "error", message: "Project access is refreshing." };
+		}
 		const result = await restoreParkedValuesAction({ appId, ids });
-		if (result.kind === "restored") invalidateCaseData(appId, caseType);
+		if (result.kind === "restored" && authority.isCurrent(operationEpoch))
+			invalidateCaseData(appId, caseType);
 		return result;
 	};
 }
@@ -631,16 +700,22 @@ export function useSetParkedValuesDismissed(args: {
 	dismissed: boolean,
 ) => Promise<SetParkedValuesDismissedResult> {
 	const { appId, caseType } = args;
+	const authority = useProjectActionAuthority();
 	return async (ids, dismissed) => {
+		const operationEpoch = authority.capture();
 		if (!appId || !caseType) {
 			return { kind: "error", message: "App or case type not yet available." };
+		}
+		if (operationEpoch === null) {
+			return { kind: "error", message: "Project access is refreshing." };
 		}
 		const result = await setParkedValuesDismissedAction({
 			appId,
 			ids,
 			dismissed,
 		});
-		if (result.kind === "toggled") invalidateCaseData(appId, caseType);
+		if (result.kind === "toggled" && authority.isCurrent(operationEpoch))
+			invalidateCaseData(appId, caseType);
 		return result;
 	};
 }
@@ -655,12 +730,18 @@ export function useReplaceParkedValue(args: {
 	caseType: string | undefined;
 }): (id: string, value: JsonValue) => Promise<ReplaceParkedValueResult> {
 	const { appId, caseType } = args;
+	const authority = useProjectActionAuthority();
 	return async (id, value) => {
+		const operationEpoch = authority.capture();
 		if (!appId || !caseType) {
 			return { kind: "error", message: "App or case type not yet available." };
 		}
+		if (operationEpoch === null) {
+			return { kind: "error", message: "Project access is refreshing." };
+		}
 		const result = await replaceParkedValueAction({ appId, id, value });
-		if (result.kind === "replaced") invalidateCaseData(appId, caseType);
+		if (result.kind === "replaced" && authority.isCurrent(operationEpoch))
+			invalidateCaseData(appId, caseType);
 		return result;
 	};
 }

@@ -43,6 +43,7 @@ const DEFAULT_SEED: AccumulatorSeed = {
 	appId: "test-app",
 	userId: "user-1",
 	runId: "run-1",
+	holderNonce: "00000000-0000-4000-8000-000000000001",
 	model: "gpt-5.6-sol",
 	promptMode: "build",
 	appReady: false,
@@ -109,6 +110,9 @@ export function makeTestContext(
 		usage,
 		session,
 		appId: opts.appId ?? "test-app",
+		projectId: "project-test",
+		holderNonce:
+			opts.seed?.holderNonce ?? "00000000-0000-4000-8000-000000000001",
 		// Build-mode fixture by default (no edit run_lock, so no lease heartbeat).
 		editLease: opts.editLease ?? false,
 		conversionImpact: opts.conversionImpact ?? emptyConversionImpact,
@@ -208,6 +212,7 @@ export function makeMcpTestContext(
 	const ctx = new McpContext({
 		appId: opts.appId ?? "test-app",
 		userId: opts.userId ?? "user-1",
+		projectId: "project-test",
 		runId: opts.runId ?? "run-1",
 		logWriter: logWriterStub,
 		progress: progressStub,
@@ -275,6 +280,7 @@ export function makeStubToolContext(
 	);
 	const ctx: ToolExecutionContext = {
 		appId: opts.appId ?? "test-app",
+		projectId: "project-test",
 		userId: opts.userId ?? "user-1",
 		runId: opts.runId ?? "run-1",
 		recordMutations,

@@ -30,6 +30,31 @@ Run-boundary actions are orthogonal and atomic:
 
 **Every other lifecycle signal is derived from these fields** via pure functions (`lifecycle.ts`, plus `derivePhase` in `hooks.tsx`): phase, stage, classified error, validation attempt, status message, postBuildEdit. No `agentActive` / `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` flags exist — those were shadow state populated only by the live SSE path; deriving from the buffer instead keeps the layout a pure function of the events.
 
+## Mutable app access
+
+BuilderSession is the one client owner of `{projectId, role, canEdit,
+accessPhase, scopeEpoch}`. Existing apps seed the first four values from the
+RSC's atomic app snapshot; `/build/new` seeds them from the active Project's
+role with `baseSeq: 0` while its reconciler stays dormant. `baseSeq` otherwise
+stays with the reconciler. A new app is promoted only through
+`activateCreatedApp`, which installs its server-returned app id and complete
+Project capability tuple in one store update before the reconciler opens.
+`beginAccessRefresh`
+atomically sets `canEdit=false`, enters `refreshing`, and advances the monotonic
+scope epoch once; repeated triggers coalesce. A failed GET moves to
+`reconnecting` without reopening edits. Only an atomic authorized snapshot can
+restore `authorized`/`canEdit`; confirmed view loss and a repeated receiver
+upgrade rejection have distinct terminal phases. Components consume named
+hooks only, and `BlueprintEditableBridge` projects the live `canEdit` into the
+doc mutation choke point.
+
+`resetProjectScope()` is the synchronous session-owned half of that boundary.
+It aborts every staged upload, clears staged/observed asset metadata, drops the
+selected preview case, and retires the full run-event payload plus its lifecycle
+timestamps before the destination GET starts. Chat owns the matching transport
+stop and closes any open document run bracket. Authoring state and the unsent
+composer draft are deliberately retained.
+
 **Generation stages are cumulative milestones, not the latest tool label.** The live model is `Foundation → Build`: `updateApp` and the optional `generateSchema` establish the foundation; atomic module/form tools establish Build. A later schema enrichment cannot undo already-committed content, so `deriveAgentStage` folds the whole event prefix into those facts instead of reading the last recognized tag or clamping against hidden state. Historical `schema` / `scaffold` / `fix:*` tags are projected into the current model at read time; stage values themselves are ephemeral and are not stored beside the event log, so this model needs no data migration.
 
 **Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` — a run that opened on an empty doc is an initial build (Generating layout); one that opened on a populated doc is an edit (the builder stays Ready/interactive while the agent works).

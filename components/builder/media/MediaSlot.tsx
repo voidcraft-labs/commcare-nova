@@ -52,6 +52,7 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { IconSlotKind } from "@/lib/domain/builtinIcons";
 import {
 	isMediaKind,
@@ -60,20 +61,25 @@ import {
 } from "@/lib/domain/multimedia";
 import {
 	useAppId,
+	useCanEdit,
+	useProjectScopeEpoch,
 	useStagedUpload,
 	useStagedUploadsFor,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { StagedUpload } from "@/lib/session/types";
-import { showToast } from "@/lib/ui/toastStore";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { MediaPickerDialog } from "./MediaPickerDialog";
 import {
 	clearMediaSlot,
 	type MediaAssetView,
-	mediaSrc,
 	setMediaSlot,
 } from "./mediaClient";
+import {
+	ProjectMediaAudio,
+	ProjectMediaImage,
+	ProjectMediaVideo,
+} from "./ProjectMediaResource";
 import { useAttachBudgetGuard } from "./useAttachBudget";
 import { useStagedSlotUpload } from "./useStagedUpload";
 
@@ -84,9 +90,15 @@ import { useStagedSlotUpload } from "./useStagedUpload";
  */
 function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
 	const session = useBuilderSessionApi();
+	const scopeEpoch = useProjectScopeEpoch();
 	return useCallback(
-		(assets: MediaAssetView[]) => session.getState().recordAssetMeta(assets),
-		[session],
+		(assets: MediaAssetView[]) => {
+			const state = session.getState();
+			if (state.scopeEpoch !== scopeEpoch || state.accessPhase !== "authorized")
+				return;
+			session.getState().recordAssetMeta(assets);
+		},
+		[scopeEpoch, session],
 	);
 }
 
@@ -135,9 +147,11 @@ export function MediaSlot({
 	const [picker, setPicker] = useState<PickerState>({ open: false, kinds });
 	const staged = useStagedUploadsFor(slotKey);
 	const session = useBuilderSessionApi();
+	const canEdit = useCanEdit();
 	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
+	const projectToast = useProjectToast();
 
 	// The confirm-time attach must compose against the carrier's CURRENT
 	// bundle (another kind may have attached while the upload ran), and the
@@ -168,8 +182,15 @@ export function MediaSlot({
 					key={kind}
 					kind={kind}
 					assetId={value?.[kind] as string}
-					onReplace={() => setPicker({ open: true, kinds: [kind] })}
-					onRemove={() => onChange(clearMediaSlot(value, kind))}
+					editable={canEdit}
+					onReplace={() => {
+						if (session.getState().canEdit)
+							setPicker({ open: true, kinds: [kind] });
+					}}
+					onRemove={() => {
+						if (session.getState().canEdit)
+							onChange(clearMediaSlot(value, kind));
+					}}
 				/>
 			))}
 			{stagedKinds.map((kind) => {
@@ -185,7 +206,7 @@ export function MediaSlot({
 					/>
 				);
 			})}
-			{!allBusy && (
+			{canEdit && !allBusy && (
 				<AttachButton
 					// Once something is attached, the control adds another kind
 					// rather than the first — "Add" reads truer than a second
@@ -210,9 +231,23 @@ export function MediaSlot({
 				onPick={(asset) => {
 					if (!isMediaKind(asset.kind)) return;
 					const kind = asset.kind;
+					const start = session.getState();
+					if (start.accessPhase !== "authorized" || !start.canEdit) return;
+					const pickScopeEpoch = start.scopeEpoch;
 					void checkAttachBudget(asset).then((verdict) => {
+						const current = session.getState();
+						if (
+							current.scopeEpoch !== pickScopeEpoch ||
+							current.accessPhase !== "authorized" ||
+							!current.canEdit
+						)
+							return;
 						if (!verdict.ok) {
-							showToast("warning", "Couldn't attach this file", verdict.error);
+							projectToast(
+								"warning",
+								"Couldn't attach this file",
+								verdict.error,
+							);
 							return;
 						}
 						onChangeRef.current(setMediaSlot(valueRef.current, kind, asset.id));
@@ -276,9 +311,11 @@ export function SingleAssetSlot({
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const staged = useStagedUpload(slotKey);
 	const session = useBuilderSessionApi();
+	const canEdit = useCanEdit();
 	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
+	const projectToast = useProjectToast();
 
 	const onChangeRef = useRef(onChange);
 	useEffect(() => {
@@ -298,8 +335,13 @@ export function SingleAssetSlot({
 				<AssetChip
 					kind={kind}
 					assetId={value}
-					onReplace={() => setPickerOpen(true)}
-					onRemove={() => onChange(undefined)}
+					editable={canEdit}
+					onReplace={() => {
+						if (session.getState().canEdit) setPickerOpen(true);
+					}}
+					onRemove={() => {
+						if (session.getState().canEdit) onChange(undefined);
+					}}
 				/>
 			)}
 			{staged && (
@@ -309,7 +351,7 @@ export function SingleAssetSlot({
 					onDismiss={() => session.getState().clearStagedUpload(slotKey)}
 				/>
 			)}
-			{!value && !staged && (
+			{canEdit && !value && !staged && (
 				<AttachButton label="Attach" onClick={() => setPickerOpen(true)} />
 			)}
 			<MediaPickerDialog
@@ -323,9 +365,23 @@ export function SingleAssetSlot({
 				// the doc; the shared prose lands as a toast (the picker has
 				// already closed).
 				onPick={(asset) => {
+					const start = session.getState();
+					if (start.accessPhase !== "authorized" || !start.canEdit) return;
+					const pickScopeEpoch = start.scopeEpoch;
 					void checkAttachBudget(asset).then((verdict) => {
+						const current = session.getState();
+						if (
+							current.scopeEpoch !== pickScopeEpoch ||
+							current.accessPhase !== "authorized" ||
+							!current.canEdit
+						)
+							return;
 						if (!verdict.ok) {
-							showToast("warning", "Couldn't attach this file", verdict.error);
+							projectToast(
+								"warning",
+								"Couldn't attach this file",
+								verdict.error,
+							);
 							return;
 						}
 						onChangeRef.current(asset.id);
@@ -449,11 +505,13 @@ export function StagedUploadChip({
 function AssetChip({
 	kind,
 	assetId,
+	editable,
 	onReplace,
 	onRemove,
 }: {
 	kind: MediaKind;
 	assetId: string;
+	editable: boolean;
 	onReplace: () => void;
 	onRemove: () => void;
 }) {
@@ -485,30 +543,34 @@ function AssetChip({
 				</PopoverContent>
 			</Popover>
 
-			<SimpleTooltip content={`Replace ${noun}`}>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					onClick={onReplace}
-					aria-label={`Replace ${noun}`}
-					className="size-11 text-nova-text-muted"
-				>
-					<Icon icon={tablerReplace} className="size-4" />
-				</Button>
-			</SimpleTooltip>
-			<SimpleTooltip content={`Remove ${noun}`}>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					onClick={onRemove}
-					aria-label={`Remove ${noun}`}
-					className="size-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
-				>
-					<Icon icon={tablerTrash} className="size-4" />
-				</Button>
-			</SimpleTooltip>
+			{editable && (
+				<>
+					<SimpleTooltip content={`Replace ${noun}`}>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={onReplace}
+							aria-label={`Replace ${noun}`}
+							className="size-11 text-nova-text-muted"
+						>
+							<Icon icon={tablerReplace} className="size-4" />
+						</Button>
+					</SimpleTooltip>
+					<SimpleTooltip content={`Remove ${noun}`}>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={onRemove}
+							aria-label={`Remove ${noun}`}
+							className="size-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
+						>
+							<Icon icon={tablerTrash} className="size-4" />
+						</Button>
+					</SimpleTooltip>
+				</>
+			)}
 		</div>
 	);
 }
@@ -517,9 +579,8 @@ function AssetChip({
 function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 	if (kind === "image") {
 		return (
-			// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-			<img
-				src={mediaSrc(assetId)}
+			<ProjectMediaImage
+				assetId={assetId}
 				alt=""
 				className="size-9 rounded-md object-cover"
 			/>
@@ -537,12 +598,10 @@ function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 
 /** Larger preview inside the popover — image bitmap or a native player. */
 function AssetPreview({ kind, assetId }: { kind: MediaKind; assetId: string }) {
-	const src = mediaSrc(assetId);
 	if (kind === "image") {
 		return (
-			// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-			<img
-				src={src}
+			<ProjectMediaImage
+				assetId={assetId}
 				alt=""
 				className="max-h-48 w-full rounded object-contain"
 			/>
@@ -553,9 +612,13 @@ function AssetPreview({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 		// it to 0 inside the shrink-to-fit popover (an `<img>` escapes this because
 		// its bitmap gives the popover a width to resolve against). A definite
 		// width gives the control bar room to render instead of an empty popover.
-		// biome-ignore lint/a11y/useMediaCaption: author-supplied media; no caption track available
-		return <audio src={src} controls className="w-72" />;
+		return <ProjectMediaAudio assetId={assetId} controls className="w-72" />;
 	}
-	// biome-ignore lint/a11y/useMediaCaption: author-supplied media; no caption track available
-	return <video src={src} controls className="max-h-48 w-full rounded" />;
+	return (
+		<ProjectMediaVideo
+			assetId={assetId}
+			controls
+			className="max-h-48 w-full rounded"
+		/>
+	);
 }

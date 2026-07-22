@@ -30,6 +30,48 @@ describe("BuilderSession store", () => {
 		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
 	});
 
+	it("owns one atomic mutable access tuple and coalesces a refresh epoch", () => {
+		const store = createBuilderSessionStore({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+
+		const firstEpoch = store.getState().beginAccessRefresh();
+		const coalescedEpoch = store.getState().beginAccessRefresh();
+		expect(firstEpoch).toBe(1);
+		expect(coalescedEpoch).toBe(1);
+		expect(store.getState()).toMatchObject({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: false,
+			accessPhase: "refreshing",
+			scopeEpoch: 1,
+		});
+
+		store.getState().markAccessReconnecting();
+		expect(store.getState().accessPhase).toBe("reconnecting");
+		store.getState().applyAccessSnapshot({
+			projectId: "project-destination",
+			role: "viewer",
+			canEdit: false,
+		});
+		expect(store.getState()).toMatchObject({
+			projectId: "project-destination",
+			role: "viewer",
+			canEdit: false,
+			accessPhase: "authorized",
+			scopeEpoch: 1,
+		});
+
+		store.getState().beginAccessRefresh();
+		expect(store.getState().scopeEpoch).toBe(2);
+		store.getState().requireClientUpgrade();
+		expect(store.getState().accessPhase).toBe("upgradeRequired");
+		store.getState().revokeAccess();
+		expect(store.getState().accessPhase).toBe("revoked");
+	});
+
 	it("2. setPreviewing(true) from editing: stashes open values, closes both", () => {
 		const store = createBuilderSessionStore();
 		store.getState().setPreviewing(true);
@@ -194,6 +236,75 @@ describe("BuilderSession store", () => {
 			.setPreviewSelectedCase({ caseId: "case-2", caseName: "Bo" });
 		store.getState().setPreviewing(false);
 		expect(store.getState().previewSelectedCase).toBeUndefined();
+	});
+
+	it("Project-scope reset clears preview case identity without leaving preview", () => {
+		const store = createBuilderSessionStore();
+		const formUuid = asUuid("form-1");
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewCaseTarget({
+			formUuid,
+			caseId: "case-from-source-project",
+		});
+		store.getState().setPreviewSelectedCase({
+			caseId: "case-from-source-project",
+			caseName: "Source household",
+		});
+
+		store.getState().resetProjectScope();
+
+		expect(store.getState().previewing).toBe(true);
+		expect(store.getState().previewCaseTarget).toBeUndefined();
+		expect(store.getState().previewSelectedCase).toBeUndefined();
+	});
+
+	it("Project-scope reset retires attachment/tool run payloads and phase state", () => {
+		const store = createBuilderSessionStore();
+		store.getState().beginRun({ startedWithData: true });
+		store.getState().pushEvents([
+			{
+				kind: "conversation",
+				runId: "source-run",
+				ts: 1,
+				seq: 1,
+				source: "chat",
+				payload: {
+					type: "user-message",
+					text: "Use this",
+					attachments: [
+						{
+							assetId: "source-asset",
+							kind: "pdf",
+							filename: "source.pdf",
+							mimeType: "application/pdf",
+						},
+					],
+				},
+			},
+			{
+				kind: "conversation",
+				runId: "source-run",
+				ts: 2,
+				seq: 2,
+				source: "chat",
+				payload: {
+					type: "tool-call",
+					toolCallId: "tool-1",
+					toolName: "attach_media",
+					input: { assetId: "source-asset" },
+				},
+			},
+		]);
+		store.getState().markRunCompleted();
+
+		store.getState().resetProjectScope();
+
+		expect(store.getState().events).toEqual([]);
+		expect(store.getState().runStartedWithData).toBe(false);
+		expect(store.getState().runCompletedAt).toBeUndefined();
+		expect(JSON.stringify(store.getState().events)).not.toContain(
+			"source-asset",
+		);
 	});
 });
 
@@ -825,6 +936,30 @@ describe("generation lifecycle", () => {
 		const prev = store.getState();
 		store.getState().setAppId("abc");
 		expect(store.getState()).toBe(prev);
+	});
+
+	it("promotes a created app with its authoritative Project tuple atomically", () => {
+		const store = createBuilderSessionStore({
+			projectId: "project-from-stale-tab",
+			role: "viewer",
+			canEdit: false,
+		});
+		store.getState().beginAccessRefresh();
+
+		store.getState().activateCreatedApp("app-in-seeded-project", {
+			projectId: "project-seeded-by-build-new",
+			role: "editor",
+			canEdit: true,
+		});
+
+		expect(store.getState()).toMatchObject({
+			appId: "app-in-seeded-project",
+			projectId: "project-seeded-by-build-new",
+			role: "editor",
+			canEdit: true,
+			accessPhase: "authorized",
+			hasWaitingAccessChanges: false,
+		});
 	});
 
 	it("setLoading toggles the loading flag", () => {

@@ -16,14 +16,21 @@ import {
 	useUndoRedo,
 } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
-import { useBuilderIsReady, usePreviewing } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useBuilderIsReady,
+	useCanEdit,
+	usePreviewing,
+} from "@/lib/session/hooks";
 import type { Shortcut } from "@/lib/ui/keyboardManager";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.
  *
- * Returns an empty array when the builder is not in Ready/Completed phase.
- * When active, includes: Escape (deselect/exit preview), P (toggle
+ * Returns an empty array when the builder is not in Ready/Completed phase or
+ * the authoritative app/access snapshot is being refreshed. Authorized
+ * viewers retain navigation-only shortcuts; mutation and history shortcuts
+ * require edit capability. When active, includes: Escape (deselect/exit preview), P (toggle
  * preview), Tab/Shift+Tab (navigate fields while editing), Delete/Backspace
  * (delete field), Cmd+D (duplicate), ArrowUp/ArrowDown (reorder),
  * Shift+ArrowUp/Shift+ArrowDown (cross-level indent/outdent),
@@ -42,6 +49,8 @@ export function useBuilderShortcuts(
 	setPreviewing: (on: boolean) => void,
 ): Shortcut[] {
 	const isReady = useBuilderIsReady();
+	const accessPhase = useAccessPhase();
+	const canEdit = useCanEdit();
 	const loc = useLocation();
 	const select = useSelect();
 	const { setPending } = useScrollIntoView();
@@ -57,7 +66,7 @@ export function useBuilderShortcuts(
 	const docApi = useBlueprintDocApi();
 
 	return useMemo(() => {
-		if (!isReady) return [];
+		if (!isReady || accessPhase !== "authorized") return [];
 
 		/** Navigate to a field by uuid — update selection via URL and
 		 *  request a scroll to bring the field into view. */
@@ -66,7 +75,7 @@ export function useBuilderShortcuts(
 			select(uuid);
 		};
 
-		return [
+		const shortcuts: Shortcut[] = [
 			// Escape — deselect / exit preview. Declines (returns
 			// false) when neither applies so the key falls through to a
 			// more specific registration (e.g. the case-list workspace's
@@ -249,8 +258,27 @@ export function useBuilderShortcuts(
 				},
 			},
 		];
+
+		if (canEdit) return shortcuts;
+
+		/* Viewers can still move around the app and enter/leave Preview. Remove
+		 * every shortcut that mutates the document or its undo history, including
+		 * the direct temporal-store Cmd+Z path that bypasses the mutation gate. */
+		return shortcuts.filter(({ key, meta }) => {
+			if (
+				key === "Delete" ||
+				key === "Backspace" ||
+				key === "ArrowUp" ||
+				key === "ArrowDown"
+			) {
+				return false;
+			}
+			return !(meta && (key === "d" || key === "z"));
+		});
 	}, [
 		isReady,
+		accessPhase,
+		canEdit,
 		loc,
 		docApi,
 		setPending,

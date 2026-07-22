@@ -50,6 +50,7 @@
 import { UI_MESSAGE_STREAM_HEADERS } from "ai";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
+import { PRIVATE_HOLDER_NONCE_CHUNK_TYPE } from "@/lib/chat/privateHolderNonce";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { appHeldLive } from "@/lib/db/apps";
@@ -59,7 +60,10 @@ import {
 	streamChunkTail,
 } from "@/lib/db/streamChunks";
 import { subscribeChatStream } from "@/lib/db/streamListener";
-import { resolveThreadStream } from "@/lib/db/threads";
+import {
+	loadHolderNonceForReplayMarker,
+	resolveThreadStream,
+} from "@/lib/db/threads";
 import { log } from "@/lib/logger";
 
 /* Node runtime — the route holds a long-lived subscription to the Postgres
@@ -277,8 +281,46 @@ function openStream(args: {
 				if (closed) return;
 				const read = await readStreamChunksFrom(streamId, cursor);
 				if (closed) return;
-				for (const chunk of read.chunks) {
+				/* The durable log holds only a count-preserving marker for the
+				 * holder capability. Resolve it once, before sending any part of this
+				 * batch, from the actor-bound thread + current app holder. A
+				 * co-member may view/replay the shared conversation but never receives
+				 * another actor's continuation authority. */
+				const privateHolderMarker = read.chunks.find(
+					(chunk) =>
+						(chunk as { type?: unknown }).type ===
+						PRIVATE_HOLDER_NONCE_CHUNK_TYPE,
+				);
+				const markerData = (
+					privateHolderMarker as
+						| {
+								data?: { threadId?: unknown; holderDigest?: unknown };
+						  }
+						| undefined
+				)?.data;
+				const replayHolderNonce =
+					typeof markerData?.threadId === "string" &&
+					typeof markerData.holderDigest === "string"
+						? await loadHolderNonceForReplayMarker({
+								appId,
+								threadId: markerData.threadId,
+								holderDigest: markerData.holderDigest,
+								actorUserId: userId,
+							})
+						: null;
+				for (const storedChunk of read.chunks) {
 					if (closed) return;
+					const chunk =
+						(storedChunk as { type?: unknown }).type ===
+						PRIVATE_HOLDER_NONCE_CHUNK_TYPE
+							? replayHolderNonce
+								? {
+										type: "data-holder-nonce",
+										data: { holderNonce: replayHolderNonce },
+										transient: true,
+									}
+								: storedChunk
+							: storedChunk;
 					if ((chunk as { type?: unknown }).type === "finish") {
 						sawFinishChunk = true;
 					}

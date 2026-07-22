@@ -22,6 +22,7 @@
  * Runs unconditionally under `npm test`.
  */
 
+import { sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
@@ -39,6 +40,7 @@ const h = setupAppStateTestDb("bp_clear_");
 const TEST_OWNER = "user-blueprint-clear-test";
 const TEST_PROJECT = "project-blueprint-clear-test";
 const APP_ID = "app-blueprint-clear";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
 const FORM_UUID = "22222222-2222-4222-8222-222222222222";
@@ -141,6 +143,7 @@ describe("blueprint clear nested field", () => {
 
 		const result = await commitGuardedBatch({
 			appId: APP_ID,
+			expectedProjectId: TEST_PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: clearMutations,
 			actorUserId: TEST_OWNER,
@@ -167,6 +170,7 @@ describe("blueprint clear nested field", () => {
 
 		await commitGuardedBatch({
 			appId: APP_ID,
+			expectedProjectId: TEST_PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: [
 				{
@@ -201,20 +205,30 @@ describe("blueprint clear nested field", () => {
 		// reservation marker owned by `build-run`.
 		await h
 			.db()
-			.updateTable("apps")
-			.set({
-				status: "generating",
-				res_period: "2026-07",
-				res_reserved: 100,
-				res_settled: false,
-				res_user_id: TEST_OWNER,
-				res_run_id: "build-run",
-			})
-			.where("id", "=", APP_ID)
-			.execute();
+			.transaction()
+			.execute(async (tx) => {
+				await sql`SELECT set_config('nova.runtime_reader_version', '1', true)`.execute(
+					tx,
+				);
+				await tx
+					.updateTable("apps")
+					.set({
+						status: "generating",
+						run_holder_nonce: HOLDER_NONCE,
+						res_period: "2026-07",
+						res_reserved: 100,
+						res_settled: false,
+						res_user_id: TEST_OWNER,
+						res_run_id: "build-run",
+					})
+					.where("id", "=", APP_ID)
+					.execute();
+			});
 
 		const before = await readPersistedFormData();
-		await completeAndSettleRun(APP_ID, "build-run");
+		expect(await completeAndSettleRun(APP_ID, "build-run", HOLDER_NONCE)).toBe(
+			"owned",
+		);
 
 		const after = await h.readAppRow(APP_ID);
 		expect(after?.status).toBe("complete");

@@ -34,6 +34,7 @@ import {
 	CHAT_ATTACHMENT_KINDS,
 } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 // `chargeAmount` is the single source of truth for what an action costs — the
 // same pure rule the server credit gate charges — so the chip can never display
@@ -41,7 +42,12 @@ import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 // `creditPolicy` is type-only, so it pulls no server data layer into the bundle.
 import { chargeAmount } from "@/lib/db/creditPolicy";
 import { isDocumentKind } from "@/lib/domain/multimedia";
-import { useAppId, useBuilderIsReady } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useAppId,
+	useBuilderIsReady,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
@@ -129,6 +135,37 @@ export function ChatInput({
 	const [textLength, setTextLength] = useState(0);
 	const [hasText, setHasText] = useState(false);
 	const overLimit = textLength > MAX_CHAT_MESSAGE_CHARS;
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const reconcilerContext = useReconcilerContext();
+	const scopeEpochRef = useRef(scopeEpoch);
+	scopeEpochRef.current = scopeEpoch;
+	const previousScopeEpochRef = useRef(scopeEpoch);
+	const visiblePicked =
+		previousScopeEpochRef.current === scopeEpoch ? picked : [];
+	const ownsCurrentProjectScope = () =>
+		accessPhase === "authorized" && scopeEpochRef.current === scopeEpoch;
+	useEffect(() => {
+		if (previousScopeEpochRef.current === scopeEpoch) return;
+		previousScopeEpochRef.current = scopeEpoch;
+		/* PromptInput owns the typed draft and remains mounted. Only stored
+		 * Project asset handles and their portaled surfaces are discarded. */
+		setPicked([]);
+		setPickerOpen(false);
+		setPreviewTarget(null);
+	}, [scopeEpoch]);
+	useEffect(
+		() =>
+			reconcilerContext?.subscribeProjectScopeReset((nextScopeEpoch) => {
+				/* Disown callbacks synchronously with the boundary. Extraction and
+				 * upload promises may settle before React commits the epoch render. */
+				scopeEpochRef.current = nextScopeEpoch;
+				setPicked([]);
+				setPickerOpen(false);
+				setPreviewTarget(null);
+			}),
+		[reconcilerContext],
+	);
 
 	/* Cost-chip data — mirror the server's charge exactly. `useBuilderIsReady` is
 	 * the same `appReady` flag `ChatContainer` puts on the /api/chat request body
@@ -145,28 +182,37 @@ export function ChatInput({
 	 * behind auth, so the fetch can't race sign-in here. */
 	const { summary } = useCreditBalance();
 
-	const addPicked = (asset: MediaAssetView) =>
+	const addPicked = (asset: MediaAssetView) => {
+		const callbackScopeEpoch = scopeEpoch;
+		if (scopeEpochRef.current !== callbackScopeEpoch) return;
 		setPicked((cur) =>
 			cur.some((a) => a.id === asset.id) ? cur : [...cur, asset],
 		);
-	const removePicked = (assetId: string) =>
+	};
+	const removePicked = (assetId: string) => {
+		const callbackScopeEpoch = scopeEpoch;
+		if (scopeEpochRef.current !== callbackScopeEpoch) return;
 		setPicked((cur) => cur.filter((a) => a.id !== assetId));
+	};
 	// Eager extraction finishes AFTER a document is staged, so the snapshot picked
 	// here has no title/summary yet. When the chip's badge reports completion, fold
 	// the fresh extract back in — so the chip preview shows the title/summary right
 	// away (not only after a library re-fetch) and the ref sent on submit carries
 	// them too (`toAttachmentRef` reads `asset.extract`).
-	const reconcileExtract = (assetId: string, extract: ExtractMeta) =>
+	const reconcileExtract = (assetId: string, extract: ExtractMeta) => {
+		const callbackScopeEpoch = scopeEpoch;
+		if (scopeEpochRef.current !== callbackScopeEpoch) return;
 		setPicked((cur) =>
 			cur.map((a) => (a.id === assetId ? { ...a, extract } : a)),
 		);
+	};
 
 	// A staged document is "reading" until its extract settles. Derived from
 	// `picked` (not the chip badges): a freshly staged doc has no extract yet, and
 	// the badge's `onExtracted` folds a ready OR failed terminal status back in via
 	// `reconcileExtract` — so once every staged doc is ready/failed, this clears.
 	// Reported up so the sidebar can show the "Reading your documents" status.
-	const reading = picked.some(
+	const reading = visiblePicked.some(
 		(a) =>
 			isDocumentKind(a.kind) &&
 			a.extract?.status !== "ready" &&
@@ -202,6 +248,10 @@ export function ChatInput({
 	};
 
 	const handleSubmit = (message: PromptInputMessage) => {
+		/* PromptInput can dispatch a queued submit in the synchronous reset stack,
+		 * before React supplies new access props. The registry advances this ref
+		 * immediately; refuse before clearing the text shadow so the draft remains. */
+		if (!ownsCurrentProjectScope() || disabled) return;
 		// PromptInput resets the textarea on every submit it processes; mirror that
 		// in the text shadow (form.reset() doesn't fire onChange). (Over-limit
 		// submits never reach here — they're blocked at the keydown + the disabled
@@ -213,7 +263,7 @@ export function ChatInput({
 		// empty turn (the SA reads an attachment as context for a request, not as
 		// the request itself). The disabled submit button covers the click path;
 		// this guards every other submit route.
-		if (!text || disabled) return;
+		if (!text) return;
 		if (answerPending) {
 			// This send answers a waiting question card (text-only). Forward the
 			// text and KEEP the staged attachments — they're not part of an answer,
@@ -221,7 +271,7 @@ export function ChatInput({
 			onSend({ text });
 			return;
 		}
-		const attachments = picked.map(toAttachmentRef);
+		const attachments = visiblePicked.map(toAttachmentRef);
 		onSend({
 			text,
 			attachments: attachments.length > 0 ? attachments : undefined,
@@ -245,19 +295,20 @@ export function ChatInput({
 				onSubmit={handleSubmit}
 			>
 				<ChatAttachmentBar
-					assets={picked}
+					assets={visiblePicked}
 					onRemove={removePicked}
 					onExtracted={reconcileExtract}
 					extractionAbortSignal={extractionAbortSignal}
-					onPreview={(asset) =>
+					onPreview={(asset) => {
+						if (!ownsCurrentProjectScope()) return;
 						setPreviewTarget({
 							id: asset.id,
 							kind: asset.kind,
 							filename: asset.displayName ?? asset.originalFilename,
 							title: asset.extract?.title,
 							summary: asset.extract?.summary,
-						})
-					}
+						});
+					}}
 				/>
 				<PromptInputBody>
 					<PromptInputTextarea
@@ -288,7 +339,9 @@ export function ChatInput({
 										type="button"
 										variant="ghost"
 										size="icon-lg"
-										onClick={() => setPickerOpen(true)}
+										onClick={() => {
+											if (ownsCurrentProjectScope()) setPickerOpen(true);
+										}}
 										disabled={disabled || answerPending}
 										aria-label="Attach a file"
 										className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text"
@@ -341,18 +394,20 @@ export function ChatInput({
 			 *  preview opens from a staged chip. */}
 			<MediaPickerDialog
 				open={pickerOpen}
-				onOpenChange={setPickerOpen}
+				onOpenChange={(open) => {
+					if (!open || ownsCurrentProjectScope()) setPickerOpen(open);
+				}}
 				kinds={CHAT_ATTACHMENT_KINDS}
 				appId={appId}
 				onPick={addPicked}
 				// Let the file manager warn before deleting a file that's staged as a
 				// chip here, and drop the chip when it's deleted — otherwise the chip
 				// would dangle, pointing at bytes that no longer exist.
-				attachedAssetIds={picked.map((a) => a.id)}
+				attachedAssetIds={visiblePicked.map((a) => a.id)}
 				onAssetDeleted={removePicked}
 			/>
 			<AssetPreviewDialog
-				target={previewTarget}
+				target={accessPhase === "authorized" ? previewTarget : null}
 				onOpenChange={(open) => {
 					if (!open) setPreviewTarget(null);
 				}}

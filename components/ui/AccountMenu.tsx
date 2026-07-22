@@ -94,7 +94,13 @@ function UserAvatar({
 
 // ── AccountMenu ────────────────────────────────────────────────────
 
-export function AccountMenu() {
+export function AccountMenu({
+	canManageFiles,
+}: {
+	/** Active Project edit capability for the standalone site header. Omitted
+	 *  in the builder, where MediaPickerDialog reads the live session tuple. */
+	canManageFiles?: boolean;
+} = {}) {
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
 	const [open, setOpen] = useState(false);
 	/* File-manager dialog open state. The "Files" item opens the same media
@@ -280,7 +286,8 @@ export function AccountMenu() {
 			{/* The file manager opens OUTSIDE the Popover (it portals to body
 			 *  anyway), so it outlives the menu closing on the click that opened it.
 			 *  Omitting onPick puts the dialog in manage mode — all asset kinds,
-			 *  browse / upload / preview / delete, with no carrier to pick into.
+			 *  browse / preview, plus upload/delete for Project editors, with no
+			 *  carrier to pick into.
 			 *  `iconLibrary="all"` surfaces the built-in icon set here for discovery
 			 *  (browse-only — clicking previews; there's no slot to attach to). */}
 			<MediaPickerDialog
@@ -288,6 +295,7 @@ export function AccountMenu() {
 				onOpenChange={setFileManagerOpen}
 				kinds={ASSET_KINDS}
 				iconLibrary="all"
+				canWrite={canManageFiles}
 			/>
 		</>
 	);

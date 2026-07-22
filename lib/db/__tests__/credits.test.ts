@@ -33,6 +33,8 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("credits_unit_");
 const period = getCurrentPeriod();
+const PROJECT_ID = "project-test";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 /**
  * Build a minimal `UIMessage` of a given role for the `isChargeableTurn` cases —
@@ -122,15 +124,22 @@ describe("credit policy — pure helpers and constants", () => {
 /**
  * The reservation debit — `reserveForNewBuild` (the build-reservation entry point
  * `claimAndReserveRun` shares via `debitAndBookReservation`) over the per-test
- * DB. Apps are seeded `complete` so the build-concurrency scan finds no OTHER
- * live build and each case exercises the read-check-write in isolation.
+ * DB. Each app is seeded in the just-created markerless `generating` shape,
+ * with `run_id` equal to the reservation token; the helper refuses any other
+ * holder instead of overwriting it.
  */
 describe("reserveForNewBuild debit", () => {
 	const USER = "user-reserve-test";
 	const APP = "app-reserve-test";
 
 	it("seeds a full allowance, books the cost, and records the marker on a missing row", async () => {
-		await h.seedApp({ id: APP, owner: USER, status: "complete" });
+		await h.seedApp({
+			id: APP,
+			owner: USER,
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
+		});
 		const { reserveForNewBuild } = await import("../apps");
 
 		const result = await reserveForNewBuild(
@@ -138,6 +147,8 @@ describe("reserveForNewBuild debit", () => {
 			USER,
 			CREDITS_PER_BUILD,
 			"run-1",
+			PROJECT_ID,
+			HOLDER_NONCE,
 		);
 
 		expect(await readMonth(USER)).toEqual({
@@ -158,7 +169,13 @@ describe("reserveForNewBuild debit", () => {
 	});
 
 	it("increments consumed on an existing affordable row, preserving allowance and bonus", async () => {
-		await h.seedApp({ id: APP, owner: USER, status: "complete" });
+		await h.seedApp({
+			id: APP,
+			owner: USER,
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
+		});
 		await h.seedCreditMonth(USER, period, {
 			allowance: 2000,
 			consumed: 50,
@@ -166,7 +183,14 @@ describe("reserveForNewBuild debit", () => {
 		});
 		const { reserveForNewBuild } = await import("../apps");
 
-		await reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1");
+		await reserveForNewBuild(
+			APP,
+			USER,
+			CREDITS_PER_BUILD,
+			"run-1",
+			PROJECT_ID,
+			HOLDER_NONCE,
+		);
 
 		expect(await readMonth(USER)).toEqual({
 			allowance: 2000,
@@ -176,7 +200,13 @@ describe("reserveForNewBuild debit", () => {
 	});
 
 	it("books a cost exactly equal to the remaining balance (the boundary is affordable)", async () => {
-		await h.seedApp({ id: APP, owner: USER, status: "complete" });
+		await h.seedApp({
+			id: APP,
+			owner: USER,
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
+		});
 		await h.seedCreditMonth(USER, period, {
 			allowance: 2000,
 			consumed: 1900,
@@ -184,12 +214,25 @@ describe("reserveForNewBuild debit", () => {
 		});
 		const { reserveForNewBuild } = await import("../apps");
 
-		await reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1");
+		await reserveForNewBuild(
+			APP,
+			USER,
+			CREDITS_PER_BUILD,
+			"run-1",
+			PROJECT_ID,
+			HOLDER_NONCE,
+		);
 		expect((await readMonth(USER))?.consumed).toBe(2000);
 	});
 
 	it("throws OutOfCreditsError and never writes when the balance can't cover the cost", async () => {
-		await h.seedApp({ id: APP, owner: USER, status: "complete" });
+		await h.seedApp({
+			id: APP,
+			owner: USER,
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
+		});
 		await h.seedCreditMonth(USER, period, {
 			allowance: 2000,
 			consumed: 1995,
@@ -199,7 +242,14 @@ describe("reserveForNewBuild debit", () => {
 		const { reserveForNewBuild } = await import("../apps");
 
 		await expect(
-			reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1"),
+			reserveForNewBuild(
+				APP,
+				USER,
+				CREDITS_PER_BUILD,
+				"run-1",
+				PROJECT_ID,
+				HOLDER_NONCE,
+			),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 		// The rejected reservation booked nothing — the row is exactly as seeded.
 		expect(await readMonth(USER)).toEqual({
@@ -224,8 +274,13 @@ describe("reserveForNewBuild debit", () => {
 		// no leftover nets it out), then a second reserve re-reads consumed at the
 		// full allowance and rejects — the deterministic stand-in for what a loser
 		// undergoes when the credit-month row lock serializes two contenders.
-		await h.seedApp({ id: "app-1", owner: USER, status: "complete" });
-		await h.seedApp({ id: "app-2", owner: USER, status: "complete" });
+		await h.seedApp({
+			id: "app-1",
+			owner: USER,
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
+		});
 		await h.seedCreditMonth(USER, period, {
 			allowance: 2000,
 			consumed: 1900,
@@ -234,11 +289,36 @@ describe("reserveForNewBuild debit", () => {
 		const { OutOfCreditsError } = await import("../credits");
 		const { reserveForNewBuild } = await import("../apps");
 
-		await reserveForNewBuild("app-1", USER, CREDITS_PER_BUILD, "run-1");
+		await reserveForNewBuild(
+			"app-1",
+			USER,
+			CREDITS_PER_BUILD,
+			"run-1",
+			PROJECT_ID,
+			HOLDER_NONCE,
+		);
 		expect((await readMonth(USER))?.consumed).toBe(2000);
+		const { completeAndSettleRun } = await import("../apps");
+		expect(await completeAndSettleRun("app-1", "run-1", HOLDER_NONCE)).toBe(
+			"owned",
+		);
+		await h.seedApp({
+			id: "app-2",
+			owner: USER,
+			status: "generating",
+			run_id: "run-2",
+			run_holder_nonce: HOLDER_NONCE,
+		});
 
 		await expect(
-			reserveForNewBuild("app-2", USER, CREDITS_PER_BUILD, "run-2"),
+			reserveForNewBuild(
+				"app-2",
+				USER,
+				CREDITS_PER_BUILD,
+				"run-2",
+				PROJECT_ID,
+				HOLDER_NONCE,
+			),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 		expect((await readMonth(USER))?.consumed).toBe(2000);
 	});
@@ -248,8 +328,9 @@ describe("reserveForNewBuild debit", () => {
  * `refundReservation` over the per-test DB — the failure-flush refund walks
  * `consumed` down AND settles the app-row marker in one cross-row transaction,
  * clamps at zero, and no-ops on a settled / absent marker (the idempotency the
- * live-flush/reaper collision needs). Apps are seeded `complete` so the marker
- * is owned by mode `"none"` and the terminal-write gate passes.
+ * live-flush/reaper collision needs). Refunds carry the active build's holder
+ * capability (mode/run during compatibility, full nonce generation after
+ * activation); a free app never grants tokenless marker authority.
  */
 describe("refundReservation", () => {
 	const APP = "app-refund-test";
@@ -264,17 +345,20 @@ describe("refundReservation", () => {
 		await h.seedApp({
 			id: APP,
 			owner: OWNER,
-			status: "complete",
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
 				settled: false,
 				userId: OWNER,
+				runId: "run-1",
 			},
 		});
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP, "run-1");
+		await refundReservation(APP, "run-1", HOLDER_NONCE, "build");
 
 		expect((await readMonth(OWNER))?.consumed).toBe(250 - CREDITS_PER_BUILD);
 		expect(await h.readReservation(APP)).toMatchObject({ settled: true });
@@ -289,17 +373,20 @@ describe("refundReservation", () => {
 		await h.seedApp({
 			id: APP,
 			owner: OWNER,
-			status: "complete",
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
 				settled: false,
 				userId: OWNER,
+				runId: "run-1",
 			},
 		});
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP, "run-1");
+		await refundReservation(APP, "run-1", HOLDER_NONCE, "build");
 		expect((await readMonth(OWNER))?.consumed).toBe(0);
 	});
 
@@ -312,17 +399,20 @@ describe("refundReservation", () => {
 		await h.seedApp({
 			id: APP,
 			owner: OWNER,
-			status: "complete",
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
 				settled: true,
 				userId: OWNER,
+				runId: "run-1",
 			},
 		});
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP, "run-1");
+		await refundReservation(APP, "run-1", HOLDER_NONCE, "build");
 		expect((await readMonth(OWNER))?.consumed).toBe(CREDITS_PER_BUILD);
 	});
 
@@ -335,7 +425,7 @@ describe("refundReservation", () => {
 		await h.seedApp({ id: APP, owner: OWNER, status: "complete" });
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP, "run-1");
+		await refundReservation(APP, "run-1", HOLDER_NONCE, "build");
 		expect((await readMonth(OWNER))?.consumed).toBe(300);
 	});
 
@@ -345,17 +435,20 @@ describe("refundReservation", () => {
 		await h.seedApp({
 			id: APP,
 			owner: OWNER,
-			status: "complete",
+			status: "generating",
+			run_id: "run-1",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
 				settled: false,
 				userId: OWNER,
+				runId: "run-1",
 			},
 		});
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP, "run-1");
+		await refundReservation(APP, "run-1", HOLDER_NONCE, "build");
 		expect(await readMonth(OWNER)).toBeUndefined();
 		expect(await h.readReservation(APP)).toMatchObject({ settled: true });
 	});

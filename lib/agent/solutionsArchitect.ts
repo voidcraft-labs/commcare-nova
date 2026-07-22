@@ -21,8 +21,16 @@
  */
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { ZodType } from "zod";
-import { loadApp } from "@/lib/db/apps";
-import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import {
+	AppAccessError,
+	resolveAuthorizedAppSnapshot,
+} from "@/lib/db/appAccess";
+import {
+	AppProjectChangedError,
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+	RunHolderLostError,
+} from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
@@ -137,10 +145,13 @@ export function createSolutionsArchitect(
 	 *
 	 * Both `then` handlers swallow their value (success result and
 	 * rejection alike) so the chain stays a `Promise<void>` and a failing
-	 * tool doesn't poison the chain for subsequent calls; the `next`
-	 * promise still rejects to its caller, preserving error visibility at
-	 * the AI SDK boundary (it's converted to a `tool-error` content
-	 * part). */
+	 * ordinary tool failure doesn't poison the chain for subsequent calls;
+	 * the `next` promise still rejects to its caller, preserving error
+	 * visibility at the AI SDK boundary (it's converted to a `tool-error`
+	 * content part). Terminal tenant-scope failures are the exception:
+	 * `throwIfTerminalRunError` reads their durable GenerationContext latch
+	 * at the start of every queued body, so the recovered promise chain stays
+	 * structurally coherent without permitting more work in a dead run. */
 	let chain: Promise<void> = Promise.resolve();
 	function serial<T>(fn: () => Promise<T>): Promise<T> {
 		const next = chain.then(fn);
@@ -149,6 +160,20 @@ export function createSolutionsArchitect(
 			() => {},
 		);
 		return next;
+	}
+
+	/**
+	 * Fence all work after an authoritative scope failure. A guarded commit or
+	 * conflict-reload check stores the exact thrown object on GenerationContext
+	 * before rethrowing it. Parallel tool calls from one model step may already
+	 * be queued behind that check, so every serialized body must consult the latch
+	 * before it reads or writes the working doc. Re-throwing the stored instance
+	 * also preserves the route's authoritative error classification.
+	 */
+	function throwIfTerminalRunError(): void {
+		const terminalError =
+			ctx.holderLostError() ?? ctx.projectChangedError() ?? ctx.reauthError();
+		if (terminalError !== undefined) throw terminalError;
 	}
 
 	/**
@@ -206,6 +231,7 @@ export function createSolutionsArchitect(
 			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
+					throwIfTerminalRunError();
 					try {
 						/* `kind: "mutate"` discriminator is internal to the shared
 						 * tool contract — the chat-side AI SDK tool surface only
@@ -238,22 +264,46 @@ export function createSolutionsArchitect(
 						return result;
 					} catch (err) {
 						/* A RETRYABLE conflict — a peer deleted/changed what this
-						 * tool targeted, or the app moved Projects, between our read
-						 * and the commit. Surface the standard `{ error }` envelope
-						 * to the SA AND reload fresh so the next tool builds on the
-						 * current server state, not the stale closure doc. (A
+						 * tool targeted between our read and the commit. Surface the
+						 * standard `{ error }` envelope to the SA AND reload fresh so
+						 * the next tool builds on the current server state, not the
+						 * stale closure doc. The reload is one atomic authorized
+						 * snapshot, and its Project must still match the run's admitted
+						 * scope before the closure adopts the blueprint. (A
 						 * pre-commit validity finding does NOT throw — the tool
-						 * returns its own `{ error }` and nothing reloads. A terminal
-						 * `CommitReauthError` — the actor lost access — is NOT caught
-						 * here: it propagates and fails the run, since reloading can't
-						 * restore authorization.) */
+						 * returns its own `{ error }` and nothing reloads. Terminal
+						 * `AppProjectChangedError` and `CommitReauthError` signals are
+						 * NOT caught here: both propagate and fail the run, since the
+						 * former must not reload across tenant scope and the latter
+						 * cannot restore authorization by reloading.) */
 						if (err instanceof BlueprintCommitRejectedError) {
-							const fresh = await loadApp(ctx.appId);
-							if (fresh) {
-								doc = hydratePersistedBlueprint(
-									fresh.blueprint as PersistableDoc,
+							let fresh: Awaited<
+								ReturnType<typeof resolveAuthorizedAppSnapshot>
+							>;
+							try {
+								fresh = await resolveAuthorizedAppSnapshot(
+									ctx.appId,
+									ctx.userId,
+									"edit",
 								);
+							} catch (reloadError) {
+								if (reloadError instanceof AppAccessError) {
+									const scopeError = new CommitReauthError(
+										"You no longer have edit access.",
+									);
+									ctx.latchTerminalScopeError(scopeError);
+									throw scopeError;
+								}
+								throw reloadError;
 							}
+							if (fresh.projectId !== ctx.projectId) {
+								const scopeError = new AppProjectChangedError();
+								ctx.latchTerminalScopeError(scopeError);
+								throw scopeError;
+							}
+							doc = hydratePersistedBlueprint(
+								fresh.app.blueprint as PersistableDoc,
+							);
 							return { error: err.message } as R;
 						}
 						throw err;
@@ -289,11 +339,29 @@ export function createSolutionsArchitect(
 			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
+					throwIfTerminalRunError();
 					/* `kind: "read"` discriminator is internal to the shared
 					 * tool contract — the AI SDK tool surface sees the bare
 					 * `data`. Unwrap. */
-					const { data } = await t.execute(input, ctx, doc);
-					return data;
+					try {
+						const { data } = await t.execute(input, ctx, doc);
+						return data;
+					} catch (error) {
+						/* Read-shaped tools can still own external side effects (currently
+						 * media deletion). Preserve every authoritative side-effect fence as
+						 * the same terminal latch a guarded blueprint commit sets, so queued
+						 * tools and finalization cannot continue after the delete loses its
+						 * holder, Project, or current edit authorization. */
+						if (error instanceof RunHolderLostError) {
+							ctx.latchRunHolderLost(error);
+						} else if (
+							error instanceof CommitReauthError ||
+							error instanceof AppProjectChangedError
+						) {
+							ctx.latchTerminalScopeError(error);
+						}
+						throw error;
+					}
 				}),
 		};
 	}
@@ -423,6 +491,11 @@ export function createSolutionsArchitect(
 		 * owns those. */
 		maxRetries: 4,
 		prepareStep: () => {
+			// A tool execution error is a non-fatal AI SDK content part. Stop the
+			// loop explicitly once an authoritative scope error has been latched;
+			// otherwise the SDK would ask the model for another step in a run whose
+			// every future commit is guaranteed to fail.
+			throwIfTerminalRunError();
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
 			// streamed reasoning summaries the live-thinking feed needs, plus

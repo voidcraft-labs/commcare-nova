@@ -25,7 +25,8 @@
 
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
@@ -54,13 +55,41 @@ export function useAttachBudgetGuard(): (
 ) => Promise<AttachBudgetVerdict> {
 	const docApi = useBlueprintDocApi();
 	const session = useBuilderSessionApi();
+	const reconciler = useReconcilerContext();
+	const activeChecksRef = useRef(new Set<AbortController>());
+	useEffect(() => {
+		const abortAll = () => {
+			for (const controller of activeChecksRef.current) controller.abort();
+			activeChecksRef.current.clear();
+		};
+		const unsubscribeReset = reconciler?.subscribeProjectScopeReset(abortAll);
+		return () => {
+			unsubscribeReset?.();
+			abortAll();
+		};
+	}, [reconciler]);
 
 	return useCallback(
 		async (candidate: MediaAssetView) => {
+			const start = session.getState();
+			const scopeEpoch = start.scopeEpoch;
+			const accessChanged = (): AttachBudgetVerdict => ({
+				ok: false,
+				error: "App access changed while checking this file. Choose it again.",
+			});
+			const isCurrentAndAuthorized = () => {
+				const state = session.getState();
+				return (
+					state.scopeEpoch === scopeEpoch && state.accessPhase === "authorized"
+				);
+			};
+			if (start.accessPhase !== "authorized") return accessChanged();
 			// Built-in icons (`nova-icon:<slug>`) are shared, tiny, and have no
 			// `media_assets` row — they can't meaningfully move the export budget and a
 			// gap-fetch for one would 404. Picking one always passes.
-			if (isBuiltinIconRef(candidate.id)) return { ok: true };
+			if (isBuiltinIconRef(candidate.id)) {
+				return isCurrentAndAuthorized() ? { ok: true } : accessChanged();
+			}
 
 			// The candidate's own row is known-good metadata — record it so
 			// a later check (or a re-attach) needs no fetch for it.
@@ -77,21 +106,31 @@ export function useAttachBudgetGuard(): (
 				(id) => known[id] === undefined && id !== candidate.id,
 			);
 			if (missing.length > 0) {
+				const controller = new AbortController();
+				activeChecksRef.current.add(controller);
 				try {
 					// Resolve the gaps against the current app's Project (the server
 					// reads `appId`), the same tenant the refs were attached under.
-					session
-						.getState()
-						.recordAssetMeta(
-							await fetchAssetsByIds(missing, session.getState().appId),
-						);
+					const resolved = await fetchAssetsByIds(
+						missing,
+						session.getState().appId,
+						controller.signal,
+					);
+					if (!isCurrentAndAuthorized()) return accessChanged();
+					session.getState().recordAssetMeta(resolved);
 				} catch {
+					if (controller.signal.aborted || !isCurrentAndAuthorized()) {
+						return accessChanged();
+					}
 					// Fail OPEN: an unresolvable ref can only make this courtesy
 					// check miss, and the export boundary is the authority —
 					// refusing a legitimate attach over a transient fetch would
 					// be the worse failure.
+				} finally {
+					activeChecksRef.current.delete(controller);
 				}
 			}
+			if (!isCurrentAndAuthorized()) return accessChanged();
 
 			const rowsById = new Map<string, ExportBudgetRowView>(
 				Object.entries(session.getState().assetMeta),

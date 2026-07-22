@@ -9,6 +9,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* A body-portaled floating layer from an earlier Project generation must never
+ * reappear. AccessStatus marks source-generation roots synchronously; keep the
+ * marker stronger than a controlled portal removing its `hidden` attribute or
+ * toggling its ordinary open/closed styles after authorization resumes. */
+[data-nova-access-quarantined] {
+	/* biome-ignore lint/complexity/noImportantStyles: the synchronous access quarantine must override source portal visibility styles */
+	display: none !important;
+}
+
 :root {
 	/* Nova color system */
 	--nova-void: #050510;

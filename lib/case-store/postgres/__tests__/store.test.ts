@@ -972,6 +972,72 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(row.rows[0]?.properties).toEqual({ age: "abc" });
 	});
 
+	it("caller-owned Phase A rolls back with its outer transaction", async () => {
+		const store = makeStore(OWNER_A);
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [{ name: "name", label: "Name", data_type: "text" }],
+		};
+
+		const caseDb = dbHandle.db as unknown as Kysely<Database>;
+		await expect(
+			caseDb.transaction().execute(async (tx) => {
+				await store.applySchemaChangePhaseA(tx, {
+					appId: APP_ID,
+					caseType: "patient",
+					caseTypeSchemas: buildSchemaMap(caseType),
+				});
+				throw new Error("abort caller transaction");
+			}),
+		).rejects.toThrow("abort caller transaction");
+
+		const schema = await dbHandle.pool.query<{ count: string }>(
+			`SELECT count(*)::text AS count
+			 FROM case_type_schemas
+			 WHERE app_id = $1 AND case_type = $2`,
+			[APP_ID, "patient"],
+		);
+		expect(schema.rows[0]?.count).toBe("0");
+		expect(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).toEqual(
+			[],
+		);
+	});
+
+	it("caller-owned Phase B remains dormant until Phase A commits", async () => {
+		const store = makeStore(OWNER_A);
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [{ name: "name", label: "Name", data_type: "text" }],
+		};
+
+		const caseDb = dbHandle.db as unknown as Kysely<Database>;
+		const prepared = await caseDb.transaction().execute(async (tx) => {
+			return await store.applySchemaChangePhaseA(tx, {
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildSchemaMap(caseType),
+			});
+		});
+
+		const schema = await dbHandle.pool.query<{ count: string }>(
+			`SELECT count(*)::text AS count
+			 FROM case_type_schemas
+			 WHERE app_id = $1 AND case_type = $2`,
+			[APP_ID, "patient"],
+		);
+		expect(schema.rows[0]?.count).toBe("1");
+		expect(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).toEqual(
+			[],
+		);
+
+		await prepared.completeAfterCommit();
+		expect(
+			(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).map(
+				(index) => index.name,
+			),
+		).toEqual([idxName(APP_ID, "patient", "name", "fuzzy")]);
+	});
+
 	// -----------------------------------------------------------
 	// Pre-flight identifier validation — runs BEFORE Phase A opens
 	// -----------------------------------------------------------

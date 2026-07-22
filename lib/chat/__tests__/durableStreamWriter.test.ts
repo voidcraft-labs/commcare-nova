@@ -28,6 +28,8 @@ vi.mock("@/lib/db/streamChunks", () => ({
 }));
 
 const { DurableStreamWriter } = await import("../durableStreamWriter");
+const { holderNonceReplayDigest, PRIVATE_HOLDER_NONCE_CHUNK_TYPE } =
+	await import("../privateHolderNonce");
 
 /** A recording inner writer; `dead` makes every write throw (client gone). */
 function makeInner(opts: { dead?: boolean } = {}) {
@@ -55,6 +57,7 @@ function makeWriter(inner: UIMessageStreamWriter) {
 		streamId: "stream-1",
 		appId: "app-1",
 		runId: "run-1",
+		threadId: "thread-1",
 		inner,
 	});
 }
@@ -123,6 +126,37 @@ describe("DurableStreamWriter", () => {
 		const all = appendedChunks();
 		expect(all).toHaveLength(4);
 		expect((all.at(-1) as UIMessageChunk).type).toBe("finish");
+	});
+
+	it("forwards a holder nonce live but persists only a count-preserving marker", async () => {
+		const { inner, written } = makeInner();
+		const writer = makeWriter(inner);
+
+		writer.write({
+			type: "data-holder-nonce",
+			data: { holderNonce: "00000000-0000-4000-8000-000000000001" },
+			transient: true,
+		});
+		await writer.close();
+
+		expect(written[0]).toEqual({
+			type: "data-holder-nonce",
+			data: { holderNonce: "00000000-0000-4000-8000-000000000001" },
+			transient: true,
+		});
+		expect(appendedChunks()[0]).toEqual({
+			type: PRIVATE_HOLDER_NONCE_CHUNK_TYPE,
+			data: {
+				threadId: "thread-1",
+				holderDigest: holderNonceReplayDigest(
+					"00000000-0000-4000-8000-000000000001",
+				),
+			},
+			transient: true,
+		});
+		expect(JSON.stringify(appendedChunks())).not.toContain(
+			"00000000-0000-4000-8000-000000000001",
+		);
 	});
 
 	it("synthesizes a finish chunk on close only when the stream never produced one", async () => {

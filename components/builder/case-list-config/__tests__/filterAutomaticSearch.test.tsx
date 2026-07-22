@@ -59,7 +59,9 @@ vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 }));
 
 vi.mock("@/lib/session/hooks", () => ({
+	useAccessPhase: () => "authorized",
 	useCanEdit: () => permissions.canEdit,
+	useProjectScopeEpoch: () => 0,
 }));
 
 const CASE_TYPES: CaseType[] = [

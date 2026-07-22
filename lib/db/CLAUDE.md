@@ -15,6 +15,16 @@ via `lockAppRow`), then touches other rows (credit months, entities, the
 stream). Per-app contention resolves as row-lock waits, and every decision
 reads row state inside the locking transaction.
 
+**Builder hydration is one authorized snapshot.**
+`appAccess.ts::resolveAuthorizedAppSnapshot` holds `apps FOR SHARE`, then the
+shared Project-membership advisory gate and exact `auth_member` row, while
+`apps.ts::loadAppInTransaction` assembles `blueprint_entities` on that same
+transaction. The returned Project, role, `canEdit`, blueprint, and `baseSeq`
+therefore belong to one serial winner. `GET /api/apps/[id]` keeps
+`mutation_seq` as a rolling-client alias for `baseSeq`; new code must not
+reintroduce separate app-row, entity, membership, or cursor reads for this
+surface.
+
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
 groups) plus one `blueprint_entities` row per module/form/field.
@@ -84,11 +94,14 @@ share one opaque error.
 `apps.ts` is the authoritative protocol. Every `createApp`,
 `commitGuardedBatch`, `appendSyntheticBatch`, and dormant
 `commitAppProjectMove` transaction declares lookup writer v0. Creation prepares
-the template exactly once outside the retryable transaction, then authorizes,
-inserts the root, locks/reads lookup definitions, evaluates, checks template
+the template exactly once outside the retryable transaction, then takes the
+shared Project-membership advisory gate, authorizes, inserts the root,
+locks/reads lookup definitions, evaluates, checks template
 export readiness, replaces edges, and inserts entity rows atomically. Ordinary
-commits lock the app, check the dedup latch, lock and authorize the actor's exact
-`auth_member` row in the SAME transaction, hydrate the fresh doc, reject
+commits lock the app, compare the caller's required `expectedProjectId`, check
+the dedup latch, take the shared membership gate,
+lock and authorize the actor's exact `auth_member` row in the SAME transaction,
+hydrate the fresh doc, reject
 reducer-minted identity mutations, prepare once, lock the union of prior and
 candidate lookup tables, evaluate against that snapshot, replace the complete
 edge set, then write rows + history. Missing or foreign tables become one
@@ -103,13 +116,54 @@ target, proves replay identity, and persists the actual mutations; a true no-op
 writes no row and advances no sequence. The dormant Project move is deliberately
 closed while lookup targets exist: both structural and stored sets must be
 empty, the destination context is evaluated, source edges are cleared before
-the Project flip, and media remaps are deterministic attributed mutations. S02c
-adds the membership absence/advisory protocol; this S02b seam only locks existing
-source and destination membership rows. All destructive-schema,
+the Project flip, and media remaps are deterministic attributed mutations.
+Membership `INSERT`/`UPDATE`/`DELETE` take the matching exclusive transaction
+lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
+`55000` once its `BEFORE TRUNCATE` trigger fires, without ever waiting on the
+advisory gate (ordinary table locks still apply). Existing-app protocols lock
+the app first, while creation is the only shared-gate-first exception. This serializes
+missing rows and zero-row DML without a tuple/advisory deadlock. While runtime
+and migrations share their current database-owner principal, the TRUNCATE
+trigger is an operational barrier rather than a privilege boundary; S02c2 owns
+runtime/migration role separation and the runtime privilege revoke. All
+destructive-schema,
 carrier-commit, and true Project-move flags remain false.
+
+Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
+app-row-first membership protocol; no route preflight decides their admission.
+Migration-bearing blueprint saves use
+`withAuthorizedAppEditSideEffect`: one non-retrying transaction and one physical
+connection lock the app, compare the caller's Project snapshot, freshly authorize,
+then run every sorted case-schema/data Phase A. The transaction commits as a unit;
+only afterward do concurrent-index Phase B completions run, followed by a separately
+fresh `commitGuardedBatch`. An admission denial or Phase-A/outer-commit failure
+therefore has nothing to compensate; a Phase-B or blueprint-commit failure
+compensates the already-durable reports.
+
 `lookup_stream_capability_leases` carries an
 app-scoped, database-minted connection UUID plus a required receiver version and
 expiry; it is rollout state, not lookup data or blueprint state.
+`streamReceiverCapabilities.ts` is the pure server admission boundary: it
+requires exactly one strict browser `receiverVersion`, clamps compiled support
+to the strictly parsed deployed environment, requires stream registry v1 on
+both sides, and admits the minimum browser/server receiver version.
+`streamCapabilityLeases.ts` owns the stateful half. Registration composes
+`apps FOR SHARE` -> serialized fresh Project membership/view authorization ->
+compatibility `FOR SHARE` -> floor verdict/lease insert in one transaction.
+Postgres mints the UUID and derives `created_at` plus the exact manifest TTL
+from statement time after lock waits. A below-floor request has no lease or
+stream setup; the route returns only a seq-less `client-upgrade-required`
+revocation. An admitted stream captures Project/role/canEdit and reloads when
+that tuple changes, but cadence reauthorization deliberately does not read the
+receiver floor, so raising it cannot evict an already-admitted connection.
+Migration rows reauthorize before advancing their private cursor; transient
+failure leaves the row pending for retry. Teardown disowns subscriptions,
+pumps, timers, and transport first, then best-effort deletes the exact
+app/connection lease; expiry is the crash fallback. Each registration then
+runs a separately committed, best-effort purge of at most 256 expired rows.
+Its `expires_at`-ordered candidate query uses the expiry index and `SKIP
+LOCKED`; it never shares the admission transaction's app/membership/floor lock
+set, and an operational purge failure cannot reject an admitted stream.
 
 `lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
 stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags
@@ -122,11 +176,120 @@ cutoff; missing state and stale writers fail with non-retryable SQLSTATE
 `55000`. An unset writer is version 0. Later writers must call
 `setTransactionWriterVersion(tx, version)` inside their transaction; its
 `set_config(..., true)` value is transaction-local and must never be installed
-as a pooled session setting. `lookupReferenceWriter.ts` is the one runtime
+as a pooled session setting. `lookupReferenceWriter.ts` is the one transaction
 declaration seam. All authoritative call sites use
-`declareLookupReferenceWriter(tx)`; S05 changes the single
-`CURRENT_LOOKUP_REFERENCE_WRITER_VERSION` constant from 0 to 1 when its first
-production carrier lands.
+`declareLookupReferenceWriter(tx)`, whose current value derives from
+`config/runtime-capabilities.json` through the validated runtime accessor; it never
+owns a second numeric literal. S05 changes the manifest's single
+`writerVersion` field from 0 to 1 when its first production carrier lands.
+
+Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
+holder identity: edit is `(edit, lock_run_id, run_holder_nonce)`; build is
+`(build, res_run_id, run_holder_nonce)`, with `run_id` used only while a
+generating build has no reservation marker. `runId` remains stable attribution;
+the server-minted UUID nonce is the per-claim generation. The
+`apps_runtime_reader_holder_stamp` row trigger reads transaction-local
+`nova.runtime_reader_version`, checks the runtime floor under `FOR SHARE`, and
+uses the declaration as writer capability—not proof of ownership over an
+existing holder. Below cutoff, an exact unchanged legacy holder stays v0 and
+census-visible; an unchanged old stamp below the active floor fails closed. A
+new/replaced v1 holder requires a concrete run id + nonce and receives the
+current stamp. An absent declaration is deployed v0 and clears any inherited
+nonce/stamp (even when a stable thread id makes mode/run appear unchanged).
+Release clears the stamp—but
+retains the nonce tombstone—when the holder disappears. Existing null-nonce
+holders are not backfilled and census as v0; replay clears only present
+null-nonce stamps, so a v1 holder survives migration replay. The trigger
+includes `awaiting_input`, `lock_expire_at`, and `updated_at` because the
+deployed v0 paused-resume SQL
+sets no runtime GUC while updating only those columns. `runtimeReaderVersion.ts`
+derives the v1 declaration from the capability manifest. Every current
+holder-touching path calls `declareRuntimeReader(tx)` before DML: generating
+creation, build/edit claim, reservation, paused reacquisition, same-holder
+blueprint commits, heartbeats/pause writes, and terminal/failure/reaper/recovery
+writes. Complete/template creation does not declare because it creates no
+holder. Every build claim also stamps root `run_id` before emitting any mutation,
+so a later no-mutation successor remains the durable latest-claim identity after
+reap.
+
+`runHolderWrites.ts` owns the shared SQL compare-and-set predicates.
+`lookup_reference_compatibility.run_holder_nonce_enforced` defaults false: in
+that compatibility state admission/CAS uses legacy `(mode, runId)`, and after
+its irreversible activation it requires `(mode, runId, nonce)`. The database
+constraint forbids activation below runtime-reader floor 1. Every lifecycle
+transaction locks the app row first and then reads compatibility `FOR SHARE`
+before credit rows or its holder write. Terminal, failure, heartbeat, pause,
+and reaper updates repeat the admitted predicate; credit writers throw on a
+zero-row result so their earlier ledger refund rolls back too. Operator
+recovery is deliberately stricter and always requires the exact generation,
+even before activation. An absent holder is never terminal authority, and a
+present holder with a missing/blank run id is corrupt rather than canonically
+reapable; a concrete run id with null nonce is a legacy v0 holder and MUST stay
+reapable while compatibility is false so rollout can drain it. Chat mutation
+commits carry a separate full `ChatRunHolderCapability`; ordinary `runId`
+remains attribution because MCP also stamps one without owning a chat lease.
+Migration Phase A checks that capability while holding the app row, and the
+final guarded app-row write repeats it as a SQL compare-and-set;
+entity/reference/history work rolls back on a lost CAS. The sole absent-holder
+exception is the falsely-reaped-build self-heal, whose SQL predicate proves the
+free row, marker-cleared reaper signature, and exact last `run_id` (plus nonce
+after activation). A stale build whose marker was already settled keeps
+`res_run_id`; that is deliberately not the reaper signature and is
+non-self-healable. Reaper scans and conflict nudge/list queues narrow the observed holder
+to a concrete identity before enqueueing it and carry that token all the way to
+the locked write, so an arbitrarily delayed reap cannot target a later holder
+that also went stale. `scripts/recover-app.ts` writes only through
+`recoverAppStatus`: a present holder requires explicit `--holder-mode`,
+`--holder-run-id`, and UUID `--holder-nonce` flags, and the service rechecks the
+exact generation under the app lock and in SQL. A v0/null-nonce holder is not
+operator-recoverable through this command.
+
+Threads persist the active nonce in a dedicated `active_holder_nonce` column.
+`upsertThreadTurn` locks the app row, reads compatibility `FOR SHARE`, and proves
+the admitted holder before taking the thread lock or installing its marker. A
+lost holder may merge its real incoming transcript into an existing same-app
+thread, but the merge-only arm cannot replace or clear the successor's
+`run_id`, `active_stream_id`, or `active_holder_nonce`; it commits that merge and
+then throws `RunHolderLostError` so the route stops before publishing the stale
+capability.
+`loadThread` projects it only when fresh app authority says this exact run and
+nonce is paused by the requesting actor; co-members, unscoped loaders,
+mismatches, unpaused holders, and reaped holders receive no nonce. A paused
+finalize retains it for the answer POST; a terminal finalize clears it only
+when its stream id still owns the marker. The durable chunk log never stores
+the nonce itself: the POST writer records one inert chunk at the same index,
+carrying only the thread id and a SHA-256 nonce digest. The reconnect route
+rehydrates it through the retained-thread/current-holder actor proof. Other
+Project viewers receive the inert marker, so shared replay stays count-identical
+without sharing continuation authority; an old same-run stream's digest also
+cannot resolve to a successor generation. Every client activation from a
+server-loaded thread adopts `run_id` and the optional `holder_nonce` together;
+an omitted nonce authoritatively clears any capability from the prior
+activation rather than retaining it by accident.
+
+`runtimeReaderHolders.ts` is the fail-closed census projection over
+`runLeaseState`: every present holder blocks a higher target when its effective
+version is lower, including live, paused, reapable, corrupt, unstamped, and
+soft-deleted rows. Reapable classification precedes paused/live. Floor raising
+must never use the 10/15-minute renewable liveness horizons as total drain
+bounds.
+
+`rolloutCompatibility.ts` is the only named compatibility-operation service.
+Its status read is one repeatable-read snapshot. Traffic reconciliation and
+runtime-epoch preparation invoke their control-plane snapshot callback only
+after taking the fixed deployment-cutover gate; that callback must perform a
+fresh read when invoked and must never return a pre-captured/cached split. Their
+in-transaction variants exist so S02c2 can use the SAME dedicated backend
+already holding the session gate across Cloud Run traffic mutation.
+Reconciliation may preserve/start the
+registry interval and delete invalid runtime epochs, but never auto-creates an
+epoch. Runtime floor raise locks cutover → compatibility `FOR UPDATE` → plain
+MVCC holder census (never app rows); the initial stream floor requires a full
+manifest-derived stream TTL of continuous registry traffic. S02c1 exposes only
+explicit emergency flag disablement—no flag-enable bypass. Stream registration
+must compose `apps FOR SHARE` → membership gate/read →
+`readStreamReceiverCompatibilityForShare(tx)` → floor verdict → lease insert in
+one transaction.
 
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
@@ -215,9 +378,12 @@ clarification round-trip.
 
 ## Claim and reserve are ONE transaction
 
-`claimAndReserveRun(appId, mode, runId, actorUserId, cost)` (and its
-new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
-transaction: the busy check (`lease.live`, or a paused run of ANOTHER actor →
+`claimAndReserveRun(appId, mode, runId, actorUserId, cost, expectedProjectId,
+holderNonce)`
+(and its new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
+transaction: fresh Project `edit` authorization, compatibility `FOR SHARE`,
+then the busy check
+(`lease.live`, or a paused run of ANOTHER actor →
 `RunConflictError`; the claimant's OWN paused run is SUPERSEDED instead — an
 abandoned `askQuestions` round must not lock its own user out until the lease
 lapses; the leftover refund + claim writes below resolve it and its late
@@ -266,10 +432,14 @@ grep-guard test enforces it; `apps.ts`/`credits.ts`'s `leaseView` /
 `rowReservation` / `rowRunLock` are the sanctioned row→view builders). A
 build holds its app via `status: 'generating'` + the `updated_at` window
 (`MAX_GENERATION_MINUTES`); an edit holds via its `run_lock` lease
-(`MAX_RUN_MINUTES`). Both horizons refresh on SA activity AND a wall-clock
-timer AND per commit (`refreshEditLease` / `refreshBuildLiveness` + the
-guarded commit's per-commit stamp), so a LIVE run never lapses; the heartbeat
-stops at finalize, so an abandoned paused run lapses for the reapers.
+(`MAX_RUN_MINUTES`). Those legacy minute-valued constants project the runtime
+manifest's independently authored 600-second build and 900-second edit fields;
+neither derives from the request cap or 3,900-second stream lease, and the edit
+lease is renewable rather than a total runtime bound. Both horizons refresh on
+SA activity AND a wall-clock timer AND per commit (`refreshEditLease` /
+`refreshBuildLiveness` + the guarded commit's per-commit stamp), so a LIVE run
+never lapses; the heartbeat stops at finalize, so an abandoned paused run
+lapses for the reapers.
 
 **Serialize-with-wait, not 429.** A conflicting chargeable POST opens its SSE
 stream and polls `claimAndReserveRun` (each poll is the whole atomic
@@ -281,40 +451,67 @@ nothing.
 `completeAndSettleRun` (build: `generating → complete` + settle, one commit;
 plus the false-reap SELF-HEAL: a reaped-but-unclaimed build that finished
 cleanly flips back to `complete` off the reaper's signature — settled marker,
-`runId` cleared, `run_id === runId`), `clearRunLockAndSettle` (edit: release +
+marker `runId` cleared, `run_id === runId`), `clearRunLockAndSettle` (edit: release +
 settle, one commit), `settleAndRelease` (the failed-run writer: refund-if-
-unsettled + settle + optional lock release in one commit; its `settled`
-return is the separate question "is this run's credit resolved — safe to
-`failApp`?"), and the flush-driven `refundReservation`. The gate makes a
-reaped-then-re-claimed run's stale terminal write a no-op rather than a
-clobber. A failed EDIT never flips its `complete` app to `error` (that would
-brick a working app over a transient model error).
+unsettled + settle + edit-lock release in one commit; its required mode and
+`settled` return answer the separate question "does this admitted holder
+capability still own the outcome—safe to `failApp`?"), and the flush-driven
+`refundReservation`. Every SQL update repeats legacy mode/run authority while
+the compatibility switch is false and the full nonce generation after it is
+true; credit-mutating writers require exactly one affected row so a lost CAS
+rolls the refund back. A reaped-then-re-claimed run's stale terminal write
+therefore affects zero rows rather than clobbering its successor. A failed EDIT
+never flips its `complete` app to `error` (that would brick a working app over
+a transient model error).
 
 **Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
 `refundStaleGeneration` (stale build: refund + `generating → error` +
 `paused_timeout` classification for an abandoned pause) and
 `reapStaleReservation` → `refundStaleReservation` (stranded edit: refund +
-settle + release the lapsed lock) both re-derive `reapable*` off the locked
-row, so a fresh run that re-claimed between the scan and the reap is never
-clawed back. Both key on the LAPSED LEASE, not `awaiting_input`, so they free
-hard-killed AND abandoned-paused runs; both CLEAR the reaped marker's `runId`
-(the reaper's signature the self-heal + non-lenient `mine` read). Refunds
-always target the marker's charged actor (`res_user_id`, falling back to
-`owner` for markers that lack it).
+settle + release the lapsed lock) require the exact holder identity captured by
+their scan, compare it again under the app lock, and repeat it in the SQL CAS.
+They also re-derive `reapable*` off that locked row, so even a delayed reaper
+cannot claw back a later holder that has independently gone stale. Both key on
+the LAPSED LEASE, not `awaiting_input`, so they free hard-killed AND
+abandoned-paused runs; both CLEAR the reaped marker's `runId` (the reaper's
+signature for the self-heal + non-lenient holder read) when the reaper settles
+an unsettled marker. A build marker already settled by its own failure flush
+retains its `runId`; it deliberately cannot masquerade as a false reap or
+self-heal. Refunds always target the
+marker's charged actor (`res_user_id`, falling back to `owner` for markers that
+lack it). A missing marker run id is still refundable for an edit whose lock
+provides a concrete holder id; a build with neither a concrete reservation id
+nor pre-reservation root id fails closed as corrupt and is never queued.
 
 **Resume re-acquires — renew, don't get reaped.** A free-continuation resume
 calls `reacquireLease`: one transaction asserting `ownedByResume` (keyed on
-the RESUME's own mode) and, on success, re-establishing the mode's horizon +
-clearing `awaiting_input`. A lost resume touched nothing; the return
-distinguishes `"superseded"` (another run occupies the app) from `"released"`
-(the reap simply freed it) so the route's message is true.
+the RESUME's own mode), freshly authorizing its actor, and, on success,
+re-establishing the mode's horizon +
+clearing `awaiting_input`. Before activation, a legacy browser may omit the
+nonce; a v0 pause is upgraded with a server-minted nonce in this same locked
+write and the authoritative value is returned to the client. After activation,
+a missing/mismatch returns `"refresh_required"`. Other lost resumes touch
+nothing and distinguish `"superseded"` (another holder) from `"released"` (the
+reap freed it).
+
+**Pause and prelude cleanup are exact-holder writes.** `setAwaitingInput`
+locks the app, compares the caller's Project snapshot, freshly authorizes the
+actor, accepts the caller's mode, and applies the pause only while the locked
+holder identity equals the currently admitted capability; its SQL update
+repeats the same compare-and-set. It returns owned/superseded/released and
+throws infrastructure faults. The route treats lost ownership as a terminal,
+non-owning, non-paused stream, so no stale question becomes resumable on a
+successor. `clearRunLock(appId, runId, holderNonce)` is the awaited
+prelude-failure net: under the app lock and SQL CAS it clears only that admitted
+edit holder; a replacement or reap is a clean no-op.
 
 ## Guarded commit
 
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
-→ reauth against the fresh row (owner fallback for null-Project apps; a
-concurrent move rejects retryably) → media expectations re-checked against
+→ reject when the row no longer matches the caller's required
+`expectedProjectId` → reauth against the fresh row (owner fallback for
+null-Project apps) → media expectations re-checked against
 rows read `FOR SHARE` → assemble + hydrate the fresh doc →
 `batchTargetsMissing` → re-run verdict → literal `seq + 1` → entity-row diff
 write + the permanent stream row + the in-commit NOTIFY. The per-commit edit

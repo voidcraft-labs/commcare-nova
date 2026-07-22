@@ -29,7 +29,7 @@ import {
 	serializePath,
 } from "@/lib/routing/location";
 import {
-	notifyPathChange,
+	pushBuilderHistory,
 	useBuilderPathSegments,
 } from "@/lib/routing/useClientPath";
 
@@ -65,8 +65,7 @@ export function LocationRecoveryEffect() {
 		const parts = pathname.split("/").filter(Boolean);
 		const basePath = `/${parts.slice(0, 2).join("/")}`;
 		const url = buildUrl(basePath, target);
-		window.history.replaceState(null, "", url);
-		notifyPathChange();
+		pushBuilderHistory(url, true);
 	}, [loc, modules, forms, fields, pathname, segments]);
 
 	return null;

@@ -87,10 +87,13 @@ export async function GET(req: NextRequest) {
 
 		if (ids.length > 0) {
 			const rows = await loadAssetsByIds(ids, project);
-			return NextResponse.json({
-				assets: rows.map(toWireMediaAsset),
-				nextCursor: null,
-			});
+			return NextResponse.json(
+				{
+					assets: rows.map(toWireMediaAsset),
+					nextCursor: null,
+				},
+				{ headers: { "Cache-Control": "private, no-store" } },
+			);
 		}
 
 		const normalizedQuery = query?.trim();
@@ -106,13 +109,18 @@ export async function GET(req: NextRequest) {
 			}
 			throw err;
 		});
-		return NextResponse.json({
-			assets: assets.map(toWireMediaAsset),
-			nextCursor,
-		});
+		return NextResponse.json(
+			{
+				assets: assets.map(toWireMediaAsset),
+				nextCursor,
+			},
+			{ headers: { "Cache-Control": "private, no-store" } },
+		);
 	} catch (err) {
-		return handleApiError(
+		const response = handleApiError(
 			err instanceof Error ? err : new ApiError("Library list failed", 500),
 		);
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
 	}
 }

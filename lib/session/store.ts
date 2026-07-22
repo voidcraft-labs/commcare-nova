@@ -88,6 +88,24 @@ function deepEqual(a: unknown, b: unknown): boolean {
 /** Which sidebar column to target in `setSidebarOpen`. */
 export type SidebarKind = "chat" | "structure";
 
+/** Authorization state for the currently loaded app snapshot. `refreshing`
+ *  starts at the instant a scope/access boundary is observed; `reconnecting`
+ *  means the authoritative GET has not succeeded yet. Both are deliberately
+ *  non-editable while the user's pending mutations remain in the reconciler. */
+export type AccessPhase =
+	| "authorized"
+	| "refreshing"
+	| "reconnecting"
+	| "upgradeRequired"
+	| "revoked";
+
+/** The capability tuple returned atomically with an app blueprint. */
+export interface BuilderAccessSnapshot {
+	readonly projectId: string | undefined;
+	readonly role: string | undefined;
+	readonly canEdit: boolean;
+}
+
 /** Saved edit-canvas scroll state for one form. The edit canvas
  *  (`VirtualFormList`) is destroyed on every preview↔edit flip and on form
  *  navigation; this is what the next mount replays to land back in the exact
@@ -166,15 +184,23 @@ export interface BuilderSessionState {
 	 *  the app row is created. */
 	appId: string | undefined;
 
-	/** Whether this session's user holds the `edit` capability on the app's
-	 *  Project. `true` for new builds and for editor/admin/owner members;
-	 *  `false` for viewers. Captured once at mount from the server-resolved
-	 *  role (the build page's `resolveAppAccess`) and never changes for the
-	 *  session. The builder reads it through `useCanEdit()` to render a
-	 *  read-only experience — hidden composer, no edit affordances — and
-	 *  `useAutoSave` gates on it so a viewer's local change can never reach
-	 *  the server write path (which would 404 the under-privileged PUT). */
+	/** Project + role + edit capability from the latest authoritative GET.
+	 *  They update together through `applyAccessSnapshot`; no component owns a
+	 *  second capability copy. New builds are pre-seeded from the active Project's
+	 *  server-resolved role while `appId` remains absent until creation. */
+	projectId: string | undefined;
+	role: string | undefined;
 	canEdit: boolean;
+	/** Whether the tuple is authoritative, being refreshed, waiting on a
+	 *  retryable GET, or confirmed lost. */
+	accessPhase: AccessPhase;
+	/** Monotonic generation for Project-scoped client state. Incremented once
+	 *  when an access refresh begins; reset subscribers clear before GET. */
+	scopeEpoch: number;
+	/** Local work preserved across a downgrade and waiting for edit capability.
+	 *  This is presentation state derived by the reconciler at snapshot install,
+	 *  not a second copy of the mutation batches themselves. */
+	hasWaitingAccessChanges: boolean;
 
 	// ── Interaction ──────────────────────────────────────────────────────
 
@@ -288,6 +314,15 @@ export interface BuilderSessionState {
 		assets: readonly ({ id: string } & ExportBudgetRowView)[],
 	) => void;
 
+	/** Clear every transient value whose authority follows the app's current
+	 *  Project. Runs synchronously at the access boundary, before the
+	 *  authoritative app reload: staged transfers are aborted, their records
+	 *  and observed media rows are forgotten, and preview's selected case/form
+	 *  identity is dropped. Authoring state and chat drafts deliberately live
+	 *  outside this reset. Throws only after all aborts have been attempted and
+	 *  the serializable state has been cleared. */
+	resetProjectScope: () => void;
+
 	// ── Transient UI hints (one-shot, consumed by a single component) ────
 
 	/** Transient field key to focus after undo/redo. Set by `useUndoRedo`;
@@ -359,6 +394,32 @@ export interface BuilderSessionState {
 
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
+
+	/** Promote a dormant new-build session using the server's complete creation
+	 * handoff. App identity and Project capability move together so no observer
+	 * can see the new app under the Project tuple seeded by another request. */
+	activateCreatedApp: (id: string, snapshot: BuilderAccessSnapshot) => void;
+
+	/** Pause writes and begin one serialized authoritative access refresh.
+	 *  Returns the current scope epoch; repeated calls while already refreshing
+	 *  or reconnecting coalesce without incrementing it again. */
+	beginAccessRefresh: () => number;
+
+	/** Record a retryable reload failure without reopening the edit path. */
+	markAccessReconnecting: () => void;
+
+	/** Atomically install the tuple returned with the reloaded blueprint. */
+	applyAccessSnapshot: (
+		snapshot: BuilderAccessSnapshot,
+		options?: { hasWaitingChanges?: boolean },
+	) => void;
+
+	/** Confirm that the authoritative view capability is gone. */
+	revokeAccess: () => void;
+
+	/** Freeze behind an explicit refresh action after the automatic one-shot
+	 *  receiver upgrade was already attempted in this browser session. */
+	requireClientUpgrade: () => void;
 
 	/** Set the generic loading flag. No-ops when unchanged. */
 	setLoading: (loading: boolean) => void;
@@ -518,8 +579,9 @@ export interface SessionStoreInit {
 	loading?: boolean;
 	/** Pre-set the app id. */
 	appId?: string;
-	/** Pre-set the edit capability from the server-resolved Project role.
-	 *  Omitted (defaults `true`) for new builds — the creator always edits. */
+	/** Pre-set the atomic access tuple from the server-rendered app snapshot. */
+	projectId?: string;
+	role?: string;
 	canEdit?: boolean;
 }
 
@@ -529,6 +591,11 @@ export interface SessionStoreInit {
  *  @param init — optional initial overrides for lifecycle fields that must
  *  be correct before the first render (see `SessionStoreInit`). */
 export function createBuilderSessionStore(init?: SessionStoreInit) {
+	const initialAccess: BuilderAccessSnapshot = {
+		projectId: init?.projectId,
+		role: init?.role,
+		canEdit: init?.canEdit ?? true,
+	};
 	/* Non-reactive ref — lives outside Zustand state so it doesn't serialize
 	 * to devtools and doesn't fire subscribers on install/clear. Read
 	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
@@ -553,7 +620,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* App identity */
 				appId: init?.appId as string | undefined,
-				canEdit: init?.canEdit ?? true,
+				projectId: initialAccess.projectId,
+				role: initialAccess.role,
+				canEdit: initialAccess.canEdit,
+				accessPhase: "authorized" as AccessPhase,
+				scopeEpoch: 0,
+				hasWaitingAccessChanges: false,
 
 				/* Interaction */
 				previewing: false,
@@ -652,6 +724,69 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setAppId(id: string) {
 					if (id === get().appId) return;
 					set({ appId: id });
+				},
+
+				activateCreatedApp(id: string, snapshot: BuilderAccessSnapshot) {
+					set({
+						appId: id,
+						projectId: snapshot.projectId,
+						role: snapshot.role,
+						canEdit: snapshot.canEdit,
+						accessPhase: "authorized",
+						hasWaitingAccessChanges: false,
+					});
+				},
+
+				beginAccessRefresh() {
+					const state = get();
+					if (
+						state.accessPhase === "refreshing" ||
+						state.accessPhase === "reconnecting" ||
+						state.accessPhase === "upgradeRequired" ||
+						state.accessPhase === "revoked"
+					) {
+						return state.scopeEpoch;
+					}
+					const scopeEpoch = state.scopeEpoch + 1;
+					set({ canEdit: false, accessPhase: "refreshing", scopeEpoch });
+					return scopeEpoch;
+				},
+
+				markAccessReconnecting() {
+					const state = get();
+					if (
+						state.accessPhase === "revoked" ||
+						state.accessPhase === "upgradeRequired"
+					)
+						return;
+					if (!state.canEdit && state.accessPhase === "reconnecting") return;
+					set({ canEdit: false, accessPhase: "reconnecting" });
+				},
+
+				applyAccessSnapshot(
+					snapshot: BuilderAccessSnapshot,
+					options?: { hasWaitingChanges?: boolean },
+				) {
+					set({
+						projectId: snapshot.projectId,
+						role: snapshot.role,
+						canEdit: snapshot.canEdit,
+						accessPhase: "authorized",
+						hasWaitingAccessChanges:
+							!snapshot.canEdit && (options?.hasWaitingChanges ?? false),
+					});
+				},
+
+				revokeAccess() {
+					const state = get();
+					if (!state.canEdit && state.accessPhase === "revoked") return;
+					set({ canEdit: false, accessPhase: "revoked" });
+				},
+
+				requireClientUpgrade() {
+					const state = get();
+					if (!state.canEdit && state.accessPhase === "upgradeRequired") return;
+					set({ canEdit: false, accessPhase: "upgradeRequired" });
 				},
 
 				setLoading(loading: boolean) {
@@ -1072,6 +1207,39 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ assetMeta: next });
 				},
 
+				resetProjectScope() {
+					const failures: unknown[] = [];
+					for (const abort of stagedUploadAborts.values()) {
+						try {
+							abort();
+						} catch (error) {
+							/* Keep draining the registry. One broken abort callback must
+							 * never leave another source-Project transfer alive. */
+							failures.push(error);
+						}
+					}
+					stagedUploadAborts.clear();
+					set({
+						/* Conversation/mutation events can carry Project asset ids,
+						 * filenames, tool inputs/results, and media-bearing mutations. The
+						 * transport owner closes the agent-write bracket; the session reset
+						 * synchronously retires the payload/phase projection itself. */
+						events: [],
+						runStartedWithData: false,
+						runCompletedAt: undefined,
+						stagedUploads: {},
+						assetMeta: {},
+						previewCaseTarget: undefined,
+						previewSelectedCase: undefined,
+					});
+					if (failures.length > 0) {
+						throw new AggregateError(
+							failures,
+							"One or more Project-scoped uploads failed to abort",
+						);
+					}
+				},
+
 				setFocusHint(fieldId: string | undefined) {
 					if (fieldId === get().focusHint) return;
 					set({ focusHint: fieldId });
@@ -1120,6 +1288,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* App identity */
 						appId: undefined,
+						projectId: initialAccess.projectId,
+						role: initialAccess.role,
+						canEdit: initialAccess.canEdit,
+						accessPhase: "authorized",
+						scopeEpoch: 0,
+						hasWaitingAccessChanges: false,
 
 						/* Interaction */
 						previewing: false,

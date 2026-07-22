@@ -26,7 +26,7 @@ describe("restoreApp", () => {
 		});
 		const { restoreApp } = await import("../apps");
 
-		await restoreApp(APP);
+		await restoreApp(APP, "owner-test");
 
 		const row = await h.readAppRow(APP);
 		expect(row?.deleted_at).toBeNull();
@@ -38,6 +38,6 @@ describe("restoreApp", () => {
 
 	it("throws on a missing row (no silent ghost create)", async () => {
 		const { restoreApp } = await import("../apps");
-		await expect(restoreApp("does-not-exist")).rejects.toThrow();
+		await expect(restoreApp("does-not-exist", "owner-test")).rejects.toThrow();
 	});
 });

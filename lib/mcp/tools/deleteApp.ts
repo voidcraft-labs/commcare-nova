@@ -1,5 +1,5 @@
 /**
- * `nova.delete_app` — soft-delete an owned Nova app.
+ * `nova.delete_app` — soft-delete a Nova app the caller may administer.
  *
  * Scope: `nova.write`.
  *
@@ -21,14 +21,14 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { requireOwnedApp } from "../ownership";
 import type { ToolContext } from "../types";
 
 /**
  * Register the single-argument `delete_app` tool on an `McpServer`.
  *
- * The ownership gate runs first so a cross-tenant delete probe can
- * never reach the write. The `stage: "app_deleted"` marker inside the
+ * The app transaction locks the row and freshly checks Project `delete`
+ * capability before writing, collapsing missing and denied targets to the same
+ * result. The `stage: "app_deleted"` marker inside the
  * content JSON lets the model latch on to the life-cycle event without
  * having to infer it from the tool name alone — same pattern
  * `create_app` uses for `app_created`.
@@ -38,20 +38,19 @@ export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 		"delete_app",
 		{
 			description:
-				"Soft-delete one of your apps. Filters from list surfaces; recoverable within the returned window.",
+				"Soft-delete an app you administer. Filters from list surfaces; recoverable within the returned window.",
 			inputSchema: {
 				app_id: z
 					.string()
 					.describe(
-						"App id to delete. Must be an app the authenticated user owns.",
+						"App id to delete. Requires Project admin or owner access.",
 					),
 			},
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
 			try {
-				await requireOwnedApp(ctx.userId, appId, "delete");
-				const recoverableUntil = await softDeleteApp(appId);
+				const recoverableUntil = await softDeleteApp(appId, ctx.userId);
 				return {
 					content: [
 						{

@@ -10,11 +10,12 @@
  * happened and the next scan retries). Here we mock `refundStaleGeneration` and
  * observe only that delegation.
  *
- * `setAwaitingInput` is exercised against the real per-test DB (it writes the
- * `apps` row directly), since the load-bearing behavior is the write itself:
- * clearing the pause re-arms `updated_at` (the resuming run needs a fresh
- * staleness window), while setting it must NOT bump the clock (the flag, not a
- * fresh timestamp, is what spared the paused row).
+ * `setAwaitingInput` is exercised against the real per-test DB. It locks the
+ * app row and re-checks the exact holder before writing: clearing the pause
+ * re-arms `updated_at` (the resuming run needs a fresh staleness window), while
+ * setting it must NOT bump the clock (the flag, not a fresh timestamp, is what
+ * spared the paused row). Replacement/reaper ownership regressions live in
+ * `runHolderWrites.integration.test.ts`.
  *
  * Claim + reserve are one atomic `claimAndReserveRun` with no prior-state
  * snapshot (every rejection is a rollback), so the build-claim scenarios — a
@@ -38,6 +39,7 @@ vi.mock("../credits", () => ({
 }));
 
 const h = setupAppStateTestDb("reap_stale_");
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
 describe("reapStaleGenerating", () => {
 	beforeEach(() => {
@@ -48,9 +50,17 @@ describe("reapStaleGenerating", () => {
 		refundStaleGenerationMock.mockResolvedValue(undefined);
 		const { reapStaleGenerating } = await import("../apps");
 
-		await reapStaleGenerating("app-1");
+		await reapStaleGenerating("app-1", {
+			mode: "build",
+			runId: "run-1",
+			nonce: HOLDER_NONCE,
+		});
 
-		expect(refundStaleGenerationMock).toHaveBeenCalledWith("app-1");
+		expect(refundStaleGenerationMock).toHaveBeenCalledWith("app-1", {
+			mode: "build",
+			runId: "run-1",
+			nonce: HOLDER_NONCE,
+		});
 	});
 
 	it("SWALLOWS a transient throw — the row is untouched, so the next scan retries", async () => {
@@ -58,12 +68,20 @@ describe("reapStaleGenerating", () => {
 		const { reapStaleGenerating } = await import("../apps");
 
 		// A throw must not escape (fire-and-forget at the call sites).
-		await expect(reapStaleGenerating("app-1")).resolves.toBeUndefined();
+		await expect(
+			reapStaleGenerating("app-1", {
+				mode: "build",
+				runId: "run-1",
+				nonce: HOLDER_NONCE,
+			}),
+		).resolves.toBeUndefined();
 	});
 });
 
 describe("setAwaitingInput", () => {
 	const APP = "app-await";
+	const RUN = "run-await";
+	const PERIOD = "2026-07";
 
 	it("clearing (resume) re-arms updated_at so the resuming run gets a fresh staleness window", async () => {
 		// The flag — not the timestamp — is what spared the paused row, so clearing
@@ -75,11 +93,29 @@ describe("setAwaitingInput", () => {
 			id: APP,
 			status: "generating",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			updated_at: stale,
+			reservation: {
+				period: PERIOD,
+				reserved: 100,
+				settled: false,
+				userId: "owner-test",
+				runId: RUN,
+			},
 		});
 		const { setAwaitingInput } = await import("../apps");
 
-		await setAwaitingInput(APP, false);
+		await expect(
+			setAwaitingInput(
+				APP,
+				RUN,
+				HOLDER_NONCE,
+				"build",
+				false,
+				"owner-test",
+				"project-test",
+			),
+		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);
 		if (!row) throw new Error("seeded app row missing");
@@ -96,11 +132,29 @@ describe("setAwaitingInput", () => {
 			id: APP,
 			status: "generating",
 			awaiting_input: false,
+			run_holder_nonce: HOLDER_NONCE,
 			updated_at: stale,
+			reservation: {
+				period: PERIOD,
+				reserved: 100,
+				settled: false,
+				userId: "owner-test",
+				runId: RUN,
+			},
 		});
 		const { setAwaitingInput } = await import("../apps");
 
-		await setAwaitingInput(APP, true);
+		await expect(
+			setAwaitingInput(
+				APP,
+				RUN,
+				HOLDER_NONCE,
+				"build",
+				true,
+				"owner-test",
+				"project-test",
+			),
+		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);
 		if (!row) throw new Error("seeded app row missing");

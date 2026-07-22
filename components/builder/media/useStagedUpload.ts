@@ -55,6 +55,9 @@ export function useStagedSlotUpload(
 
 	return useCallback(
 		(slotKey: string, kind: MediaKind, file: File) => {
+			const start = session.getState();
+			if (start.accessPhase !== "authorized" || !start.canEdit) return;
+			const uploadScopeEpoch = start.scopeEpoch;
 			const controller = new AbortController();
 			const actions = session.getState();
 			actions.stageUpload(slotKey, {
@@ -77,8 +80,21 @@ export function useStagedSlotUpload(
 					 * here — the shared prose lands on the staged chip and
 					 * nothing was ever committed. A cancel that raced the check
 					 * wins (the record is gone; stay silent). */
+					if (
+						controller.signal.aborted ||
+						session.getState().scopeEpoch !== uploadScopeEpoch ||
+						session.getState().accessPhase !== "authorized" ||
+						!session.getState().canEdit
+					)
+						return;
 					const verdict = await checkAttachBudget(asset);
-					if (controller.signal.aborted) return;
+					if (
+						controller.signal.aborted ||
+						session.getState().scopeEpoch !== uploadScopeEpoch ||
+						session.getState().accessPhase !== "authorized" ||
+						!session.getState().canEdit
+					)
+						return;
 					if (!verdict.ok) {
 						session.getState().failStagedUpload(slotKey, verdict.error);
 						return;
@@ -90,7 +106,13 @@ export function useStagedSlotUpload(
 					/* Cancel already removed the record (cancelStagedUpload aborts
 					 * then clears) — stay silent so the cleared slot doesn't
 					 * resurrect as an error chip. */
-					if (controller.signal.aborted) return;
+					if (
+						controller.signal.aborted ||
+						session.getState().scopeEpoch !== uploadScopeEpoch ||
+						session.getState().accessPhase !== "authorized" ||
+						!session.getState().canEdit
+					)
+						return;
 					session
 						.getState()
 						.failStagedUpload(

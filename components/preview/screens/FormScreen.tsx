@@ -36,9 +36,11 @@ import {
 	useBuilderIsReady,
 	useCanEdit,
 	useEditMode,
+	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 
@@ -125,6 +127,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const appId = useAppId();
+	const scopeEpoch = useProjectScopeEpoch();
+	const session = useBuilderSessionApi();
 	/* A viewer may preview the running app but not WRITE case data (submit a
 	 * form, generate sample cases) — those server actions are edit-gated, so
 	 * disable their controls rather than let a viewer hit a server error.
@@ -179,11 +183,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * identity; a new selection establishes a new baseline, while a replacement
 	 * of the SAME identity invalidates it synchronously on the next render. */
 	const bindingRevisionRef = useRef({
+		scopeEpoch,
 		caseId: effectiveCaseId,
 		revision: replacementRevision,
 	});
-	if (bindingRevisionRef.current.caseId !== effectiveCaseId) {
+	if (
+		bindingRevisionRef.current.scopeEpoch !== scopeEpoch ||
+		bindingRevisionRef.current.caseId !== effectiveCaseId
+	) {
 		bindingRevisionRef.current = {
+			scopeEpoch,
 			caseId: effectiveCaseId,
 			revision: replacementRevision,
 		};
@@ -293,8 +302,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const [submitStatus, setSubmitStatus] = useState<SubmitStatus>({
 		kind: "idle",
 	});
+	const submitScopeEpochRef = useRef(scopeEpoch);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
+	useEffect(() => {
+		/* Submission UI is tied to the case/runtime generation. The access gate
+		 * masks this screen while the reload runs; reset before it can reopen. */
+		if (submitScopeEpochRef.current === scopeEpoch) return;
+		submitScopeEpochRef.current = scopeEpoch;
+		setSubmitStatus({ kind: "idle" });
+	}, [scopeEpoch]);
 
 	/* Replacing all rows destroys the identity this navigation frame carries.
 	 * Leave the stale form with `replace` (so browser Back cannot re-enter it),
@@ -372,6 +389,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	}, [form, moduleUuid, navigate, onBack]);
 
 	const handleSubmit = async (): Promise<void> => {
+		const start = session.getState();
+		/* Authority is read imperatively at the mutation boundary. A queued click
+		 * can run after the synchronous reset but before React commits fresh props. */
+		if (start.accessPhase !== "authorized" || !start.canEdit) return;
+		const submittedScopeEpoch = start.scopeEpoch;
+		const isCurrent = () => {
+			const current = session.getState();
+			return (
+				current.scopeEpoch === submittedScopeEpoch &&
+				current.accessPhase === "authorized" &&
+				current.canEdit
+			);
+		};
 		/* Clear any prior error state up-front. Two reasons:
 		 *
 		 *   1. A stale server-error header from a previous submit would
@@ -425,6 +455,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				caseTypes,
 			});
 			const result = await submitFormAction(mutation, appId);
+			if (!isCurrent()) return;
 			if (
 				result.kind === "registration" ||
 				result.kind === "followup" ||
@@ -440,6 +471,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				message: describeSubmitError(result),
 			});
 		} catch {
+			if (!isCurrent()) return;
 			/* Wire-level failures (RSC serialization, transport rejects)
 			 * and any invariant throw the action / engine surfaces collapse
 			 * to one user-facing line. The throw's message body carries
@@ -549,7 +581,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
 			<div ref={formBodyRef} className="flex-1 pt-4">
 				{hasFields ? (
-					<FormRenderer parentEntityId={formUuid} />
+					/* Every interactive field owns browser continuations (camera,
+					 * geolocation, Places, focus). A Project generation is a hard
+					 * runtime boundary: remount the renderer so no local UI state can
+					 * be projected into the destination controller. */
+					<FormRenderer key={scopeEpoch} parentEntityId={formUuid} />
 				) : (
 					<div className="text-center text-nova-text-muted py-8">
 						This form has no fields.

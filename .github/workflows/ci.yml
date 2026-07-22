@@ -62,6 +62,8 @@ jobs:
           # setup-node's npm cache lookup runs before we can replace the npm 11
           # bundled with Node 24, so the exact npm 12 devEngine rejects it.
           package-manager-cache: false
+      - name: Runtime capabilities are single-sourced
+        run: node scripts/rollout/render-build-config.mjs --check
       - name: Install pinned npm
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"

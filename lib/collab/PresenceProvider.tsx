@@ -19,11 +19,11 @@
  *
  * The app id is read from the SESSION STORE (`useAppId`), not the static build
  * page prop: a brand-new build mounts with no id, and the SA mints it mid-run
- * (`data-app-id` → `setAppId` + `reconciler.activate`, URL rewritten via the
- * History API) WITHOUT remounting the builder, so the `buildId` prop stays
- * `'new'`. Reading the session store's live `appId` is how the creator starts
- * heartbeating — and joins a collaborator's roster — the instant the app is
- * minted, with no reload.
+ * (`data-app-id` → atomic identity/access promotion + `reconciler.activate`,
+ * URL rewritten via the History API) WITHOUT remounting the builder, so the
+ * `buildId` prop stays `'new'`. Reading the session store's live `appId` is how
+ * the creator starts heartbeating — and joins a collaborator's roster — the
+ * instant the app is minted, with no reload.
  *
  * Outside the provider (replay, or before it mounts) `usePresenceRoster`
  * returns a stable empty roster, so consumers render no avatars / markers.

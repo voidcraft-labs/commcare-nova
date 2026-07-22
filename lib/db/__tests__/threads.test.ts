@@ -4,10 +4,11 @@
  *
  * The invariants under test are the ones the resume design leans on:
  *
- *  - `upsertThreadTurn` marks the thread live and MERGES the incoming
- *    history into the stored transcript (a stale tab must not erase turns
- *    other sessions added); its update arm is app-guarded so a forged
- *    thread id writes nothing.
+ *  - `upsertThreadTurn` proves the compatibility-admitted app holder before
+ *    marking the thread live and MERGES the incoming history into the stored
+ *    transcript (a stale tab must not erase turns other sessions added); a
+ *    lost holder may merge messages but cannot replace its successor marker,
+ *    and the update arm is app-guarded so a forged thread id writes nothing.
  *  - `appendThreadResponse` merges the assistant message AND retires the
  *    live-stream marker — but ONLY while the marker still names its own
  *    run's stream, so a finalize that lost the app to a newer claim can't
@@ -27,15 +28,17 @@
  */
 import type { UIMessage } from "ai";
 import { beforeEach, describe, expect, it } from "vitest";
+import { RunHolderLostError } from "../commitGuard";
 import { getAppDb } from "../pg";
+import { declareRuntimeReader } from "../runtimeReaderVersion";
 import {
 	appendThreadResponse,
 	listThreadMetas,
 	loadThread,
 	mergeThreadTurnMessages,
 	mergeTranscript,
+	upsertThreadTurn as persistOwnedThreadTurn,
 	resolveThreadStream,
-	upsertThreadTurn,
 } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -59,6 +62,128 @@ function assistantMsg(id: string, text: string): UIMessage {
 }
 
 const T1 = "thread-1";
+const PAUSED_ACTOR = "paused-actor";
+const OTHER_ACTOR = "other-actor";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
+const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
+
+/**
+ * The production writer now proves the app holder that the route claimed
+ * before installing a thread marker. Keep these persistence-focused tests
+ * honest by establishing that holder explicitly; at-rest fixtures are
+ * restored after the write so dead-marker reconciliation still sees them
+ * at rest.
+ */
+async function upsertThreadTurn(
+	args: Parameters<typeof persistOwnedThreadTurn>[0],
+): Promise<boolean> {
+	const db = await getAppDb();
+	const original = await db
+		.selectFrom("apps")
+		.select([
+			"status",
+			"awaiting_input",
+			"run_id",
+			"run_holder_nonce",
+			"res_period",
+			"res_run_id",
+			"lock_run_id",
+			"lock_actor_user_id",
+			"lock_expire_at",
+		])
+		.where("id", "=", args.appId)
+		.executeTakeFirstOrThrow();
+	const wasAtRest =
+		original.status !== "generating" && original.lock_run_id === null;
+	await db.transaction().execute(async (tx) => {
+		if (args.holderNonce) await declareRuntimeReader(tx);
+		if (args.threadType === "build") {
+			await tx
+				.updateTable("apps")
+				.set({
+					status: "generating",
+					run_id: args.runId,
+					run_holder_nonce: args.holderNonce ?? null,
+					...(original.res_period !== null && { res_run_id: args.runId }),
+					lock_run_id: null,
+					lock_actor_user_id: null,
+					lock_expire_at: null,
+				})
+				.where("id", "=", args.appId)
+				.execute();
+		} else {
+			await tx
+				.updateTable("apps")
+				.set({
+					status: "complete",
+					lock_run_id: args.runId,
+					lock_actor_user_id: "owner-test",
+					lock_expire_at: new Date(Date.now() + 15 * 60_000),
+					run_holder_nonce: args.holderNonce ?? null,
+				})
+				.where("id", "=", args.appId)
+				.execute();
+		}
+	});
+
+	const written = await persistOwnedThreadTurn(args);
+	if (wasAtRest) {
+		await db.transaction().execute(async (tx) => {
+			if (args.holderNonce) await declareRuntimeReader(tx);
+			await tx
+				.updateTable("apps")
+				.set({
+					status: original.status,
+					awaiting_input: original.awaiting_input,
+					run_id: original.run_id,
+					run_holder_nonce: original.run_holder_nonce,
+					res_run_id: original.res_run_id,
+					lock_run_id: original.lock_run_id,
+					lock_actor_user_id: original.lock_actor_user_id,
+					lock_expire_at: original.lock_expire_at,
+				})
+				.where("id", "=", args.appId)
+				.execute();
+		});
+	}
+	return written;
+}
+
+async function seedPausedThread(suffix: string): Promise<{
+	appId: string;
+	threadId: string;
+	streamId: string;
+}> {
+	const appId = `app-paused-${suffix}`;
+	const threadId = `thread-paused-${suffix}`;
+	const streamId = `stream-paused-${suffix}`;
+	const runId = `run-paused-${suffix}`;
+	await h.seedApp({
+		id: appId,
+		owner: PAUSED_ACTOR,
+		status: "generating",
+		awaiting_input: true,
+		run_id: runId,
+		run_holder_nonce: HOLDER_NONCE,
+		reservation: {
+			period: "2026-07",
+			reserved: 100,
+			settled: false,
+			userId: PAUSED_ACTOR,
+			runId,
+		},
+	});
+	await upsertThreadTurn({
+		appId,
+		threadId,
+		runId,
+		streamId,
+		holderNonce: HOLDER_NONCE,
+		threadType: "build",
+		messages: [userMsg(`message-${suffix}`, "answer the question")],
+	});
+	return { appId, threadId, streamId };
+}
 
 describe("mergeTranscript", () => {
 	const m = (id: string, partCount = 1) => ({
@@ -235,6 +360,111 @@ describe("upsertThreadTurn", () => {
 		expect(doc?.summary).toBe("mine");
 		expect(await loadThread(OTHER_APP, T1)).toBeNull();
 	});
+
+	it("reports holder loss before a concurrently foreign thread id", async () => {
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-owner",
+			streamId: "stream-owner",
+			threadType: "build",
+			messages: [userMsg("m1", "owner turn")],
+		});
+		await upsertThreadTurn({
+			appId: OTHER_APP,
+			threadId: "other-thread",
+			runId: "run-successor",
+			streamId: "stream-successor",
+			threadType: "build",
+			messages: [userMsg("m2", "successor turn")],
+		});
+
+		await expect(
+			persistOwnedThreadTurn({
+				appId: OTHER_APP,
+				threadId: T1,
+				runId: "run-stale",
+				streamId: "stream-stale",
+				threadType: "build",
+				messages: [userMsg("mx", "must not cross apps")],
+			}),
+		).rejects.toMatchObject({
+			name: new RunHolderLostError().name,
+			outcome: "superseded",
+		});
+
+		const ownerThread = await loadThread(APP, T1);
+		expect(ownerThread?.messages.map((message) => message.id)).toEqual(["m1"]);
+		expect(ownerThread?.active_stream_id).toBe("stream-owner");
+	});
+
+	it("merges a lost holder's transcript without replacing the successor marker", async () => {
+		const sharedRunId = "same-public-run";
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: sharedRunId,
+			streamId: "stream-old",
+			holderNonce: HOLDER_NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "first turn")],
+		});
+
+		// Exercise the nonce half of exact-holder identity: the successor reuses
+		// the public run id but owns a fresh generation capability.
+		const db = await getAppDb();
+		await db
+			.updateTable("lookup_reference_compatibility")
+			.set({
+				minimum_runtime_reader_version: 1,
+				run_holder_nonce_enforced: true,
+			})
+			.where("id", "=", 1)
+			.execute();
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: sharedRunId,
+			streamId: "stream-successor",
+			holderNonce: OTHER_NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "first turn"), userMsg("m2", "successor turn")],
+		});
+
+		await expect(
+			persistOwnedThreadTurn({
+				appId: APP,
+				threadId: T1,
+				runId: sharedRunId,
+				streamId: "stream-stale",
+				holderNonce: HOLDER_NONCE,
+				threadType: "build",
+				messages: [
+					userMsg("m1", "first turn"),
+					userMsg("m3", "stale tab's real turn"),
+				],
+			}),
+		).rejects.toMatchObject({
+			name: new RunHolderLostError().name,
+			outcome: "superseded",
+		});
+
+		const row = await db
+			.selectFrom("threads")
+			.select(["run_id", "active_stream_id", "active_holder_nonce", "messages"])
+			.where("thread_id", "=", T1)
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({
+			run_id: sharedRunId,
+			active_stream_id: "stream-successor",
+			active_holder_nonce: OTHER_NONCE,
+		});
+		expect((row.messages as UIMessage[]).map((message) => message.id)).toEqual([
+			"m1",
+			"m2",
+			"m3",
+		]);
+	});
 });
 
 describe("appendThreadResponse", () => {
@@ -350,9 +580,130 @@ describe("appendThreadResponse", () => {
 		// The newer run is still resumable — its marker survived.
 		expect(doc?.active_stream_id).toBe("stream-2");
 	});
+
+	it("retains a paused nonce and clears it only for the matching terminal stream", async () => {
+		const { appId, threadId, streamId } = await seedPausedThread("finalize");
+		const db = await getAppDb();
+
+		await appendThreadResponse({
+			appId,
+			threadId,
+			streamId,
+			responseMessage: assistantMsg("m-paused", "Which case type?"),
+			retainHolderNonce: true,
+		});
+		let row = await db
+			.selectFrom("threads")
+			.select(["active_stream_id", "active_holder_nonce"])
+			.where("thread_id", "=", threadId)
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({
+			active_stream_id: null,
+			active_holder_nonce: HOLDER_NONCE,
+		});
+
+		await upsertThreadTurn({
+			appId,
+			threadId,
+			runId: "run-paused-finalize",
+			streamId: "stream-successor",
+			holderNonce: HOLDER_NONCE,
+			threadType: "build",
+			messages: [userMsg("m-answer", "Patients")],
+		});
+		await appendThreadResponse({
+			appId,
+			threadId,
+			streamId: "wrong-stream",
+			responseMessage: null,
+		});
+		row = await db
+			.selectFrom("threads")
+			.select(["active_stream_id", "active_holder_nonce"])
+			.where("thread_id", "=", threadId)
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({
+			active_stream_id: "stream-successor",
+			active_holder_nonce: HOLDER_NONCE,
+		});
+
+		await appendThreadResponse({
+			appId,
+			threadId,
+			streamId: "stream-successor",
+			responseMessage: assistantMsg("m-done", "Done"),
+		});
+		row = await db
+			.selectFrom("threads")
+			.select(["active_stream_id", "active_holder_nonce"])
+			.where("thread_id", "=", threadId)
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({
+			active_stream_id: null,
+			active_holder_nonce: null,
+		});
+	});
 });
 
 describe("loaders", () => {
+	it("projects a paused holder nonce only to the exact pause actor", async () => {
+		const { appId, threadId } = await seedPausedThread("actor");
+
+		expect(
+			(await loadThread(appId, threadId, PAUSED_ACTOR))?.holder_nonce,
+		).toBe(HOLDER_NONCE);
+		expect(await loadThread(appId, threadId, OTHER_ACTOR)).not.toHaveProperty(
+			"holder_nonce",
+		);
+		expect(await loadThread(appId, threadId)).not.toHaveProperty(
+			"holder_nonce",
+		);
+	});
+
+	it("withholds a stored nonce that does not match fresh app authority", async () => {
+		const { appId, threadId } = await seedPausedThread("mismatch");
+		await (await getAppDb())
+			.updateTable("threads")
+			.set({ active_holder_nonce: OTHER_NONCE })
+			.where("thread_id", "=", threadId)
+			.execute();
+
+		expect(await loadThread(appId, threadId, PAUSED_ACTOR)).not.toHaveProperty(
+			"holder_nonce",
+		);
+	});
+
+	it("withholds the nonce after the holder is unpaused or reaped", async () => {
+		const unpaused = await seedPausedThread("unpaused");
+		const reaped = await seedPausedThread("reaped");
+		const db = await getAppDb();
+		await db.transaction().execute(async (tx) => {
+			await declareRuntimeReader(tx);
+			await tx
+				.updateTable("apps")
+				.set({ awaiting_input: false })
+				.where("id", "=", unpaused.appId)
+				.execute();
+			await tx
+				.updateTable("apps")
+				.set({
+					status: "error",
+					awaiting_input: false,
+					res_settled: true,
+					res_run_id: null,
+				})
+				.where("id", "=", reaped.appId)
+				.execute();
+		});
+
+		expect(
+			await loadThread(unpaused.appId, unpaused.threadId, PAUSED_ACTOR),
+		).not.toHaveProperty("holder_nonce");
+		expect(
+			await loadThread(reaped.appId, reaped.threadId, PAUSED_ACTOR),
+		).not.toHaveProperty("holder_nonce");
+	});
+
 	it("listThreadMetas orders by recency and carries counts + live markers", async () => {
 		await upsertThreadTurn({
 			appId: APP,
@@ -407,6 +758,7 @@ describe("loaders", () => {
 		expect(await resolveThreadStream(T1)).toEqual({
 			appId: APP,
 			activeStreamId: "stream-1",
+			runId: "run-1",
 		});
 		expect(await resolveThreadStream("nope")).toBeNull();
 	});

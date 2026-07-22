@@ -296,8 +296,12 @@ function putBytesWithProgress(
  */
 export async function fetchAssetExtract(
 	assetId: string,
+	signal?: AbortSignal,
 ): Promise<string | null> {
-	const res = await fetch(`/api/media/${assetId}/extract`);
+	const res = await fetch(`/api/media/${assetId}/extract`, {
+		cache: "no-store",
+		signal,
+	});
 	if (res.status === 404) return null;
 	if (!res.ok) {
 		throw await errorFromResponse(
@@ -317,9 +321,13 @@ export async function fetchAssetExtract(
  */
 export async function fetchAssetExtractMeta(
 	assetId: string,
+	signal?: AbortSignal,
 ): Promise<{ title?: string; summary?: string } | null> {
 	try {
-		const res = await fetch(`/api/media/${assetId}/extract?meta=1`);
+		const res = await fetch(`/api/media/${assetId}/extract?meta=1`, {
+			cache: "no-store",
+			signal,
+		});
 		if (!res.ok) return null;
 		const body = (await res.json()) as { title?: string; summary?: string };
 		return { title: body.title, summary: body.summary };
@@ -425,6 +433,7 @@ export async function fetchMediaLibrary(
 		cursor?: string;
 		query?: string;
 		appId?: string;
+		signal?: AbortSignal;
 	} = {},
 ): Promise<MediaLibraryPage> {
 	const params = new URLSearchParams();
@@ -432,7 +441,10 @@ export async function fetchMediaLibrary(
 	if (options.cursor) params.set("cursor", options.cursor);
 	if (options.query?.trim()) params.set("q", options.query.trim());
 	if (options.appId) params.set("appId", options.appId);
-	const res = await fetch(`/api/media/library?${params.toString()}`);
+	const res = await fetch(`/api/media/library?${params.toString()}`, {
+		cache: "no-store",
+		signal: options.signal,
+	});
 	if (!res.ok) {
 		throw await errorFromResponse(res, "Couldn't load your media library.");
 	}
@@ -455,16 +467,21 @@ const RESOLVE_IDS_CHUNK = 50;
 export async function fetchAssetsByIds(
 	ids: readonly string[],
 	appId?: string,
+	signal?: AbortSignal,
 ): Promise<MediaAssetView[]> {
 	const unique = [...new Set(ids)];
 	const out: MediaAssetView[] = [];
 	for (let i = 0; i < unique.length; i += RESOLVE_IDS_CHUNK) {
+		signal?.throwIfAborted();
 		const params = new URLSearchParams();
 		for (const id of unique.slice(i, i + RESOLVE_IDS_CHUNK)) {
 			params.append("id", id);
 		}
 		if (appId) params.set("appId", appId);
-		const res = await fetch(`/api/media/library?${params.toString()}`);
+		const res = await fetch(`/api/media/library?${params.toString()}`, {
+			cache: "no-store",
+			signal,
+		});
 		if (!res.ok) {
 			throw await errorFromResponse(
 				res,
@@ -484,8 +501,14 @@ export async function fetchAssetsByIds(
  * carriers) — or any other failure, so the caller can tell the user WHY a delete
  * was blocked rather than failing silently.
  */
-export async function deleteMediaAsset(assetId: string): Promise<void> {
-	const res = await fetch(`/api/media/${assetId}`, { method: "DELETE" });
+export async function deleteMediaAsset(
+	assetId: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	const res = await fetch(`/api/media/${assetId}`, {
+		method: "DELETE",
+		signal,
+	});
 	if (!res.ok) {
 		throw await errorFromResponse(res, "Couldn't delete this file. Try again.");
 	}

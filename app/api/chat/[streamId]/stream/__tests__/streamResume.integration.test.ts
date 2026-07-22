@@ -90,21 +90,36 @@ const { appendStreamChunks, pruneChatStreamChunks } = await import(
 	"@/lib/db/streamChunks"
 );
 const { DurableStreamWriter } = await import("@/lib/chat/durableStreamWriter");
+const { holderNonceReplayDigest, PRIVATE_HOLDER_NONCE_CHUNK_TYPE } =
+	await import("@/lib/chat/privateHolderNonce");
 const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
-const { createApp } = await import("@/lib/db/apps");
+const { claimAndReserveRun, createApp } = await import("@/lib/db/apps");
+const { declareRuntimeReader } = await import("@/lib/db/runtimeReaderVersion");
 const { appendThreadResponse, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
 
 const USER = "user-1";
+const PEER = "user-2";
 const PROJECT = "project-1";
+const SUCCESSOR_NONCE = "00000000-0000-4000-8000-000000000099";
 
 const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_stream_" });
 
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
+
+async function holderNonceFor(appId: string): Promise<string> {
+	const row = await appDb
+		.selectFrom("apps")
+		.select("run_holder_nonce")
+		.where("id", "=", appId)
+		.executeTakeFirstOrThrow();
+	if (!row.run_holder_nonce) throw new Error("fixture app has no holder nonce");
+	return row.run_holder_nonce;
+}
 
 function sessionFor(userId: string) {
 	return { user: { id: userId } } as never;
@@ -160,6 +175,7 @@ async function collectUntil(
 		startIndex?: number;
 		timeoutMs?: number;
 		onOpen?: () => Promise<void> | void;
+		userId?: string;
 	},
 ): Promise<{ frames: Frame[]; response: Response; ended: boolean }> {
 	const controller = new AbortController();
@@ -168,7 +184,9 @@ async function collectUntil(
 		url.searchParams.set("startIndex", String(opts.startIndex));
 	const req = new Request(url, { signal: controller.signal });
 
-	requireSessionMock.mockResolvedValue(sessionFor(USER));
+	const userId = opts.userId ?? USER;
+	requireSessionMock.mockResolvedValue(sessionFor(userId));
+	getSessionSafeMock.mockResolvedValue(sessionFor(userId));
 
 	const response = await GET(req, {
 		params: Promise.resolve({ streamId }),
@@ -333,6 +351,7 @@ describe("live tail", () => {
 			streamId: "s5",
 			appId: "app-1",
 			runId: "run-1",
+			threadId: "thread-1",
 			inner,
 		});
 		writer.write({
@@ -351,6 +370,123 @@ describe("live tail", () => {
 			{ type: "finish" },
 			"[DONE]",
 		]);
+	});
+
+	it("rehydrates a private holder marker only for its actor and preserves the cursor for peers", async () => {
+		const appId = await createApp(USER, PROJECT, "run-private");
+		const app = await appDb
+			.selectFrom("apps")
+			.select("run_holder_nonce")
+			.where("id", "=", appId)
+			.executeTakeFirstOrThrow();
+		const holderNonce = app.run_holder_nonce;
+		if (!holderNonce) {
+			throw new Error("createApp did not mint a run holder nonce");
+		}
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-private",
+			runId: "run-private",
+			streamId: "s-private",
+			holderNonce,
+			threadType: "build",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+		});
+		const inner: UIMessageStreamWriter = {
+			write() {},
+			merge() {},
+			onError: undefined,
+		};
+		const writer = new DurableStreamWriter({
+			streamId: "s-private",
+			appId,
+			runId: "run-private",
+			threadId: "thread-private",
+			inner,
+		});
+		writer.writePrivateHolderNonce(holderNonce);
+		await writer.close();
+		/* Paused finalization clears the live stream marker but deliberately
+		 * retains the nonce for the answer POST. A direct hot reconnect to the
+		 * completed stream must still rehydrate this exact generation. */
+		await appDb.transaction().execute(async (tx) => {
+			await declareRuntimeReader(tx);
+			await tx
+				.updateTable("apps")
+				.set({ awaiting_input: true })
+				.where("id", "=", appId)
+				.execute();
+		});
+		await appendThreadResponse({
+			appId,
+			threadId: "thread-private",
+			streamId: "s-private",
+			responseMessage: null,
+			retainHolderNonce: true,
+		});
+
+		const stored = await appDb
+			.selectFrom("chat_stream_chunks")
+			.select("chunks")
+			.where("stream_id", "=", "s-private")
+			.execute();
+		expect(JSON.stringify(stored)).not.toContain(holderNonce);
+
+		const owner = await collectUntil("s-private", {});
+		expect(owner.frames).toEqual([
+			{
+				type: "data-holder-nonce",
+				data: { holderNonce },
+				transient: true,
+			},
+			{ type: "finish" },
+			"[DONE]",
+		]);
+
+		const peer = await collectUntil("s-private", { userId: PEER });
+		expect(peer.frames).toEqual([
+			{
+				type: PRIVATE_HOLDER_NONCE_CHUNK_TYPE,
+				data: {
+					threadId: "thread-private",
+					holderDigest: holderNonceReplayDigest(holderNonce),
+				},
+				transient: true,
+			},
+			{ type: "finish" },
+			"[DONE]",
+		]);
+		expect(peer.frames).toHaveLength(owner.frames.length);
+
+		/* A later claim may deliberately reuse stable thread/run attribution.
+		 * Its fresh nonce must not be projected while replaying the old stream. */
+		await claimAndReserveRun(
+			appId,
+			"build",
+			"run-private",
+			USER,
+			100,
+			PROJECT,
+			SUCCESSOR_NONCE,
+		);
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-private",
+			runId: "run-private",
+			streamId: "s-successor",
+			holderNonce: SUCCESSOR_NONCE,
+			threadType: "build",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+		});
+		const staleOwner = await collectUntil("s-private", {});
+		expect(staleOwner.frames[0]).toEqual({
+			type: PRIVATE_HOLDER_NONCE_CHUNK_TYPE,
+			data: {
+				threadId: "thread-private",
+				holderDigest: holderNonceReplayDigest(holderNonce),
+			},
+			transient: true,
+		});
 	});
 });
 
@@ -472,6 +608,7 @@ describe("thread resolution", () => {
 			threadId: "thread-live",
 			runId: "run-t1",
 			streamId: "s14",
+			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});
@@ -492,7 +629,8 @@ describe("thread resolution", () => {
 			threadId: "thread-idle",
 			runId: "run-t2",
 			streamId: "s15",
-			threadType: "edit",
+			holderNonce: await holderNonceFor(appId),
+			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});
 		/* Finalize cleared the marker — nothing to resume. The reply must be a
@@ -519,6 +657,7 @@ describe("thread resolution", () => {
 			threadId: "thread-foreign",
 			runId: "run-t3",
 			streamId: "s16",
+			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});

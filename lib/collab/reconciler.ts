@@ -39,11 +39,13 @@
  * ## Reload reconciliation
  *
  * A gap (`seq > baseSeq + 1`), a retention-overrun / migration `reload` event,
- * or a PUT 409 all reconcile by GETting the fresh blueprint at seq `M`, then:
+ * or a reversible PUT authority/scope response all reconcile by GETting the
+ * fresh blueprint + capability tuple at seq `M`, then:
  *   (a) dropping every `sentPending` batch whose `ackedSeq <= M` (its commit is
  *       already folded into the fresh doc), AND
- *   (b) dropping THE batch the 409 rejected — without (b) the rejected batch
- *       (no `ackedSeq`) re-folds + re-sends → 409 → reload, an infinite loop.
+ *   (b) dropping only THE batch a typed semantic `commit_rejected` rejected —
+ *       without (b), it re-folds + re-sends into an infinite loop. Access/scope
+ *       changes preserve their batch for a possible editor snapshot.
  * The remaining un-acked batches + `humanUncommitted` re-fold onto the reloaded
  * `confirmedDoc`, the undo stack clears, and the stream resubscribes at `M`.
  *
@@ -105,20 +107,21 @@ interface SentBatch {
 	 *  no dependent 409 churn) while the batch stays folded into `localBase()`
 	 *  (the edits are KEPT; the user's explicit reload is the only discard). */
 	tooLarge: boolean;
-	/** Save-lifecycle observer for a human batch (drives the save indicator +
-	 *  404 warning). Absent on a chat batch (registered already-committed). */
+	/** Save-lifecycle observer for a human batch (drives the save indicator).
+	 *  Absent on a chat batch (registered already-committed). */
 	observe?: SaveObserver;
 }
 
-/** The result of a PUT: `{ seq }` on 200, a tagged failure so the reconciler
- *  routes each to its handler. `notFound` (404 — edit access revoked
- *  mid-session, or the app was deleted) is retryable like `network` (a
- *  re-promotion / transient 404 self-recovers, idempotent via batchDedup) but
- *  is surfaced distinctly so `useAutoSave` can show its "changes aren't being
- *  saved" warning. */
+/** The result of a PUT: `{ seq }` on 200, or a tagged failure. Capability and
+ *  scope failures preserve the batch and trigger an authoritative GET; a PUT
+ *  response alone never proves view revocation. */
 export type PutOutcome =
 	| { ok: true; seq: number }
-	| { ok: false; kind: "conflict" }
+	/** The delta is semantically invalid against the fresh server doc. This is
+	 *  the ONLY outcome that drops its batch after the authoritative reload. */
+	| { ok: false; kind: "commitRejected" }
+	/** The app moved Projects while this request was in flight. */
+	| { ok: false; kind: "scopeChanged" }
 	| { ok: false; kind: "reauth" }
 	| { ok: false; kind: "notFound" }
 	/** A PERMANENT rejection — specifically a 400 "Invalid mutations": the
@@ -138,14 +141,15 @@ export type PutOutcome =
 	 *  feeds the deduped observability report. */
 	| { ok: false; kind: "network"; detail?: string };
 
-/** A save-lifecycle signal `useAutoSave` renders as status + the 404 warning.
- *  The reconciler fires it to the observer passed on `dispatchHumanBatch`. */
+/** A save-lifecycle signal `useAutoSave` renders as status.
+ *  The reconciler fires it to the currently registered observer. */
 export type SaveSignal =
 	| { kind: "saving" }
 	| { kind: "saved" }
 	| { kind: "conflict" }
-	| { kind: "reauth" }
-	| { kind: "notFound" }
+	/** A reversible access/scope transition. Autosave releases its in-flight
+	 *  indicator while the batch remains preserved for the atomic GET. */
+	| { kind: "accessChanged" }
 	/** The server permanently rejected the batch (a 400 "Invalid mutations");
 	 *  saving is frozen. `useAutoSave` shows a terminal "reload to continue"
 	 *  error. */
@@ -155,15 +159,26 @@ export type SaveSignal =
 	| { kind: "tooLarge" }
 	| { kind: "error" };
 
-/** Observe the lifecycle of one dispatched human batch (for the save
- *  indicator + 404 warning). */
+/** Observe the lifecycle of one dispatched human batch (save indicator). */
 export type SaveObserver = (signal: SaveSignal) => void;
 
-/** The fresh blueprint a reload GET returns. */
-export interface ReloadedDoc {
-	readonly blueprint: PersistableDoc;
-	readonly seq: number;
+/** Authorization tuple returned in the same transaction as a blueprint. */
+export interface AuthorizedAccessSnapshot {
+	readonly projectId: string;
+	readonly role: string;
+	readonly canEdit: boolean;
 }
+
+/** The authoritative outcome of the reload GET. PUT responses never prove
+ *  revocation; only this view check (or the stream's confirmed revoked frame)
+ *  may enter the terminal state. */
+export type ReloadOutcome =
+	| ({
+			readonly kind: "authorized";
+			readonly blueprint: PersistableDoc;
+			readonly seq: number;
+	  } & AuthorizedAccessSnapshot)
+	| { readonly kind: "revoked" };
 
 /** Injectable side effects — a real provider wires the network/timers; tests
  *  supply synchronous fakes so the state machine runs headless. */
@@ -171,7 +186,9 @@ export interface ReconcilerDeps {
 	/** PUT `{ mutations, batchId }` to `/api/apps/{appId}`. */
 	put: (batchId: string, mutations: Mutation[]) => Promise<PutOutcome>;
 	/** GET the fresh blueprint + head seq for a reload. */
-	reload: () => Promise<ReloadedDoc>;
+	reload: () => Promise<ReloadOutcome>;
+	/** Live capability gate from BuilderSession. */
+	canEdit: () => boolean;
 	/** Resubscribe the durable stream at `cursor` (the reconciler calls this
 	 *  after a reload lands so frames in `(oldCursor, M]` don't re-trip the
 	 *  gap check). The provider re-opens the EventSource; a solo test no-ops. */
@@ -181,8 +198,23 @@ export interface ReconcilerDeps {
 	scheduleRetry: (attempt: number, run: () => void) => () => void;
 	/** Announce a terminal 409 to the user ("this app changed…"). */
 	onConflictReload?: () => void;
-	/** Announce a terminal reauth denial (403 — edit access lost). */
-	onReauthDenied?: () => void;
+	/** Pause editing and synchronously reset Project-scoped client state. Must
+	 *  be idempotent while one serialized reload is already pending/in flight. */
+	/** Return `false` when any tenant cache failed to clear; the reconciler then
+	 *  fails closed instead of loading a new scope over retained old data. */
+	beginAccessRefresh?: () => boolean;
+	/** A retryable GET failure: remain paused and communicate reconnection. */
+	markAccessReconnecting?: () => void;
+	/** Install the tuple carried by a successful authoritative GET. */
+	applyAccessSnapshot?: (
+		snapshot: AuthorizedAccessSnapshot,
+		options: { hasWaitingChanges: boolean },
+	) => void;
+	/** Confirmed loss of view access. */
+	onViewRevoked?: () => void;
+	/** The one-shot hard refresh was already attempted, but this compiled stream
+	 *  receiver is still below the server floor. */
+	onClientUpgradeRequired?: () => void;
 	/** Report a persistent save-path failure to the observability channel
 	 *  (Sentry, via the provider's `reportClientError`). Fires for a 5xx /
 	 *  network PUT failure and a reload-GET failure so an app-wide save outage
@@ -227,11 +259,18 @@ export interface Reconciler {
 	isDormant(): boolean;
 	/** The auto-save diff base: `confirmedDoc ⊕ sentPending`. */
 	localBase(): BlueprintDoc;
+	/**
+	 * Install the current save-status sink. Registration also retargets every
+	 * pending human batch that already had an observer, so an access-epoch
+	 * advance cannot strand its later retry/failure on a stale scoped-toast
+	 * closure. The returned cleanup only clears this exact registration.
+	 */
+	registerSaveObserver(observe: SaveObserver, scopeEpoch: number): () => void;
 	/** Dispatch the human delta between `localBase()` and the store's displayed
 	 *  doc as a new batch: mint a batchId, register it, and PUT. No-op when the
 	 *  delta is empty or the reconciler is dormant/revoked. `observe` receives
-	 *  the batch's save lifecycle (saving → saved / conflict / reauth /
-	 *  notFound / error), including retry re-sends. Returns the minted batchId
+	 *  the batch's save lifecycle (saving → saved / conflict / accessChanged /
+	 *  error), including retry re-sends. Returns the minted batchId
 	 *  (or undefined when nothing was sent). */
 	dispatchHumanBatch(observe?: SaveObserver): string | undefined;
 	/** Register a chat-SA batch the server just committed (from the
@@ -253,15 +292,22 @@ export interface Reconciler {
 	onReloadEvent(): void;
 	/** Handle an `event: revoked` — freeze; cancel any pending reload. */
 	onRevoked(): void;
+	/** Freeze for a receiver-version mismatch without mislabeling it as an
+	 *  authorization loss. */
+	onClientUpgradeRequired(): void;
 	/** Reseed `confirmedDoc`/`baseSeq` from the chat run's `data-done`
 	 *  `{ doc, seq }` (the same drop-then-refold a reload runs, but reseeding
 	 *  via a suppressed `commitDoc` inside the still-open agent bracket). */
 	onDataDone(args: { doc: PersistableDoc; seq: number }): void;
 	/** Set the tab's active run id (from `data-run-id`), before any frame. */
 	setSelfActiveRunId(runId: string | undefined): void;
-	/** Activate a dormant reconciler once the new build's app id is minted
-	 *  (`data-app-id`): seed `{ appId, baseSeq: 0, baseDoc: <current doc> }`. */
-	activate(args: { appId: string; baseDoc: BlueprintDoc }): void;
+	/** Activate a dormant reconciler once the new build's server handoff arrives
+	 *  (`data-app-id`), including its authoritative starting cursor. */
+	activate(args: {
+		appId: string;
+		baseSeq: number;
+		baseDoc: BlueprintDoc;
+	}): void;
 	/** A read-only state snapshot (tests + presence). */
 	getSnapshot(): ReconcilerSnapshot;
 	/**
@@ -374,6 +420,11 @@ export function createReconciler(
 	/** The active retry-loop canceller, if the loop is scheduled. */
 	let cancelRetry: (() => void) | undefined;
 	let retryAttempt = 0;
+	/** The mounted autosave surface for the CURRENT Project epoch. Human batches
+	 *  survive reversible access reloads, so their lifecycle sink cannot be an
+	 *  immutable closure captured in the epoch that first dispatched them. */
+	let currentSaveObserver: SaveObserver | undefined;
+	let currentSaveObserverEpoch = -1;
 
 	/** Any async continuation must stop here — the reconciler was torn down or
 	 *  access was revoked. */
@@ -445,31 +496,57 @@ export function createReconciler(
 
 	// ── Dispatch (human edit → PUT) ──────────────────────────────────────
 	function canPut(): boolean {
-		return !dormant && !revoked && appId !== undefined;
+		return !dormant && !revoked && appId !== undefined && deps.canEdit();
 	}
 
 	function isDormant(): boolean {
 		return dormant;
 	}
 
+	function registerSaveObserver(
+		observe: SaveObserver,
+		scopeEpoch: number,
+	): () => void {
+		/* Session epochs only advance. Ignore a late effect setup from an older
+		 * render so it cannot retarget live batches back to stale UI ownership. */
+		if (scopeEpoch < currentSaveObserverEpoch) return () => {};
+		currentSaveObserver = observe;
+		currentSaveObserverEpoch = scopeEpoch;
+		/* Only human batches carry observers. Chat batches are already committed
+		 * and never emit save lifecycle signals, so leave them observer-free. */
+		for (const batch of sentPending) {
+			if (batch.observe !== undefined) batch.observe = observe;
+		}
+		return () => {
+			if (
+				currentSaveObserver === observe &&
+				currentSaveObserverEpoch === scopeEpoch
+			) {
+				currentSaveObserver = undefined;
+			}
+		};
+	}
+
 	function dispatchHumanBatch(observe?: SaveObserver): string | undefined {
+		const effectiveObserver = observe ?? currentSaveObserver;
 		if (!canPut()) {
 			// A member REVOKED via the cadence `revoked` frame (`onRevoked` just sets
-			// `revoked` — no PUT ever 403s, so no `reauth` signal fired) — or a
+			// `revoked`) — or a
 			// PERMANENT 400 freeze (which rides the same no-more-PUTs flag). Without
 			// this, a subsequent edit hits `canPut() === false` and returns SILENTLY:
 			// no PUT, no observer signal → `useAutoSave` shows no "Save failed" and
 			// the member keeps editing edits that never persist. Emit the matching
 			// TERMINAL signal so `useAutoSave` surfaces the right persistent toast:
-			// `permanent` ("reload to continue") for the 400 freeze, `reauth` (edit
-			// access lost) for a real revocation — a permanent-frozen user must not
-			// be sent chasing phantom permission problems. `reauth` warns WITHOUT a
-			// Sentry report (`onReauthDenied` wasn't called here — no 403), and each
+			// `permanent` ("reload to continue") for the 400 freeze, `accessChanged`
+			// for a real revocation — a permanent-frozen user must not be sent chasing
+			// phantom permission problems. Each
 			// signal's once-per-episode gating in `useAutoSave` means repeated
 			// post-freeze edits toast once. Only for a real freeze with an actual
 			// unsaved delta; dormant / no-appId stay clean no-ops.
 			if (revoked && appId !== undefined && humanUncommitted().length > 0) {
-				observe?.({ kind: frozenPermanently ? "permanent" : "reauth" });
+				effectiveObserver?.({
+					kind: frozenPermanently ? "permanent" : "accessChanged",
+				});
 			}
 			return undefined;
 		}
@@ -479,7 +556,8 @@ export function createReconciler(
 		// `humanUncommitted` (kept + rendered); re-surface the terminal signal
 		// so the indicator stays in its "too large — reload" state.
 		if (sentPending.some((b) => b.tooLarge)) {
-			if (humanUncommitted().length > 0) observe?.({ kind: "tooLarge" });
+			if (humanUncommitted().length > 0)
+				effectiveObserver?.({ kind: "tooLarge" });
 			return undefined;
 		}
 		const mutations = humanUncommitted();
@@ -490,7 +568,7 @@ export function createReconciler(
 			mutations,
 			putInFlight: false,
 			tooLarge: false,
-			observe,
+			observe: effectiveObserver,
 		};
 		sentPending.push(batch);
 		awaitingEcho.add(batchId);
@@ -512,7 +590,7 @@ export function createReconciler(
 	 * blocks the pipeline (see `SentBatch.tooLarge`).
 	 */
 	function pumpSend(): void {
-		if (inert()) return;
+		if (inert() || !deps.canEdit()) return;
 		// A reload is the pipeline's synchronization barrier: it drops the
 		// 409-rejected batch (and everything acked at or below M), re-folds the
 		// survivors onto the fresh doc, and only then does sending resume (the
@@ -578,7 +656,7 @@ export function createReconciler(
 			maybeRunDeferredReload();
 			return;
 		}
-		if (outcome.kind === "conflict") {
+		if (outcome.kind === "commitRejected") {
 			// A 409 is terminal for THIS batch: its delta can't apply to fresh
 			// state. Reconcile via reload, dropping this specific batchId so it
 			// isn't re-folded + re-sent into the same 409.
@@ -588,14 +666,16 @@ export function createReconciler(
 			requestReload();
 			return;
 		}
-		if (outcome.kind === "reauth") {
-			// Terminal authz denial — a reload grants no membership. Freeze the
-			// canvas the same way revocation does; surface it.
-			revoked = true;
-			batch.observe?.({ kind: "reauth" });
-			cancelRetry?.();
-			cancelRetry = undefined;
-			deps.onReauthDenied?.();
+		if (
+			outcome.kind === "reauth" ||
+			outcome.kind === "scopeChanged" ||
+			outcome.kind === "notFound"
+		) {
+			// A PUT can only prove that this write's authority is stale. Preserve
+			// the batch, pause further PUTs immediately, and let one atomic GET decide
+			// whether the user is a viewer, an editor in a new Project, or revoked.
+			batch.observe?.({ kind: "accessChanged" });
+			requestReload();
 			return;
 		}
 		if (outcome.kind === "permanent") {
@@ -643,23 +723,15 @@ export function createReconciler(
 			maybeRunDeferredReload();
 			return;
 		}
-		// notFound (404) / network / 5xx / recoverable 401: leave the batch in
+		// Network / 5xx / recoverable 401: leave the batch in
 		// sentPending
 		// (localBase keeps folding it) and re-send it via the dedicated retry
 		// loop — the diff path won't re-emit it (it's already in localBase).
-		// Idempotent via batchDedup. A 404 additionally surfaces the "changes
-		// aren't being saved" warning but keeps retrying (a re-promotion /
-		// transient 404 self-recovers on the next successful save). A network /
-		// 5xx failure is reported to the observability channel (deduped per-app)
+		// Idempotent via batchDedup. The failure is reported to the observability
+		// channel (deduped per-app)
 		// so an app-wide save outage isn't invisible.
-		batch.observe?.({
-			kind: outcome.kind === "notFound" ? "notFound" : "error",
-		});
-		if (outcome.kind === "network") {
-			deps.onSaveError?.(
-				`auto-save PUT failed — ${outcome.detail ?? "network"}`,
-			);
-		}
+		batch.observe?.({ kind: "error" });
+		deps.onSaveError?.(`auto-save PUT failed — ${outcome.detail ?? "network"}`);
 		scheduleRetryLoop();
 		// A reload deferred behind this PUT must still run even though the PUT
 		// FAILED — otherwise it strands until a later re-send happens to 200.
@@ -717,6 +789,7 @@ export function createReconciler(
 	 */
 	function hasOutstandingRecovery(): boolean {
 		if (reloadPending) return true;
+		if (!deps.canEdit()) return false;
 		if (sentPending.some((b) => b.tooLarge)) return false;
 		return sentPending.some((b) => b.ackedSeq === undefined);
 	}
@@ -809,6 +882,10 @@ export function createReconciler(
 	// ── Reload reconciliation ────────────────────────────────────────────
 	function requestReload(): void {
 		if (inert()) return;
+		if (deps.beginAccessRefresh?.() === false) {
+			onRevoked();
+			return;
+		}
 		reloadPending = true;
 		maybeRunDeferredReload();
 	}
@@ -827,7 +904,7 @@ export function createReconciler(
 	}
 
 	async function runReload(): Promise<void> {
-		let reloaded: ReloadedDoc;
+		let reloaded: ReloadOutcome;
 		try {
 			reloaded = await deps.reload();
 		} catch (err) {
@@ -836,6 +913,7 @@ export function createReconciler(
 			// and report the outage to the observability channel (deduped per-app).
 			reloadInFlight = false;
 			if (!inert()) {
+				deps.markAccessReconnecting?.();
 				reloadPending = true;
 				deps.onSaveError?.(
 					`reconciler reload GET failed — ${
@@ -850,6 +928,11 @@ export function createReconciler(
 		// leaked EventSource), no write into a torn-down store.
 		if (inert()) {
 			reloadInFlight = false;
+			return;
+		}
+		if (reloaded.kind === "revoked") {
+			reloadInFlight = false;
+			onRevoked();
 			return;
 		}
 
@@ -896,17 +979,37 @@ export function createReconciler(
 		confirmedDoc = hydrateConfirmed(reloaded.blueprint);
 		baseSeq = M;
 		reseedConfirmed(captureHuman, /* clearUndo */ true);
-		deps.resubscribe(M);
-
 		reloadInFlight = false;
 		// A frame arrived DURING the GET (it re-armed `reloadPending` rather than
 		// applying, keeping `baseSeq` monotonic). Run the coalesced follow-up now
-		// so anything past M is picked up — one reload at a time; the send
-		// pipeline stays held behind it. Otherwise the barrier is down: resume
-		// the pipeline promptly (the surviving un-acked head may have been
-		// waiting behind the reload) rather than waiting for the backoff tick.
-		if (reloadPending && !inert()) maybeRunDeferredReload();
-		else pumpSend();
+		// so anything past M is picked up — one reload at a time, no intermediate
+		// stream, and editing stays paused. Only the final snapshot publishes its
+		// capability tuple and owns the one replacement stream.
+		if (reloadPending && !inert()) {
+			maybeRunDeferredReload();
+			return;
+		}
+		const hasWaitingChanges =
+			sentPending.length > 0 || humanUncommitted().length > 0;
+		deps.applyAccessSnapshot?.(
+			{
+				projectId: reloaded.projectId,
+				role: reloaded.role,
+				canEdit: reloaded.canEdit,
+			},
+			{ hasWaitingChanges },
+		);
+		deps.resubscribe(M);
+		// The barrier is down: resume a preserved un-acked batch immediately when
+		// edit access survived, rather than waiting for a backoff tick.
+		pumpSend();
+		/* `humanUncommitted` may never have entered `sentPending`: an autosave
+		 * trailing tick can fire while access is paused and legitimately decline.
+		 * A successful editor snapshot is therefore an active recovery edge — mint
+		 * that remaining delta now instead of waiting for another keystroke. */
+		if (reloaded.canEdit && humanUncommitted().length > 0) {
+			dispatchHumanBatch();
+		}
 	}
 
 	/** Commit an EXPLICIT hydrated doc onto the store inside a remote-apply
@@ -940,10 +1043,21 @@ export function createReconciler(
 	}
 
 	function onRevoked(): void {
+		if (revoked) return;
 		revoked = true;
 		reloadPending = false;
 		cancelRetry?.();
 		cancelRetry = undefined;
+		deps.onViewRevoked?.();
+	}
+
+	function onClientUpgradeRequired(): void {
+		if (revoked) return;
+		revoked = true;
+		reloadPending = false;
+		cancelRetry?.();
+		cancelRetry = undefined;
+		deps.onClientUpgradeRequired?.();
 	}
 
 	// ── Chat wiring ──────────────────────────────────────────────────────
@@ -1039,9 +1153,13 @@ export function createReconciler(
 	}
 
 	// ── Bootstrap (new build) ────────────────────────────────────────────
-	function activate(args: { appId: string; baseDoc: BlueprintDoc }): void {
+	function activate(args: {
+		appId: string;
+		baseSeq: number;
+		baseDoc: BlueprintDoc;
+	}): void {
 		appId = args.appId;
-		baseSeq = 0;
+		baseSeq = args.baseSeq;
 		confirmedDoc = normalizeConfirmed(args.baseDoc);
 		dormant = false;
 	}
@@ -1093,11 +1211,13 @@ export function createReconciler(
 		canPut,
 		isDormant,
 		localBase,
+		registerSaveObserver,
 		dispatchHumanBatch,
 		registerChatBatch,
 		onFrame,
 		onReloadEvent,
 		onRevoked,
+		onClientUpgradeRequired,
 		onDataDone,
 		setSelfActiveRunId,
 		activate,

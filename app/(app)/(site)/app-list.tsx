@@ -17,6 +17,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
@@ -52,25 +53,30 @@ export async function AppList({ projectId, userId }: AppListProps) {
 	const showProjectMoveInfo = Boolean(
 		active && canManageAppPlacement(active.role),
 	);
+	const canCreateApp = Boolean(active && roleAllowsApp(active.role, "edit"));
+	const canDeleteApp = Boolean(active && roleAllowsApp(active.role, "delete"));
 
 	return (
 		<>
 			<div className="flex items-center justify-between mb-8">
 				<h1 className="text-2xl font-display font-semibold">Your Apps</h1>
-				<Button
-					render={<Link href="/build/new" />}
-					nativeButton={false}
-					size="lg"
-					className="shadow-[var(--nova-glow-violet)]"
-				>
-					<Icon icon={tablerPlus} width="14" height="14" />
-					New App
-				</Button>
+				{canCreateApp ? (
+					<Button
+						render={<Link href="/build/new" />}
+						nativeButton={false}
+						size="lg"
+						className="shadow-[var(--nova-glow-violet)]"
+					>
+						<Icon icon={tablerPlus} width="14" height="14" />
+						New App
+					</Button>
+				) : null}
 			</div>
 
 			<AppListBody
 				active={activeRes.apps}
 				deleted={deletedRes.apps}
+				canDeleteApp={canDeleteApp}
 				showProjectMoveInfo={showProjectMoveInfo}
 			/>
 		</>

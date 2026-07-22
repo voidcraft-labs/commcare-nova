@@ -7,7 +7,8 @@ import type { AppDoc } from "../types";
  * The pure spec of the single-reader liveness model. Every credit/claim decision
  * derives from `runLeaseState`, so this matrix over {build, edit, none} ×
  * {clean, live, paused, hard-killed} IS the authoritative statement of what
- * `live` / `paused` / `mine` / `terminalWriteOwned` / `ownedByResume` /
+ * `live` / `paused` / `mine` / `terminalWriteOwned` /
+ * `buildFailureWriteOwned` / `ownedByResume` /
  * `markerSettleable` / `reapableStrandedEdit` / `reapableStaleBuild` mean. A
  * behavior change to the model must change a row here.
  *
@@ -19,6 +20,8 @@ import type { AppDoc } from "../types";
 const NOW = Date.UTC(2026, 6, 1, 12, 0, 0);
 const RUN = "run-me";
 const OTHER = "run-other";
+const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
+const OTHER_NONCE = "00000000-0000-4000-8000-000000000002";
 
 /** A `run_lock.expireAt` `mins` minutes from NOW (negative = already lapsed). */
 const lockAt = (mins: number, runId = RUN) => ({
@@ -41,7 +44,8 @@ const marker = (
 	...over,
 });
 
-const lease = (fresh: Partial<AppDoc>) => runLeaseState(fresh, NOW);
+const lease = (fresh: Partial<AppDoc>) =>
+	runLeaseState({ run_holder_nonce: HOLDER_NONCE, ...fresh }, NOW);
 
 describe("runLeaseState — mode", () => {
 	it("build: status generating (regardless of any stale lock)", () => {
@@ -216,8 +220,8 @@ describe("runLeaseState — mine", () => {
 		// A marker with no runId is a legacy pre-P9 marker OR a REAPED GHOST (the
 		// reapers clear the runId when they settle). Non-lenient `mine` returns false
 		// for everyone, so a reaped run's stale terminal writer can't read it as `mine`
-		// and failApp a taker (the reaper-race fix). Both are resolved by the reapers'
-		// OWN lenient clauses, never through `mine`.
+		// and failApp a taker (the reaper-race fix). A present build whose identity
+		// is missing fails closed as corrupt; null is not a canonical reaper token.
 		const l = lease({
 			status: "generating",
 			reservation: marker({ runId: undefined }),
@@ -226,6 +230,27 @@ describe("runLeaseState — mine", () => {
 		expect(l.mine(OTHER)).toBe(false);
 	});
 	it("none is nobody's", () => {
+		expect(lease({ status: "complete" }).mine(RUN)).toBe(false);
+	});
+	it("is the exact-holder gate for pause stamps and prelude cleanup after replacement/reap", () => {
+		/* Replacement: both holder shapes now name OTHER, so RUN's late pause or
+		 * cleanup write must not touch them. */
+		expect(
+			lease({
+				status: "generating",
+				reservation: marker({ runId: OTHER }),
+			}).mine(RUN),
+		).toBe(false);
+		expect(
+			lease({ status: "complete", run_lock: lockAt(5, OTHER) }).mine(RUN),
+		).toBe(false);
+		/* Reap: the build marker's run id and the edit lock are gone. */
+		expect(
+			lease({
+				status: "error",
+				reservation: marker({ settled: true, runId: undefined }),
+			}).mine(RUN),
+		).toBe(false);
 		expect(lease({ status: "complete" }).mine(RUN)).toBe(false);
 	});
 });
@@ -266,18 +291,80 @@ describe("runLeaseState — terminalWriteOwned", () => {
 			}).terminalWriteOwned(RUN),
 		).toBe(false);
 	});
-	it("none: always owned (no competing run occupies the app)", () => {
-		expect(lease({ status: "complete" }).terminalWriteOwned(RUN)).toBe(true);
+	it("none: never owned (an absent holder is not a tokenless terminal authority)", () => {
+		expect(lease({ status: "complete" }).terminalWriteOwned(RUN)).toBe(false);
+	});
+});
+
+describe("runLeaseState — buildFailureWriteOwned", () => {
+	it("accepts this build before reservation and after its marker settles", () => {
+		expect(
+			lease({ status: "generating", run_id: RUN }).buildFailureWriteOwned(RUN),
+		).toBe(true);
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				reservation: marker({ settled: true, runId: RUN }),
+			}).buildFailureWriteOwned(RUN),
+		).toBe(true);
+	});
+
+	it("rejects a reaped ghost, replacement holder, edit, or idle app", () => {
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				reservation: marker({ settled: true, runId: undefined }),
+			}).buildFailureWriteOwned(RUN),
+		).toBe(false);
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				reservation: marker({ runId: OTHER }),
+			}).buildFailureWriteOwned(RUN),
+		).toBe(false);
+		expect(
+			lease({ status: "complete", run_lock: lockAt(5) }).buildFailureWriteOwned(
+				RUN,
+			),
+		).toBe(false);
+		expect(lease({ status: "complete" }).buildFailureWriteOwned(RUN)).toBe(
+			false,
+		);
 	});
 });
 
 describe("runLeaseState — ownedByResume (mode-specific to the RESUME's mode)", () => {
-	it("edit-resume: owns only when the app is STILL an edit run it holds", () => {
+	it("edit-resume: owns only its exact paused holder and actor", () => {
 		expect(
-			lease({ status: "complete", run_lock: lockAt(5, RUN) }).ownedByResume(
-				RUN,
-				"edit",
-			),
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", HOLDER_NONCE, true),
+		).toBe(true);
+		expect(
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u2", HOLDER_NONCE, true),
+		).toBe(false);
+		expect(
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", OTHER_NONCE, true),
+		).toBe(false);
+		expect(
+			lease({
+				status: "complete",
+				run_lock: lockAt(5, RUN),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", OTHER_NONCE, false),
 		).toBe(true);
 		// The app is a build (status generating, no lock) → derived mode "build" →
 		// an edit-resume (which requires mode "edit") bails.
@@ -285,7 +372,8 @@ describe("runLeaseState — ownedByResume (mode-specific to the RESUME's mode)",
 			lease({
 				status: "generating",
 				reservation: marker({ runId: undefined }),
-			}).ownedByResume(RUN, "edit"),
+				awaiting_input: true,
+			}).ownedByResume(RUN, "edit", "u1", HOLDER_NONCE, true),
 		).toBe(false);
 	});
 	it("build-resume: owns only a PAUSED-build shape whose marker is mine", () => {
@@ -294,14 +382,14 @@ describe("runLeaseState — ownedByResume (mode-specific to the RESUME's mode)",
 				status: "generating",
 				awaiting_input: true,
 				reservation: marker({ runId: RUN }),
-			}).ownedByResume(RUN, "build"),
+			}).ownedByResume(RUN, "build", "u1", HOLDER_NONCE, true),
 		).toBe(true);
 		// Not paused → a build-resume (which requires the paused-build shape) bails.
 		expect(
 			lease({
 				status: "generating",
 				reservation: marker({ runId: undefined }),
-			}).ownedByResume(RUN, "build"),
+			}).ownedByResume(RUN, "build", "u1", HOLDER_NONCE, true),
 		).toBe(false);
 	});
 });
@@ -382,6 +470,16 @@ describe("runLeaseState — reapableStrandedEdit", () => {
 				.reapableStrandedEdit,
 		).toBe(true);
 	});
+	it("false: a lapsed edit whose lock has no concrete run id is corrupt", () => {
+		expect(
+			lease({ ...strandedEdit, run_lock: lockAt(-1, "") }).reapableStrandedEdit,
+		).toBe(false);
+	});
+	it("true: a legacy v0 edit without a nonce remains reapable before cutover", () => {
+		expect(
+			lease({ ...strandedEdit, run_holder_nonce: null }).reapableStrandedEdit,
+		).toBe(true);
+	});
 });
 
 describe("runLeaseState — reapableStaleBuild", () => {
@@ -389,13 +487,14 @@ describe("runLeaseState — reapableStaleBuild", () => {
 		expect(
 			lease({
 				status: "generating",
+				run_id: RUN,
 				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
 			}).reapableStaleBuild,
 		).toBe(true);
 	});
 	it("false: a LIVE build (inside the window)", () => {
 		expect(
-			lease({ status: "generating", updated_at: updatedAgo(1) })
+			lease({ status: "generating", run_id: RUN, updated_at: updatedAgo(1) })
 				.reapableStaleBuild,
 		).toBe(false);
 	});
@@ -405,6 +504,7 @@ describe("runLeaseState — reapableStaleBuild", () => {
 		expect(
 			lease({
 				status: "generating",
+				run_id: RUN,
 				awaiting_input: true,
 				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
 			}).reapableStaleBuild,
@@ -414,10 +514,29 @@ describe("runLeaseState — reapableStaleBuild", () => {
 		expect(
 			lease({
 				status: "generating",
+				run_id: RUN,
 				awaiting_input: true,
 				updated_at: updatedAgo(1),
 			}).reapableStaleBuild,
 		).toBe(false);
+	});
+	it("false: a stale generating row with no concrete holder id is corrupt", () => {
+		expect(
+			lease({
+				status: "generating",
+				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
+			}).reapableStaleBuild,
+		).toBe(false);
+	});
+	it("true: a legacy v0 build without a nonce remains reapable before cutover", () => {
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				run_holder_nonce: null,
+				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
+			}).reapableStaleBuild,
+		).toBe(true);
 	});
 	it("false: an EDIT (mode edit) or a complete app is never a stale build", () => {
 		expect(

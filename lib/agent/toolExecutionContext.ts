@@ -58,12 +58,30 @@ export interface ToolExecutionContext {
 	/** Current app id. Every tool operates against one app. */
 	readonly appId: string;
 
+	/** Project scope authoritatively admitted for this tool execution. */
+	readonly projectId: string;
+
 	/** Authenticated user id. Used by tools that need to resolve
 	 * user-scoped resources (e.g., KMS-encrypted HQ credentials). */
 	readonly userId: string;
 
 	/** Per-run grouping id. Stamped on every event envelope. */
 	readonly runId: string;
+
+	/**
+	 * Exact chat-run capability for authoritative non-blueprint side effects.
+	 * Absent on MCP, whose request authorization is independent of the chat run
+	 * window. A tool must never reconstruct this from public `runId` attribution.
+	 */
+	readonly chatRunHolder?: {
+		readonly source: "chat";
+		readonly mode: "build" | "edit";
+		readonly runId: string;
+		/** Null only for an admitted legacy v0 holder while nonce enforcement is
+		 * still disabled. Current claims mint a nonce, but the shared tool contract
+		 * must preserve the rollout-compatible capability shape. */
+		readonly nonce: string | null;
+	};
 
 	/**
 	 * Persist a mutation batch to the durable event log and to Postgres.

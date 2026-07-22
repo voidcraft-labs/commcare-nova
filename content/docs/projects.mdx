@@ -28,20 +28,21 @@ member can do is set by their **role**:
 | **Admin** | Everything an Editor can do, plus invite members, change their roles, and remove them. |
 | **Owner** | Whoever created the Project — full control, including deleting the Project. Can't be removed. |
 
-## Moving an app between Projects
+If someone changes your role while an app is open, Nova pauses editing and
+refreshes the app and your access together. Changes that were already waiting
+to save stay in that browser tab. They resume saving automatically if your
+current role can edit; with Viewer access, they remain paused while you can
+continue exploring and previewing the app. If your access is removed entirely,
+Nova closes the workspace instead of showing data from a Project you can no
+longer view.
 
-To collaborate on an app that's in your personal Project, move it into a shared
-Project. On your home page, open the **Move to Project** menu on any app and pick
-the destination — the app, its case data, and its media all move together.
+## Moving an app between Projects (coming soon)
 
-You can move an app between any two Projects, in either direction. Moving an app
-is a shared-data decision on both ends — it removes the app and its case data
-from one Project and injects them into another — so you must be an **Admin or
-Owner of both** the Project it's leaving and the Project it's going to.
+Project moves are currently unavailable while Nova finishes the safety checks
+that keep an app and all of its Project-scoped data together. The move control
+will stay hidden until that complete workflow is active.
 
-One rule keeps things safe: if you're **not the Owner** of the Project the app is
-leaving, you can only move it somewhere that owner is also a member. So an admin
-can reorganize apps across the team's Projects, but can't pull a shared app off
-into a space the owner isn't part of (a personal Project, or a Project they alone
-belong to) and cut the owner off. You always own your own personal Project, so
-taking *your* apps private — or moving them anywhere you're an admin — just works.
+When it becomes available, moving will require the appropriate Admin or Owner
+access on both ends and will move the app, case data, media, and other
+Project-scoped data as one protected operation. This page will be updated with
+the final workflow when the feature is turned on.

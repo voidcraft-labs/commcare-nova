@@ -159,4 +159,24 @@ describe("staged media uploads", () => {
 		expect(abortB).toHaveBeenCalledTimes(1);
 		expect(store.getState().stagedUploads).toEqual({});
 	});
+
+	it("Project-scope reset aborts every upload and still clears after an abort throws", () => {
+		const store = createBuilderSessionStore();
+		const brokenAbort = vi.fn(() => {
+			throw new Error("transport teardown failed");
+		});
+		const laterAbort = vi.fn();
+		stage(store, brokenAbort, "app:logo");
+		stage(store, laterAbort, "module:m-1:icon");
+
+		expect(() => store.getState().resetProjectScope()).toThrow(AggregateError);
+		expect(brokenAbort).toHaveBeenCalledTimes(1);
+		expect(laterAbort).toHaveBeenCalledTimes(1);
+		expect(store.getState().stagedUploads).toEqual({});
+
+		// Handles are consumed even on the failing boundary.
+		store.getState().resetProjectScope();
+		expect(brokenAbort).toHaveBeenCalledTimes(1);
+		expect(laterAbort).toHaveBeenCalledTimes(1);
+	});
 });

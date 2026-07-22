@@ -12,6 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListAppsResult } from "@/lib/db/apps";
+import { RunHolderLostError } from "@/lib/db/commitGuard";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { removeMediaAssetTool } from "../removeMediaAsset";
@@ -29,6 +30,7 @@ const {
 	listApps,
 	loadApp,
 	loadAppProjectId,
+	deleteMediaAssetForChatRun,
 } = vi.hoisted(() => ({
 	loadAssetById: vi.fn(),
 	listReferencingAppIds: vi.fn<() => Promise<string[]>>(() =>
@@ -42,6 +44,7 @@ const {
 	),
 	loadApp: vi.fn(),
 	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
+	deleteMediaAssetForChatRun: vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
@@ -58,6 +61,7 @@ vi.mock("@/lib/db/apps", () => ({
 	listApps,
 	loadApp,
 	loadAppProjectId,
+	deleteMediaAssetForChatRun,
 }));
 vi.mock("@/lib/storage/media", () => ({
 	deleteAsset: deleteGcsObject,
@@ -70,6 +74,7 @@ beforeEach(() => {
 	// The reverse index (`media_asset_refs`) is now a separate query, not a field
 	// on the asset row — default to no other referencing app.
 	listReferencingAppIds.mockResolvedValue([]);
+	deleteMediaAssetForChatRun.mockResolvedValue(true);
 });
 
 /** Minimal owned asset row for the load mock. */
@@ -143,6 +148,62 @@ describe("removeMediaAsset", () => {
 		}
 		expect(deleteAssetRow).toHaveBeenCalledWith("shared-asset");
 		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("delegates the metadata delete to the exact chat-holder fence", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const chatRunHolder = {
+			source: "chat" as const,
+			mode: "edit" as const,
+			runId: "thread-run",
+			nonce: "00000000-0000-4000-8000-000000000001",
+		};
+		loadAssetById.mockResolvedValue(ownedAsset("chat-asset"));
+
+		const result = await removeMediaAssetTool.execute(
+			{ assetId: "chat-asset" },
+			{ ...ctx, chatRunHolder },
+			doc,
+		);
+
+		expect(result.data).toMatchObject({ removed: true });
+		expect(deleteMediaAssetForChatRun).toHaveBeenCalledWith({
+			appId: ctx.appId,
+			assetId: "chat-asset",
+			actorUserId: ctx.userId,
+			expectedProjectId: "project-1",
+			holder: chatRunHolder,
+		});
+		expect(deleteAssetRow).not.toHaveBeenCalled();
+		expect(deleteGcsObject).toHaveBeenCalledWith(
+			"projects/project-1/chat-asset.png",
+		);
+	});
+
+	it("propagates authoritative chat-holder loss without touching GCS", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		loadAssetById.mockResolvedValue(ownedAsset("lost-holder-asset"));
+		deleteMediaAssetForChatRun.mockRejectedValueOnce(
+			new RunHolderLostError("superseded"),
+		);
+
+		await expect(
+			removeMediaAssetTool.execute(
+				{ assetId: "lost-holder-asset" },
+				{
+					...ctx,
+					chatRunHolder: {
+						source: "chat",
+						mode: "edit",
+						runId: "thread-run",
+						nonce: "00000000-0000-4000-8000-000000000001",
+					},
+				},
+				doc,
+			),
+		).rejects.toBeInstanceOf(RunHolderLostError);
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+		expect(deleteAssetRow).not.toHaveBeenCalled();
 	});
 
 	it("refuses and deletes nothing when the doc still references it", async () => {

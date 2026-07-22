@@ -17,7 +17,7 @@
 // through `renderCalculatedCell`.
 
 "use client";
-import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
@@ -530,9 +530,8 @@ function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {
 	if (value.kind === "image") {
 		return (
 			<SimpleTooltip content={value.text}>
-				{/* biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth */}
-				<img
-					src={mediaSrc(value.assetId)}
+				<ProjectMediaImage
+					assetId={value.assetId}
 					alt={value.text}
 					className="inline-block size-5 rounded object-cover"
 				/>

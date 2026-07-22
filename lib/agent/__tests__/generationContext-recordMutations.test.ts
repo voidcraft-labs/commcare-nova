@@ -19,6 +19,7 @@ import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
@@ -109,12 +110,34 @@ describe("GenerationContext.recordMutations", () => {
 		expect(args).toMatchObject({
 			appId: "test-app",
 			runId: "run-1",
+			chatRunHolder: {
+				source: "chat",
+				mode: "build",
+				runId: "run-1",
+				nonce: "00000000-0000-4000-8000-000000000001",
+			},
 			actorUserId: "user-1",
 			kind: "chat",
 			mutations: [TEXT_FIELD_MUTATION],
 		});
 		// A fresh uuid batchId per commit.
 		expect(args?.batchId).toEqual(expect.any(String));
+	});
+
+	it("derives edit holder authority from editLease instead of the attribution id alone", async () => {
+		ctx = makeTestContext({ editLease: true }).ctx;
+
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+
+		expect(vi.mocked(commitGuardedBatch).mock.calls[0]?.[0]).toMatchObject({
+			runId: "run-1",
+			chatRunHolder: {
+				source: "chat",
+				mode: "edit",
+				runId: "run-1",
+				nonce: "00000000-0000-4000-8000-000000000001",
+			},
+		});
 	});
 
 	it("routes a rename-carrying batch through the cross-store saga instead of the bare writer", async () => {
@@ -140,6 +163,12 @@ describe("GenerationContext.recordMutations", () => {
 		expect(args).toMatchObject({
 			appId: "test-app",
 			runId: "run-1",
+			chatRunHolder: {
+				source: "chat",
+				mode: "build",
+				runId: "run-1",
+				nonce: "00000000-0000-4000-8000-000000000001",
+			},
 			userId: "user-1",
 			kind: "chat",
 			guard: { mutations: [rename] },
@@ -386,6 +415,25 @@ describe("GenerationContext.recordMutations", () => {
 		);
 		expect(ctx.reauthError()).toBe(reauth);
 		// Nothing committed → nothing emitted.
+		expect(writer.write).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).not.toHaveBeenCalled();
+	});
+
+	it("stashes an AppProjectChangedError as terminal scope loss, re-throws it, and emits nothing", async () => {
+		// A Project move is distinct from both a retryable blueprint conflict and
+		// authorization loss: this run's admitted tenant scope is stale, so the
+		// route must fail/refund it rather than letting the SA reload and continue.
+		const projectChanged = new AppProjectChangedError();
+		vi.mocked(commitGuardedBatch).mockRejectedValueOnce(projectChanged);
+
+		expect(ctx.projectChangedError()).toBeUndefined();
+		await expect(ctx.recordMutations([TEXT_FIELD_MUTATION], DOC)).rejects.toBe(
+			projectChanged,
+		);
+		expect(ctx.projectChangedError()).toBe(projectChanged);
+		expect(ctx.reauthError()).toBeUndefined();
+		// Nothing committed, so neither the client stream nor durable event log
+		// may claim the rejected mutation happened.
 		expect(writer.write).not.toHaveBeenCalled();
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
 	});

@@ -21,6 +21,8 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import type { PresenceEntry, PresenceFrame } from "@/lib/collab/presenceTypes";
 import { serializePath } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
+import { useAccessPhase } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 
 // ── Cadence ─────────────────────────────────────────────────────────────
 
@@ -266,6 +268,8 @@ export function usePresence(
 	location: Location,
 ): Peer[] {
 	const ctx = useReconcilerContext();
+	const accessPhase = useAccessPhase();
+	const session = useBuilderSessionApi();
 	const subscribePresence = ctx?.subscribePresence;
 	// A resolved, non-empty display name — the beat waits for it (blank-name gate).
 	const name = self.name?.trim() ? self.name : undefined;
@@ -298,7 +302,9 @@ export function usePresence(
 	// Beat only with a real app id, a live stream, AND a resolved name (no blank-
 	// name POST). Any of them arriving flips this true and re-fires the effect —
 	// so a new build's creator beats the instant the app id is activated.
-	const canBeat = presenceCanBeat(appId, name, subscribePresence !== undefined);
+	const canBeat =
+		accessPhase === "authorized" &&
+		presenceCanBeat(appId, name, subscribePresence !== undefined);
 
 	// Subscribe to inbound roster frames off the shared EventSource, updating
 	// the clock-offset estimate on each (self's fresh server stamp anchors it).
@@ -318,6 +324,10 @@ export function usePresence(
 	// the effects below can list it without re-arming on every render.
 	const postBeat = useCallback(
 		(loc: Location) => {
+			/* A debounce/interval callback can already be queued when the reset
+			 * advances. Read authority imperatively so it cannot heartbeat during the
+			 * pre-render refresh window. */
+			if (session.getState().accessPhase !== "authorized") return;
 			const { name: beatName, color } = beatInputRef.current;
 			// `canBeat` guarantees a resolved name; the guard keeps a blank name off
 			// the wire even if the ref updated between renders, and narrows the type.
@@ -337,7 +347,7 @@ export function usePresence(
 				 * and a peer stale-hides this tab until one lands. */
 			});
 		},
-		[appId, sessionId],
+		[appId, session, sessionId],
 	);
 
 	// Heartbeat: an immediate POST on mount, then every HEARTBEAT_MS, plus a

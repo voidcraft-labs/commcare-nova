@@ -28,10 +28,15 @@ export async function GET(
 		await resolveAppScope(id, session.user.id, "view");
 
 		const threads = await listThreadMetas(id);
-		return Response.json({ threads });
+		return Response.json(
+			{ threads },
+			{ headers: { "Cache-Control": "private, no-store" } },
+		);
 	} catch (err) {
-		return handleApiError(
+		const response = handleApiError(
 			err instanceof Error ? err : new ApiError("Failed to load threads", 500),
 		);
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
 	}
 }

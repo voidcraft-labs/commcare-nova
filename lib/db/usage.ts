@@ -169,6 +169,9 @@ export interface AccumulatorSeed {
 	appId: string;
 	userId: string;
 	runId: string;
+	/** Server-minted holder generation for lifecycle/credit authority. Unlike
+	 * runId, this changes on every claim and never enters summaries/events. */
+	holderNonce: string;
 	model: string;
 	promptMode: "build" | "edit";
 	appReady: boolean;
@@ -208,6 +211,8 @@ export interface AccumulatorSeed {
 
 /** Fields that can be updated mid-request via `configureRun`. */
 interface AccumulatorRunConfig {
+	/** App-locked capability returned when a legacy continuation is upgraded. */
+	holderNonce: string;
 	promptMode: "build" | "edit";
 	appReady: boolean;
 	moduleCount: number;
@@ -432,7 +437,12 @@ export class UsageAccumulator {
 				// this live flush already returned. Passing `runId` ownership-gates it:
 				// a run that was reaped mid-flight + its app re-claimed must not claw the
 				// new run's live marker (its `reserveCredits` overwrote `runId`).
-				await refundReservation(this.seed.appId, this.seed.runId);
+				await refundReservation(
+					this.seed.appId,
+					this.seed.runId,
+					this.seed.holderNonce,
+					this.seed.promptMode,
+				);
 			} catch (err) {
 				/* The refund was owed but its transaction did not commit. Record it so
 				 * the route leaves the row reapable (rather than flipping to a status the

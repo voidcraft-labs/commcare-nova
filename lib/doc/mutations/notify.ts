@@ -1,4 +1,4 @@
-import { showToast } from "@/lib/ui/toastStore";
+import { showActiveProjectToast } from "@/lib/ui/toastStore";
 import type { MoveFieldResult } from "./fields";
 
 /**
@@ -8,7 +8,7 @@ import type { MoveFieldResult } from "./fields";
 export function notifyMoveRename(result: MoveFieldResult): void {
 	if (!result.renamed) return;
 	const { oldId, newId, xpathFieldsRewritten } = result.renamed;
-	showToast(
+	showActiveProjectToast(
 		"info",
 		"Field renamed to avoid conflict",
 		`"${oldId}" → "${newId}" (${xpathFieldsRewritten} reference${xpathFieldsRewritten === 1 ? "" : "s"} updated)`,
@@ -31,5 +31,5 @@ export function notifyMoveRename(result: MoveFieldResult): void {
  * no validator types cross into this emitter.
  */
 export function notifyRejectedCommit(lines: string[]): void {
-	showToast("error", "Change not applied", undefined, { lines });
+	showActiveProjectToast("error", "Change not applied", undefined, { lines });
 }

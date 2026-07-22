@@ -13,9 +13,13 @@
  * `load()` takes a `PersistableDoc`.
  */
 
-import { render, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
 import { describe, expect, it } from "vitest";
+import {
+	ReconcilerContext,
+	type ReconcilerContextValue,
+} from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/domain";
@@ -156,5 +160,41 @@ describe("BuilderFormEngineProvider", () => {
 		expect(captured).not.toBeNull();
 		const runtime = (captured as unknown as EngineController).store.getState();
 		expect(Object.keys(runtime).length).toBeGreaterThan(0);
+	});
+
+	it("drops runtime form and case values synchronously on a Project-scope reset", () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(DOC);
+		docStore.temporal.getState().resume();
+		let scopeReset: ((scopeEpoch: number) => void) | undefined;
+		const reconcilerContext = {
+			subscribeProjectScopeReset(callback: (scopeEpoch: number) => void) {
+				scopeReset = callback;
+				return () => {
+					scopeReset = undefined;
+				};
+			},
+		} as unknown as ReconcilerContextValue;
+		const Wrapper = ({ children }: { children: ReactNode }) => (
+			<BlueprintDocContext value={docStore}>
+				<ReconcilerContext value={reconcilerContext}>
+					<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+				</ReconcilerContext>
+			</BlueprintDocContext>
+		);
+		const { result } = renderHook(() => useBuilderFormEngine(), {
+			wrapper: Wrapper,
+		});
+		act(() => {
+			result.current.activateForm(FORM_UUID);
+			result.current.onValueChange(FIELD_UUID, "source value");
+		});
+		expect(Object.keys(result.current.store.getState()).length).toBeGreaterThan(
+			0,
+		);
+
+		act(() => scopeReset?.(1));
+
+		expect(result.current.store.getState()).toEqual({});
 	});
 });
