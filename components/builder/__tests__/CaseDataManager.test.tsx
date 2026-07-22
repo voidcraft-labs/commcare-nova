@@ -160,6 +160,7 @@ describe("CaseDataManager", () => {
 			"info",
 			"Sample cases created",
 			"1 case is ready to use in Preview",
+			undefined,
 		);
 	});
 
@@ -200,6 +201,7 @@ describe("CaseDataManager", () => {
 			"info",
 			"Case data replaced",
 			"30 cases are ready to use in Preview",
+			undefined,
 		);
 	});
 

@@ -97,11 +97,13 @@ describe("builder access status", () => {
 		}
 
 		const view = render(
-			<BuilderSessionContext value={store}>
-				<BuilderAccessGate>
-					<LocalDraft />
-				</BuilderAccessGate>
-			</BuilderSessionContext>,
+			<div data-nova-app-shell>
+				<BuilderSessionContext value={store}>
+					<BuilderAccessGate>
+						<LocalDraft />
+					</BuilderAccessGate>
+				</BuilderSessionContext>
+			</div>,
 		);
 		const draft = screen.getByLabelText("Local draft");
 
