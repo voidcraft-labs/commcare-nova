@@ -89,6 +89,8 @@ export interface AppsTable {
 		Date | string | null,
 		Date | string | null
 	>;
+	/** Database-stamped capability of the exact currently-present run holder. */
+	run_runtime_reader_version: ColumnType<number | null, undefined, never>;
 	created_at: Timestamp;
 	updated_at: Timestamp;
 }
@@ -376,6 +378,11 @@ export interface LookupReferenceCompatibilityTable {
 		number | undefined,
 		number
 	>;
+	continuous_registry_traffic_since: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
 	carrier_commits_enabled: ColumnType<boolean, boolean | undefined, boolean>;
 	destructive_schema_actions_enabled: ColumnType<
 		boolean,
@@ -384,6 +391,12 @@ export interface LookupReferenceCompatibilityTable {
 	>;
 	project_moves_enabled: ColumnType<boolean, boolean | undefined, boolean>;
 	updated_at: Timestamp;
+}
+
+/** One explicitly prepared uninterrupted traffic epoch per runtime target. */
+export interface RuntimeReaderTrafficEpochsTable {
+	target_version: number;
+	continuous_traffic_since: ColumnType<Date, undefined, never>;
 }
 
 export interface AppDatabase {
@@ -409,6 +422,7 @@ export interface AppDatabase {
 	lookup_column_references: LookupColumnReferencesTable;
 	lookup_stream_capability_leases: LookupStreamCapabilityLeasesTable;
 	lookup_reference_compatibility: LookupReferenceCompatibilityTable;
+	runtime_reader_traffic_epochs: RuntimeReaderTrafficEpochsTable;
 }
 
 /**
@@ -417,6 +431,9 @@ export interface AppDatabase {
  * guards; migrations must not import mutable runtime constants.
  */
 export const WRITER_VERSION_GUC = "nova.writer_version";
+
+/** Transaction-local declaration consumed by the run-holder stamp trigger. */
+export const RUNTIME_READER_VERSION_GUC = "nova.runtime_reader_version";
 
 /**
  * Declare this code's compatibility version for the CURRENT transaction.
@@ -437,6 +454,31 @@ export async function setTransactionWriterVersion(
 	await sql`SELECT set_config(${WRITER_VERSION_GUC}, ${String(version)}, true)`.execute(
 		tx,
 	);
+}
+
+/**
+ * Declare this code's runtime-reader compatibility for the CURRENT
+ * transaction. The database reads it only when an app write creates or changes
+ * the exact `(mode, runId)` holder identity; heartbeats cannot restamp a holder.
+ */
+export async function setTransactionRuntimeReaderVersion(
+	tx: Transaction<AppDatabase>,
+	version: number,
+): Promise<void> {
+	if (
+		!Number.isSafeInteger(version) ||
+		version < 0 ||
+		version > 2_147_483_647
+	) {
+		throw new RangeError("runtime reader version must be a nonnegative int4");
+	}
+	await sql`
+		SELECT set_config(
+			${RUNTIME_READER_VERSION_GUC},
+			${String(version)},
+			true
+		)
+	`.execute(tx);
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;

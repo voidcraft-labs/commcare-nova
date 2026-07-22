@@ -541,6 +541,24 @@ and indexes, `ON CONFLICT` singleton seed, replaceable functions, and
 drop-before-create triggers replay-safe. Its `down` path is test/local teardown
 only; a deployed compatibility change always fixes forward in a new migration.
 
+The forward-only runtime-reader rollout migration adds the nullable app-holder
+stamp, the compatibility row's continuous-registry timestamp, and one
+`runtime_reader_traffic_epochs` row per explicitly prepared target. Its holder
+trigger derives exact `(mode, runId)` identity from the run columns, locks the
+compatibility singleton only for a new identity, and treats unset declarations,
+legacy null stamps, and malformed/corrupt holders as runtime reader v0. Do not
+backfill existing holders or add `lock_expire_at`/`updated_at` to the trigger:
+same-holder liveness renewal must not restamp an old run.
+
+Compatibility and epoch `INSERT`/`UPDATE`/`DELETE` take the fixed deployment-
+cutover advisory lock from `BEFORE STATEMENT` triggers, before tuple locks. The
+service takes that same transaction lock explicitly at operation entry. Epoch
+`TRUNCATE` raises SQLSTATE `55000` directly and never waits on the advisory gate,
+because PostgreSQL has already acquired `ACCESS EXCLUSIVE` when a TRUNCATE
+trigger runs. The runtime-floor lock order is cutover gate → compatibility row
+`FOR UPDATE` → unlocked app census. Reversing the last two by locking apps after
+compatibility would deadlock with app-first claims; keep the census MVCC-only.
+
 ### Destructive changes — expand-contract
 
 There is no automated destructive-change lint. A schema change that

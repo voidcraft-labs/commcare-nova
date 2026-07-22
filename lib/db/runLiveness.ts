@@ -57,6 +57,11 @@ function generatingIsFresh(
  * The derived run-lease view of an app doc. Every field is a DECISION, not a raw
  * read — consumers branch on these, never on the underlying row fields.
  */
+export interface RunHolderIdentity {
+	readonly mode: "build" | "edit";
+	readonly runId: string | null;
+}
+
 export interface RunLease {
 	/**
 	 * What kind of run occupies the app:
@@ -68,6 +73,13 @@ export interface RunLease {
 	 * claim deletes the lock), so `mode` keys on status first.
 	 */
 	mode: "build" | "edit" | "none";
+	/**
+	 * Exact database holder identity. A reserved build is identified only by
+	 * its reservation run id; the root `run_id` fallback applies solely to the
+	 * pre-reservation generating shape. Missing/blank ids stay explicitly null
+	 * so rollout census fails closed instead of inventing ownership.
+	 */
+	holderIdentity: RunHolderIdentity | null;
 	/** A run occupies the app at all (build `generating`, or an edit `run_lock`). */
 	present: boolean;
 	/**
@@ -225,6 +237,19 @@ export function runLeaseState(
 	const mode: RunLease["mode"] =
 		fresh.status === "generating" ? "build" : lock ? "edit" : "none";
 	const present = mode !== "none";
+	const normalizedRunId = (value: string | null | undefined): string | null =>
+		typeof value === "string" && value.length > 0 ? value : null;
+	const holderIdentity: RunLease["holderIdentity"] =
+		mode === "build"
+			? {
+					mode,
+					runId: normalizedRunId(
+						reservation === undefined ? fresh.run_id : reservation.runId,
+					),
+				}
+			: mode === "edit"
+				? { mode, runId: normalizedRunId(lock?.runId) }
+				: null;
 	const paused = present && awaitingInput;
 	// Within the mode's liveness horizon (build: `updated_at` window; edit: the
 	// `run_lock` lease). Keyed on `lock`/`status` directly so no non-null
@@ -328,6 +353,7 @@ export function runLeaseState(
 
 	return {
 		mode,
+		holderIdentity,
 		present,
 		live,
 		paused,

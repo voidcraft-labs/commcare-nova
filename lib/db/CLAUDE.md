@@ -166,6 +166,43 @@ declaration seam. All authoritative call sites use
 owns a second numeric literal. S05 changes the manifest's single
 `writerVersion` field from 0 to 1 when its first production carrier lands.
 
+Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
+exact holder identity: edit is `(edit, lock_run_id)`; build is
+`(build, res_run_id)`, with `run_id` used only while a generating build has no
+reservation marker. The `apps_runtime_reader_holder_stamp` row trigger stamps
+`run_runtime_reader_version` from transaction-local
+`nova.runtime_reader_version` only on absent→present or identity-changing
+writes, checks the runtime floor under `FOR SHARE`, preserves the old stamp for
+same-identity heartbeat/reacquire/reservation writes, and clears it when the
+holder disappears. Existing holders are deliberately not backfilled and
+therefore census as v0. `runtimeReaderVersion.ts` derives the declaration from
+the capability manifest; later claim/resume call sites use that seam, never a
+numeric literal.
+
+`runtimeReaderHolders.ts` is the fail-closed census projection over
+`runLeaseState`: every present holder blocks a higher target when its effective
+version is lower, including live, paused, reapable, corrupt, unstamped, and
+soft-deleted rows. Reapable classification precedes paused/live. Floor raising
+must never use the 10/15-minute renewable liveness horizons as total drain
+bounds.
+
+`rolloutCompatibility.ts` is the only named compatibility-operation service.
+Its status read is one repeatable-read snapshot. Traffic reconciliation and
+runtime-epoch preparation invoke their control-plane snapshot callback only
+after taking the fixed deployment-cutover gate; that callback must perform a
+fresh read when invoked and must never return a pre-captured/cached split. Their
+in-transaction variants exist so S02c2 can use the SAME dedicated backend
+already holding the session gate across Cloud Run traffic mutation.
+Reconciliation may preserve/start the
+registry interval and delete invalid runtime epochs, but never auto-creates an
+epoch. Runtime floor raise locks cutover → compatibility `FOR UPDATE` → plain
+MVCC holder census (never app rows); the initial stream floor requires a full
+manifest-derived stream TTL of continuous registry traffic. S02c1 exposes only
+explicit emergency flag disablement—no flag-enable bypass. Stream registration
+must compose `apps FOR SHARE` → membership gate/read →
+`readStreamReceiverCompatibilityForShare(tx)` → floor verdict → lease insert in
+one transaction.
+
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
 appends every UI chunk a POST streams, in write order, batched; the reconnect
