@@ -45,7 +45,11 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppDoc } from "@/lib/db/types";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
@@ -225,6 +229,13 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 	};
 }
 
+function mutationsBetween(prior: PersistableDoc, prospective: PersistableDoc) {
+	return diffDocsToMutations(
+		hydratePersistedBlueprint(prior),
+		hydratePersistedBlueprint(prospective),
+	);
+}
+
 /**
  * The `committedDoc` a successful `commitGuardedBatch` returns — the hydrated
  * committed blueprint the post-commit sweep re-derives schemas from. The sweep
@@ -300,7 +311,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			prospective,
 			batchId: "batch-add-1",
 			kind: "mcp",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		// The blueprint committed through the unified guarded writer, carrying the
@@ -344,7 +355,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			runId: "run-mcp-1",
 			batchId: "batch-run-1",
 			kind: "mcp",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
@@ -376,7 +387,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			priorBlueprint: prior,
 			batchId: "batch-prior-1",
 			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		// The blueprint committed; `loadApp` was NOT called because the
@@ -418,7 +429,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			prospective,
 			batchId: "batch-fastpath-1",
 			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: [{ kind: "setAppName", name: "Renamed" }] },
 		});
 
 		// The blueprint committed; case-store factory was never invoked.
@@ -481,7 +492,7 @@ describe("applyBlueprintChange — rename batches", () => {
 			prospective,
 			batchId: "batch-rename-1",
 			kind: "mcp",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		// The blueprint committed.
@@ -570,7 +581,7 @@ describe("applyBlueprintChange — rename batches", () => {
 				prospective,
 				batchId: "batch-rollback-1",
 				kind: "mcp",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(prior, prospective) },
 			}),
 		).rejects.toThrow();
 
@@ -646,7 +657,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 				prospective,
 				batchId: "batch-compensate-1",
 				kind: "autosave",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(prior, prospective) },
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 
@@ -688,7 +699,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 				prospective: addedBlueprint,
 				batchId: "batch-compensate-2",
 				kind: "autosave",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(priorBlueprint, addedBlueprint) },
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 
@@ -754,7 +765,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 				priorBlueprint: prior,
 				batchId: "batch-compensate-peer",
 				kind: "autosave",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(prior, prospective) },
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 

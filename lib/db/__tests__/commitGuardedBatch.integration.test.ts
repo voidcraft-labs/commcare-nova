@@ -24,8 +24,8 @@
  *   - Media-attach expectations re-check against the `media_assets` rows read
  *     FOR SHARE (present+ready commits; a concurrently-deleted asset rejects).
  *   - The per-commit EDIT-lease refresh fires only for the lock-holding run.
- *   - `appendSyntheticBatch` upholds the identical seq+stream coupling (the
- *     migration twin: a reload-sentinel row).
+ *   - `appendSyntheticBatch` upholds the identical seq+stream coupling while
+ *     persisting the deterministic repair mutations under migration kind.
  *
  * The `auth_member` role read (`projectRoleFor`) is mocked so each test controls
  * the actor's role; the reauth LOGIC downstream is the real code under test (the
@@ -45,11 +45,17 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 // The role read is the only auth dependency in the guarded path. Mock it so each
 // test controls the actor's role (or null = non-member); the reauth LOGIC
 // downstream is the real code under test.
-const { projectRoleForMock } = vi.hoisted(() => ({
-	projectRoleForMock: vi.fn<(u: string, o: string) => Promise<string | null>>(),
-}));
+const { projectRoleForMock, projectRoleForInTransactionMock } = vi.hoisted(
+	() => ({
+		projectRoleForMock:
+			vi.fn<(u: string, o: string) => Promise<string | null>>(),
+		projectRoleForInTransactionMock:
+			vi.fn<(_tx: unknown, u: string, o: string) => Promise<string | null>>(),
+	}),
+);
 vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleFor: projectRoleForMock,
+	projectRoleForInTransaction: projectRoleForInTransactionMock,
 }));
 
 const { appendSyntheticBatch, commitGuardedBatch, UNTITLED_APP_NAME } =
@@ -263,6 +269,7 @@ async function readStream(appId: string): Promise<
 beforeEach(() => {
 	// Default: the actor is an editor of the app's Project.
 	projectRoleForMock.mockReset().mockResolvedValue("editor");
+	projectRoleForInTransactionMock.mockReset().mockResolvedValue("editor");
 });
 
 describe("commitGuardedBatch (Postgres)", () => {
@@ -282,6 +289,11 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		expect(result.seq).toBe(1);
 		expect(result.deduped).toBe(false);
+		expect(projectRoleForInTransactionMock).toHaveBeenCalledWith(
+			expect.anything(),
+			OWNER,
+			PROJECT,
+		);
 		// The committed doc carries the edit.
 		const village = Object.values(result.committedDoc.fields).find(
 			(fl) => fl.id === "village",
@@ -488,6 +500,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		});
 		expect(ok.seq).toBe(1);
 		expect(projectRoleForMock).not.toHaveBeenCalled();
+		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
 
 		await expect(
 			commitGuardedBatch({
@@ -499,6 +512,25 @@ describe("commitGuardedBatch (Postgres)", () => {
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
 		expect(projectRoleForMock).not.toHaveBeenCalled();
+		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
+	});
+
+	it("denies a role removed after preflight when the same-transaction membership read runs", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc, { projectId: PROJECT });
+		projectRoleForMock.mockResolvedValue("editor");
+		projectRoleForInTransactionMock.mockResolvedValue(null);
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				batchId: crypto.randomUUID(),
+				mutations: renameVillageLabel(doc, "Home village"),
+				actorUserId: MEMBER,
+				kind: "autosave",
+			}),
+		).rejects.toBeInstanceOf(CommitReauthError);
+		expect(await readSeq(appId)).toBe(0);
 	});
 
 	it("rejects a concurrent project_id move with a RETRYABLE BlueprintCommitRejectedError", async () => {
@@ -544,6 +576,11 @@ describe("commitGuardedBatch (Postgres)", () => {
 		});
 		expect(ok.seq).toBe(1);
 		expect(projectRoleForMock).not.toHaveBeenCalled();
+		expect(projectRoleForInTransactionMock).toHaveBeenCalledWith(
+			expect.anything(),
+			MEMBER,
+			PROJECT,
+		);
 	});
 
 	it("preauthorized: a concurrent move away from the passed projectId still rejects (in-txn gate authoritative)", async () => {
@@ -691,29 +728,81 @@ describe("commitGuardedBatch (Postgres)", () => {
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect(await readSeq(appId)).toBe(0);
 	});
+
+	it("rejects raw duplicateField as a typed commit rejection without writing", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc, { projectId: PROJECT });
+		const target = Object.values(doc.fields)[0];
+		if (target === undefined) throw new Error("fixture has no field");
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				batchId: crypto.randomUUID(),
+				mutations: [{ kind: "duplicateField", uuid: target.uuid }],
+				actorUserId: OWNER,
+				kind: "autosave",
+			}),
+		).rejects.toMatchObject({
+			name: "BlueprintCommitRejectedError",
+			message: expect.stringContaining("duplicateField is UI-only"),
+		});
+		expect(await readSeq(appId)).toBe(0);
+		expect(await readStream(appId)).toEqual([]);
+	});
 });
 
 describe("appendSyntheticBatch (Postgres)", () => {
-	it("advances mutation_seq + writes a reload-sentinel stream row atomically", async () => {
+	it("derives a deterministic batch and advances seq + migration stream atomically", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
-		const migrated = { ...doc, appName: "Migrated" };
+		const migrated = { ...doc, appId, appName: "Migrated" };
 
-		await appendSyntheticBatch(appId, toPersistableDoc(migrated));
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: 0,
+			targetDoc: toPersistableDoc(migrated),
+			authority: {
+				kind: "system",
+				actorId: "system:test-migration",
+				reason: "Integration test migration",
+			},
+		});
 
 		expect(await readSeq(appId)).toBe(1);
 		const reloaded = await (await import("../apps")).loadApp(appId);
 		expect(reloaded?.blueprint.appName).toBe("Migrated");
 
-		// The stream row is a RELOAD SENTINEL: empty mutations, migration kind.
+		// Migration streams trigger reload, but the durable history stores the real
+		// deterministic delta rather than an empty whole-document sentinel.
 		const stream = await readStream(appId);
 		expect(stream).toHaveLength(1);
 		expect(stream[0]).toMatchObject({
 			seq: 1,
-			mutations: [],
+			mutations: [{ kind: "setAppName", name: "Migrated" }],
 			kind: "migration",
-			actor_id: "migration",
+			actor_id: "system:test-migration",
 		});
+	});
+
+	it("writes nothing and does not advance seq for an exact synthetic no-op", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+
+		const result = await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: 0,
+			targetDoc: toPersistableDoc({ ...doc, appId }),
+			authority: {
+				kind: "system",
+				actorId: "system:test-noop",
+				reason: "Integration test no-op",
+			},
+		});
+
+		expect(result).toEqual({ kind: "noop", seq: 0 });
+		expect(await readSeq(appId)).toBe(0);
+		expect(await readStream(appId)).toEqual([]);
 	});
 });
 

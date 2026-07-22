@@ -128,6 +128,11 @@ table definitions, and ordered columns come from one read-only `REPEATABLE
 READ` snapshot. Its transaction-taking reader is the only composition seam for
 an already-open app transaction after it has acquired the production table
 locks; callers must not open a nested definition snapshot.
+`definitionSnapshot.ts` owns that transaction reader and intentionally carries
+no `server-only` runtime marker: authoritative `apps.ts` writers are also in
+plain `tsx` inspector dependency graphs. `service.ts` re-exports the same
+function for lookup-package callers; the transaction type remains the server
+boundary.
 
 `nova_lookup_stream` writes and reads are live. The one shared dedicated listener
 fans exact decimal revisions only to subscribers for that Project, and the app

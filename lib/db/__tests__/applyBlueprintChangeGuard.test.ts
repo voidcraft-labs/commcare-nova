@@ -124,6 +124,17 @@ function renameVillageBatch(doc: BlueprintDoc): Mutation[] {
 	return [{ kind: "renameField", uuid: field.uuid, newId: "hamlet" }];
 }
 
+function addHouseholdBatch(): Mutation[] {
+	return [
+		{ kind: "declareCaseType", caseType: "household" },
+		{
+			kind: "addCaseProperty",
+			caseType: "household",
+			property: { name: "case_name", label: "N" },
+		},
+	];
+}
+
 /** Valid one-module registration doc writing two case properties. */
 function minDoc(appName = "Test"): BlueprintDoc {
 	return buildDoc({
@@ -305,20 +316,47 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
 	});
+
+	it("rejects reducer-minted identity after a latch miss but before projection, schema work, or commit", async () => {
+		const prior = minDoc();
+		const target = Object.values(prior.fields)[0];
+		if (target === undefined) throw new Error("fixture has no field");
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				prospective: toPersistableDoc(prior),
+				batchId: "raw-duplicate",
+				kind: "autosave",
+				guard: {
+					mutations: [{ kind: "duplicateField", uuid: target.uuid }],
+				},
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+
+		expect(latchRowMock).toHaveBeenCalledTimes(1);
+		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(withSchemaContextMock).not.toHaveBeenCalled();
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
+	});
 });
 
 describe("applyBlueprintChange — top-level batchId dedup", () => {
-	it("short-circuits the whole saga on a pre-existing latch, doing zero commit / loadApp / Postgres work", async () => {
+	it("short-circuits an admission-invalid payload on a pre-existing latch without validating or applying it", async () => {
 		latchRowMock.mockResolvedValue({ seq: 42 });
+		const prior = minDoc();
+		const target = Object.values(prior.fields)[0];
+		if (target === undefined) throw new Error("fixture has no field");
 
 		const result = await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
-			prospective: toPersistableDoc(minDoc()),
+			prospective: toPersistableDoc(prior),
 			batchId: "already-committed",
 			kind: "mcp",
 			guard: {
-				mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+				mutations: [{ kind: "duplicateField", uuid: target.uuid }],
 			},
 		});
 
@@ -557,7 +595,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			batchId: "batch-uuid-sweep",
 			kind: "autosave",
 			guard: {
-				mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+				mutations: addHouseholdBatch(),
 			},
 		});
 
@@ -606,7 +644,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 				batchId: `batch-uuid-sweepfail-${_label}`,
 				kind: "autosave",
 				guard: {
-					mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+					mutations: addHouseholdBatch(),
 				},
 			});
 
@@ -676,7 +714,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			prospective,
 			batchId: "batch-additive-noreauth",
 			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+			guard: { mutations: addHouseholdBatch() },
 		});
 
 		expect(loadAppProjectIdMock).not.toHaveBeenCalled();
@@ -781,7 +819,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			prospective,
 			batchId: "batch-intxn-dedup",
 			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+			guard: { mutations: addHouseholdBatch() },
 		});
 
 		// The commit result surfaces (with its committedDoc), but the sweep was

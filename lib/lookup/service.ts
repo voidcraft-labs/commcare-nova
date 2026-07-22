@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type Selectable, sql, type Transaction } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import type { ZodType } from "zod";
 import {
 	type AppDatabase,

@@ -163,8 +163,9 @@ export interface MultiplayerManifest {
  *  three fields so the spec can drive disjoint edits, reorders, and option edits;
  *  module 2 is a distinct screen for follow / cross-screen presence. Every uuid
  *  is fixed for direct deep-linking. */
-function buildSeedBlueprint(): BlueprintDoc {
+function buildSeedBlueprint(appId: string): BlueprintDoc {
 	return buildDoc({
+		appId,
 		appName: MP_SEED.appName,
 		modules: [
 			{
@@ -322,18 +323,23 @@ export async function seedMultiplayerFixture(args: {
 
 	// ── The shared app (Postgres) ─────────────────────────────────────────
 	// Mint a `complete` app owned by Ada in the shared Project, then install
-	// the populated fixed-uuid blueprint. `createApp` only writes an empty
-	// doc, so `appendSyntheticBatch` replaces the blueprint wholesale + updates
-	// the denormalized counts + advances the stream — the at-rest `complete`
-	// shape (no run markers) two collaborators open. It does NOT re-run the
-	// validator, which is what lets the fixture pin its fixed uuids.
-	const doc = buildSeedBlueprint();
-	const persistable = toPersistableDoc(doc);
+	// the populated fixed-uuid blueprint. `createApp` writes the empty basis;
+	// `appendSyntheticBatch` derives the deterministic fixed-uuid mutations,
+	// validates them against that exact seq, updates denormalized counts, and
+	// advances the stream — the at-rest `complete` shape (no run markers) two
+	// collaborators open.
 	const appId = await createApp(MP_SEED.userA.id, projectId, "mp-seed", {
 		appName: MP_SEED.appName,
 		status: "complete",
 	});
-	await appendSyntheticBatch(appId, persistable);
+	const doc = buildSeedBlueprint(appId);
+	const persistable = toPersistableDoc(doc);
+	await appendSyntheticBatch({
+		appId,
+		expectedBaseSeq: 0,
+		targetDoc: persistable,
+		authority: { kind: "user", actorUserId: MP_SEED.userA.id },
+	});
 
 	// ── Emit four storageStates + the manifest ────────────────────────────
 	const stateFiles = {

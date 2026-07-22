@@ -175,6 +175,7 @@ export async function moveAppToProject(args: {
 			const result = await commitAppProjectMove(args.appId, {
 				toProjectId: args.toProjectId,
 				expectedFromProjectId: args.fromProjectId,
+				actorUserId: args.actorUserId,
 				assetIdMap,
 				attemptedRealIds,
 			});

@@ -12,7 +12,7 @@
  *   - **Migration-bearing** entries (a `change` shape — a
  *     classifier-proven rename, single-actor by nature):
  *     run Postgres-first + `compensate()` BEFORE the commit,
- *     derived from the client prospective. The per-row migration
+ *     derived from the guarded mutation projection. The per-row migration
  *     is recoverable — a failure inverts the rename's row moves
  *     and re-syncs from the CURRENT committed doc (a fresh
  *     `loadApp`), seq-guarded, so it restores the schema row +
@@ -101,6 +101,7 @@ import {
 	SchemaChangePhaseBError,
 	withSchemaContext,
 } from "@/lib/case-store";
+import { assertPersistenceSafeMutationIdentities } from "@/lib/doc/commitVerdicts";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -116,7 +117,10 @@ import {
 	classifyCaseTypeChanges,
 	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
-import { reauthorizeActorForCommit } from "./commitGuard";
+import {
+	BlueprintCommitRejectedError,
+	reauthorizeActorForCommit,
+} from "./commitGuard";
 import { getAppDb } from "./pg";
 import { isTransientDbError } from "./schemaSyncRetry";
 import type { AcceptedMutationDoc } from "./types";
@@ -146,10 +150,9 @@ export interface ApplyBlueprintChangeArgs {
 	readonly appId: string;
 	readonly userId: string;
 	/**
-	 * The whole prospective doc — supplied by the chat build/edit + MCP
-	 * paths. The guarded MUTATION path (auto-save) omits it and sends
-	 * `guard.mutations` instead; the saga derives the prospective by
-	 * replaying those on the prior for the case-type diff.
+	 * Advisory whole-doc projection retained for callers that already computed
+	 * one. It never drives schema work or persistence: the saga derives its own
+	 * prospective by replaying the deterministic `guard.mutations` on `prior`.
 	 */
 	readonly prospective?: PersistedBlueprint;
 	readonly runId?: string;
@@ -172,7 +175,7 @@ export interface ApplyBlueprintChangeArgs {
 	 * writer (MCP tool calls); without one, through the tokenless
 	 * auto-save writer that rotates + returns the basis token.
 	 */
-	readonly guard?: {
+	readonly guard: {
 		readonly mutations: Mutation[];
 		/**
 		 * Media-attach expectations to re-verify INSIDE the transaction
@@ -251,6 +254,10 @@ interface AttributedReport {
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<ApplyBlueprintChangeResult> {
+	const guard = args.guard;
+	if (guard === undefined) {
+		throw new Error("[applyBlueprintChange] a persist requires a `guard`");
+	}
 	// Top-level idempotency: a re-delivered batch (a client retry) whose latch
 	// already exists short-circuits the whole cross-store saga. The read is
 	// non-transactional — a batch that commits between here and the guarded
@@ -267,24 +274,34 @@ export async function applyBlueprintChange(
 	if (latch) {
 		return { seq: Number(latch.seq) };
 	}
+	// Admission applies only to a new batch. An existing latch is authoritative
+	// history and must remain replay-idempotent even if today's admission rules
+	// would reject its original payload.
+	try {
+		assertPersistenceSafeMutationIdentities(guard.mutations);
+	} catch (error) {
+		throw new BlueprintCommitRejectedError(
+			error instanceof Error
+				? error.message
+				: "This mutation batch cannot be persisted deterministically.",
+		);
+	}
 
 	const priorBlueprint = await resolvePriorBlueprint(args);
-	/* The prospective doc drives the case-type diff below. The whole-doc
-	 * paths supply it directly (the double hop steps the walled
-	 * `PersistedBlueprint` back up to `PersistableDoc`; a direct cast can't
-	 * compile because the wall's `never` slots don't overlap `BlueprintDoc`'s
-	 * required `fieldParent`). The guarded MUTATION path sends no whole doc —
-	 * derive it by replaying the mutations on the prior. The guarded commit
-	 * re-applies on the FRESH doc, so a concurrent writer can make this
-	 * prior-based derivation momentarily trail; only `caseTypes` is read from
+	/* Derive the saga's prospective exclusively from the deterministic mutation
+	 * batch. A caller-supplied whole document is advisory and cannot cause
+	 * pre-commit schema work for state the authoritative commit would never
+	 * produce. The guarded commit re-applies on the FRESH doc, so a concurrent
+	 * writer can make this prior-based derivation momentarily trail; only
+	 * `caseTypes` is read from
 	 * it (for the Postgres diff), and the next save re-syncs — the same
 	 * eventual consistency the per-row migrations already document. */
-	const prospectiveBlueprint: BlueprintDoc =
-		args.prospective !== undefined
-			? (args.prospective as PersistableDoc as BlueprintDoc)
-			: produce(priorBlueprint, (draft) => {
-					applyMutations(draft, args.guard?.mutations ?? []);
-				});
+	const prospectiveBlueprint: BlueprintDoc = produce(
+		priorBlueprint,
+		(draft) => {
+			applyMutations(draft, guard.mutations);
+		},
+	);
 
 	const entries = classifyCaseTypeChanges({
 		prior: priorBlueprint,
@@ -359,8 +376,9 @@ export async function applyBlueprintChange(
 	);
 
 	// Phase 1: forward-apply each MIGRATION-BEARING change against Postgres,
-	// derived from the client prospective. The additive entries are NOT applied
-	// here — they wait for the post-commit sweep of the committed doc.
+	// derived from the deterministic guarded mutation projection. The additive
+	// entries are NOT applied here — they wait for the post-commit sweep of the
+	// committed doc.
 	//
 	// On any failure, compensate over ALL `migrationEntries` (not just the ones
 	// whose `applySchemaChange` fully returned): `applySchemaChange` is

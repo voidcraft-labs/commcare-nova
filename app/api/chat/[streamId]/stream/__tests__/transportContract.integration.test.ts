@@ -54,6 +54,10 @@ vi.mock("@/lib/db/appAccess", () => ({
 vi.mock("@/lib/db/api-keys", () => ({
 	isUserActive: isUserActiveMock,
 }));
+vi.mock("@/lib/db/projectMembership", () => ({
+	projectRoleFor: vi.fn(async () => "editor"),
+	projectRoleForInTransaction: vi.fn(async () => "editor"),
+}));
 
 const { GET } = await import("../route");
 const { WorkflowChatTransport } = await import("@ai-sdk/workflow");

@@ -24,20 +24,34 @@ import Fuse from "fuse.js";
 import type { Selectable, Transaction } from "kysely";
 import type { ErrorType } from "@/lib/agent";
 import { getAuthDb } from "@/lib/auth/db";
+import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { log } from "@/lib/logger";
+import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import {
 	describeMediaExpectationFailures,
 	type MediaAttachExpectation,
 } from "@/lib/media/attachVerdicts";
 import {
+	assertPersistenceSafeMutationIdentities,
 	describeIntroducedErrors,
+	evaluatePreparedMutationCandidate,
 	exportReadinessFindings,
-	mutationCommitVerdict,
+	prepareMutationCandidate,
 } from "../doc/commitVerdicts";
+import { deepEqual } from "../doc/deepEqual";
+import { diffDocsToMutations } from "../doc/diffDocsToMutations";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "../doc/fieldParent";
+import {
+	EMPTY_LOOKUP_REFERENCE_TARGETS,
+	extractLookupReferenceTargets,
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupReferenceTargetSet,
+	type LookupValidationContext,
+	unionLookupReferenceTargetSets,
+} from "../doc/lookupReferences";
 import { buildReferenceIndex } from "../doc/referenceIndex";
 import type { Mutation } from "../doc/types";
 import type {
@@ -78,6 +92,13 @@ import {
 	rowReservation,
 	rowRunLock,
 } from "./leaseView";
+import {
+	LookupReferenceWriteError,
+	lockLookupTablesForReferenceWrite,
+	readStoredLookupReferenceTargets,
+	replaceLookupReferenceEdges,
+} from "./lookupReferenceEdges";
+import { declareLookupReferenceWriter } from "./lookupReferenceWriter";
 import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
 import { getCurrentPeriod } from "./period";
 import {
@@ -87,6 +108,7 @@ import {
 	notifyAppStream,
 	withAppTx,
 } from "./pg";
+import { projectRoleForInTransaction } from "./projectMembership";
 import { editLeaseDeadlineMs, runLeaseState } from "./runLiveness";
 import type { AcceptedMutationDoc, AppDoc } from "./types";
 
@@ -290,6 +312,72 @@ async function syncMediaReferences(
 	}
 }
 
+function hasLookupReferenceTargets(targets: LookupReferenceTargetSet): boolean {
+	return targets.tableIds.length > 0 || targets.columnTargets.length > 0;
+}
+
+/**
+ * Freeze the exact tables one candidate pair can reference, then read the
+ * rows-free definitions against that same transaction snapshot. Non-Project
+ * legacy apps receive the explicit unavailable context and may only save a
+ * candidate whose structural target set is empty.
+ */
+async function lookupContextForAuthoritativeWrite(
+	tx: Transaction<AppDatabase>,
+	projectId: string | null,
+	targets: LookupReferenceTargetSet,
+): Promise<LookupValidationContext> {
+	if (projectId === null) return LOOKUP_CONTEXT_UNAVAILABLE;
+	try {
+		await lockLookupTablesForReferenceWrite(tx, projectId, targets.tableIds);
+	} catch (error) {
+		if (
+			error instanceof LookupReferenceWriteError &&
+			error.code === "unavailable"
+		) {
+			throw new BlueprintCommitRejectedError(
+				"One or more lookup tables used by this app are no longer available in its Project. Remove or replace those references, then try again.",
+			);
+		}
+		throw error;
+	}
+	const snapshot = await readLookupDefinitionsInTransaction(
+		tx,
+		projectId,
+		targets.tableIds,
+	);
+	return { kind: "available", ...snapshot };
+}
+
+/** Lock and authorize one existing Better Auth membership on this app tx. */
+async function assertProjectCapabilityInTransaction(
+	tx: Transaction<AppDatabase>,
+	actorUserId: string,
+	projectId: string,
+	capability: AppCapability,
+	message: string,
+): Promise<void> {
+	const role = await projectRoleForInTransaction(tx, actorUserId, projectId);
+	if (role === null || !roleAllowsApp(role, capability)) {
+		throw new CommitReauthError(message);
+	}
+}
+
+/** Map a replay-unsafe payload to the commit rejection shape wire callers know. */
+function assertDeterministicPersistedMutations(
+	mutations: readonly Mutation[],
+): void {
+	try {
+		assertPersistenceSafeMutationIdentities(mutations);
+	} catch (error) {
+		throw new BlueprintCommitRejectedError(
+			error instanceof Error
+				? error.message
+				: "This mutation batch cannot be persisted deterministically.",
+		);
+	}
+}
+
 // ── Concurrency Guard ─────────────────────────────────────────────
 
 /**
@@ -395,42 +483,13 @@ export interface CreateAppOptions {
 	status?: "generating" | "complete";
 	/**
 	 * The contents the app is BORN with — a template expressed as a mutation
-	 * batch against the empty doc, applied inside the single creation
-	 * transaction so the templated app never exists in its pre-template state.
+	 * batch against the empty doc. The callback and reducer each run exactly once
+	 * before the retryable transaction; the prepared candidate is then admitted
+	 * and inserted atomically, so no pre-template app is ever visible.
 	 * Supplying one is a promise the app is born EXPORT-ready, enforced by
-	 * `seedNewApp`. Omit for the empty app the chat build and MCP mint.
+	 * `createApp`. Omit for the empty app the chat build and MCP mint.
 	 */
 	seedMutations?: (doc: BlueprintDoc) => Mutation[];
-}
-
-/**
- * Apply a creation template to the empty doc, behind TWO gates: the ordinary
- * commit gate (no introduced findings) and the zero-tolerance EXPORT boundary
- * (a templated app has no SA run behind it to finish the job). Either throw
- * is a construction bug — a template is code.
- */
-function seedNewApp(
-	emptyDoc: BlueprintDoc,
-	seedMutations: CreateAppOptions["seedMutations"],
-): BlueprintDoc {
-	if (!seedMutations) return emptyDoc;
-	const verdict = mutationCommitVerdict(emptyDoc, seedMutations(emptyDoc));
-	if (!verdict.ok) {
-		throw new Error(
-			`App template is not valid by construction: ${describeIntroducedErrors(
-				verdict.introduced,
-			)}`,
-		);
-	}
-	const notExportable = exportReadinessFindings(verdict.nextDoc);
-	if (notExportable.length > 0) {
-		throw new Error(
-			`App template must be born export-ready, but the app it creates could not be exported:\n${notExportable
-				.map((err) => `- ${err.message}`)
-				.join("\n")}`,
-		);
-	}
-	return verdict.nextDoc;
 }
 
 /**
@@ -457,10 +516,24 @@ export async function createApp(
 		fieldOrder: {},
 		fieldParent: {},
 	};
-	const doc = seedNewApp(emptyDoc, opts?.seedMutations);
-	const persistable = toPersistableDoc(doc);
+	// Atomic creation is the app-lock exception: a SQL retry may re-run the
+	// transaction closure, so the template callback and reducer must stay out of
+	// it. The prepared value is deterministic and safe to evaluate repeatedly.
+	const seedMutations = opts?.seedMutations?.(emptyDoc) ?? [];
+	assertDeterministicPersistedMutations(seedMutations);
+	const prepared = prepareMutationCandidate(emptyDoc, seedMutations);
+	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+	const persistable = toPersistableDoc(prepared.nextDoc);
 	const denorm = denormalize(persistable);
 	await withAppTx(async (tx) => {
+		await declareLookupReferenceWriter(tx);
+		await assertProjectCapabilityInTransaction(
+			tx,
+			owner,
+			projectId,
+			"edit",
+			"You no longer have edit access to this Project.",
+		);
 		await tx
 			.insertInto("apps")
 			.values({
@@ -477,6 +550,41 @@ export async function createApp(
 				run_id: runId,
 			})
 			.execute();
+		const lookupContext = await lookupContextForAuthoritativeWrite(
+			tx,
+			projectId,
+			candidateTargets,
+		);
+		const verdict = evaluatePreparedMutationCandidate(
+			emptyDoc,
+			prepared,
+			lookupContext,
+		);
+		if (!verdict.ok) {
+			throw new Error(
+				`App template is not valid by construction: ${describeIntroducedErrors(
+					verdict.introduced,
+				)}`,
+			);
+		}
+		if (opts?.seedMutations !== undefined) {
+			const notExportable = exportReadinessFindings(
+				verdict.nextDoc,
+				lookupContext,
+			);
+			if (notExportable.length > 0) {
+				throw new Error(
+					`App template must be born export-ready, but the app it creates could not be exported:\n${notExportable
+						.map((error) => `- ${error.message}`)
+						.join("\n")}`,
+				);
+			}
+		}
+		await replaceLookupReferenceEdges(tx, {
+			appId,
+			projectId,
+			targets: candidateTargets,
+		});
 		const rows = decomposeBlueprint(persistable);
 		if (rows.length > 0) {
 			await tx
@@ -636,18 +744,22 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * The unified guarded blueprint commit — the read-evaluate-write every write
- * path (chat, MCP, auto-save, the cross-Project move) shares.
+ * The unified guarded blueprint commit — the read-evaluate-write every
+ * interactive mutation path (chat, MCP, auto-save) shares. Synthetic repairs
+ * and the dormant cross-Project move use the parallel locked protocols below.
  *
  * One transaction: lock the app row (the per-app serialization point); a
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
- * committed doc, writing nothing; reauth against the fresh row (owner
- * fallback for a null Project; a concurrent MOVE rejects retryably);
+ * committed doc, writing nothing; lock + reauthorize the actor's exact Project
+ * membership against the fresh row (owner fallback for a null Project; a
+ * concurrent MOVE rejects retryably);
  * re-check media expectations against rows read `FOR SHARE` (a racing delete
  * blocks behind this commit); assemble + hydrate the fresh doc; reject a
  * batch targeting a concurrently-removed entity or one the re-run verdict
- * rejects; advance `mutation_seq` to a LITERAL `fresh + 1`; and
- * {@link writeCommittedBatch}. A concurrent retry of the same batch that
+ * rejects; lock the union of prior/candidate lookup tables, evaluate against
+ * their same-snapshot definitions, replace exact reference edges; advance
+ * `mutation_seq` to a LITERAL `fresh + 1`; and {@link writeCommittedBatch}. A
+ * concurrent retry of the same batch that
  * races past the dedup read is caught by the UNIQUE latch at insert and
  * converges on the deduped result.
  */
@@ -673,6 +785,7 @@ export async function commitGuardedBatch(
 
 	const commitOnce = (): Promise<InternalResult> =>
 		withAppTx(async (tx) => {
+			await declareLookupReferenceWriter(tx);
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) {
 				throw new Error(
@@ -687,6 +800,29 @@ export async function commitGuardedBatch(
 				.where("app_id", "=", appId)
 				.where("batch_id", "=", batchId)
 				.executeTakeFirst();
+			// The outside role read is only an early rejection optimization. The app
+			// row and the actor's exact membership row now join this transaction's
+			// lock set before either a real commit OR an idempotent return.
+			if (fresh.project_id !== projectId) {
+				throw new BlueprintCommitRejectedError(
+					"This app moved to a different Project while you were editing. Reload to get the latest state.",
+				);
+			}
+			if (fresh.project_id === null) {
+				if (fresh.owner !== actorUserId) {
+					throw new CommitReauthError(
+						"You don't have edit access to this app.",
+					);
+				}
+			} else {
+				await assertProjectCapabilityInTransaction(
+					tx,
+					actorUserId,
+					fresh.project_id,
+					"edit",
+					"You no longer have edit access to this app's Project.",
+				);
+			}
 			const entities = await loadEntities(tx, appId);
 			const freshPersistable = assembleBlueprint(
 				appId,
@@ -706,21 +842,6 @@ export async function commitGuardedBatch(
 					committedDoc: dedupedDoc,
 					deduped: true,
 				};
-			}
-			// Reauth against the FRESH row: a null project_id defers to owner
-			// (TERMINAL — no membership to gain by reloading); a non-null must
-			// still equal the reauthed project (a concurrent MOVE is RETRYABLE —
-			// the actor may be a member of the destination).
-			if (projectId === null) {
-				if (fresh.owner !== actorUserId) {
-					throw new CommitReauthError(
-						"You don't have edit access to this app.",
-					);
-				}
-			} else if (fresh.project_id !== projectId) {
-				throw new BlueprintCommitRejectedError(
-					"This app moved to a different Project while you were editing. Reload to get the latest state.",
-				);
 			}
 			// Media-attach expectations re-check — the asset rows are read FOR
 			// SHARE so a racing delete serializes against this commit.
@@ -743,6 +864,7 @@ export async function commitGuardedBatch(
 			}
 			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
 			const freshDoc = hydratePersistedBlueprint(freshPersistable);
+			assertDeterministicPersistedMutations(mutations);
 			if (batchTargetsMissing(freshDoc, mutations)) {
 				throw new BlueprintCommitRejectedError(
 					"This app changed while you were editing — something your change " +
@@ -750,7 +872,31 @@ export async function commitGuardedBatch(
 						"version, then redo that change.",
 				);
 			}
-			const verdict = mutationCommitVerdict(freshDoc, mutations);
+			const prepared = prepareMutationCandidate(freshDoc, mutations);
+			const previousTargets = extractLookupReferenceTargets(freshDoc);
+			const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+			if (
+				fresh.project_id === null &&
+				hasLookupReferenceTargets(candidateTargets)
+			) {
+				throw new BlueprintCommitRejectedError(
+					"This legacy app has no Project, so it cannot save lookup references. Move or repair the app, then try again.",
+				);
+			}
+			const lookupTargets = unionLookupReferenceTargetSets(
+				previousTargets,
+				candidateTargets,
+			);
+			const lookupContext = await lookupContextForAuthoritativeWrite(
+				tx,
+				fresh.project_id,
+				lookupTargets,
+			);
+			const verdict = evaluatePreparedMutationCandidate(
+				freshDoc,
+				prepared,
+				lookupContext,
+			);
 			if (!verdict.ok) {
 				throw new BlueprintCommitRejectedError(
 					describeIntroducedErrors(verdict.introduced),
@@ -795,6 +941,11 @@ export async function commitGuardedBatch(
 				runId !== undefined &&
 				commitLease?.mode === "edit" &&
 				commitLease?.mine(runId);
+			await replaceLookupReferenceEdges(tx, {
+				appId,
+				projectId: fresh.project_id,
+				targets: candidateTargets,
+			});
 			await writeCommittedBatch(tx, {
 				appId,
 				seq,
@@ -835,27 +986,118 @@ export async function commitGuardedBatch(
 	return publicResult;
 }
 
+export type SyntheticBatchAuthority =
+	| { readonly kind: "user"; readonly actorUserId: string }
+	| {
+			readonly kind: "system";
+			readonly actorId: `system:${string}`;
+			readonly reason: string;
+	  };
+
+export interface AppendSyntheticBatchArgs {
+	readonly appId: string;
+	/** Exact basis the repair/migration read before constructing `targetDoc`. */
+	readonly expectedBaseSeq: number;
+	readonly targetDoc: PersistedBlueprint;
+	readonly authority: SyntheticBatchAuthority;
+	readonly batchId?: string;
+}
+
+export type AppendSyntheticBatchResult =
+	| { readonly kind: "committed"; readonly seq: number }
+	| { readonly kind: "deduped"; readonly seq: number }
+	| { readonly kind: "noop"; readonly seq: number };
+
+function syntheticActorId(authority: SyntheticBatchAuthority): string {
+	if (authority.kind === "user") {
+		if (authority.actorUserId.trim().length === 0) {
+			throw new Error("Synthetic user authority requires an actor id.");
+		}
+		return authority.actorUserId;
+	}
+	if (
+		!authority.actorId.startsWith("system:") ||
+		authority.actorId.length <= "system:".length ||
+		authority.reason.trim().length === 0
+	) {
+		throw new Error(
+			"Synthetic system authority requires a named system actor and reason.",
+		);
+	}
+	// `actorId` is the durable attribution in `accepted_mutations`; `reason` is
+	// an explicit operator-callsite safeguard until the log schema gains metadata.
+	return authority.actorId;
+}
+
 /**
- * The migration twin of the guarded commit: replace an app's blueprint
- * wholesale + advance `mutation_seq` + append a RELOAD SENTINEL
- * (`mutations: []`, `kind: "migration"`) to the durable stream, so a live
- * builder tab reloads onto the migrated state instead of overwriting it.
+ * Guarded repair/migration writer. It never replaces a stale whole document:
+ * after locking the app it requires the caller's exact base sequence, derives
+ * deterministic mutations from that fresh basis, proves their replay reaches
+ * the requested target, and persists the actual batch. A true no-op writes no
+ * stream row and does not advance the sequence.
  */
 export async function appendSyntheticBatch(
-	appId: string,
-	migratedDoc: PersistedBlueprint,
-): Promise<void> {
-	const batchId = crypto.randomUUID();
-	await withAppTx(async (tx) => {
-		const fresh = await lockAppRow(tx, appId);
+	args: AppendSyntheticBatchArgs,
+): Promise<AppendSyntheticBatchResult> {
+	if (!Number.isSafeInteger(args.expectedBaseSeq) || args.expectedBaseSeq < 0) {
+		throw new Error("Synthetic batch base sequence must be nonnegative.");
+	}
+	if (args.targetDoc.appId !== args.appId) {
+		throw new BlueprintCommitRejectedError(
+			"The synthetic target belongs to a different app.",
+		);
+	}
+	const batchId = args.batchId ?? crypto.randomUUID();
+	if (batchId.trim().length === 0) {
+		throw new Error("Synthetic batch id must not be empty.");
+	}
+	const actorUserId = syntheticActorId(args.authority);
+	// Hydration/backfill is deterministic and independent of the locked basis.
+	// Keep it outside the retryable transaction closure.
+	const requestedTarget = hydratePersistedBlueprint(args.targetDoc);
+
+	type InternalResult = AppendSyntheticBatchResult & {
+		persistable?: PersistedBlueprint;
+	};
+	const result = await withAppTx(async (tx): Promise<InternalResult> => {
+		await declareLookupReferenceWriter(tx);
+		const fresh = await lockAppRow(tx, args.appId);
 		if (!fresh) {
-			throw new Error(
-				`[appendSyntheticBatch] app row missing for appId=${appId}`,
+			throw new Error("[appendSyntheticBatch] app row is unavailable");
+		}
+		const latch = await tx
+			.selectFrom("accepted_mutations")
+			.select("seq")
+			.where("app_id", "=", args.appId)
+			.where("batch_id", "=", batchId)
+			.executeTakeFirst();
+		if (args.authority.kind === "user") {
+			if (fresh.project_id === null) {
+				if (fresh.owner !== args.authority.actorUserId) {
+					throw new CommitReauthError(
+						"You don't have edit access to this app.",
+					);
+				}
+			} else {
+				await assertProjectCapabilityInTransaction(
+					tx,
+					args.authority.actorUserId,
+					fresh.project_id,
+					"edit",
+					"You no longer have edit access to this app's Project.",
+				);
+			}
+		}
+		if (latch) return { kind: "deduped", seq: Number(latch.seq) };
+		if (Number(fresh.mutation_seq) !== args.expectedBaseSeq) {
+			throw new BlueprintCommitRejectedError(
+				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
 			);
 		}
-		const entities = await loadEntities(tx, appId);
-		const prevDoc = assembleBlueprint(
-			appId,
+
+		const entities = await loadEntities(tx, args.appId);
+		const previousPersistable = assembleBlueprint(
+			args.appId,
 			{
 				app_name: fresh.app_name,
 				connect_type: fresh.connect_type,
@@ -864,18 +1106,78 @@ export async function appendSyntheticBatch(
 			},
 			entities,
 		);
+		const previousDoc = hydratePersistedBlueprint(previousPersistable);
+		const mutations = diffDocsToMutations(previousDoc, requestedTarget);
+		assertDeterministicPersistedMutations(mutations);
+		const prepared = prepareMutationCandidate(previousDoc, mutations);
+		const replayed = toPersistableDoc(prepared.nextDoc);
+		const requested = toPersistableDoc(requestedTarget);
+		if (!deepEqual(replayed, requested)) {
+			throw new BlueprintCommitRejectedError(
+				"The requested repair cannot be represented as a deterministic mutation batch.",
+			);
+		}
+		if (mutations.length === 0) {
+			return { kind: "noop", seq: Number(fresh.mutation_seq) };
+		}
+		if (batchTargetsMissing(previousDoc, mutations)) {
+			throw new BlueprintCommitRejectedError(
+				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
+			);
+		}
+		const previousTargets = extractLookupReferenceTargets(previousDoc);
+		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+		if (
+			fresh.project_id === null &&
+			hasLookupReferenceTargets(candidateTargets)
+		) {
+			throw new BlueprintCommitRejectedError(
+				"This legacy app has no Project, so it cannot save lookup references.",
+			);
+		}
+		const lookupTargets = unionLookupReferenceTargetSets(
+			previousTargets,
+			candidateTargets,
+		);
+		const lookupContext = await lookupContextForAuthoritativeWrite(
+			tx,
+			fresh.project_id,
+			lookupTargets,
+		);
+		const verdict = evaluatePreparedMutationCandidate(
+			previousDoc,
+			prepared,
+			lookupContext,
+		);
+		if (!verdict.ok) {
+			throw new BlueprintCommitRejectedError(
+				describeIntroducedErrors(verdict.introduced),
+			);
+		}
+		const persistable = toPersistableDoc(verdict.nextDoc);
 		const seq = Number(fresh.mutation_seq) + 1;
+		await replaceLookupReferenceEdges(tx, {
+			appId: args.appId,
+			projectId: fresh.project_id,
+			targets: candidateTargets,
+		});
 		await writeCommittedBatch(tx, {
-			appId,
+			appId: args.appId,
 			seq,
 			batchId,
-			prevDoc,
-			committedDoc: migratedDoc,
-			mutations: [],
-			actorUserId: "migration",
+			prevDoc: previousPersistable,
+			committedDoc: persistable,
+			mutations,
+			actorUserId,
 			kind: "migration",
 		});
+		return { kind: "committed", seq, persistable };
 	});
+	if (result.kind === "committed" && result.persistable !== undefined) {
+		await syncMediaReferences(args.appId, result.persistable);
+	}
+	const { persistable: _persistable, ...publicResult } = result;
+	return publicResult;
 }
 
 /**
@@ -904,6 +1206,7 @@ export async function commitAppProjectMove(
 	args: {
 		toProjectId: string;
 		expectedFromProjectId: string;
+		actorUserId: string;
 		assetIdMap: ReadonlyMap<string, string>;
 		attemptedRealIds: ReadonlySet<string>;
 	},
@@ -916,6 +1219,7 @@ export async function commitAppProjectMove(
 			outcome: CommitMoveResult;
 			committed: PersistedBlueprint | null;
 		}> => {
+			await declareLookupReferenceWriter(tx);
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) {
 				throw new Error(
@@ -923,11 +1227,32 @@ export async function commitAppProjectMove(
 				);
 			}
 			if (fresh.project_id === args.toProjectId) {
+				await assertProjectCapabilityInTransaction(
+					tx,
+					args.actorUserId,
+					args.toProjectId,
+					"delete",
+					"You no longer have permission to move this app.",
+				);
 				return { outcome: { kind: "already_moved" }, committed: null };
 			}
 			if (fresh.project_id !== args.expectedFromProjectId) {
-				throw new Error(
-					`[commitAppProjectMove] source Project changed for appId=${appId} (expected ${args.expectedFromProjectId}, found ${fresh.project_id ?? "null"})`,
+				throw new BlueprintCommitRejectedError(
+					"This app changed Projects while the move was being prepared. Reload and try again.",
+				);
+			}
+			// S02b deliberately locks only the actor's existing membership tuples.
+			// The sorted order avoids opposite-direction lock inversion; S02c adds
+			// the membership advisory gate and owner-retention/absence protocol.
+			for (const projectId of [
+				...new Set([args.expectedFromProjectId, args.toProjectId]),
+			].sort()) {
+				await assertProjectCapabilityInTransaction(
+					tx,
+					args.actorUserId,
+					projectId,
+					"delete",
+					"You no longer have permission to move this app.",
 				);
 			}
 			// A build that started after the caller's authz read would, on its
@@ -947,31 +1272,80 @@ export async function commitAppProjectMove(
 				},
 				entities,
 			);
-			const missing = collectRealAssetRefs(asWalkableDoc(prevDoc)).filter(
+			const previousDoc = hydratePersistedBlueprint(prevDoc);
+			const missing = collectRealAssetRefs(asWalkableDoc(previousDoc)).filter(
 				(id) => !args.attemptedRealIds.has(id),
 			);
 			if (missing.length > 0) {
 				return { outcome: { kind: "media_stale", missing }, committed: null };
 			}
-			const seq = Number(fresh.mutation_seq) + 1;
-			const committedDoc =
+			const requestedCandidate =
 				args.assetIdMap.size > 0
-					? remapAssetRefs(prevDoc, args.assetIdMap)
-					: (prevDoc as PersistedBlueprint);
+					? hydratePersistedBlueprint(
+							toPersistableDoc(remapAssetRefs(previousDoc, args.assetIdMap)),
+						)
+					: previousDoc;
+			const mutations = diffDocsToMutations(previousDoc, requestedCandidate);
+			assertDeterministicPersistedMutations(mutations);
+			const prepared = prepareMutationCandidate(previousDoc, mutations);
+			if (
+				!deepEqual(
+					toPersistableDoc(prepared.nextDoc),
+					toPersistableDoc(requestedCandidate),
+				)
+			) {
+				throw new BlueprintCommitRejectedError(
+					"The app's media references could not be remapped deterministically.",
+				);
+			}
+			const previousTargets = extractLookupReferenceTargets(previousDoc);
+			const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+			const storedTargets = await readStoredLookupReferenceTargets(tx, appId);
+			if (
+				hasLookupReferenceTargets(previousTargets) ||
+				hasLookupReferenceTargets(candidateTargets) ||
+				hasLookupReferenceTargets(storedTargets)
+			) {
+				throw new BlueprintCommitRejectedError(
+					"This app uses lookup tables and cannot move Projects yet. Remove those references or keep the app in its current Project.",
+				);
+			}
+			const destinationContext = await lookupContextForAuthoritativeWrite(
+				tx,
+				args.toProjectId,
+				EMPTY_LOOKUP_REFERENCE_TARGETS,
+			);
+			const verdict = evaluatePreparedMutationCandidate(
+				previousDoc,
+				prepared,
+				destinationContext,
+			);
+			if (!verdict.ok) {
+				throw new BlueprintCommitRejectedError(
+					describeIntroducedErrors(verdict.introduced),
+				);
+			}
+			const seq = Number(fresh.mutation_seq) + 1;
+			const committedDoc = toPersistableDoc(verdict.nextDoc);
+			await replaceLookupReferenceEdges(tx, {
+				appId,
+				projectId: fresh.project_id,
+				targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
+			});
 			await writeCommittedBatch(tx, {
 				appId,
 				seq,
 				batchId,
 				prevDoc,
 				committedDoc,
-				mutations: [],
-				actorUserId: "migration",
+				mutations,
+				actorUserId: args.actorUserId,
 				kind: "migration",
 				extraAppFields: { project_id: args.toProjectId },
 			});
 			return {
 				outcome: { kind: "moved" },
-				committed: args.assetIdMap.size > 0 ? committedDoc : null,
+				committed: mutations.length > 0 ? committedDoc : null,
 			};
 		},
 	);

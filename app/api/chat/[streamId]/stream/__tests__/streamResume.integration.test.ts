@@ -76,6 +76,10 @@ vi.mock("@/lib/db/appAccess", () => ({
 vi.mock("@/lib/db/api-keys", () => ({
 	isUserActive: isUserActiveMock,
 }));
+vi.mock("@/lib/db/projectMembership", () => ({
+	projectRoleFor: vi.fn(async () => "editor"),
+	projectRoleForInTransaction: vi.fn(async () => "editor"),
+}));
 
 /* Module-load cadence — set BEFORE the dynamic import so the fallback and
  * revocation tests observe their close in milliseconds, not the prod ~10 s. */

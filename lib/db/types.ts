@@ -226,8 +226,10 @@ export interface AppDoc {
  * both the realtime catch-up stream and the app's durable edit history, so
  * folding every batch from an app's first seq reproduces its entity rows.
  * `UNIQUE (app_id, batch_id)` is the idempotency latch a retried PUT keys on.
- * A `kind: 'migration'` entry is a stream sentinel (empty `mutations`) that
- * tells a live client to reload rather than replay.
+ * A `kind: 'migration'` entry tells a live client to reload rather than replay.
+ * Blueprint-changing repairs/migrations still carry their real deterministic
+ * mutations for durable history; the array may be empty only when the atomic
+ * change is outside the blueprint itself (for example, a Project-only move).
  */
 export interface AcceptedMutationDoc {
 	seq: number;
