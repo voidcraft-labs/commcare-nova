@@ -336,19 +336,19 @@ describe("lookup-reference infrastructure migration", () => {
 
 		await expectSqlState(
 			pgClient,
-			"23503",
+			"23001",
 			"DELETE FROM lookup_columns WHERE project_id = $1 AND table_id = $2 AND id = $3",
 			[projectA, tableId, columnId],
 		);
 		await expectSqlState(
 			pgClient,
-			"23503",
+			"23001",
 			"DELETE FROM lookup_tables WHERE project_id = $1 AND id = $2",
 			[projectA, tableId],
 		);
 		await expectSqlState(
 			pgClient,
-			"23503",
+			"23001",
 			"UPDATE apps SET project_id = $1 WHERE id = $2",
 			[projectB, appA],
 		);
@@ -360,7 +360,7 @@ describe("lookup-reference infrastructure migration", () => {
 		);
 		await expectSqlState(
 			pgClient,
-			"23503",
+			"23001",
 			`UPDATE lookup_columns SET id = uuidv7()
 			 WHERE project_id = $1 AND table_id = $2 AND id = $3`,
 			[projectA, tableId, columnId],
@@ -735,10 +735,12 @@ describe("lookup-reference infrastructure migration", () => {
 				"DELETE FROM lookup_tables WHERE project_id = $1 AND id = $2",
 				[guardedProject, deleteTable],
 			],
+			["TRUNCATE lookup_tables CASCADE", []],
 			[
 				"DELETE FROM lookup_columns WHERE project_id = $1 AND table_id = $2 AND id = $3",
 				[guardedProject, columnTable, deleteColumn],
 			],
+			["TRUNCATE lookup_columns CASCADE", []],
 			[
 				`UPDATE lookup_columns SET data_type = 'int'
 				 WHERE project_id = $1 AND table_id = $2 AND id = $3`,

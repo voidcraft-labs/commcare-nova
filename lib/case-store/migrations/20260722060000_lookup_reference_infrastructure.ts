@@ -304,13 +304,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	`.execute(db);
 	await sql`
 		CREATE TRIGGER lookup_tables_reference_writer_guard_delete
-		BEFORE DELETE ON lookup_tables
+		BEFORE DELETE OR TRUNCATE ON lookup_tables
 		FOR EACH STATEMENT
 		EXECUTE FUNCTION nova_require_lookup_reference_writer_version()
 	`.execute(db);
 	await sql`
 		CREATE TRIGGER lookup_columns_reference_writer_guard_delete
-		BEFORE DELETE ON lookup_columns
+		BEFORE DELETE OR TRUNCATE ON lookup_columns
 		FOR EACH STATEMENT
 		EXECUTE FUNCTION nova_require_lookup_reference_writer_version()
 	`.execute(db);
