@@ -383,11 +383,12 @@ Readiness was frozen 2026-07-21 against Nova `3aa306d7` after independent audits
 of the migration owner, `AppDatabase`, Project authorization, Better Auth Project
 deletion, the app-move saga, the dedicated listener's exact-fit connection budget,
 the builder EventSource cursor, the Server Action body boundary, and fractional
-ordering. Worktree `agent/s01-lookup-persistence` owns S01a. The frozen contract
-passed `ready` and moved immediately to `in progress` when that branch claimed
-it; delegation remains bounded by the review units below. S01a ships and its
-branch/worktree is cleaned before S01b is cut fresh from the merged `main`, so
-the two review units never form a stacked-branch dependency.
+ordering. S01a shipped as PR #295 at `18aa7566`, including production migration
+execution `commcare-nova-migrate-lbzk2` and Cloud Run revision
+`commcare-nova-00350-xgz`; its branch and worktree are cleaned. Fresh worktree
+`agent/s01b-lookup-stream` owns S01b from that merged `main`, so the two review
+units have no stacked-branch dependency. The frozen S01 contract remains in
+progress until S01b ships; delegation remains bounded by the review units below.
 
 S01 is delivered as two review units so persistence/authorization and long-lived
 stream behavior are independently understandable and leak-gated:
@@ -605,13 +606,25 @@ The existing `/api/apps/[id]/stream` subscribes to the app's resolved Project
 before its initial manifest read and emits `event: lookup-revision` with the full
 manifest but **no `id:` line**. `Last-Event-ID` remains exclusively the app
 mutation sequence. Pokes coalesce; a poke during a read schedules one follow-up;
-a failed lookup-manifest read schedules a bounded unref'ed retry rather than
-waiting forever for another notification. S01b applies the same retry contract to
-the existing mutation pump: a failed accepted-mutation catch-up SELECT must retry
-without requiring another commit, poke, or reconnect. Abort and stream-cancel
-teardown clear both retry timers and both subscriptions. Reconnect pokes every
-lookup subscriber, which re-reads the current manifest, so revision jumps are
-expected and lossless.
+a failed lookup-manifest read schedules an unref'ed retry whose delay is bounded
+but whose attempts continue while the stream is alive, rather than exhausting a
+finite budget and waiting forever for another notification. S01b applies the same
+contract to the existing mutation pump: a failed accepted-mutation catch-up SELECT
+must retry without requiring another commit, poke, or reconnect. A new poke while
+a retry waits cancels the timer and runs catch-up immediately. Abort and
+stream-cancel teardown clear both retry timers and both subscriptions. Reconnect
+pokes every lookup subscriber, which re-reads the current manifest, so revision
+jumps are expected and lossless.
+
+`ReconcilerProvider` routes `lookup-revision` frames from that same EventSource
+through a `subscribeLookupManifest` context seam parallel to presence. Lookup
+manifests stay outside reconciler state: their Project revision is independent of
+the app mutation `baseSeq`, and a lookup frame neither advances nor reseeds that
+cursor. The app-runtime broker retains the latest validated manifest for immediate
+late-subscriber replay, latches the first Project, and ignores lower-revision or
+foreign-Project frames. This settles transport ownership for S02/S09 consumers
+without opening a second stream or coupling lookup snapshots to blueprint
+reconciliation.
 
 Every true cross-Project app move is temporarily blocked in both the Server
 Action, after source authorization, and the orchestrator, before media copying.
@@ -624,6 +637,11 @@ tooltip. The target is at least 48 CSS pixels and uses existing semantic tokens,
 visible focus, sentence case, and no new decorative motion. S02 replaces the
 global block with the exact-edge rule: zero lookup references allows the move;
 any reference blocks with actionable resource information under S02's lock order.
+S02 also owns the live transport handoff for an admitted zero-reference move:
+the open app stream must re-resolve and bind to the destination Project, replace
+its lookup snapshot, and keep blueprint reconciliation live. A Project-scope
+change is not an authorization revocation and must never set the reconciler's
+permanent `revoked` state.
 
 Project deletion is globally unavailable in the runtime Better Auth organization
 plugin through `disableOrganizationDeletion: true`. This rejects both HTTP and
@@ -684,10 +702,18 @@ column reference edges with the blueprint transaction. Add the resource-schema
 mutation path and lock order; reject delete/rename/retype races and cross-Project
 app moves with actionable referencing-app information.
 
+When the exact edge set is empty and a cross-Project move is admitted, rebind
+every open app stream from the source lookup Project to the destination Project
+without treating the user as revoked. Reset or remount the retained lookup
+manifest broker, emit the destination's authoritative snapshot, and preserve the
+independent app mutation cursor.
+
 Acceptance must include simultaneous reference introduction versus delete,
 stale client snapshot versus fresh server result, foreign-Project
-indistinguishability, mutation replay, mixed-version compatibility, and zero-reference schema
-changes.
+indistinguishability, mutation replay, mixed-version compatibility, zero-reference
+schema changes, and a zero-reference cross-Project move observed by an already
+open builder without freezing reconciliation or retaining the source Project's
+lookup manifest.
 
 ### S03 — display conditions: domain and wire
 
@@ -904,6 +930,12 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-22 — S01a shipped / S01b started:** PR #295 shipped the lookup
+  persistence, authorization, lifecycle guards, transactional notification
+  writes, and production migration through healthy revision
+  `commcare-nova-00350-xgz`; its branch/worktree were cleaned. Cut fresh
+  `agent/s01b-lookup-stream` from merged `main`, clarified lifetime retry with a
+  capped delay, and fixed the browser ownership seam for lookup manifests.
 - **2026-07-21 — S01 readiness:** Re-audited lookup persistence against the
   Postgres app-state store, Project roles/lifecycle, app-move saga, Server Action
   limit, order-key implementation, shared listener, and builder stream. Froze the

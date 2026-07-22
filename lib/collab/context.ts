@@ -1,6 +1,6 @@
 /**
  * Reconciler React context — the single session-scoped reconciler + the
- * presence-subscription seam, both owned by `ReconcilerProvider`.
+ * presence/lookup subscription seams, all owned by `ReconcilerProvider`.
  *
  * Split from the provider component so non-component consumers (the hooks in
  * `lib/doc/hooks`, `lib/routing`) import the context + hooks without pulling
@@ -12,10 +12,11 @@
 import { createContext, useContext } from "react";
 import type { PresenceFrame } from "@/lib/collab/presenceTypes";
 import type { Reconciler } from "@/lib/collab/reconciler";
+import type { LookupManifest } from "@/lib/lookup/types";
 
 /** What the provider exposes: the one reconciler, its new-build activation
- *  glue, and a presence-frame subscription that rides the same `EventSource`
- *  (P7 consumes it). */
+ *  glue, plus presence and lookup subscriptions that ride the same
+ *  `EventSource`. */
 export interface ReconcilerContextValue {
 	readonly reconciler: Reconciler;
 	/** Activate a dormant reconciler once a new build mints its app id
@@ -27,6 +28,15 @@ export interface ReconcilerContextValue {
 	 *  Returns an unsubscribe. P7's presence layer is the only consumer; the
 	 *  seam ships in P6 so the single EventSource stays the one transport. */
 	subscribePresence: (cb: (roster: PresenceFrame) => void) => () => void;
+	/** Subscribe to full Project lookup manifests from `event: lookup-revision`
+	 *  on the shared app stream. Lookup revisions are independent of blueprint
+	 *  mutation sequence and therefore never enter reconciler state. The latest
+	 *  validated manifest is replayed immediately to late subscribers. One
+	 *  provider runtime latches one Project and advances its revision forward
+	 *  only; a future admitted cross-Project move must reset/remount it. */
+	subscribeLookupManifest: (
+		cb: (manifest: LookupManifest) => void,
+	) => () => void;
 }
 
 export const ReconcilerContext = createContext<ReconcilerContextValue | null>(

@@ -2,8 +2,9 @@
  * Real-time relay — Server-Sent Events over a Postgres LISTEN/NOTIFY poke.
  *
  * GET /api/apps/{id}/stream — a same-origin SSE channel that pipes the app's
- * durable mutation stream (`accepted_mutations`) and live presence roster to the
- * browser. The browser carries no database client and no second identity: this
+ * durable mutation stream (`accepted_mutations`), Project lookup manifest, and
+ * live presence roster to the browser. The browser carries no database client
+ * and no second identity: this
  * route subscribes to the process-wide LISTEN connection (`lib/db/streamListener`)
  * and authorizes with the Better Auth session cookie, exactly like every other
  * authenticated app route. On each poke it SELECTs the rows since its cursor —
@@ -26,6 +27,9 @@
  *
  * Frames:
  *   event: mutation  id:<seq>  — one committed batch (the `AcceptedMutationDoc`).
+ *   event: lookup-revision     — the Project's complete authoritative lookup
+ *                                manifest. Seq-less; the mutation cursor stays
+ *                                exclusively on `mutation` frames.
  *   event: presence            — the full presence roster snapshot.
  *   event: reload              — replay is impossible (below the retention
  *                                efficiency bound, a gap, or a migration
@@ -40,10 +44,20 @@ import { getSessionSafe, requireSession } from "@/lib/auth-utils";
 import type { PresenceEntry } from "@/lib/collab/presenceTypes";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import { createCoalescedStreamPump } from "@/lib/db/coalescedStreamPump";
 import { RETENTION_COUNT } from "@/lib/db/constants";
 import { getAppDb } from "@/lib/db/pg";
-import { subscribeAppStream } from "@/lib/db/streamListener";
+import {
+	subscribeAppStream,
+	subscribeLookupProject,
+} from "@/lib/db/streamListener";
+import {
+	runBeforeLookupManifestReadTestHook,
+	runBeforeMutationReadTestHook,
+} from "@/lib/db/streamReadTestHooks";
 import { log } from "@/lib/logger";
+import { getLookupManifest } from "@/lib/lookup/service";
+import type { LookupScope } from "@/lib/lookup/types";
 import { locationSchema } from "@/lib/routing/types";
 
 /* Node runtime — the route holds a long-lived subscription to the Postgres
@@ -138,6 +152,7 @@ export async function GET(
 	let cursor: number;
 	let head: number;
 	let appId: string;
+	let lookupScope: LookupScope;
 	try {
 		const session = await requireSession(req);
 		({ id: appId } = await params);
@@ -148,7 +163,12 @@ export async function GET(
 		 * shared IDOR-safe not-found posture every sibling `/api/apps` route
 		 * returns (a denial is wire-indistinguishable from a missing id, and the
 		 * browser's EventSource treats a non-200 as a failed connection). */
-		await resolveAppScope(appId, userId, "view");
+		const access = await resolveAppScope(appId, userId, "view");
+		lookupScope = {
+			projectId: access.projectId,
+			actorId: access.actorUserId,
+			role: access.role,
+		};
 
 		cursor = parseCursor(req);
 
@@ -164,7 +184,7 @@ export async function GET(
 			.executeTakeFirst();
 		head = appRow ? Number(appRow.mutation_seq) : 0;
 
-		return openStream({ appId, userId, cursor, head, req });
+		return openStream({ appId, userId, cursor, head, lookupScope, req });
 	} catch (err) {
 		/* Pre-stream failure (auth, membership, the head read) — OR a client
 		 * disconnect that aborted an in-flight await here. `handleApiError`
@@ -188,9 +208,10 @@ function openStream(args: {
 	userId: string;
 	cursor: number;
 	head: number;
+	lookupScope: LookupScope;
 	req: Request;
 }): Response {
-	const { appId, userId, cursor, head, req } = args;
+	const { appId, userId, cursor, head, lookupScope, req } = args;
 
 	const encoder = new TextEncoder();
 
@@ -209,22 +230,23 @@ function openStream(args: {
 			/* The highest seq delivered so far. The first `mutation` frame must be
 			 * `cursor + 1`; any hole means the browser missed entries → reload. */
 			let deliveredThrough = cursor;
-			/* Overlapping-pump coalescing: a poke arriving mid-pump sets `pending`,
-			 * and the in-flight pump re-queries once more when it finishes rather
-			 * than launching a racing SELECT. */
-			let pumpInFlight = false;
-			let pumpPending = false;
 			/* The same single-flight coalescing for the roster emit: the initial
 			 * emit, the connect-time catch-up poke, presence pokes, and the
 			 * freshness interval must never launch two racing presence SELECTs. */
 			let rosterInFlight = false;
 			let rosterPending = false;
-			/* Subscription + interval holders — nullable so `teardown` is safe to
+			/* Pump, subscription, and interval holders — nullable so `teardown` is safe to
 			 * call BEFORE they attach (the retention-overrun early return below
 			 * reloads-and-closes before any subscribe). */
-			let unsubscribe: (() => void) | null = null;
+			let mutationPump: ReturnType<typeof createCoalescedStreamPump> | null =
+				null;
+			let lookupPump: ReturnType<typeof createCoalescedStreamPump> | null =
+				null;
+			let unsubscribeApp: (() => void) | null = null;
+			let unsubscribeLookup: (() => void) | null = null;
 			let cadence: ReturnType<typeof setInterval> | null = null;
 			let rosterInterval: ReturnType<typeof setInterval> | null = null;
+			let abortListenerAttached = false;
 
 			function send(event: string, data: unknown, seqId?: number): void {
 				if (closed) return;
@@ -248,9 +270,16 @@ function openStream(args: {
 			function teardown(): void {
 				if (closed) return;
 				closed = true;
-				unsubscribe?.();
+				mutationPump?.close();
+				lookupPump?.close();
+				unsubscribeApp?.();
+				unsubscribeLookup?.();
 				if (cadence) clearInterval(cadence);
 				if (rosterInterval) clearInterval(rosterInterval);
+				if (abortListenerAttached) {
+					req.signal.removeEventListener("abort", teardown);
+					abortListenerAttached = false;
+				}
 				try {
 					controller.close();
 				} catch {
@@ -276,6 +305,7 @@ function openStream(args: {
 			 * hole, not a pruned window. */
 			async function deliverSince(): Promise<void> {
 				if (closed) return;
+				runBeforeMutationReadTestHook();
 				const db = await getAppDb();
 				const rows = await db
 					.selectFrom("accepted_mutations")
@@ -322,32 +352,6 @@ function openStream(args: {
 						},
 						seq,
 					);
-				}
-			}
-
-			/* Coalesce overlapping pokes into one follow-up query (a poke during a
-			 * running pump re-runs it once at the end, never a racing SELECT). */
-			async function pump(): Promise<void> {
-				if (closed) return;
-				if (pumpInFlight) {
-					pumpPending = true;
-					return;
-				}
-				pumpInFlight = true;
-				try {
-					do {
-						pumpPending = false;
-						await deliverSince();
-					} while (pumpPending && !closed);
-				} catch (err) {
-					/* A transient read fault (pool blip) — warn (Cloud-Logging-only),
-					 * not error; the next poke or the reconnect catch-up re-queries. */
-					log.warn("[stream] mutation pump error", {
-						appId,
-						err: err instanceof Error ? err.message : String(err),
-					});
-				} finally {
-					pumpInFlight = false;
 				}
 			}
 
@@ -417,6 +421,38 @@ function openStream(args: {
 				}
 			}
 
+			/* Both durable readers share the same headless single-flight contract:
+			 * pokes coalesce, a failed SELECT retries for the lifetime of the stream
+			 * with a capped delay, and teardown cancels any unref'ed retry timer.
+			 * Separate instances keep the app mutation cursor independent from the
+			 * Project lookup snapshot clock. */
+			mutationPump = createCoalescedStreamPump({
+				run: deliverSince,
+				onError(err) {
+					log.warn("[stream] mutation pump error (will retry)", {
+						appId,
+						err: err instanceof Error ? err.message : String(err),
+					});
+				},
+			});
+			lookupPump = createCoalescedStreamPump({
+				async run() {
+					if (closed) return;
+					runBeforeLookupManifestReadTestHook();
+					const manifest = await getLookupManifest(lookupScope);
+					if (closed) return;
+					/* Deliberately seq-less: only mutation frames own Last-Event-ID. */
+					send("lookup-revision", manifest);
+				},
+				onError(err) {
+					log.warn("[stream] lookup manifest pump error (will retry)", {
+						appId,
+						projectId: lookupScope.projectId,
+						err: err instanceof Error ? err.message : String(err),
+					});
+				},
+			});
+
 			/* If the cursor fell below the retention window, the client is too far
 			 * behind to replay economically. The log is PERMANENT so the entries DO
 			 * exist, but replaying thousands of batches is slower than a single
@@ -430,16 +466,20 @@ function openStream(args: {
 			 * the initial SELECT and the subscribe would otherwise be missed, and the
 			 * listener's connect-time catch-up re-pokes us anyway (it treats any poke
 			 * as "re-query from your cursor"). */
-			unsubscribe = subscribeAppStream(
+			unsubscribeApp = subscribeAppStream(
 				appId,
 				() => {
-					void pump();
+					mutationPump?.poke();
 				},
 				() => {
 					void emitRoster();
 				},
 			);
-			void pump();
+			unsubscribeLookup = subscribeLookupProject(lookupScope.projectId, () => {
+				lookupPump?.poke();
+			});
+			mutationPump.poke();
+			lookupPump.poke();
 			void emitRoster();
 
 			/* Continuous revocation: re-run the session + scope check on a cadence and
@@ -491,7 +531,10 @@ function openStream(args: {
 					if (closed) return;
 
 					/* Confirmed membership loss — `AppAccessError` only. Any other throw
-					 * (pool exhaustion, a DB blip) is transient → skip. */
+					 * (pool exhaustion, a DB blip) is transient → skip. S01 globally
+					 * blocks Project moves; S02 owns a distinct scope-handoff protocol.
+					 * Treating a future Project change as `revoked` here would permanently
+					 * freeze blueprint reconciliation instead of rebinding lookup state. */
 					try {
 						await resolveAppScope(appId, userId, "view");
 					} catch (err) {
@@ -515,7 +558,10 @@ function openStream(args: {
 			 * signal (the client vanished before `start` ran) — a late
 			 * `addEventListener` never fires for a past abort, so tear down now. */
 			if (req.signal.aborted) teardown();
-			else req.signal.addEventListener("abort", teardown);
+			else {
+				req.signal.addEventListener("abort", teardown);
+				abortListenerAttached = true;
+			}
 		},
 		/* A consumer/platform `cancel()` that doesn't also abort `req.signal` would
 		 * otherwise leak the subscription + both intervals — tear down here too.

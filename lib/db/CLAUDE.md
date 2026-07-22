@@ -40,23 +40,29 @@ scan script's fold check is the tripwire.
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
 (delivered on commit, after the rows are visible); presence writes poke
-`nova_presence`; chat chunk-log appends poke `nova_chat_stream`. Payloads are
+`nova_presence`; chat chunk-log appends poke `nova_chat_stream`; lookup writers
+poke `nova_lookup_stream` with an exact decimal Project revision. Payloads are
 pokes only — the relay (`app/api/apps/[id]/stream`) and the chat-resume
-endpoint SELECT since their cursor, so a missed notification degrades to the
-next poke/catch-up, never to lost data. The dedicated LISTEN connection lives
-in `streamListener.ts` (one per instance, outside the pool — see the
-connection budget in `lib/case-store/postgres/connection.ts`).
+endpoint SELECT durable state from their cursor/scope, so a missed notification
+degrades to the next poke/catch-up, never to lost data. `streamListener.ts`
+owns ONE dedicated client per instance outside the pool and LISTENs on all four
+channels. Replacement waits for bounded closure of the old client before a new
+one is constructed, preserving the exact connection budget in
+`lib/case-store/postgres/connection.ts`.
 
 **Lookup data uses snapshot invalidation, not mutation replay.**
 `lookup_project_state.revision` is the commit-ordered Project clock;
 definition and row revisions on each lookup table form its optimistic token.
 Every lookup writer locks the Project-state row first and its table row second,
 updates the service-maintained counts/bytes, then calls the transactional
-`notifyLookupProject` helper. S01a emits `nova_lookup_stream`; S01b adds that
-channel to the existing dedicated listener. There is no lookup revision log:
-catch-up replaces the complete manifest (and an opened table's complete body)
-from a consistent snapshot. The SQL and value rules live in `lib/lookup`, which
-is the only lookup write boundary.
+`notifyLookupProject` helper. The shared listener fans lookup pokes only to the
+matching Project; the app SSE route subscribes before its initial read and emits
+a seq-less complete manifest over the existing builder EventSource. There is no
+lookup revision log: catch-up replaces the complete manifest (and an opened
+table's complete body) from a consistent snapshot. Mutation and lookup readers
+use separate single-flight pumps whose retry delay is capped but whose attempts
+continue until success or stream teardown. The SQL and value rules live in
+`lib/lookup`, which is the only lookup write boundary.
 
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
