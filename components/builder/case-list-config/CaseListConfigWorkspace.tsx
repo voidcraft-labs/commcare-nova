@@ -372,10 +372,9 @@ function useController(
 		useBlueprintMutations();
 	/* This controller lives ABOVE the preview boundary, so entering preview does
 	 * not navigate — `target` stays a case-list URL and the retained selection
-	 * survives, invisibly, behind the running app. Read previewing so the Escape
-	 * shortcut below can stand down (Escape must exit preview, not clear a hidden
-	 * selection). The old workspace lived inside the preview Activity, which tore
-	 * its keyboard registration down for free; this one must gate explicitly. */
+	 * survives, invisibly, behind the running app. Gate the Escape shortcut below
+	 * on this so it stands down in preview (Escape must exit preview, not clear a
+	 * hidden selection). */
 	const previewing = usePreviewing();
 	const active =
 		target !== null && mod !== undefined && mod.caseType !== undefined;
@@ -415,13 +414,12 @@ function useController(
 	const searchOverviewScrollRef = useRef<number | null>(null);
 	const pendingSearchOverviewScrollRef = useRef<number | null>(null);
 	const searchConditionReturnFrameRef = useRef<number | null>(null);
-	/* Module identity changed under the never-unmounting controller. The old
-	 * keyed remount reset ALL of this module-scoped transient state for free; do
-	 * it by hand so nothing leaks into the next module — retained selection, an
-	 * open removal review, pending focus intents, and the search-overview scroll
-	 * offsets (a stale offset would jump the next module's search list to the
-	 * wrong place). The async-invalidation tokens are monotonic and deliberately
-	 * NOT reset. */
+	/* The controller never unmounts, so a module change must drop ALL of this
+	 * module-scoped transient state by hand or it leaks into the next module:
+	 * retained selection, an open removal review, pending focus intents, and the
+	 * search-overview scroll offsets (a stale offset would jump the next module's
+	 * search list to the wrong place). The async-invalidation tokens are
+	 * monotonic and deliberately NOT reset. */
 	const prevModuleRef = useRef(moduleUuid);
 	if (prevModuleRef.current !== moduleUuid) {
 		prevModuleRef.current = moduleUuid;
@@ -1369,13 +1367,11 @@ export function useCaseListInspector(): CaseListInspectorSlice | null {
 /**
  * Mounts the workspace controller ONCE, above the builder row (wired in
  * `BuilderProvider`), so the center canvas and the right-rail inspector share one
- * instance. It renders `ActiveHost` UNCONDITIONALLY: a lazy first-visit branch
- * that swapped the child element type (a bare `Context.Provider` before the first
- * visit, `ActiveHost` after) would remount the whole `children` subtree — the
- * chat's live run included — the moment the type changed, defeating the entire
- * point of hosting the controller here. A stable element type means `children`
- * never remount; the controller is simply inert (`active` false) until a
- * case-list URL opens, and module changes reset selection inside it.
+ * instance. It renders `ActiveHost` UNCONDITIONALLY — the child element type must
+ * stay stable, because swapping it (e.g. gating the controller behind a
+ * first-visit flag) remounts the whole `children` subtree, severing chat's live
+ * run. The controller is simply inert (`active` false) until a case-list URL
+ * opens, and module changes reset selection inside it.
  */
 export function CaseListWorkspaceProvider({
 	children,
@@ -1452,12 +1448,12 @@ export function CaseListWorkspaceCanvas() {
 	// Guard the deletion-in-flight window: a peer cleared the case type on the
 	// module this URL points at (dropping caseListConfig with it), before
 	// LocationRecoveryEffect degrades the URL. `ws.caseType` is `caseType ?? ""`,
-	// so `=== ""` is exactly the old `!mod || caseType === undefined` — render
-	// nothing rather than stand the whole workspace up against EMPTY_CONFIG with
-	// live mutation controls and no case type behind them. Deliberately NOT gated
-	// on `active` (which also goes false on navigate-away): the sticky module
-	// keeps rendering while Activity-hidden so its scroll survives, as before.
-	// (`ws` is non-null for the builder's whole life.)
+	// so `=== ""` means "no case type" — render nothing rather than stand the
+	// whole workspace up against EMPTY_CONFIG with live mutation controls and no
+	// case type behind them. Deliberately NOT gated on `active` (which also goes
+	// false on navigate-away): the sticky module keeps rendering while
+	// Activity-hidden so its scroll survives. (`ws` is non-null for the builder's
+	// whole life.)
 	if (ws === null || ws.caseType === "") return null;
 	const {
 		tab,

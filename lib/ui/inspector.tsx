@@ -3,8 +3,8 @@
  * layout so chat and the docked inspector always resolve to the SAME width
  * (selecting something to inspect must never reflow the canvas).
  *
- * The rail no longer coordinates a claim/portal: the inspector is rendered
- * directly from shared selection state by `ChatSidebar` via
+ * The rail coordinates no claim/portal: the inspector is rendered directly from
+ * shared selection state by `ChatSidebar` via
  * `components/builder/inspector/activeInspector.tsx`. See
  * `components/builder/CLAUDE.md` § Inspector rail.
  */

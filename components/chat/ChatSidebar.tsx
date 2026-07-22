@@ -579,10 +579,8 @@ export function ChatSidebar({
 				 *  history + live turns through one render path).
 				 *  Conversation (a use-stick-to-bottom root) owns the scroll: it
 				 *  keeps the view pinned to the latest message and across the
-				 *  center↔sidebar morph, replacing the former hand-rolled
-				 *  MutationObserver/ResizeObserver pinning. contextRef hands us the
-				 *  scroll context so the question-card autoscroll can reach the
-				 *  content element. */}
+				 *  center↔sidebar morph. contextRef hands us the scroll context so
+				 *  the question-card autoscroll can reach the content element. */}
 				{/* The card is `overflow-hidden`; the activity status + composer below are
 				 *  `shrink-0` and must NEVER be clipped, so the Conversation absorbs all
 				 *  flex pressure (it's the scroll region).
@@ -602,8 +600,8 @@ export function ChatSidebar({
 						contextRef={captureStickContext}
 					>
 						{/* ConversationContent's base `gap-8` is roomier than Nova's chat
-						 *  density; override to `gap-4` (matches the former `space-y-4`).
-						 *  Single-source the spacing via gap rather than stacking margins. */}
+						 *  density; override to `gap-4`. Single-source the spacing via gap
+						 *  rather than stacking margins. */}
 						<ConversationContent className="gap-4 p-4">
 							{/* Empty-conversation state */}
 							{messages.length === 0 &&
