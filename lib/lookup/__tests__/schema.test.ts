@@ -1,11 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+	type LookupColumnId,
+	type LookupRowId,
+	type LookupTableId,
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { LOOKUP_MAX_CELL_BYTES, LOOKUP_REVISION_MAX } from "../constants";
 import {
 	compareLookupRevisions,
 	createLookupRowInputSchema,
 	createLookupTableInputSchema,
 	lookupColumnLabelSchema,
-	lookupIdSchema,
 	lookupOrderKeySchema,
 	lookupRevisionSchema,
 	lookupRowValuesSchema,
@@ -16,6 +23,10 @@ import {
 	maxLookupRevision,
 	parseLookupRevision,
 } from "../schema";
+import type {
+	LookupColumnMutationInput,
+	LookupRowMutationInput,
+} from "../types";
 
 const TABLE_ID = "01890f45-0000-7000-8000-000000000001";
 const COLUMN_ID = "01890f45-0000-7000-8000-000000000002";
@@ -55,10 +66,33 @@ describe("lookup revisions", () => {
 });
 
 describe("lookup identity schemas", () => {
-	it("accepts UUIDv7 and canonicalizes its hex casing", () => {
-		expect(lookupIdSchema.parse(TABLE_ID.toUpperCase())).toBe(TABLE_ID);
+	it("keeps resource identities distinct across public input slots", () => {
+		expectTypeOf<
+			LookupColumnMutationInput["tableId"]
+		>().toEqualTypeOf<LookupTableId>();
+		expectTypeOf<
+			LookupColumnMutationInput["columnId"]
+		>().toEqualTypeOf<LookupColumnId>();
+		expectTypeOf<
+			LookupRowMutationInput["rowId"]
+		>().toEqualTypeOf<LookupRowId>();
+		expectTypeOf<
+			LookupColumnMutationInput["tableId"]
+		>().not.toEqualTypeOf<LookupColumnId>();
+		expectTypeOf<
+			LookupColumnMutationInput["columnId"]
+		>().not.toEqualTypeOf<LookupRowId>();
+		expectTypeOf<
+			LookupRowMutationInput["rowId"]
+		>().not.toEqualTypeOf<LookupTableId>();
+	});
+
+	it("uses the domain-owned identity parsers", () => {
+		expect(lookupTableIdSchema.parse(TABLE_ID.toUpperCase())).toBe(TABLE_ID);
+		expect(lookupColumnIdSchema.parse(COLUMN_ID.toUpperCase())).toBe(COLUMN_ID);
 		expect(
-			lookupIdSchema.safeParse("01890f45-0000-4000-8000-000000000001").success,
+			lookupRowIdSchema.safeParse("01890f45-0000-4000-8000-000000000001")
+				.success,
 		).toBe(false);
 	});
 

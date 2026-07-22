@@ -1,7 +1,7 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-21 against Nova
-> `db954a15`; S01 was re-audited 2026-07-21 against `3aa306d7`. This file
+> `db954a15`; S01 shipped and S02 was re-sliced against `7422c4c2`. This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
@@ -150,9 +150,10 @@ client validation may use a revisioned snapshot for fast feedback, but the serve
 result wins. Missing or foreign-Project resources are indistinguishable and fail
 closed for newly introduced references.
 
-The design for S02 must document one lock order covering app commits, resource
-schema mutation, Project moves, and reference-edge writes, then prove the
-introduction-vs-delete race.
+S02 installs one lock order covering app commits, resource schema mutation,
+Project moves, and reference-edge writes, then proves the seeded
+introduction-versus-delete race without activating a carrier. S05 repeats both
+winner orders with the first real carriers before their writers activate.
 
 ### Validity, activation, and rolling deploys
 
@@ -339,13 +340,13 @@ compiler verification remains serialized with other wire slices.
 | Slice | Deliverable | Depends on | Status | Legacy evidence |
 |---|---|---|---|---|
 | S00 | Roadmap rebaseline | — | shipped | execution index + all PR plans |
-| S01 | Lookup persistence and realtime | S00 | in progress | PR-02, F5 |
-| S02 | External validation context and exact references | S01 | blocked | PR-01/02, F5 |
+| S01 | Lookup persistence and realtime | S00 | shipped | PR-02, F5 |
+| S02 | External validation context and exact references | S01 | in progress | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02 | blocked | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02 | blocked | PR-01/03, F4 |
-| S05 | Table expressions, itemsets, and export guards | S02 | blocked | PR-01/03, F5 |
+| S05 | Lookup carriers, expressions, and wire foundations | S02 | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03-S05 | blocked | PR-04, F1/F4 |
-| S07 | Preview execution for conditions, operations, and choices | S06 | blocked | PR-04, F1/F4/F5 |
+| S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
 | S09 | Project data tables workspace and options authoring | S05/S07 | blocked | PR-05 |
 | S10 | Wave-one SA, MCP, docs, and closure | S08/S09 | blocked | PR-06 |
@@ -700,29 +701,340 @@ inspection, independent agent review, green CI, squash merge, blocking migration
 Cloud Run follow-through, production probes/error check, and branch/worktree
 cleanup. S05 still owns the aggregate embedded-fixture budget.
 
-### S02 — external validation context and exact references
+### S02 — external validation, exact reference infrastructure, and move safety
 
-Thread revisioned lookup context through optimistic builder, SA/MCP, fresh server
-commit, replay-safe persistence, and export boundaries. Maintain exact table and
-column reference edges with the blueprint transaction. Add the resource-schema
-mutation path and lock order; reject delete/rename/retype races and cross-Project
-app moves with actionable referencing-app information.
+S02 is infrastructure-only. It adds no constructible lookup carrier, table
+expression, itemset, fixture emission, SA/MCP vocabulary, or public destructive
+operation. S05 owns the first carrier schemas and wire foundations; S07 owns
+runtime activation after preview and SQL execution are total. Until S07's rollout
+gate opens, carrier commits, true cross-Project moves, and destructive
+lookup-schema actions remain unavailable.
 
-When the exact edge set is empty and a cross-Project move is admitted, rebind
-every open app stream from the source lookup Project to the destination Project
-without treating the user as revoked. Reuse S01b's reset-on-reload broker
-boundary, emit the destination's authoritative snapshot, and preserve the
-independent app mutation cursor. At the Project flip, purge the app's source
-presence rows transactionally (and notify) before a destination roster can be
-emitted; presence is app-keyed today, so waiting for TTL would leak source
-collaborator names, emails, and locations across the tenant boundary.
+#### Identity, context, and extraction
 
-Acceptance must include simultaneous reference introduction versus delete,
-stale client snapshot versus fresh server result, foreign-Project
-indistinguishability, mutation replay, mixed-version compatibility, zero-reference
-schema changes, and a zero-reference cross-Project move observed by an already
-open builder without freezing reconciliation or retaining the source Project's
-lookup manifest.
+Define runtime UUIDv7 schemas and distinct `LookupTableId`, `LookupColumnId`, and
+`LookupRowId` brands in an import-light `lib/domain` leaf. All public lookup
+definition/service projections use those identities, and no API accepts table,
+column, and row ids interchangeably. `lib/lookup` may import this leaf, but
+`lib/domain` never imports `lib/lookup`. `LookupRevision` and definition-snapshot
+projections remain in client-safe `lib/lookup/types`; `LookupValidationContext`
+lives at the validator/doc boundary. Tags, names, labels, and wire names remain
+mutable projections, never identity.
+
+Add a rows-free definition snapshot separate from the strict realtime manifest:
+
+```ts
+type LookupValidationContext =
+  | {
+      kind: "available";
+      projectId: string;
+      projectRevision: LookupRevision;
+      definitions: readonly LookupTableDefinition[];
+    }
+  | { kind: "unavailable" };
+```
+
+Each definition contains stable table and column UUIDs, current display/emission
+projections and types, and `definitionRevision`, but no rows. Do not widen the
+existing `LookupManifest` frame: caches fetch definitions separately, invalidate
+by definition revision, and generation-guard late reads across Project changes.
+`getLookupDefinitions(scope, sortedTableIds)` returns exactly the requested
+definitions; an absent requested UUID represents missing-or-foreign. Its Project
+revision, definition revisions, tables, and columns come from one SQL-statement
+snapshot or one read-only `REPEATABLE READ` transaction. Ordinary multi-query
+`READ COMMITTED` assembly is forbidden.
+
+The context argument is required at every lookup-aware validation and export
+boundary. `unavailable` is never an empty registry or permission to skip rules:
+
+- a pure whole-document validation/export call given an explicitly unavailable
+  context produces `LOOKUP_CONTEXT_UNAVAILABLE` for each stable carrier slot;
+- optimistic clients hold or reject lookup-changing batches while context is
+  unavailable, while unrelated edits still receive the server verdict;
+- server commit and export boundaries load fresh context themselves; an
+  operational definition-read failure throws and writes/emits nothing rather
+  than being recast as a document finding. Only SQL states already classified by
+  `withAppTx` as retryable are retried automatically;
+- missing and foreign-Project ids produce the same not-available result;
+- previous and candidate documents validate against the same fresh snapshot;
+- finding identity includes carrier UUID, registry slot, nested subpath, table
+  UUID, and column UUID when present, so one old dangling ref cannot mask a new
+  one.
+
+Context and revisions never enter mutations or `accepted_mutations`; replay
+remains reducer-only. S02 adds a normalized target-set and edge-materializer seam,
+but registers no production `BlueprintDoc` extractor or lookup target arm in the
+derived reference index. The seeded race invokes that same package-private
+materializer with synthetic table/column target sets after taking the production
+locks. S05 registers the first carrier extractors, extends the derived reference
+index, and owns incremental-versus-rebuild fuzz parity.
+
+#### Exact edge storage
+
+Persist two normalized app-to-resource sets, not occurrence-level document paths:
+
+```text
+apps
+  UNIQUE (project_id, id)
+
+lookup_table_references
+  project_id text NOT NULL
+  table_id uuid NOT NULL
+  app_id text NOT NULL
+  PRIMARY KEY (project_id, table_id, app_id)
+  FK (project_id, table_id)
+    -> lookup_tables (project_id, id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+  FK (project_id, app_id)
+    -> apps (project_id, id)
+    ON UPDATE RESTRICT ON DELETE CASCADE
+  INDEX (app_id, project_id)
+
+lookup_column_references
+  project_id text NOT NULL
+  table_id uuid NOT NULL
+  column_id uuid NOT NULL
+  app_id text NOT NULL
+  PRIMARY KEY (project_id, table_id, column_id, app_id)
+  FK (project_id, table_id, column_id)
+    -> lookup_columns (project_id, table_id, id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+  FK (project_id, table_id, app_id)
+    -> lookup_table_references (project_id, table_id, app_id)
+    ON UPDATE RESTRICT ON DELETE CASCADE
+  INDEX (app_id, project_id)
+```
+
+Every column target emits its exact column edge and implied table edge. Carrier
+UUID, registry slot, and nested subpath stay in structural extraction, finding
+identity, and the actionable fresh re-walk; SQL does not duplicate
+document-layout identity.
+
+Every authoritative app write replaces the app's complete edge sets from the
+fresh candidate in the same transaction. Never apply caller-provided edge deltas.
+Soft-deleted/restorable apps retain edges until physical deletion.
+
+#### Transaction and lock order
+
+Lock resource UUIDs lexically. The global protocol is:
+
+1. An app writer locks `apps ... FOR UPDATE`, deduplicates and reauthorizes,
+   hydrates the fresh document, and applies the mutation batch exactly once.
+2. It collects the union of previous and candidate table targets, then locks
+   those Project-scoped table rows `FOR KEY SHARE`; definition writers use the
+   same table row `FOR UPDATE`, freezing columns and projections.
+3. It loads one exact definition context, validates previous and candidate,
+   replaces both edge sets, then writes entities, app sequence, permanent
+   mutation, and notification atomically.
+4. Resource writers lock `lookup_project_state FOR UPDATE`, then the target
+   table `FOR UPDATE`, inspect exact edges, mutate children/data/counters,
+   advance the Project clock once, and notify.
+5. A transaction that begins at a Project/table lock never later takes an app
+   lock.
+
+This covers guarded autosave/chat/MCP, synthetic migrations, and Project flips.
+Synthetic migrations and recovery writers use the guarded path and advance the
+app sequence; a direct entity-table write is additionally covered by the
+database compatibility floor below. Split candidate preparation from verdict
+evaluation so no reducer that can mint UUIDs is applied twice. S02 proves both
+seeded introduction-versus-delete winner orders through the production lock/
+edge protocol; S05 repeats them using real carriers.
+
+Atomic creation is the sole app-lock exception. It constructs and applies its
+seed exactly once outside the retryable transaction closure. Inside one
+transaction it declares the writer version, freshly authorizes the exact Project,
+inserts the still-uncommitted app row as its serialization root, locks candidate
+lookup tables `FOR KEY SHARE` in UUID order, loads fresh context, validates, and
+inserts entities and exact edges. Any failure rolls back the app insertion. S05
+uses this same path for carrier-bearing seeds.
+
+#### Schema behavior
+
+Display-name, label, table-tag, and column-wire-name changes remain allowed while
+referenced. They serialize on the table lock, advance `definition_revision`, and
+rewrite neither UUID references nor edges. Name/label uses `edit`; established
+tag/wire-name policy uses `delete`. HQ's immutable-tag PUT constrains later sync,
+not Nova identity.
+
+Table deletion, column removal, and column retype require `delete` plus zero
+applicable edges and remain runtime-disabled until S07 activation:
+
+- admitted table deletion hard-deletes its rows/columns, retains Project state,
+  and advances the Project clock once;
+- admitted retype performs no coercion: every present typed value must already
+  satisfy the target type or the transaction rejects;
+- admitted removal explicitly deletes that UUID key from every row, derives byte
+  deltas in Postgres, maintains counters, and reports affected rows/cells and
+  freed bytes. It rejects removal of the last remaining column before touching
+  rows: a table always retains 1–250 columns, and deleting the table is the only
+  path to no schema. S09 owns confirmation UX.
+
+#### Cross-Project moves and transport
+
+S02 builds and tests the final move path but leaves true moves disabled through
+S07 activation. Governance is source `delete` plus destination `delete`, repeated
+inside the transaction with IDOR-opaque failures. A source owner may relocate to
+any destination where they hold `delete`; a non-owner source admin may do so only
+when every source owner remains a destination member.
+
+All Project-membership DML and membership-dependent app transactions share one
+fixed transaction-scoped advisory gate. A `BEFORE STATEMENT` trigger on Better
+Auth's membership table acquires it before INSERT/UPDATE/DELETE can lock member
+rows; never use a row trigger that first holds a tuple and then waits on the
+gate. Install the trigger through Nova's auth-app migration phase after Better
+Auth owns the tables, never through the earlier case-store migration phase.
+After `apps FOR UPDATE`, the move takes that same gate, then uses the same
+database transaction to lock the actor's source/destination membership rows and
+every source-owner/destination-membership pair `FOR SHARE`, ordered by
+`(project_id, user_id)`. It re-evaluates source `delete`, destination `delete`,
+caller-is-owner, and owner retention from those locked rows. No
+`projectRoleFor`/`getAuthDb` read outside that transaction decides admission.
+Race source/destination role downgrade, membership removal, owner removal, and
+concurrent owner insertion against the move in both winner orders.
+
+Admission derives only from `runLeaseState(fresh)`: `mode === "none"` proceeds; a
+recent live or paused holder returns busy; `reapableStaleBuild` or
+`reapableStrandedEdit` is normalized by its canonical reaper outside the
+retryable move transaction, after which the move retries and rechecks under the
+app lock; a present holder that is neither active nor canonically reapable fails
+closed as corrupt. A claim winning between reap and retry makes the retry busy.
+Fresh structural targets and stored edge targets must match exactly and both be
+empty. Lookup resources are never copied, re-tenanted, or implicitly rebound.
+
+Every case mutation uses one shared-Postgres transaction with lock order
+`apps FOR SHARE` -> fresh Project/membership check -> existing relationship
+advisory lock -> schema lock -> case rows. Presence upsert/delete uses
+`apps FOR SHARE` -> fresh scope/membership -> presence row -> transactional
+`pg_notify`. The move uses `apps FOR UPDATE`, updates every case row for the app
+whose Project is null or differs from the destination, purges all presence,
+writes the migration row, and emits app/presence notifications before that same
+commit. Media may copy non-destructively beforehand, but its blueprint remap,
+the Project flip, case-row tenancy, presence purge, migration row, and
+notifications commit atomically. Same-Project repair remains available for
+historical split rows. Cover case/presence writer-wins and move-wins,
+notification visibility only after commit, and same-Project repair.
+
+A migration remains a normal `accepted_mutations` row at app sequence `M`; its
+terminal SSE `reload` or `revoked` frame carries no `id:`. Before setting
+`deliveredThrough = M`, the stream freshly resolves scope. Authorized same-
+Project or destination access emits reload and closes; confirmed `AppAccessError`
+emits revoked and closes; a transient failure retains the prior cursor and
+retries row `M` with bounded backoff. Reload GET returns authoritative Project,
+role, `canEdit`, and a blueprint with its exact current `baseSeq = N >= M` from
+one snapshot; exactly one replacement EventSource opens with `?since=N`. Thus an
+`M+1` commit before the reload GET is already in the snapshot, while a later
+commit is caught by the new stream. Lookup, presence, reload, and revoked frames
+never own `Last-Event-ID`, and cadence scope checks apply the same Project-change
+classification. Client reload clears lookup/presence/definition caches before
+destination subscription, accepts a lower destination revision, rejects late
+source reads, and preserves/surfaces unsaved work. A destination viewer stops PUT
+retries without discarding that work. Cover the `M+1`-before-GET race,
+destination editor/viewer, source-only, same-Project migration, transient
+failure, and one-EventSource ownership.
+
+#### Rolling capability and rollback floor
+
+Receiver capabilities are cumulative and separate from writer/runtime versions:
+
+- v0 is omitted, malformed, or pre-registry;
+- v1 is S02 Project reload/reset safe and is the minimum for a move;
+- v2 can parse, preserve, and replay dormant S05 lookup carriers, but does not
+  admit their commits;
+- v3 is the S07 total browser receiver, including every client-side committed-
+  state consumer and preview execution, and is the minimum for a carrier commit.
+
+Add a durable stream-capability lease keyed by app and a server-generated
+connection id. Registration commits before the first frame: lock `apps FOR
+SHARE`, take the Project membership serialization lock, freshly resolve
+scope/view authorization in that transaction, lock the compatibility-state row
+`FOR SHARE`, reject a receiver below its persistent floor, and insert the lease.
+Carrier commits and moves hold `apps FOR UPDATE` while reading the same state and
+the app's unexpired leases. This serializes registration with admission.
+Set lease expiry conservatively to at least the route's 3,600-second maximum
+request lifetime plus a named grace period; do not cadence-renew it. Teardown
+first disowns/closes the transport, then best-effort deletes its own lease, while
+expiry covers crashes and cleanup failure without expiring a still-live request.
+
+Pre-registry draining starts only after 100% traffic reaches registry-capable
+servers. Raising `minimum_stream_receiver_version` is an admission cutoff only;
+it never activates vocabulary. The compatibility-state transaction raises the
+receiver floor while every feature flag stays disabled. A concurrent lower-
+version registration either commits first and becomes part of the bounded drain,
+or observes the new floor and receives no state/lease. After the cutoff, wait the
+3,600-second request cap plus grace and require no unexpired lower-version lease.
+Any reconnect below the floor receives the v0-understood terminal `revoked` frame with reason
+`client-upgrade-required`, consumes no blueprint/destination/history frame,
+closes without retry, clears/freezes Project state, and requires a hard refresh.
+v1 is sufficient for moves; receivers below v2 block the S05 preservation floor,
+and receivers below v3 block S07 carrier activation. Cover both registration/
+admission winner orders, abort cleanup failure, old-server overlap, and the
+forced-refresh no-loop path.
+
+Add persistent lookup-reference compatibility state with monotonic
+`minimum_writer_version`, `minimum_stream_receiver_version`, and
+`minimum_runtime_reader_version`, plus initially-false carrier-commit,
+schema-action, and Project-move activation flags. Build revisions declare their
+supported versions; a missing declaration is zero. Deployment/rollback tooling
+must refuse traffic to a revision below the runtime reader floor. All supported
+traffic mutations and activation tooling share one deployment-cutover advisory
+lock; traffic tooling re-reads the floor before and after the Cloud Run change
+and restores the prior split on a violated post-check. An instance-local code
+rollout alone never activates vocabulary.
+
+The database writer guard covers app insertion, every `blueprint_entities`
+write, `accepted_mutations` insertion, mutation-sequence/Project-id advance, and
+destructive lookup-table/column writes. It reads a transaction-local version,
+defaulting to `0` when unset; pooled transactions must prove the setting neither
+leaks nor survives commit. S02b's reference-aware writers explicitly declare
+version `0`; S05 changes the one shared writer constant to `1` before registering
+real extractors. A direct synthetic migration declares the deployed writer
+version or uses the guarded commit path. After the clean S05 edge migration
+raises only the writer and stream-receiver floors, old writers fail closed but
+carrier commits stay disabled. With the deployment-cutover lock held, S07 first
+raises the total-consumer runtime-reader and v3 stream floors while every feature
+flag remains false. After old streams/requests/runs drain and scans remain clean,
+a second compatibility-state transaction flips the selected activation flags.
+Cover missing/old rollback declarations, cutoff/activation atomicity,
+unset/leaked transaction settings, and an old reader never observing a newly
+committed carrier.
+
+#### Review units and verification
+
+S02 ships in three sequential review units from merged `main`:
+
+1. **S02a — identities and dormant storage:** runtime ids/brands,
+   definition-only service reads, exact edge and stream-lease tables,
+   multi-axis compatibility-state row and disabled activation flags, supporting
+   app uniqueness/indexes, and the database writer-version trigger active at
+   floor `0`. It adds no production extractor or edge writer, and old code with
+   no transaction setting continues as version `0`.
+2. **S02b — validation and authoritative writes:** an empty production target-
+   extractor registry, shared edge materializer plus seeded harness, apply-once
+   candidate preparation, consistent context threading, the atomic-creation
+   exception, exact-set replacement across every existing app writer, explicit
+   writer-version `0` declaration, schema-governance internals, export-boundary
+   generalization, and the zero-carrier edge audit.
+3. **S02c — move and transport safety:** dual-Project governance, lease admission,
+   atomic case/presence tenancy, role transitions, capability registration, and
+   the fully tested but still-disabled move path.
+
+Use one pure invocation and one shared-Postgres invocation per review unit; never
+start competing containers or browsers on the 16 GB machine. Across S02 cover
+context/finding identity, missing/foreign parity, edge constraints and exact-set
+replacement, apply-once UUIDs, every writer, both seeded race orders, projection
+renames, zero-edge schema actions, floor behavior, structural/stored mismatch,
+role/owner/membership/run-lease matrices, membership/case/presence races,
+transactional notification visibility, compatible/incompatible stream leases,
+registration/admission winner orders, destination reload versus true revoke,
+upgrade-required no-loop, transient retry, lower-revision reset, unsaved role
+transitions, and cursor independence.
+
+Then typecheck, scoped lint, and one affected leak pass. S02c stays at provider,
+route, and shared-Postgres integration because production move activation remains
+closed; S07 owns the first sequential desktop/compact browser move/reload journey
+through an actually enabled path. Each unit gets independent review, green CI,
+squash merge, blocking migration/Cloud Run follow-through, production probes/
+error check, and cleanup.
 
 ### S03 — display conditions: domain and wire
 
@@ -748,12 +1060,41 @@ ambiguous singular references, cross-repeat references, target-type mismatch,
 foreign-tenant ids, unsafe retypes, and removing/reordering an operation under a
 dependent reference.
 
-### S05 — table expressions, itemsets, and export guards
+### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-Add typed table/column UUID references, table-scope expressions, table-backed
-select sources, deterministic embedded fixtures, and the complete web/MCP export
-matrix. Local CCZ may embed supported fixtures; HQ-target JSON/upload remains
-blocked until S20 can push the referenced resources.
+S05 introduces the first production UUID-backed lookup carriers: table-backed
+select sources with value/label column ids, table-lookup expressions with a
+result-column id, and table-column predicate terms. Column ids always travel with
+their table id. Any approved XPath bridge stores UUID identity rather than tag or
+wire-name text; table-column terms are legal only inside an explicit table scope.
+
+Before carrier commits activate, every exhaustive consumer must implement the
+carrier or deliberately reject it through the commit gate: hydration,
+persistence, replay, diffing, AST walks/rewrites/simplification, validation and
+type checking, reference extraction, preview evaluation, case-store SQL, schema
+materialization, wire/CSQL emission, instance accumulation, summaries, and every
+web/MCP compiler guard and rolling receiver. S05 makes schema acceptance and wire
+preparation internal-only; the carrier commit gate remains closed because S07
+still owns preview and SQL execution.
+
+Builder mutation inputs and controls remain carrier-blind until S09. SA tool
+schemas, MCP schemas, and model vocabulary remain carrier-blind until S10.
+Existing generic mutation schemas must explicitly omit or reject carrier keys
+until the owning surface activates. Use existing mutation discriminators with
+optional semantic extensions and origin-compatible fallbacks; do not add a
+discriminator in the rolling window.
+
+Table lookup returns the first match by `(order_key, row UUID)` and lowers with an
+explicit positional first-row predicate; no match is missing, not empty text.
+Pin preview/wire parity for missing keys versus stored empty strings, scalar
+types, blank or duplicate option values, answer-dependent filters, repeat scope,
+dependency cycles, and first-match behavior without changing S01 persistence.
+
+Compilation resolves definitions plus complete ordered rows from one repeatable
+snapshot. Local CCZ may embed deterministic global fixtures and every required
+instance; HQ JSON and upload remain blocked across all web/MCP paths until S20
+pushes and maps the resources. The shared Project-resource boundary owns this
+matrix.
 
 Define wire/expression behavior for S01's already-frozen stored blank/missing/null
 cells and scalar types, plus duplicate or blank option values, no-match reads,
@@ -768,6 +1109,32 @@ emission with person-readable remediation, and test the exact boundary plus a
 many-small-tables case. The per-table storage cap from S01 is not a substitute
 for this compiled-artifact budget.
 
+Activation preparation is ordered:
+
+1. deploy carrier parsers/preservation/replay/validation/emission and the v2
+   stream receiver while carrier writers, destructive schema actions, and true
+   moves remain disabled;
+2. after 100% traffic reaches those registry-capable servers, raise the stream
+   receiver floor to v2 with every feature flag still disabled, wait the full
+   request cap plus grace, and require no unexpired receiver below v2;
+3. run the read-only structural-versus-stored scan, then the explicit edge
+   migration under each app lock, and require a clean rescan;
+4. establish S05 as the edge-maintenance writer floor, not the runtime reader
+   floor;
+5. atomically raise `minimum_writer_version` to 1 while carrier commits,
+   destructive schema actions, and true moves remain runtime-disabled.
+
+S05's closed-gate verification uses real carriers to replace edges
+transactionally and repeat both production race orders. It adds carrier schema/
+context matrices, reference-index fuzz, history/mixed-version replay, every
+carrier's edges, stale optimistic versus fresh server context, foreign opacity,
+projection rename safety, snapshot consistency, deterministic fixture bytes,
+exact aggregate-budget bounds including many small tables, and the full web/MCP
+export matrix. S07 repeats the admission preflight before opening commits and
+retains matching-and-empty structural/stored targets, compatible active streams,
+fresh dual-Project governance, no run lease, and atomic case/presence handling
+for moves.
+
 ### S06 — atomic submission envelope and resolved preview identity
 
 Establish one `ResolvedPreviewIdentity` contract across Search, Results, form
@@ -778,13 +1145,29 @@ contract with one tenant-bound atomic submission envelope combining ordinary
 form actions and advanced operations. No real row may be stamped with a named
 persona until that persona has stable persisted identity.
 
-### S07 — preview execution
+### S07 — preview execution and carrier activation
 
 Implement the shared rewrite/fold/SQL-residue evaluator, table choices, atomic
 case effects, failure parity, and resolved-identity scoping over real case rows.
 Test the full absent-value matrix and effect ordering. `Preview as me` is active;
 S15 plugs named personas into the same contract without changing evaluator call
-sites. Authoring-only reveal behavior remains a visibly separate mode.
+sites. Authoring-only reveal behavior remains a visibly separate mode. After
+preview evaluation, case-store SQL, schema materialization, and every remaining
+committed-state consumer are total and 100% traffic serves the v3 browser/runtime
+reader, take the deployment-cutover lock and freshly re-read the complete Cloud
+Run traffic split plus every receiving revision's declared capabilities. Abort
+unless every target is compatible; keep the lock through that check and the
+compatibility-state transaction that raises both the stream receiver floor to v3
+and `minimum_runtime_reader_version` with every feature flag still disabled.
+Traffic tooling cannot route a lower reader across this cutoff.
+Wait the longest enforced stream, request, or run lifetime plus grace, require no
+unexpired receiver below v3, and re-run the clean edge/capability/floor preflight.
+That bounded drain must cover every request-scoped old server reader; any
+background reader without the same enforced lifetime must register a durable
+revision/version lease and also drain to zero. Only then does a second
+compatibility-state transaction enable carrier commits, zero-reference schema
+actions, and zero-reference moves. Builder inputs remain closed until S09 and
+SA/MCP inputs until S10.
 
 ### S08 — conditions and operations authoring
 
@@ -939,17 +1322,19 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
-- **2026-07-22 — S01a shipped / S01b readiness correction:** PR #295 shipped the lookup
-  persistence, authorization, lifecycle guards, transactional notification
-  writes, and production migration through healthy revision
-  `commcare-nova-00350-xgz`; its branch/worktree were cleaned. Cut fresh
-  `agent/s01b-lookup-stream` from merged `main`, clarified lifetime retry with a
-  capped delay, and fixed the browser ownership seam for lookup manifests. PR
-  #296 passed review and CI, but its first deployment was cancelled before the
-  migration Job when a rolling-version audit found that an already-open tab kept
-  its source-Project broker latch across a later app move. The readiness follow-up
-  makes every reload/revocation a broker reset boundary and rejects callbacks from
-  superseded EventSource instances before a corrected deployment is admitted.
+- **2026-07-22 — S01 shipped / S02 infrastructure contract:** PR #295 shipped
+  lookup persistence through healthy revision `commcare-nova-00350-xgz`. PR #296
+  then passed review and CI, but its first Cloud Build was deliberately cancelled
+  before the migration Job when a rolling-version audit found that an already-open
+  tab could retain its source-Project broker latch across a later app move. PR
+  #297 closed that handoff on every reload/revocation boundary and rejected stale
+  EventSource callbacks; squash `7422c4c2` deployed through successful build
+  `4a6ab710`, migration `commcare-nova-migrate-clvkd`, and healthy 100%-traffic
+  revision `commcare-nova-00351-dcq`. Production host/auth probes and error logs
+  passed, and all S01 branches/worktrees were cleaned. The follow-on S02 audit
+  froze an infrastructure-only slice, deferred carrier/wire foundations to S05
+  and runtime activation to S07, and split delivery into independently reviewed S02a
+  identity/storage, S02b validation/commit, and S02c move/transport units.
 - **2026-07-21 — S01 readiness:** Re-audited lookup persistence against the
   Postgres app-state store, Project roles/lifecycle, app-move saga, Server Action
   limit, order-key implementation, shared listener, and builder stream. Froze the

@@ -9,6 +9,11 @@ import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { LOOKUP_STREAM_CHANNEL } from "@/lib/db/pg";
 import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import {
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
@@ -19,10 +24,12 @@ import {
 	createLookupRow,
 	createLookupTable,
 	deleteLookupRow,
+	getLookupDefinitions,
 	getLookupManifest,
 	getLookupTable,
 	moveLookupColumn,
 	moveLookupRow,
+	readLookupDefinitionsInTransaction,
 	replaceLookupRows,
 	updateLookupColumnLabel,
 	updateLookupColumnWireName,
@@ -32,7 +39,6 @@ import {
 } from "../service";
 import type {
 	LookupColumnDraft,
-	LookupId,
 	LookupRevision,
 	LookupRowValues,
 	LookupScope,
@@ -63,10 +69,19 @@ const TEXT_COLUMN: LookupColumnDraft = {
 	dataType: "text",
 };
 
+const MISSING_TABLE_ID = lookupTableIdSchema.parse(
+	"018f0f43-7b7c-7abc-8def-0123456789ab",
+);
+const MISSING_COLUMN_ID = lookupColumnIdSchema.parse(
+	"018f0f43-7b7c-7abc-8def-0123456789ab",
+);
+
 function rowValues(
-	entries: readonly (readonly [LookupId, string | number])[],
+	entries: readonly (readonly [LookupColumnId, string | number])[],
 ): LookupRowValues {
-	return Object.fromEntries(entries) as LookupRowValues;
+	const values: LookupRowValues = {};
+	for (const [id, value] of entries) values[id] = value;
+	return values;
 }
 
 async function createTable(
@@ -132,13 +147,85 @@ describe("lookup persistence service", () => {
 			"not_found",
 		);
 		const missing = await expectLookupError(
-			getLookupTable(
-				OWNER_A,
-				"018f0f43-7b7c-7abc-8def-0123456789ab" as LookupId,
-			),
+			getLookupTable(OWNER_A, MISSING_TABLE_ID),
 			"not_found",
 		);
 		expect(foreign.message).toBe(missing.message);
+	});
+
+	it("returns only requested rows-free definitions in deterministic UUID order", async () => {
+		const first = await createTable(OWNER_A, {
+			name: "Zulu",
+			tag: "zulu",
+			columns: [
+				TEXT_COLUMN,
+				{ wireName: "rank", label: "Rank", dataType: "int" },
+			],
+		});
+		const second = await createTable(OWNER_A, {
+			name: "Alpha",
+			tag: "alpha",
+		});
+		const foreign = await createTable(OWNER_B, {
+			name: "Foreign",
+			tag: "foreign",
+		});
+		await createLookupRow(OWNER_A, {
+			tableId: first.id,
+			expectedTableRevision: first.tableRevision,
+			toIndex: 0,
+			values: rowValues([[first.columns[0].id, "not projected"]]),
+		});
+
+		const snapshot = await getLookupDefinitions(OWNER_A, [
+			foreign.id,
+			second.id,
+			MISSING_TABLE_ID,
+			first.id,
+			second.id,
+		]);
+		const expectedIds = [first.id, second.id].sort();
+		expect(snapshot).toMatchObject({
+			projectId: OWNER_A.projectId,
+			projectRevision: "3",
+		});
+		expect(snapshot.definitions.map(({ id }) => id)).toEqual(expectedIds);
+		for (const definition of snapshot.definitions) {
+			expect(definition).not.toHaveProperty("rows");
+			expect(definition).not.toHaveProperty("rowsRevision");
+		}
+		const firstDefinition = snapshot.definitions.find(
+			({ id }) => id === first.id,
+		);
+		expect(firstDefinition).toEqual({
+			id: first.id,
+			name: first.name,
+			tag: first.tag,
+			definitionRevision: first.definitionRevision,
+			columns: first.columns,
+		});
+		const composed = await h
+			.db()
+			.transaction()
+			.execute((tx) =>
+				readLookupDefinitionsInTransaction(tx, OWNER_A.projectId, [
+					second.id,
+					first.id,
+				]),
+			);
+		expect(composed).toEqual(snapshot);
+
+		const foreignOnly = await getLookupDefinitions(OWNER_A, [foreign.id]);
+		const missingOnly = await getLookupDefinitions(OWNER_A, [MISSING_TABLE_ID]);
+		const empty = await getLookupDefinitions(OWNER_A, []);
+		expect(foreignOnly).toEqual(missingOnly);
+		expect(empty).toEqual({
+			projectId: OWNER_A.projectId,
+			projectRevision: "3",
+			definitions: [],
+		});
+		expect(empty).toEqual(missingOnly);
+		expect(foreignOnly.definitions).toEqual([]);
 	});
 
 	it("accepts an already-authorized scope without reimplementing role policy", async () => {
@@ -198,12 +285,7 @@ describe("lookup persistence service", () => {
 				tableId: table.id,
 				expectedTableRevision: renamed.tableRevision,
 				toIndex: 0,
-				values: rowValues([
-					[
-						"018f0f43-7b7c-7abc-8def-0123456789ab" as LookupId,
-						"foreign column",
-					],
-				]),
+				values: rowValues([[MISSING_COLUMN_ID, "foreign column"]]),
 			}),
 			"invalid_input",
 		);
@@ -492,7 +574,7 @@ describe("lookup persistence service", () => {
 		const missing = await expectLookupError(
 			updateLookupColumnLabel(OWNER_A, {
 				tableId: table.id,
-				columnId: "018f0f43-7b7c-7abc-8def-0123456789ab" as LookupId,
+				columnId: MISSING_COLUMN_ID,
 				expectedTableRevision: snapshot.tableRevision,
 				label: "Missing",
 			}),
@@ -750,11 +832,7 @@ describe("lookup persistence service", () => {
 			replaceLookupRows(OWNER_A, {
 				tableId: table.id,
 				expectedTableRevision: second.tableRevision,
-				rows: [
-					rowValues([
-						["018f0f43-7b7c-7abc-8def-0123456789ab" as LookupId, "unknown"],
-					]),
-				],
+				rows: [rowValues([[MISSING_COLUMN_ID, "unknown"]])],
 			}),
 			"invalid_input",
 		);

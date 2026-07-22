@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+} from "@/lib/domain/lookupIds";
+import {
 	coerceLookupCell,
 	isLookupDate,
 	isLookupDatetime,
 	isLookupTime,
 	validateLookupRowValues,
 } from "../coercion";
-import type { LookupColumn, LookupId } from "../types";
+import type { LookupColumn } from "../types";
 
-function id(suffix: number): LookupId {
-	return `01890f45-0000-7000-8000-${suffix.toString(16).padStart(12, "0")}` as LookupId;
+function id(suffix: number): LookupColumnId {
+	return lookupColumnIdSchema.parse(
+		`01890f45-0000-7000-8000-${suffix.toString(16).padStart(12, "0")}`,
+	);
 }
 
 const COLUMNS: LookupColumn[] = [

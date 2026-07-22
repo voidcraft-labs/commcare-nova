@@ -1,4 +1,8 @@
 import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+} from "@/lib/domain/lookupIds";
+import {
 	LOOKUP_INT4_MAX,
 	LOOKUP_INT4_MIN,
 	LOOKUP_MAX_CELL_BYTES,
@@ -6,16 +10,11 @@ import {
 	LOOKUP_MAX_VALIDATION_DETAILS,
 } from "./constants";
 import { createLookupIssueCollector } from "./errors";
-import {
-	hasUnpairedUtf16Surrogate,
-	lookupIdSchema,
-	utf8ByteLength,
-} from "./schema";
+import { hasUnpairedUtf16Surrogate, utf8ByteLength } from "./schema";
 import type {
 	LookupCellValue,
 	LookupColumn,
 	LookupDataType,
-	LookupId,
 	LookupRowValues,
 	LookupValidationDetail,
 } from "./types";
@@ -269,7 +268,7 @@ export function validateLookupRowValues(
 		Math.max(0, Number.isSafeInteger(requestedMax) ? requestedMax : 0),
 	);
 	const issues = createLookupIssueCollector(maxIssues);
-	const normalized: Record<string, LookupCellValue> = {};
+	const normalized: LookupRowValues = {};
 	const source = options.source ?? "typed";
 	const detailBase =
 		options.sourceRow === undefined ? {} : { row: options.sourceRow };
@@ -282,7 +281,7 @@ export function validateLookupRowValues(
 		});
 		return {
 			success: false,
-			values: normalized as LookupRowValues,
+			values: normalized,
 			issues: issues.details,
 			totalIssueCount: issues.totalDetailCount,
 		};
@@ -298,9 +297,9 @@ export function validateLookupRowValues(
 		});
 	}
 
-	const seen = new Set<LookupId>();
+	const seen = new Set<LookupColumnId>();
 	for (const [rawId, input] of entries) {
-		const idResult = lookupIdSchema.safeParse(rawId);
+		const idResult = lookupColumnIdSchema.safeParse(rawId);
 		if (!idResult.success) {
 			issues.add({
 				...detailBase,
@@ -345,14 +344,14 @@ export function validateLookupRowValues(
 	if (issues.totalDetailCount > 0) {
 		return {
 			success: false,
-			values: normalized as LookupRowValues,
+			values: normalized,
 			issues: issues.details,
 			totalIssueCount: issues.totalDetailCount,
 		};
 	}
 	return {
 		success: true,
-		values: normalized as LookupRowValues,
+		values: normalized,
 		issues: [],
 		totalIssueCount: 0,
 	};

@@ -4,6 +4,7 @@ import { type ZodError, type ZodType, z } from "zod";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { log } from "@/lib/logger";
 import { LookupError, lookupFailure } from "./errors";
 import {
@@ -12,7 +13,6 @@ import {
 	createLookupTableInputSchema,
 	deleteLookupRowInputSchema,
 	hasUnpairedUtf16Surrogate,
-	lookupIdSchema,
 	moveLookupColumnInputSchema,
 	moveLookupRowInputSchema,
 	updateLookupColumnLabelInputSchema,
@@ -153,7 +153,7 @@ export async function getLookupTableAction(
 	return runLookupAction(
 		projectId,
 		tableId,
-		lookupIdSchema,
+		lookupTableIdSchema,
 		"view",
 		(scope, id) => getLookupTable(scope, id),
 	);

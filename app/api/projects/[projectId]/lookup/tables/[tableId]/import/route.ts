@@ -3,13 +3,13 @@ import { type ZodError, z } from "zod";
 import { declaredBodyTooLarge, isClientAbort } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { log } from "@/lib/logger";
 import { LOOKUP_MAX_CSV_BYTES } from "@/lib/lookup/constants";
 import { parseLookupCsv, validateLookupCsv } from "@/lib/lookup/csv";
 import { LookupError, lookupFailure } from "@/lib/lookup/errors";
 import {
 	hasUnpairedUtf16Surrogate,
-	lookupIdSchema,
 	lookupRevisionSchema,
 } from "@/lib/lookup/schema";
 import { getLookupTable, replaceLookupRows } from "@/lib/lookup/service";
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 		const parsedRequest = z
 			.object({
 				projectId: projectIdSchema,
-				tableId: lookupIdSchema,
+				tableId: lookupTableIdSchema,
 				expectedTableRevision: lookupRevisionSchema,
 			})
 			.strict()

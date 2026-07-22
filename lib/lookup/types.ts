@@ -1,10 +1,17 @@
+import type {
+	LookupColumnId,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import type { LOOKUP_DATA_TYPES } from "./constants";
 
-declare const lookupIdBrand: unique symbol;
-declare const lookupRevisionBrand: unique symbol;
+export type {
+	LookupColumnId,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 
-/** Server-minted RFC 9562 UUIDv7 identity. */
-export type LookupId = string & { readonly [lookupIdBrand]: true };
+declare const lookupRevisionBrand: unique symbol;
 
 /** Canonical nonnegative signed-int64 decimal, always serialized as text. */
 export type LookupRevision = string & {
@@ -13,7 +20,7 @@ export type LookupRevision = string & {
 
 export type LookupDataType = (typeof LOOKUP_DATA_TYPES)[number];
 export type LookupCellValue = string | number;
-export type LookupRowValues = Record<LookupId, LookupCellValue>;
+export type LookupRowValues = Record<LookupColumnId, LookupCellValue>;
 
 /** Freshly-authorized scope; attribution is deliberately not an access gate. */
 export interface LookupScope {
@@ -24,7 +31,7 @@ export interface LookupScope {
 }
 
 export interface LookupColumn {
-	id: LookupId;
+	id: LookupColumnId;
 	wireName: string;
 	label: string;
 	dataType: LookupDataType;
@@ -36,7 +43,7 @@ export interface StoredLookupColumn extends LookupColumn {
 }
 
 export interface LookupRow {
-	id: LookupId;
+	id: LookupRowId;
 	values: LookupRowValues;
 	/** Exact Postgres `octet_length(values::text)`, not a JS estimate. */
 	valueBytes: number;
@@ -57,7 +64,7 @@ export interface LookupTableRevisions {
 }
 
 export interface LookupTableManifestEntry extends LookupTableRevisions {
-	id: LookupId;
+	id: LookupTableId;
 	name: string;
 	tag: string;
 	columnCount: number;
@@ -74,7 +81,7 @@ export interface LookupManifest {
 export interface LookupTableSnapshot extends LookupTableRevisions {
 	projectId: string;
 	projectRevision: LookupRevision;
-	id: LookupId;
+	id: LookupTableId;
 	name: string;
 	tag: string;
 	columns: LookupColumn[];
@@ -86,6 +93,22 @@ export interface LookupTableSnapshot extends LookupTableRevisions {
 	updatedBy: string;
 	createdAt: string;
 	updatedAt: string;
+}
+
+/** Rows-free table definition used by validation and compilation contexts. */
+export interface LookupTableDefinition {
+	id: LookupTableId;
+	name: string;
+	tag: string;
+	definitionRevision: LookupRevision;
+	columns: readonly LookupColumn[];
+}
+
+/** Exact requested definitions and Project clock from one database snapshot. */
+export interface LookupDefinitionsSnapshot {
+	projectId: string;
+	projectRevision: LookupRevision;
+	definitions: readonly LookupTableDefinition[];
 }
 
 /** Exact storage accounting produced by Postgres `jsonb::text`. */
@@ -107,7 +130,7 @@ export interface CreateLookupTableInput {
 }
 
 export interface LookupExpectedTableRevisionInput {
-	tableId: LookupId;
+	tableId: LookupTableId;
 	expectedTableRevision: LookupRevision;
 }
 
@@ -127,7 +150,7 @@ export interface AddLookupColumnInput extends LookupExpectedTableRevisionInput {
 
 export interface LookupColumnMutationInput
 	extends LookupExpectedTableRevisionInput {
-	columnId: LookupId;
+	columnId: LookupColumnId;
 }
 
 export interface UpdateLookupColumnLabelInput
@@ -151,7 +174,7 @@ export interface CreateLookupRowInput extends LookupExpectedTableRevisionInput {
 
 export interface LookupRowMutationInput
 	extends LookupExpectedTableRevisionInput {
-	rowId: LookupId;
+	rowId: LookupRowId;
 }
 
 export interface UpdateLookupRowInput extends LookupRowMutationInput {
@@ -174,11 +197,11 @@ export interface LookupMutationReceipt extends LookupTableRevisions {
 }
 
 export interface LookupCreatedColumnReceipt extends LookupMutationReceipt {
-	columnId: LookupId;
+	columnId: LookupColumnId;
 }
 
 export interface LookupCreatedRowReceipt extends LookupMutationReceipt {
-	rowId: LookupId;
+	rowId: LookupRowId;
 }
 
 export type LookupCreatedResourceReceipt =
