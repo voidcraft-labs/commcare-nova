@@ -1029,6 +1029,30 @@ the Project flip, case-row tenancy, presence purge, migration row, and
 notifications commit atomically. Pre-copy fails unless every real source asset
 is ready, source-Project-owned, and movable; the final transaction locks and
 revalidates every destination asset and creates destination reverse references.
+Threads are app-owned history and move with the app; the S07 activation UI and
+public docs must disclose that both conversation history and chat-attached files
+move to the destination Project. The move's media closure is therefore the union
+of blueprint references and canonical
+`threads.messages[*].metadata.attachments[*].assetId` references, not the
+blueprint alone. Pre-copy includes present, ready source-Project chat assets of
+every media kind, including documents and their current extraction object/status;
+a historical attachment that is already missing, deleted, or foreign remains an
+unavailable transcript reference and does not block the move. In the final
+app-locked transaction, lock the app's threads in deterministic `thread_id`
+order, re-walk their canonical attachment references, revalidate every required
+destination copy, and rewrite only each attachment's `assetId` through the same
+deterministic source-to-destination map used by the blueprint. Preserve message
+IDs, parts, order, filename, MIME type, title, and summary. The thread rewrite
+commits atomically with the blueprint remap, Project flip, case tenancy,
+presence purge, migration row, and notifications. Thread writers serialize
+app-first against the move and treat stored attachment metadata as authoritative
+for existing messages, so a stale full-history chat POST or run finalization
+cannot restore source asset IDs. Destination reload rehydrates the active thread
+and thread list before attachment preview or sending is re-enabled. Cover a
+chat-only image and document absent from the blueprint, shared-source retention,
+destination deduplication, extraction copy, non-blocking missing/foreign history,
+new-turn/finalize versus move in both winner orders, stale-history replay, and a
+destination transcript preview plus next SA turn consuming the copied ID/content.
 Every authoritative app/document writer computes newly introduced real asset
 references, locks those asset rows `FOR SHARE` in sorted order, validates current
 Project/readiness, and inserts reverse references in the same app transaction;
