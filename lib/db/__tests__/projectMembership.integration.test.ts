@@ -14,11 +14,21 @@
 import { type Kysely, sql } from "kysely";
 import { Client } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	up as installAuthMemberSerialization,
 	down as removeAuthMemberSerialization,
 } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
-import { commitGuardedBatch, withAuthorizedAppEditSideEffect } from "../apps";
+import {
+	type AppAccessError,
+	resolveAppScopeInTransaction,
+	resolveAuthorizedAppSnapshot,
+} from "../appAccess";
+import {
+	commitGuardedBatch,
+	loadAppInTransaction,
+	withAuthorizedAppEditSideEffect,
+} from "../apps";
 import { CommitReauthError } from "../commitGuard";
 import { projectRoleForInTransaction } from "../projectMembership";
 import {
@@ -163,6 +173,167 @@ beforeEach(async () => {
 });
 
 describe("Project membership advisory gate", () => {
+	it("returns one authorized blueprint, cursor, and capability snapshot", async () => {
+		const appId = await h.seedAppWithBlueprint(
+			buildDoc({
+				appName: "Snapshot app",
+				modules: [{ name: "Visits", forms: [] }],
+			}),
+			{ owner: USER, projectId: PROJECT },
+		);
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ mutation_seq: 7 })
+			.where("id", "=", appId)
+			.execute();
+
+		const editor = await resolveAuthorizedAppSnapshot(appId, USER, "view");
+		expect(editor).toMatchObject({
+			projectId: PROJECT,
+			role: "editor",
+			canEdit: true,
+			baseSeq: 7,
+			actorUserId: USER,
+		});
+		expect(editor.app.mutation_seq).toBe(7);
+		expect(editor.app.blueprint.appName).toBe("Snapshot app");
+		expect(Object.values(editor.app.blueprint.modules)[0]?.name).toBe("Visits");
+
+		await sql`
+			UPDATE auth_member
+			SET role = 'viewer'
+			WHERE "userId" = ${USER} AND "organizationId" = ${PROJECT}
+		`.execute(h.db());
+		const viewer = await resolveAuthorizedAppSnapshot(appId, USER, "view");
+		expect(viewer.role).toBe("viewer");
+		expect(viewer.canEdit).toBe(false);
+		await expect(
+			resolveAuthorizedAppSnapshot(appId, USER, "edit"),
+		).rejects.toMatchObject({
+			name: "AppAccessError",
+			reason: "insufficient_role",
+		} satisfies Partial<AppAccessError>);
+	});
+
+	it("waits for an app writer and returns only its post-commit snapshot", async () => {
+		const appId = await h.seedAppWithBlueprint(
+			buildDoc({
+				appName: "Before app",
+				modules: [{ name: "Before module", forms: [] }],
+			}),
+			{ owner: USER, projectId: PROJECT },
+		);
+		const writer = new Client({ connectionString: h.uri() });
+		const observer = new Client({ connectionString: h.uri() });
+		await Promise.all([writer.connect(), observer.connect()]);
+		let snapshot:
+			| Promise<Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>>
+			| undefined;
+		let committed = false;
+		try {
+			await writer.query("BEGIN");
+			await writer.query(
+				`UPDATE apps
+				 SET app_name = 'After app', mutation_seq = 9
+				 WHERE id = $1`,
+				[appId],
+			);
+			await writer.query(
+				`UPDATE blueprint_entities
+				 SET data = jsonb_set(data, '{name}', '"After module"'::jsonb)
+				 WHERE app_id = $1 AND kind = 'module'`,
+				[appId],
+			);
+			const writerPid = await backendPid(writer);
+
+			snapshot = resolveAuthorizedAppSnapshot(appId, USER, "view");
+			await waitUntilBackendBlockedBy(observer, writerPid);
+			await writer.query("COMMIT");
+			committed = true;
+
+			const resolved = await snapshot;
+			expect(resolved.baseSeq).toBe(9);
+			expect(resolved.app.app_name).toBe("After app");
+			expect(resolved.app.blueprint.appName).toBe("After app");
+			expect(Object.values(resolved.app.blueprint.modules)[0]?.name).toBe(
+				"After module",
+			);
+		} finally {
+			if (!committed) await Promise.allSettled([writer.query("ROLLBACK")]);
+			if (snapshot !== undefined) await Promise.allSettled([snapshot]);
+			await Promise.allSettled([observer.query("ROLLBACK")]);
+			await Promise.all([writer.end(), observer.end()]);
+		}
+	});
+
+	it("holds the authorized snapshot lock through assembly before a writer wins", async () => {
+		const appId = await h.seedAppWithBlueprint(
+			buildDoc({
+				appName: "Snapshot first",
+				modules: [{ name: "Stable module", forms: [] }],
+			}),
+			{ owner: USER, projectId: PROJECT },
+		);
+		const writer = new Client({ connectionString: h.uri() });
+		const observer = new Client({ connectionString: h.uri() });
+		await Promise.all([writer.connect(), observer.connect()]);
+		let write:
+			| Promise<{ ok: true } | { ok: false; error: unknown }>
+			| undefined;
+		try {
+			const writerPid = await backendPid(writer);
+			await h
+				.db()
+				.transaction()
+				.execute(async (tx) => {
+					const scope = await resolveAppScopeInTransaction(
+						tx,
+						appId,
+						USER,
+						"view",
+					);
+					const app = await loadAppInTransaction(tx, appId);
+					const identity = await sql<{ pid: number }>`
+						SELECT pg_backend_pid() AS pid
+					`.execute(tx);
+					const snapshotPid = identity.rows[0]?.pid;
+					if (snapshotPid === undefined) {
+						throw new Error(
+							"snapshot transaction backend pid query returned no row",
+						);
+					}
+
+					write = writer
+						.query(
+							"UPDATE apps SET app_name = 'Writer after', mutation_seq = 1 WHERE id = $1",
+							[appId],
+						)
+						.then(
+							() => ({ ok: true as const }),
+							(error: unknown) => ({ ok: false as const, error }),
+						);
+					await waitUntilBlockedBy(observer, writerPid, snapshotPid);
+					expect(scope.baseSeq).toBe(0);
+					expect(app?.app_name).toBe("Snapshot first");
+					expect(app?.blueprint.appName).toBe("Snapshot first");
+				});
+
+			if (write === undefined) throw new Error("writer was never started");
+			expect((await write).ok).toBe(true);
+			const row = await h.readAppRow(appId);
+			expect(row?.app_name).toBe("Writer after");
+			expect(Number(row?.mutation_seq)).toBe(1);
+		} finally {
+			if (write !== undefined) await Promise.allSettled([write]);
+			await Promise.allSettled([
+				writer.query("ROLLBACK"),
+				observer.query("ROLLBACK"),
+			]);
+			await Promise.all([writer.end(), observer.end()]);
+		}
+	});
+
 	it.each(MUTATIONS)(
 		"lets the app decision win before membership $name",
 		async ({ userId, beforeRole, afterRole, statement, params }) => {

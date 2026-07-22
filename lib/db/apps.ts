@@ -2129,6 +2129,32 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 	return rowToAppDoc(row, entities);
 }
 
+/**
+ * Load one complete app snapshot on an existing app-state transaction.
+ *
+ * The `FOR SHARE` app-row lock is the snapshot boundary: every authoritative
+ * blueprint writer locks this row before changing either its scalar columns or
+ * `blueprint_entities`, so the row (including `mutation_seq`) and the assembled
+ * blueprint cannot come from different commits. The lock is intentionally held
+ * until the caller's surrounding transaction ends. This function performs no
+ * authorization; user-facing readers pair it with the transaction-scoped
+ * resolver in `appAccess.ts`.
+ */
+export async function loadAppInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<AppDoc | null> {
+	const row = (await tx
+		.selectFrom("apps")
+		.selectAll()
+		.where("id", "=", appId)
+		.forShare()
+		.executeTakeFirst()) as AppRow | undefined;
+	if (!row) return null;
+	const entities = await loadEntities(tx, appId);
+	return rowToAppDoc(row, entities);
+}
+
 /** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.
  *  `userId` is undefined when no holder could be resolved. */
 export interface AppHolder {

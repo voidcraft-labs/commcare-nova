@@ -169,7 +169,7 @@ export interface BuilderSessionState {
 	/** Whether this session's user holds the `edit` capability on the app's
 	 *  Project. `true` for new builds and for editor/admin/owner members;
 	 *  `false` for viewers. Captured once at mount from the server-resolved
-	 *  role (the build page's `resolveAppAccess`) and never changes for the
+	 *  role (the build page's authorized snapshot) and never changes for the
 	 *  session. The builder reads it through `useCanEdit()` to render a
 	 *  read-only experience — hidden composer, no edit affordances — and
 	 *  `useAutoSave` gates on it so a viewer's local change can never reach

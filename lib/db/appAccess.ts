@@ -12,10 +12,16 @@
 // Lives in `lib/db` (next to `loadApp`) and reads `auth_member` directly through
 // `getAuthDb`, the same cross-store pattern `lib/db/api-keys.ts` already uses.
 
+import type { Transaction } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import { loadApp, loadAppProjectId } from "./apps";
-import { projectRoleFor } from "./projectMembership";
+import { loadApp, loadAppInTransaction, loadAppProjectId } from "./apps";
+import type { AppDatabase } from "./pg";
+import { withAppTx } from "./pg";
+import {
+	projectRoleFor,
+	projectRoleForInTransaction,
+} from "./projectMembership";
 import type { AppDoc } from "./types";
 
 export type AppAccessReason = "not_found" | "not_member" | "insufficient_role";
@@ -46,6 +52,25 @@ export interface ProjectAccess {
 	readonly projectId: string;
 	readonly role: string;
 	readonly actorUserId: string;
+}
+
+/**
+ * An app scope resolved while the app row and membership decision remain in one
+ * transaction lock set. `baseSeq` is read from the locked app row, so stream
+ * registration and full-document snapshots can use it as their exact cursor.
+ */
+export interface TransactionalAppScope extends ProjectAccess {
+	readonly canEdit: boolean;
+	readonly baseSeq: number;
+}
+
+/**
+ * The complete builder/reload snapshot: authorization metadata and the app doc
+ * assembled under the same app-row + membership lock set.
+ */
+export interface AuthorizedAppSnapshot extends AppAccess {
+	readonly canEdit: boolean;
+	readonly baseSeq: number;
 }
 
 /**
@@ -96,6 +121,72 @@ export async function resolveAppAccess(
 	const role = await projectRoleFor(userId, app.project_id);
 	assertCapability(role, required);
 	return { app, projectId: app.project_id, role, actorUserId: userId };
+}
+
+/**
+ * Resolve an app's current Project, role, edit capability, and mutation cursor
+ * on the caller's transaction.
+ *
+ * Lock order is deliberate: `apps FOR SHARE` first, then the shared
+ * Project-membership advisory gate inside `projectRoleForInTransaction`, then
+ * the exact membership row `FOR SHARE`. A Project move or blueprint commit
+ * takes the conflicting app-row lock, while Better Auth membership DML takes
+ * the conflicting advisory lock. The returned tuple therefore represents one
+ * serial winner, including when the membership row is absent.
+ */
+export async function resolveAppScopeInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	userId: string,
+	required: AppCapability = "view",
+): Promise<TransactionalAppScope> {
+	const app = await tx
+		.selectFrom("apps")
+		.select(["project_id", "mutation_seq"])
+		.where("id", "=", appId)
+		.forShare()
+		.executeTakeFirst();
+	if (!app?.project_id) throw new AppAccessError("not_found");
+
+	const role = await projectRoleForInTransaction(tx, userId, app.project_id);
+	assertCapability(role, required);
+	return {
+		projectId: app.project_id,
+		role,
+		canEdit: roleAllowsApp(role, "edit"),
+		baseSeq: Number(app.mutation_seq),
+		actorUserId: userId,
+	};
+}
+
+/**
+ * Load the authoritative app snapshot used by initial builder hydration and
+ * reload GETs. Both authorization and blueprint assembly happen before one
+ * transaction releases its app-row and membership locks, so `projectId`,
+ * `role`, `canEdit`, `blueprint`, and `baseSeq` cannot straddle a commit.
+ */
+export async function resolveAuthorizedAppSnapshot(
+	appId: string,
+	userId: string,
+	required: AppCapability = "view",
+): Promise<AuthorizedAppSnapshot> {
+	return withAppTx(async (tx) => {
+		const scope = await resolveAppScopeInTransaction(
+			tx,
+			appId,
+			userId,
+			required,
+		);
+		const app = await loadAppInTransaction(tx, appId);
+		if (!app) throw new AppAccessError("not_found");
+		if (
+			app.project_id !== scope.projectId ||
+			app.mutation_seq !== scope.baseSeq
+		) {
+			throw new Error("Authorized app snapshot lock invariant was violated.");
+		}
+		return { app, ...scope };
+	});
 }
 
 /**

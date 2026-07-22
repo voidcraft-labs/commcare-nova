@@ -30,9 +30,11 @@
 import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
-import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
-import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
+import {
+	AppAccessError,
+	resolveAuthorizedAppSnapshot,
+} from "@/lib/db/appAccess";
 import {
 	type CommCareSettingsPublic,
 	getCommCareSettings,
@@ -85,11 +87,17 @@ export default async function BuilderPage({
 	 * is enforced at the write paths (PUT / chat / MCP). Denials collapse to
 	 * notFound() to avoid leaking another Project's app. */
 	let app: AppDoc;
-	let role: string;
+	let canEdit: boolean;
+	let baseSeq: number;
 	try {
-		const access = await resolveAppAccess(id, session.user.id, "view");
-		app = access.app;
-		role = access.role;
+		const snapshot = await resolveAuthorizedAppSnapshot(
+			id,
+			session.user.id,
+			"view",
+		);
+		app = snapshot.app;
+		canEdit = snapshot.canEdit;
+		baseSeq = snapshot.baseSeq;
 	} catch (err) {
 		if (err instanceof AppAccessError) notFound();
 		throw err;
@@ -114,8 +122,6 @@ export default async function BuilderPage({
 	/* Viewers (view-only members) get the read-only builder — every edit
 	 * affordance hides and auto-save is suppressed. Editors/admins/owners
 	 * edit normally. The write paths enforce this server-side regardless. */
-	const canEdit = roleAllowsApp(role, "edit");
-
 	/* Conversations — the list plus the most recent thread's transcript.
 	 * Best-effort for a COMPLETE app (the builder is fully usable without
 	 * chat history, so a read fault degrades to an empty conversation, never
@@ -151,7 +157,7 @@ export default async function BuilderPage({
 			buildId={id}
 			initialDoc={app.blueprint}
 			canEdit={canEdit}
-			baseSeq={app.mutation_seq}
+			baseSeq={baseSeq}
 			userId={session.user.id}
 		>
 			<BuilderLayout

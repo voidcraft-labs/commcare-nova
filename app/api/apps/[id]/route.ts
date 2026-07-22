@@ -4,9 +4,9 @@
  * GET  /api/apps/{id} — load an app (full blueprint) for the builder
  * PUT  /api/apps/{id} — update an app after client-side edits (auto-save)
  *
- * Both endpoints require an authenticated session and Project membership: the
- * caller must hold the app's Project at the required capability (GET → view,
- * PUT → edit), via `resolveAppAccess`.
+ * Both endpoints require an authenticated session and Project membership. GET
+ * uses the transactionally authorized snapshot (`view`); PUT performs its early
+ * `edit` gate via `resolveAppAccess` and reauthorizes in the commit transaction.
  */
 
 import { z } from "zod";
@@ -17,7 +17,10 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { resolveAppAccess } from "@/lib/db/appAccess";
+import {
+	resolveAppAccess,
+	resolveAuthorizedAppSnapshot,
+} from "@/lib/db/appAccess";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
 	AppProjectChangedError,
@@ -37,17 +40,28 @@ export async function GET(
 		/* Project-membership gate (view). An `AppAccessError` (absent / non-member
 		 * / under-privileged) maps to a 404 in `handleApiError` — the shared
 		 * IDOR-safe not-found posture. */
-		const app = (await resolveAppAccess(id, session.user.id, "view")).app;
+		const snapshot = await resolveAuthorizedAppSnapshot(
+			id,
+			session.user.id,
+			"view",
+		);
+		const { app } = snapshot;
 		/* Return only the fields the client needs for hydration — the builder
-		 * hydrates off the blueprint; row metadata stays server-side. */
+		 * hydrates off the blueprint. The authorization tuple + cursor come from
+		 * the same locked transaction as that blueprint. Keep the original row
+		 * names while old browser revisions can still be open. */
 		return Response.json({
+			projectId: snapshot.projectId,
+			role: snapshot.role,
+			canEdit: snapshot.canEdit,
 			blueprint: app.blueprint,
+			baseSeq: snapshot.baseSeq,
 			app_name: app.app_name,
 			status: app.status,
 			error_type: app.error_type,
 			/* The durable mutation cursor the client keys recovery on — the head
 			 * `seq` of the `acceptedMutations` stream at load time. */
-			mutation_seq: app.mutation_seq,
+			mutation_seq: snapshot.baseSeq,
 		});
 	} catch (err) {
 		return handleApiError(

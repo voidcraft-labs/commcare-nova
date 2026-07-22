@@ -15,6 +15,16 @@ via `lockAppRow`), then touches other rows (credit months, entities, the
 stream). Per-app contention resolves as row-lock waits, and every decision
 reads row state inside the locking transaction.
 
+**Builder hydration is one authorized snapshot.**
+`appAccess.ts::resolveAuthorizedAppSnapshot` holds `apps FOR SHARE`, then the
+shared Project-membership advisory gate and exact `auth_member` row, while
+`apps.ts::loadAppInTransaction` assembles `blueprint_entities` on that same
+transaction. The returned Project, role, `canEdit`, blueprint, and `baseSeq`
+therefore belong to one serial winner. `GET /api/apps/[id]` keeps
+`mutation_seq` as a rolling-client alias for `baseSeq`; new code must not
+reintroduce separate app-row, entity, membership, or cursor reads for this
+surface.
+
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
 groups) plus one `blueprint_entities` row per module/form/field.
