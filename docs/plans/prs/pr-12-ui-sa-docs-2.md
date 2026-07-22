@@ -1,5 +1,12 @@
 # PR-12: Builder UI, SA, docs II
 
+> [!IMPORTANT]
+> **Execution superseded (2026-07-21).** Do not implement this PR document
+> directly. The live sequence and acceptance contract are in
+> [`../complex-app-roadmap.md`](../complex-app-roadmap.md), stage **S21**. This
+> file remains the evidence and design-rationale record; where it disagrees
+> with the roadmap, the roadmap wins.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f2-users.md`
 §3/§5, `…f3-locations.md` §3/§5 (P6, P8), `…f6-domain-automations.md` §3.4/§5. Scope rulings
 in `docs/plans/2026-07-06-pr-execution-plan.md` apply — multi-location personas and custom
@@ -12,6 +19,51 @@ automations; the persona picker that makes ownership visible ("viewing as facili
 wave-2 vocabulary; and the docs that explain the three-population model and the HQ setup
 story. After this PR a user can design a multi-site app end-to-end in the builder or by
 chat, preview it as any persona, and read exactly what to configure on HQ.
+
+## 2026-07-21 rebaseline (S21 execution contract)
+
+S21 presents one URL-owned **App setup** workspace, with stable deep-linkable
+sections for user data/types/personas, organization/locations, automations, and
+deployment. It extends `lib/routing` and the existing builder workspace chrome;
+these app-global editors do not live in settings popovers and do not crowd the
+module/form structure tree. The three-workspace-versus-hub choice below is
+therefore resolved in favor of the hub.
+
+The UI, SA tools, and docs preserve three identities throughout:
+
+- user types are reusable role/default bundles and carry no assignments;
+- preview personas are named design artifacts with their own locations,
+  primary assignment, identity, usercase, and overrides; and
+- deployed workers are target-HQ records with provisioning/deployment status.
+
+The persona editor, provisioning flow, SA summaries, and tool schemas must not
+collapse those records back into `userTypes[].locations`. Tree edits remain
+data writes, but the interface provides reversible rename/move/archive actions
+or an inverse-action undo toast; it does not make a permanent "no undo" warning
+the user's burden.
+
+Deployment is a target-aware state machine over S19-S20's durable mappings. The
+panel shows preflight, planned diffs, explicit adoption decisions, blocking
+prerequisites, per-phase results, and an **incomplete** state with retry. It
+never hides a failed required phase inside a success message and never offers
+automatic remote deletion. Worker provisioning resolves confirmation/password
+requirements before the external write and never stores or re-displays a
+plaintext secret.
+
+Automations do not execute in Nova Preview. State that boundary directly and,
+where the representable predicate can be evaluated safely, show a read-only
+current match count rather than simulating the HQ daily job. Preserve the
+at-most-daily/10k operational guidance.
+
+Current-main corrections: the worst-case restore measurement in the governing
+plan is approximately **1.2 s**, not the stale ~3 s below; public MDX sources
+live under `content/docs/**` with navigation in `content/docs/meta.json`; and
+implementation follows the currently available design skills plus
+`components/CLAUDE.md`/`components/builder/CLAUDE.md`, not a hard dependency on
+the historical `frontend-design` skill name. The legacy no-new-RTL rule is
+superseded: keep pure state tests where they fit, add targeted RTL coverage for
+interaction/focus/ARIA under the current `act(...)` discipline, and retain one
+representative Playwright wave-2 journey.
 
 ## Verified contracts this PR relies on
 

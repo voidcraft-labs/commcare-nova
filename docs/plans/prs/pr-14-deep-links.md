@@ -1,5 +1,11 @@
 # PR-14: Deep links — session endpoints + smart links
 
+> [!WARNING]
+> **Execution superseded (2026-07-21).** Keep this document as verified wire evidence and
+> design rationale, but do not execute its PR shape, sequencing, dependencies, or acceptance
+> checklist directly. The authoritative implementation stages and gates are in the
+> [complex-app roadmap](../complex-app-roadmap.md).
+
 *Self-contained implementation plan. Reference rationale:
 `docs/plans/2026-07-06-f7-navigation-workflow.md` (facts 7–8) — but this PR supersedes that
 plan's "slice B deferred" posture per the owner's scope ruling: **this is a full
@@ -13,6 +19,24 @@ and surfaced as copyable Web Apps URLs after upload. The **smart-link emission m
 (the `<jump>` stack step and URL construction) ships too; its *authoring* surface activates
 only when Nova models data-registry search, which is stated as the one named prerequisite —
 explicitly, with citations, not as a silent deferral.
+
+## 2026-07-21 rebaseline
+
+- **Execution mapping:** roadmap **S24** owns session endpoints. The endpoint wire/runtime
+  evidence below remains authoritative input, but this document's combined endpoint and
+  speculative smart-link PR is no longer the execution unit.
+- **Current-main URL contract:** never hardcode `www.commcarehq.org`. Copyable URLs derive
+  from the HQ server selected by the upload credential, including regional servers.
+- **Deployment contract:** an endpoint URL is publishable only from durable deployment and
+  release state carrying the server, domain, imported HQ app id, and runnable build status.
+  A transient upload-success dialog is not the source of truth, and a later import may have
+  a different app id.
+- **Navigation compatibility:** reject an endpoint on a flattened module. HQ forbids a
+  session endpoint on `put_in_root`, and Nova must not offer a configuration that disappears
+  or changes after HQ regeneration.
+- **No unused machinery:** do not land the `<jump>` smart-link helper merely in anticipation
+  of data-registry search. Add it with its first modeled consumer and authoring surface;
+  until then the smart-link facts below are retained research, not S24 scope.
 
 ## What the user gets
 

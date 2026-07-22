@@ -1,5 +1,11 @@
 # PR-15: Case-search extensions + app-profile properties
 
+> [!WARNING]
+> **Execution superseded (2026-07-21).** Keep this document as verified wire evidence and
+> design rationale, but do not execute its PR shape, sequencing, dependencies, or acceptance
+> checklist directly. The authoritative implementation stages and gates are in the
+> [complex-app roadmap](../complex-app-roadmap.md).
+
 *Self-contained implementation plan. Added at final review (2026-07-07): these F4-plan §4
 EXT items were scoped IN by owner ruling but had fallen between PR-03 and PR-07/08 — this
 PR is their home. Reference rationale: `docs/plans/2026-07-06-f4-case-operations.md` §1
@@ -12,6 +18,24 @@ case lists** (pick several cases, the form runs once over the set — the multip
 for F4 ops via `forEach`), **related-case search pulls** (a search result drags its
 related cases into the result set), and **app-profile custom properties** (the
 `cc-sync-after-form` family). Plus the SA/docs rows for each.
+
+## 2026-07-21 rebaseline
+
+- **Execution mapping:** roadmap **S25** owns these case-search/profile extensions after the
+  selected-case operation contract is ready. Preserve the three verified wire contracts
+  below, but do not treat them as one undifferentiated acceptance story.
+- **Multi-select runtime contract:** `<instance-datum>` emission is insufficient by itself.
+  Preview and runtime must materialize the selected-case set, feed it into `query_bound`
+  repeats, and execute the corresponding per-selected-case operations. Incompatible ordinary
+  single-case preload/update/close behavior must be rejected or explicitly lowered through
+  that selected-case path.
+- **Multi-select UX contract:** selection and the configured `1..100` cap must survive result
+  pagination, changed searches, and back-navigation; Continue is unavailable with no
+  selection, and cap errors are actionable. Test selections that span multiple result pages.
+- **Separate acceptance:** multi-select, related-case pulls, and profile properties each need
+  their own local-preview behavior, local-suite and HQ-JSON fixtures, validator/UI coverage,
+  and user-phrased acceptance. Passing selection → repeat → operations does not establish
+  related-case expansion or profile-property parity.
 
 ## Verified contracts (inline; all re-verified 2026-07-06 at source)
 

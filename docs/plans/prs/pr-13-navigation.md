@@ -1,5 +1,11 @@
 # PR-13: Navigation — sections, nesting, reuse, chaining hardening
 
+> [!WARNING]
+> **Execution superseded (2026-07-21).** Keep this document as verified wire evidence and
+> design rationale, but do not execute its PR shape, sequencing, dependencies, or acceptance
+> checklist directly. The authoritative implementation stages and gates are in the
+> [complex-app roadmap](../complex-app-roadmap.md).
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f7-navigation-workflow.md`
 §2–3. Scope rulings in `docs/plans/2026-07-06-pr-execution-plan.md` apply. Depends on PR-01
 (display-condition slots + Predicate machinery) **and PR-03** (this PR's nesting/reuse work
@@ -11,6 +17,26 @@ second implementer can run this alongside PR-09–12 once PR-03 lands.*
 **menu nesting** (submodules + flatten-into-parent), **Nova-native form reuse** (linked forms
 emitting CCHQ's duplicated-entry wire shape without shadow models), and **chaining hardening**
 (validator rules + SA guidance derived from verified runtime failure mechanics).
+
+## 2026-07-21 rebaseline
+
+- **Execution mapping:** roadmap **S22** owns form-link correctness plus sections/steps;
+  **S23** owns menu nesting plus form reuse. They are separate review and merge units; do not
+  reconstruct this document's monolithic PR.
+- **Current-main mutation contract:** all new doc behavior must preserve rolling-deploy
+  compatibility with open clients and mixed server revisions. Do not add the proposed
+  `addSection` / `updateSection` / `removeSection` discriminators until an old-server-safe
+  fallback and compatibility tests exist; reuse the repository's compatible mutation
+  extension pattern where possible.
+- **Current-main ordering contract:** fields, forms, modules, sections, links, and projected
+  entries follow fractional `order` semantics with stable `(order, uuid)` tie-breaking.
+  Array position is never durable order, and section movement remains field movement.
+- **Linked-form gate:** before building the S23 domain or UI, pin an HQ JSON import → build →
+  export round-trip spike for the shadow-module projection described below. A host module
+  must retain native content (an owned form or a visible case list); HQ rejects an otherwise
+  empty ordinary host module even when Nova projects linked forms beside it.
+- Preserve the verified runtime facts below. S22 fixes exclusive form-link guards and
+  section behavior independently of S23's hierarchy and reuse work.
 
 ## What the user gets
 

@@ -1,5 +1,29 @@
 # PR-01: Domain & expression foundations I (display conditions, case operations, lookup-table vocabulary)
 
+> [!WARNING]
+> **Execution superseded.** This document is retained as historical evidence and rationale,
+> not as an implementation checklist. Execute from the living
+> [complex-app roadmap](../complex-app-roadmap.md) and its current slice contracts instead.
+
+## 2026-07-21 rebaseline
+
+Execution of this legacy PR is now split across **S02, S03, S04, and S05**. Preserve the
+verified HQ emission facts below, but re-derive implementation boundaries from those living
+slices and the current Postgres architecture.
+
+- Lookup tables and columns have stable UUID identity; tags, names, and labels are mutable
+  projections. Stored expressions reference UUIDs rather than mutable text.
+- Reference governance uses exact edges maintained in the same transaction as accepted app
+  mutations. Table-aware commit and export validation receives an authoritative,
+  Project-scoped external context and fails closed when that context is unavailable.
+- Cross-Project app moves are blocked while the app references Project-scoped resources;
+  cloning or remapping is a separate future workflow.
+- Case-operation conditions, targets, and values are evaluated from one pre-submission
+  snapshot before any effects are applied. Repeat correlation, operation ordering, target
+  type checks, and retype behavior must be settled by the applicable slice before activation.
+- New AST arms and mutation kinds remain carrier-gated and rolling-deploy compatible until
+  every validator, emitter, preview consumer, and persistence boundary is ready.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f1-…`,
 `…f4-…`, `…f5-…` §2–3. Scope rulings in `docs/plans/2026-07-06-pr-execution-plan.md` apply.
 Depends on **PR-02** (the lookup-table registry + rows store land first; this PR consumes

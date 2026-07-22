@@ -1,5 +1,30 @@
 # PR-03: Wire I — relevancy, op blocks, itemsets, embedded fixtures
 
+> [!WARNING]
+> **Execution superseded.** This document is retained as historical evidence and rationale,
+> not as an implementation checklist. Execute from the living
+> [complex-app roadmap](../complex-app-roadmap.md) and its current slice contracts instead.
+
+## 2026-07-21 rebaseline
+
+Execution of this legacy PR is now split across **S03, S04, and S05**. The verified HQ and
+CommCare runtime facts below remain emission evidence; the living slices own activation,
+integration boundaries, and acceptance criteria.
+
+- Emit only from UUID-backed, authoritatively validated domain references; resolve current
+  table tags and column names at the emission boundary.
+- Case-operation binds and blocks preserve the living operation contract, including
+  pre-submission snapshot evaluation and an explicitly pinned relationship to Nova's
+  existing primary-case and subcase actions.
+- Boundary validation is generic rather than media-owned and fails closed on missing,
+  foreign-Project, inconsistent, or over-budget lookup resources.
+- Before hosted lookup-table push exists, the guard matrix is complete across every public
+  surface: local CCZ export may embed validated fixtures, while HQ JSON export and HQ upload
+  are rejected through both web and MCP entry points. Later activation must update the
+  matrix as one contract rather than route by route.
+- Definition and row reads used for a compiled artifact form one consistent snapshot, and
+  deterministic row order is `(order, stable row UUID)`.
+
 *Self-contained implementation plan. Depends on PR-01 (vocabulary + checker) and PR-02
 (table registry). Reference rationale: `docs/plans/2026-07-06-f1-…` §3.4, `…f4-…` §3.6,
 `…f5-…` §3.4. All emission is DOM construction via `elementBuilders.ts` — no string

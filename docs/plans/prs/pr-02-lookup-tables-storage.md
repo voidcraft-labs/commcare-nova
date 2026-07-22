@@ -1,5 +1,31 @@
 # PR-02: Project-scoped lookup tables — storage + registry
 
+> [!WARNING]
+> **Execution superseded.** This document is retained as historical evidence and rationale,
+> not as an implementation checklist. Execute from the living
+> [complex-app roadmap](../complex-app-roadmap.md) and its current slice contracts instead.
+
+## 2026-07-21 rebaseline
+
+Execution of this legacy PR is now split across **S01 and S02**. Preserve the verified HQ
+fixture, identifier, and push constraints below; the Firestore design and split-store
+failure model are obsolete after Nova's app-state migration.
+
+- Lookup definitions, columns, rows, ordering, permissions, and governance are Postgres
+  only, using the shared migration and transaction discipline. No Firestore collection,
+  index document, listener, or Firestore blueprint scan is part of the implementation.
+- Every table and column has a stable UUID. Wire tags and column names are projections,
+  with database-backed Project uniqueness and legality constraints where applicable.
+- Exact table and column reference edges are maintained transactionally with accepted app
+  mutations; destructive changes consult those edges under an explicit lock order rather
+  than racing a project-wide scan.
+- Registry snapshots used by commits and exports are authoritative and Project-scoped.
+  Foreign-Project references fail as not found, and app moves are blocked while referenced
+  Project resources would be stranded.
+- Realtime invalidation, if required by the slice, uses the existing Postgres notification
+  model. Role policy follows current Project capabilities rather than assuming every member
+  can edit.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f5-lookup-tables.md`
 §1–§3 (verified platform facts) — REVISED by owner ruling: tables are **Project-shared**, not
 per-app. Scope rulings in `docs/plans/2026-07-06-pr-execution-plan.md` apply.*
