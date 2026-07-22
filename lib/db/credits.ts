@@ -439,8 +439,11 @@ export async function refundStaleReservation(
  * and this no-ops). Clears the marker's `runId` (the reaper's signature) and
  * `awaiting_input` (an ABANDONED PAUSED build reaps with the distinct
  * `paused_timeout` classification — it expired waiting, it didn't crash).
- * A marker-less dead build with a concrete root `run_id` still flips to
- * `error` with no credit write; a missing holder identity fails closed.
+ * The reaper clears `res_run_id` only while it refunds an unsettled marker;
+ * a marker pre-settled by the run's own failure flush retains its identity and
+ * is deliberately not eligible for false-reap self-heal. A marker-less dead
+ * build with a concrete root `run_id` still flips to `error` with no credit
+ * write; a missing holder identity fails closed.
  */
 export async function refundStaleGeneration(
 	appId: string,

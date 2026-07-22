@@ -135,6 +135,18 @@ import type { AcceptedMutationDoc, AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
+/**
+ * Exact holder authority carried only by a chat Solutions Architect run.
+ *
+ * `runId` on a committed batch is attribution: MCP also stamps one, but an MCP
+ * call does not own the app's chat build/edit lease. This separate capability
+ * is what authorizes a chat run to keep mutating after its claim. The literal
+ * source tag prevents a plain attribution object from being passed by accident.
+ */
+export interface ChatRunHolderCapability extends ExactRunHolderIdentity {
+	readonly source: "chat";
+}
+
 /** Subset of AppDoc fields returned by list queries (no blueprint assembly). */
 export interface AppSummary {
 	id: string;
@@ -427,12 +439,12 @@ export interface AuthorizedAppSideEffectResult<T> {
 }
 
 /**
- * Hold the app row and fresh edit authorization while `effect` applies case
- * schema/data Phase A on the SAME transaction and connection. This avoids the
- * small-pool deadlock created by nesting a second transaction behind locks held
- * by the first. The transaction runs exactly once because the caller's Phase A
- * plan is not replay-safe; callers compensate any already-committed result if a
- * later phase fails.
+ * Hold the app row, fresh edit authorization, and any exact chat-holder
+ * capability while `effect` applies case schema/data Phase A on the SAME
+ * transaction and connection. This avoids the small-pool deadlock created by
+ * nesting a second transaction behind locks held by the first. The transaction
+ * runs exactly once because the caller's Phase A plan is not replay-safe;
+ * callers compensate any already-committed result if a later phase fails.
  *
  * This is intentionally narrower than a general transaction escape hatch. It
  * exists for the migration-bearing blueprint saga, whose case-schema Phase A
@@ -443,6 +455,7 @@ export async function withAuthorizedAppEditSideEffect<T>(
 	appId: string,
 	actorUserId: string,
 	expectedProjectId: string | null,
+	chatRunHolder: ChatRunHolderCapability | undefined,
 	effect: (
 		tx: Transaction<CaseDatabase>,
 		scope: { readonly projectId: string | null },
@@ -469,6 +482,17 @@ export async function withAuthorizedAppEditSideEffect<T>(
 			"edit",
 			"You no longer have edit access to this app's Project.",
 		);
+		if (
+			chatRunHolder !== undefined &&
+			!exactRunHolderMatches(
+				runLeaseState(leaseView(fresh)).holderIdentity,
+				chatRunHolder,
+			)
+		) {
+			throw new BlueprintCommitRejectedError(
+				"This chat run no longer owns the app. Reload to get the latest state, then try again.",
+			);
+		}
 		const scope = { projectId: fresh.project_id } as const;
 		const caseTx = fullTx.$pickTables<keyof CaseDatabase>();
 		return { ...scope, value: await effect(caseTx, scope) };
@@ -752,9 +776,8 @@ async function writeCommittedBatch(
 		mutations: Mutation[];
 		actorUserId: string;
 		kind: AcceptedMutationDoc["kind"];
-		/** Required only when this batch writes the identity-bearing `run_id` of
-		 * a markerless build. The conditional app-row write prevents a stale batch
-		 * from replacing that holder before reservation has been booked. */
+		/** Exact chat holder authority. The conditional app-row write is the final
+		 * SQL compare-and-set after every entity/reference preparation step. */
 		expectedHolder?: ExactRunHolderIdentity;
 		extraAppFields?: Partial<{
 			project_id: string;
@@ -839,6 +862,11 @@ export interface CommitGuardedBatchArgs {
 	readonly batchId: string;
 	/** The SA run that produced the batch (chat/mcp); absent for an autosave. */
 	readonly runId?: string;
+	/**
+	 * Exact chat lease authority, distinct from the attribution `runId` above.
+	 * GenerationContext supplies it; MCP deliberately never does.
+	 */
+	readonly chatRunHolder?: ChatRunHolderCapability;
 	readonly mutations: Mutation[];
 	/** The acting user — reauth + attribution key, never the tenant. */
 	readonly actorUserId: string;
@@ -890,7 +918,9 @@ function isUniqueViolation(err: unknown): boolean {
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
  * committed doc, writing nothing; lock + reauthorize the actor's exact Project
  * membership against the fresh row (owner fallback for a null Project; a
- * concurrent MOVE rejects retryably);
+ * concurrent MOVE rejects retryably); when chat supplied holder authority,
+ * compare its exact mode/run identity before evaluation and again on the final
+ * app-row SQL update (MCP's attribution-only run id supplies no authority);
  * re-check media expectations against rows read `FOR SHARE` (a racing delete
  * blocks behind this commit); assemble + hydrate the fresh doc; reject a
  * batch targeting a concurrently-removed entity or one the re-run verdict
@@ -906,6 +936,17 @@ export async function commitGuardedBatch(
 ): Promise<CommitGuardedBatchResult> {
 	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
 	const mediaExpectations = args.mediaExpectations;
+	if (
+		(kind === "chat" &&
+			(args.chatRunHolder?.source !== "chat" ||
+				runId === undefined ||
+				runId !== args.chatRunHolder?.runId)) ||
+		(kind !== "chat" && args.chatRunHolder !== undefined)
+	) {
+		throw new Error(
+			"[commitGuardedBatch] chat writes require matching chat holder authority; non-chat writes cannot supply it",
+		);
+	}
 
 	type InternalResult = CommitGuardedBatchResult & {
 		persistable?: PersistedBlueprint;
@@ -945,6 +986,17 @@ export async function commitGuardedBatch(
 					fresh.project_id,
 					"edit",
 					"You no longer have edit access to this app's Project.",
+				);
+			}
+			if (
+				args.chatRunHolder !== undefined &&
+				!exactRunHolderMatches(
+					runLeaseState(leaseView(fresh)).holderIdentity,
+					args.chatRunHolder,
+				)
+			) {
+				throw new BlueprintCommitRejectedError(
+					"This chat run no longer owns the app. Reload to get the latest state, then try again.",
 				);
 			}
 			const entities = await loadEntities(tx, appId);
@@ -1078,28 +1130,15 @@ export async function commitGuardedBatch(
 			 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
 			 * the edit lock (through the one liveness reader). */
 			const commitLease =
-				runId !== undefined ? runLeaseState(leaseView(fresh)) : undefined;
-			const markerlessBuildHolder =
-				runId !== undefined &&
-				commitLease?.mode === "build" &&
-				rowReservation(fresh) === undefined
-					? ({ mode: "build", runId } as const)
+				args.chatRunHolder !== undefined
+					? runLeaseState(leaseView(fresh))
 					: undefined;
-			if (
-				markerlessBuildHolder !== undefined &&
-				!exactRunHolderMatches(
-					commitLease?.holderIdentity ?? null,
-					markerlessBuildHolder,
-				)
-			) {
-				throw new BlueprintCommitRejectedError(
-					"This build no longer owns the app. Reload to get the latest state, then try again.",
-				);
-			}
 			const ownsEditLock =
-				runId !== undefined &&
-				commitLease?.mode === "edit" &&
-				commitLease?.mine(runId);
+				args.chatRunHolder?.mode === "edit" &&
+				exactRunHolderMatches(
+					commitLease?.holderIdentity ?? null,
+					args.chatRunHolder,
+				);
 			await replaceLookupReferenceEdges(tx, {
 				appId,
 				projectId: fresh.project_id,
@@ -1115,8 +1154,8 @@ export async function commitGuardedBatch(
 				mutations,
 				actorUserId,
 				kind,
-				...(markerlessBuildHolder !== undefined && {
-					expectedHolder: markerlessBuildHolder,
+				...(args.chatRunHolder !== undefined && {
+					expectedHolder: args.chatRunHolder,
 				}),
 				...(ownsEditLock && {
 					extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
@@ -1579,8 +1618,9 @@ export interface ClaimedRun {
  *  3. Refund any leftover UNSETTLED marker (a superseded run's stranded
  *     hold), check affordability against the literal balance, debit, and
  *     book the fresh marker — `debitAndBookReservation`.
- *  4. The claim writes: build → `status: generating` + fresh `updated_at`,
- *     clear `error_type`/`awaiting_input`/any stale lock; edit → fresh
+ *  4. The claim writes: build → `status: generating` + root `run_id = runId`
+ *     + fresh `updated_at`, clear `error_type`/`awaiting_input`/any stale lock;
+ *     edit → fresh
  *     `run_lock` lease + normalize `status → complete`.
  *
  * Because claim and reserve commit together, a claimed app ALWAYS carries the
@@ -1684,6 +1724,10 @@ export async function claimAndReserveRun(
 						status: "generating",
 						error_type: null,
 						awaiting_input: false,
+						/* Durable latest-build claim identity. Even if this run never
+						 * commits a mutation and is later reaped, an older zombie cannot
+						 * satisfy the false-reap self-heal's root `run_id` check. */
+						run_id: runId,
 						updated_at: new Date(),
 						lock_run_id: null,
 						lock_actor_user_id: null,
@@ -1794,8 +1838,10 @@ export async function reserveForNewBuild(
  * run whose clock lapsed was refunded + flipped to `error`, then finished
  * cleanly) takes the SELF-HEAL branch — the reaper's signature (settled
  * marker, `runId` cleared) + `mode: "none"` + `status: "error"` +
- * `run_id === runId` (the last committed batch is THIS run's) flips the row
- * back to `complete` without touching the marker; the reaper's refund stands.
+ * `run_id === runId` (the latest build claim or committed batch is THIS run's)
+ * flips the row back to `complete` without touching the marker; the reaper's
+ * refund stands. A pre-settled stale marker retains `runId`, so it is not this
+ * signature and cannot enter the self-heal branch.
  */
 export async function completeAndSettleRun(
 	appId: string,

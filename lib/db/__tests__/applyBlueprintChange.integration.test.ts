@@ -133,7 +133,7 @@ beforeEach(() => {
 	commitGuardedBatchMock.mockReset();
 	authorizedSideEffectMock.mockReset();
 	authorizedSideEffectMock.mockImplementation(
-		async (_appId, _userId, expectedProjectId, effect) =>
+		async (_appId, _userId, expectedProjectId, _chatRunHolder, effect) =>
 			await dbHandle.db.transaction().execute(async (tx) => ({
 				projectId: expectedProjectId,
 				value: await effect(tx, { projectId: expectedProjectId }),

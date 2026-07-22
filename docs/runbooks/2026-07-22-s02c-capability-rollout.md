@@ -83,6 +83,12 @@ Every terminal, failure, finalization, pause/heartbeat, recovery, and reaper
 `UPDATE` carries a SQL compare-and-set for the expected `(mode, runId)`.
 Credit terminal/reaper transactions require exactly one app row after any
 ledger refund or throw to roll the whole transaction back.
+Chat blueprint writes carry that authority as a dedicated
+`ChatRunHolderCapability`; their `runId` remains attribution because MCP also
+stamps one without owning a chat lease. Migration Phase A checks the capability
+while holding the app row, and the final committed-batch app update repeats it
+in SQL. Every build claim stamps root `run_id` before any mutation so even a
+no-mutation successor remains the latest-claim fence after reap.
 Reaper queue entries include the identity observed by their scan; never enqueue
 or invoke a reaper with a bare app id, because a delayed bare-id reap can target
 a replacement that later becomes stale. The source guard in
@@ -92,6 +98,10 @@ delegation. The scan must narrow the identity to a concrete non-empty run id.
 A present `(mode, null)` holder is corrupt, not canonically reapable: it cannot
 distinguish one corrupt generation from a later one, remains a blocking v0
 census row, and requires explicit data repair.
+The only absent-holder completion is the exact false-reap signature: free error
+row, marker run id cleared by the reaper, and matching root `run_id`. A build
+whose marker was already settled retains `res_run_id` through the stale reap and
+is intentionally not self-healable.
 
 `scripts/recover-app.ts` remains dry-run by default. A free app can be recovered
 with `--confirm`; a present holder requires both its explicitly verified

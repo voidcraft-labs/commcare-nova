@@ -513,17 +513,17 @@ describe("run-lifecycle invariant matrix", () => {
 	it("a reaped-but-UNCLAIMED build's clean completion self-heals error → complete (refund stands)", async () => {
 		await seedApp(APP, { status: "complete" });
 		await claimAndReserveRun(APP, "build", "b1", OWNER, CREDITS_PER_BUILD);
+		expect((await readApp(APP))?.run_id).toBe("b1");
 		// The live build's clock lapses mid-run and a scan reaps it: refund + error +
-		// runId cleared.
+		// marker runId cleared. The build claim itself already durably stamped the
+		// root run_id, so this no-mutation run still has an exact last-claim identity.
 		await patchApp(APP, { updated_at: new Date(Date.now() - 60 * 60_000) });
 		await reapStaleGenerating(APP, { mode: "build", runId: "b1" });
 		expect(await consumed(OWNER)).toBe(0);
 		expect((await readApp(APP))?.status).toBe("error");
-		// The zombie kept committing — the app's last committed batch is b1's.
-		await patchApp(APP, { run_id: "b1" });
 
 		// The surviving process finishes cleanly. Nothing re-claimed, the row IS this
-		// run's commits, so the completion flips the reaper's error back to complete —
+		// run's claim, so the completion flips the reaper's error back to complete —
 		// without re-charging and without touching the settled marker.
 		await completeAndSettleRun(APP, "b1");
 		const app = await readApp(APP);
@@ -549,26 +549,48 @@ describe("run-lifecycle invariant matrix", () => {
 		expect(await consumed(MEMBER)).toBe(CREDITS_PER_BUILD);
 	});
 
-	it("a zombie's completion never flips ANOTHER reaped run's error row (run_id gate)", async () => {
-		// R1 is falsely reaped; R2 re-claims, commits last (run_id = b2), and is then
-		// hard-killed + reaped — the marker is runId-cleared AGAIN, so the reaper
-		// signature alone cannot tell whose reap this is.
+	it("a no-mutation successor claim remains the durable self-heal fence after that successor is reaped", async () => {
+		// R1 is falsely reaped; R2 re-claims and writes NO mutation, then is itself
+		// hard-killed + reaped. The claim must already have stamped root run_id=b2;
+		// otherwise R1 could satisfy the now-free row's false-reap signature.
 		await seedApp(APP, { status: "complete" });
 		await claimAndReserveRun(APP, "build", "b1", OWNER, CREDITS_PER_BUILD);
 		await patchApp(APP, { updated_at: new Date(Date.now() - 60 * 60_000) });
 		await reapStaleGenerating(APP, { mode: "build", runId: "b1" });
 		await claimAndReserveRun(APP, "build", "b2", MEMBER, CREDITS_PER_BUILD);
-		await patchApp(APP, {
-			run_id: "b2",
-			updated_at: new Date(Date.now() - 60 * 60_000),
-		});
+		expect((await readApp(APP))?.run_id).toBe("b2");
+		await patchApp(APP, { updated_at: new Date(Date.now() - 60 * 60_000) });
 		await reapStaleGenerating(APP, { mode: "build", runId: "b2" });
-		expect((await readApp(APP))?.status).toBe("error");
+		const beforeZombie = await readApp(APP);
+		expect(beforeZombie).toMatchObject({
+			status: "error",
+			run_id: "b2",
+			reservation: { settled: true },
+		});
 
-		// Zombie R1 finishes cleanly — but the row's content is R2's (run_id b2), so
-		// the self-heal must NOT flip R2's failure to complete.
+		// Zombie R1 finishes cleanly — but root identity names R2, so every
+		// successor field remains unchanged.
 		await completeAndSettleRun(APP, "b1");
-		expect((await readApp(APP))?.status).toBe("error");
+		expect(await readApp(APP)).toEqual(beforeZombie);
+	});
+
+	it("a pre-settled stale build retains its marker identity and is deliberately not false-reap self-healable", async () => {
+		await seedApp(APP, { status: "complete" });
+		await claimAndReserveRun(APP, "build", "b1", OWNER, CREDITS_PER_BUILD);
+		// The failure flush refunded and settled this exact run before the stale
+		// reaper observed it. That is not the reaper's marker-cleared signature.
+		await refundReservation(APP, "b1", "build");
+		await patchApp(APP, { updated_at: new Date(Date.now() - 60 * 60_000) });
+		await reapStaleGenerating(APP, { mode: "build", runId: "b1" });
+		const reaped = await readApp(APP);
+		expect(reaped).toMatchObject({
+			status: "error",
+			run_id: "b1",
+			reservation: { runId: "b1", settled: true },
+		});
+
+		await completeAndSettleRun(APP, "b1");
+		expect(await readApp(APP)).toEqual(reaped);
 	});
 
 	it("refreshBuildLiveness re-arms updated_at only for the OWNING live build", async () => {

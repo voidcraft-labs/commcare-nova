@@ -1,7 +1,8 @@
 /**
  * Stream receiver registration against real Postgres. These tests pin the
  * app -> membership -> compatibility lock order, database-authored identity and
- * statement-time lease clock, exact cleanup key, and both cutoff winner orders.
+ * statement-time lease clock, exact cleanup key, bounded expiry purge, and both
+ * cutoff winner orders.
  */
 
 import { sql } from "kysely";
@@ -10,8 +11,10 @@ import { describe, expect, it } from "vitest";
 import type { AppAccessError } from "@/lib/db/appAccess";
 import {
 	deleteStreamCapabilityLease,
+	purgeExpiredStreamCapabilityLeases,
 	registerStreamCapabilityLease,
 	registerStreamCapabilityLeaseInTransaction,
+	STREAM_CAPABILITY_PURGE_BATCH_SIZE,
 } from "@/lib/db/streamCapabilityLeases";
 import { STREAM_LEASE_TTL_SECONDS } from "@/lib/runtimeCapabilities";
 import { setupAppStateTestDb } from "./appStateTestDb";
@@ -210,6 +213,53 @@ describe("stream capability leases", () => {
 		expect(remaining.map((row) => row.connection_id)).toEqual([
 			second.connectionId,
 		]);
+	});
+
+	it("purges one index-ordered bounded batch of expired leases and preserves unexpired rows", async () => {
+		const appId = await seedAuthorizedApp();
+		const createdAt = new Date(Date.now() - 120_000);
+		const expiredAt = new Date(Date.now() - 60_000);
+		const liveConnectionId = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("lookup_stream_capability_leases")
+			.values(
+				Array.from({ length: STREAM_CAPABILITY_PURGE_BATCH_SIZE + 2 }, () => ({
+					app_id: appId,
+					receiver_version: 1,
+					created_at: createdAt,
+					expires_at: expiredAt,
+				})),
+			)
+			.execute();
+		await h
+			.db()
+			.insertInto("lookup_stream_capability_leases")
+			.values({
+				app_id: appId,
+				connection_id: liveConnectionId,
+				receiver_version: 1,
+				created_at: createdAt,
+				expires_at: new Date(Date.now() + 60_000),
+			})
+			.execute();
+
+		expect(await purgeExpiredStreamCapabilityLeases()).toBe(
+			STREAM_CAPABILITY_PURGE_BATCH_SIZE,
+		);
+		const remaining = await h
+			.db()
+			.selectFrom("lookup_stream_capability_leases")
+			.select(["connection_id", "expires_at"])
+			.where("app_id", "=", appId)
+			.execute();
+		expect(remaining).toHaveLength(3);
+		expect(
+			remaining.some((row) => row.connection_id === liveConnectionId),
+		).toBe(true);
+		expect(remaining.filter((row) => row.expires_at <= new Date()).length).toBe(
+			2,
+		);
 	});
 
 	it("lets a registered v0 lease commit before a concurrent floor cutoff", async () => {

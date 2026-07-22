@@ -29,7 +29,10 @@ import {
 	loadAppInTransaction,
 	withAuthorizedAppEditSideEffect,
 } from "../apps";
-import { CommitReauthError } from "../commitGuard";
+import {
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "../commitGuard";
 import { projectRoleForInTransaction } from "../projectMembership";
 import {
 	lockProjectMembershipGateShared,
@@ -573,6 +576,7 @@ describe("Project membership advisory gate", () => {
 				appId,
 				USER,
 				PROJECT,
+				undefined,
 				async () => {
 					effectCalled = true;
 				},
@@ -599,6 +603,64 @@ describe("Project membership advisory gate", () => {
 		}
 	});
 
+	it("denies a stale chat holder before migration Phase A can change schema or case data", async () => {
+		const successorRun = "migration-successor-build";
+		const appId = await h.seedApp({
+			id: "stale-holder-side-effect-denied",
+			owner: USER,
+			project_id: PROJECT,
+			status: "generating",
+			run_id: successorRun,
+			reservation: {
+				period: "2026-07",
+				reserved: 100,
+				settled: false,
+				userId: USER,
+				runId: successorRun,
+			},
+		});
+		const before = await h.readAppRow(appId);
+		let effectCalled = false;
+
+		await expect(
+			withAuthorizedAppEditSideEffect(
+				appId,
+				USER,
+				PROJECT,
+				{ source: "chat", mode: "build", runId: "stale-build" },
+				async (tx) => {
+					effectCalled = true;
+					await tx
+						.insertInto("case_type_schemas")
+						.values({
+							app_id: appId,
+							case_type: "patient",
+							schema: JSON.stringify({ type: "object", properties: {} }),
+						})
+						.execute();
+				},
+			),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+
+		expect(effectCalled).toBe(false);
+		const schemaRows = await h
+			.pool()
+			.query<{ count: string }>(
+				"SELECT count(*)::text AS count FROM case_type_schemas WHERE app_id = $1",
+				[appId],
+			);
+		const caseRows = await h
+			.pool()
+			.query<{ count: string }>(
+				"SELECT count(*)::text AS count FROM cases WHERE app_id = $1",
+				[appId],
+			);
+		expect(schemaRows.rows[0]?.count).toBe("0");
+		expect(caseRows.rows[0]?.count).toBe("0");
+		const after = await h.readAppRow(appId);
+		expect(after).toEqual(before);
+	});
+
 	it("holds membership serialization through schema/data Phase A when the app transaction wins", async () => {
 		const appId = await h.seedApp({
 			id: "membership-side-effect-wins",
@@ -619,6 +681,7 @@ describe("Project membership advisory gate", () => {
 				appId,
 				USER,
 				PROJECT,
+				undefined,
 				async (tx) => {
 					const identity = await sql<{ pid: number }>`
 						SELECT pg_backend_pid() AS pid

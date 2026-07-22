@@ -44,9 +44,10 @@
  *   2. Diff prior vs. prospective via `classifyCaseTypeChanges` and
  *      partition into migration-bearing vs. additive entries.
  *   3. If there ARE migration-bearing entries, hold the app row plus fresh
- *      Project edit authorization while every entry's schema/data Phase A runs
- *      in that same transaction and connection. This blocks membership DML
- *      and Project moves for the entire side effect. A pure additive /
+ *      Project edit authorization and, for chat, exact run-holder authority
+ *      while every entry's schema/data Phase A runs in that same transaction
+ *      and connection. This blocks membership DML, Project moves, and holder
+ *      replacement for the entire side effect. A pure additive /
  *      non-case-type commit runs no pre-commit DDL and relies on
  *      `commitGuardedBatch` alone.
  *   4. Run the MIGRATION-BEARING entries Postgres-first against the
@@ -112,6 +113,7 @@ import type {
 import { log } from "@/lib/logger";
 import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import {
+	type ChatRunHolderCapability,
 	commitGuardedBatch,
 	loadApp,
 	withAuthorizedAppEditSideEffect,
@@ -129,10 +131,11 @@ import type { AcceptedMutationDoc } from "./types";
 /**
  * Arguments for `applyBlueprintChange`.
  *
- * `runId` distinguishes a run-scoped write from a standalone one; it rides the
- * durable stream entry. Every path routes the blueprint write through the one
- * guarded commit ({@link commitGuardedBatch}) — the transactional
- * read-evaluate-write below — after the case-store schema saga.
+ * `runId` is durable stream attribution (chat and MCP both use it).
+ * `chatRunHolder` is the separate exact lease authority only chat supplies.
+ * Every path routes the blueprint write through the one guarded commit
+ * ({@link commitGuardedBatch}) — the transactional read-evaluate-write below —
+ * after the case-store schema saga.
  *
  * Per-row migration intent is NOT a caller input: the classifier
  * proves renames itself from the two snapshots (field-uuid
@@ -158,7 +161,11 @@ export interface ApplyBlueprintChangeArgs {
 	 * prospective by replaying the deterministic `guard.mutations` on `prior`.
 	 */
 	readonly prospective?: PersistedBlueprint;
+	/** Durable batch attribution. MCP supplies this without owning a chat lease. */
 	readonly runId?: string;
+	/** Exact chat holder authority. GenerationContext supplies this; MCP and
+	 * browser autosave deliberately omit it. */
+	readonly chatRunHolder?: ChatRunHolderCapability;
 	/** Client-minted idempotency key for this whole change — pairs with the
 	 *  `accepted_mutations (app_id, batch_id)` unique latch. A top-level dedup
 	 *  hit short-circuits the case-store saga; {@link commitGuardedBatch}'s
@@ -260,6 +267,17 @@ export async function applyBlueprintChange(
 	const guard = args.guard;
 	if (guard === undefined) {
 		throw new Error("[applyBlueprintChange] a persist requires a `guard`");
+	}
+	if (
+		(args.kind === "chat" &&
+			(args.chatRunHolder?.source !== "chat" ||
+				args.runId === undefined ||
+				args.runId !== args.chatRunHolder?.runId)) ||
+		(args.kind !== "chat" && args.chatRunHolder !== undefined)
+	) {
+		throw new Error(
+			"[applyBlueprintChange] chat writes require matching chat holder authority; non-chat writes cannot supply it",
+		);
 	}
 	// Top-level idempotency: a re-delivered batch (a client retry) whose latch
 	// already exists short-circuits the whole cross-store saga. The read is
@@ -385,6 +403,7 @@ export async function applyBlueprintChange(
 				args.appId,
 				args.userId,
 				args.expectedProjectId,
+				args.chatRunHolder,
 				async (tx) => {
 					const phases: Array<{
 						caseType: string;
@@ -536,6 +555,9 @@ async function persistBlueprint(
 		appId: args.appId,
 		batchId: args.batchId,
 		...(args.runId !== undefined && { runId: args.runId }),
+		...(args.chatRunHolder !== undefined && {
+			chatRunHolder: args.chatRunHolder,
+		}),
 		mutations,
 		actorUserId: args.userId,
 		kind: args.kind,

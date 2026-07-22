@@ -69,6 +69,9 @@ describe("run-holder write structural guard", () => {
 		expect(exportedFunction("lib/db/apps.ts", "reserveForNewBuild")).toContain(
 			"exactRunHolderMatches",
 		);
+		expect(exportedFunction("lib/db/apps.ts", "claimAndReserveRun")).toContain(
+			"run_id: runId",
+		);
 	});
 
 	it("requires exact SQL holder predicates on lifecycle and recovery app writes", () => {

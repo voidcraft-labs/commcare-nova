@@ -159,7 +159,11 @@ receiver floor, so raising it cannot evict an already-admitted connection.
 Migration rows reauthorize before advancing their private cursor; transient
 failure leaves the row pending for retry. Teardown disowns subscriptions,
 pumps, timers, and transport first, then best-effort deletes the exact
-app/connection lease; expiry is the crash fallback.
+app/connection lease; expiry is the crash fallback. Each registration then
+runs a separately committed, best-effort purge of at most 256 expired rows.
+Its `expires_at`-ordered candidate query uses the expiry index and `SKIP
+LOCKED`; it never shares the admission transaction's app/membership/floor lock
+set, and an operational purge failure cannot reject an admitted stream.
 
 `lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
 stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags
@@ -194,7 +198,10 @@ the exact-gated just-created-build reservation, and paused-run reacquisition
 all call `declareRuntimeReader(tx)` before their holder write; complete/template
 creation does not declare because it creates no holder. Reacquisition and
 same-run reservation preserve the original database stamp even though their
-transactions declare the current runtime.
+transactions declare the current runtime. Every build claim also stamps the
+root `run_id` immediately, before the run has emitted any mutation, so a later
+no-mutation successor remains the durable latest-claim identity even after its
+reservation is reaped.
 
 `runHolderWrites.ts` owns the SQL compare-and-set predicates that mirror the
 trigger's exact `(mode, runId)` derivation. Every terminal, failure, heartbeat,
@@ -203,9 +210,16 @@ pause, recovery, and reaper app-row write repeats its expected identity in the
 refund rolls back too. An absent holder is never terminal authority, and a
 present holder with a missing/blank run id is corrupt rather than canonically
 reapable: `(mode, null)` cannot distinguish one corrupt generation from a later
-one. The sole absent-holder exception is the falsely-reaped-build self-heal,
-whose SQL predicate proves the free row, reaper signature, and exact last
-`run_id`. Reaper scans and conflict nudge/list queues narrow the observed holder
+one. Chat mutation commits carry a separate `ChatRunHolderCapability`; their
+ordinary `runId` remains attribution because MCP also stamps one without owning
+a chat lease. Migration Phase A checks that capability while holding the app
+row, and the final guarded app-row write repeats it as a SQL compare-and-set;
+entity/reference/history work rolls back on a lost CAS. The sole absent-holder
+exception is the falsely-reaped-build self-heal, whose SQL predicate proves the
+free row, marker-cleared reaper signature, and exact last `run_id`. A stale
+build whose marker was already settled keeps `res_run_id`; that is deliberately
+not the reaper signature and is non-self-healable. Reaper scans and conflict
+nudge/list queues narrow the observed holder
 to a concrete identity before enqueueing it and carry that token all the way to
 the locked write, so an arbitrarily delayed reap cannot target a later holder
 that also went stale. `scripts/recover-app.ts` writes only through
@@ -395,7 +409,7 @@ nothing.
 `completeAndSettleRun` (build: `generating → complete` + settle, one commit;
 plus the false-reap SELF-HEAL: a reaped-but-unclaimed build that finished
 cleanly flips back to `complete` off the reaper's signature — settled marker,
-`runId` cleared, `run_id === runId`), `clearRunLockAndSettle` (edit: release +
+marker `runId` cleared, `run_id === runId`), `clearRunLockAndSettle` (edit: release +
 settle, one commit), `settleAndRelease` (the failed-run writer: refund-if-
 unsettled + settle + edit-lock release in one commit; its required mode and
 `settled` return answer the separate question "does this exact `(mode, runId)`
@@ -417,7 +431,10 @@ They also re-derive `reapable*` off that locked row, so even a delayed reaper
 cannot claw back a later holder that has independently gone stale. Both key on
 the LAPSED LEASE, not `awaiting_input`, so they free hard-killed AND
 abandoned-paused runs; both CLEAR the reaped marker's `runId` (the reaper's
-signature the self-heal + non-lenient holder read). Refunds always target the
+signature for the self-heal + non-lenient holder read) when the reaper settles
+an unsettled marker. A build marker already settled by its own failure flush
+retains its `runId`; it deliberately cannot masquerade as a false reap or
+self-heal. Refunds always target the
 marker's charged actor (`res_user_id`, falling back to `owner` for markers that
 lack it). A missing marker run id is still refundable for an edit whose lock
 provides a concrete holder id; a build with neither a concrete reservation id

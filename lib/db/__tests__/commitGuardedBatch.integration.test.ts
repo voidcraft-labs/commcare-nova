@@ -55,7 +55,7 @@ vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleForInTransaction: projectRoleForInTransactionMock,
 }));
 
-const { appendSyntheticBatch, commitGuardedBatch, UNTITLED_APP_NAME } =
+const { appendSyntheticBatch, commitGuardedBatch, loadApp, UNTITLED_APP_NAME } =
 	await import("../apps");
 const {
 	AppProjectChangedError,
@@ -265,13 +265,35 @@ async function readStream(appId: string): Promise<
 	return rows.map((r) => ({ ...r, seq: Number(r.seq) })) as never;
 }
 
+async function readRunFenceState(appId: string) {
+	return h
+		.db()
+		.selectFrom("apps")
+		.select([
+			"mutation_seq",
+			"status",
+			"run_id",
+			"res_period",
+			"res_reserved",
+			"res_settled",
+			"res_user_id",
+			"res_run_id",
+			"lock_run_id",
+			"lock_actor_user_id",
+			"lock_expire_at",
+			"updated_at",
+		])
+		.where("id", "=", appId)
+		.executeTakeFirstOrThrow();
+}
+
 beforeEach(() => {
 	// Default: the actor is an editor of the app's Project.
 	projectRoleForInTransactionMock.mockReset().mockResolvedValue("editor");
 });
 
 describe("commitGuardedBatch (Postgres)", () => {
-	it("advances mutation_seq + appends the accepted_mutations row (the latch) in ONE transaction", async () => {
+	it("persists MCP run attribution without granting it chat-holder authority", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
 		const batchId = crypto.randomUUID();
@@ -283,7 +305,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			runId: "run-1",
 			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: OWNER,
-			kind: "chat",
+			kind: "mcp",
 		});
 
 		expect(result.seq).toBe(1);
@@ -310,9 +332,30 @@ describe("commitGuardedBatch (Postgres)", () => {
 			batch_id: batchId,
 			run_id: "run-1",
 			actor_id: OWNER,
-			kind: "chat",
+			kind: "mcp",
 		});
 		expect(stream[0].mutations).toHaveLength(1);
+	});
+
+	it("rejects chat attribution without explicit holder authority", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const before = await readRunFenceState(appId);
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				runId: "attribution-only",
+				mutations: renameVillageLabel(doc, "Unauthorized chat write"),
+				actorUserId: OWNER,
+				kind: "chat",
+			}),
+		).rejects.toThrow("chat writes require matching chat holder authority");
+
+		expect(await readRunFenceState(appId)).toEqual(before);
+		expect(await readStream(appId)).toEqual([]);
 	});
 
 	it("persists the entity-row DIFF so the reassembled doc equals the committed doc", async () => {
@@ -370,7 +413,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			batchId,
 			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: OWNER,
-			kind: "chat",
+			kind: "autosave",
 		});
 		expect(first.deduped).toBe(false);
 		expect(first.seq).toBe(1);
@@ -383,7 +426,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			batchId,
 			mutations: renameVillageLabel(doc, "IGNORED — dedup replay"),
 			actorUserId: OWNER,
-			kind: "chat",
+			kind: "autosave",
 		});
 		expect(replay.deduped).toBe(true);
 		expect(replay.seq).toBe(first.seq);
@@ -418,6 +461,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			runId: "e1",
+			chatRunHolder: { source: "chat", mode: "edit", runId: "e1" },
 			mutations: renameVillageLabel(doc, "Lease refresh"),
 			actorUserId: OWNER,
 			kind: "chat",
@@ -452,11 +496,105 @@ describe("commitGuardedBatch (Postgres)", () => {
 			runId: "other-run",
 			mutations: renameVillageLabel(doc, "Other run edit"),
 			actorUserId: OWNER,
-			kind: "chat",
+			kind: "mcp",
 		});
 
 		const lock = await h.readRunLock(appId);
 		expect(lock?.expireAt.getTime()).toBeLessThan(Date.now() + 5 * 60_000);
+	});
+
+	it("rejects a stale reserved build batch without changing the live successor's doc, cursor, identity, or marker", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const successorRun = "build-successor";
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				status: "generating",
+				run_id: successorRun,
+				res_period: "2026-07",
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: OWNER,
+				res_run_id: successorRun,
+			})
+			.where("id", "=", appId)
+			.executeTakeFirstOrThrow();
+		const before = await readRunFenceState(appId);
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				runId: "stale-build",
+				chatRunHolder: {
+					source: "chat",
+					mode: "build",
+					runId: "stale-build",
+				},
+				mutations: renameVillageLabel(doc, "Stale build write"),
+				actorUserId: OWNER,
+				kind: "chat",
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+
+		expect(await readRunFenceState(appId)).toEqual(before);
+		expect(await readStream(appId)).toEqual([]);
+		const reloaded = await loadApp(appId);
+		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
+			(field) => field.id === "village",
+		);
+		expect(village && "label" in village && village.label).toBe("Village");
+	});
+
+	it("rejects a stale edit batch without changing the live successor's doc, cursor, identity, marker, or lock", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const successorRun = "edit-successor";
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				run_id: successorRun,
+				res_period: "2026-07",
+				res_reserved: 5,
+				res_settled: false,
+				res_user_id: OWNER,
+				res_run_id: successorRun,
+				lock_run_id: successorRun,
+				lock_actor_user_id: OWNER,
+				lock_expire_at: new Date(Date.now() + 10 * 60_000),
+			})
+			.where("id", "=", appId)
+			.executeTakeFirstOrThrow();
+		const before = await readRunFenceState(appId);
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				runId: "stale-edit",
+				chatRunHolder: {
+					source: "chat",
+					mode: "edit",
+					runId: "stale-edit",
+				},
+				mutations: renameVillageLabel(doc, "Stale edit write"),
+				actorUserId: OWNER,
+				kind: "chat",
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+
+		expect(await readRunFenceState(appId)).toEqual(before);
+		expect(await readStream(appId)).toEqual([]);
+		const reloaded = await loadApp(appId);
+		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
+			(field) => field.id === "village",
+		);
+		expect(village && "label" in village && village.label).toBe("Village");
 	});
 
 	it("denies a non-member with a terminal CommitReauthError (nothing written)", async () => {
@@ -677,7 +815,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			batchId: crypto.randomUUID(),
 			mutations: attachVillageLabelImage(doc, assetId),
 			actorUserId: OWNER,
-			kind: "chat",
+			kind: "autosave",
 			mediaExpectations: [{ assetId, kind: "image", slot: "label media" }],
 		});
 
@@ -703,7 +841,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 				batchId: crypto.randomUUID(),
 				mutations: attachVillageLabelImage(doc, missingAssetId),
 				actorUserId: OWNER,
-				kind: "chat",
+				kind: "autosave",
 				mediaExpectations: [
 					{ assetId: missingAssetId, kind: "image", slot: "label media" },
 				],

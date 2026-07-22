@@ -51,6 +51,7 @@ import { classifyError as classifyValidityError } from "@/lib/commcare/validator
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
+	type ChatRunHolderCapability,
 	commitGuardedBatch,
 	refreshBuildLiveness,
 	refreshEditLease,
@@ -483,6 +484,11 @@ export class GenerationContext implements ToolExecutionContext {
 		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<RecordMutationsResult> {
 		const batchId = crypto.randomUUID();
+		const chatRunHolder: ChatRunHolderCapability = {
+			source: "chat",
+			mode: this.editLease ? "edit" : "build",
+			runId: this.usage.runId,
+		};
 		let result: { seq: number; committedDoc: BlueprintDoc };
 		try {
 			// A batch that can RENAME a case property routes through the
@@ -520,6 +526,7 @@ export class GenerationContext implements ToolExecutionContext {
 					userId: this.session.user.id,
 					expectedProjectId: this.projectId,
 					runId: this.usage.runId,
+					chatRunHolder,
 					batchId,
 					kind: "chat",
 					...(this._latestDoc !== undefined && {
@@ -557,6 +564,7 @@ export class GenerationContext implements ToolExecutionContext {
 					appId: this.appId,
 					batchId,
 					runId: this.usage.runId,
+					chatRunHolder,
 					mutations,
 					actorUserId: this.session.user.id,
 					expectedProjectId: this.projectId,

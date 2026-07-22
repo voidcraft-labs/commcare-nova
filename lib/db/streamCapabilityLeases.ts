@@ -7,7 +7,11 @@ import {
 } from "@/lib/db/appAccess";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { readStreamReceiverCompatibilityForShare } from "@/lib/db/rolloutCompatibility";
+import { log } from "@/lib/logger";
 import { STREAM_LEASE_TTL_SECONDS } from "@/lib/runtimeCapabilities";
+
+/** Maximum expired rows one opportunistic sweep can lock/delete. */
+export const STREAM_CAPABILITY_PURGE_BATCH_SIZE = 256;
 
 export interface RegisteredStreamCapabilityLease {
 	readonly kind: "registered";
@@ -98,9 +102,49 @@ export async function registerStreamCapabilityLeaseInTransaction(
 export async function registerStreamCapabilityLease(
 	args: RegisterStreamCapabilityLeaseArgs,
 ): Promise<StreamCapabilityRegistration> {
-	return withAppTx((tx) =>
+	const registration = await withAppTx((tx) =>
 		registerStreamCapabilityLeaseInTransaction(tx, args),
 	);
+	/* Purge only after the admission transaction released its app, membership,
+	 * and compatibility locks. Cleanup is bounded and best-effort: an expired
+	 * row can delay a rollout census but must never turn an admitted stream into
+	 * a failed request. */
+	try {
+		await purgeExpiredStreamCapabilityLeases();
+	} catch (error) {
+		log.warn("[streamCapabilityLeases] expired lease purge failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+	return registration;
+}
+
+/**
+ * Delete one bounded batch of expired stream leases.
+ *
+ * The candidate subquery's `expires_at <= statement_timestamp()` predicate plus
+ * `ORDER BY expires_at LIMIT ...` is served by
+ * `lookup_stream_capability_leases_expiry_idx`. `SKIP LOCKED` lets concurrent
+ * registrations/teardowns make progress without serializing their cleanup.
+ */
+export async function purgeExpiredStreamCapabilityLeases(): Promise<number> {
+	const db = await getAppDb();
+	const deleted = await sql<{ app_id: string; connection_id: string }>`
+		WITH expired AS (
+			SELECT app_id, connection_id
+			FROM lookup_stream_capability_leases
+			WHERE expires_at <= pg_catalog.statement_timestamp()
+			ORDER BY expires_at
+			LIMIT ${STREAM_CAPABILITY_PURGE_BATCH_SIZE}
+			FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM lookup_stream_capability_leases AS lease
+		USING expired
+		WHERE lease.app_id = expired.app_id
+			AND lease.connection_id = expired.connection_id
+		RETURNING lease.app_id, lease.connection_id
+	`.execute(db);
+	return deleted.rows.length;
 }
 
 /** Fresh serialized Project/role/capability snapshot for cadence or migration. */

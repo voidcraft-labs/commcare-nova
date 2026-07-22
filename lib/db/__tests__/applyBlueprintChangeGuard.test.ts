@@ -176,6 +176,7 @@ beforeEach(() => {
 			_appId: string,
 			_userId: string,
 			expectedProjectId: string | null,
+			_chatRunHolder: unknown,
 			effect: (
 				tx: never,
 				scope: { projectId: string | null },
@@ -410,12 +411,50 @@ describe("applyBlueprintChange — locked admission before any Postgres DDL", ()
 			"app-1",
 			"user-1",
 			null,
+			undefined,
 			expect.any(Function),
 		);
 		expect(applySchemaChangeMock).not.toHaveBeenCalled();
 		expect(applySchemaChangePhaseAMock).not.toHaveBeenCalled();
 		expect(dropSchemaMock).not.toHaveBeenCalled();
 		expect(unparkValuesMock).not.toHaveBeenCalled();
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
+	});
+
+	it("threads exact chat holder authority into migration admission and stops before Phase A when stale", async () => {
+		const prior = minDoc();
+		const chatRunHolder = {
+			source: "chat" as const,
+			mode: "build" as const,
+			runId: "stale-build",
+		};
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		authorizedSideEffectMock.mockRejectedValue(
+			new BlueprintCommitRejectedError("chat holder changed"),
+		);
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				expectedProjectId: null,
+				priorBlueprint: toPersistableDoc(prior),
+				runId: chatRunHolder.runId,
+				chatRunHolder,
+				batchId: "batch-stale-holder",
+				kind: "chat",
+				guard: { mutations: renameVillageBatch(prior) },
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+
+		expect(authorizedSideEffectMock).toHaveBeenCalledWith(
+			"app-1",
+			"user-1",
+			null,
+			chatRunHolder,
+			expect.any(Function),
+		);
+		expect(applySchemaChangePhaseAMock).not.toHaveBeenCalled();
 		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
 	});
 });
@@ -742,16 +781,23 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 	it("commits locked Phase A before post-commit Phase B and the blueprint", async () => {
 		const order: string[] = [];
 		const prior = minDoc();
+		const chatRunHolder = {
+			source: "chat" as const,
+			mode: "edit" as const,
+			runId: "edit-run-1",
+		};
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		authorizedSideEffectMock.mockImplementation(
 			async (
 				_appId: string,
 				_userId: string,
 				expectedProjectId: string,
+				observedChatRunHolder: unknown,
 				effect: (tx: never, scope: { projectId: string }) => Promise<unknown>,
 			) => {
 				order.push("admission:start");
 				expect(expectedProjectId).toBe("proj-1");
+				expect(observedChatRunHolder).toEqual(chatRunHolder);
 				const value = await effect({} as never, { projectId: "proj-1" });
 				order.push("admission:end");
 				return { projectId: "proj-1", value };
@@ -786,8 +832,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			userId: "user-1",
 			expectedProjectId: "proj-1",
 			priorBlueprint: toPersistableDoc(prior),
+			runId: chatRunHolder.runId,
+			chatRunHolder,
 			batchId: "batch-order",
-			kind: "autosave",
+			kind: "chat",
 			guard: { mutations: renameVillageBatch(prior) },
 		});
 
@@ -804,6 +852,8 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		expect(order.indexOf("phaseB")).toBeLessThan(order.indexOf("commit"));
 		expect(commitGuardedBatchMock.mock.calls[0]?.[0]).toMatchObject({
 			expectedProjectId: "proj-1",
+			runId: chatRunHolder.runId,
+			chatRunHolder,
 			// The migrated pairs ride into the commit's rename gate, which
 			// re-proves them against the FRESH doc pair in-transaction.
 			renameExpectations: [

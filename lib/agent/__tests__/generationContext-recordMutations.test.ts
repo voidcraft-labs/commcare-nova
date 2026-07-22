@@ -110,12 +110,32 @@ describe("GenerationContext.recordMutations", () => {
 		expect(args).toMatchObject({
 			appId: "test-app",
 			runId: "run-1",
+			chatRunHolder: {
+				source: "chat",
+				mode: "build",
+				runId: "run-1",
+			},
 			actorUserId: "user-1",
 			kind: "chat",
 			mutations: [TEXT_FIELD_MUTATION],
 		});
 		// A fresh uuid batchId per commit.
 		expect(args?.batchId).toEqual(expect.any(String));
+	});
+
+	it("derives edit holder authority from editLease instead of the attribution id alone", async () => {
+		ctx = makeTestContext({ editLease: true }).ctx;
+
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+
+		expect(vi.mocked(commitGuardedBatch).mock.calls[0]?.[0]).toMatchObject({
+			runId: "run-1",
+			chatRunHolder: {
+				source: "chat",
+				mode: "edit",
+				runId: "run-1",
+			},
+		});
 	});
 
 	it("routes a rename-carrying batch through the cross-store saga instead of the bare writer", async () => {
@@ -141,6 +161,11 @@ describe("GenerationContext.recordMutations", () => {
 		expect(args).toMatchObject({
 			appId: "test-app",
 			runId: "run-1",
+			chatRunHolder: {
+				source: "chat",
+				mode: "build",
+				runId: "run-1",
+			},
 			userId: "user-1",
 			kind: "chat",
 			guard: { mutations: [rename] },

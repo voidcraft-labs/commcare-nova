@@ -1171,7 +1171,10 @@ below-floor requests receive only the terminal seq-less upgrade revocation.
 Lease timestamps use PostgreSQL statement time after lock wait, teardown
 deletes the exact lease only after disowning the transport, cadence compares the
 captured Project/role/canEdit tuple without re-reading the floor, and migration
-delivery reauthorizes before advancing its cursor. Browser EventSource URL
+delivery reauthorizes before advancing its cursor. Registration also performs a
+separate best-effort purge of at most 256 expired leases through the
+`expires_at` index with `SKIP LOCKED`; purge failure cannot roll back or reject
+the already-decided admission. Browser EventSource URL
 emission remains the separate client wiring commit, so current bundles still
 declare v0 by omission. This foundation does **not** label a revision, change
 traffic, raise a floor, or enable a flag. S02c2 owns the no-traffic candidate,
@@ -1195,6 +1198,21 @@ lock and in SQL. Focused pure/integration tests and the app-DML structural guard
 ship with the slice; execution remains part of the integration/CI verification
 gate. This callsite work also changes no floor, flag, traffic, or production
 state.
+
+Chat blueprint writes now carry an explicit `ChatRunHolderCapability` in
+addition to their durable attribution `runId`; MCP continues to stamp `runId`
+without claiming chat-lease authority. Direct commits check the exact
+`(mode, runId)` under the app lock and repeat it in `writeCommittedBatch`'s SQL
+compare-and-set. Migration-bearing commits check the same capability before
+their locked Phase A; if ownership changes after Phase A, the final guarded
+commit rejects and the existing compensation restores the current committed
+schema/data shape. Every build claim stamps root `run_id` immediately, so a
+successor that emits no mutations still invalidates an older zombie after the
+successor is reaped. The only absent-holder completion remains the existing
+false-reap self-heal: it requires a free error row, a marker that the reaper
+itself cleared, and matching root `run_id`. A pre-settled stale build retains
+`res_run_id`, deliberately does not satisfy that signature, and is not
+self-healable.
 
 SA runs can outlive the browser connection that started them, so request and
 stream bounds alone cannot prove a runtime-reader drain. Every app run holder

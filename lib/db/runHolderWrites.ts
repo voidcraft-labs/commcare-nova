@@ -80,8 +80,10 @@ export function noRunHolderPredicate(): RawBuilder<boolean> {
 }
 
 /** The only absent-holder terminal exception: a falsely reaped build may
- * repair its own error row if the exact reaper signature and last writer still
- * name that build. Any replacement holder makes this predicate false. */
+ * repair its own error row if the exact marker-cleared reaper signature and
+ * latest build claim/writer still name that build. A pre-settled stale marker
+ * retains `res_run_id` and cannot match; any replacement holder or claim changes
+ * the root identity and makes this predicate false. */
 export function expectedReapedBuildCompletionPredicate(
 	runId: string,
 ): RawBuilder<boolean> {
