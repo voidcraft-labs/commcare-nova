@@ -540,7 +540,7 @@ export async function deleteMediaAssetForChatRun(args: {
 			.where("id", "=", args.assetId)
 			.where("project_id", "=", args.expectedProjectId)
 			.executeTakeFirst();
-		return result.numDeletedRows === 1n;
+		return result.numDeletedRows === BigInt(1);
 	});
 }
 

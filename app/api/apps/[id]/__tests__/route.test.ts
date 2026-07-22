@@ -65,6 +65,7 @@ beforeEach(() => {
 			deleted_at: null,
 			recoverable_until: null,
 			run_id: null,
+			run_holder_nonce: null,
 			created_at: new Date("2026-07-22T00:00:00Z"),
 			updated_at: new Date("2026-07-22T00:00:00Z"),
 		},

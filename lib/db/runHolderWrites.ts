@@ -163,5 +163,5 @@ export function expectedReapedBuildCompletionPredicate(
 export function updatedExactlyOne(result: {
 	readonly numUpdatedRows: bigint;
 }): boolean {
-	return result.numUpdatedRows === 1n;
+	return result.numUpdatedRows === BigInt(1);
 }

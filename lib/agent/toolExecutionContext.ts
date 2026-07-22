@@ -77,7 +77,10 @@ export interface ToolExecutionContext {
 		readonly source: "chat";
 		readonly mode: "build" | "edit";
 		readonly runId: string;
-		readonly nonce: string;
+		/** Null only for an admitted legacy v0 holder while nonce enforcement is
+		 * still disabled. Current claims mint a nonce, but the shared tool contract
+		 * must preserve the rollout-compatible capability shape. */
+		readonly nonce: string | null;
 	};
 
 	/**

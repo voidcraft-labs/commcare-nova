@@ -168,5 +168,5 @@ export async function deleteStreamCapabilityLease(
 		.where("app_id", "=", appId)
 		.where("connection_id", "=", connectionId)
 		.executeTakeFirst();
-	return deleted.numDeletedRows > 0n;
+	return deleted.numDeletedRows > BigInt(0);
 }

@@ -121,8 +121,8 @@ describe("exact run-holder write helpers", () => {
 	});
 
 	it("accepts exactly one affected row, never zero or a multi-row write", () => {
-		expect(updatedExactlyOne({ numUpdatedRows: 1n })).toBe(true);
-		expect(updatedExactlyOne({ numUpdatedRows: 0n })).toBe(false);
-		expect(updatedExactlyOne({ numUpdatedRows: 2n })).toBe(false);
+		expect(updatedExactlyOne({ numUpdatedRows: BigInt(1) })).toBe(true);
+		expect(updatedExactlyOne({ numUpdatedRows: BigInt(0) })).toBe(false);
+		expect(updatedExactlyOne({ numUpdatedRows: BigInt(2) })).toBe(false);
 	});
 });

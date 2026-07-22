@@ -219,7 +219,6 @@ describe("stream capability leases", () => {
 		const appId = await seedAuthorizedApp();
 		const createdAt = new Date(Date.now() - 120_000);
 		const expiredAt = new Date(Date.now() - 60_000);
-		const liveConnectionId = crypto.randomUUID();
 		await h
 			.db()
 			.insertInto("lookup_stream_capability_leases")
@@ -232,17 +231,18 @@ describe("stream capability leases", () => {
 				})),
 			)
 			.execute();
-		await h
+		const liveLease = await h
 			.db()
 			.insertInto("lookup_stream_capability_leases")
 			.values({
 				app_id: appId,
-				connection_id: liveConnectionId,
 				receiver_version: 1,
 				created_at: createdAt,
 				expires_at: new Date(Date.now() + 60_000),
 			})
-			.execute();
+			.returning("connection_id")
+			.executeTakeFirstOrThrow();
+		const liveConnectionId = liveLease.connection_id;
 
 		expect(await purgeExpiredStreamCapabilityLeases()).toBe(
 			STREAM_CAPABILITY_PURGE_BATCH_SIZE,

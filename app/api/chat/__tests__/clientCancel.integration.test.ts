@@ -820,7 +820,7 @@ describe("free-continuation resume admission", () => {
 				run_id: RESUME_RUN,
 				active_stream_id: null,
 				active_holder_nonce: null,
-				messages: [],
+				messages: JSON.stringify([]),
 			})
 			.execute();
 
