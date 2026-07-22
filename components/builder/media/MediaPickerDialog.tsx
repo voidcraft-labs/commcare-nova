@@ -70,7 +70,11 @@ import {
 	isDocumentKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
-import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useCanEdit,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	AssetPreviewDialog,
@@ -160,6 +164,10 @@ export interface MediaPickerDialogProps {
 	 * reserved `nova-icon:<slug>` ref, resolved to shared bytes at emit.
 	 */
 	iconLibrary?: IconSlotKind | "all";
+	/** Explicit Project write capability for standalone surfaces that do not
+	 *  mount BuilderSessionProvider. Inside the builder, omit this and the live
+	 *  session capability is authoritative. */
+	canWrite?: boolean;
 }
 
 export function MediaPickerDialog({
@@ -173,8 +181,11 @@ export function MediaPickerDialog({
 	attachedAssetIds,
 	onAssetDeleted,
 	iconLibrary,
+	canWrite: canWriteOverride,
 }: MediaPickerDialogProps) {
 	const accessPhase = useAccessPhase();
+	const sessionCanEdit = useCanEdit();
+	const canWrite = canWriteOverride ?? sessionCanEdit;
 	const scopeEpoch = useProjectScopeEpoch();
 	const previousScopeEpochRef = useRef(scopeEpoch);
 	useEffect(() => {
@@ -204,6 +215,7 @@ export function MediaPickerDialog({
 			>
 				<PickerBody
 					manage={manage}
+					canWrite={canWrite}
 					kinds={kinds}
 					appId={appId}
 					onPick={(asset) => {
@@ -235,6 +247,7 @@ export function MediaPickerDialog({
  *  the library fetch + tab/filter state so none of it runs until open. */
 function PickerBody({
 	manage,
+	canWrite,
 	kinds,
 	appId,
 	onPick,
@@ -245,6 +258,7 @@ function PickerBody({
 	iconLibrary,
 }: {
 	manage: boolean;
+	canWrite: boolean;
 	kinds: readonly AssetKind[];
 	appId?: string;
 	onPick: (asset: MediaAssetView) => void;
@@ -277,6 +291,10 @@ function PickerBody({
 		const current = session.getState();
 		return current.accessPhase === "authorized" && current.scopeEpoch === epoch;
 	};
+	const ownsWritableScope = (epoch = scopeEpoch) => {
+		if (!canWrite || !ownsScope(epoch)) return false;
+		return session ? session.getState().canEdit : true;
+	};
 	// The built-in icons offered: a slot's family (`module`/`form`) for a picker,
 	// the whole set (`all`) for the file manager. Empty → no Icon Library tab.
 	const iconEntries = useMemo<readonly IconCatalogEntry[]>(
@@ -293,7 +311,7 @@ function PickerBody({
 	// opens on the curated Icon Library (the point of the click); any other picker
 	// opens on Upload (you came here to add something to a slot).
 	const [tab, setTab] = useState<Tab>(
-		manage ? "library" : showIcons ? "icons" : "upload",
+		manage || !canWrite ? "library" : showIcons ? "icons" : "upload",
 	);
 	// A multi-kind slot gets a browse filter (defaulting to "all"); a
 	// single-kind slot is pinned to its one kind with no filter UI.
@@ -309,10 +327,16 @@ function PickerBody({
 			: `Attach ${ASSET_KIND_META[kinds[0]].label.toLowerCase()}`;
 	const { nounPhrase } = describeKinds(kinds);
 	const description = manage
-		? "Upload, preview, or remove files in this project"
+		? canWrite
+			? "Upload, preview, or remove files in this project"
+			: "Preview files in this project"
 		: showIcons
-			? "Choose an icon, upload an image, or use a file you already added"
-			: `Choose a file you already added, or upload ${nounPhrase}`;
+			? canWrite
+				? "Choose an icon, upload an image, or use a file you already added"
+				: "Preview icons and files in this project"
+			: canWrite
+				? `Choose a file you already added, or upload ${nounPhrase}`
+				: "Preview files in this project";
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
@@ -347,7 +371,7 @@ function PickerBody({
 	}, [assets, onAssetsLoaded]);
 
 	const commit = (asset: MediaAssetView) => {
-		if (!ownsScope()) return;
+		if (!ownsWritableScope()) return;
 		addUploaded(asset);
 		onPick(asset);
 	};
@@ -378,7 +402,7 @@ function PickerBody({
 	const pickIcon = (entry: IconCatalogEntry) => {
 		if (!ownsScope()) return;
 		const asset = builtinIconAssetView(entry);
-		if (manage) openPreview(asset);
+		if (manage || !ownsWritableScope()) openPreview(asset);
 		else onPick(asset);
 	};
 
@@ -389,7 +413,7 @@ function PickerBody({
 	// and then vanish on the next fetch; "all" keeps it in scope (and is the
 	// natural "here's everything you have" post-upload view).
 	const onManagedUpload = (asset: MediaAssetView) => {
-		if (!ownsScope()) return;
+		if (!ownsWritableScope()) return;
 		addUploaded(asset);
 		setFilter("all");
 		setQuery("");
@@ -401,9 +425,17 @@ function PickerBody({
 	// controls while the request is in flight.
 	const [deleteTarget, setDeleteTarget] = useState<MediaAssetView | null>(null);
 	const [deleting, setDeleting] = useState(false);
+	useEffect(() => {
+		if (canWrite) return;
+		deleteControllerRef.current?.abort();
+		deleteControllerRef.current = null;
+		setDeleteTarget(null);
+		setDeleting(false);
+		if (tab === "upload") setTab("library");
+	}, [canWrite, tab]);
 
 	const confirmDelete = async () => {
-		if (!deleteTarget || !ownsScope()) return;
+		if (!deleteTarget || !ownsWritableScope()) return;
 		const deleteScopeEpoch = session?.getState().scopeEpoch ?? scopeEpoch;
 		const asset = deleteTarget;
 		const name = asset.displayName ?? asset.originalFilename;
@@ -413,7 +445,7 @@ function PickerBody({
 		setDeleting(true);
 		try {
 			await deleteMediaAsset(asset.id, controller.signal);
-			if (!ownsScope(deleteScopeEpoch)) return;
+			if (!ownsWritableScope(deleteScopeEpoch)) return;
 			removeAsset(asset.id);
 			// Pull any staged reference to the now-gone asset (e.g. the chat
 			// composer's chip). A no-op for a caller that wasn't staging it.
@@ -422,7 +454,7 @@ function PickerBody({
 			setDeleteTarget(null);
 		} catch (err) {
 			if (controller.signal.aborted) return;
-			if (!ownsScope(deleteScopeEpoch)) return;
+			if (!ownsWritableScope(deleteScopeEpoch)) return;
 			// A 409 (still referenced by one of your apps) or any failure: tell the
 			// user WHY — the message names the carriers — and leave the asset.
 			projectToast(
@@ -435,7 +467,7 @@ function PickerBody({
 			if (deleteControllerRef.current === controller) {
 				deleteControllerRef.current = null;
 			}
-			if (ownsScope(deleteScopeEpoch)) setDeleting(false);
+			if (ownsWritableScope(deleteScopeEpoch)) setDeleting(false);
 		}
 	};
 
@@ -474,9 +506,11 @@ function PickerBody({
 							Icons
 						</TabsTrigger>
 					)}
-					<TabsTrigger value="upload" className="min-h-11 flex-none px-3">
-						Upload
-					</TabsTrigger>
+					{canWrite && (
+						<TabsTrigger value="upload" className="min-h-11 flex-none px-3">
+							Upload
+						</TabsTrigger>
+					)}
 					<TabsTrigger value="library" className="min-h-11 flex-none px-3">
 						Library
 					</TabsTrigger>
@@ -490,26 +524,29 @@ function PickerBody({
 						<IconLibraryTab
 							icons={iconEntries}
 							onPickIcon={pickIcon}
-							primaryAction={manage ? "Preview" : "Choose"}
+							primaryAction={manage || !canWrite ? "Preview" : "Choose"}
 						/>
 					</TabsContent>
 				)}
-				<TabsContent
-					value="upload"
-					className="min-h-0 overflow-y-auto overscroll-contain p-5"
-				>
-					<UploadTab
-						kinds={kinds}
-						onUploaded={manage ? onManagedUpload : commit}
-						onUploadStart={onUploadStart}
-						appId={appId}
-					/>
-				</TabsContent>
+				{canWrite && (
+					<TabsContent
+						value="upload"
+						className="min-h-0 overflow-y-auto overscroll-contain p-5"
+					>
+						<UploadTab
+							kinds={kinds}
+							onUploaded={manage ? onManagedUpload : commit}
+							onUploadStart={onUploadStart}
+							appId={appId}
+						/>
+					</TabsContent>
+				)}
 				<TabsContent
 					value="library"
 					className="min-h-0 overflow-y-auto overscroll-contain p-5"
 				>
 					<LibraryTab
+						canWrite={canWrite}
 						assets={assets}
 						query={query}
 						onQueryChange={setQuery}
@@ -519,13 +556,13 @@ function PickerBody({
 						loadMore={loadMore}
 						retry={retry}
 						onUpload={() => setTab("upload")}
-						primaryAction={manage ? "Preview" : "Choose"}
+						primaryAction={manage || !canWrite ? "Preview" : "Choose"}
 						// In the manager a click previews (nothing to pick into); in a
 						// picker it commits the choice and closes.
-						onPick={manage ? openPreview : commit}
+						onPick={manage || !canWrite ? openPreview : commit}
 						onPreview={openPreview}
 						onDelete={(asset) => {
-							if (ownsScope()) setDeleteTarget(asset);
+							if (ownsWritableScope()) setDeleteTarget(asset);
 						}}
 						// Fold a freshly completed extract into the list so a preview
 						// opened right after upload shows its title/summary without
@@ -773,6 +810,7 @@ function UploadTab({
 }
 
 function LibraryTab({
+	canWrite,
 	assets,
 	query,
 	onQueryChange,
@@ -791,6 +829,7 @@ function LibraryTab({
 	kinds,
 	onFilterChange,
 }: {
+	canWrite: boolean;
 	assets: MediaAssetView[];
 	/** Search text sent to the server before pagination. */
 	query: string;
@@ -911,10 +950,24 @@ function LibraryTab({
 					description={
 						normalizedQuery
 							? "Try a different name or clear your search"
-							: "Upload a file to use it here"
+							: canWrite
+								? "Upload a file to use it here"
+								: "Files added by Project editors appear here"
 					}
-					action={normalizedQuery ? "Clear search" : "Upload file"}
-					onAction={normalizedQuery ? () => onQueryChange("") : onUpload}
+					action={
+						normalizedQuery
+							? "Clear search"
+							: canWrite
+								? "Upload file"
+								: undefined
+					}
+					onAction={
+						normalizedQuery
+							? () => onQueryChange("")
+							: canWrite
+								? onUpload
+								: undefined
+					}
 				/>
 			) : (
 				<ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -982,18 +1035,20 @@ function LibraryTab({
 									 *  top-left so it doesn't collide with the preview
 									 *  affordance. Opens a confirmation before removing the
 									 *  asset from the library. */}
-									<SimpleTooltip content="Delete">
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon"
-											onClick={() => onDelete(asset)}
-											aria-label={`Delete ${fileName}`}
-											className="pointer-events-none absolute top-1 left-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-										>
-											<Icon icon={tablerTrash} className="size-4" />
-										</Button>
-									</SimpleTooltip>
+									{canWrite && (
+										<SimpleTooltip content="Delete">
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												onClick={() => onDelete(asset)}
+												aria-label={`Delete ${fileName}`}
+												className="pointer-events-none absolute top-1 left-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 not-disabled:hover:text-nova-rose group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+											>
+												<Icon icon={tablerTrash} className="size-4" />
+											</Button>
+										</SimpleTooltip>
+									)}
 									{/* Extraction indicator for documents — a sibling of the
 									 *  pick button (not nested), so the failed-state retry
 									 *  control isn't interactive content inside a button.
@@ -1002,6 +1057,7 @@ function LibraryTab({
 										<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
 											<ExtractionStatusBadge
 												asset={asset}
+												canExtract={canWrite}
 												onExtracted={(extract) =>
 													onExtracted(asset.id, extract)
 												}
@@ -1082,8 +1138,8 @@ function LibraryState({
 }: {
 	title: string;
 	description: string;
-	action: string;
-	onAction: () => void;
+	action?: string;
+	onAction?: () => void;
 	error?: boolean;
 }) {
 	return (
@@ -1095,14 +1151,16 @@ function LibraryState({
 				<p className="text-base font-medium text-nova-text">{title}</p>
 				<p className="text-[13px] text-nova-text-secondary">{description}</p>
 			</div>
-			<Button
-				type="button"
-				variant="outline"
-				className="h-11 px-4"
-				onClick={onAction}
-			>
-				{action}
-			</Button>
+			{action && onAction ? (
+				<Button
+					type="button"
+					variant="outline"
+					className="h-11 px-4"
+					onClick={onAction}
+				>
+					{action}
+				</Button>
+			) : null}
 		</div>
 	);
 }

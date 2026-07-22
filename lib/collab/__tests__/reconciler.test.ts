@@ -906,6 +906,91 @@ describe("reconciler", () => {
 				{ kind: "setAppName", name: "Waiting unbatched edit" },
 			]);
 		});
+
+		it("reports viewer-to-editor recovery through the current save observer", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			const signals: SaveSignal[] = [];
+			h.reconciler.registerSaveObserver((signal) => signals.push(signal), 0);
+
+			/* The edit is still human-uncommitted when a viewer snapshot lands, so
+			 * there is no batch-local observer for recovery to reuse. */
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Recovered edit" }]);
+			h.reloadQueue.push({
+				blueprint: base,
+				seq: 0,
+				role: "viewer",
+				canEdit: false,
+			});
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(h.puts).toHaveLength(0);
+
+			h.reloadQueue.push({ blueprint: base, seq: 0 });
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(h.puts).toHaveLength(1);
+			expect(signals).toContainEqual({ kind: "saving" });
+		});
+
+		it("retargets a preserved pending batch to the current-epoch observer", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			const oldSignals: SaveSignal[] = [];
+			h.reconciler.registerSaveObserver((signal) => oldSignals.push(signal), 0);
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Waiting edit" }]);
+			h.reconciler.dispatchHumanBatch();
+			h.reloadQueue.push({
+				blueprint: base,
+				seq: 0,
+				role: "viewer",
+				canEdit: false,
+			});
+			await h.resolvePut(0, { ok: false, kind: "reauth" });
+
+			/* Scope advance remounts the scoped-toast closure. The old pending batch
+			 * must now report its re-send and failure through this observer. */
+			const currentSignals: SaveSignal[] = [];
+			h.reconciler.registerSaveObserver(
+				(signal) => currentSignals.push(signal),
+				1,
+			);
+			const lateStaleSignals: SaveSignal[] = [];
+			h.reconciler.registerSaveObserver(
+				(signal) => lateStaleSignals.push(signal),
+				0,
+			);
+			h.reloadQueue.push({ blueprint: base, seq: 0 });
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(h.puts).toHaveLength(2);
+
+			await h.resolvePut(1, { ok: false, kind: "network" });
+			expect(currentSignals).toEqual([{ kind: "saving" }, { kind: "error" }]);
+			expect(lateStaleSignals).toEqual([]);
+			expect(oldSignals.at(-1)).toEqual({ kind: "accessChanged" });
+		});
 	});
 
 	// ── Reload drop rules ───────────────────────────────────────────────

@@ -155,13 +155,16 @@ describe("BuilderHeader responsive actions", () => {
 		view.rerender(<BuilderHeader {...props} />);
 		expect(screen.getByTestId("save-status")).toBe(saveOwner);
 		expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Account menu" })).toBeNull();
 
 		mocks.accessPhase = "reconnecting";
 		view.rerender(<BuilderHeader {...props} />);
 		expect(screen.getByTestId("save-status")).toBe(saveOwner);
+		expect(screen.queryByRole("button", { name: "Account menu" })).toBeNull();
 
 		mocks.accessPhase = "authorized";
 		view.rerender(<BuilderHeader {...props} />);
 		expect(screen.getByTestId("save-status")).toBe(saveOwner);
+		expect(screen.getByRole("button", { name: "Account menu" })).toBeTruthy();
 	});
 });

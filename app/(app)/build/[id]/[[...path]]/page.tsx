@@ -30,15 +30,14 @@
 import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
-import { getSession } from "@/lib/auth-utils";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
 	AppAccessError,
 	resolveAuthorizedAppSnapshot,
+	resolveProjectAccess,
 } from "@/lib/db/appAccess";
-import {
-	type CommCareSettingsPublic,
-	getCommCareSettings,
-} from "@/lib/db/settings";
+import { getCommCareSettings } from "@/lib/db/settings";
 import {
 	type LoadedThread,
 	type LoadedThreadMeta,
@@ -56,23 +55,39 @@ export default async function BuilderPage({
 	const { id } = await params;
 
 	const session = await getSession();
-	const commcareSettings = session
-		? await getCommCareSettings(session.user.id)
-		: ({ configured: false } satisfies CommCareSettingsPublic);
+	if (!session) redirect("/");
+	const commcareSettings = await getCommCareSettings(session.user.id);
 
 	/* During impersonation, session.user is the target — surface their
 	 * identity so BuilderHeader shows the banner, mirroring the site
 	 * header in `(site)/layout.tsx`. */
-	const impersonating = session?.session?.impersonatedBy
+	const impersonating = session.session.impersonatedBy
 		? { userName: session.user.name, userEmail: session.user.email }
 		: null;
 
-	/* New apps — no blueprint fetch needed. The reconciler mounts dormant
-	 * (no appId yet) and activates when the run mints one via `data-app-id`;
-	 * still pass the user id so echo classification works once it activates. */
+	/* New apps have no blueprint/cursor yet, but they DO have a Project
+	 * authority: creation targets the active Project. Resolve that role on the
+	 * server and seed `{ baseSeq: 0 }` so a viewer's first client frame is
+	 * truthfully read-only instead of defaulting to editor until the write route
+	 * refuses them. The reconciler remains dormant until `data-app-id`. */
 	if (id === "new") {
+		const projectId = await resolveActiveProjectId(session);
+		const access = await resolveProjectAccess(
+			session.user.id,
+			projectId,
+			"view",
+		);
 		return (
-			<BuilderProvider buildId={id} userId={session?.user.id}>
+			<BuilderProvider
+				buildId={id}
+				userId={session.user.id}
+				initialAccess={{
+					projectId,
+					role: access.role,
+					canEdit: roleAllowsApp(access.role, "edit"),
+					baseSeq: 0,
+				}}
+			>
 				<BuilderLayout
 					commcareSettings={commcareSettings}
 					impersonating={impersonating}
@@ -80,8 +95,6 @@ export default async function BuilderPage({
 			</BuilderProvider>
 		);
 	}
-
-	if (!session) redirect("/");
 
 	/* Project-membership gate (view) — any member may open the builder; edit
 	 * is enforced at the write paths (PUT / chat / MCP). Denials collapse to

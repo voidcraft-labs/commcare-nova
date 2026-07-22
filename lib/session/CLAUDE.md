@@ -34,7 +34,9 @@ Run-boundary actions are orthogonal and atomic:
 
 BuilderSession is the one client owner of `{projectId, role, canEdit,
 accessPhase, scopeEpoch}`. Existing apps seed the first four values from the
-RSC's atomic snapshot; `baseSeq` stays with the reconciler. `beginAccessRefresh`
+RSC's atomic app snapshot; `/build/new` seeds them from the active Project's
+role with `baseSeq: 0` while its reconciler stays dormant. `baseSeq` otherwise
+stays with the reconciler. `beginAccessRefresh`
 atomically sets `canEdit=false`, enters `refreshing`, and advances the monotonic
 scope epoch once; repeated triggers coalesce. A failed GET moves to
 `reconnecting` without reopening edits. Only an atomic authorized snapshot can

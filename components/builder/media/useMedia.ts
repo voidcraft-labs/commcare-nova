@@ -15,7 +15,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { AssetKind } from "@/lib/domain/multimedia";
-import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useCanEdit,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	fetchMediaLibrary,
@@ -39,6 +43,7 @@ export function useMediaUpload(appId?: string): UseMediaUpload {
 	const [status, setStatus] = useState<MediaUploadStatus>({ state: "idle" });
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
+	const canEdit = useCanEdit();
 	const session = useOptionalBuilderSessionApi();
 	const reconciler = useReconcilerContext();
 	const activeUploadRef = useRef<AbortController | null>(null);
@@ -63,20 +68,23 @@ export function useMediaUpload(appId?: string): UseMediaUpload {
 			const start = session?.getState();
 			if (
 				start
-					? start.accessPhase !== "authorized"
-					: accessPhase !== "authorized"
+					? start.accessPhase !== "authorized" || !start.canEdit
+					: accessPhase !== "authorized" || !canEdit
 			)
 				return null;
 			const uploadScopeEpoch = start?.scopeEpoch ?? scopeEpoch;
 			const isCurrent = () => {
 				if (!session) {
 					return (
-						accessPhase === "authorized" && scopeEpoch === uploadScopeEpoch
+						accessPhase === "authorized" &&
+						canEdit &&
+						scopeEpoch === uploadScopeEpoch
 					);
 				}
 				const current = session.getState();
 				return (
 					current.accessPhase === "authorized" &&
+					current.canEdit &&
 					current.scopeEpoch === uploadScopeEpoch
 				);
 			};
@@ -112,7 +120,7 @@ export function useMediaUpload(appId?: string): UseMediaUpload {
 				}
 			}
 		},
-		[accessPhase, appId, scopeEpoch, session],
+		[accessPhase, appId, canEdit, scopeEpoch, session],
 	);
 
 	return { upload, status };

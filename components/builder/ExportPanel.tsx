@@ -29,6 +29,7 @@ import { ExportDropdown } from "@/components/ui/ExportDropdown";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
@@ -144,6 +145,7 @@ export const ExportPanel = memo(function ExportPanel({
 }: ExportPanelProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const session = useBuilderSessionApi();
+	const canEdit = useCanEdit();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -275,7 +277,8 @@ export const ExportPanel = memo(function ExportPanel({
 	 * UploadToHqDialog re-rendering from props=['onClose'] on every
 	 * BuilderSubheader hook change). */
 	const handleOpenUpload = useCallback(() => {
-		if (session.getState().accessPhase === "authorized") {
+		const current = session.getState();
+		if (current.accessPhase === "authorized" && current.canEdit) {
 			setUploadDialogOpen(true);
 		}
 	}, [session]);
@@ -286,6 +289,7 @@ export const ExportPanel = memo(function ExportPanel({
 			<ExportDropdown
 				options={exportOptions}
 				commcareConfigured={commcareConfigured}
+				canUploadToHq={canEdit}
 				onCommCareUpload={handleOpenUpload}
 			/>
 			{/* Dialog stays mounted for Base UI exit animations. Stable onClose

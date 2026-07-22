@@ -16,7 +16,8 @@ interface DeletedAppCardProps {
 	app: DeletedAppSummary;
 	/** Animation stagger index. */
 	index: number;
-	onRestore: (appId: string) => Promise<RestoreResult>;
+	/** Omitted for members without the Project's app-delete capability. */
+	onRestore?: (appId: string) => Promise<RestoreResult>;
 }
 
 /**
@@ -30,9 +31,10 @@ interface DeletedAppCardProps {
  *
  * Other deliberate differences from `AppCard`:
  *
- *   - The right-side action is a single-click Restore button, no
- *     confirmation, since restore is non-destructive (it only clears
- *     the soft-delete marker; nothing is overwritten or lost).
+ *   - Members with the app-delete capability get a single-click Restore
+ *     button, with no confirmation since restore is non-destructive (it only
+ *     clears the soft-delete marker; nothing is overwritten or lost). Other
+ *     members retain read access to the recovery history without the action.
  *   - The card is never a `<Link>` — deleted apps aren't navigable.
  *     Opening one would bypass the recovery affordance and land the
  *     user in a builder for an app the system considers gone.
@@ -57,6 +59,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 	const isUrgent = recoverableUntil.getTime() - Date.now() <= 7 * 86_400_000;
 
 	const handleRestore = async () => {
+		if (!onRestore) return;
 		setState({ type: "restoring" });
 		try {
 			const result = await onRestore(app.id);
@@ -141,7 +144,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 								/>
 								Restoring…
 							</span>
-						) : (
+						) : onRestore ? (
 							<button
 								type="button"
 								onClick={() => void handleRestore()}
@@ -150,7 +153,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 								<Icon icon={tablerArrowBackUp} width="14" height="14" />
 								Restore
 							</button>
-						)}
+						) : null}
 					</div>
 				</div>
 			</div>

@@ -5,7 +5,9 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { resolveProjectAccess } from "@/lib/db/appAccess";
 import { projectHasApps } from "@/lib/db/apps";
 import { listIncomingInvitations } from "@/lib/projects/membership";
 import { AppList } from "./app-list";
@@ -25,8 +27,8 @@ interface HomePageProps {
  *    carries `?error=…` (set by Better Auth when an OAuth attempt is
  *    rejected), the message is forwarded to the landing page so it can
  *    render an inline banner.
- * 2. Authenticated, no apps → Get-started prompt (rendered immediately,
- *    no Suspense skeleton) linking to `/build/new`.
+ * 2. Authenticated, no apps → role-aware empty state (rendered immediately,
+ *    no Suspense skeleton). Editors may start `/build/new`; viewers see who can.
  * 3. Authenticated, has apps → App list skeleton streams via Suspense
  *    while the active + recently-deleted lists load from Postgres.
  *    The active/deleted toggle lives in the client island below the
@@ -49,7 +51,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		resolveActiveProjectId(session),
 		listIncomingInvitations(session.user.email, new Date()),
 	]);
-	const hasApps = await projectHasApps(activeProjectId);
+	const [hasApps, activeAccess] = await Promise.all([
+		projectHasApps(activeProjectId),
+		resolveProjectAccess(session.user.id, activeProjectId, "view"),
+	]);
+	const canCreateApp = roleAllowsApp(activeAccess.role, "edit");
 	const inviteCount = incoming.length;
 
 	if (!hasApps) {
@@ -60,7 +66,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 						<InvitationsBanner count={inviteCount} />
 					</div>
 				)}
-				<GetStarted />
+				<GetStarted canCreateApp={canCreateApp} />
 			</main>
 		);
 	}
@@ -107,24 +113,28 @@ function InvitationsBanner({ count }: { count: number }) {
 // ── First-time experience ─────────────────────────────────────────────
 
 /** Shown when an authenticated user has no apps yet. */
-function GetStarted() {
+function GetStarted({ canCreateApp }: { canCreateApp: boolean }) {
 	return (
 		<div className="flex flex-col items-center text-center">
 			<h1 className="text-3xl font-display font-semibold mb-3">
-				Build your first app
+				{canCreateApp ? "Build your first app" : "No apps yet"}
 			</h1>
 			<p className="text-nova-text-muted mb-8 max-w-md">
-				Describe what you need and Nova will generate a CommCare app for you.
+				{canCreateApp
+					? "Describe what you need and Nova will generate a CommCare app for you."
+					: "Someone with edit access can create the first app in this Project."}
 			</p>
-			<Button
-				render={<Link href="/build/new" />}
-				nativeButton={false}
-				size="xl"
-				className="shadow-[var(--nova-glow-violet)]"
-			>
-				<Icon icon={tablerSparkles} width="16" height="16" />
-				Get Started
-			</Button>
+			{canCreateApp ? (
+				<Button
+					render={<Link href="/build/new" />}
+					nativeButton={false}
+					size="xl"
+					className="shadow-[var(--nova-glow-violet)]"
+				>
+					<Icon icon={tablerSparkles} width="16" height="16" />
+					Get Started
+				</Button>
+			) : null}
 		</div>
 	);
 }

@@ -79,8 +79,9 @@ export function BuilderProvider({
 	 *  in the provider so the first render sees populated entities. Persisted
 	 *  as the normalized `BlueprintDoc` shape directly. */
 	initialDoc?: PersistableDoc;
-	/** Atomic Project capability + cursor snapshot. Omitted for a new build,
-	 *  whose reconciler is dormant until creation. */
+	/** Atomic Project capability + cursor snapshot. A new build receives its
+	 *  active-Project role with `baseSeq: 0`; its reconciler is still dormant
+	 *  until creation. */
 	initialAccess?: InitialBuilderAccess;
 	/** The session user id — the reconciler's echo classification keys on it. */
 	userId?: string;
@@ -128,7 +129,10 @@ function BuilderProviderInner({
 		appId: buildId === "new" ? undefined : buildId,
 		projectId: initialAccess?.projectId,
 		role: initialAccess?.role,
-		canEdit: initialAccess?.canEdit ?? true,
+		/* Every production route supplies its server-resolved access tuple. Keep
+		 * missing test/embedding data fail-closed instead of manufacturing edit
+		 * authority on the client. */
+		canEdit: initialAccess?.canEdit ?? false,
 	}))[0];
 
 	/* The builder provider stack below the two stores, wrapped in

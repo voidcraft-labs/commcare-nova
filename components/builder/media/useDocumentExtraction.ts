@@ -64,6 +64,9 @@ export function useDocumentExtraction(
 	 *  absent, the hook owns a per-mount controller and aborts on unmount (the
 	 *  file-manager case, where the read should stop when its row goes). */
 	abortSignal?: AbortSignal,
+	/** Whether this surface may start/poll/retry the Project-scoped extraction.
+	 *  View-only file browsers pass false but may still display stored status. */
+	enabled = true,
 ): DocumentExtraction {
 	const reconciler = useReconcilerContext();
 	const isDoc = isDocumentKind(asset.kind);
@@ -90,14 +93,15 @@ export function useDocumentExtraction(
 	// way `cancelledRef` stops OUR state writes once this instance is gone.
 	const abortRef = useRef<AbortController | undefined>(undefined);
 	useEffect(() => {
-		cancelledRef.current = false;
-		if (!abortSignal) abortRef.current = new AbortController();
+		cancelledRef.current = !enabled;
+		if (enabled && !abortSignal) abortRef.current = new AbortController();
 		return () => {
 			cancelledRef.current = true;
 			abortRef.current?.abort();
+			abortRef.current = undefined;
 			clearTimeout(pollTimerRef.current);
 		};
-	}, [abortSignal]);
+	}, [abortSignal, enabled]);
 	useEffect(
 		() =>
 			reconciler?.subscribeProjectScopeReset(() => {
@@ -121,6 +125,7 @@ export function useDocumentExtraction(
 	 * spinning rather than polling indefinitely.
 	 */
 	const poll = useCallback(() => {
+		if (!enabled) return;
 		triggerAssetExtraction(asset.id, {
 			signal: abortSignal ?? abortRef.current?.signal,
 			onProgress: (delta) => onProgressRef.current?.(delta),
@@ -139,14 +144,15 @@ export function useDocumentExtraction(
 				pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
 			}
 		});
-	}, [asset.id, abortSignal]);
+	}, [asset.id, abortSignal, enabled]);
 
 	const run = useCallback(() => {
+		if (!enabled) return;
 		clearTimeout(pollTimerRef.current);
 		pollCountRef.current = 0;
 		setStatus("extracting");
 		poll();
-	}, [poll]);
+	}, [enabled, poll]);
 
 	// Decide the once-per-mount action for a document. `ready`/`failed` are
 	// TERMINAL stored states — show them and do nothing (a failed doc must NOT
@@ -156,7 +162,7 @@ export function useDocumentExtraction(
 	// fresh run. Only a never-attempted document kicks off extraction here.
 	const triggeredRef = useRef(false);
 	useEffect(() => {
-		if (!isDoc || triggeredRef.current) return;
+		if (!enabled || !isDoc || triggeredRef.current) return;
 		triggeredRef.current = true;
 		const stored = asset.extract?.status;
 		if (stored === "ready" || stored === "failed") {
@@ -169,7 +175,7 @@ export function useDocumentExtraction(
 			return;
 		}
 		run();
-	}, [isDoc, asset.extract?.status, run, poll]);
+	}, [enabled, isDoc, asset.extract?.status, run, poll]);
 
 	return { status, retry: run };
 }

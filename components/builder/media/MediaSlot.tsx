@@ -61,6 +61,7 @@ import {
 } from "@/lib/domain/multimedia";
 import {
 	useAppId,
+	useCanEdit,
 	useProjectScopeEpoch,
 	useStagedUpload,
 	useStagedUploadsFor,
@@ -146,6 +147,7 @@ export function MediaSlot({
 	const [picker, setPicker] = useState<PickerState>({ open: false, kinds });
 	const staged = useStagedUploadsFor(slotKey);
 	const session = useBuilderSessionApi();
+	const canEdit = useCanEdit();
 	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
@@ -180,8 +182,15 @@ export function MediaSlot({
 					key={kind}
 					kind={kind}
 					assetId={value?.[kind] as string}
-					onReplace={() => setPicker({ open: true, kinds: [kind] })}
-					onRemove={() => onChange(clearMediaSlot(value, kind))}
+					editable={canEdit}
+					onReplace={() => {
+						if (session.getState().canEdit)
+							setPicker({ open: true, kinds: [kind] });
+					}}
+					onRemove={() => {
+						if (session.getState().canEdit)
+							onChange(clearMediaSlot(value, kind));
+					}}
 				/>
 			))}
 			{stagedKinds.map((kind) => {
@@ -197,7 +206,7 @@ export function MediaSlot({
 					/>
 				);
 			})}
-			{!allBusy && (
+			{canEdit && !allBusy && (
 				<AttachButton
 					// Once something is attached, the control adds another kind
 					// rather than the first — "Add" reads truer than a second
@@ -223,13 +232,14 @@ export function MediaSlot({
 					if (!isMediaKind(asset.kind)) return;
 					const kind = asset.kind;
 					const start = session.getState();
-					if (start.accessPhase !== "authorized") return;
+					if (start.accessPhase !== "authorized" || !start.canEdit) return;
 					const pickScopeEpoch = start.scopeEpoch;
 					void checkAttachBudget(asset).then((verdict) => {
 						const current = session.getState();
 						if (
 							current.scopeEpoch !== pickScopeEpoch ||
-							current.accessPhase !== "authorized"
+							current.accessPhase !== "authorized" ||
+							!current.canEdit
 						)
 							return;
 						if (!verdict.ok) {
@@ -301,6 +311,7 @@ export function SingleAssetSlot({
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const staged = useStagedUpload(slotKey);
 	const session = useBuilderSessionApi();
+	const canEdit = useCanEdit();
 	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
@@ -324,8 +335,13 @@ export function SingleAssetSlot({
 				<AssetChip
 					kind={kind}
 					assetId={value}
-					onReplace={() => setPickerOpen(true)}
-					onRemove={() => onChange(undefined)}
+					editable={canEdit}
+					onReplace={() => {
+						if (session.getState().canEdit) setPickerOpen(true);
+					}}
+					onRemove={() => {
+						if (session.getState().canEdit) onChange(undefined);
+					}}
 				/>
 			)}
 			{staged && (
@@ -335,7 +351,7 @@ export function SingleAssetSlot({
 					onDismiss={() => session.getState().clearStagedUpload(slotKey)}
 				/>
 			)}
-			{!value && !staged && (
+			{canEdit && !value && !staged && (
 				<AttachButton label="Attach" onClick={() => setPickerOpen(true)} />
 			)}
 			<MediaPickerDialog
@@ -350,13 +366,14 @@ export function SingleAssetSlot({
 				// already closed).
 				onPick={(asset) => {
 					const start = session.getState();
-					if (start.accessPhase !== "authorized") return;
+					if (start.accessPhase !== "authorized" || !start.canEdit) return;
 					const pickScopeEpoch = start.scopeEpoch;
 					void checkAttachBudget(asset).then((verdict) => {
 						const current = session.getState();
 						if (
 							current.scopeEpoch !== pickScopeEpoch ||
-							current.accessPhase !== "authorized"
+							current.accessPhase !== "authorized" ||
+							!current.canEdit
 						)
 							return;
 						if (!verdict.ok) {
@@ -488,11 +505,13 @@ export function StagedUploadChip({
 function AssetChip({
 	kind,
 	assetId,
+	editable,
 	onReplace,
 	onRemove,
 }: {
 	kind: MediaKind;
 	assetId: string;
+	editable: boolean;
 	onReplace: () => void;
 	onRemove: () => void;
 }) {
@@ -524,30 +543,34 @@ function AssetChip({
 				</PopoverContent>
 			</Popover>
 
-			<SimpleTooltip content={`Replace ${noun}`}>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					onClick={onReplace}
-					aria-label={`Replace ${noun}`}
-					className="size-11 text-nova-text-muted"
-				>
-					<Icon icon={tablerReplace} className="size-4" />
-				</Button>
-			</SimpleTooltip>
-			<SimpleTooltip content={`Remove ${noun}`}>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					onClick={onRemove}
-					aria-label={`Remove ${noun}`}
-					className="size-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
-				>
-					<Icon icon={tablerTrash} className="size-4" />
-				</Button>
-			</SimpleTooltip>
+			{editable && (
+				<>
+					<SimpleTooltip content={`Replace ${noun}`}>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={onReplace}
+							aria-label={`Replace ${noun}`}
+							className="size-11 text-nova-text-muted"
+						>
+							<Icon icon={tablerReplace} className="size-4" />
+						</Button>
+					</SimpleTooltip>
+					<SimpleTooltip content={`Remove ${noun}`}>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={onRemove}
+							aria-label={`Remove ${noun}`}
+							className="size-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
+						>
+							<Icon icon={tablerTrash} className="size-4" />
+						</Button>
+					</SimpleTooltip>
+				</>
+			)}
 		</div>
 	);
 }

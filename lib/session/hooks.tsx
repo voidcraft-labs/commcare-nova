@@ -340,11 +340,12 @@ export function useIsLoading(): boolean {
  * never written, so every fallback consumer shares one stable, editable store. */
 const FALLBACK_SESSION_STORE = createBuilderSessionStore();
 
-/** Whether this session's user may edit the app — `true` for new builds and
- *  for editor/admin/owner Project members, `false` for viewers. Drives the
- *  read-only builder experience: every edit affordance hides or disables on
- *  `false`, and `useAutoSave` refuses to PUT, so a viewer's stray local
- *  change never reaches the server (which would reject the write as a 404).
+/** Whether this session's user may edit the app — `true` for
+ *  editor/admin/owner Project members (including a role-seeded new build),
+ *  `false` for viewers. Drives the read-only builder experience: every edit
+ *  affordance hides or disables on `false`, and `useAutoSave` refuses to PUT,
+ *  so a viewer's stray local change never reaches the server (which would
+ *  reject the write as a 404).
  *
  *  Provider-optional: a builder leaf rendered outside a `BuilderSessionProvider`
  *  (a standalone preview, a unit test) reads `true` from the fallback rather

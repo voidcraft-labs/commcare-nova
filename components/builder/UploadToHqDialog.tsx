@@ -41,7 +41,7 @@ import {
 } from "@/components/shadcn/select";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
-import { useAccessPhase } from "@/lib/session/hooks";
+import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { describeApiFailure } from "@/lib/ui/apiFailure";
 
@@ -84,6 +84,7 @@ export function UploadToHqDialog({
 	availableDomains,
 }: UploadToHqDialogProps) {
 	const accessPhase = useAccessPhase();
+	const canEdit = useCanEdit();
 	const session = useBuilderSessionApi();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
@@ -156,12 +157,13 @@ export function UploadToHqDialog({
 	const handleUpload = useCallback(async () => {
 		if (!selectedDomain || !appName.trim()) return;
 		const start = session.getState();
-		if (start.accessPhase !== "authorized") return;
+		if (start.accessPhase !== "authorized" || !start.canEdit) return;
 		const uploadScopeEpoch = start.scopeEpoch;
 		const isCurrent = () => {
 			const current = session.getState();
 			return (
 				current.accessPhase === "authorized" &&
+				current.canEdit &&
 				current.scopeEpoch === uploadScopeEpoch
 			);
 		};
@@ -236,12 +238,13 @@ export function UploadToHqDialog({
 
 	const isUploading = uploadStatus.type === "uploading";
 	const canUpload =
+		canEdit &&
 		!notConfigured &&
 		!!selectedDomain &&
 		!isUploading &&
 		appName.trim().length > 0;
 
-	if (accessPhase !== "authorized") return null;
+	if (accessPhase !== "authorized" || !canEdit) return null;
 
 	return (
 		<Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>

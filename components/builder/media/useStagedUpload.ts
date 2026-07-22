@@ -56,7 +56,7 @@ export function useStagedSlotUpload(
 	return useCallback(
 		(slotKey: string, kind: MediaKind, file: File) => {
 			const start = session.getState();
-			if (start.accessPhase !== "authorized") return;
+			if (start.accessPhase !== "authorized" || !start.canEdit) return;
 			const uploadScopeEpoch = start.scopeEpoch;
 			const controller = new AbortController();
 			const actions = session.getState();
@@ -83,14 +83,16 @@ export function useStagedSlotUpload(
 					if (
 						controller.signal.aborted ||
 						session.getState().scopeEpoch !== uploadScopeEpoch ||
-						session.getState().accessPhase !== "authorized"
+						session.getState().accessPhase !== "authorized" ||
+						!session.getState().canEdit
 					)
 						return;
 					const verdict = await checkAttachBudget(asset);
 					if (
 						controller.signal.aborted ||
 						session.getState().scopeEpoch !== uploadScopeEpoch ||
-						session.getState().accessPhase !== "authorized"
+						session.getState().accessPhase !== "authorized" ||
+						!session.getState().canEdit
 					)
 						return;
 					if (!verdict.ok) {
@@ -107,7 +109,8 @@ export function useStagedSlotUpload(
 					if (
 						controller.signal.aborted ||
 						session.getState().scopeEpoch !== uploadScopeEpoch ||
-						session.getState().accessPhase !== "authorized"
+						session.getState().accessPhase !== "authorized" ||
+						!session.getState().canEdit
 					)
 						return;
 					session

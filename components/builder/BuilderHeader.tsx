@@ -12,8 +12,9 @@
  * collide with it: breadcrumbs live in the canvas column's own strip
  * (`BreadcrumbStrip`), where the sidebars bound their width.
  *
- * The logo + account render in every phase; the toolbar cluster and
- * the Preview toggle appear once a usable blueprint exists.
+ * The logo renders in every phase. Portal-opening header controls stay
+ * unmounted while app access is unresolved, so the access mask never leaves
+ * a visible button whose popup is intentionally quarantined.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -233,13 +234,13 @@ export function BuilderHeader({
 						) : null}
 					</>
 				)}
-				{!ultraCompactHeader && (
+				{accessPhase === "authorized" && !ultraCompactHeader && (
 					<div className="ml-1">
 						<AccountMenu />
 					</div>
 				)}
 			</div>
-			{ultraCompactHeader && (
+			{accessPhase === "authorized" && ultraCompactHeader && (
 				<div className="col-start-3 row-start-1 justify-self-end">
 					<AccountMenu />
 				</div>

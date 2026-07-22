@@ -1305,6 +1305,13 @@ export function ChatContainer({
 
 	const handleCreateBlankApp = useCallback(() => {
 		if (agentEngagedRef.current || creatingBlankAppRef.current) return;
+		const session = sessionStoreRef.current?.getState();
+		if (
+			session?.accessPhase !== "authorized" ||
+			!session.canEdit ||
+			session.scopeEpoch !== scopeEpoch
+		)
+			return;
 		creatingBlankAppRef.current = true;
 		setCreatingBlankApp(true);
 		createBlankApp().then(
@@ -1339,7 +1346,7 @@ export function ChatContainer({
 				);
 			},
 		);
-	}, [projectToast, replace]);
+	}, [projectToast, replace, scopeEpoch]);
 
 	// ── Derived values ───────────────────────────────────────────────────
 
@@ -1355,12 +1362,9 @@ export function ChatContainer({
 	const agentEngaged = messages.length > 0 && !sendFailedBeforeApp;
 
 	/* Only on a brand-new build, and only where the composer itself is offered
-	 * — a surface that can't send can't create either. Note this does NOT gate
-	 * out a view-only member: `canEdit` defaults to `true` on `/build/new`
-	 * (BuilderProvider has no role to consult before an app exists), so they see
-	 * this exactly as they see the composer, and `createBlankApp` refuses them
-	 * server-side exactly as `/api/chat` does. That Project `edit` check is the
-	 * gate; this is only about which surfaces make sense to show. */
+	 * — a surface that can't send can't create either. `/build/new` is seeded
+	 * from the active Project's server-resolved role, so a viewer never sees this
+	 * authoring action; the create route remains the enforcement authority. */
 	const showBlankAppStarter = centered && !isExistingApp && !readOnly;
 
 	return (
@@ -1397,7 +1401,9 @@ export function ChatContainer({
 			readOnly={readOnly}
 			readOnlyNotice={
 				!canEdit
-					? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
+					? isExistingApp
+						? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
+						: "You have view-only access to this Project. Ask a Project admin for edit access to create an app."
 					: undefined
 			}
 			isExistingApp={isExistingApp}

@@ -24,7 +24,7 @@ import {
 } from "vitest";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { useIsLoading } from "@/lib/session/hooks";
+import { useCanEdit, useIsLoading } from "@/lib/session/hooks";
 
 /* Mock `useAuth` (the presence layer reads it for the display name) so mounting
  * the builder tree doesn't subscribe Better Auth's client session atom — its
@@ -95,9 +95,12 @@ describe("BuilderProvider — existing-app hydration", () => {
 			);
 		}
 
-		const { result } = renderHook(() => useIsLoading(), { wrapper });
+		const { result } = renderHook(
+			() => ({ loading: useIsLoading(), canEdit: useCanEdit() }),
+			{ wrapper },
+		);
 
-		expect(result.current).toBe(false);
+		expect(result.current).toEqual({ loading: false, canEdit: false });
 	});
 });
 
@@ -112,8 +115,36 @@ describe("BuilderProvider — fresh build", () => {
 			return <BuilderProvider buildId="new">{children}</BuilderProvider>;
 		}
 
-		const { result } = renderHook(() => useIsLoading(), { wrapper });
+		const { result } = renderHook(
+			() => ({ loading: useIsLoading(), canEdit: useCanEdit() }),
+			{ wrapper },
+		);
 
-		expect(result.current).toBe(false);
+		expect(result.current).toEqual({ loading: false, canEdit: false });
+	});
+
+	it("seeds a dormant new build with the active Project's viewer capability", () => {
+		function wrapper({ children }: { children: ReactNode }) {
+			return (
+				<BuilderProvider
+					buildId="new"
+					initialAccess={{
+						projectId: "shared-project",
+						role: "viewer",
+						canEdit: false,
+						baseSeq: 0,
+					}}
+				>
+					{children}
+				</BuilderProvider>
+			);
+		}
+
+		const { result } = renderHook(
+			() => ({ loading: useIsLoading(), canEdit: useCanEdit() }),
+			{ wrapper },
+		);
+
+		expect(result.current).toEqual({ loading: false, canEdit: false });
 	});
 });

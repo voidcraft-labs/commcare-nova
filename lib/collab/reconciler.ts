@@ -142,7 +142,7 @@ export type PutOutcome =
 	| { ok: false; kind: "network"; detail?: string };
 
 /** A save-lifecycle signal `useAutoSave` renders as status.
- *  The reconciler fires it to the observer passed on `dispatchHumanBatch`. */
+ *  The reconciler fires it to the currently registered observer. */
 export type SaveSignal =
 	| { kind: "saving" }
 	| { kind: "saved" }
@@ -259,6 +259,13 @@ export interface Reconciler {
 	isDormant(): boolean;
 	/** The auto-save diff base: `confirmedDoc ⊕ sentPending`. */
 	localBase(): BlueprintDoc;
+	/**
+	 * Install the current save-status sink. Registration also retargets every
+	 * pending human batch that already had an observer, so an access-epoch
+	 * advance cannot strand its later retry/failure on a stale scoped-toast
+	 * closure. The returned cleanup only clears this exact registration.
+	 */
+	registerSaveObserver(observe: SaveObserver, scopeEpoch: number): () => void;
 	/** Dispatch the human delta between `localBase()` and the store's displayed
 	 *  doc as a new batch: mint a batchId, register it, and PUT. No-op when the
 	 *  delta is empty or the reconciler is dormant/revoked. `observe` receives
@@ -409,6 +416,11 @@ export function createReconciler(
 	/** The active retry-loop canceller, if the loop is scheduled. */
 	let cancelRetry: (() => void) | undefined;
 	let retryAttempt = 0;
+	/** The mounted autosave surface for the CURRENT Project epoch. Human batches
+	 *  survive reversible access reloads, so their lifecycle sink cannot be an
+	 *  immutable closure captured in the epoch that first dispatched them. */
+	let currentSaveObserver: SaveObserver | undefined;
+	let currentSaveObserverEpoch = -1;
 
 	/** Any async continuation must stop here — the reconciler was torn down or
 	 *  access was revoked. */
@@ -487,7 +499,32 @@ export function createReconciler(
 		return dormant;
 	}
 
+	function registerSaveObserver(
+		observe: SaveObserver,
+		scopeEpoch: number,
+	): () => void {
+		/* Session epochs only advance. Ignore a late effect setup from an older
+		 * render so it cannot retarget live batches back to stale UI ownership. */
+		if (scopeEpoch < currentSaveObserverEpoch) return () => {};
+		currentSaveObserver = observe;
+		currentSaveObserverEpoch = scopeEpoch;
+		/* Only human batches carry observers. Chat batches are already committed
+		 * and never emit save lifecycle signals, so leave them observer-free. */
+		for (const batch of sentPending) {
+			if (batch.observe !== undefined) batch.observe = observe;
+		}
+		return () => {
+			if (
+				currentSaveObserver === observe &&
+				currentSaveObserverEpoch === scopeEpoch
+			) {
+				currentSaveObserver = undefined;
+			}
+		};
+	}
+
 	function dispatchHumanBatch(observe?: SaveObserver): string | undefined {
+		const effectiveObserver = observe ?? currentSaveObserver;
 		if (!canPut()) {
 			// A member REVOKED via the cadence `revoked` frame (`onRevoked` just sets
 			// `revoked`) — or a
@@ -503,7 +540,7 @@ export function createReconciler(
 			// post-freeze edits toast once. Only for a real freeze with an actual
 			// unsaved delta; dormant / no-appId stay clean no-ops.
 			if (revoked && appId !== undefined && humanUncommitted().length > 0) {
-				observe?.({
+				effectiveObserver?.({
 					kind: frozenPermanently ? "permanent" : "accessChanged",
 				});
 			}
@@ -515,7 +552,8 @@ export function createReconciler(
 		// `humanUncommitted` (kept + rendered); re-surface the terminal signal
 		// so the indicator stays in its "too large — reload" state.
 		if (sentPending.some((b) => b.tooLarge)) {
-			if (humanUncommitted().length > 0) observe?.({ kind: "tooLarge" });
+			if (humanUncommitted().length > 0)
+				effectiveObserver?.({ kind: "tooLarge" });
 			return undefined;
 		}
 		const mutations = humanUncommitted();
@@ -526,7 +564,7 @@ export function createReconciler(
 			mutations,
 			putInFlight: false,
 			tooLarge: false,
-			observe,
+			observe: effectiveObserver,
 		};
 		sentPending.push(batch);
 		awaitingEcho.add(batchId);
@@ -1165,6 +1203,7 @@ export function createReconciler(
 		canPut,
 		isDormant,
 		localBase,
+		registerSaveObserver,
 		dispatchHumanBatch,
 		registerChatBatch,
 		onFrame,

@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { asAssetId } from "@/lib/domain/multimedia";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 import type { MediaAssetView } from "../mediaClient";
-import { useMediaLibrary } from "../useMedia";
+import { useMediaLibrary, useMediaUpload } from "../useMedia";
 
 const mocks = vi.hoisted(() => ({
 	fetchMediaLibrary: vi.fn(),
@@ -112,5 +114,29 @@ describe("useMediaLibrary", () => {
 			appId: "app-1",
 			signal: expect.any(AbortSignal),
 		});
+	});
+});
+
+describe("useMediaUpload", () => {
+	it("does not start an upload when the live Project capability is view-only", async () => {
+		function wrapper({ children }: { children: ReactNode }) {
+			return (
+				<BuilderSessionProvider
+					init={{ projectId: "project-1", role: "viewer", canEdit: false }}
+				>
+					{children}
+				</BuilderSessionProvider>
+			);
+		}
+		const { result } = renderHook(() => useMediaUpload("app-1"), { wrapper });
+		const file = new File(["image"], "photo.png", { type: "image/png" });
+
+		let uploaded: MediaAssetView | null = null;
+		await act(async () => {
+			uploaded = await result.current.upload(file);
+		});
+
+		expect(uploaded).toBeNull();
+		expect(mocks.uploadMediaAsset).not.toHaveBeenCalled();
 	});
 });

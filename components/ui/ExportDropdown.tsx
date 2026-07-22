@@ -36,6 +36,8 @@ interface ExportDropdownProps {
 	options: ExportOption[];
 	/** Whether CommCare HQ credentials are configured. */
 	commcareConfigured: boolean;
+	/** Project edit capability. Viewers may download, never upload to HQ. */
+	canUploadToHq: boolean;
 	/** Called when the user clicks "CommCare HQ" (only when configured). */
 	onCommCareUpload: () => void;
 }
@@ -43,6 +45,7 @@ interface ExportDropdownProps {
 export function ExportDropdown({
 	options,
 	commcareConfigured,
+	canUploadToHq,
 	onCommCareUpload,
 }: ExportDropdownProps) {
 	const [open, setOpen] = useState(false);
@@ -64,43 +67,50 @@ export function ExportDropdown({
 			</SimpleTooltip>
 
 			<DropdownMenuContent align="end" sideOffset={6} preferredMinWidth="18rem">
-				<DropdownMenuGroup>
-					<DropdownMenuLabel>CommCare HQ</DropdownMenuLabel>
-					{commcareConfigured ? (
-						<DropdownMenuItem
-							onClick={() => choose(onCommCareUpload)}
-							className="min-h-14"
-						>
-							<Icon
-								icon={tablerCloudUpload}
-								className="text-nova-violet-bright"
-							/>
-							<ItemCopy
-								label="Upload app"
-								description="Send this version to a project space"
-							/>
-						</DropdownMenuItem>
-					) : (
-						<DropdownMenuItem
-							render={<Link href="/settings" />}
-							nativeButton={false}
-							onClick={() => setOpen(false)}
-							className="min-h-14"
-						>
-							<Icon icon={tablerCloudUpload} className="text-nova-text-muted" />
-							<ItemCopy
-								label="Connect CommCare HQ"
-								description="Set up direct uploads in Settings"
-							/>
-							<Icon
-								icon={tablerChevronRight}
-								className="ml-auto text-nova-text-muted"
-							/>
-						</DropdownMenuItem>
-					)}
-				</DropdownMenuGroup>
+				{canUploadToHq && (
+					<>
+						<DropdownMenuGroup>
+							<DropdownMenuLabel>CommCare HQ</DropdownMenuLabel>
+							{commcareConfigured ? (
+								<DropdownMenuItem
+									onClick={() => choose(onCommCareUpload)}
+									className="min-h-14"
+								>
+									<Icon
+										icon={tablerCloudUpload}
+										className="text-nova-violet-bright"
+									/>
+									<ItemCopy
+										label="Upload app"
+										description="Send this version to a project space"
+									/>
+								</DropdownMenuItem>
+							) : (
+								<DropdownMenuItem
+									render={<Link href="/settings" />}
+									nativeButton={false}
+									onClick={() => setOpen(false)}
+									className="min-h-14"
+								>
+									<Icon
+										icon={tablerCloudUpload}
+										className="text-nova-text-muted"
+									/>
+									<ItemCopy
+										label="Connect CommCare HQ"
+										description="Set up direct uploads in Settings"
+									/>
+									<Icon
+										icon={tablerChevronRight}
+										className="ml-auto text-nova-text-muted"
+									/>
+								</DropdownMenuItem>
+							)}
+						</DropdownMenuGroup>
 
-				<DropdownMenuSeparator />
+						<DropdownMenuSeparator />
+					</>
+				)}
 
 				<DropdownMenuGroup>
 					<DropdownMenuLabel>Download</DropdownMenuLabel>

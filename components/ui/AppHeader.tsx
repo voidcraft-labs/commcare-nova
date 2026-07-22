@@ -18,6 +18,7 @@ import { HelpMenu } from "@/components/ui/HelpMenu";
 import { ImpersonationBanner } from "@/components/ui/ImpersonationBanner";
 import { Logo } from "@/components/ui/Logo";
 import { ProjectSwitcher } from "@/components/ui/ProjectSwitcher";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { ProjectSummary } from "@/lib/projects/membership";
 
 interface ImpersonationState {
@@ -47,6 +48,12 @@ export function AppHeader({
 }: AppHeaderProps) {
 	/* Landing page (unauthenticated) — no header. */
 	if (!isAuthenticated) return null;
+	const activeProject = projects.find(
+		(project) => project.id === activeProjectId,
+	);
+	const canEditActiveProject = Boolean(
+		activeProject && roleAllowsApp(activeProject.role, "edit"),
+	);
 
 	return (
 		<header className="border-b border-nova-border px-4 py-2.5 flex items-center bg-nova-void shrink-0">
@@ -75,7 +82,13 @@ export function AppHeader({
 					activeProjectId={activeProjectId}
 				/>
 				<HelpMenu />
-				<AccountMenu />
+				{/* Files is Project-scoped. A key change closes its dialog and unmounts
+				 * the old library/upload/delete controllers before the new Project can
+				 * render, so no stale asset list crosses the tenancy boundary. */}
+				<AccountMenu
+					key={activeProjectId ?? "no-active-project"}
+					canManageFiles={canEditActiveProject}
+				/>
 			</div>
 		</header>
 	);

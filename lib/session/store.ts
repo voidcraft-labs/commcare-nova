@@ -186,7 +186,8 @@ export interface BuilderSessionState {
 
 	/** Project + role + edit capability from the latest authoritative GET.
 	 *  They update together through `applyAccessSnapshot`; no component owns a
-	 *  second capability copy. New builds have no Project/role until creation. */
+	 *  second capability copy. New builds are pre-seeded from the active Project's
+	 *  server-resolved role while `appId` remains absent until creation. */
 	projectId: string | undefined;
 	role: string | undefined;
 	canEdit: boolean;

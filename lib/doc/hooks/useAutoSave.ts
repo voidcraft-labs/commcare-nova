@@ -31,12 +31,12 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { SaveSignal } from "@/lib/collab/reconciler";
-import { useProjectToast } from "@/lib/collab/useProjectToast";
+import { useCurrentProjectToast } from "@/lib/collab/useProjectToast";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { BuilderPhase } from "@/lib/session/builderTypes";
-import { derivePhase } from "@/lib/session/hooks";
+import { derivePhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { toastStore } from "@/lib/ui/toastStore";
 
@@ -109,7 +109,11 @@ export function useAutoSave(): SaveState {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const reconcilerCtx = useReconcilerContext();
-	const projectToast = useProjectToast();
+	const scopeEpoch = useProjectScopeEpoch();
+	/* Save retries intentionally survive reversible Project/access transitions,
+	 * so their toast provenance resolves at signal time instead of being pinned
+	 * to the dispatch epoch like an ordinary async Project action. */
+	const projectToast = useCurrentProjectToast();
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -286,7 +290,7 @@ export function useAutoSave(): SaveState {
 			/* A viewer holds no `edit` capability — never dispatch. The read-only
 			 * builder suppresses edit affordances; this is the airtight backstop. */
 			if (!session.getState().canEdit) return;
-			reconciler.dispatchHumanBatch(observe);
+			reconciler.dispatchHumanBatch();
 		}
 
 		/**
@@ -304,6 +308,15 @@ export function useAutoSave(): SaveState {
 				}
 			}, COOLDOWN_MS);
 		}
+
+		/* The reconciler owns the mutable observer indirection. A Project epoch
+		 * dependency recreates this closure, and registration
+		 * retargets preserved pending batches before their retry can report into a
+		 * stale epoch. Recovery-created human batches use the same current sink. */
+		const unregisterSaveObserver = reconciler?.registerSaveObserver(
+			observe,
+			scopeEpoch,
+		);
 
 		/* Subscribe to doc entity map changes — fires only when a map gets a new
 		 * Immer reference. Shallow equality on the projected slice short-circuits
@@ -352,6 +365,7 @@ export function useAutoSave(): SaveState {
 
 		return () => {
 			unmountedRef.current = true;
+			unregisterSaveObserver?.();
 			unsub();
 			if (cooldownTimerRef.current) {
 				clearTimeout(cooldownTimerRef.current);
@@ -366,6 +380,7 @@ export function useAutoSave(): SaveState {
 		sessionApi,
 		docStore,
 		reconcilerCtx,
+		scopeEpoch,
 		projectToast,
 		dismissTerminalWarning,
 	]);
