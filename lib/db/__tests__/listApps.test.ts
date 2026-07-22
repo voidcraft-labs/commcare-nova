@@ -91,6 +91,7 @@ describe("listApps", () => {
 			id: "freshPaused",
 			project_id: PROJECT,
 			status: "generating",
+			run_id: "fresh-paused-run",
 			awaiting_input: true,
 			updated_at: new Date(),
 		});
@@ -98,6 +99,7 @@ describe("listApps", () => {
 			id: "abandonedPaused",
 			project_id: PROJECT,
 			status: "generating",
+			run_id: "abandoned-paused-run",
 			awaiting_input: true,
 			updated_at: staleClock(),
 		});
@@ -105,6 +107,7 @@ describe("listApps", () => {
 			id: "killed",
 			project_id: PROJECT,
 			status: "generating",
+			run_id: "killed-run",
 			awaiting_input: false,
 			updated_at: staleClock(),
 		});

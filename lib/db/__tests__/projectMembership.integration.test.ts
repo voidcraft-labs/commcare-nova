@@ -182,6 +182,9 @@ describe("Project membership advisory gate", () => {
 			}),
 			{ owner: USER, projectId: PROJECT },
 		);
+		// The shared app fixture ensures its owner is a Project owner. This case
+		// specifically exercises the lower, still-edit-capable editor projection.
+		await h.seedProjectMember(USER, PROJECT, "editor");
 		await h
 			.db()
 			.updateTable("apps")

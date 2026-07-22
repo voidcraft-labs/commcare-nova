@@ -285,7 +285,10 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 					PROJECT,
 				),
 			assertCommitted: async (result) => {
-				expect(result).toBe("owned");
+				expect(result).toEqual({
+					outcome: "owned",
+					holderNonce: HOLDER_NONCE,
+				});
 				expect((await h.readAppRow(reacquireApp))?.awaiting_input).toBe(false);
 				const lock = await h.readRunLock(reacquireApp);
 				expect(lock).toMatchObject({

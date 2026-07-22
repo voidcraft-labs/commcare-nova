@@ -70,7 +70,10 @@ describe("failApp", () => {
 	it("no-ops after a reaper clears the old marker identity", async () => {
 		const appId = await h.seedApp({
 			id: "reaped-build",
-			status: "generating",
+			// The build reaper retires the holder in the same write that clears the
+			// marker run id. The nonce remains only as the last-generation tombstone.
+			status: "error",
+			error_type: "internal",
 			run_id: "build-1",
 			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
@@ -85,8 +88,8 @@ describe("failApp", () => {
 			false,
 		);
 		expect(await h.readAppRow(appId)).toMatchObject({
-			status: "generating",
-			error_type: null,
+			status: "error",
+			error_type: "internal",
 			res_run_id: null,
 		});
 	});

@@ -45,7 +45,7 @@ describe("run-holder write structural guard", () => {
 		expect(source("scripts/recover-app.ts")).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
-		).toBe(18);
+		).toBe(17);
 		expect(
 			source("lib/db/credits.ts").match(new RegExp(appDml, "g"))?.length,
 		).toBe(5);

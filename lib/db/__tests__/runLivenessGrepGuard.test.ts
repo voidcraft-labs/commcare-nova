@@ -30,9 +30,9 @@ import { describe, expect, it } from "vitest";
  *     `AppReservation` / `AppRunLock` shapes `runLeaseState` reads. Their bodies
  *     are stripped before the scan so the columns they legitimately read don't
  *     trip it;
- *   - the forward-only runtime-holder migration, whose PostgreSQL row trigger
- *     is the database authority that stamps the exact same holder identity.
- *     Its SQL must read the physical columns and is covered by dedicated
+ *   - the forward-only runtime-holder migrations, whose PostgreSQL row triggers
+ *     are the database authority that stamps the exact same holder identity.
+ *     Their SQL must read the physical columns and is covered by dedicated
  *     migration + cutoff-race tests instead of this TypeScript decision guard.
  *
  * A new decision path physically cannot diverge: it has no raw field to read, so
@@ -116,8 +116,10 @@ function offenders(source: string): string[] {
 }
 
 /** All non-test `.ts` / `.tsx` under a top-level dir, except `runLiveness.ts`. */
-const SANCTIONED_DATABASE_READER =
-	"lib/case-store/migrations/20260722080000_runtime_reader_rollout.ts";
+const SANCTIONED_DATABASE_READERS = new Set([
+	"lib/case-store/migrations/20260722080000_runtime_reader_rollout.ts",
+	"lib/case-store/migrations/20260722120000_run_holder_nonce.ts",
+]);
 
 function sourceFilesUnder(dir: string): string[] {
 	return readdirSync(join(process.cwd(), dir), {
@@ -133,7 +135,8 @@ function sourceFilesUnder(dir: string): string[] {
 		)
 		.map((p) => `${dir}/${p}`)
 		.filter(
-			(f) => f !== "lib/db/runLiveness.ts" && f !== SANCTIONED_DATABASE_READER,
+			(f) =>
+				f !== "lib/db/runLiveness.ts" && !SANCTIONED_DATABASE_READERS.has(f),
 		);
 }
 
