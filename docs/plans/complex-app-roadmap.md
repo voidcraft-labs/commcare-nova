@@ -1117,6 +1117,24 @@ exactly 3,900 seconds; neither run-liveness clock derives from it. Teardown
 first disowns/closes the transport, then best-effort deletes its own lease, while
 expiry covers crashes and cleanup failure without expiring a still-live request.
 
+**S02c1 implementation status (2026-07-22):**
+`config/runtime-capabilities.json` is now the strict, version-controlled source
+for writer `0`, stream receiver `1`, runtime reader `0`, stream registry `1`,
+the 3,600-second request cap, the 300-second stream grace, the independently
+declared 900-second renewable edit lease, and the independently declared
+600-second build-staleness horizon. The browser-safe shared parser produces
+canonical bytes and rejects an invalid checked-in manifest; a Node-only leaf
+hashes those bytes for the manifest identity. Missing/malformed revision label
+or environment version declarations read as v0. Only request cap plus stream
+grace derives the 3,900-second stream lease; `lib/db/constants.ts` projects the
+two run-liveness fields to its legacy minute-valued API without authoring either
+value. Cloud Build validates the manifest and bakes its generated declarations
+into the image;
+Next's two required static route literals and the writer declaration are guarded
+against drift. This foundation does **not** label a revision, change traffic,
+raise a floor, or enable a flag. S02c2 owns the no-traffic candidate, manifest-
+label verification, `--timeout` pin, and guarded cutover/rollback controller.
+
 SA runs can outlive the browser connection that started them, so request and
 stream bounds alone cannot prove a runtime-reader drain. Every app run holder
 stores the runtime-reader version declared transaction-locally by its claimant;

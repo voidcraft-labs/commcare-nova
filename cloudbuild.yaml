@@ -9,6 +9,20 @@
 # `deploy`, so the old revision keeps serving and we never ship code ahead of a
 # failed schema change (same guarantee the old startup CMD gave, at deploy time).
 steps:
+  # Validate the one checked-in runtime-capability manifest and render the
+  # shell-safe image declarations consumed below. The workspace persists across
+  # Cloud Build steps, so no version or timeout literal is duplicated in YAML.
+  # S02c2 will consume the same renderer for revision labels and guarded
+  # no-traffic cutover; this step changes no traffic behavior by itself.
+  - id: runtime-capabilities
+    name: node:24.18.0-alpine
+    entrypoint: node
+    args:
+      - scripts/rollout/render-build-config.mjs
+      - --check
+      - --output
+      - /workspace/rollout.env
+
   # These values ride into the image build as build args because `next build`
   # consumes them at BUILD time, not runtime:
   #   • SENTRY_AUTH_TOKEN (Secret Manager: `nova-sentry`) — lets the build
@@ -54,6 +68,7 @@ steps:
       - -c
       - |
         set -euo pipefail
+        source /workspace/rollout.env
         docker build \
           -t "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA" \
           --build-arg SENTRY_AUTH_TOKEN="$$SENTRY_AUTH_TOKEN" \
@@ -61,6 +76,16 @@ steps:
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID="ac18fb2d87e44a1eb5a19883" \
           --build-arg NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$$NEXT_SERVER_ACTIONS_ENCRYPTION_KEY" \
           --build-arg NEXT_DEPLOYMENT_ID="$BUILD_ID" \
+          --build-arg NOVA_WRITER_VERSION="$$NOVA_WRITER_VERSION" \
+          --build-arg NOVA_STREAM_RECEIVER_VERSION="$$NOVA_STREAM_RECEIVER_VERSION" \
+          --build-arg NOVA_RUNTIME_READER_VERSION="$$NOVA_RUNTIME_READER_VERSION" \
+          --build-arg NOVA_STREAM_REGISTRY_VERSION="$$NOVA_STREAM_REGISTRY_VERSION" \
+          --build-arg NOVA_CLOUD_RUN_REQUEST_SECONDS="$$NOVA_CLOUD_RUN_REQUEST_SECONDS" \
+          --build-arg NOVA_STREAM_LEASE_GRACE_SECONDS="$$NOVA_STREAM_LEASE_GRACE_SECONDS" \
+          --build-arg NOVA_STREAM_LEASE_TTL_SECONDS="$$NOVA_STREAM_LEASE_TTL_SECONDS" \
+          --build-arg NOVA_EDIT_RUN_LEASE_SECONDS="$$NOVA_EDIT_RUN_LEASE_SECONDS" \
+          --build-arg NOVA_BUILD_STALENESS_SECONDS="$$NOVA_BUILD_STALENESS_SECONDS" \
+          --build-arg NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH="$$NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH" \
           -f Dockerfile .
 
   - id: push

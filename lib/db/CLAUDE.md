@@ -155,11 +155,12 @@ cutoff; missing state and stale writers fail with non-retryable SQLSTATE
 `55000`. An unset writer is version 0. Later writers must call
 `setTransactionWriterVersion(tx, version)` inside their transaction; its
 `set_config(..., true)` value is transaction-local and must never be installed
-as a pooled session setting. `lookupReferenceWriter.ts` is the one runtime
+as a pooled session setting. `lookupReferenceWriter.ts` is the one transaction
 declaration seam. All authoritative call sites use
-`declareLookupReferenceWriter(tx)`; S05 changes the single
-`CURRENT_LOOKUP_REFERENCE_WRITER_VERSION` constant from 0 to 1 when its first
-production carrier lands.
+`declareLookupReferenceWriter(tx)`, whose current value derives from
+`config/runtime-capabilities.json` through the validated runtime accessor; it never
+owns a second numeric literal. S05 changes the manifest's single
+`writerVersion` field from 0 to 1 when its first production carrier lands.
 
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
@@ -300,10 +301,14 @@ grep-guard test enforces it; `apps.ts`/`credits.ts`'s `leaseView` /
 `rowReservation` / `rowRunLock` are the sanctioned row→view builders). A
 build holds its app via `status: 'generating'` + the `updated_at` window
 (`MAX_GENERATION_MINUTES`); an edit holds via its `run_lock` lease
-(`MAX_RUN_MINUTES`). Both horizons refresh on SA activity AND a wall-clock
-timer AND per commit (`refreshEditLease` / `refreshBuildLiveness` + the
-guarded commit's per-commit stamp), so a LIVE run never lapses; the heartbeat
-stops at finalize, so an abandoned paused run lapses for the reapers.
+(`MAX_RUN_MINUTES`). Those legacy minute-valued constants project the runtime
+manifest's independently authored 600-second build and 900-second edit fields;
+neither derives from the request cap or 3,900-second stream lease, and the edit
+lease is renewable rather than a total runtime bound. Both horizons refresh on
+SA activity AND a wall-clock timer AND per commit (`refreshEditLease` /
+`refreshBuildLiveness` + the guarded commit's per-commit stamp), so a LIVE run
+never lapses; the heartbeat stops at finalize, so an abandoned paused run
+lapses for the reapers.
 
 **Serialize-with-wait, not 429.** A conflicting chargeable POST opens its SSE
 stream and polls `claimAndReserveRun` (each poll is the whole atomic
