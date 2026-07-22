@@ -204,7 +204,7 @@ describe("UsageAccumulator", () => {
 			// Reservation handed straight back — flush calls refundReservation by
 			// appId; the amount + booked period live on the durable marker.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r", "build");
 			// Zero cost short-circuits the increment — no usage_months row at all.
 			expect(await requestCount("u")).toBeUndefined();
 		});
@@ -235,7 +235,7 @@ describe("UsageAccumulator", () => {
 			expect(await requestCount("u")).toBe(1);
 			// …while the user's credits are made whole because the app broke.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r", "build");
 		});
 
 		it("never refunds a free continuation that was never reserved", async () => {
@@ -284,11 +284,12 @@ describe("UsageAccumulator", () => {
 			// non-build reservation, delegating by appId.
 			const acc = new UsageAccumulator({
 				...reservedSeed,
+				promptMode: "edit",
 				reservedAmount: 5,
 			});
 			await acc.flush();
 
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r", "edit");
 		});
 
 		it("refunds at most once across repeated flush() calls", async () => {
@@ -316,7 +317,7 @@ describe("UsageAccumulator", () => {
 			});
 			await acc.flush();
 
-			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r", "build");
 		});
 	});
 

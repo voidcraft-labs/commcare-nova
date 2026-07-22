@@ -1,7 +1,8 @@
 # S02c runtime-capability rollout
 
-**Status:** S02c1 foundation only. This document records the checked-in
-contract and its safe verification commands. It is not yet a manual traffic-
+**Status:** S02c1 foundation plus runtime-holder callsite hardening. This
+document records the checked-in contract and its safe verification commands.
+It is not yet a manual traffic-
 cutover procedure; S02c2 must add and exercise the guarded no-traffic deploy,
 cutover, exact rollback, and drain controller before any operator raises a
 floor or enables a feature flag.
@@ -67,6 +68,39 @@ does not re-read the floor, so a floor raise affects new connections only.
 Browser EventSource URL emission remains separate client wiring. Until that
 lands, existing browser bundles omit the parameter and therefore declare v0;
 all compatibility floors remain 0, so this is intentionally non-activating.
+
+## Runtime-holder writes
+
+The holder identity is database-defined and mode-sensitive: a build uses the
+reservation run id after booking and the root run id only in the just-created
+pre-reservation window; an edit uses the lock run id. Generating creation,
+intentional claim/replacement, exact-gated new-build reservation, and paused
+reacquisition declare the manifest runtime-reader version transaction-locally.
+The database trigger stamps only a genuinely new identity and preserves the
+old stamp for the same holder.
+
+Every terminal, failure, finalization, pause/heartbeat, recovery, and reaper
+`UPDATE` carries a SQL compare-and-set for the expected `(mode, runId)`.
+Credit terminal/reaper transactions require exactly one app row after any
+ledger refund or throw to roll the whole transaction back.
+Reaper queue entries include the identity observed by their scan; never enqueue
+or invoke a reaper with a bare app id, because a delayed bare-id reap can target
+a replacement that later becomes stale. The source guard in
+`lib/db/__tests__/runHolderWriteGuard.test.ts` pins the app-DML authorities,
+manifest declarations, exact predicates, reaper signatures, and recovery CLI
+delegation. The scan must narrow the identity to a concrete non-empty run id.
+A present `(mode, null)` holder is corrupt, not canonically reapable: it cannot
+distinguish one corrupt generation from a later one, remains a blocking v0
+census row, and requires explicit data repair.
+
+`scripts/recover-app.ts` remains dry-run by default. A free app can be recovered
+with `--confirm`; a present holder requires both its explicitly verified
+`--holder-mode` and `--holder-run-id`. A missing/corrupt run id cannot be proven
+and the tool refuses it. The confirmed writer re-locks the app and repeats the
+free/exact-holder condition in SQL, so the preflight display is never write
+authority. Recovering an exact build holder settles its reservation as a kept
+charge while releasing the build through the status transition; recovering an
+edit repairs status/error only and leaves its proven lock and marker in place.
 
 ## Build behavior in S02c1
 

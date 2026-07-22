@@ -1178,6 +1178,24 @@ traffic, raise a floor, or enable a flag. S02c2 owns the no-traffic candidate,
 manifest-label verification, `--timeout` pin, and guarded cutover/rollback
 controller.
 
+The runtime-holder callsite slice is now source-complete too: generating
+creation, intentional claim/replacement, exact-gated just-created-build
+reservation, and paused-run reacquisition declare the manifest runtime reader.
+`runHolderWrites.ts` is the shared SQL compare-and-set boundary for terminal,
+failure, pause/heartbeat, recovery, and reaper writes. Reaper scans and queues
+carry the `(mode, runId)` they observed instead of a bare app id, and credit
+reapers roll ledger changes back if the exact app-row write affects zero rows.
+Scans narrow to a concrete non-empty run id before queueing: a present
+`(mode, null)` holder is corrupt and fails closed because it cannot distinguish
+one corrupt generation from a later one. It remains visible in the runtime
+census for explicit repair instead of being tokenlessly reaped.
+`recover-app` has no direct app writer: a present holder requires explicit
+matching mode/run-id flags and the database service re-proves that token under
+lock and in SQL. Focused pure/integration tests and the app-DML structural guard
+ship with the slice; execution remains part of the integration/CI verification
+gate. This callsite work also changes no floor, flag, traffic, or production
+state.
+
 SA runs can outlive the browser connection that started them, so request and
 stream bounds alone cannot prove a runtime-reader drain. Every app run holder
 stores the runtime-reader version declared transaction-locally by its claimant;

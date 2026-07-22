@@ -11,8 +11,14 @@
 
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
-import { clearRunLock, type ReacquireOutcome, setAwaitingInput } from "../apps";
+import {
+	clearRunLock,
+	type ReacquireOutcome,
+	recoverAppStatus,
+	setAwaitingInput,
+} from "../apps";
 import { CREDITS_PER_BUILD, CREDITS_PER_EDIT } from "../creditPolicy";
+import { refundStaleGeneration } from "../credits";
 import { getCurrentPeriod } from "../period";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -101,7 +107,7 @@ async function commitTransitionWhileWriterWaits<T>(args: {
 }
 
 function pauseWriter(appId: string): Promise<ReacquireOutcome> {
-	return setAwaitingInput(appId, OLD_RUN, true, ACTOR, PROJECT);
+	return setAwaitingInput(appId, OLD_RUN, "build", true, ACTOR, PROJECT);
 }
 
 describe("exact-holder pause and prelude-cleanup writers", () => {
@@ -272,5 +278,134 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 			settled: true,
 		});
 		expect((await h.readReservation(reapedApp))?.runId).toBeUndefined();
+	});
+});
+
+describe("exact-holder terminal and operator compare-and-set", () => {
+	it("a delayed build reaper cannot reap a later holder that also became stale", async () => {
+		const appId = "delayed-build-reaper";
+		await h.seedCreditMonth(ACTOR, period, {
+			allowance: 2000,
+			consumed: CREDITS_PER_BUILD,
+			bonus: 0,
+		});
+		await h.seedApp({
+			id: appId,
+			owner: ACTOR,
+			project_id: PROJECT,
+			status: "generating",
+			updated_at: new Date(Date.now() - 60 * 60_000),
+			reservation: {
+				period,
+				reserved: CREDITS_PER_BUILD,
+				settled: false,
+				userId: ACTOR,
+				runId: OLD_RUN,
+			},
+		});
+
+		// The scan captured OLD_RUN, but a later holder now occupies the row and
+		// has itself gone stale before the queued reap executes.
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ res_run_id: NEW_RUN })
+			.where("id", "=", appId)
+			.execute();
+		await refundStaleGeneration(appId, {
+			mode: "build",
+			runId: OLD_RUN,
+		});
+
+		expect(await h.readReservation(appId)).toMatchObject({
+			runId: NEW_RUN,
+			settled: false,
+		});
+		expect((await h.readAppRow(appId))?.status).toBe("generating");
+		expect(await h.readConsumed(ACTOR, period)).toBe(CREDITS_PER_BUILD);
+
+		await refundStaleGeneration(appId, {
+			mode: "build",
+			runId: NEW_RUN,
+		});
+		expect((await h.readAppRow(appId))?.status).toBe("error");
+		expect(await h.readConsumed(ACTOR, period)).toBe(0);
+	});
+
+	it("operator recovery refuses tokenless, mismatched, and corrupt holders", async () => {
+		const appId = "recover-held-app";
+		await h.seedApp({
+			id: appId,
+			owner: ACTOR,
+			project_id: PROJECT,
+			status: "generating",
+			run_id: OLD_RUN,
+			module_count: 1,
+			reservation: {
+				period,
+				reserved: CREDITS_PER_BUILD,
+				settled: false,
+				userId: ACTOR,
+				runId: OLD_RUN,
+			},
+		});
+
+		expect(await recoverAppStatus(appId, null)).toMatchObject({
+			kind: "holder_token_required",
+			holder: { mode: "build", runId: OLD_RUN },
+		});
+		expect(
+			await recoverAppStatus(appId, { mode: "build", runId: NEW_RUN }),
+		).toMatchObject({
+			kind: "holder_token_mismatch",
+			holder: { mode: "build", runId: OLD_RUN },
+		});
+		expect((await h.readAppRow(appId))?.status).toBe("generating");
+
+		expect(
+			await recoverAppStatus(appId, { mode: "build", runId: OLD_RUN }),
+		).toEqual({ kind: "recovered" });
+		expect((await h.readAppRow(appId))?.status).toBe("complete");
+		expect(await h.readReservation(appId)).toMatchObject({
+			runId: OLD_RUN,
+			settled: true,
+		});
+
+		const corruptId = "recover-corrupt-holder";
+		await h.seedApp({
+			id: corruptId,
+			owner: ACTOR,
+			project_id: PROJECT,
+			status: "generating",
+			module_count: 1,
+		});
+		expect(
+			await recoverAppStatus(corruptId, {
+				mode: "build",
+				runId: OLD_RUN,
+			}),
+		).toMatchObject({
+			kind: "holder_token_mismatch",
+			holder: { mode: "build", runId: null },
+		});
+		expect((await h.readAppRow(corruptId))?.status).toBe("generating");
+	});
+
+	it("operator recovery conditionally repairs a free non-empty app", async () => {
+		const appId = "recover-free-app";
+		await h.seedApp({
+			id: appId,
+			owner: ACTOR,
+			project_id: PROJECT,
+			status: "error",
+			error_type: "internal",
+			module_count: 1,
+		});
+
+		expect(await recoverAppStatus(appId, null)).toEqual({ kind: "recovered" });
+		expect(await h.readAppRow(appId)).toMatchObject({
+			status: "complete",
+			error_type: null,
+		});
 	});
 });

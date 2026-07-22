@@ -189,8 +189,29 @@ writes, checks the runtime floor under `FOR SHARE`, preserves the old stamp for
 same-identity heartbeat/reacquire/reservation writes, and clears it when the
 holder disappears. Existing holders are deliberately not backfilled and
 therefore census as v0. `runtimeReaderVersion.ts` derives the declaration from
-the capability manifest; later claim/resume call sites use that seam, never a
-numeric literal.
+the capability manifest. Generating creation, intentional build/edit claim,
+the exact-gated just-created-build reservation, and paused-run reacquisition
+all call `declareRuntimeReader(tx)` before their holder write; complete/template
+creation does not declare because it creates no holder. Reacquisition and
+same-run reservation preserve the original database stamp even though their
+transactions declare the current runtime.
+
+`runHolderWrites.ts` owns the SQL compare-and-set predicates that mirror the
+trigger's exact `(mode, runId)` derivation. Every terminal, failure, heartbeat,
+pause, recovery, and reaper app-row write repeats its expected identity in the
+`UPDATE`; credit writers throw on a zero-row result so their earlier ledger
+refund rolls back too. An absent holder is never terminal authority, and a
+present holder with a missing/blank run id is corrupt rather than canonically
+reapable: `(mode, null)` cannot distinguish one corrupt generation from a later
+one. The sole absent-holder exception is the falsely-reaped-build self-heal,
+whose SQL predicate proves the free row, reaper signature, and exact last
+`run_id`. Reaper scans and conflict nudge/list queues narrow the observed holder
+to a concrete identity before enqueueing it and carry that token all the way to
+the locked write, so an arbitrarily delayed reap cannot target a later holder
+that also went stale. `scripts/recover-app.ts` writes only through
+`recoverAppStatus`: a present holder requires paired explicit `--holder-mode`
+and `--holder-run-id` flags, and the service rechecks that token under the app
+lock and in SQL.
 
 `runtimeReaderHolders.ts` is the fail-closed census projection over
 `runLeaseState`: every present holder blocks a higher target when its effective
@@ -376,24 +397,31 @@ plus the false-reap SELF-HEAL: a reaped-but-unclaimed build that finished
 cleanly flips back to `complete` off the reaper's signature — settled marker,
 `runId` cleared, `run_id === runId`), `clearRunLockAndSettle` (edit: release +
 settle, one commit), `settleAndRelease` (the failed-run writer: refund-if-
-unsettled + settle + optional lock release in one commit; its `settled`
-return is the separate question "is this run's credit resolved — safe to
-`failApp`?"), and the flush-driven `refundReservation`. The gate makes a
-reaped-then-re-claimed run's stale terminal write a no-op rather than a
-clobber. A failed EDIT never flips its `complete` app to `error` (that would
-brick a working app over a transient model error).
+unsettled + settle + edit-lock release in one commit; its required mode and
+`settled` return answer the separate question "does this exact `(mode, runId)`
+still own the outcome — safe to `failApp`?"), and the flush-driven
+`refundReservation`. Every SQL update repeats the exact `(mode, runId)` holder
+predicate; credit-mutating writers require exactly one affected row so a lost
+CAS rolls the refund back. A reaped-then-re-claimed run's stale terminal write
+therefore affects zero rows rather than clobbering its successor. A failed EDIT
+never flips its `complete` app to `error` (that would brick a working app over
+a transient model error).
 
 **Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
 `refundStaleGeneration` (stale build: refund + `generating → error` +
 `paused_timeout` classification for an abandoned pause) and
 `reapStaleReservation` → `refundStaleReservation` (stranded edit: refund +
-settle + release the lapsed lock) both re-derive `reapable*` off the locked
-row, so a fresh run that re-claimed between the scan and the reap is never
-clawed back. Both key on the LAPSED LEASE, not `awaiting_input`, so they free
-hard-killed AND abandoned-paused runs; both CLEAR the reaped marker's `runId`
-(the reaper's signature the self-heal + non-lenient `mine` read). Refunds
-always target the marker's charged actor (`res_user_id`, falling back to
-`owner` for markers that lack it).
+settle + release the lapsed lock) require the exact holder identity captured by
+their scan, compare it again under the app lock, and repeat it in the SQL CAS.
+They also re-derive `reapable*` off that locked row, so even a delayed reaper
+cannot claw back a later holder that has independently gone stale. Both key on
+the LAPSED LEASE, not `awaiting_input`, so they free hard-killed AND
+abandoned-paused runs; both CLEAR the reaped marker's `runId` (the reaper's
+signature the self-heal + non-lenient holder read). Refunds always target the
+marker's charged actor (`res_user_id`, falling back to `owner` for markers that
+lack it). A missing marker run id is still refundable for an edit whose lock
+provides a concrete holder id; a build with neither a concrete reservation id
+nor pre-reservation root id fails closed as corrupt and is never queued.
 
 **Resume re-acquires — renew, don't get reaped.** A free-continuation resume
 calls `reacquireLease`: one transaction asserting `ownedByResume` (keyed on
@@ -405,13 +433,14 @@ distinguishes `"superseded"` (another run occupies the app) from `"released"`
 
 **Pause and prelude cleanup are exact-holder writes.** `setAwaitingInput`
 locks the app, compares the caller's Project snapshot, freshly authorizes the
-actor, and applies the pause only while `runLeaseState.mine(runId)` still holds;
-it returns the same owned/superseded/released vocabulary as reacquire and throws
-infrastructure faults. The route treats either lost-ownership result as a
-terminal, non-owning, non-paused stream, so no stale question becomes a
-resumable claim on a successor. `clearRunLock(appId, runId)` is the awaited
-prelude-failure net: under the app lock it clears only that exact edit holder;
-a replacement or reap is a clean no-op.
+actor, accepts the caller's mode, and applies the pause only while the locked
+holder identity equals that exact `(mode, runId)`; its SQL update repeats the
+same compare-and-set. It returns the same owned/superseded/released vocabulary
+as reacquire and throws infrastructure faults. The route treats either
+lost-ownership result as a terminal, non-owning, non-paused stream, so no stale
+question becomes a resumable claim on a successor. `clearRunLock(appId, runId)`
+is the awaited prelude-failure net: under the app lock and SQL CAS it clears
+only that exact edit holder; a replacement or reap is a clean no-op.
 
 ## Guarded commit
 

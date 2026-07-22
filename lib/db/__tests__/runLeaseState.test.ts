@@ -217,8 +217,8 @@ describe("runLeaseState — mine", () => {
 		// A marker with no runId is a legacy pre-P9 marker OR a REAPED GHOST (the
 		// reapers clear the runId when they settle). Non-lenient `mine` returns false
 		// for everyone, so a reaped run's stale terminal writer can't read it as `mine`
-		// and failApp a taker (the reaper-race fix). Both are resolved by the reapers'
-		// OWN lenient clauses, never through `mine`.
+		// and failApp a taker (the reaper-race fix). A present build whose identity
+		// is missing fails closed as corrupt; null is not a canonical reaper token.
 		const l = lease({
 			status: "generating",
 			reservation: marker({ runId: undefined }),
@@ -288,8 +288,8 @@ describe("runLeaseState — terminalWriteOwned", () => {
 			}).terminalWriteOwned(RUN),
 		).toBe(false);
 	});
-	it("none: always owned (no competing run occupies the app)", () => {
-		expect(lease({ status: "complete" }).terminalWriteOwned(RUN)).toBe(true);
+	it("none: never owned (an absent holder is not a tokenless terminal authority)", () => {
+		expect(lease({ status: "complete" }).terminalWriteOwned(RUN)).toBe(false);
 	});
 });
 
@@ -444,6 +444,11 @@ describe("runLeaseState — reapableStrandedEdit", () => {
 				.reapableStrandedEdit,
 		).toBe(true);
 	});
+	it("false: a lapsed edit whose lock has no concrete run id is corrupt", () => {
+		expect(
+			lease({ ...strandedEdit, run_lock: lockAt(-1, "") }).reapableStrandedEdit,
+		).toBe(false);
+	});
 });
 
 describe("runLeaseState — reapableStaleBuild", () => {
@@ -451,13 +456,14 @@ describe("runLeaseState — reapableStaleBuild", () => {
 		expect(
 			lease({
 				status: "generating",
+				run_id: RUN,
 				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
 			}).reapableStaleBuild,
 		).toBe(true);
 	});
 	it("false: a LIVE build (inside the window)", () => {
 		expect(
-			lease({ status: "generating", updated_at: updatedAgo(1) })
+			lease({ status: "generating", run_id: RUN, updated_at: updatedAgo(1) })
 				.reapableStaleBuild,
 		).toBe(false);
 	});
@@ -467,6 +473,7 @@ describe("runLeaseState — reapableStaleBuild", () => {
 		expect(
 			lease({
 				status: "generating",
+				run_id: RUN,
 				awaiting_input: true,
 				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
 			}).reapableStaleBuild,
@@ -476,8 +483,17 @@ describe("runLeaseState — reapableStaleBuild", () => {
 		expect(
 			lease({
 				status: "generating",
+				run_id: RUN,
 				awaiting_input: true,
 				updated_at: updatedAgo(1),
+			}).reapableStaleBuild,
+		).toBe(false);
+	});
+	it("false: a stale generating row with no concrete holder id is corrupt", () => {
+		expect(
+			lease({
+				status: "generating",
+				updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
 			}).reapableStaleBuild,
 		).toBe(false);
 	});

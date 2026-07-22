@@ -21,7 +21,13 @@
  */
 
 import Fuse from "fuse.js";
-import type { Kysely, Selectable, Transaction } from "kysely";
+import type {
+	Kysely,
+	RawBuilder,
+	Selectable,
+	Transaction,
+	UpdateResult,
+} from "kysely";
 import type { ErrorType } from "@/lib/agent";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
@@ -110,7 +116,21 @@ import {
 	withAppTx,
 } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
-import { editLeaseDeadlineMs, runLeaseState } from "./runLiveness";
+import {
+	type ExactRunHolderIdentity,
+	exactRunHolderMatches,
+	expectedReapedBuildCompletionPredicate,
+	expectedRunHolderPredicate,
+	noRunHolderPredicate,
+	toExactRunHolderIdentity,
+	updatedExactlyOne,
+} from "./runHolderWrites";
+import {
+	editLeaseDeadlineMs,
+	type RunHolderIdentity,
+	runLeaseState,
+} from "./runLiveness";
+import { declareRuntimeReader } from "./runtimeReaderVersion";
 import type { AcceptedMutationDoc, AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -498,7 +518,9 @@ export async function hasActiveGeneration(
 		actorUserId,
 		excludeAppId,
 	);
-	for (const appId of reapable) void reapStaleGenerating(appId);
+	for (const target of reapable) {
+		void reapStaleGenerating(target.appId, target.identity);
+	}
 	return live;
 }
 
@@ -508,7 +530,10 @@ async function scanActiveGeneration(
 	db: Pick<Transaction<AppDatabase>, "selectFrom">,
 	actorUserId: string,
 	excludeAppId?: string,
-): Promise<{ live: boolean; reapable: string[] }> {
+): Promise<{
+	live: boolean;
+	reapable: Array<{ appId: string; identity: ExactRunHolderIdentity }>;
+}> {
 	let query = db
 		.selectFrom("apps")
 		.select(["id", ...LEASE_COLUMNS])
@@ -529,7 +554,8 @@ async function scanActiveGeneration(
 	}
 	const rows = await query.execute();
 	const now = Date.now();
-	const reapable: string[] = [];
+	const reapable: Array<{ appId: string; identity: ExactRunHolderIdentity }> =
+		[];
 	let live = false;
 	for (const row of rows) {
 		/* A co-member's run on THIS user's owned app is the co-member's
@@ -539,7 +565,10 @@ async function scanActiveGeneration(
 		if (runActor !== undefined && runActor !== actorUserId) continue;
 		const lease = runLeaseState(leaseView(row as AppRow), now);
 		if (lease.live) live = true;
-		else if (lease.reapableStaleBuild) reapable.push(row.id);
+		else if (lease.reapableStaleBuild) {
+			const identity = toExactRunHolderIdentity(lease.holderIdentity);
+			if (identity !== null) reapable.push({ appId: row.id, identity });
+		}
 	}
 	return { live, reapable };
 }
@@ -619,6 +648,9 @@ export async function createApp(
 	const denorm = denormalize(persistable);
 	await withAppTx(async (tx) => {
 		await declareLookupReferenceWriter(tx);
+		if ((opts?.status ?? "generating") === "generating") {
+			await declareRuntimeReader(tx);
+		}
 		await assertProjectCapabilityInTransaction(
 			tx,
 			owner,
@@ -720,6 +752,10 @@ async function writeCommittedBatch(
 		mutations: Mutation[];
 		actorUserId: string;
 		kind: AcceptedMutationDoc["kind"];
+		/** Required only when this batch writes the identity-bearing `run_id` of
+		 * a markerless build. The conditional app-row write prevents a stale batch
+		 * from replacing that holder before reservation has been booked. */
+		expectedHolder?: ExactRunHolderIdentity;
 		extraAppFields?: Partial<{
 			project_id: string;
 			lock_expire_at: Date;
@@ -760,7 +796,7 @@ async function writeCommittedBatch(
 			)
 			.execute();
 	}
-	await tx
+	let appUpdate = tx
 		.updateTable("apps")
 		.set({
 			...denormalize(args.committedDoc),
@@ -769,8 +805,18 @@ async function writeCommittedBatch(
 			...(args.runId !== undefined && { run_id: args.runId }),
 			...args.extraAppFields,
 		})
-		.where("id", "=", args.appId)
-		.execute();
+		.where("id", "=", args.appId);
+	if (args.expectedHolder !== undefined) {
+		appUpdate = appUpdate.where(
+			expectedRunHolderPredicate(args.expectedHolder),
+		);
+	}
+	const appUpdateResult = await appUpdate.executeTakeFirst();
+	if (!updatedExactlyOne(appUpdateResult)) {
+		throw new Error(
+			`[writeCommittedBatch] app holder changed for appId=${args.appId}`,
+		);
+	}
 	await tx
 		.insertInto("accepted_mutations")
 		.values({
@@ -1033,6 +1079,23 @@ export async function commitGuardedBatch(
 			 * the edit lock (through the one liveness reader). */
 			const commitLease =
 				runId !== undefined ? runLeaseState(leaseView(fresh)) : undefined;
+			const markerlessBuildHolder =
+				runId !== undefined &&
+				commitLease?.mode === "build" &&
+				rowReservation(fresh) === undefined
+					? ({ mode: "build", runId } as const)
+					: undefined;
+			if (
+				markerlessBuildHolder !== undefined &&
+				!exactRunHolderMatches(
+					commitLease?.holderIdentity ?? null,
+					markerlessBuildHolder,
+				)
+			) {
+				throw new BlueprintCommitRejectedError(
+					"This build no longer owns the app. Reload to get the latest state, then try again.",
+				);
+			}
 			const ownsEditLock =
 				runId !== undefined &&
 				commitLease?.mode === "edit" &&
@@ -1052,6 +1115,9 @@ export async function commitGuardedBatch(
 				mutations,
 				actorUserId,
 				kind,
+				...(markerlessBuildHolder !== undefined && {
+					expectedHolder: markerlessBuildHolder,
+				}),
 				...(ownsEditLock && {
 					extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
 				}),
@@ -1464,6 +1530,7 @@ export class RunConflictError extends Error {
 	constructor(
 		readonly reapableStaleBuild = false,
 		readonly reapableStrandedEdit = false,
+		readonly reapableIdentity: ExactRunHolderIdentity | null = null,
 	) {
 		super(
 			"Another request is already running on this app — only one run can work on an app at a time.",
@@ -1535,7 +1602,10 @@ export async function claimAndReserveRun(
 ): Promise<ClaimedRun> {
 	const period = getCurrentPeriod();
 	try {
-		const reapable: string[] = [];
+		const reapable: Array<{
+			appId: string;
+			identity: ExactRunHolderIdentity;
+		}> = [];
 		const claimed = await withAppTx(async (tx) => {
 			/* The body re-runs from scratch on a deadlock/serialization retry —
 			 * reset the collector so a retried scan doesn't double-book reaps. */
@@ -1568,6 +1638,7 @@ export async function claimAndReserveRun(
 				throw new RunConflictError(
 					lease.reapableStaleBuild,
 					lease.reapableStrandedEdit,
+					toExactRunHolderIdentity(lease.holderIdentity),
 				);
 			}
 			if (mode === "build") {
@@ -1575,6 +1646,7 @@ export async function claimAndReserveRun(
 				reapable.push(...scan.reapable);
 				if (scan.live) throw new GenerationInProgressError();
 			}
+			await declareRuntimeReader(tx);
 			await debitAndBookReservation(tx, {
 				appId,
 				userId: actorUserId,
@@ -1622,7 +1694,9 @@ export async function claimAndReserveRun(
 			}
 			return { mode, reservation: { period, reserved: cost } };
 		});
-		for (const id of reapable) void reapStaleGenerating(id);
+		for (const target of reapable) {
+			void reapStaleGenerating(target.appId, target.identity);
+		}
 		return claimed;
 	} catch (err) {
 		/* A conflict with a REAPABLE holder — an abandoned run whose lease
@@ -1630,8 +1704,13 @@ export async function claimAndReserveRun(
 		 * the next poll deterministically finds the freed app); each reaper
 		 * re-validates its staleness in-txn and swallows its own faults. */
 		if (err instanceof RunConflictError) {
-			if (err.reapableStaleBuild) await reapStaleGenerating(appId);
-			else if (err.reapableStrandedEdit) await reapStaleReservation(appId);
+			if (err.reapableIdentity !== null) {
+				if (err.reapableStaleBuild) {
+					await reapStaleGenerating(appId, err.reapableIdentity);
+				} else if (err.reapableStrandedEdit) {
+					await reapStaleReservation(appId, err.reapableIdentity);
+				}
+			}
 		}
 		throw err;
 	}
@@ -1651,7 +1730,10 @@ export async function reserveForNewBuild(
 	expectedProjectId: string | null,
 ): Promise<Reservation> {
 	const period = getCurrentPeriod();
-	const reapable: string[] = [];
+	const reapable: Array<{
+		appId: string;
+		identity: ExactRunHolderIdentity;
+	}> = [];
 	const reservation = await withAppTx(async (tx) => {
 		reapable.length = 0;
 		const fresh = await lockAppRow(tx, appId);
@@ -1668,9 +1750,19 @@ export async function reserveForNewBuild(
 			"edit",
 			"You no longer have edit access to this app's Project.",
 		);
+		const expectedHolder = { mode: "build", runId } as const;
+		const lease = runLeaseState(leaseView(fresh));
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
+			throw new RunConflictError(
+				lease.reapableStaleBuild,
+				lease.reapableStrandedEdit,
+				toExactRunHolderIdentity(lease.holderIdentity),
+			);
+		}
 		const scan = await scanActiveGeneration(tx, actorUserId, appId);
 		reapable.push(...scan.reapable);
 		if (scan.live) throw new GenerationInProgressError();
+		await declareRuntimeReader(tx);
 		await debitAndBookReservation(tx, {
 			appId,
 			userId: actorUserId,
@@ -1682,7 +1774,9 @@ export async function reserveForNewBuild(
 		});
 		return { period, reserved: cost };
 	});
-	for (const id of reapable) void reapStaleGenerating(id);
+	for (const target of reapable) {
+		void reapStaleGenerating(target.appId, target.identity);
+	}
 	return reservation;
 }
 
@@ -1711,7 +1805,11 @@ export async function completeAndSettleRun(
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
 		const lease = runLeaseState(leaseView(fresh));
-		if (lease.mode !== "build" || !lease.terminalWriteOwned(runId)) {
+		const expectedHolder = { mode: "build", runId } as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
+			!lease.terminalWriteOwned(runId)
+		) {
 			if (
 				fresh.status === "error" &&
 				lease.mode === "none" &&
@@ -1722,6 +1820,7 @@ export async function completeAndSettleRun(
 					.updateTable("apps")
 					.set({ status: "complete", error_type: null })
 					.where("id", "=", appId)
+					.where(expectedReapedBuildCompletionPredicate(runId))
 					.execute();
 			}
 			return;
@@ -1730,6 +1829,7 @@ export async function completeAndSettleRun(
 			.updateTable("apps")
 			.set({ status: "complete", error_type: null, res_settled: true })
 			.where("id", "=", appId)
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.execute();
 	});
 }
@@ -1748,11 +1848,13 @@ export async function refreshEditLease(
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
 		const lease = runLeaseState(leaseView(fresh));
-		if (!(lease.mode === "edit" && lease.mine(runId))) return;
+		const expectedHolder = { mode: "edit", runId } as const;
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) return;
 		await tx
 			.updateTable("apps")
 			.set({ lock_expire_at: new Date(editLeaseDeadlineMs()) })
 			.where("id", "=", appId)
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.execute();
 	});
 }
@@ -1773,11 +1875,13 @@ export async function refreshBuildLiveness(
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
 		const lease = runLeaseState(leaseView(fresh));
-		if (!(lease.mode === "build" && lease.mine(runId))) return;
+		const expectedHolder = { mode: "build", runId } as const;
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) return;
 		await tx
 			.updateTable("apps")
 			.set({ updated_at: new Date() })
 			.where("id", "=", appId)
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.execute();
 	});
 }
@@ -1802,7 +1906,8 @@ export async function clearRunLock(
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) return;
 			const lease = runLeaseState(leaseView(fresh));
-			if (lease.mode !== "edit" || !lease.mine(runId)) return;
+			const expectedHolder = { mode: "edit", runId } as const;
+			if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) return;
 			await tx
 				.updateTable("apps")
 				.set({
@@ -1811,6 +1916,7 @@ export async function clearRunLock(
 					lock_expire_at: null,
 				})
 				.where("id", "=", appId)
+				.where(expectedRunHolderPredicate(expectedHolder))
 				.execute();
 		});
 	} catch (err) {
@@ -1832,7 +1938,13 @@ export async function clearRunLockAndSettle(
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
 		const lease = runLeaseState(leaseView(fresh));
-		if (lease.mode !== "edit" || !lease.terminalWriteOwned(runId)) return;
+		const expectedHolder = { mode: "edit", runId } as const;
+		if (
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
+			!lease.terminalWriteOwned(runId)
+		) {
+			return;
+		}
 		const reservation = rowReservation(fresh);
 		await tx
 			.updateTable("apps")
@@ -1843,6 +1955,7 @@ export async function clearRunLockAndSettle(
 				...(reservation && !reservation.settled && { res_settled: true }),
 			})
 			.where("id", "=", appId)
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.execute();
 	});
 }
@@ -1906,23 +2019,31 @@ export async function reacquireLease(
 		if (!lease.ownedByResume(runId, mode)) {
 			return lease.present ? "superseded" : "released";
 		}
+		const expectedHolder = { mode, runId } as const;
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
+			return lease.present ? "superseded" : "released";
+		}
+		await declareRuntimeReader(tx);
+		let result: UpdateResult;
 		if (mode === "edit") {
-			await tx
+			result = await tx
 				.updateTable("apps")
 				.set({
 					lock_expire_at: new Date(editLeaseDeadlineMs()),
 					awaiting_input: false,
 				})
 				.where("id", "=", appId)
-				.execute();
+				.where(expectedRunHolderPredicate(expectedHolder))
+				.executeTakeFirst();
 		} else {
-			await tx
+			result = await tx
 				.updateTable("apps")
 				.set({ updated_at: new Date(), awaiting_input: false })
 				.where("id", "=", appId)
-				.execute();
+				.where(expectedRunHolderPredicate(expectedHolder))
+				.executeTakeFirst();
 		}
-		return "owned";
+		return updatedExactlyOne(result) ? "owned" : "superseded";
 	});
 }
 
@@ -1943,18 +2064,103 @@ export async function failApp(
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) return false;
 			const lease = runLeaseState(leaseView(fresh));
-			if (!lease.buildFailureWriteOwned(runId)) return false;
-			await tx
+			const expectedHolder = { mode: "build", runId } as const;
+			if (
+				!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
+				!lease.buildFailureWriteOwned(runId)
+			) {
+				return false;
+			}
+			const result = await tx
 				.updateTable("apps")
 				.set({ status: "error", error_type: errorType })
 				.where("id", "=", appId)
-				.execute();
-			return true;
+				.where(expectedRunHolderPredicate(expectedHolder))
+				.executeTakeFirst();
+			return updatedExactlyOne(result);
 		});
 	} catch (err) {
 		log.error("[failApp] write failed", err, { appId, runId });
 		return false;
 	}
+}
+
+export type RecoverAppStatusOutcome =
+	| { readonly kind: "recovered" }
+	| { readonly kind: "already_complete" }
+	| { readonly kind: "not_found" }
+	| { readonly kind: "empty_blueprint" }
+	| {
+			readonly kind: "holder_token_required" | "holder_token_mismatch";
+			readonly holder: RunHolderIdentity;
+	  }
+	| { readonly kind: "holder_state_changed" };
+
+/**
+ * Operator-only status recovery with a locked exact-holder compare-and-set.
+ *
+ * A free app may be repaired without a holder token. A present holder may be
+ * touched only when the operator supplied its exact `(mode, runId)` token;
+ * corrupt/null identities are therefore intentionally not recoverable here.
+ * The SQL predicate repeats that proof on the write itself, so a future
+ * refactor that weakens the locking pre-read still cannot release a successor.
+ * Edit recovery repairs status/error only and leaves the proven live lock and
+ * marker in place. Build recovery's status transition releases that exact
+ * build and settles its reservation as a kept charge, matching clean build
+ * completion rather than stranding an unsettled debit behind no holder.
+ */
+export async function recoverAppStatus(
+	appId: string,
+	expectedHolder: ExactRunHolderIdentity | null,
+): Promise<RecoverAppStatusOutcome> {
+	return await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) return { kind: "not_found" };
+		const lease = runLeaseState(leaseView(fresh));
+		const recoveringBuildHolder = lease.holderIdentity?.mode === "build";
+		let holderPredicate: RawBuilder<boolean>;
+		if (lease.holderIdentity !== null) {
+			if (expectedHolder === null) {
+				return {
+					kind: "holder_token_required",
+					holder: lease.holderIdentity,
+				};
+			}
+			if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
+				return {
+					kind: "holder_token_mismatch",
+					holder: lease.holderIdentity,
+				};
+			}
+			holderPredicate = expectedRunHolderPredicate(expectedHolder);
+		} else if (expectedHolder !== null) {
+			return { kind: "holder_state_changed" };
+		} else {
+			holderPredicate = noRunHolderPredicate();
+		}
+		if (fresh.module_count === 0) return { kind: "empty_blueprint" };
+		if (fresh.status === "complete" && !fresh.error_type) {
+			return { kind: "already_complete" };
+		}
+
+		const result = await tx
+			.updateTable("apps")
+			.set({
+				status: "complete",
+				error_type: null,
+				updated_at: new Date(),
+				// A build holder owns the reservation outcome. Declaring that build
+				// usable must keep its charge just like completeAndSettleRun; leaving
+				// the marker unsettled would strand a debit behind an absent holder.
+				...(recoveringBuildHolder && { res_settled: true }),
+			})
+			.where("id", "=", appId)
+			.where(holderPredicate)
+			.executeTakeFirst();
+		return updatedExactlyOne(result)
+			? { kind: "recovered" }
+			: { kind: "holder_state_changed" };
+	});
 }
 
 /**
@@ -1976,6 +2182,7 @@ export async function failApp(
 export async function setAwaitingInput(
 	appId: string,
 	runId: string,
+	mode: "build" | "edit",
 	awaiting: boolean,
 	actorUserId: string,
 	expectedProjectId: string | null,
@@ -1992,10 +2199,11 @@ export async function setAwaitingInput(
 			"You no longer have edit access to this app's Project.",
 		);
 		const lease = runLeaseState(leaseView(fresh));
-		if (!lease.mine(runId)) {
+		const expectedHolder = { mode, runId } as const;
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			return lease.present ? "superseded" : "released";
 		}
-		await tx
+		const result = await tx
 			.updateTable("apps")
 			.set(
 				awaiting
@@ -2003,8 +2211,9 @@ export async function setAwaitingInput(
 					: { awaiting_input: false, updated_at: new Date() },
 			)
 			.where("id", "=", appId)
-			.execute();
-		return "owned";
+			.where(expectedRunHolderPredicate(expectedHolder))
+			.executeTakeFirst();
+		return updatedExactlyOne(result) ? "owned" : "superseded";
 	});
 }
 
@@ -2016,9 +2225,13 @@ export async function setAwaitingInput(
  * fire-and-forget at the scan call sites and AWAITED from the claim's
  * conflict nudge.
  */
-export async function reapStaleGenerating(appId: string): Promise<void> {
+export async function reapStaleGenerating(
+	appId: string,
+	expectedIdentity: ExactRunHolderIdentity,
+): Promise<void> {
 	try {
-		await refundStaleGeneration(appId);
+		if (expectedIdentity.mode !== "build") return;
+		await refundStaleGeneration(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleGenerating] stale-build reap failed", err, { appId });
 	}
@@ -2027,20 +2240,17 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
 /**
  * Reap a stranded EDIT reservation: refund an unsettled hold whose run never
  * reached a clean completion, releasing the lapsed `run_lock` in the same
- * commit, WITHOUT flipping status. The pre-filter here only avoids opening a
- * transaction on the common not-reapable row; `refundStaleReservation`
- * re-validates the whole guard inside its transaction.
+ * commit, WITHOUT flipping status. The wrapper rejects a build-mode target;
+ * `refundStaleReservation` re-validates the concrete identity and the whole
+ * staleness guard inside its transaction.
  */
-export async function reapStaleReservation(appId: string): Promise<void> {
+export async function reapStaleReservation(
+	appId: string,
+	expectedIdentity: ExactRunHolderIdentity,
+): Promise<void> {
 	try {
-		const db = await getAppDb();
-		const row = await db
-			.selectFrom("apps")
-			.select(LEASE_COLUMNS)
-			.where("id", "=", appId)
-			.executeTakeFirst();
-		if (!row || !runLeaseState(leaseView(row)).reapableStrandedEdit) return;
-		await refundStaleReservation(appId);
+		if (expectedIdentity.mode !== "edit") return;
+		await refundStaleReservation(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleReservation] reservation refund failed", err, {
 			appId,
@@ -2276,8 +2486,13 @@ function cursorFor(
 function projectAppSummary(row: AppRow, now: number): AppSummary {
 	const lease = runLeaseState(leaseView(row), now);
 	const isStale = lease.reapableStaleBuild;
-	if (isStale) void reapStaleGenerating(row.id);
-	if (lease.reapableStrandedEdit) void reapStaleReservation(row.id);
+	const exactIdentity = toExactRunHolderIdentity(lease.holderIdentity);
+	if (isStale && exactIdentity?.mode === "build") {
+		void reapStaleGenerating(row.id, exactIdentity);
+	}
+	if (lease.reapableStrandedEdit && exactIdentity?.mode === "edit") {
+		void reapStaleReservation(row.id, exactIdentity);
+	}
 	return {
 		id: row.id,
 		app_name: row.app_name || UNTITLED_APP_NAME,

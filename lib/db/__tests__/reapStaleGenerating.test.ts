@@ -49,9 +49,15 @@ describe("reapStaleGenerating", () => {
 		refundStaleGenerationMock.mockResolvedValue(undefined);
 		const { reapStaleGenerating } = await import("../apps");
 
-		await reapStaleGenerating("app-1");
+		await reapStaleGenerating("app-1", {
+			mode: "build",
+			runId: "run-1",
+		});
 
-		expect(refundStaleGenerationMock).toHaveBeenCalledWith("app-1");
+		expect(refundStaleGenerationMock).toHaveBeenCalledWith("app-1", {
+			mode: "build",
+			runId: "run-1",
+		});
 	});
 
 	it("SWALLOWS a transient throw — the row is untouched, so the next scan retries", async () => {
@@ -59,7 +65,9 @@ describe("reapStaleGenerating", () => {
 		const { reapStaleGenerating } = await import("../apps");
 
 		// A throw must not escape (fire-and-forget at the call sites).
-		await expect(reapStaleGenerating("app-1")).resolves.toBeUndefined();
+		await expect(
+			reapStaleGenerating("app-1", { mode: "build", runId: "run-1" }),
+		).resolves.toBeUndefined();
 	});
 });
 
@@ -90,7 +98,7 @@ describe("setAwaitingInput", () => {
 		const { setAwaitingInput } = await import("../apps");
 
 		await expect(
-			setAwaitingInput(APP, RUN, false, "owner-test", "project-test"),
+			setAwaitingInput(APP, RUN, "build", false, "owner-test", "project-test"),
 		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);
@@ -120,7 +128,7 @@ describe("setAwaitingInput", () => {
 		const { setAwaitingInput } = await import("../apps");
 
 		await expect(
-			setAwaitingInput(APP, RUN, true, "owner-test", "project-test"),
+			setAwaitingInput(APP, RUN, "build", true, "owner-test", "project-test"),
 		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);

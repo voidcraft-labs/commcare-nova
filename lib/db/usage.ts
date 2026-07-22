@@ -432,7 +432,11 @@ export class UsageAccumulator {
 				// this live flush already returned. Passing `runId` ownership-gates it:
 				// a run that was reaped mid-flight + its app re-claimed must not claw the
 				// new run's live marker (its `reserveCredits` overwrote `runId`).
-				await refundReservation(this.seed.appId, this.seed.runId);
+				await refundReservation(
+					this.seed.appId,
+					this.seed.runId,
+					this.seed.promptMode,
+				);
 			} catch (err) {
 				/* The refund was owed but its transaction did not commit. Record it so
 				 * the route leaves the row reapable (rather than flipping to a status the

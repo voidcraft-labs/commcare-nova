@@ -53,7 +53,7 @@ describe("runtime holder identity", () => {
 					status: "generating",
 					run_id: "must-not-fallback",
 					reservation: reservation(null),
-					updated_at: updatedAgo(1),
+					updated_at: updatedAgo(MAX_GENERATION_MINUTES + 1),
 				},
 				NOW,
 			).holderIdentity,

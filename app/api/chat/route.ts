@@ -808,14 +808,15 @@ export async function POST(req: Request) {
 						 * released ONLY inside the same commit that settles the marker, so
 						 * "lock cleared + marker unsettled" (the state that stranded credits) is
 						 * impossible — if the txn throws NOTHING changed (the lock stays for the
-						 * reaper) and `settled` reports `false`. A build passes `releaseLock:
-						 * false` (it has no lock). A failure never reaches here paused. */
+						 * reaper) and `settled` reports `false`. The explicit mode is part of
+						 * the holder token (a build has no lock). A failure never reaches here
+						 * paused. */
 						let refundSettled = true;
 						try {
 							({ settled: refundSettled } = await settleAndRelease(
 								appId,
 								effectiveRunId,
-								{ releaseLock: !!appReady },
+								{ mode: appReady ? "edit" : "build" },
 							));
 						} catch (err) {
 							refundSettled = false;
@@ -1896,6 +1897,7 @@ export async function POST(req: Request) {
 							pauseOutcome = await setAwaitingInput(
 								appId,
 								effectiveRunId,
+								editing ? "edit" : "build",
 								true,
 								userId,
 								projectId,

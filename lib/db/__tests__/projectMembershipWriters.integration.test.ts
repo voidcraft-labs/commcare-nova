@@ -213,7 +213,8 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 					id: reserveApp,
 					owner: reserveActor,
 					project_id: PROJECT,
-					status: "complete",
+					status: "generating",
+					run_id: "membership-reserve-run",
 				});
 			},
 			run: async () =>
@@ -310,7 +311,14 @@ function racedOperations(): readonly MembershipRacedOperation[] {
 				});
 			},
 			run: async () =>
-				await setAwaitingInput(pauseApp, pauseRun, true, pauseActor, PROJECT),
+				await setAwaitingInput(
+					pauseApp,
+					pauseRun,
+					"build",
+					true,
+					pauseActor,
+					PROJECT,
+				),
 			assertCommitted: async (result) => {
 				expect(result).toBe("owned");
 				expect((await h.readAppRow(pauseApp))?.awaiting_input).toBe(true);

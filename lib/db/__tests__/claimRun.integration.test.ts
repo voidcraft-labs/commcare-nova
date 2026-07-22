@@ -333,7 +333,10 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await reapStaleReservation(APP_ID);
+		await reapStaleReservation(APP_ID, {
+			mode: "edit",
+			runId: "no-present-holder",
+		});
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: true });
 	});
@@ -356,7 +359,10 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			// No run_lock — a build holds via status, never a lock.
 		});
 
-		await reapStaleReservation(APP_ID);
+		await reapStaleReservation(APP_ID, {
+			mode: "edit",
+			runId: "no-present-holder",
+		});
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_BUILD);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
 	});
@@ -378,7 +384,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await refundStaleReservation(APP_ID);
+		await refundStaleReservation(APP_ID, { mode: "edit", runId: "e1" });
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
 	});
@@ -486,7 +492,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await refundStaleReservation(APP_ID);
+		await refundStaleReservation(APP_ID, { mode: "edit", runId: "p" });
 		// Hold refunded, marker settled, lock released, pause cleared — a clean,
 		// claimable `complete` app.
 		expect(await readConsumed(OWNER)).toBe(0);
@@ -706,10 +712,11 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
 	});
 
-	it("an abandoned-pause build reap labels the row `paused_timeout`, a hard-kill reap `internal`", async () => {
+	it("a stale build with no concrete holder identity fails closed", async () => {
 		const { refundStaleGeneration } = await import("../credits");
-		// Paused at reap time: the run expired waiting for an answer — not an
-		// internal fault, so the row must not read as a crash.
+		// Neither corrupt row has a root or reservation run id. No concrete token
+		// can identify one generation without risking a later null generation, so
+		// even a guessed token must leave both rows untouched.
 		await h.seedApp({
 			id: "app-paused-reap",
 			owner: OWNER,
@@ -717,22 +724,30 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			awaiting_input: true,
 			updated_at: staleClock(),
 		});
-		await refundStaleGeneration("app-paused-reap");
-		expect((await h.readAppRow("app-paused-reap"))?.error_type).toBe(
-			"paused_timeout",
-		);
+		await refundStaleGeneration("app-paused-reap", {
+			mode: "build",
+			runId: "unprovable-holder",
+		});
+		expect(await h.readAppRow("app-paused-reap")).toMatchObject({
+			status: "generating",
+			error_type: null,
+			awaiting_input: true,
+		});
 
-		// Hard-killed (never paused): the process died mid-run — `internal` stands.
 		await h.seedApp({
 			id: "app-hardkill-reap",
 			owner: OWNER,
 			status: "generating",
 			updated_at: staleClock(),
 		});
-		await refundStaleGeneration("app-hardkill-reap");
-		expect((await h.readAppRow("app-hardkill-reap"))?.error_type).toBe(
-			"internal",
-		);
+		await refundStaleGeneration("app-hardkill-reap", {
+			mode: "build",
+			runId: "unprovable-holder",
+		});
+		expect(await h.readAppRow("app-hardkill-reap")).toMatchObject({
+			status: "generating",
+			error_type: null,
+		});
 	});
 
 	it("refundStaleReservation never reaps a RECENTLY-paused edit (paused + FUTURE lease) — its own resume can still renew", async () => {
@@ -752,7 +767,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await refundStaleReservation(APP_ID);
+		await refundStaleReservation(APP_ID, { mode: "edit", runId: "p" });
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
 	});
@@ -770,7 +785,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await refundStaleReservation(APP_ID);
+		await refundStaleReservation(APP_ID, { mode: "edit", runId: "not-build" });
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_BUILD);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
 	});
@@ -800,7 +815,10 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await reapStaleReservation(APP_ID);
+		await reapStaleReservation(APP_ID, {
+			mode: "edit",
+			runId: "dead-edit",
+		});
 
 		expect(await readConsumed(MEMBER)).toBe(0);
 		expect(await readConsumed(OWNER)).toBe(0);
@@ -822,7 +840,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await reapStaleReservation(APP_ID);
+		await reapStaleReservation(APP_ID, { mode: "edit", runId: "e1" });
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
 	});
@@ -849,7 +867,10 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await reapStaleReservation(APP_ID);
+		await reapStaleReservation(APP_ID, {
+			mode: "edit",
+			runId: "taker-run-Y",
+		});
 		expect(await readConsumed(OWNER)).toBe(0);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: true });
 		expect(await h.readRunLock(APP_ID)).toBeUndefined();
@@ -875,7 +896,10 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await reapStaleReservation(APP_ID);
+		await reapStaleReservation(APP_ID, {
+			mode: "edit",
+			runId: "dead-edit",
+		});
 		expect(await readConsumed(OWNER)).toBe(0);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: true });
 	});
@@ -1002,7 +1026,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		expect(await h.readRunLock(APP_ID)).toMatchObject({ runId: "e1" });
 
 		// A later resume FAILS — the failure funnel refunds off the marker.
-		await refundReservation(APP_ID, "e1");
+		await refundReservation(APP_ID, "e1", "edit");
 		expect(await readConsumed(OWNER)).toBe(0);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: true });
 	});
@@ -1049,7 +1073,10 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await reapStaleReservation(APP_ID);
+		await reapStaleReservation(APP_ID, {
+			mode: "edit",
+			runId: "long-edit",
+		});
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
 	});
@@ -1125,7 +1152,10 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 				runId: "late-answer",
 			},
 		});
-		await refundStaleGeneration(APP_ID);
+		await refundStaleGeneration(APP_ID, {
+			mode: "build",
+			runId: "late-answer",
+		});
 		expect(
 			await reacquireLease(APP_ID, "late-answer", "build", OWNER, PROJECT_ID),
 		).toBe("released");
