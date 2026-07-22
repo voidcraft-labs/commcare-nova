@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // __tests__/integration/case-list-authoring.test.ts
 //
 // End-to-end coverage for the case-list authoring surface. Each
@@ -960,7 +961,7 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 			fieldOrder: { [formUuid]: [] },
 			fieldParent: {},
 		};
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -979,7 +980,7 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 describe("validator rejection of broken references", () => {
 	it("emits no case-list errors on the well-formed blueprint", () => {
 		const doc = buildFixtureDoc();
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const caseListErrors = errors.filter(
 			(e) =>
 				e.code.startsWith("CASE_LIST_") ||
@@ -1009,7 +1010,7 @@ describe("validator rejection of broken references", () => {
 			...mod.caseListConfig,
 			columns: corruptedColumns,
 		};
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -1042,7 +1043,7 @@ describe("validator rejection of broken references", () => {
 				),
 			],
 		};
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",

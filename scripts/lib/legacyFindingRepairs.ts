@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Legacy-finding repair core — the shared engine behind
  * `scripts/scan-legacy-findings.ts` (read-only) and
@@ -403,6 +404,19 @@ export const REPAIR_JUDGMENTS: Readonly<
 	FIXTURE_REFERENCE_NOT_MODELED: owner(
 		"the fixture needs modeling work, not a doc edit",
 	),
+	// ── Lookup references ────────────────────────────────────────────
+	LOOKUP_CONTEXT_UNAVAILABLE: owner(
+		"lookup definitions are external Project state; the operation must retry with a fresh available snapshot rather than rewrite the document",
+	),
+	LOOKUP_TABLE_NOT_AVAILABLE: owner(
+		"choosing a replacement table or removing the reference changes authored behavior",
+	),
+	LOOKUP_COLUMN_NOT_AVAILABLE: owner(
+		"choosing a replacement column or removing the reference changes authored behavior",
+	),
+	LOOKUP_COLUMN_TYPE_MISMATCH: owner(
+		"choosing a compatible column or changing the carrier's expected type changes authored behavior",
+	),
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: owner("rewriting a broken expression means guessing intent"),
 	UNKNOWN_FUNCTION: mechanical(
@@ -482,7 +496,7 @@ const BIRTH_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 ]);
 
 export function evaluateLegacyFindings(doc: BlueprintDoc): LegacyEvaluation {
-	const all = runValidation(doc);
+	const all = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (doc.moduleOrder.length > 0) return { findings: all, birth: [] };
 	return {
 		findings: all.filter((err) => !BIRTH_CODES.has(err.code)),
@@ -1381,7 +1395,7 @@ export function repairApp(
 			settled.add(identity);
 			continue;
 		}
-		const gate = mutationCommitVerdict(working, plan.mutations);
+		const gate = mutationCommitVerdict(working, plan.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 		if (!gate.ok) {
 			rejected.push({
 				finding: next,

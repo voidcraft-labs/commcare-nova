@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -88,7 +89,7 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 		const field = { ...built, uuid: UUID } as Field;
 		const verdict = mutationCommitVerdict(doc, [
 			{ kind: "addField", parentUuid: formUuid, field },
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			verdict.ok,
 			verdict.ok

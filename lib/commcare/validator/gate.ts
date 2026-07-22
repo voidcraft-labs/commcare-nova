@@ -16,7 +16,7 @@
  *     renames, and unrelated edits elsewhere in the doc.
  *   - `diffIntroduced(prev, next)` — the findings in `next` whose identity
  *     has no counterpart in `prev`.
- *   - `evaluateCommit({ prevDoc, nextDoc, scope })` — the per-commit gate:
+ *   - `evaluateCommit({ prevDoc, nextDoc, scope, lookupContext })` — the per-commit gate:
  *     a commit is accepted iff it introduces no shape, soundness, or
  *     completeness error. One rule, every surface, every app state.
  *   - `evaluateBoundary(doc, manifest)` — the zero-tolerance full run for
@@ -25,10 +25,14 @@
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
+import type {
+	LookupReferenceExtractorRegistry,
+	LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 import type { ValidationScope } from "./index";
-import { runValidation } from "./runner";
+import { type RunValidationOptions, runValidation } from "./runner";
 
 // ── Classification ─────────────────────────────────────────────────
 
@@ -305,6 +309,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MEDIA_ASSET_NOT_READY: "environment",
 	MEDIA_KIND_MISMATCH: "environment",
 	MEDIA_EXPORT_TOO_LARGE: "environment",
+	// Lookup references are authored structural identities. Context
+	// unavailability gates only a newly introduced occurrence; a pre-existing
+	// occurrence remains repairable through the identity diff.
+	LOOKUP_CONTEXT_UNAVAILABLE: "soundness",
+	LOOKUP_TABLE_NOT_AVAILABLE: "soundness",
+	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
+	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: "soundness",
 	UNKNOWN_FUNCTION: "soundness",
@@ -566,6 +577,18 @@ export function errorIdentity(err: ValidationError): string {
 				part("col", det?.columnUuid),
 			);
 			break;
+		case "LOOKUP_CONTEXT_UNAVAILABLE":
+		case "LOOKUP_TABLE_NOT_AVAILABLE":
+		case "LOOKUP_COLUMN_NOT_AVAILABLE":
+		case "LOOKUP_COLUMN_TYPE_MISMATCH":
+			parts.push(
+				part("carrier", det?.carrierUuid),
+				part("slot", det?.registrySlot),
+				part("subpath", det?.subpath),
+				part("table", det?.tableId),
+				part("column", det?.columnId),
+			);
+			break;
 
 		default:
 			// Default shape: location uuids + surface key. Collapses
@@ -610,6 +633,10 @@ export function diffIntroduced(
 export interface EvaluateCommitArgs {
 	readonly prevDoc: BlueprintDoc;
 	readonly nextDoc: BlueprintDoc;
+	/** The exact same external definition snapshot is used for both docs. */
+	readonly lookupContext: LookupValidationContext;
+	/** Explicit synthetic extractor seam for pure tests; production omits it. */
+	readonly lookupReferenceExtractors?: LookupReferenceExtractorRegistry;
 	/**
 	 * The validation scope for THIS batch, derived from the mutations via
 	 * `scopeOfMutations(prevDoc, mutations)`, or `"full"`.
@@ -663,11 +690,21 @@ export type CommitVerdict =
 export function evaluateCommit({
 	prevDoc,
 	nextDoc,
+	lookupContext,
+	lookupReferenceExtractors,
 	scope,
 }: EvaluateCommitArgs): CommitVerdict {
-	const options = scope === "full" ? undefined : { scope };
-	const prev = runValidation(prevDoc, options);
-	const next = runValidation(nextDoc, options);
+	const options: RunValidationOptions | undefined =
+		scope === "full" && lookupReferenceExtractors === undefined
+			? undefined
+			: {
+					...(scope !== "full" && { scope }),
+					...(lookupReferenceExtractors !== undefined && {
+						lookupReferenceExtractors,
+					}),
+				};
+	const prev = runValidation(prevDoc, lookupContext, options);
+	const next = runValidation(nextDoc, lookupContext, options);
 
 	const gating = diffIntroduced(prev, next).filter((err) => {
 		const cls = classifyError(err.code);
@@ -695,6 +732,7 @@ export function evaluateCommit({
 export function evaluateBoundary(
 	doc: BlueprintDoc,
 	manifest: ReadonlyMap<string, MediaAssetRecord>,
+	lookupContext: LookupValidationContext,
 ): ValidationError[] {
-	return runValidation(doc, { mediaAssets: manifest });
+	return runValidation(doc, lookupContext, { mediaAssets: manifest });
 }

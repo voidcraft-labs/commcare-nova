@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { produce } from "immer";
@@ -92,7 +93,12 @@ function textField(
 function gateCommit(prevDoc: BlueprintDoc, mutations: Mutation[]) {
 	const scope = scopeOfMutations(prevDoc, mutations);
 	const nextDoc = apply(prevDoc, mutations);
-	return evaluateCommit({ prevDoc, nextDoc, scope });
+	return evaluateCommit({
+		prevDoc,
+		nextDoc,
+		scope,
+		lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+	});
 }
 
 /** `minDoc()` plus one empty survey form with a known uuid. */
@@ -200,8 +206,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(4);
 		expect(byClass.get("oracle")).toHaveLength(95);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(83);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(198);
+		expect(byClass.get("soundness")).toHaveLength(87);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(202);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -222,8 +228,8 @@ describe("classification table", () => {
 describe("errorIdentity", () => {
 	it("is deterministic across runs on the same doc", () => {
 		const doc = docWithEmptyForm();
-		const a = runValidation(doc).map(errorIdentity);
-		const b = runValidation(doc).map(errorIdentity);
+		const a = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity);
+		const b = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity);
 		expect(a.length).toBeGreaterThan(0);
 		expect(a).toEqual(b);
 	});
@@ -242,7 +248,7 @@ describe("errorIdentity", () => {
 
 	it("is unchanged by an unrelated edit elsewhere in the doc", () => {
 		const doc = docWithEmptyForm();
-		const before = runValidation(doc).map(errorIdentity).sort();
+		const before = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity).sort();
 		// Unrelated edit: rename the registration form's field — a different
 		// form from the one carrying the EMPTY_FORM finding. The rename keeps
 		// the same id, so nothing about the doc's findings changes.
@@ -250,7 +256,7 @@ describe("errorIdentity", () => {
 		const edited = apply(doc, [
 			{ kind: "renameField", uuid: fieldUuid, newId: "case_name" },
 		]);
-		const after = runValidation(edited).map(errorIdentity).sort();
+		const after = runValidation(edited, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity).sort();
 		expect(after).toEqual(before);
 	});
 
@@ -286,14 +292,14 @@ describe("errorIdentity", () => {
 				},
 			],
 		});
-		const before = runValidation(doc)
+		const before = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
 			.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME")
 			.map(errorIdentity);
 		expect(before).toHaveLength(1);
 		const reordered = apply(doc, [
 			{ kind: "moveModule", uuid: doc.moduleOrder[1], toIndex: 0 },
 		]);
-		const after = runValidation(reordered)
+		const after = runValidation(reordered, LOOKUP_CONTEXT_UNAVAILABLE)
 			.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME")
 			.map(errorIdentity);
 		expect(after).toEqual(before);
@@ -400,7 +406,7 @@ describe("diffIntroduced", () => {
 			},
 		]);
 		expect(
-			diffIntroduced(runValidation(twoEmpty), runValidation(fixedOne)),
+			diffIntroduced(runValidation(twoEmpty, LOOKUP_CONTEXT_UNAVAILABLE), runValidation(fixedOne, LOOKUP_CONTEXT_UNAVAILABLE)),
 		).toEqual([]);
 	});
 
@@ -414,8 +420,8 @@ describe("diffIntroduced", () => {
 			},
 		]);
 		const introduced = diffIntroduced(
-			runValidation(oneEmpty),
-			runValidation(twoEmpty),
+			runValidation(oneEmpty, LOOKUP_CONTEXT_UNAVAILABLE),
+			runValidation(twoEmpty, LOOKUP_CONTEXT_UNAVAILABLE),
 		).filter((e) => e.code === "EMPTY_FORM");
 		expect(introduced).toHaveLength(1);
 		expect(introduced[0].location.formUuid).toBe(asUuid("form-e2"));
@@ -467,7 +473,7 @@ describe("evaluateCommit", () => {
 				field: textField("fld-bad", "q1", { relevant: "#form/missing = '1'" }),
 			},
 		]);
-		expect(runValidation(broken).length).toBeGreaterThan(0);
+		expect(runValidation(broken, LOOKUP_CONTEXT_UNAVAILABLE).length).toBeGreaterThan(0);
 		const caseNameField = Object.values(broken.fields).find(
 			(x) => x.id === "case_name",
 		);
@@ -670,7 +676,7 @@ describe("evaluateCommit", () => {
 			],
 		});
 		const registerForm = doc.formOrder[doc.moduleOrder[0]][0];
-		const prevCodes = runValidation(doc).map((e) => e.code);
+		const prevCodes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code);
 		expect(prevCodes).toContain("CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY");
 		const verdict = gateCommit(doc, [
 			{
@@ -786,13 +792,13 @@ describe("evaluateBoundary", () => {
 				media: { image: asAssetId("asset-missing") },
 			},
 		]);
-		const findings = evaluateBoundary(withMedia, new Map());
+		const findings = evaluateBoundary(withMedia, new Map(), LOOKUP_CONTEXT_UNAVAILABLE);
 		const codes = findings.map((e) => e.code);
 		expect(codes).toContain("EMPTY_FORM");
 		expect(codes).toContain("MEDIA_ASSET_NOT_FOUND");
 	});
 
 	it("returns nothing for a valid doc", () => {
-		expect(evaluateBoundary(minDoc(), new Map())).toEqual([]);
+		expect(evaluateBoundary(minDoc(), new Map(), LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 });

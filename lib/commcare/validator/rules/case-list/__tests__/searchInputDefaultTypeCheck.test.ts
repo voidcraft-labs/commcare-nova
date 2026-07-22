@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for the `searchInputDefaultTypeCheck` rule. One invariant
  * per `it(...)` block.
@@ -77,7 +78,7 @@ describe("searchInputDefaultTypeCheck", () => {
 				},
 			],
 		});
-		const results = runValidation(doc);
+		const results = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const hits = results.filter(
 			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 		);
@@ -145,7 +146,7 @@ describe("searchInputDefaultTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 		);
 		expect(hits.some((e) => e.message.includes('"adv_search"'))).toBe(true);
@@ -199,7 +200,7 @@ describe("searchInputDefaultTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 		);
 		expect(hits.length).toBeGreaterThan(0);
@@ -258,7 +259,7 @@ describe("searchInputDefaultTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -311,7 +312,7 @@ describe("searchInputDefaultTypeCheck", () => {
 			],
 		});
 
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(error) => error.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 		);
 		expect(hits).toHaveLength(1);
@@ -367,7 +368,7 @@ describe("searchInputDefaultTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -428,7 +429,7 @@ describe("searchInputDefaultTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 		);
 		// One error per offending input — both surface so the editor

@@ -255,6 +255,11 @@ export type ValidationErrorCode =
 	| "MEDIA_ASSET_NOT_FOUND"
 	| "MEDIA_ASSET_NOT_READY"
 	| "MEDIA_KIND_MISMATCH"
+	// Lookup references — structural carrier vs Project definition snapshot.
+	| "LOOKUP_CONTEXT_UNAVAILABLE"
+	| "LOOKUP_TABLE_NOT_AVAILABLE"
+	| "LOOKUP_COLUMN_NOT_AVAILABLE"
+	| "LOOKUP_COLUMN_TYPE_MISMATCH"
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
 	// memory at once, so the total count + bytes are bounded before any

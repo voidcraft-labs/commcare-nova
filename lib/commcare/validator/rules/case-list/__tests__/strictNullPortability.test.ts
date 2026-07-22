@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Preview/Postgres can distinguish an absent case property from a recorded
  * blank, while CommCare's emitted dialects cannot. These tests keep strict
@@ -96,7 +97,7 @@ function buildCaseListDoc(args: {
 }
 
 function strictNullFindings(doc: ReturnType<typeof buildCaseListDoc>) {
-	return runValidation(doc).filter((error) => error.code === CODE);
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE);
 }
 
 function strictNullTextExpression() {
@@ -128,7 +129,7 @@ describe("strictNullPortability", () => {
 			filter: isNull(prop("patient", "status_note")),
 			searchEnabled: true,
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 
 		expect(errors.filter((error) => error.code === CODE)).toHaveLength(1);
 		expect(errors.filter((error) => error.code === CSQL_CODE)).toHaveLength(0);
@@ -205,7 +206,7 @@ describe("strictNullPortability", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			columnLabel: "Availability",
@@ -242,7 +243,7 @@ describe("strictNullPortability", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		expect(runValidation(doc).filter((error) => error.code === CODE)).toEqual(
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE)).toEqual(
 			[],
 		);
 	});
@@ -274,7 +275,7 @@ describe("strictNullPortability", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			inputLabel: "Status note",
@@ -340,7 +341,7 @@ describe("strictNullPortability", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const hits = errors.filter((error) => error.code === CODE);
 
 		expect(hits).toHaveLength(1);
@@ -375,7 +376,7 @@ describe("strictNullPortability", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		expect(runValidation(doc).filter((error) => error.code === CODE)).toEqual(
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE)).toEqual(
 			[],
 		);
 	});
@@ -406,7 +407,7 @@ describe("strictNullPortability", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.surface).toBe("filter");
 	});
@@ -416,7 +417,7 @@ describe("strictNullPortability", () => {
 			filter: isNull(prop("patient", "status_note")),
 			searchButtonDisplayCondition: isNull(prop("patient", "status_note")),
 		});
-		const hits = evaluateBoundary(doc, new Map()).filter(
+		const hits = evaluateBoundary(doc, new Map(), LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(error) => error.code === CODE,
 		);
 

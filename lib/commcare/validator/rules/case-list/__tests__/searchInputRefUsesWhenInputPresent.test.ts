@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `searchInputRefUsesWhenInputPresent`. The rule walks the
  * wire-emission-bound predicate slots (the always-on filter + every
@@ -76,7 +77,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		// Slot identifier + input name surface in the message; the gating
 		// advice names the where-to-look UX slot.
@@ -113,7 +114,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -155,7 +156,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain('input("other_q")');
 	});
@@ -193,7 +194,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -221,7 +222,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain('input("adv")');
 		expect(hits[0].message).toContain("searchInputs[0].predicate");
@@ -251,7 +252,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -290,7 +291,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(2);
 	});
 
@@ -326,7 +327,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("default");
 		// `forbids-input-ref` mode message body names the wire-eval timing.
@@ -365,7 +366,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("calculated column");
 	});
@@ -402,7 +403,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits.length).toBeGreaterThanOrEqual(1);
 		expect(hits[0].message).toContain("search-button display condition");
 	});
@@ -436,7 +437,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 });

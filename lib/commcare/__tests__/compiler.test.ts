@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -1671,7 +1672,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			],
 		});
 
-		const errors = runValidation(novaDoc);
+		const errors = runValidation(novaDoc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.find(
 				(e) =>

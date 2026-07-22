@@ -1,6 +1,7 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Integration: a real `BlueprintDoc` round-trips through
- * `runValidation(doc, { mediaAssets })` and the three media
+ * `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets })` and the three media
  * asset-context rules emit the expected errors for each kind of
  * seeded bad reference.
  *
@@ -145,7 +146,7 @@ describe("media validation integration", () => {
 			// MEDIA_ASSET_NOT_FOUND.
 		]);
 
-		const errors = runValidation(doc, { mediaAssets: manifest });
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest });
 
 		// One error per distinct contract violation. The integration
 		// concern is "does each rule fire from the runner under one
@@ -193,7 +194,7 @@ describe("media validation integration", () => {
 			],
 		});
 
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const mediaCodes = errors
 			.map((e) => e.code)
 			.filter(

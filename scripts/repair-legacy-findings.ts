@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * ⚠️  WRITES — repair the mechanically-repairable validator findings in
  * stored apps, so legacy pre-commit-gate apps pass the zero-tolerance
@@ -222,7 +223,7 @@ async function main() {
 				if (plan.mutations.length > 0) {
 					/* The same commit gate every live write surface runs — a clear
 					 * batch that would introduce any finding is refused whole. */
-					const gate = mutationCommitVerdict(working, plan.mutations);
+					const gate = mutationCommitVerdict(working, plan.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 					if (!gate.ok) {
 						console.log(
 							"  MEDIA GATE-REFUSED — the planned clears would introduce:\n" +

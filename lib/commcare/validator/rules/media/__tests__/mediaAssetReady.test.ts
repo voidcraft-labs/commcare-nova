@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `mediaAssetReady` — every referenced asset is in
  * `status: "ready"`. The validator's manifest loader includes
@@ -64,7 +65,7 @@ describe("mediaAssetReady", () => {
 		const manifest = makeManifest([
 			makeAssetRecord("pending-asset", { status: "pending" }),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
@@ -80,7 +81,7 @@ describe("mediaAssetReady", () => {
 		const manifest = makeManifest([
 			makeAssetRecord("ready-asset", { status: "ready" }),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(0);

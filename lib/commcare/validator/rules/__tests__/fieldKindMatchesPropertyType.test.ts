@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "../../runner";
@@ -46,7 +47,7 @@ describe("fieldKindMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -86,7 +87,7 @@ describe("fieldKindMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH" ||
 					e.code === "FIELD_KIND_WRITERS_DISAGREE",
@@ -144,7 +145,7 @@ describe("fieldKindMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH" ||
 					e.code === "FIELD_KIND_WRITERS_DISAGREE",
@@ -197,7 +198,7 @@ describe("fieldKindMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH" ||
 					e.code === "FIELD_KIND_WRITERS_DISAGREE",
@@ -252,7 +253,7 @@ describe("fieldKindMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(false);
@@ -316,7 +317,7 @@ describe("fieldKindMatchesPropertyType", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const disagreeErrors = errors.filter(
 			(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
 		);
@@ -374,7 +375,7 @@ describe("fieldKindMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -424,7 +425,7 @@ describe("tuple-key encoding is collision-free over arbitrary docs", () => {
 		// Other rules legitimately flag the malformed identifiers; this
 		// rule must not invent a writer disagreement between them.
 		expect(
-			runValidation(doc).some((e) => e.code === "FIELD_KIND_WRITERS_DISAGREE"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === "FIELD_KIND_WRITERS_DISAGREE"),
 		).toBe(false);
 	});
 });

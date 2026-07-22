@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `mediaAssetExists` — every referenced `AssetId` resolves
  * to a row in the manifest.
@@ -45,7 +46,7 @@ describe("mediaAssetExists", () => {
 			],
 		});
 		// Manifest is empty — the reference can't resolve.
-		const hits = runValidation(doc, { mediaAssets: makeManifest([]) }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: makeManifest([]) }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
@@ -102,7 +103,7 @@ describe("mediaAssetExists", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		doc.forms[formUuid].audioLabel = "missing-audio";
 
-		const hits = runValidation(doc, { mediaAssets: makeManifest([]) }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: makeManifest([]) }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(3);
@@ -147,7 +148,7 @@ describe("mediaAssetExists", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, {
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
 			mediaAssets: makeManifest([makeAssetRecord("good-asset")]),
 		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
@@ -201,7 +202,7 @@ describe("mediaAssetExists", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, {
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
 			mediaAssets: makeManifest([makeAssetRecord("present")]),
 		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
@@ -241,7 +242,7 @@ describe("mediaAssetExists", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 });

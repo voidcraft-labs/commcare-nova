@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for the `searchInputPredicateTypeCheck` rule. One invariant
  * per `it(...)` block; the rule's domain is the advanced-arm
@@ -60,7 +61,7 @@ describe("searchInputPredicateTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 		);
 		expect(hits.length).toBeGreaterThan(0);
@@ -112,7 +113,7 @@ describe("searchInputPredicateTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 		);
 		expect(
@@ -175,7 +176,7 @@ describe("searchInputPredicateTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -227,7 +228,7 @@ describe("searchInputPredicateTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -268,7 +269,7 @@ describe("searchInputPredicateTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 			),
 		).toBe(false);

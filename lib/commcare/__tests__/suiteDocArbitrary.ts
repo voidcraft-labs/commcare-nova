@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * fast-check arbitrary that generates schema-valid `BlueprintDoc`s for the
  * SUITE oracle fuzzer.
@@ -34,7 +35,7 @@
  *     and the `MISSING_CHILD_CASE_MODULE` validator gate.
  *
  * Like the XForm generator, this is CONSTRUCTIVE (valid by construction), and
- * the fuzz test re-asserts `runValidation(doc).length === 0` at the top of every
+ * the fuzz test re-asserts `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0` at the top of every
  * property body so a generator slip fails loud as a generator bug, not a silent
  * skip.
  */

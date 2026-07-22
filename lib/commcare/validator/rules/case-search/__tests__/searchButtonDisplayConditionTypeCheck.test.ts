@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for the `searchButtonDisplayConditionTypeCheck` rule. One
  * invariant per `it(...)` block; the rule routes through the shared
@@ -64,7 +65,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 				},
 			],
 		});
-		const results = runValidation(doc);
+		const results = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const hits = results.filter(
 			(e) =>
 				e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
@@ -123,7 +124,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code ===
 					"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
@@ -171,7 +172,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 		);
 		expect(hits.length).toBeGreaterThan(0);
@@ -231,7 +232,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 		);
 		expect(
@@ -281,7 +282,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 				},
 			],
 		});
-		const results = runValidation(doc);
+		const results = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			results.some(
 				(e) =>
@@ -327,7 +328,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -372,7 +373,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 			),
 		).toBe(false);

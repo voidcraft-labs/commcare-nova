@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `mediaKindMatches` — every referenced asset's MIME kind
  * matches the carrier slot's expected kind.
@@ -50,7 +51,7 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
@@ -98,7 +99,7 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
@@ -142,7 +143,7 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
@@ -187,7 +188,7 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
@@ -232,7 +233,7 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
@@ -283,7 +284,7 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(0);

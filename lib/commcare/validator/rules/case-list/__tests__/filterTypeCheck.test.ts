@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, plainColumn } from "@/lib/domain";
@@ -51,7 +52,7 @@ describe("filterTypeCheck", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR")).toBe(
 			true,
 		);
@@ -104,7 +105,7 @@ describe("filterTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
 		).toBe(false);
 	});
 
@@ -138,7 +139,7 @@ describe("filterTypeCheck", () => {
 			],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -204,7 +205,7 @@ describe("filterTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
 		).toBe(false);
 	});
 
@@ -242,7 +243,7 @@ describe("filterTypeCheck", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
 		).toBe(false);
 	});
 
@@ -282,7 +283,7 @@ describe("filterTypeCheck", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_FILTER_TYPE_ERROR" &&
 					e.message.toLowerCase().includes("type mismatch"),
@@ -319,7 +320,7 @@ describe("filterTypeCheck", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR"),
 		).toBe(false);
 	});
 });

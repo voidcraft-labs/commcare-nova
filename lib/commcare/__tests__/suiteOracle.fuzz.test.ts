@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Property-based fuzzer that proves the SUITE emitter TOTAL: for every
  * schema-valid doc the generator produces, `compileCcz` emits a `suite.xml`
@@ -11,7 +12,7 @@
  *       EMITTER at source (`compiler.ts`, `suite/**`, `session.ts`).
  *
  * The generator (`suiteDocArbitrary`) builds docs valid BY CONSTRUCTION, but
- * each property body re-asserts `runValidation(doc).length === 0` first: the
+ * each property body re-asserts `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0` first: the
  * totality claim is scoped to schema-valid docs, so a generator slip fails loud
  * as a generator bug rather than silently feeding an invalid doc to the
  * emitter.
@@ -76,7 +77,7 @@ const FUZZ_TIMEOUT_MS = 120_000;
  */
 function prepareAndGuard(doc: BlueprintDoc): void {
 	rebuildFieldParent(doc);
-	const domainErrors = runValidation(doc);
+	const domainErrors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (domainErrors.length > 0) {
 		throw new Error(
 			`Generator produced a doc the domain validator rejects (generator bug, not an emitter finding):\n${domainErrors

@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `sortPriorityUniqueness`. The rule rejects two sorted
  * columns sharing the same `sort.priority` — the wire layer
@@ -57,7 +58,7 @@ describe("sortPriorityUniqueness", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("priority 0");
 		// Both row labels surface so the editor highlights both rows.
@@ -86,7 +87,7 @@ describe("sortPriorityUniqueness", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -110,7 +111,7 @@ describe("sortPriorityUniqueness", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 });

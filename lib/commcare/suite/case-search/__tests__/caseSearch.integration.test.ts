@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts
 //
 // End-to-end integration test for the case-search authoring →
@@ -292,7 +293,7 @@ describe("case-search integration — schema round-trip", () => {
 describe("case-search integration — validator surface", () => {
 	it("admits the realistic search-enabled blueprint with no case-search-config errors", () => {
 		const doc = buildSearchBlueprint();
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const caseSearchCodes = new Set([
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
@@ -325,7 +326,7 @@ describe("case-search integration — validator surface", () => {
 				},
 			},
 		};
-		const errors = runValidation(broken);
+		const errors = runValidation(broken, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) => e.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
@@ -351,7 +352,7 @@ describe("case-search integration — validator surface", () => {
 				},
 			},
 		};
-		const errors = runValidation(broken);
+		const errors = runValidation(broken, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -727,7 +728,7 @@ describe("case-search integration — suite XML wire emission", () => {
 		// form-level `status` property. Scope this assertion to the module
 		// whose case-search configuration is under test.
 		expect(
-			runValidation(samePropertyDoc).filter(
+			runValidation(samePropertyDoc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 				(finding) => finding.scope === "module",
 			),
 		).toEqual([]);

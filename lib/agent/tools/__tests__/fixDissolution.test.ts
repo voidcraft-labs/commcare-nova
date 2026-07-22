@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Fix-registry dissolution proofs — one test per entry of the RETIRED
  * `FIX_REGISTRY` (deleted with the validate-fix loop), each showing the
@@ -270,7 +271,7 @@ describe("NO_CASE_NAME_FIELD — the gate owns it (no construction default exist
 		const target = fieldByBareId(doc, "case_name");
 		const verdict = mutationCommitVerdict(doc, [
 			{ kind: "removeField", uuid: target.uuid },
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -356,7 +357,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 				targetKind: "text",
 				patch: { relevant: xp(expr) },
 			} as Mutation,
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 	}
 
 	it("UNQUOTED_STRING_LITERAL: a bare-word value in an XPath slot is rejected", () => {
@@ -371,7 +372,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 				targetKind: "text",
 				patch: { default_value: xp("approved") },
 			} as Mutation,
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -505,7 +506,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 				uuid: closeFormUuid,
 				patch: { closeCondition: { field: asUuid("ghost"), answer: "done" } },
 			},
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -524,7 +525,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 				uuid: doc.formOrder[doc.moduleOrder[0]][0],
 				patch: { closeCondition: { field: asUuid("village"), answer: "done" } },
 			},
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -544,7 +545,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 				// shape — both halves are required for a conditional close.
 				patch: { closeCondition: { field: asUuid("outcome"), answer: "" } },
 			},
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(

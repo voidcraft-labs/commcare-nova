@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * fast-check arbitrary that generates schema-valid `BlueprintDoc`s for the
  * XForm oracle fuzzer.
@@ -10,7 +11,7 @@
  * makes the sibling-uniqueness CommCare requires trivially hold),
  * registration forms that always carry a `case_name` field, selects with ≥2
  * options, XPath drawn from a verified-valid palette, etc. The fuzz test still
- * asserts `runValidation(doc).length === 0` at the top of every property body:
+ * asserts `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0` at the top of every property body:
  * if this arbitrary ever slips and emits an invalid doc, that assertion fails
  * LOUD as a generator bug, not a silent skip.
  *

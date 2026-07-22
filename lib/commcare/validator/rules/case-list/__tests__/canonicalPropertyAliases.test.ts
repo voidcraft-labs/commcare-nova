@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -88,7 +89,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 			],
 		});
 
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(error) => error.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 		);
 		expect(hits.length).toBeGreaterThan(0);
@@ -150,7 +151,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 		});
 
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(error) =>
 					error.code === "CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH",
 			),
@@ -189,7 +190,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 		});
 
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(error) => error.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
 			),
 		).toBe(false);

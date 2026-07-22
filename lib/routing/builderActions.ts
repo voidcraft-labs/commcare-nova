@@ -22,6 +22,7 @@ import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { flattenFieldRefs } from "@/lib/doc/navigation";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
@@ -96,7 +97,11 @@ export function undoRedoGateVerdict(
 		toPersistableDoc(localBase) as BlueprintDoc,
 		toPersistableDoc(rebasedTarget) as BlueprintDoc,
 	);
-	const verdict = mutationCommitVerdict(localBase, batch);
+	const verdict = mutationCommitVerdict(
+		localBase,
+		batch,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
 	if (verdict.ok) return { ok: true };
 	return { ok: false, message: describeIntroducedErrors(verdict.introduced) };
 }

@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `searchInputNameUniqueness`. One invariant per `it` block.
  */
@@ -57,7 +58,7 @@ describe("searchInputNameUniqueness", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME",
 		);
 		expect(hits.length).toBe(1);
@@ -117,7 +118,7 @@ describe("searchInputNameUniqueness", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME",
 		);
 		expect(hits).toHaveLength(0);
@@ -179,7 +180,7 @@ describe("searchInputNameUniqueness", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME",
 		);
 		// One error each for inputs #2 and #3 (both report against #1).
@@ -228,7 +229,7 @@ describe("searchInputNameUniqueness", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME",
 		);
 		expect(hits).toHaveLength(0);

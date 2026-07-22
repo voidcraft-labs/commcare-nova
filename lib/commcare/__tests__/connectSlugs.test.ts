@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Connect-id validity, autofill, and the wire-emit resolver.
  *
@@ -680,7 +681,7 @@ describe("Connect id — validator valid-path set exposes the stored id", () => 
 	}
 
 	const refErrors = (doc: BlueprintDoc) =>
-		runValidation(doc).filter((e) => e.code === "INVALID_REF");
+		runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === "INVALID_REF");
 
 	it("validates clean when a field references the learn_module path", () => {
 		expect(refErrors(learnDocReferencing("/data/intro_module"))).toEqual([]);

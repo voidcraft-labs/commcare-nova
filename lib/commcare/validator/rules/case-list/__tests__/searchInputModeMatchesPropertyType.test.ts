@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -76,7 +77,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH" &&
 					e.message.includes("range"),
@@ -137,7 +138,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -196,7 +197,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -255,7 +256,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(false);
@@ -316,7 +317,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(false);
@@ -351,7 +352,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(false);
@@ -404,7 +405,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(false);
@@ -463,7 +464,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -522,7 +523,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -585,7 +586,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(false);
@@ -644,7 +645,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -692,7 +693,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY",
 			),
 		).toBe(true);
@@ -751,7 +752,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY" ||
 					e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
@@ -811,7 +812,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(false);
@@ -858,7 +859,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
 		).toBe(true);
@@ -905,7 +906,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY" ||
 					e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
@@ -970,7 +971,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH" &&
 					e.message.includes("patient"),

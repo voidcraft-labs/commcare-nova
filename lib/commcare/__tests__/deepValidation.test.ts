@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { asUuid, type CaseType } from "@/lib/domain";
 import {
@@ -805,7 +806,7 @@ describe("runValidation with deep validation", () => {
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
 	});
 });
@@ -848,7 +849,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
 	});
 
@@ -877,7 +878,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
 	});
 
@@ -906,7 +907,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
 	});
 
@@ -935,7 +936,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
 	});
 
@@ -969,7 +970,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const xpathRelated = errors.filter(
 			(e) =>
 				(e.code === "XPATH_SYNTAX" ||
@@ -1008,7 +1009,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const xpathRelated = errors.filter(
 			(e) =>
 				(e.code === "XPATH_SYNTAX" ||
@@ -1051,7 +1052,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const visitErrs = errors.filter((e) => e.location.fieldId === "visits");
 		expect(visitErrs.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(true);
 		const deepCodes: ReadonlySet<string> = new Set([
@@ -1093,7 +1094,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const caseErrs = errors.filter((e) => e.location.fieldId === "open_cases");
 		expect(caseErrs.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(true);
 		const deepCodes: ReadonlySet<string> = new Set([
@@ -1137,7 +1138,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) => e.code === "INVALID_REF" && e.location.fieldId === "visits",
@@ -1177,7 +1178,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) => e.code === "INVALID_REF" && e.location.fieldId === "open_cases",
@@ -1216,7 +1217,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const memberErrs = errors.filter((e) => e.location.fieldId === "members");
 		const deepCodes: ReadonlySet<string> = new Set([
 			"XPATH_SYNTAX",
@@ -1255,7 +1256,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const syntaxErr = errors.find(
 			(e) => e.code === "XPATH_SYNTAX" && e.location.fieldId === "visits",
 		);
@@ -1310,7 +1311,7 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 				},
 			],
 		});
-		const refErr = runValidation(doc).find(
+		const refErr = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
 			(e) => e.code === "INVALID_REF" && e.location.fieldId === "consent_stop",
 		);
 		expect(refErr).toBeDefined();
@@ -1347,7 +1348,7 @@ describe("INVALID_REF stored-reference classification", () => {
 		);
 		expect(deepErr?.error.storedRef).toBe("raw-text");
 
-		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
 		expect(rendered?.message).toContain('Field "total"');
 		expect(rendered?.message).toContain("plain text");
 		expect(rendered?.message).toContain("re-commit");
@@ -1369,7 +1370,7 @@ describe("INVALID_REF stored-reference classification", () => {
 		);
 		expect(deepErr?.error.storedRef).toBe("dangling-identity");
 
-		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
 		// The carrier + slot are the find-it handle; the uuid is not a path
 		// a person can look up, so it must not appear in the prose.
 		expect(rendered?.message).toContain('Field "total"');
@@ -1392,7 +1393,7 @@ describe("INVALID_REF stored-reference classification", () => {
 			}),
 			f({ kind: "hidden", id: "total", calculate: xp("#form/score") }),
 		]);
-		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
 		expect(rendered?.message).toContain("`#form/grp/score`");
 		expect(rendered?.message).toContain("did you mean");
 		expect(rendered?.message).not.toContain("re-commit");
@@ -1408,7 +1409,7 @@ describe("INVALID_REF stored-reference classification", () => {
 				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
 		);
 		expect(deepErr?.error.storedRef).toBeUndefined();
-		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
 		expect(rendered?.message).toContain("Check for a typo");
 	});
 });

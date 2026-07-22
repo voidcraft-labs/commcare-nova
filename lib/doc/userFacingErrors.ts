@@ -466,6 +466,16 @@ const USER_MESSAGE_BY_CODE: Partial<
 	TYPE_ERROR: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where it needs a number, so the result might come out wrong. Check the values it's working with.`,
 
+	// ── Lookup references ────────────────────────────────────────────
+	LOOKUP_CONTEXT_UNAVAILABLE: () =>
+		"Lookup data hasn't finished reconnecting yet. Wait a moment, then try that change again.",
+	LOOKUP_TABLE_NOT_AVAILABLE: () =>
+		"This setting uses a lookup table that isn't available in this Project. Choose an available table, or clear the setting.",
+	LOOKUP_COLUMN_NOT_AVAILABLE: () =>
+		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
+	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
+		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
+
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>
 		"An attached media file is missing — it may have been deleted. Open the slot and pick another file, or clear it.",

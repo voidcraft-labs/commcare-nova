@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `imageMapValueUnique` — within one image-map column, every
  * mapping entry's `value` is unique.
@@ -72,7 +73,7 @@ describe("imageMapValueUnique", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`Image-map column "Region" (column #1) on module "Mod" has two rows that share the value "N" (rows 1 and 2). Each case-property value can map to at most one image, so only the first row's image displays. Change one row's value, or delete the duplicate.`,
@@ -109,7 +110,7 @@ describe("imageMapValueUnique", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -144,7 +145,7 @@ describe("imageMapValueUnique", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 });

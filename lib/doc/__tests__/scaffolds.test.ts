@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // Tests for the in-tree creation scaffolds. The contract is valid-by-
 // construction: each scaffold's batch, committed against a valid doc, must
 // pass the SAME gate the builder UI uses (`mutationCommitVerdict`) — an empty
@@ -83,7 +84,7 @@ describe("caseListModuleMutations", () => {
 	it("commits a born-valid case-list viewer (caseListOnly, no forms)", () => {
 		const base = baseDoc();
 		const scaffold = caseListModuleMutations(base, { caseType: "patient" });
-		const verdict = mutationCommitVerdict(base, scaffold.mutations);
+		const verdict = mutationCommitVerdict(base, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 
 		expect(verdict.ok).toBe(true);
 
@@ -108,7 +109,7 @@ describe("caseListModuleMutations", () => {
 	it("derives a default module name from the case type", () => {
 		const base = baseDoc();
 		const scaffold = caseListModuleMutations(base, { caseType: "home_visit" });
-		const verdict = mutationCommitVerdict(base, scaffold.mutations);
+		const verdict = mutationCommitVerdict(base, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(true);
 		expect(verdict.nextDoc.modules[scaffold.moduleUuid]?.name).toBe(
 			"Home visit",
@@ -120,7 +121,7 @@ describe("surveyModuleMutations", () => {
 	it("commits a survey module born with one survey form + question", () => {
 		const base = baseDoc();
 		const scaffold = surveyModuleMutations(base);
-		const verdict = mutationCommitVerdict(base, scaffold.mutations);
+		const verdict = mutationCommitVerdict(base, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 
 		// Valid by construction: a formless module would introduce
 		// NO_FORMS_OR_CASE_LIST (a hard CommCare build error), so the module is
@@ -150,7 +151,7 @@ describe("surveyModuleMutations", () => {
 		});
 		const verdict = mutationCommitVerdict(doc, [
 			{ kind: "removeForm", uuid: scaffold.formUuid },
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			const msg =
@@ -170,7 +171,7 @@ describe("surveyModuleMutations", () => {
 				kind: "addModule",
 				module: { uuid: M("bare"), id: "bare", name: "Bare" } as Module,
 			},
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -203,7 +204,7 @@ describe("the blank app template", () => {
 	};
 
 	it("is export-ready as `createBlankApp` builds it", () => {
-		expect(evaluateBoundary(seeded(BLANK_APP_NAME), new Map())).toEqual([]);
+		expect(evaluateBoundary(seeded(BLANK_APP_NAME), new Map(), LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
 	it("names the app for real — BLANK_APP_NAME is not a blank name", () => {
@@ -211,12 +212,12 @@ describe("the blank app template", () => {
 	});
 
 	it("does not inherit the empty app's findings, which block export", () => {
-		const codes = evaluateBoundary(emptyDoc(), new Map()).map((e) => e.code);
+		const codes = evaluateBoundary(emptyDoc(), new Map(), LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code);
 		expect(codes).toContain("NO_MODULES");
 	});
 
 	it("needs the name too — a nameless blank app cannot export", () => {
-		const codes = evaluateBoundary(seeded(""), new Map()).map((e) => e.code);
+		const codes = evaluateBoundary(seeded(""), new Map(), LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code);
 		expect(codes).toEqual(["EMPTY_APP_NAME"]);
 	});
 });
@@ -226,7 +227,7 @@ describe("formScaffoldMutations", () => {
 		const base = baseDoc();
 		const scaffold = formScaffoldMutations(base, M("base"), "survey");
 		if (!scaffold) throw new Error("expected a survey-form scaffold");
-		const verdict = mutationCommitVerdict(base, scaffold.mutations);
+		const verdict = mutationCommitVerdict(base, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(true);
 		// Born with a default question, never empty.
 		expect(verdict.nextDoc.fieldOrder[scaffold.formUuid]?.length).toBe(1);
@@ -235,14 +236,14 @@ describe("formScaffoldMutations", () => {
 	it("adds each case-managing form type to a case module", () => {
 		const base = baseDoc();
 		const cl = caseListModuleMutations(base, { caseType: "patient" });
-		const withCase = mutationCommitVerdict(base, cl.mutations);
+		const withCase = mutationCommitVerdict(base, cl.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(withCase.ok).toBe(true);
 		const doc = withCase.nextDoc;
 
 		for (const type of ["registration", "followup", "close"] as const) {
 			const scaffold = formScaffoldMutations(doc, cl.moduleUuid, type);
 			if (!scaffold) throw new Error(`expected a ${type}-form scaffold`);
-			const verdict = mutationCommitVerdict(doc, scaffold.mutations);
+			const verdict = mutationCommitVerdict(doc, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 			expect(verdict.ok, type).toBe(true);
 		}
 	});
@@ -252,10 +253,10 @@ describe("formScaffoldMutations", () => {
 		// removed), so the registration scaffold carries exactly one field.
 		const base = baseDoc();
 		const cl = caseListModuleMutations(base, { caseType: "patient" });
-		const doc = mutationCommitVerdict(base, cl.mutations).nextDoc;
+		const doc = mutationCommitVerdict(base, cl.mutations, LOOKUP_CONTEXT_UNAVAILABLE).nextDoc;
 		const scaffold = formScaffoldMutations(doc, cl.moduleUuid, "registration");
 		if (!scaffold) throw new Error("expected a registration-form scaffold");
-		const verdict = mutationCommitVerdict(doc, scaffold.mutations);
+		const verdict = mutationCommitVerdict(doc, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(true);
 		const fieldUuids = verdict.nextDoc.fieldOrder[scaffold.formUuid] ?? [];
 		expect(fieldUuids).toHaveLength(1);
@@ -330,7 +331,7 @@ describe("caseTypeSetPatch", () => {
 				uuid: M("s"),
 				patch: caseTypeSetPatch(mod, false, "thing"),
 			},
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(true);
 		expect(verdict.nextDoc.modules[M("s")]?.caseListOnly).toBe(true);
 	});
@@ -357,7 +358,7 @@ describe("caseTypeSetPatch", () => {
 				uuid: moduleUuid,
 				patch: caseTypeSetPatch(mod, false, "b"),
 			},
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(true);
 		const names = (verdict.nextDoc.caseTypes ?? []).map((ct) => ct.name);
 		expect(names).toContain("b");
@@ -399,7 +400,7 @@ describe("caseTypeClearPatch", () => {
 		});
 		const verdict = mutationCommitVerdict(doc, [
 			{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() },
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(true);
 		expect(verdict.nextDoc.modules[moduleUuid]?.caseListOnly).toBeFalsy();
 		expect(verdict.nextDoc.modules[moduleUuid]?.caseType).toBeUndefined();
@@ -419,7 +420,7 @@ describe("caseTypeClearPatch", () => {
 		});
 		const verdict = mutationCommitVerdict(doc, [
 			{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() },
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -442,7 +443,7 @@ describe("atomic creation is load-bearing", () => {
 					caseType: "patient",
 				} as Module,
 			},
-		]);
+		], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(
