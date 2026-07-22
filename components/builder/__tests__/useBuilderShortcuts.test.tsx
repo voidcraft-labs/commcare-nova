@@ -6,6 +6,13 @@ import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { keyboardManager } from "@/lib/ui/keyboardManager";
 
 const state = vi.hoisted(() => ({
+	accessPhase: "authorized" as
+		| "authorized"
+		| "refreshing"
+		| "reconnecting"
+		| "upgradeRequired"
+		| "revoked",
+	canEdit: true,
 	canRedo: false,
 	canUndo: false,
 	deleteSelected: vi.fn(),
@@ -71,7 +78,9 @@ vi.mock("@/lib/routing/hooks", () => ({
 }));
 
 vi.mock("@/lib/session/hooks", () => ({
+	useAccessPhase: () => state.accessPhase,
 	useBuilderIsReady: () => state.isReady,
+	useCanEdit: () => state.canEdit,
 	usePreviewing: () => state.previewing,
 }));
 
@@ -99,6 +108,8 @@ function dispatchKey(
 
 describe("useBuilderShortcuts", () => {
 	beforeEach(() => {
+		state.accessPhase = "authorized";
+		state.canEdit = true;
 		state.canRedo = false;
 		state.canUndo = false;
 		state.fieldRefs = [];
@@ -244,5 +255,56 @@ describe("useBuilderShortcuts", () => {
 		expect(redo.defaultPrevented).toBe(true);
 		expect(state.undo).toHaveBeenCalledOnce();
 		expect(state.redo).toHaveBeenCalledOnce();
+	});
+
+	it.each(["refreshing", "reconnecting"] as const)(
+		"disables every builder shortcut while access is %s",
+		(accessPhase) => {
+			state.accessPhase = accessPhase;
+			state.location = {
+				kind: "form",
+				moduleUuid: "module-1",
+				formUuid: "form-1",
+				selectedUuid: "field-1",
+			};
+			state.fieldRefs = [{ uuid: "field-1" }];
+			state.canUndo = true;
+			registerBuilderShortcuts();
+
+			expect(dispatchKey("p").defaultPrevented).toBe(false);
+			expect(dispatchKey("Delete").defaultPrevented).toBe(false);
+			expect(
+				dispatchKey("z", { ctrlKey: true, metaKey: true }).defaultPrevented,
+			).toBe(false);
+			expect(state.transitionPreview).not.toHaveBeenCalled();
+			expect(state.deleteSelected).not.toHaveBeenCalled();
+			expect(state.undo).not.toHaveBeenCalled();
+		},
+	);
+
+	it("keeps navigation shortcuts for an authorized viewer but removes mutations", () => {
+		state.canEdit = false;
+		state.canUndo = true;
+		state.location = {
+			kind: "form",
+			moduleUuid: "module-1",
+			formUuid: "form-1",
+			selectedUuid: "field-1",
+		};
+		state.fieldRefs = [{ uuid: "field-1" }, { uuid: "field-2" }];
+		registerBuilderShortcuts();
+
+		expect(dispatchKey("p").defaultPrevented).toBe(true);
+		expect(dispatchKey("Tab").defaultPrevented).toBe(true);
+		expect(dispatchKey("Delete").defaultPrevented).toBe(false);
+		expect(dispatchKey("ArrowDown").defaultPrevented).toBe(false);
+		expect(
+			dispatchKey("z", { ctrlKey: true, metaKey: true }).defaultPrevented,
+		).toBe(false);
+		expect(state.transitionPreview).toHaveBeenCalledOnce();
+		expect(state.select).toHaveBeenCalledWith("field-2");
+		expect(state.deleteSelected).not.toHaveBeenCalled();
+		expect(state.moveField).not.toHaveBeenCalled();
+		expect(state.undo).not.toHaveBeenCalled();
 	});
 });

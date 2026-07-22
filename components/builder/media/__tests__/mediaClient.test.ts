@@ -16,6 +16,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { Media } from "@/lib/domain/multimedia";
 import {
 	clearMediaSlot,
+	fetchAssetExtract,
+	fetchAssetExtractMeta,
 	fetchMediaLibrary,
 	mediaSrc,
 	setMediaSlot,
@@ -92,6 +94,34 @@ describe("fetchMediaLibrary", () => {
 			});
 			expect(fetchMock).toHaveBeenCalledWith(
 				"/api/media/library?kind=image&cursor=next-page&q=client+plan&appId=app-1",
+				{ cache: "no-store", signal: undefined },
+			);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+});
+
+describe("Project-scoped extract reads", () => {
+	it("forces both extract body and metadata reads past browser caches", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(new Response("Document summary"))
+			.mockResolvedValueOnce(
+				Response.json({ title: "Protocol", summary: "Summary" }),
+			);
+		try {
+			await fetchAssetExtract("asset-1");
+			await fetchAssetExtractMeta("asset-1");
+			expect(fetchMock).toHaveBeenNthCalledWith(
+				1,
+				"/api/media/asset-1/extract",
+				{ cache: "no-store", signal: undefined },
+			);
+			expect(fetchMock).toHaveBeenNthCalledWith(
+				2,
+				"/api/media/asset-1/extract?meta=1",
+				{ cache: "no-store", signal: undefined },
 			);
 		} finally {
 			fetchMock.mockRestore();

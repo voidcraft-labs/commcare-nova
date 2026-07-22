@@ -2,7 +2,11 @@
 
 import type { Media } from "@/lib/domain/multimedia";
 import { cn } from "@/lib/utils";
-import { mediaSrc } from "./mediaClient";
+import {
+	ProjectMediaAudio,
+	ProjectMediaImage,
+	ProjectMediaVideo,
+} from "./ProjectMediaResource";
 
 /**
  * The READ surface for a carrier's attached media — what the form/menu/app
@@ -46,24 +50,25 @@ export function MediaDisplay({
 			)}
 		>
 			{media.image && (
-				// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-				<img src={mediaSrc(media.image)} alt="" className={imageClassName} />
+				<ProjectMediaImage
+					assetId={media.image}
+					alt=""
+					className={imageClassName}
+				/>
 			)}
 			{media.audio && (
 				// Definite width — a native `<audio>` has no intrinsic width and
 				// `w-full` collapses to 0 inside an `items-start` flex column (the
 				// same `w-full`-collapse MediaSlot's audio preview guards against).
-				// biome-ignore lint/a11y/useMediaCaption: author-supplied media; no caption track available
-				<audio
-					src={mediaSrc(media.audio)}
+				<ProjectMediaAudio
+					assetId={media.audio}
 					controls
 					className="w-72 max-w-full"
 				/>
 			)}
 			{media.video && (
-				// biome-ignore lint/a11y/useMediaCaption: author-supplied media; no caption track available
-				<video
-					src={mediaSrc(media.video)}
+				<ProjectMediaVideo
+					assetId={media.video}
 					controls
 					className="max-h-40 max-w-full rounded-md"
 				/>

@@ -49,6 +49,7 @@ describe("useMediaLibrary", () => {
 			kinds: ["image"],
 			cursor: undefined,
 			appId: "app-1",
+			signal: expect.any(AbortSignal),
 		});
 
 		mocks.fetchMediaLibrary.mockResolvedValueOnce({
@@ -93,6 +94,7 @@ describe("useMediaLibrary", () => {
 			cursor: undefined,
 			query: "client-plan",
 			appId: "app-1",
+			signal: expect.any(AbortSignal),
 		});
 
 		mocks.fetchMediaLibrary.mockResolvedValueOnce({
@@ -108,6 +110,7 @@ describe("useMediaLibrary", () => {
 			cursor: "more-matches",
 			query: "client-plan",
 			appId: "app-1",
+			signal: expect.any(AbortSignal),
 		});
 	});
 });

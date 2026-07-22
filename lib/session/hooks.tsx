@@ -30,8 +30,11 @@ import {
 	useBuilderSession,
 	useBuilderSessionShallow,
 } from "./provider";
-import type { EditScrollMemory, SidebarKind } from "./store";
+import type { AccessPhase, EditScrollMemory, SidebarKind } from "./store";
 import { createBuilderSessionStore } from "./store";
+
+export type { AccessPhase } from "./store";
+
 import type {
 	GenerationError,
 	GenerationStage,
@@ -349,6 +352,27 @@ const FALLBACK_SESSION_STORE = createBuilderSessionStore();
 export function useCanEdit(): boolean {
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	return useStore(store, (s) => s.canEdit);
+}
+
+/** The lifecycle of the authoritative access tuple. Provider-optional for the
+ *  same standalone builder leaves as `useCanEdit`; those default authorized. */
+export function useAccessPhase(): AccessPhase {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.accessPhase);
+}
+
+/** Monotonic Project-scope generation. Consumers should normally subscribe to
+ *  the reconciler reset registry instead; this hook is for status/debug UI. */
+export function useProjectScopeEpoch(): number {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.scopeEpoch);
+}
+
+/** Whether local work is being held because the latest authorized snapshot is
+ *  view-only. The reconciler remains the owner of the actual pending batches. */
+export function useHasWaitingAccessChanges(): boolean {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.hasWaitingAccessChanges);
 }
 
 // ── Derived ───────────────────────────────────────────────────────────────

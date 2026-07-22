@@ -12,7 +12,7 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { heldCaseCount } from "@/components/builder/data-review/dataReviewModel";
 import { NameChip } from "@/components/builder/data-review/NameChip";
 import {
@@ -35,6 +35,7 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { Uuid } from "@/lib/doc/types";
 import { type CaseType, humanizeId } from "@/lib/domain";
 import type { PopulateSampleCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -45,8 +46,12 @@ import {
 	useResetSampleCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useSetPreviewing } from "@/lib/session/hooks";
-import { showToast } from "@/lib/ui/toastStore";
+import {
+	useAccessPhase,
+	useProjectScopeEpoch,
+	useSetPreviewing,
+} from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 
 type Operation = "create" | "replace" | null;
 
@@ -93,6 +98,10 @@ export function CaseDataManager({
 	readonly canEdit: boolean;
 	readonly hasLinkedChildren: boolean;
 }) {
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const projectToast = useProjectToast();
+	const session = useBuilderSessionApi();
 	const {
 		state: countState,
 		fetching,
@@ -135,6 +144,16 @@ export function CaseDataManager({
 		cancelAnimationFrame(pendingFocusFrameRef.current);
 		pendingFocusFrameRef.current = null;
 	}, []);
+	const localScopeEpochRef = useRef(scopeEpoch);
+	useEffect(() => {
+		if (localScopeEpochRef.current === scopeEpoch) return;
+		localScopeEpochRef.current = scopeEpoch;
+		cancelPendingFocusFrame();
+		setPopoverOpen(false);
+		setConfirmOpen(false);
+		setOperation(null);
+		setError(null);
+	}, [cancelPendingFocusFrame, scopeEpoch]);
 	const refocusPendingSurface = useCallback(
 		(target: HTMLElement | null) => {
 			cancelPendingFocusFrame();
@@ -215,49 +234,75 @@ export function CaseDataManager({
 	} Case data is shared throughout your app`;
 
 	const createSamples = async () => {
+		const start = session.getState();
+		if (start.accessPhase !== "authorized" || !start.canEdit) return;
+		const operationEpoch = start.scopeEpoch;
+		const isCurrent = () => {
+			const current = session.getState();
+			return (
+				current.scopeEpoch === operationEpoch &&
+				current.accessPhase === "authorized" &&
+				current.canEdit
+			);
+		};
 		setOperation("create");
 		setError(null);
 		try {
 			const result = await populate();
+			if (!isCurrent()) return;
 			if (result.kind !== "ok") {
 				setError(sampleCaseError(result, "create"));
 				return;
 			}
 			setPopoverOpen(false);
-			showToast(
+			projectToast(
 				"info",
 				"Sample cases created",
 				`${caseLabel(result.inserted)} ${result.inserted === 1 ? "is" : "are"} ready to use in Preview`,
 			);
 		} catch {
+			if (!isCurrent()) return;
 			setError("Nova couldn't add sample cases. Try again.");
 		} finally {
-			setOperation(null);
+			if (isCurrent()) setOperation(null);
 		}
 	};
 
 	const replaceSamples = async () => {
+		const start = session.getState();
+		if (start.accessPhase !== "authorized" || !start.canEdit) return;
+		const operationEpoch = start.scopeEpoch;
+		const isCurrent = () => {
+			const current = session.getState();
+			return (
+				current.scopeEpoch === operationEpoch &&
+				current.accessPhase === "authorized" &&
+				current.canEdit
+			);
+		};
 		setOperation("replace");
 		setError(null);
 		try {
 			const result = await reset();
+			if (!isCurrent()) return;
 			if (result.kind !== "ok") {
 				setError(sampleCaseError(result, "replace"));
 				return;
 			}
 			setConfirmOpen(false);
 			restoreTriggerFocus();
-			showToast(
+			projectToast(
 				"info",
 				"Case data replaced",
 				`${caseLabel(result.inserted)} ${result.inserted === 1 ? "is" : "are"} ready to use in Preview`,
 			);
 		} catch {
+			if (!isCurrent()) return;
 			setError(
 				"Your current cases weren't changed. Nova couldn't replace the case data. Try again.",
 			);
 		} finally {
-			setOperation(null);
+			if (isCurrent()) setOperation(null);
 		}
 	};
 
@@ -266,9 +311,13 @@ export function CaseDataManager({
 	return (
 		<>
 			<Popover
-				open={popoverOpen}
+				open={popoverOpen && accessPhase === "authorized"}
 				modal={operation === "create" ? "trap-focus" : false}
 				onOpenChange={(nextOpen, eventDetails) => {
+					if (accessPhase !== "authorized") {
+						setPopoverOpen(false);
+						return;
+					}
 					// The write continues once it starts. Keep its progress and any
 					// failure feedback perceivable instead of letting Escape, an outside
 					// press, or a second trigger press dismiss the only status surface.
@@ -543,8 +592,12 @@ export function CaseDataManager({
 			</Popover>
 
 			<AlertDialog
-				open={confirmOpen}
+				open={confirmOpen && accessPhase === "authorized"}
 				onOpenChange={(nextOpen, eventDetails) => {
+					if (accessPhase !== "authorized") {
+						setConfirmOpen(false);
+						return;
+					}
 					// AlertDialog already blocks outside presses, but Escape remains a
 					// valid Base UI close reason. Once replacement starts, keep the
 					// confirmation mounted until its success or failure is visible.

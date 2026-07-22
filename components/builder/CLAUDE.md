@@ -12,11 +12,31 @@ Under multiplayer, a fourth, non-store owner mediates persistence: the **reconci
 
 ## View-only members (read-only builder)
 
-A Project **viewer** (the `view`-only role) opens the builder read-only. The build page resolves the role (`resolveAppAccess`) and passes `canEdit` down; the session store holds it (`useCanEdit()`), and the doc provider mirrors it into `BlueprintEditableContext`. Three layers make it airtight without per-control paranoia:
+A Project **viewer** (the `view`-only role) opens the builder read-only. The build page resolves one atomic `{projectId, role, canEdit, baseSeq}` snapshot; the session store owns its mutable capability tuple (`useCanEdit()` / `useAccessPhase()`), and `BlueprintEditableBridge` reacts to it through `BlueprintEditableContext`. Three layers make it airtight without per-control paranoia:
 
-1. **Data backstop (the choke point).** `useBlueprintMutations` reads `BlueprintEditableContext` — when `false`, every gated dispatch no-ops with a "view-only access" message, so no canvas affordance can mutate the doc even if its control wasn't hidden. `useAutoSave` also refuses to PUT when `!canEdit`, so a stray local change degrades to local-only (the server would 404 the under-privileged write anyway).
+1. **Data backstop (the choke point).** `useBlueprintMutations` reads `BlueprintEditableContext` — when `false`, every gated dispatch no-ops with a "view-only access" message, so no canvas affordance can mutate the doc even if its control wasn't hidden. `useAutoSave` and the reconciler both refuse to PUT when `!canEdit`.
 2. **Affordances hide.** The chat composer (the SA is the edit mechanism) hides like replay; `BuilderHeader` swaps the edit cluster (save indicator, undo/redo) for a "View only" badge and the structure sidebar's app-settings gear (`AppSettingsButton`, in its app row) renders nothing; the app-tree "+" insertion strips, `TreeRowDelete`, inline `EditableTitle`/`TextEditable`, form-row drag, and the field-inspector destructive controls all gate on `useCanEdit()`. Preview + Export stay (a viewer may preview and download).
 3. **Server enforcement is the authority.** Every write path (`PUT /api/apps/[id]`, `/api/chat`, MCP) independently re-gates at `edit`, so the UI flag is a UX nicety, never the security boundary.
+
+Access is live, not mount-captured. Any reload/gap/typed write-authority response
+immediately pauses editing, masks the Project workspace, clears registered
+Project-scoped client state, and fetches blueprint + access + cursor atomically.
+Pending edits remain in the reconciler: an Editor snapshot resumes them, a
+Viewer snapshot keeps them displayed but paused, and only confirmed loss of
+`view` shows the access-removed boundary. Reconnect is neutral/polite rather
+than an error modal. A receiver-version rejection performs one session-latched
+hard refresh; a repeated rejection has its own “Nova needs to refresh” page and
+explicit 44px Refresh action, never false access-loss copy or a reload loop.
+The synchronous boundary also retires case/media request continuations and
+decoded media elements, strips Project attachment refs from the retained chat
+projection, blocks that thread until its destination-authorized transcript is
+hydrated, removes scoped toasts/actions, and quarantines body portals from the
+source generation. App-owned chat text and unsent composer drafts stay mounted;
+if the boundary stopped an optimistic user turn before persistence, only its
+absent trailing text/id is folded after the authoritative transcript (fresh
+objects, with no source metadata or tool parts). An authoritative thread-read
+failure remains blocked behind a durable reload action rather than risking a
+stripped transcript write-back.
 
 ## Edit vs preview mode
 

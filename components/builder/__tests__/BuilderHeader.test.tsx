@@ -4,12 +4,22 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+	accessPhase: "authorized" as
+		| "authorized"
+		| "refreshing"
+		| "reconnecting"
+		| "upgradeRequired"
+		| "revoked",
+	canEdit: true,
 	compact: true,
 	ultraCompact: false,
 	undo: vi.fn(),
 	redo: vi.fn(),
 }));
 
+vi.mock("@/components/builder/AccessStatus", () => ({
+	BuilderAccessStatus: () => <span data-testid="access-status" />,
+}));
 vi.mock("@/components/builder/ExportPanel", () => ({
 	ExportPanel: () => <button type="button">Export</button>,
 }));
@@ -52,8 +62,9 @@ vi.mock("@/lib/routing/builderActions", () => ({
 	useUndoRedo: () => ({ undo: mocks.undo, redo: mocks.redo }),
 }));
 vi.mock("@/lib/session/hooks", () => ({
+	useAccessPhase: () => mocks.accessPhase,
 	useBuilderIsReady: () => true,
-	useCanEdit: () => true,
+	useCanEdit: () => mocks.canEdit,
 }));
 vi.mock("@/lib/ui/hooks/useIsBreakpoint", () => ({
 	useIsBreakpoint: (_mode: string, breakpoint: number) =>
@@ -68,6 +79,8 @@ import { BuilderHeader } from "@/components/builder/BuilderHeader";
 
 describe("BuilderHeader responsive actions", () => {
 	beforeEach(() => {
+		mocks.accessPhase = "authorized";
+		mocks.canEdit = true;
 		mocks.compact = true;
 		mocks.ultraCompact = false;
 	});
@@ -126,5 +139,29 @@ describe("BuilderHeader responsive actions", () => {
 		expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Edit history" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Export" })).toBeTruthy();
+	});
+
+	it("keeps the autosave owner mounted while access refreshes and reconnects", () => {
+		const props = {
+			commcareConfigured: false,
+			commcareAvailableDomains: [],
+			onSetPreviewing: () => {},
+			impersonating: null,
+		};
+		const view = render(<BuilderHeader {...props} />);
+		const saveOwner = screen.getByTestId("save-status");
+
+		mocks.accessPhase = "refreshing";
+		view.rerender(<BuilderHeader {...props} />);
+		expect(screen.getByTestId("save-status")).toBe(saveOwner);
+		expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+
+		mocks.accessPhase = "reconnecting";
+		view.rerender(<BuilderHeader {...props} />);
+		expect(screen.getByTestId("save-status")).toBe(saveOwner);
+
+		mocks.accessPhase = "authorized";
+		view.rerender(<BuilderHeader {...props} />);
+		expect(screen.getByTestId("save-status")).toBe(saveOwner);
 	});
 });

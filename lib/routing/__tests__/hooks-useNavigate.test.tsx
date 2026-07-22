@@ -26,6 +26,10 @@ const mockSegments = { current: [] as string[] };
 vi.mock("@/lib/routing/useClientPath", () => ({
 	useBuilderPathSegments: () => mockSegments.current,
 	notifyPathChange: vi.fn(),
+	pushBuilderHistory: (url: string, replace = false) => {
+		if (replace) window.history.replaceState(null, "", url);
+		else window.history.pushState(null, "", url);
+	},
 }));
 
 vi.mock("next/navigation", async () => {

@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { useCallback } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { EditableTitle } from "@/components/builder/EditableTitle";
-import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { Badge } from "@/components/shadcn/badge";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
@@ -54,9 +54,8 @@ export function HomeScreen() {
 			{/* The web-apps logo banner — CommCare shows the app logo at the top
 			    of the home screen. */}
 			{logo && (
-				// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-				<img
-					src={mediaSrc(logo)}
+				<ProjectMediaImage
+					assetId={logo}
 					alt=""
 					className="max-h-16 max-w-full rounded-md object-contain"
 				/>
@@ -103,9 +102,8 @@ export function HomeScreen() {
 							{mod.icon ? (
 								// Module menu-tile icon — CommCare shows it on the
 								// module's home-screen tile.
-								// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-								<img
-									src={mediaSrc(mod.icon)}
+								<ProjectMediaImage
+									assetId={mod.icon}
 									alt=""
 									className="w-10 h-10 rounded-lg object-cover shrink-0"
 								/>

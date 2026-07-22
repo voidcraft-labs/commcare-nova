@@ -51,7 +51,18 @@ import type { PersistableDoc } from "@/lib/domain";
 import type { ConversationEvent, MutationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
-import { showToast } from "@/lib/ui/toastStore";
+import {
+	showToast,
+	type ToastOptions,
+	type ToastSeverity,
+} from "@/lib/ui/toastStore";
+
+type StreamToastEmitter = (
+	severity: ToastSeverity,
+	title: string,
+	message?: string,
+	options?: ToastOptions,
+) => string;
 
 // ── Signal grid energy table ────────────────────────────────────────────
 
@@ -94,6 +105,7 @@ export function applyStreamEvent(
 	sessionStore: BuilderSessionStoreApi,
 	reconciler: Reconciler | null,
 	runId: string | undefined,
+	projectToast?: StreamToastEmitter,
 ): void {
 	injectSignalEnergy(type);
 
@@ -162,7 +174,7 @@ export function applyStreamEvent(
 		const event = data as unknown as ConversationEvent;
 		sessionStore.getState().pushEvent(event);
 		if (event.payload.type === "error") {
-			showToast(
+			(projectToast ?? showToast)(
 				event.payload.error.fatal ? "error" : "warning",
 				"Generation error",
 				event.payload.error.message,

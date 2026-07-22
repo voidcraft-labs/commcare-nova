@@ -8,7 +8,12 @@ import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef } from "react";
 import { useToasts } from "@/lib/ui/hooks/useToasts";
-import type { Toast, ToastSeverity } from "@/lib/ui/toastStore";
+import {
+	type ProjectToastScope,
+	type Toast,
+	type ToastSeverity,
+	toastStore,
+} from "@/lib/ui/toastStore";
 
 const AUTO_DISMISS_MS: Record<ToastSeverity, number> = {
 	error: 0, // persistent by default
@@ -47,9 +52,11 @@ const SEVERITY_CHROME: Record<
 function ToastItem({
 	toast,
 	onDismiss,
+	onAction,
 }: {
 	toast: Toast;
 	onDismiss: (id: string) => void;
+	onAction: (id: string) => void;
 }) {
 	const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const hovering = useRef(false);
@@ -131,10 +138,7 @@ function ToastItem({
 				{toast.action && (
 					<button
 						type="button"
-						onClick={() => {
-							toast.action?.onPress();
-							onDismiss(toast.id);
-						}}
+						onClick={() => onAction(toast.id)}
 						className="mt-1 -ml-2 min-h-11 cursor-pointer rounded-md px-2 text-xs font-semibold text-nova-violet-bright hover:text-nova-text"
 					>
 						{toast.action.label}
@@ -163,16 +167,53 @@ function ToastItem({
  */
 export function ToastContainer() {
 	const store = useToasts();
+	useEffect(
+		() =>
+			toastStore.subscribeProjectScopeRetirement((activeScope) => {
+				const activeKey = projectScopeDomKey(activeScope);
+				for (const element of document.querySelectorAll<HTMLElement>(
+					"[data-nova-project-toast-scope]",
+				)) {
+					if (element.dataset.novaProjectToastScope === activeKey) continue;
+					/* Store removal is synchronous but React + AnimatePresence retain the
+					 * old node for an exit frame. Hide and inert it inside the reset stack
+					 * so source-Project text/actions never remain globally visible. */
+					element.hidden = true;
+					element.inert = true;
+					element.setAttribute("aria-hidden", "true");
+					element.style.setProperty("display", "none", "important");
+				}
+			}),
+		[],
+	);
 
 	return (
 		<div className="fixed top-4 right-4 z-system flex flex-col gap-2 pointer-events-none">
 			<AnimatePresence mode="popLayout">
 				{store.toasts.map((toast) => (
-					<div key={toast.id} className="pointer-events-auto">
-						<ToastItem toast={toast} onDismiss={(id) => store.dismiss(id)} />
+					<div
+						key={toast.id}
+						className="pointer-events-auto"
+						{...(toast.projectScope
+							? {
+									"data-nova-project-toast-scope": projectScopeDomKey(
+										toast.projectScope,
+									),
+								}
+							: {})}
+					>
+						<ToastItem
+							toast={toast}
+							onDismiss={(id) => store.dismiss(id)}
+							onAction={(id) => store.invokeAction(id)}
+						/>
 					</div>
 				))}
 			</AnimatePresence>
 		</div>
 	);
+}
+
+function projectScopeDomKey(scope: ProjectToastScope | null): string | null {
+	return scope === null ? null : JSON.stringify([scope.scopeId, scope.epoch]);
 }

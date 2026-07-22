@@ -53,6 +53,8 @@ import {
 	TabsTrigger,
 } from "@/components/shadcn/tabs";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useReconcilerContext } from "@/lib/collab/context";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import {
 	builtinIconPublicPath,
 	builtinIconRef,
@@ -68,7 +70,8 @@ import {
 	isDocumentKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
-import { showToast } from "@/lib/ui/toastStore";
+import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	AssetPreviewDialog,
 	type AssetPreviewTarget,
@@ -79,8 +82,8 @@ import {
 	deleteMediaAsset,
 	type ExtractMeta,
 	type MediaAssetView,
-	mediaSrc,
 } from "./mediaClient";
+import { ProjectMediaImage } from "./ProjectMediaResource";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
 
 type Tab = "upload" | "library" | "icons";
@@ -171,6 +174,14 @@ export function MediaPickerDialog({
 	onAssetDeleted,
 	iconLibrary,
 }: MediaPickerDialogProps) {
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const previousScopeEpochRef = useRef(scopeEpoch);
+	useEffect(() => {
+		if (previousScopeEpochRef.current === scopeEpoch) return;
+		previousScopeEpochRef.current = scopeEpoch;
+		if (open) onOpenChange(false);
+	}, [onOpenChange, open, scopeEpoch]);
 	// No `onPick` → this is the standalone file manager (see the prop doc): no
 	// carrier to pick into, so library clicks preview and Upload just lands files.
 	const manage = onPick === undefined;
@@ -181,6 +192,10 @@ export function MediaPickerDialog({
 	// (An always-mounted hook here would fire one library GET per slot
 	// before any click.) The thin shell stays mounted so the open/close
 	// transition still animates.
+	/* Dialog content portals to body, outside the builder's inert access gate.
+	 * Unmount it at once so source-Project rows cannot linger through an exit
+	 * animation or remain interactive while authority reloads. */
+	if (accessPhase !== "authorized") return null;
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
@@ -239,6 +254,29 @@ function PickerBody({
 	onAssetDeleted?: (assetId: string) => void;
 	iconLibrary?: IconSlotKind | "all";
 }) {
+	const scopeEpoch = useProjectScopeEpoch();
+	const projectToast = useProjectToast();
+	const accessPhase = useAccessPhase();
+	const session = useOptionalBuilderSessionApi();
+	const reconciler = useReconcilerContext();
+	const deleteControllerRef = useRef<AbortController | null>(null);
+	useEffect(() => {
+		const abortDelete = () => {
+			deleteControllerRef.current?.abort();
+			deleteControllerRef.current = null;
+		};
+		const unsubscribeReset =
+			reconciler?.subscribeProjectScopeReset(abortDelete);
+		return () => {
+			unsubscribeReset?.();
+			abortDelete();
+		};
+	}, [reconciler]);
+	const ownsScope = (epoch = scopeEpoch) => {
+		if (!session) return accessPhase === "authorized" && epoch === scopeEpoch;
+		const current = session.getState();
+		return current.accessPhase === "authorized" && current.scopeEpoch === epoch;
+	};
 	// The built-in icons offered: a slot's family (`module`/`form`) for a picker,
 	// the whole set (`all`) for the file manager. Empty → no Icon Library tab.
 	const iconEntries = useMemo<readonly IconCatalogEntry[]>(
@@ -309,6 +347,7 @@ function PickerBody({
 	}, [assets, onAssetsLoaded]);
 
 	const commit = (asset: MediaAssetView) => {
+		if (!ownsScope()) return;
 		addUploaded(asset);
 		onPick(asset);
 	};
@@ -322,7 +361,8 @@ function PickerBody({
 	// Open an asset's preview without picking it — the eye affordance everywhere,
 	// and (in the manager, which has no carrier to pick into) the library item's
 	// own click target.
-	const openPreview = (asset: MediaAssetView) =>
+	const openPreview = (asset: MediaAssetView) => {
+		if (!ownsScope()) return;
 		setPreviewTarget({
 			id: asset.id,
 			kind: asset.kind,
@@ -330,11 +370,13 @@ function PickerBody({
 			title: asset.extract?.title,
 			summary: asset.extract?.summary,
 		});
+	};
 
 	// An Icon Library click: a picker ATTACHES the built-in (the synthetic view
 	// carries the reserved `nova-icon:<slug>` id; the attach-budget guard
 	// short-circuits it); the file manager (no carrier) PREVIEWS the bitmap.
 	const pickIcon = (entry: IconCatalogEntry) => {
+		if (!ownsScope()) return;
 		const asset = builtinIconAssetView(entry);
 		if (manage) openPreview(asset);
 		else onPick(asset);
@@ -347,6 +389,7 @@ function PickerBody({
 	// and then vanish on the next fetch; "all" keeps it in scope (and is the
 	// natural "here's everything you have" post-upload view).
 	const onManagedUpload = (asset: MediaAssetView) => {
+		if (!ownsScope()) return;
 		addUploaded(asset);
 		setFilter("all");
 		setQuery("");
@@ -360,29 +403,39 @@ function PickerBody({
 	const [deleting, setDeleting] = useState(false);
 
 	const confirmDelete = async () => {
-		if (!deleteTarget) return;
+		if (!deleteTarget || !ownsScope()) return;
+		const deleteScopeEpoch = session?.getState().scopeEpoch ?? scopeEpoch;
 		const asset = deleteTarget;
 		const name = asset.displayName ?? asset.originalFilename;
+		deleteControllerRef.current?.abort();
+		const controller = new AbortController();
+		deleteControllerRef.current = controller;
 		setDeleting(true);
 		try {
-			await deleteMediaAsset(asset.id);
+			await deleteMediaAsset(asset.id, controller.signal);
+			if (!ownsScope(deleteScopeEpoch)) return;
 			removeAsset(asset.id);
 			// Pull any staged reference to the now-gone asset (e.g. the chat
 			// composer's chip). A no-op for a caller that wasn't staging it.
 			onAssetDeleted?.(asset.id);
-			showToast("info", "File deleted", name);
+			projectToast("info", "File deleted", name);
 			setDeleteTarget(null);
 		} catch (err) {
+			if (controller.signal.aborted) return;
+			if (!ownsScope(deleteScopeEpoch)) return;
 			// A 409 (still referenced by one of your apps) or any failure: tell the
 			// user WHY — the message names the carriers — and leave the asset.
-			showToast(
+			projectToast(
 				"warning",
 				"Couldn't delete file",
 				err instanceof Error ? err.message : "Try again",
 			);
 			setDeleteTarget(null);
 		} finally {
-			setDeleting(false);
+			if (deleteControllerRef.current === controller) {
+				deleteControllerRef.current = null;
+			}
+			if (ownsScope(deleteScopeEpoch)) setDeleting(false);
 		}
 	};
 
@@ -471,7 +524,9 @@ function PickerBody({
 						// picker it commits the choice and closes.
 						onPick={manage ? openPreview : commit}
 						onPreview={openPreview}
-						onDelete={setDeleteTarget}
+						onDelete={(asset) => {
+							if (ownsScope()) setDeleteTarget(asset);
+						}}
 						// Fold a freshly completed extract into the list so a preview
 						// opened right after upload shows its title/summary without
 						// waiting for a re-fetch.
@@ -1055,7 +1110,7 @@ function LibraryState({
 /**
  * A `MediaAssetView` standing in for a built-in icon, built from its catalog
  * entry. Its id is the reserved `nova-icon:<slug>` ref the slot stores; the
- * other fields back the preview header + `mediaSrc` (which routes a built-in id
+ * other fields back the preview header + the scoped media resource (which routes a built-in id
  * to its static bytes). There is no `media_assets` row — built-ins never reach the
  * library list or the budget fetch.
  */
@@ -1234,9 +1289,8 @@ function MediaDeleteConfirmDialog({
 function LibraryThumb({ asset }: { asset: MediaAssetView }) {
 	if (asset.kind === "image") {
 		return (
-			// biome-ignore lint/performance/noImgElement: the proxy route is session-authed; next/image can't carry the cookie auth
-			<img
-				src={mediaSrc(asset.id)}
+			<ProjectMediaImage
+				assetId={asset.id}
 				alt={asset.displayName ?? asset.originalFilename}
 				className="size-full object-cover"
 			/>

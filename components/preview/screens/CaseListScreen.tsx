@@ -109,9 +109,11 @@ import {
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
+	useAccessPhase,
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
@@ -142,6 +144,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const appId = useAppId() ?? "";
 	const canEdit = useCanEdit();
+	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
 
 	/* All three case-list workspace URLs (`results` / `search` / `details`)
 	 * render this screen in preview mode — search and
@@ -275,7 +279,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 
 	// ── Live state ──
 	const searchRun = useSearchInputRunState({
-		scopeKey: moduleUuid ?? "",
+		scopeKey: `${scopeEpoch}:${moduleUuid ?? ""}`,
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 	});
@@ -321,6 +325,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * authored config changes that query identity and synchronously derives page
 	 * zero; no effect-frame can briefly request a stale far-away page. */
 	const [pageSelection, setPageSelection] = useState<{
+		readonly scopeEpoch: number;
 		readonly moduleUuid: Uuid | undefined;
 		readonly caseTypeName: string | undefined;
 		readonly config: CaseListConfig | undefined;
@@ -329,6 +334,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		readonly replacementRevision: number;
 		readonly index: number;
 	}>({
+		scopeEpoch,
 		moduleUuid,
 		caseTypeName: caseType?.name,
 		config,
@@ -338,6 +344,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		index: 0,
 	});
 	const pageScopeMatches =
+		pageSelection.scopeEpoch === scopeEpoch &&
 		pageSelection.moduleUuid === moduleUuid &&
 		pageSelection.caseTypeName === caseType?.name &&
 		pageSelection.config === config &&
@@ -355,6 +362,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const choosePage = useCallback(
 		(index: number) => {
 			setPageSelection({
+				scopeEpoch,
 				moduleUuid,
 				caseTypeName: caseType?.name,
 				config,
@@ -371,6 +379,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			excludedOwnerIdsExpression,
 			moduleUuid,
 			replacementRevision,
+			scopeEpoch,
 			activeSearchInputValues,
 		],
 	);
@@ -473,15 +482,28 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const routeCaseReplaced =
 		routeCaseId !== undefined &&
 		routeRevisionRef.current.revision !== replacementRevision;
-	const stateScopeRef = useRef(moduleUuid);
-	const stateBelongsToModule = stateScopeRef.current === moduleUuid;
+	const stateScopeKey = `${scopeEpoch}:${moduleUuid ?? ""}`;
+	const stateScopeRef = useRef({ scopeEpoch, moduleUuid });
+	const stateBelongsToModule =
+		stateScopeRef.current.scopeEpoch === scopeEpoch &&
+		stateScopeRef.current.moduleUuid === moduleUuid;
 	useEffect(() => {
-		if (stateScopeRef.current === moduleUuid) return;
-		stateScopeRef.current = moduleUuid;
+		const previous = stateScopeRef.current;
+		if (
+			previous.scopeEpoch === scopeEpoch &&
+			previous.moduleUuid === moduleUuid
+		)
+			return;
+		stateScopeRef.current = { scopeEpoch, moduleUuid };
+		/* Quick-filter text can itself contain a copied case name or other source
+		 * value. Clear it with rows/selections on every Project generation, even
+		 * when a same-app move leaves the module UUID unchanged. */
 		setFilterText("");
 		setOpenCase(null);
 		setFormMenuCase(null);
-	}, [moduleUuid]);
+		originatingCaseIdRef.current = null;
+		routeFallbackOwnedFocusRef.current = null;
+	}, [moduleUuid, scopeEpoch]);
 
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
 	useEffect(() => {
@@ -509,7 +531,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
 		page: casePage,
-		requestScopeKey: moduleUuid,
+		requestScopeKey: stateScopeKey,
 	});
 	/* The Results query can be empty because there is no data OR because the
 	 * authored/search conditions exclude an existing population. Keep those
@@ -689,6 +711,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		zeroInputSearchActionIsRelevant && hasEffectiveSearchFilter;
 	const automaticSearchToken = automaticallyLaunchesZeroInputSearch
 		? JSON.stringify({
+				scopeEpoch,
 				moduleUuid,
 				filter: effectiveSearchFilter,
 				condition: searchButtonCondition,
@@ -855,20 +878,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						</div>
 					)}
 				</div>
-				<SearchInputForm
-					key={moduleUuid}
-					landmarkLabel={title}
-					scopeKey={moduleUuid}
-					searchInputs={config?.searchInputs ?? []}
-					filter={config?.filter}
-					caseType={caseType}
-					session={searchSession}
-					typeContext={searchTypeContext}
-					value={searchRun.draft}
-					onChange={searchRun.changeDraft}
-					onSubmit={searchRun.submit}
-					submitLabel={searchButtonLabel}
-				/>
+				{accessPhase === "authorized" && (
+					<SearchInputForm
+						key={`${scopeEpoch}:${moduleUuid}`}
+						landmarkLabel={title}
+						scopeKey={moduleUuid}
+						searchInputs={config?.searchInputs ?? []}
+						filter={config?.filter}
+						caseType={caseType}
+						session={searchSession}
+						typeContext={searchTypeContext}
+						value={searchRun.draft}
+						onChange={searchRun.changeDraft}
+						onSubmit={searchRun.submit}
+						submitLabel={searchButtonLabel}
+					/>
+				)}
 				{state.kind === "invalid-search" && (
 					<div
 						role="alert"

@@ -23,6 +23,7 @@ interface ChatMessageProps {
 		output: unknown;
 	}) => void;
 	pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>;
+	toolInteractionsDisabled?: boolean;
 	/** Set by ChatSidebar for the last message while the SSE stream is open.
 	 *  Drives the reasoning panel's "Thinking…" shimmer — narrowed below to "the
 	 *  trailing part is still reasoning" so the shimmer stops the instant the model
@@ -34,6 +35,7 @@ export function ChatMessage({
 	message,
 	addToolOutput,
 	pendingAnswerRef,
+	toolInteractionsDisabled,
 	isStreaming,
 }: ChatMessageProps) {
 	const isUser = message.role === "user";
@@ -180,6 +182,7 @@ export function ChatMessage({
 							: undefined
 					}
 					pendingAnswerRef={pendingAnswerRef}
+					disabled={toolInteractionsDisabled}
 					state={part.state}
 					toolCallId={part.toolCallId}
 				/>,

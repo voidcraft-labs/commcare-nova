@@ -272,12 +272,15 @@ export async function GET(
 			const ready =
 				asset.extract?.status === "ready" &&
 				asset.extract.version === EXTRACTOR_VERSION;
-			return NextResponse.json({
-				status: asset.extract?.status ?? null,
-				...(ready && asset.extract?.title && { title: asset.extract.title }),
-				...(ready &&
-					asset.extract?.summary && { summary: asset.extract.summary }),
-			});
+			return NextResponse.json(
+				{
+					status: asset.extract?.status ?? null,
+					...(ready && asset.extract?.title && { title: asset.extract.title }),
+					...(ready &&
+						asset.extract?.summary && { summary: asset.extract.summary }),
+				},
+				{ headers: { "Cache-Control": "private, no-store" } },
+			);
 		}
 
 		if (
@@ -320,8 +323,10 @@ export async function GET(
 		if (!(err instanceof ApiError)) {
 			log.error("[media:extract] unhandled GET", err);
 		}
-		return handleApiError(
+		const response = handleApiError(
 			err instanceof Error ? err : new ApiError("Extract read failed", 500),
 		);
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
 	}
 }

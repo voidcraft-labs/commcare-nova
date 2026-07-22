@@ -1233,6 +1233,27 @@ itself cleared, and matching root `run_id`. A pre-settled stale build retains
 `res_run_id`, deliberately does not satisfy that signature, and is not
 self-healable.
 
+The S02c1 client foundation now carries the RSC authorization tuple and cursor
+as one snapshot, owns one reactive BuilderSession capability/phase/Project
+generation, and bridges that capability into the document mutation gate. Every
+reload trigger synchronously pauses writes and fans the new generation through
+the Project-scope reset registry before one atomic GET. Its implemented reset or
+generation-keyed owners cover lookup and presence; session run, media, and case
+payloads; case binding and query promises; media list, transfer, extraction,
+deletion, and decoded-element resources; chat attachment preparation and
+retained transcript references; destination-authoritative active-thread
+hydration; Project toasts; and builder history. Every async completion is
+abortable or checks its captured runtime generation before publishing. The S05
+definition cache must join this same registry before carriers activate. PUT 403,
+404, and `app_changed` preserve pending work and enter that reload; only typed
+`commit_rejected` drops one batch. A confirmed GET/view loss is terminal. Every
+EventSource URL declares the compiled receiver version; an upgrade rejection
+masks and clears Project state before one session-latched hard refresh, then
+falls back to a distinct blocking refresh-required screen instead of looping or
+misreporting access loss. The public Projects guide now labels Project moves as
+staged/unavailable while `project_moves_enabled` remains false; S02c3 replaces
+that notice with the final workflow only when activation is real.
+
 SA runs can outlive the browser connection that started them, so request and
 stream bounds alone cannot prove a runtime-reader drain. Every app run holder
 stores the runtime-reader version declared transaction-locally by its claimant;

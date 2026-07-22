@@ -12,8 +12,11 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 import type { AssetKind } from "@/lib/domain/multimedia";
+import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	fetchMediaLibrary,
 	type MediaAssetView,
@@ -34,19 +37,67 @@ export interface UseMediaUpload {
 
 export function useMediaUpload(appId?: string): UseMediaUpload {
 	const [status, setStatus] = useState<MediaUploadStatus>({ state: "idle" });
+	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
+	const session = useOptionalBuilderSessionApi();
+	const reconciler = useReconcilerContext();
+	const activeUploadRef = useRef<AbortController | null>(null);
+	useEffect(
+		() =>
+			reconciler?.subscribeProjectScopeReset(() => {
+				activeUploadRef.current?.abort();
+				activeUploadRef.current = null;
+			}),
+		[reconciler],
+	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: access and epoch changes intentionally run the cleanup even though the controller itself is held in a ref
+	useEffect(() => {
+		return () => {
+			activeUploadRef.current?.abort();
+			activeUploadRef.current = null;
+		};
+	}, [accessPhase, scopeEpoch]);
 
 	const upload = useCallback(
 		async (file: File) => {
+			const start = session?.getState();
+			if (
+				start
+					? start.accessPhase !== "authorized"
+					: accessPhase !== "authorized"
+			)
+				return null;
+			const uploadScopeEpoch = start?.scopeEpoch ?? scopeEpoch;
+			const isCurrent = () => {
+				if (!session) {
+					return (
+						accessPhase === "authorized" && scopeEpoch === uploadScopeEpoch
+					);
+				}
+				const current = session.getState();
+				return (
+					current.accessPhase === "authorized" &&
+					current.scopeEpoch === uploadScopeEpoch
+				);
+			};
+			activeUploadRef.current?.abort();
+			const controller = new AbortController();
+			activeUploadRef.current = controller;
 			setStatus({ state: "uploading" });
 			try {
 				// `appId` lands the asset in that app's Project (the chat composer in
 				// the builder passes it so a chat document belongs to the same
 				// Project the conversation resolves it under). Omitted by the
 				// account-menu file manager — those go to the user's active Project.
-				const asset = await uploadMediaAsset(file, { appId });
+				const asset = await uploadMediaAsset(file, {
+					appId,
+					signal: controller.signal,
+				});
+				if (controller.signal.aborted || !isCurrent()) return null;
 				setStatus({ state: "idle" });
 				return asset;
 			} catch (err) {
+				if (controller.signal.aborted || !isCurrent()) return null;
 				setStatus({
 					state: "error",
 					message:
@@ -55,9 +106,13 @@ export function useMediaUpload(appId?: string): UseMediaUpload {
 							: "The upload failed for an unknown reason. Try again.",
 				});
 				return null;
+			} finally {
+				if (activeUploadRef.current === controller) {
+					activeUploadRef.current = null;
+				}
 			}
 		},
-		[appId],
+		[accessPhase, appId, scopeEpoch, session],
 	);
 
 	return { upload, status };
@@ -88,6 +143,8 @@ export interface UseMediaLibrary {
  * effect keys off this object, so each state change maps to exactly one fetch.
  */
 interface LibraryRequest {
+	/** Project generation that authorized this page request. */
+	scopeEpoch: number;
 	/** The allowed kinds, sorted + comma-joined (`""` = every kind). A primitive
 	 *  so `request` object identity only changes when we deliberately reset it. */
 	kindsKey: string;
@@ -128,8 +185,15 @@ export function useMediaLibrary(
 	query?: string,
 ): UseMediaLibrary {
 	const kindsKey = kinds && kinds.length > 0 ? [...kinds].sort().join(",") : "";
+	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
+	const reconciler = useReconcilerContext();
+	const currentScopeEpochRef = useRef(scopeEpoch);
+	currentScopeEpochRef.current = scopeEpoch;
 	const normalizedQuery = query?.trim() || undefined;
 	const scopeKey = JSON.stringify([
+		scopeEpoch,
+		accessPhase,
 		kindsKey,
 		normalizedQuery ?? "",
 		appId ?? "",
@@ -140,6 +204,7 @@ export function useMediaLibrary(
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [request, setRequest] = useState<LibraryRequest>({
+		scopeEpoch,
 		kindsKey,
 		query: normalizedQuery,
 		cursor: undefined,
@@ -158,6 +223,7 @@ export function useMediaLibrary(
 		setIsLoading(true);
 		setError(null);
 		setRequest({
+			scopeEpoch,
 			kindsKey,
 			query: normalizedQuery,
 			cursor: undefined,
@@ -167,23 +233,48 @@ export function useMediaLibrary(
 
 	useEffect(() => {
 		let cancelled = false;
+		const controller = new AbortController();
+		const unsubscribeReset = reconciler?.subscribeProjectScopeReset(
+			(nextScopeEpoch) => {
+				/* The registry fires inside the authoritative reset stack, before
+				 * React can render the new epoch. Advance the callback guard and stop
+				 * both the response and its body synchronously. */
+				cancelled = true;
+				currentScopeEpochRef.current = nextScopeEpoch;
+				controller.abort();
+			},
+		);
 		setIsLoading(true);
 		setError(null);
+		if (accessPhase !== "authorized") {
+			return () => {
+				cancelled = true;
+				controller.abort();
+				unsubscribeReset?.();
+			};
+		}
 		fetchMediaLibrary({
 			kinds: kindsFromKey(request.kindsKey),
 			cursor: request.cursor,
 			...(request.query ? { query: request.query } : {}),
 			appId,
+			signal: controller.signal,
 		})
 			.then((page) => {
-				if (cancelled) return;
+				if (cancelled || currentScopeEpochRef.current !== request.scopeEpoch)
+					return;
 				setAssets((prev) =>
 					request.append ? [...prev, ...page.assets] : page.assets,
 				);
 				setNextCursor(page.nextCursor);
 			})
 			.catch((err: unknown) => {
-				if (cancelled) return;
+				if (
+					cancelled ||
+					controller.signal.aborted ||
+					currentScopeEpochRef.current !== request.scopeEpoch
+				)
+					return;
 				setError(
 					err instanceof Error
 						? err.message
@@ -191,45 +282,61 @@ export function useMediaLibrary(
 				);
 			})
 			.finally(() => {
-				if (!cancelled) setIsLoading(false);
+				if (!cancelled && currentScopeEpochRef.current === request.scopeEpoch)
+					setIsLoading(false);
 			});
 		return () => {
 			cancelled = true;
+			controller.abort();
+			unsubscribeReset?.();
 		};
-	}, [request, appId]);
+	}, [accessPhase, request, appId, reconciler]);
 
 	const loadMore = useCallback(() => {
+		const callbackScopeEpoch = scopeEpoch;
+		if (currentScopeEpochRef.current !== callbackScopeEpoch) return;
 		if (isLoading || !nextCursor) return;
 		setRequest((r) => ({
+			scopeEpoch: callbackScopeEpoch,
 			kindsKey: r.kindsKey,
 			query: r.query,
 			cursor: nextCursor,
 			append: true,
 		}));
-	}, [isLoading, nextCursor]);
+	}, [isLoading, nextCursor, scopeEpoch]);
 
 	const retry = useCallback(() => {
+		if (currentScopeEpochRef.current !== scopeEpoch) return;
 		if (isLoading) return;
-		setRequest((current) => ({ ...current }));
-	}, [isLoading]);
+		setRequest((current) => ({ ...current, scopeEpoch }));
+	}, [isLoading, scopeEpoch]);
 
-	const addUploaded = useCallback((asset: MediaAssetView) => {
-		setAssets((prev) =>
-			prev.some((a) => a.id === asset.id) ? prev : [asset, ...prev],
-		);
-	}, []);
+	const addUploaded = useCallback(
+		(asset: MediaAssetView) => {
+			if (currentScopeEpochRef.current !== scopeEpoch) return;
+			setAssets((prev) =>
+				prev.some((a) => a.id === asset.id) ? prev : [asset, ...prev],
+			);
+		},
+		[scopeEpoch],
+	);
 
-	const removeAsset = useCallback((assetId: string) => {
-		setAssets((prev) => prev.filter((a) => a.id !== assetId));
-	}, []);
+	const removeAsset = useCallback(
+		(assetId: string) => {
+			if (currentScopeEpochRef.current !== scopeEpoch) return;
+			setAssets((prev) => prev.filter((a) => a.id !== assetId));
+		},
+		[scopeEpoch],
+	);
 
 	const updateAsset = useCallback(
 		(assetId: string, patch: Partial<MediaAssetView>) => {
+			if (currentScopeEpochRef.current !== scopeEpoch) return;
 			setAssets((prev) =>
 				prev.map((a) => (a.id === assetId ? { ...a, ...patch } : a)),
 			);
 		},
-		[],
+		[scopeEpoch],
 	);
 
 	return {

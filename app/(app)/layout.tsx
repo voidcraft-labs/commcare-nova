@@ -27,7 +27,10 @@ import { ToastContainer } from "@/components/ui/ToastContainer";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
 	return (
-		<div className="nova-noise flex flex-col h-dvh bg-nova-void">
+		<div
+			data-nova-app-shell
+			className="nova-noise flex flex-col h-dvh bg-nova-void"
+		>
 			{/* Skip link — visually hidden until focused, jumps keyboard users past the header chrome. */}
 			<a
 				href="#main-content"

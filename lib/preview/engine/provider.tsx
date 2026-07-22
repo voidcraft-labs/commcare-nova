@@ -35,6 +35,7 @@ import {
 	useEffect,
 	useState,
 } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { EngineController } from "./engineController";
 
@@ -60,6 +61,7 @@ export function BuilderFormEngineProvider({
 	children: ReactNode;
 }) {
 	const docStore = useContext(BlueprintDocContext);
+	const reconcilerContext = useReconcilerContext();
 
 	/* Create the controller AND bind the doc store synchronously on first
 	 * render. Child effects (e.g. `useFormEngine.activateForm`) flush
@@ -87,6 +89,18 @@ export function BuilderFormEngineProvider({
 			controller.setDocStore(null);
 		};
 	}, [controller, docStore]);
+
+	/* A same-app Project move does not remount this long-lived controller.
+	 * Deactivate synchronously at the reconciler's scope boundary so neither
+	 * preloaded case rows nor entered form values can survive until React's
+	 * epoch-driven reactivation. */
+	useEffect(
+		() =>
+			reconcilerContext?.subscribeProjectScopeReset(() => {
+				controller.deactivate();
+			}),
+		[controller, reconcilerContext],
+	);
 
 	return (
 		<BuilderFormEngineContext value={controller}>

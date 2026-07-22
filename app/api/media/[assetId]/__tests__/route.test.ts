@@ -106,7 +106,7 @@ const getReq = () =>
 	>[0];
 
 describe("GET media asset", () => {
-	it("streams the bytes with Content-Length from the stored object, not the row", async () => {
+	it("streams no-store bytes with Content-Length from the stored object, not the row", async () => {
 		loadAssetByIdMock.mockResolvedValue(docAsset({ sizeBytes: 999 }));
 		getStoredObjectSizeMock.mockResolvedValue(5);
 
@@ -114,6 +114,7 @@ describe("GET media asset", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("Content-Length")).toBe("5");
 		expect(res.headers.get("Content-Type")).toBe("application/pdf");
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(await drainBody(res)).toBe("bytes");
 	});
 
@@ -134,6 +135,7 @@ describe("GET media asset", () => {
 
 		const res = await GET(getReq(), ctx());
 		expect(res.status).toBe(404);
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(getStoredObjectSizeMock).not.toHaveBeenCalled();
 		expect(streamAssetMock).not.toHaveBeenCalled();
 		await drainBody(res);
@@ -159,6 +161,7 @@ describe("GET media asset", () => {
 
 		const res = await GET(getReq(), ctx());
 		expect(res.status).toBe(404);
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(getStoredObjectSizeMock).not.toHaveBeenCalled();
 		expect(streamAssetMock).not.toHaveBeenCalled();
 		await drainBody(res);

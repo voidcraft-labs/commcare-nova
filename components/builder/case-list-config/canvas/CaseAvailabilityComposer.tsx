@@ -46,7 +46,11 @@ import {
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
 import { useCaseDataRevision } from "@/lib/preview/hooks/caseDataInvalidation";
-import { useCanEdit } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useCanEdit,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
 import { summarizeFilter } from "../predicateSummary";
 import { searchInputDecls } from "../searchInputResolution";
 import {
@@ -374,6 +378,11 @@ type CountState =
 	| { kind: "invalid" }
 	| { kind: "unavailable" };
 
+interface ScopedCountState {
+	readonly scopeEpoch: number;
+	readonly value: CountState;
+}
+
 /** Quiet aggregate feedback over the complete composed predicate. */
 function MatchCount({
 	appId,
@@ -389,11 +398,20 @@ function MatchCount({
 	readonly excludedOwnerIdsExpression: ValueExpression | undefined;
 }) {
 	const docApi = useBlueprintDocApi();
+	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, currentCaseType);
-	const [state, setState] = useState<CountState>({
-		kind: "loading",
-		lastCount: null,
+	const [scopedState, setScopedState] = useState<ScopedCountState>({
+		scopeEpoch,
+		value: { kind: "loading", lastCount: null },
 	});
+	/* Mask in render, before the effect cleanup/setup pass: a same-app Project
+	 * move may keep every ordinary prop equal, but its aggregate count belongs
+	 * to the old tenant and cannot remain as `lastCount`. */
+	const state: CountState =
+		scopedState.scopeEpoch === scopeEpoch
+			? scopedState.value
+			: { kind: "loading", lastCount: null };
 	const [retryKey, setRetryKey] = useState(0);
 	const statusRef = useRef<HTMLDivElement>(null);
 	const retryButtonRef = useRef<HTMLButtonElement>(null);
@@ -405,14 +423,27 @@ function MatchCount({
 		// Reading them here makes that scheduling role explicit.
 		void retryKey;
 		void caseDataRevision;
+		if (accessPhase !== "authorized") {
+			setScopedState({
+				scopeEpoch,
+				value: { kind: "loading", lastCount: null },
+			});
+			return;
+		}
 		if (!filterValid) {
-			setState({ kind: "invalid" });
+			setScopedState({ scopeEpoch, value: { kind: "invalid" } });
 			return;
 		}
 		let cancelled = false;
-		setState((previous) => ({
-			kind: "loading",
-			lastCount: previous.kind === "count" ? previous.matching : null,
+		setScopedState((previous) => ({
+			scopeEpoch,
+			value: {
+				kind: "loading",
+				lastCount:
+					previous.scopeEpoch === scopeEpoch && previous.value.kind === "count"
+						? previous.value.matching
+						: null,
+			},
 		}));
 		const blueprint = pickBlueprintDoc(docApi.getState());
 		loadFilterPreviewAction({
@@ -426,26 +457,34 @@ function MatchCount({
 		})
 			.then((result) => {
 				if (cancelled) return;
-				setState(
-					result.kind === "rows"
-						? { kind: "count", matching: result.totalCount }
-						: { kind: "unavailable" },
-				);
+				setScopedState({
+					scopeEpoch,
+					value:
+						result.kind === "rows"
+							? { kind: "count", matching: result.totalCount }
+							: { kind: "unavailable" },
+				});
 			})
 			.catch(() => {
-				if (!cancelled) setState({ kind: "unavailable" });
+				if (!cancelled)
+					setScopedState({
+						scopeEpoch,
+						value: { kind: "unavailable" },
+					});
 			});
 		return () => {
 			cancelled = true;
 		};
 	}, [
 		appId,
+		accessPhase,
 		caseDataRevision,
 		config,
 		currentCaseType,
 		excludedOwnerIdsExpression,
 		filterValid,
 		retryKey,
+		scopeEpoch,
 		docApi.getState,
 	]);
 

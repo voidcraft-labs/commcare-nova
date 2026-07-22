@@ -39,7 +39,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import { useAccessPhase } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { describeApiFailure } from "@/lib/ui/apiFailure";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -80,6 +83,10 @@ export function UploadToHqDialog({
 	getAppId,
 	availableDomains,
 }: UploadToHqDialogProps) {
+	const accessPhase = useAccessPhase();
+	const session = useBuilderSessionApi();
+	const reconciler = useReconcilerContext();
+	const uploadControllerRef = useRef<AbortController | null>(null);
 	/* Self-subscribe to the app name from the doc store — no prop drilling
 	 * from BuilderLayout needed. Only re-renders when appName actually changes. */
 	const storeAppName = useAppName();
@@ -89,6 +96,28 @@ export function UploadToHqDialog({
 	const [appName, setAppName] = useState(storeAppName);
 	/* The chosen target space (a domain slug). Seeded on open. */
 	const [selectedDomain, setSelectedDomain] = useState("");
+	useEffect(
+		() =>
+			reconciler?.subscribeProjectScopeReset(() => {
+				uploadControllerRef.current?.abort();
+				uploadControllerRef.current = null;
+				setUploadStatus({ type: "idle" });
+				onClose();
+			}),
+		[onClose, reconciler],
+	);
+	useEffect(() => {
+		if (open) return;
+		uploadControllerRef.current?.abort();
+		uploadControllerRef.current = null;
+	}, [open]);
+	useEffect(
+		() => () => {
+			uploadControllerRef.current?.abort();
+			uploadControllerRef.current = null;
+		},
+		[],
+	);
 
 	const notConfigured = availableDomains.length === 0;
 	const isMultiSpace = availableDomains.length > 1;
@@ -126,6 +155,19 @@ export function UploadToHqDialog({
 	/* ── Upload handler ────────────────────────────────────────────── */
 	const handleUpload = useCallback(async () => {
 		if (!selectedDomain || !appName.trim()) return;
+		const start = session.getState();
+		if (start.accessPhase !== "authorized") return;
+		const uploadScopeEpoch = start.scopeEpoch;
+		const isCurrent = () => {
+			const current = session.getState();
+			return (
+				current.accessPhase === "authorized" &&
+				current.scopeEpoch === uploadScopeEpoch
+			);
+		};
+		uploadControllerRef.current?.abort();
+		const controller = new AbortController();
+		uploadControllerRef.current = controller;
 
 		setUploadStatus({ type: "uploading" });
 
@@ -138,7 +180,12 @@ export function UploadToHqDialog({
 					appName: appName.trim(),
 					appId: getAppId(),
 				}),
+				signal: controller.signal,
 			});
+			if (!isCurrent()) {
+				void res.body?.cancel();
+				return;
+			}
 
 			const data = (await res.json()) as {
 				success?: boolean;
@@ -146,6 +193,7 @@ export function UploadToHqDialog({
 				warnings?: string[];
 				error?: string;
 			};
+			if (!isCurrent()) return;
 
 			if (!res.ok || !data.success) {
 				const failure = describeApiFailure(
@@ -166,15 +214,25 @@ export function UploadToHqDialog({
 				appUrl: data.appUrl ?? "",
 				warnings: data.warnings ?? [],
 			});
-		} catch {
+		} catch (error) {
+			if (
+				controller.signal.aborted ||
+				!isCurrent() ||
+				(error instanceof DOMException && error.name === "AbortError")
+			)
+				return;
 			setUploadStatus({
 				type: "error",
 				message: "Network error. Please check your connection and try again.",
 				status: 0,
 				details: [],
 			});
+		} finally {
+			if (uploadControllerRef.current === controller) {
+				uploadControllerRef.current = null;
+			}
 		}
-	}, [selectedDomain, appName, getAppId]);
+	}, [selectedDomain, appName, getAppId, session]);
 
 	const isUploading = uploadStatus.type === "uploading";
 	const canUpload =
@@ -182,6 +240,8 @@ export function UploadToHqDialog({
 		!!selectedDomain &&
 		!isUploading &&
 		appName.trim().length > 0;
+
+	if (accessPhase !== "authorized") return null;
 
 	return (
 		<Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>

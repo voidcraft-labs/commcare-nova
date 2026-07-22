@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/shadcn/skeleton";
 import type { CaseProperty, CaseType } from "@/lib/domain";
 import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useAccessPhase } from "@/lib/session/hooks";
 import { DATA_TYPE_LABELS } from "./dataReviewModel";
 import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
 
@@ -95,6 +96,7 @@ export function CaseDetailDialog({
 	readonly caseName: string;
 	readonly onClose: () => void;
 }) {
+	const accessPhase = useAccessPhase();
 	const { state, reload } = useCaseData({
 		appId,
 		caseType: caseType.name,
@@ -144,7 +146,7 @@ export function CaseDetailDialog({
 
 	return (
 		<Dialog
-			open
+			open={accessPhase === "authorized"}
 			onOpenChange={(nextOpen) => {
 				if (!nextOpen) onClose();
 			}}

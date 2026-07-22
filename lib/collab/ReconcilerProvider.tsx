@@ -7,7 +7,8 @@
  * `BuilderSessionProvider`, so it reads both stores). It:
  *   - creates the reconciler once per mount (`createReconciler`), wiring the
  *     real PUT / reload-GET / resubscribe / retry side effects as deps;
- *   - opens ONE `EventSource` to `/api/apps/{appId}/stream?since=<baseSeq>` and
+ *   - opens ONE `EventSource` to
+ *     `/api/apps/{appId}/stream?since=<baseSeq>&receiverVersion=1` and
  *     routes `mutation` / `reload` / `revoked` frames into the reconciler and
  *     `presence` frames to `subscribePresence` subscribers and seq-less full
  *     lookup manifests to `subscribeLookupManifest` subscribers;
@@ -34,6 +35,10 @@ import {
 } from "@/lib/collab/lookupManifestFrame";
 import type { PresenceFrame } from "@/lib/collab/presenceTypes";
 import {
+	createProjectScopeResetRegistry,
+	type ProjectScopeResetRegistry,
+} from "@/lib/collab/projectScopeReset";
+import {
 	createReconciler,
 	type MutationFrame,
 	type PutOutcome,
@@ -43,13 +48,23 @@ import {
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import type { PersistableDoc } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { buildUrl } from "@/lib/routing/location";
-import { notifyPathChange } from "@/lib/routing/useClientPath";
-import { BuilderSessionContext } from "@/lib/session/provider";
-import { showToast } from "@/lib/ui/toastStore";
+import {
+	activateBuilderHistoryScope,
+	deactivateBuilderHistoryScope,
+	pushBuilderHistory,
+} from "@/lib/routing/useClientPath";
+import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
+import {
+	BuilderSessionContext,
+	type BuilderSessionStoreApi,
+} from "@/lib/session/provider";
+import { showProjectToast, toastStore } from "@/lib/ui/toastStore";
+
+let nextProjectScopeId = 0;
 
 /** Backoff for the network/5xx retry loop: 1s, 2s, 4s, … capped at 30s. */
 function retryDelayMs(attempt: number): number {
@@ -63,6 +78,7 @@ const REOPEN_PROBE_AFTER = 3;
 /** Everything the provider builds once per mount and drives via effects. */
 export interface ReconcilerRuntime {
 	readonly reconciler: Reconciler;
+	readonly projectScopeId: string;
 	/** The app id, mutable once (new-build activation). Deps read it here. */
 	readonly appIdBox: { current: string | undefined };
 	/** Effect setup: mark the runtime live and open the single EventSource at
@@ -83,6 +99,7 @@ export interface ReconcilerRuntime {
 	suspend: () => void;
 	readonly presenceSubs: Set<(roster: PresenceFrame) => void>;
 	readonly lookupManifestBroker: LookupManifestBroker;
+	readonly projectScopeResetRegistry: ProjectScopeResetRegistry;
 }
 
 export interface ReconcilerProviderProps {
@@ -99,31 +116,55 @@ export interface ReconcilerProviderProps {
  *  provider calls it lazily from a `useRef` initializer. */
 export function createReconcilerRuntime(
 	docStore: BlueprintDocStoreApi,
+	sessionStore: BuilderSessionStoreApi,
 	init: { appId?: string; baseSeq: number; userId: string },
 	/** Leaves preview mode — the conversion toast's "Review data" action
 	 *  navigates to an edit-only surface, which preview would mask. */
 	exitPreview: () => void,
 ): ReconcilerRuntime {
 	const appIdBox: { current: string | undefined } = { current: init.appId };
+	const projectScopeId = `builder-project-scope-${++nextProjectScopeId}`;
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
 	const lookupManifestBroker = createLookupManifestBroker();
+	const projectScopeResetRegistry = createProjectScopeResetRegistry();
 	let presenceMayBeRetained = false;
 
 	/** Clear data whose authorization follows the app's current Project. Lookup
 	 * subscribers receive the broker's explicit loading sentinel; presence has no
 	 * retained broker, so push an empty roster directly to mounted consumers. */
-	function clearProjectScopedReadState(): void {
-		lookupManifestBroker.reset();
+	function clearPresenceState(): void {
 		if (!presenceMayBeRetained) return;
 		presenceMayBeRetained = false;
+		const failures: unknown[] = [];
 		for (const subscriber of [...presenceSubs]) {
 			try {
 				subscriber([]);
-			} catch {
-				/* Presence is best-effort and one consumer must not block the rest. */
+			} catch (error) {
+				/* Notify every roster consumer, then let the outer tenant-boundary
+				 * registry fail closed if even one could have retained source data. */
+				failures.push(error);
 			}
 		}
+		if (failures.length > 0) {
+			throw new AggregateError(failures, "Presence state failed to clear");
+		}
 	}
+	/* Session-owned Project data clears first: abort transfers and drop preview
+	 * case/media identities before any external cache subscriber can react. */
+	projectScopeResetRegistry.subscribe(() =>
+		sessionStore.getState().resetProjectScope(),
+	);
+	projectScopeResetRegistry.subscribe((scopeEpoch) =>
+		toastStore.activateProjectScope({
+			scopeId: projectScopeId,
+			epoch: scopeEpoch,
+		}),
+	);
+	projectScopeResetRegistry.subscribe((scopeEpoch) =>
+		activateBuilderHistoryScope(projectScopeId, appIdBox.current, scopeEpoch),
+	);
+	projectScopeResetRegistry.subscribe(() => lookupManifestBroker.reset());
+	projectScopeResetRegistry.subscribe(clearPresenceState);
 	const retryTimers = new Set<ReturnType<typeof setTimeout>>();
 	let eventSource: EventSource | null = null;
 	/* True between the mount effect's `start` and its `suspend` cleanup. Gates
@@ -136,6 +177,61 @@ export function createReconcilerRuntime(
 	 * successful `open`, so an isolated failure retries at 1s while a sustained
 	 * outage backs off to the 30s cap. */
 	let streamRetryAttempt = 0;
+
+	/** Atomically disown before closing so callbacks queued by the old source
+	 *  fail their ownership guard. */
+	function closeOwnedStream(): void {
+		const previousStream = eventSource;
+		eventSource = null;
+		previousStream?.close();
+	}
+
+	/** Start (or coalesce) one Project/access boundary. Editing pauses in the
+	 *  same Zustand write that advances the epoch; all registered tenant caches
+	 *  clear synchronously before the GET. A reset failure is reported and
+	 *  returned to the reconciler, which enters its fail-closed revoked state. */
+	function beginAccessRefresh(): boolean {
+		closeOwnedStream();
+		const scopeEpoch = sessionStore.getState().beginAccessRefresh();
+		try {
+			projectScopeResetRegistry.reset(scopeEpoch);
+			return true;
+		} catch (error) {
+			reportClientError({
+				message: `Project-scope cache reset failed (app ${appIdBox.current})`,
+				stack:
+					error instanceof Error
+						? (error.stack ?? error.message)
+						: String(error),
+				source: "manual",
+				url: typeof window === "undefined" ? "" : window.location.href,
+			});
+			return false;
+		}
+	}
+
+	function confirmViewRevoked(): void {
+		beginAccessRefresh();
+		sessionStore.getState().revokeAccess();
+	}
+
+	/** The server sends this only when the compiled receiver is below its floor.
+	 *  Keep the latch for the browser session and key it by receiver version: a
+	 *  newly deployed bundle gets a fresh key, while a genuinely stuck old bundle
+	 *  cannot reload forever. Storage failure fails closed instead of looping. */
+	function hardRefreshForReceiverUpgrade(): boolean {
+		const id = appIdBox.current;
+		if (!id || typeof window === "undefined") return false;
+		const key = `nova:stream-upgrade:${id}:receiver-${RUNTIME_CAPABILITIES.streamReceiverVersion}`;
+		try {
+			if (window.sessionStorage.getItem(key) === "1") return false;
+			window.sessionStorage.setItem(key, "1");
+			window.location.reload();
+			return true;
+		} catch {
+			return false;
+		}
+	}
 
 	// Forward reference so the deps' `resubscribe` and the mount effect share
 	// one `openStream`; assigned just below.
@@ -176,8 +272,12 @@ export function createReconcilerRuntime(
 		// the reconciler for its state machine without a live stream — the PUT path
 		// still works, only inbound frames are absent.
 		if (typeof EventSource === "undefined") return;
-		eventSource?.close();
-		const es = new EventSource(`/api/apps/${id}/stream?since=${cursor}`);
+		closeOwnedStream();
+		const query = new URLSearchParams({
+			since: String(cursor),
+			receiverVersion: String(RUNTIME_CAPABILITIES.streamReceiverVersion),
+		});
+		const es = new EventSource(`/api/apps/${id}/stream?${query}`);
 		eventSource = es;
 		es.addEventListener("mutation", (ev) => {
 			if (es !== eventSource) return;
@@ -206,21 +306,34 @@ export function createReconcilerRuntime(
 		});
 		es.addEventListener("reload", () => {
 			if (es !== eventSource) return;
-			/* The server's reload frame is terminal for this connection. Prevent the
-			 * native EventSource from reconnecting at the pre-reload cursor while the
-			 * authoritative GET is pending; `resubscribe` opens the replacement. */
-			es.close();
-			eventSource = null;
-			/* A reload is also the cross-Project handoff boundary: clear both the
-			 * retained snapshot and its Project latch before fresh scope is resolved. */
-			clearProjectScopedReadState();
+			/* `requestReload` synchronously disowns this source, pauses editing, and
+			 * resets Project state before starting its serialized GET. */
 			reconciler.onReloadEvent();
 		});
-		es.addEventListener("revoked", () => {
+		es.addEventListener("revoked", (ev) => {
 			if (es !== eventSource) return;
-			es.close();
-			eventSource = null;
-			clearProjectScopedReadState();
+			let reason: string | undefined;
+			try {
+				const payload = JSON.parse((ev as MessageEvent).data) as {
+					reason?: unknown;
+				};
+				if (typeof payload.reason === "string") reason = payload.reason;
+			} catch {
+				/* Legacy revoked frames had no structured payload. */
+			}
+			closeOwnedStream();
+			if (reason === "client-upgrade-required") {
+				/* Mask + clear tenant state before navigation. If this is the second
+				 * rejection for the compiled receiver, stop looping and render the
+				 * explicit refresh-required state. */
+				if (!beginAccessRefresh()) {
+					reconciler.onRevoked();
+					return;
+				}
+				if (hardRefreshForReceiverUpgrade()) return;
+				reconciler.onClientUpgradeRequired();
+				return;
+			}
 			reconciler.onRevoked();
 		});
 		es.addEventListener("presence", (ev) => {
@@ -281,7 +394,7 @@ export function createReconcilerRuntime(
 				 * only the status matters, and buffering it per tick would multiply
 				 * load on the exact backend that is struggling. */
 				if (streamRetryAttempt >= REOPEN_PROBE_AFTER) {
-					void fetch(`/api/apps/${appIdBox.current}`)
+					void fetch(`/api/apps/${appIdBox.current}`, { cache: "no-store" })
 						.then((res) => {
 							void res.body?.cancel();
 							if (es !== eventSource) return;
@@ -296,9 +409,7 @@ export function createReconcilerRuntime(
 								return;
 							}
 							if (res.status === 404) {
-								eventSource = null;
-								es.close();
-								clearProjectScopedReadState();
+								closeOwnedStream();
 								reconciler.onRevoked();
 								return;
 							}
@@ -332,6 +443,10 @@ export function createReconcilerRuntime(
 	): Promise<PutOutcome> => {
 		const id = appIdBox.current;
 		if (!id) return { ok: false, kind: "network" };
+		const projectToastScope = {
+			scopeId: projectScopeId,
+			epoch: sessionStore.getState().scopeEpoch,
+		};
 		const res = await fetch(`/api/apps/${id}`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
@@ -365,7 +480,8 @@ export function createReconcilerRuntime(
 			const parked = body.migration?.parked ?? 0;
 			const parkedCaseTypes = body.migration?.parkedCaseTypes ?? [];
 			if (parked > 0) {
-				showToast(
+				showProjectToast(
+					projectToastScope,
 					"warning",
 					parked === 1
 						? "1 value needs review"
@@ -396,7 +512,8 @@ export function createReconcilerRuntime(
 											// The bound module vanished (e.g. removed in the same
 											// batch) — say so instead of consuming the press
 											// silently. The values stay safe either way.
-											showToast(
+											showProjectToast(
+												projectToastScope,
 												"info",
 												"No screen shows them right now",
 												"No module uses that case type anymore. The values stay saved. Add a module for that case type, or ask Nova to add one, and you'll find them under Case data.",
@@ -417,8 +534,7 @@ export function createReconcilerRuntime(
 										// them — pressed from anywhere else, the button must
 										// be a real navigation, not a silent URL swap.
 										if (window.location.pathname.startsWith(`/build/${id}`)) {
-											window.history.pushState(null, "", url);
-											notifyPathChange();
+											pushBuilderHistory(url);
 										} else {
 											window.location.assign(url);
 										}
@@ -429,7 +545,15 @@ export function createReconcilerRuntime(
 			}
 			return { ok: true, seq: body.seq };
 		}
-		if (res.status === 409) return { ok: false, kind: "conflict" };
+		if (res.status === 409) {
+			const body = (await res.json().catch(() => ({}))) as { type?: unknown };
+			if (body.type === "commit_rejected") {
+				return { ok: false, kind: "commitRejected" };
+			}
+			/* `app_changed` is the expected scope race. An untyped 409 is also
+			 * preserved: without the semantic tag it is unsafe to discard a batch. */
+			return { ok: false, kind: "scopeChanged" };
+		}
 		if (res.status === 403) return { ok: false, kind: "reauth" };
 		if (res.status === 404) return { ok: false, kind: "notFound" };
 		// Fine-grained 4xx taxonomy — the terminal-freeze `permanent` is narrowed
@@ -453,20 +577,32 @@ export function createReconcilerRuntime(
 	const reload = async () => {
 		const id = appIdBox.current;
 		if (!id) throw new Error("reconciler reload with no appId");
-		/* A reload can begin without an SSE `reload` listener (a 409, a mutation
-		 * gap, or a recovery tick). Disown transport before the authoritative GET
-		 * so no source-scoped frame or queued reopen can land during the handoff. */
-		const previousStream = eventSource;
-		eventSource = null;
-		previousStream?.close();
-		clearProjectScopedReadState();
-		const res = await fetch(`/api/apps/${id}`);
+		const res = await fetch(`/api/apps/${id}`, { cache: "no-store" });
+		if (res.status === 404) return { kind: "revoked" as const };
 		if (!res.ok) throw new Error(`reload failed: HTTP ${res.status}`);
-		const data = (await res.json()) as {
-			blueprint: PersistableDoc;
-			mutation_seq: number;
+		const raw = (await res.json()) as unknown;
+		if (typeof raw !== "object" || raw === null) {
+			throw new Error("reload returned a malformed snapshot");
+		}
+		const data = raw as Record<string, unknown>;
+		if (
+			typeof data.projectId !== "string" ||
+			typeof data.role !== "string" ||
+			typeof data.canEdit !== "boolean" ||
+			typeof data.baseSeq !== "number" ||
+			!Number.isSafeInteger(data.baseSeq) ||
+			data.baseSeq < 0
+		) {
+			throw new Error("reload returned an incomplete access snapshot");
+		}
+		return {
+			kind: "authorized" as const,
+			projectId: data.projectId,
+			role: data.role,
+			canEdit: data.canEdit,
+			blueprint: blueprintDocSchema.parse(data.blueprint),
+			seq: data.baseSeq,
 		};
-		return { blueprint: data.blueprint, seq: data.mutation_seq };
 	};
 
 	const scheduleRetry = (attempt: number, run: () => void): (() => void) => {
@@ -488,11 +624,19 @@ export function createReconcilerRuntime(
 	const deps: ReconcilerDeps = {
 		put,
 		reload,
+		canEdit: () => sessionStore.getState().canEdit,
+		beginAccessRefresh,
+		markAccessReconnecting: () =>
+			sessionStore.getState().markAccessReconnecting(),
+		applyAccessSnapshot: (snapshot, options) =>
+			sessionStore.getState().applyAccessSnapshot(snapshot, options),
+		onViewRevoked: confirmViewRevoked,
+		onClientUpgradeRequired: () =>
+			sessionStore.getState().requireClientUpgrade(),
 		resubscribe: (cursor) => {
 			/* Every reconciler reload path (gap, conflict, migration sentinel) lands
 			 * here. Idempotent with the SSE reload handler and required for paths
 			 * whose trigger was not itself an SSE `reload` frame. */
-			lookupManifestBroker.reset();
 			openStream(cursor);
 			// A resubscribe follows a reload, which folded frames this tab
 			// never saw individually — any of them could have migrated case
@@ -500,16 +644,6 @@ export function createReconcilerRuntime(
 			invalidateDocCaseTypes();
 		},
 		scheduleRetry,
-		onReauthDenied: () => {
-			// The SINGLE 403 Sentry report: `useAutoSave` reports only for a 404
-			// (its "not writable" warning), so this owns the 403 report and a
-			// revocation isn't double-counted.
-			reportClientError({
-				message: `Reconciler: edit access denied (403) for app ${appIdBox.current}`,
-				source: "manual",
-				url: window.location.href,
-			});
-		},
 		onSaveError: (detail) => {
 			// A persistent 5xx / network PUT failure or a reload-GET failure — an
 			// app-wide save-path outage that would otherwise be invisible to Sentry.
@@ -540,12 +674,26 @@ export function createReconcilerRuntime(
 	function activate(newAppId: string): void {
 		if (appIdBox.current !== undefined) return; // already active
 		appIdBox.current = newAppId;
+		activateBuilderHistoryScope(
+			projectScopeId,
+			newAppId,
+			sessionStore.getState().scopeEpoch,
+		);
 		reconciler.activate({ appId: newAppId, baseDoc: docStore.getState() });
 		openStream(0);
 	}
 
 	function start(): void {
 		active = true;
+		toastStore.activateProjectScope({
+			scopeId: projectScopeId,
+			epoch: sessionStore.getState().scopeEpoch,
+		});
+		activateBuilderHistoryScope(
+			projectScopeId,
+			appIdBox.current,
+			sessionStore.getState().scopeEpoch,
+		);
 		// An existing app (or a replay of the mount effect after activation)
 		// opens at the reconciler's confirmed cursor; a dormant new build waits
 		// for `activate` to open at 0.
@@ -559,8 +707,9 @@ export function createReconcilerRuntime(
 
 	function suspend(): void {
 		active = false;
-		eventSource?.close();
-		eventSource = null;
+		toastStore.deactivateProjectScope(projectScopeId);
+		deactivateBuilderHistoryScope(projectScopeId);
+		closeOwnedStream();
 		for (const t of retryTimers) clearTimeout(t);
 		retryTimers.clear();
 		// The timers above back the reconciler's scheduled retry — clearing them
@@ -572,12 +721,14 @@ export function createReconcilerRuntime(
 
 	return {
 		reconciler,
+		projectScopeId,
 		appIdBox,
 		start,
 		activate,
 		suspend,
 		presenceSubs,
 		lookupManifestBroker,
+		projectScopeResetRegistry,
 	};
 }
 
@@ -595,6 +746,7 @@ export function ReconcilerProvider({
 		const sessionStore = sessionApi;
 		runtimeRef.current = createReconcilerRuntime(
 			docStore,
+			sessionStore,
 			{
 				appId,
 				baseSeq,
@@ -631,6 +783,7 @@ export function ReconcilerProvider({
 			runtime
 				? {
 						reconciler: runtime.reconciler,
+						projectScopeId: runtime.projectScopeId,
 						activate: runtime.activate,
 						subscribePresence: (cb: (roster: PresenceFrame) => void) => {
 							runtime.presenceSubs.add(cb);
@@ -639,6 +792,10 @@ export function ReconcilerProvider({
 						subscribeLookupManifest: (
 							cb: (manifest: LookupManifest | null) => void,
 						) => runtime.lookupManifestBroker.subscribe(cb),
+						subscribeProjectScopeReset: (cb: (scopeEpoch: number) => void) =>
+							runtime.projectScopeResetRegistry.subscribe(cb),
+						isProjectScopeCurrent: (scopeEpoch: number) =>
+							runtime.projectScopeResetRegistry.isCurrent(scopeEpoch),
 					}
 				: null,
 		[runtime],

@@ -23,7 +23,7 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -132,9 +132,8 @@ export const FormCard = memo(function FormCard({
 					<div className="flex items-center gap-2 min-w-0">
 						{form.icon ? (
 							// Form menu-tile icon, shown on the tree row too.
-							// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-							<img
-								src={mediaSrc(form.icon)}
+							<ProjectMediaImage
+								assetId={form.icon}
 								alt=""
 								className="size-3.5 rounded object-cover shrink-0"
 							/>

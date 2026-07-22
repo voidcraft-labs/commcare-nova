@@ -115,7 +115,13 @@ interface Harness {
 	/** Whether a retry tick is currently scheduled. */
 	hasScheduledRetry: () => boolean;
 	/** Reload responses the AUTO-resolve `reload` fake returns, FIFO. */
-	reloadQueue: Array<{ blueprint: BlueprintDoc; seq: number }>;
+	reloadQueue: Array<{
+		blueprint: BlueprintDoc;
+		seq: number;
+		projectId?: string;
+		role?: string;
+		canEdit?: boolean;
+	}>;
 	reloadCalls: number;
 	resubscribeCursors: number[];
 	/** Every `onSaveError` detail the reconciler reported. */
@@ -127,6 +133,9 @@ interface Harness {
 	resolveReload: (doc: {
 		blueprint: BlueprintDoc;
 		seq: number;
+		projectId?: string;
+		role?: string;
+		canEdit?: boolean;
 	}) => Promise<void>;
 	failReload: (err?: Error) => Promise<void>;
 	/** Number of manual reload GETs currently awaiting resolution. */
@@ -152,7 +161,11 @@ function makeHarness(init: {
 	// Seed the store with the base doc and start tracking (live-builder depth 0).
 	docStore.getState().load(toPersistableDoc(init.baseDoc));
 	docStore.getState().startTracking();
-	const sessionApi = createBuilderSessionStore();
+	const sessionApi = createBuilderSessionStore({
+		projectId: "project-1",
+		role: "editor",
+		canEdit: true,
+	});
 	// The reconciler is seeded with the HYDRATED store doc (order keys backfilled),
 	// exactly as the provider does (`baseDoc: docStore.getState()`), so the
 	// reconciler's confirmedDoc and the store's displayed doc agree on order keys.
@@ -192,10 +205,24 @@ function makeHarness(init: {
 			const next = reloadQueue.shift();
 			if (!next) return Promise.reject(new Error("reloadQueue empty"));
 			return Promise.resolve({
+				kind: "authorized" as const,
 				blueprint: toPersistableDoc(next.blueprint),
 				seq: next.seq,
+				projectId: next.projectId ?? "project-1",
+				role: next.role ?? "editor",
+				canEdit: next.canEdit ?? true,
 			});
 		},
+		canEdit: () => sessionApi.getState().canEdit,
+		beginAccessRefresh: () => {
+			sessionApi.getState().beginAccessRefresh();
+			return true;
+		},
+		markAccessReconnecting: () =>
+			sessionApi.getState().markAccessReconnecting(),
+		applyAccessSnapshot: (snapshot, options) =>
+			sessionApi.getState().applyAccessSnapshot(snapshot, options),
+		onViewRevoked: () => sessionApi.getState().revokeAccess(),
 		resubscribe: (cursor) => resubscribeCursors.push(cursor),
 		scheduleRetry: (_attempt, run) => {
 			retryCb = run;
@@ -248,7 +275,14 @@ function makeHarness(init: {
 		resolveReload: async (doc) => {
 			const r = reloadResolvers.shift();
 			if (!r) throw new Error("no pending reload");
-			r.resolve({ blueprint: toPersistableDoc(doc.blueprint), seq: doc.seq });
+			r.resolve({
+				kind: "authorized",
+				blueprint: toPersistableDoc(doc.blueprint),
+				seq: doc.seq,
+				projectId: doc.projectId ?? "project-1",
+				role: doc.role ?? "editor",
+				canEdit: doc.canEdit ?? true,
+			});
 			await flush();
 		},
 		failReload: async (err = new Error("reload GET failed")) => {
@@ -738,7 +772,7 @@ describe("reconciler", () => {
 
 			// The reload the 409 triggers returns fresh state at seq 3.
 			h.reloadQueue.push({ blueprint: makeDoc("ServerWins"), seq: 3 });
-			await h.resolvePut(0, { ok: false, kind: "conflict" });
+			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
 			// Let the deferred reload run.
 			await Promise.resolve();
 			await Promise.resolve();
@@ -751,6 +785,126 @@ describe("reconciler", () => {
 			// Confirmed is the server's version; no extra PUT was issued.
 			expect(snap.confirmedDoc.appName).toBe("ServerWins");
 			expect(h.puts).toHaveLength(1); // only the original, never re-sent
+		});
+	});
+
+	describe("reversible access reloads", () => {
+		it.each(["reauth", "notFound", "scopeChanged"] as const)(
+			"preserves the pending batch for %s and pauses it for a viewer snapshot",
+			async (kind) => {
+				const base = makeDoc("Base");
+				const h = harness({
+					appId: "app-1",
+					baseSeq: 0,
+					baseDoc: base,
+					userId: "u1",
+				});
+				h.docStore
+					.getState()
+					.applyMany([{ kind: "setAppName", name: "Waiting edit" }]);
+				const signals: SaveSignal[] = [];
+				const batchId = h.reconciler.dispatchHumanBatch((signal) =>
+					signals.push(signal),
+				);
+				h.reloadQueue.push({
+					blueprint: base,
+					seq: 0,
+					role: "viewer",
+					canEdit: false,
+				});
+
+				await h.resolvePut(0, { ok: false, kind });
+
+				expect(h.sessionApi.getState()).toMatchObject({
+					role: "viewer",
+					canEdit: false,
+					accessPhase: "authorized",
+				});
+				expect(h.reconciler.getSnapshot().sentPending[0]?.batchId).toBe(
+					batchId,
+				);
+				expect(h.docStore.getState().appName).toBe("Waiting edit");
+				expect(h.puts).toHaveLength(1);
+				expect(signals.at(-1)).toEqual({ kind: "accessChanged" });
+			},
+		);
+
+		it("resumes a preserved pending batch after a later editor snapshot", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Waiting edit" }]);
+			h.reconciler.dispatchHumanBatch();
+			h.reloadQueue.push({
+				blueprint: base,
+				seq: 0,
+				role: "viewer",
+				canEdit: false,
+			});
+			await h.resolvePut(0, { ok: false, kind: "reauth" });
+			h.reloadQueue.push({ blueprint: base, seq: 0 });
+
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(h.sessionApi.getState().canEdit).toBe(true);
+			expect(h.puts).toHaveLength(2);
+		});
+
+		it("dispatches an unbatched human delta when edit access returns", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			/* This edit has not reached the autosave leading/trailing edge yet, so it
+			 * exists only as `humanUncommitted`, never in `sentPending`. */
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Waiting unbatched edit" }]);
+			h.reloadQueue.push({
+				blueprint: base,
+				seq: 0,
+				role: "viewer",
+				canEdit: false,
+			});
+
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(h.puts).toHaveLength(0);
+			expect(h.docStore.getState().appName).toBe("Waiting unbatched edit");
+			expect(h.sessionApi.getState()).toMatchObject({
+				canEdit: false,
+				hasWaitingAccessChanges: true,
+			});
+
+			h.reloadQueue.push({ blueprint: base, seq: 0 });
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(h.sessionApi.getState()).toMatchObject({
+				canEdit: true,
+				hasWaitingAccessChanges: false,
+			});
+			expect(h.puts).toHaveLength(1);
+			expect(h.puts[0].mutations).toEqual([
+				{ kind: "setAppName", name: "Waiting unbatched edit" },
+			]);
 		});
 	});
 
@@ -978,7 +1132,7 @@ describe("reconciler", () => {
 				.getState()
 				.applyMany([{ kind: "setAppName", name: "Conflicting" }]);
 			const rejected = h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: false, kind: "conflict" });
+			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
 			// The 409 kicked off a reload (manual — pending).
 			expect(h.pendingReloads()).toBe(1);
 			expect(h.reconciler.getSnapshot().reloadInFlight).toBe(true);
@@ -1615,7 +1769,7 @@ describe("reconciler", () => {
 			// Batch A 409s → rejectedBatchId = A, a reload is requested + starts.
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "A" }]);
 			const aId = h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: false, kind: "conflict" });
+			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
 			expect(h.pendingReloads()).toBe(1);
 
 			// A second edit dispatches B behind the barrier — nothing sends.
@@ -1736,11 +1890,10 @@ describe("reconciler", () => {
 			expect(h.reconciler.canPut()).toBe(false);
 		});
 
-		// The frame-revoked-then-edit path: `onRevoked()` fires no SaveSignal (no PUT
-		// ever 403s), so a later edit that hits `canPut() === false` must NOT return
-		// silently — it emits `reauth` so `useAutoSave` surfaces the "not saving"
-		// toast + error indicator instead of the member editing into the void.
-		it("a human edit AFTER a frame-revocation emits `reauth` (not a silent no-op)", () => {
+		// The session-level mutation gate normally prevents this path. If a stale
+		// caller still dispatches after confirmed revocation, surface the access
+		// transition without inventing a save failure.
+		it("a human edit AFTER a frame-revocation emits `accessChanged`", () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -1748,7 +1901,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			// Revoked via the cadence frame — no PUT happened, so no 403/`reauth` yet.
+			// Revoked via the cadence frame — no PUT happened.
 			h.reconciler.onRevoked();
 			// The member keeps editing; there IS an unsaved delta.
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
@@ -1757,7 +1910,7 @@ describe("reconciler", () => {
 			// No PUT (frozen), but the observer is told edit access is gone.
 			expect(batchId).toBeUndefined();
 			expect(h.puts).toHaveLength(0);
-			expect(signals).toEqual([{ kind: "reauth" }]);
+			expect(signals).toEqual([{ kind: "accessChanged" }]);
 		});
 
 		it("a human edit AFTER a permanent (400) freeze emits `permanent`, never the false `reauth`", async () => {

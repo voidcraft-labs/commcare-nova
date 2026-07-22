@@ -233,6 +233,7 @@ describe("applyStreamEvent — data-mutations", () => {
 				},
 				{
 					put: async () => ({ ok: true, seq: 1 }),
+					canEdit: () => true,
 					reload: async () => {
 						throw new Error("no reload in this test");
 					},
@@ -285,6 +286,7 @@ describe("applyStreamEvent — data-mutations", () => {
 				},
 				{
 					put: async () => ({ ok: true, seq: 1 }),
+					canEdit: () => true,
 					reload: async () => {
 						throw new Error("no reload in this test");
 					},

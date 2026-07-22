@@ -15,6 +15,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader from "@iconify-icons/tabler/loader-2";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useEffect, useRef, useState } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 import {
 	MENU_ITEM_BASE,
 	MENU_POPUP_CLS,
@@ -47,6 +48,7 @@ interface AddressSearchProps {
 }
 
 export function AddressSearch({ value, onSelect }: AddressSearchProps) {
+	const reconciler = useReconcilerContext();
 	// Local input text, seeded from `value` and re-synced when the picker
 	// pushes a new resolved label (mirrors SearchInputForm's pattern).
 	const [query, setQuery] = useState(value);
@@ -68,14 +70,31 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 	);
 	// Monotonic id so a slow response can't overwrite a newer query's results.
 	const reqRef = useRef(0);
+	const detailsReqRef = useRef(0);
+	const ownsContinuationRef = useRef(true);
 
 	useEffect(() => {
-		return () => {
-			if (debounceRef.current) clearTimeout(debounceRef.current);
+		ownsContinuationRef.current = true;
+		const disownContinuations = () => {
+			ownsContinuationRef.current = false;
+			reqRef.current += 1;
+			detailsReqRef.current += 1;
+			tokenRef.current = null;
+			if (debounceRef.current) {
+				clearTimeout(debounceRef.current);
+				debounceRef.current = null;
+			}
 		};
-	}, []);
+		const unsubscribeReset =
+			reconciler?.subscribeProjectScopeReset(disownContinuations);
+		return () => {
+			unsubscribeReset?.();
+			disownContinuations();
+		};
+	}, [reconciler]);
 
 	function runSearch(input: string) {
+		if (!ownsContinuationRef.current) return;
 		if (debounceRef.current) clearTimeout(debounceRef.current);
 		const trimmed = input.trim();
 		if (trimmed.length < MIN_QUERY) {
@@ -89,6 +108,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 			try {
 				const { AutocompleteSuggestion, AutocompleteSessionToken } =
 					await loadPlaces();
+				if (!ownsContinuationRef.current || reqId !== reqRef.current) return;
 				if (!tokenRef.current) {
 					tokenRef.current = new AutocompleteSessionToken();
 				}
@@ -97,7 +117,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 						input: trimmed,
 						sessionToken: tokenRef.current,
 					});
-				if (reqId !== reqRef.current) return; // a newer query superseded this
+				if (!ownsContinuationRef.current || reqId !== reqRef.current) return;
 				const mapped: Suggestion[] = [];
 				for (const s of suggestions) {
 					const p = s.placePrediction;
@@ -107,17 +127,25 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 				}
 				setResults(mapped);
 			} catch {
-				if (reqId === reqRef.current) setResults([]);
+				if (ownsContinuationRef.current && reqId === reqRef.current) {
+					setResults([]);
+				}
 			} finally {
-				if (reqId === reqRef.current) setLoading(false);
+				if (ownsContinuationRef.current && reqId === reqRef.current) {
+					setLoading(false);
+				}
 			}
 		}, DEBOUNCE_MS);
 	}
 
 	async function resolveAndEmit(suggestion: Suggestion) {
+		if (!ownsContinuationRef.current) return;
+		const reqId = ++detailsReqRef.current;
 		try {
 			const place = suggestion.prediction.toPlace();
 			await place.fetchFields({ fields: ["location", "formattedAddress"] });
+			if (!ownsContinuationRef.current || reqId !== detailsReqRef.current)
+				return;
 			tokenRef.current = null; // fetchFields concludes the billing session
 			const loc = place.location;
 			if (!loc) return;
@@ -139,6 +167,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 			itemToStringValue={(item: Suggestion) => item.label}
 			openOnInputClick
 			onValueChange={(next, details) => {
+				if (!ownsContinuationRef.current) return;
 				if (details.reason === "item-press") {
 					const picked = results.find((r) => r.label === next);
 					setQuery(next);

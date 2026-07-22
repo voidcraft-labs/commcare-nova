@@ -40,7 +40,7 @@ import tablerEye from "@iconify-icons/tabler/eye";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import { type ReactElement, useId, useState } from "react";
+import { type ReactElement, useEffect, useId, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
@@ -55,6 +55,7 @@ import {
 } from "@/components/shadcn/select";
 import { TimeField } from "@/components/shadcn/time-field";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
@@ -69,8 +70,13 @@ import {
 	useRestoreParkedValues,
 	useSetParkedValuesDismissed,
 } from "@/lib/preview/hooks/useCaseDataBinding";
-import { useAppId, useCanEdit } from "@/lib/session/hooks";
-import { showToast } from "@/lib/ui/toastStore";
+import {
+	useAccessPhase,
+	useAppId,
+	useCanEdit,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { CaseDetailDialog } from "./CaseDetailDialog";
 import {
 	DATA_TYPE_LABELS,
@@ -97,6 +103,10 @@ interface ReplaceDraft {
 export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 	const appId = useAppId();
 	const canEdit = useCanEdit();
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const projectToast = useProjectToast();
+	const session = useBuilderSessionApi();
 	const module = useModule(moduleUuid);
 	const caseTypes = useMaterializableCaseTypes();
 	const caseType = caseTypes.find(
@@ -115,6 +125,14 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		readonly caseId: string;
 		readonly caseName: string;
 	} | null>(null);
+	const localScopeEpochRef = useRef(scopeEpoch);
+	useEffect(() => {
+		if (localScopeEpochRef.current === scopeEpoch) return;
+		localScopeEpochRef.current = scopeEpoch;
+		setReplaceDraft(null);
+		setBusyIds(new Set());
+		setViewCase(null);
+	}, [scopeEpoch]);
 
 	const restore = useRestoreParkedValues({ appId, caseType: caseType?.name });
 	const setDismissed = useSetParkedValuesDismissed({
@@ -145,34 +163,52 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		);
 	};
 
-	const withBusy = async (id: string, run: () => Promise<void>) => {
+	const withBusy = async (
+		id: string,
+		run: (isCurrent: () => boolean) => Promise<void>,
+	) => {
+		const start = session.getState();
+		if (start.accessPhase !== "authorized" || !start.canEdit) return;
+		const operationEpoch = start.scopeEpoch;
+		const isCurrent = () => {
+			const current = session.getState();
+			return (
+				current.scopeEpoch === operationEpoch &&
+				current.accessPhase === "authorized" &&
+				current.canEdit
+			);
+		};
 		setBusyIds((prev) => new Set([...prev, id]));
 		try {
-			await run();
+			await run(isCurrent);
 		} catch {
+			if (!isCurrent()) return;
 			// A Server Action call is a fetch — it REJECTS on a dropped
 			// connection or a mid-deploy stale action id. Without this
 			// catch the press would fail silently (busy resets below, no
 			// toast, nothing changed on screen).
-			showToast(
+			projectToast(
 				"error",
 				"That didn’t go through",
 				"The server couldn’t be reached. Check your connection and try again.",
 			);
 		} finally {
-			setBusyIds((prev) => {
-				const next = new Set(prev);
-				next.delete(id);
-				return next;
-			});
+			if (isCurrent()) {
+				setBusyIds((prev) => {
+					const next = new Set(prev);
+					next.delete(id);
+					return next;
+				});
+			}
 		}
 	};
 
 	const putBackEntry = (id: string) =>
-		withBusy(id, async () => {
+		withBusy(id, async (isCurrent) => {
 			const result = await restore([id]);
+			if (!isCurrent()) return;
 			if (result.kind !== "restored") {
-				showToast(
+				projectToast(
 					"error",
 					"Couldn’t put the value back",
 					result.kind === "error"
@@ -186,7 +222,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			// render and write (a teammate's edit, a fresh conversion) —
 			// and the refreshed list shows the row's new state.
 			if (result.restored === 1) {
-				showToast(
+				projectToast(
 					"info",
 					"Value put back",
 					result.displaced > 0
@@ -194,7 +230,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 						: "It’s saved on its case again.",
 				);
 			} else {
-				showToast(
+				projectToast(
 					"warning",
 					"It can’t go back right now",
 					"The property or the case changed since this list loaded.",
@@ -203,10 +239,11 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		});
 
 	const undismissEntry = (id: string) =>
-		withBusy(id, async () => {
+		withBusy(id, async (isCurrent) => {
 			const result = await setDismissed([id], false);
+			if (!isCurrent()) return;
 			if (result.kind !== "toggled") {
-				showToast(
+				projectToast(
 					"error",
 					"Couldn’t move it back",
 					result.kind === "error"
@@ -216,7 +253,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				return;
 			}
 			if (result.count === 0) {
-				showToast(
+				projectToast(
 					"info",
 					"This value moved on",
 					"It was put back, replaced, or its case was removed. The list is refreshed.",
@@ -225,10 +262,11 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		});
 
 	const dismissEntry = (id: string) =>
-		withBusy(id, async () => {
+		withBusy(id, async (isCurrent) => {
 			const result = await setDismissed([id], true);
+			if (!isCurrent()) return;
 			if (result.kind !== "toggled") {
-				showToast(
+				projectToast(
 					"error",
 					"Couldn’t dismiss",
 					result.kind === "error"
@@ -241,17 +279,18 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			// teammate put it back, or its case was replaced) — claiming
 			// it's "under Dismissed" with a dead Undo would be a lie.
 			if (result.count === 0) {
-				showToast(
+				projectToast(
 					"info",
 					"This value moved on",
 					"It was put back, replaced, or its case was removed. The list is refreshed.",
 				);
 				return;
 			}
-			showToast("info", "Value dismissed", "Find it under Dismissed.", {
+			projectToast("info", "Value dismissed", "Find it under Dismissed.", {
 				action: {
 					label: "Undo",
 					onPress: () => {
+						if (!isCurrent()) return;
 						void undismissEntry(id);
 					},
 				},
@@ -260,6 +299,8 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 
 	const saveReplacement = (entry: ParkedValueEntryWire) => {
 		if (replaceDraft === null || replaceDraft.entryId !== entry.id) return;
+		const start = session.getState();
+		if (start.accessPhase !== "authorized" || !start.canEdit) return;
 		const currentType = propertyDecl(entry.property)?.data_type ?? "text";
 		const draft = replacementDraftToValue(
 			currentType,
@@ -269,11 +310,21 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 		);
 		if (!draft.ok) return;
 		setReplaceDraft({ ...replaceDraft, saving: true, failures: null });
+		const operationEpoch = start.scopeEpoch;
+		const isCurrent = () => {
+			const current = session.getState();
+			return (
+				current.scopeEpoch === operationEpoch &&
+				current.accessPhase === "authorized" &&
+				current.canEdit
+			);
+		};
 		void (async () => {
 			let result: Awaited<ReturnType<typeof replace>>;
 			try {
 				result = await replace(entry.id, draft.value);
 			} catch {
+				if (!isCurrent()) return;
 				// A rejected Server Action fetch (dropped connection, stale
 				// action id mid-deploy) must not strand the editor in its
 				// saving state — Cancel is disabled while saving, so an
@@ -282,16 +333,17 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				setReplaceDraft((prev) =>
 					prev?.entryId === entry.id ? { ...prev, saving: false } : prev,
 				);
-				showToast(
+				projectToast(
 					"error",
 					"Couldn’t overwrite the value",
 					"The server couldn’t be reached. Your new value is still here — try again.",
 				);
 				return;
 			}
+			if (!isCurrent()) return;
 			if (result.kind === "replaced") {
 				setReplaceDraft(null);
-				showToast(
+				projectToast(
 					"info",
 					"Value overwritten",
 					"The new value is saved. The original is under Dismissed.",
@@ -308,7 +360,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			}
 			setReplaceDraft(null);
 			if (result.kind === "not-found") {
-				showToast(
+				projectToast(
 					"info",
 					"This value moved on",
 					"It was put back, replaced, or its case was removed. The list is refreshed.",
@@ -316,7 +368,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				await reload();
 				return;
 			}
-			showToast(
+			projectToast(
 				"error",
 				"Couldn’t overwrite the value",
 				result.kind === "error"
@@ -479,7 +531,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 				</>
 			)}
 
-			{viewCase !== null && (
+			{viewCase !== null && accessPhase === "authorized" && (
 				<CaseDetailDialog
 					appId={appId}
 					caseType={caseType}

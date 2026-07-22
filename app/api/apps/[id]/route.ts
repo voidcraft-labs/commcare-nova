@@ -18,6 +18,7 @@ import {
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import {
+	AppAccessError,
 	resolveAppAccess,
 	resolveAuthorizedAppSnapshot,
 } from "@/lib/db/appAccess";
@@ -50,23 +51,28 @@ export async function GET(
 		 * hydrates off the blueprint. The authorization tuple + cursor come from
 		 * the same locked transaction as that blueprint. Keep the original row
 		 * names while old browser revisions can still be open. */
-		return Response.json({
-			projectId: snapshot.projectId,
-			role: snapshot.role,
-			canEdit: snapshot.canEdit,
-			blueprint: app.blueprint,
-			baseSeq: snapshot.baseSeq,
-			app_name: app.app_name,
-			status: app.status,
-			error_type: app.error_type,
-			/* The durable mutation cursor the client keys recovery on — the head
-			 * `seq` of the `acceptedMutations` stream at load time. */
-			mutation_seq: snapshot.baseSeq,
-		});
+		return Response.json(
+			{
+				projectId: snapshot.projectId,
+				role: snapshot.role,
+				canEdit: snapshot.canEdit,
+				blueprint: app.blueprint,
+				baseSeq: snapshot.baseSeq,
+				app_name: app.app_name,
+				status: app.status,
+				error_type: app.error_type,
+				/* The durable mutation cursor the client keys recovery on — the head
+				 * `seq` of the `acceptedMutations` stream at load time. */
+				mutation_seq: snapshot.baseSeq,
+			},
+			{ headers: { "Cache-Control": "private, no-store" } },
+		);
 	} catch (err) {
-		return handleApiError(
+		const response = handleApiError(
 			err instanceof Error ? err : new ApiError("Failed to load app", 500),
 		);
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
 	}
 }
 
@@ -80,8 +86,9 @@ export async function PUT(
 
 		/* Project-membership gate (edit). The resolver's single app load yields
 		 * the `AppDoc` whose `blueprint` threads into the saga as
-		 * `priorBlueprint` (no second `loadApp`). An `AppAccessError` maps to 404
-		 * in `handleApiError` — the shared IDOR-safe not-found posture. */
+		 * `priorBlueprint` (no second `loadApp`). A known member with insufficient
+		 * role becomes a typed 403 below; absent/non-member apps keep the shared
+		 * IDOR-safe 404 posture. */
 		const access = await resolveAppAccess(id, session.user.id, "edit");
 		const app = access.app;
 
@@ -151,6 +158,17 @@ export async function PUT(
 			...(touchedRows && { migration }),
 		});
 	} catch (err) {
+		/* The early edit gate distinguishes a known member whose role is now
+		 * view-only from absent/non-member apps. The former is a typed capability
+		 * transition the client confirms through an atomic GET; the latter keep the
+		 * shared IDOR-safe 404 posture. */
+		if (err instanceof AppAccessError && err.reason === "insufficient_role") {
+			log.warn(`[apps] save denied by role (403): ${err.message}`);
+			return Response.json(
+				{ error: err.message, type: "reauth_denied" },
+				{ status: 403 },
+			);
+		}
 		if (err instanceof AppProjectChangedError) {
 			log.warn(`[apps] save scope changed (409): ${err.message}`);
 			return Response.json(
@@ -159,10 +177,10 @@ export async function PUT(
 			);
 		}
 		if (err instanceof CommitReauthError) {
-			/* The actor lost edit access to this app (removed from its Project, or
-			 * not the owner of a personal app) — TERMINAL. 403, not a 409-reload:
-			 * a reload can't restore access, so a 409 would just re-PUT the same
-			 * delta into the same denial. */
+			/* The commit-time gate observed stale edit authority. The typed 403
+			 * pauses client PUTs and triggers one authoritative view GET; that GET may
+			 * resolve to view-only access, a new Project/editor tuple, or confirmed
+			 * revocation. The rejected batch remains local across that decision. */
 			log.warn(`[apps] save denied (403): ${err.message}`);
 			return Response.json(
 				{ error: err.message, type: "reauth_denied" },
@@ -171,9 +189,10 @@ export async function PUT(
 		}
 		if (err instanceof BlueprintCommitRejectedError) {
 			/* The delta is invalid against the fresh server doc — a genuine
-			 * concurrent conflict (this edit targets an entity another writer
-			 * changed). 409 with the person-to-person
-			 * message; the builder reloads the server doc and re-authorizes. */
+			 * fresh-doc commit-gate rejection (often, but not exclusively, an edit
+			 * colliding with a collaborator's change). Return the typed 409 with its
+			 * person-to-person message; the reconciler drops only this rejected batch
+			 * while its authoritative reload preserves later pending work. */
 			log.warn(`[apps] save rejected (409): ${err.message}`);
 			return Response.json(
 				{ error: err.message, type: "commit_rejected" },

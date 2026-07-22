@@ -14,13 +14,24 @@
 "use client";
 import tablerBrowser from "@iconify-icons/tabler/browser";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
-import { memo, useCallback, useContext, useMemo, useState } from "react";
+import {
+	memo,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
+import { useReconcilerContext } from "@/lib/collab/context";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
-import { showToast } from "@/lib/ui/toastStore";
+import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
 
 interface ExportPanelProps {
 	/** Whether CommCare HQ credentials are configured. */
@@ -63,6 +74,14 @@ async function exportDoc(opts: {
 	fileLabel: string;
 	/** Derive the download filename from the response blob (its MIME type may pick the extension). */
 	filename: (blob: Blob) => string;
+	signal: AbortSignal;
+	isCurrent: () => boolean;
+	toast: (
+		severity: ToastSeverity,
+		title: string,
+		message?: string,
+		options?: ToastOptions,
+	) => string;
 }): Promise<void> {
 	try {
 		const res = await fetch(opts.endpoint, {
@@ -70,9 +89,15 @@ async function exportDoc(opts: {
 			headers: { "Content-Type": "application/json" },
 			// Send only the app id — the route loads the blueprint server-side.
 			body: JSON.stringify({ appId: opts.appId }),
+			signal: opts.signal,
 		});
+		if (!opts.isCurrent()) {
+			void res.body?.cancel();
+			return;
+		}
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
+			if (!opts.isCurrent()) return;
 			const failure = describeApiFailure(
 				body,
 				`Could not generate ${opts.fileLabel}.`,
@@ -81,7 +106,7 @@ async function exportDoc(opts: {
 			 * findings fill the body; without them, fall back to a generic title
 			 * so the headline isn't repeated as its own body. */
 			const toastBody = apiFailureToastBody(failure);
-			showToast(
+			opts.toast(
 				"error",
 				failure.details.length > 0 ? failure.message : "Export failed",
 				toastBody.message,
@@ -90,9 +115,16 @@ async function exportDoc(opts: {
 			return;
 		}
 		const blob = await res.blob();
+		if (!opts.isCurrent()) return;
 		triggerBlobDownload(blob, opts.filename(blob));
-	} catch {
-		showToast(
+	} catch (error) {
+		if (
+			opts.signal.aborted ||
+			!opts.isCurrent() ||
+			(error instanceof DOMException && error.name === "AbortError")
+		)
+			return;
+		opts.toast(
 			"error",
 			"Export failed",
 			`Could not generate ${opts.fileLabel}.`,
@@ -111,7 +143,62 @@ export const ExportPanel = memo(function ExportPanel({
 	commcareAvailableDomains,
 }: ExportPanelProps) {
 	const docStore = useContext(BlueprintDocContext);
+	const session = useBuilderSessionApi();
+	const reconciler = useReconcilerContext();
+	const projectToast = useProjectToast();
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+	const exportControllersRef = useRef(new Set<AbortController>());
+	useEffect(
+		() =>
+			reconciler?.subscribeProjectScopeReset(() => {
+				for (const controller of exportControllersRef.current)
+					controller.abort();
+				exportControllersRef.current.clear();
+				setUploadDialogOpen(false);
+			}),
+		[reconciler],
+	);
+	useEffect(
+		() => () => {
+			for (const controller of exportControllersRef.current) controller.abort();
+			exportControllersRef.current.clear();
+		},
+		[],
+	);
+
+	const runExport = useCallback(
+		async (
+			options: Omit<
+				Parameters<typeof exportDoc>[0],
+				"signal" | "isCurrent" | "toast"
+			>,
+		) => {
+			const start = session.getState();
+			if (start.accessPhase !== "authorized") return;
+			const epoch = start.scopeEpoch;
+			const controller = new AbortController();
+			exportControllersRef.current.add(controller);
+			const isCurrent = () => {
+				const current = session.getState();
+				return (
+					!controller.signal.aborted &&
+					current.accessPhase === "authorized" &&
+					current.scopeEpoch === epoch
+				);
+			};
+			try {
+				await exportDoc({
+					...options,
+					signal: controller.signal,
+					isCurrent,
+					toast: projectToast,
+				});
+			} finally {
+				exportControllersRef.current.delete(controller);
+			}
+		},
+		[projectToast, session],
+	);
 
 	/**
 	 * Snapshot the current persistable doc for the upload dialog. Called
@@ -140,18 +227,18 @@ export const ExportPanel = memo(function ExportPanel({
 		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
 		// The compile endpoint returns the `.ccz` bytes inline — one request, no
 		// separate download round-trip.
-		await exportDoc({
+		await runExport({
 			appId: s.appId,
 			endpoint: "/api/compile",
 			fileLabel: "the .ccz file",
 			filename: () => `${s.appName || "app"}.ccz`,
 		});
-	}, [docStore]);
+	}, [docStore, runExport]);
 
 	const handleExportJson = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
-		await exportDoc({
+		await runExport({
 			appId: s.appId,
 			endpoint: "/api/compile/json",
 			fileLabel: "the JSON file",
@@ -161,7 +248,7 @@ export const ExportPanel = memo(function ExportPanel({
 			filename: (blob) =>
 				`${s.appName || "app"}.${blob.type.includes("zip") ? "zip" : "json"}`,
 		});
-	}, [docStore]);
+	}, [docStore, runExport]);
 
 	const exportOptions: ExportOption[] = useMemo(
 		() => [
@@ -187,7 +274,11 @@ export const ExportPanel = memo(function ExportPanel({
 	 * causing 3ms+ of wasted re-renders in the dialog tree (profiler shows
 	 * UploadToHqDialog re-rendering from props=['onClose'] on every
 	 * BuilderSubheader hook change). */
-	const handleOpenUpload = useCallback(() => setUploadDialogOpen(true), []);
+	const handleOpenUpload = useCallback(() => {
+		if (session.getState().accessPhase === "authorized") {
+			setUploadDialogOpen(true);
+		}
+	}, [session]);
 	const handleCloseUpload = useCallback(() => setUploadDialogOpen(false), []);
 
 	return (

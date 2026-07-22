@@ -21,6 +21,7 @@ import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import Link from "next/link";
+import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
 import { ExportPanel } from "@/components/builder/ExportPanel";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
@@ -40,7 +41,11 @@ import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { shortcutLabel } from "@/lib/platform";
 import { useUndoRedo } from "@/lib/routing/builderActions";
-import { useBuilderIsReady, useCanEdit } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useBuilderIsReady,
+	useCanEdit,
+} from "@/lib/session/hooks";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
 interface BuilderHeaderProps {
@@ -65,6 +70,7 @@ export function BuilderHeader({
 	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
 	const canEdit = useCanEdit();
+	const accessPhase = useAccessPhase();
 	const compactHeight = useIsBreakpoint("max", 360, "height");
 	const compactHeader = useIsBreakpoint("max", 1100);
 	/* Five-peer presence plus the compact document actions overlap the centered
@@ -79,7 +85,9 @@ export function BuilderHeader({
 	const canUndo = useCanUndo();
 	const canRedo = useCanRedo();
 
-	const showToolbar = isReady && hasData;
+	const showAccessStatus = isReady && hasData;
+	const showToolbar = showAccessStatus && accessPhase === "authorized";
+	const showDocumentRow = showToolbar || showAccessStatus;
 
 	return (
 		<header
@@ -126,111 +134,103 @@ export function BuilderHeader({
 				data-header-document-actions
 				className={
 					ultraCompactHeader
-						? showToolbar
+						? showDocumentRow
 							? "col-span-3 row-start-2 flex min-h-12 min-w-0 items-center justify-center gap-1 border-t border-nova-border"
 							: "hidden"
 						: "flex min-w-0 items-center gap-1 justify-self-end"
 				}
 			>
-				{showToolbar && (
+				{showAccessStatus && (
 					<>
 						{/* Who-else-is-here avatars — first in the cluster with their own
 						 *  divider (the Google-Docs arrangement: people, then actions).
 						 *  Shown for editors AND viewers (a viewer still sees who's
 						 *  editing); renders nothing in a solo session. */}
-						<PresenceRoster compact={compactHeader} />
+						{showToolbar ? <PresenceRoster compact={compactHeader} /> : null}
+						<BuilderAccessStatus compact={compactHeader} />
+						{/* Keep the autosave owner mounted through reversible access
+						 * transitions; only its visual output is conditional internally. */}
+						<SaveIndicator compact={compactHeader} />
 						{/* Edit affordances — hidden for a view-only member. Preview +
 						 *  Export stay (a viewer may preview and download the app);
 						 *  HQ upload inside Export stays gated server-side. */}
-						{canEdit ? (
-							<>
-								<SaveIndicator compact={compactHeader} />
-								{compactHeader ? (
-									<DropdownMenu>
-										<SimpleTooltip content="Edit history" side="bottom">
-											<DropdownMenuTrigger
-												aria-label="Edit history"
-												className="flex size-11 items-center justify-center rounded-lg text-nova-text-muted outline-none transition-colors hover:bg-white/5 hover:text-nova-text focus-visible:ring-3 focus-visible:ring-ring/50"
-											>
-												<Icon
-													icon={tablerDotsVertical}
-													width="18"
-													height="18"
-												/>
-											</DropdownMenuTrigger>
-										</SimpleTooltip>
-										<DropdownMenuContent align="end" sideOffset={6}>
-											<DropdownMenuItem onClick={undo} disabled={!canUndo}>
-												<Icon icon={tablerArrowBackUp} width="18" height="18" />
-												<span className="flex-1">Undo</span>
-												<span className="text-xs text-nova-text-muted">
-													{shortcutLabel("mod", "Z")}
-												</span>
-											</DropdownMenuItem>
-											<DropdownMenuItem onClick={redo} disabled={!canRedo}>
-												<Icon
-													icon={tablerArrowForwardUp}
-													width="18"
-													height="18"
-												/>
-												<span className="flex-1">Redo</span>
-												<span className="text-xs text-nova-text-muted">
-													{shortcutLabel("mod", "shift", "Z")}
-												</span>
-											</DropdownMenuItem>
-										</DropdownMenuContent>
-									</DropdownMenu>
-								) : (
-									<>
-										<SimpleTooltip
-											content={`Undo (${shortcutLabel("mod", "Z")})`}
+						{showToolbar && canEdit ? (
+							compactHeader ? (
+								<DropdownMenu>
+									<SimpleTooltip content="Edit history" side="bottom">
+										<DropdownMenuTrigger
+											aria-label="Edit history"
+											className="flex size-11 items-center justify-center rounded-lg text-nova-text-muted outline-none transition-colors hover:bg-white/5 hover:text-nova-text focus-visible:ring-3 focus-visible:ring-ring/50"
 										>
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon-lg"
-												onClick={undo}
-												disabled={!canUndo}
-												className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
-												aria-label="Undo"
-											>
-												<Icon icon={tablerArrowBackUp} width="18" height="18" />
-											</Button>
-										</SimpleTooltip>
-										<SimpleTooltip
-											content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
+											<Icon icon={tablerDotsVertical} width="18" height="18" />
+										</DropdownMenuTrigger>
+									</SimpleTooltip>
+									<DropdownMenuContent align="end" sideOffset={6}>
+										<DropdownMenuItem onClick={undo} disabled={!canUndo}>
+											<Icon icon={tablerArrowBackUp} width="18" height="18" />
+											<span className="flex-1">Undo</span>
+											<span className="text-xs text-nova-text-muted">
+												{shortcutLabel("mod", "Z")}
+											</span>
+										</DropdownMenuItem>
+										<DropdownMenuItem onClick={redo} disabled={!canRedo}>
+											<Icon
+												icon={tablerArrowForwardUp}
+												width="18"
+												height="18"
+											/>
+											<span className="flex-1">Redo</span>
+											<span className="text-xs text-nova-text-muted">
+												{shortcutLabel("mod", "shift", "Z")}
+											</span>
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							) : (
+								<>
+									<SimpleTooltip
+										content={`Undo (${shortcutLabel("mod", "Z")})`}
+									>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-lg"
+											onClick={undo}
+											disabled={!canUndo}
+											className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
+											aria-label="Undo"
 										>
-											<Button
-												type="button"
-												variant="ghost"
-												size="icon-lg"
-												onClick={redo}
-												disabled={!canRedo}
-												className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
-												aria-label="Redo"
-											>
-												<Icon
-													icon={tablerArrowForwardUp}
-													width="18"
-													height="18"
-												/>
-											</Button>
-										</SimpleTooltip>
-									</>
-								)}
-							</>
-						) : (
-							/* ml-[13px] mirrors the icon buttons' glyph inset so the
-							 * PresenceRoster divider (when peers are present) sits
-							 * visually centered before the badge's border too. */
-							<span className="ml-[13px] mr-1 inline-flex items-center rounded-md border border-nova-border px-2 py-1 text-xs font-medium text-nova-text-muted">
-								View only
-							</span>
-						)}
-						<ExportPanel
-							commcareConfigured={commcareConfigured}
-							commcareAvailableDomains={commcareAvailableDomains}
-						/>
+											<Icon icon={tablerArrowBackUp} width="18" height="18" />
+										</Button>
+									</SimpleTooltip>
+									<SimpleTooltip
+										content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
+									>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-lg"
+											onClick={redo}
+											disabled={!canRedo}
+											className="size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
+											aria-label="Redo"
+										>
+											<Icon
+												icon={tablerArrowForwardUp}
+												width="18"
+												height="18"
+											/>
+										</Button>
+									</SimpleTooltip>
+								</>
+							)
+						) : null}
+						{showToolbar ? (
+							<ExportPanel
+								commcareConfigured={commcareConfigured}
+								commcareAvailableDomains={commcareAvailableDomains}
+							/>
+						) : null}
 					</>
 				)}
 				{!ultraCompactHeader && (

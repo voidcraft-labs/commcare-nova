@@ -326,6 +326,7 @@ describe("GET extract", () => {
 			"view",
 		);
 		expect(res.headers.get("Content-Type")).toContain("text/markdown");
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(await res.text()).toBe("HELLO");
 	});
 
@@ -333,6 +334,7 @@ describe("GET extract", () => {
 		loadAssetByIdMock.mockResolvedValue(docAsset()); // no extract field
 		const res = await GET(req(), ctx());
 		expect(res.status).toBe(404);
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(readTextObject).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
@@ -342,6 +344,7 @@ describe("GET extract", () => {
 		userInProjectMock.mockResolvedValue(false);
 		const res = await GET(req(), ctx());
 		expect(res.status).toBe(404);
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(readTextObject).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
@@ -366,6 +369,7 @@ describe("GET extract", () => {
 		);
 		const res = await GET(req("?meta=1"), ctx());
 		expect(res.status).toBe(200);
+		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(await res.json()).toEqual({
 			status: "ready",
 			title: "ANC Program Requirements",

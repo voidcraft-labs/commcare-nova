@@ -87,8 +87,12 @@ export default async function BuilderPage({
 	 * is enforced at the write paths (PUT / chat / MCP). Denials collapse to
 	 * notFound() to avoid leaking another Project's app. */
 	let app: AppDoc;
-	let canEdit: boolean;
-	let baseSeq: number;
+	let initialAccess: {
+		projectId: string;
+		role: string;
+		canEdit: boolean;
+		baseSeq: number;
+	};
 	try {
 		const snapshot = await resolveAuthorizedAppSnapshot(
 			id,
@@ -96,8 +100,12 @@ export default async function BuilderPage({
 			"view",
 		);
 		app = snapshot.app;
-		canEdit = snapshot.canEdit;
-		baseSeq = snapshot.baseSeq;
+		initialAccess = {
+			projectId: snapshot.projectId,
+			role: snapshot.role,
+			canEdit: snapshot.canEdit,
+			baseSeq: snapshot.baseSeq,
+		};
 	} catch (err) {
 		if (err instanceof AppAccessError) notFound();
 		throw err;
@@ -160,8 +168,7 @@ export default async function BuilderPage({
 		<BuilderProvider
 			buildId={id}
 			initialDoc={app.blueprint}
-			canEdit={canEdit}
-			baseSeq={baseSeq}
+			initialAccess={initialAccess}
 			userId={session.user.id}
 		>
 			<BuilderLayout

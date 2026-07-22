@@ -10,14 +10,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import {
+	AppAccessError,
 	resolveAppAccess,
 	resolveAuthorizedAppSnapshot,
 } from "@/lib/db/appAccess";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { GET } from "../route";
+import { GET, PUT } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
 vi.mock("@/lib/db/appAccess", () => ({
+	AppAccessError: class AppAccessError extends Error {
+		readonly name = "AppAccessError";
+		constructor(readonly reason: string) {
+			super(reason);
+		}
+	},
 	resolveAppAccess: vi.fn(),
 	resolveAuthorizedAppSnapshot: vi.fn(),
 }));
@@ -70,6 +77,7 @@ describe("GET /api/apps/[id]", () => {
 		const body = await response.json();
 
 		expect(response.status).toBe(200);
+		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(resolveAuthorizedAppSnapshot).toHaveBeenCalledWith(
 			"app-1",
 			"user-1",
@@ -97,5 +105,26 @@ describe("GET /api/apps/[id]", () => {
 		const response = await GET(request(), params());
 		expect(response.status).toBe(404);
 		expect(await response.json()).toEqual({ error: "App not found" });
+	});
+});
+
+describe("PUT /api/apps/[id]", () => {
+	it("returns a typed 403 for a known member who lost edit capability", async () => {
+		vi.mocked(resolveAppAccess).mockRejectedValueOnce(
+			new AppAccessError("insufficient_role"),
+		);
+		const response = await PUT(
+			new Request("http://localhost/api/apps/app-1", {
+				method: "PUT",
+				body: JSON.stringify({}),
+			}),
+			params(),
+		);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: "insufficient_role",
+			type: "reauth_denied",
+		});
 	});
 });

@@ -41,6 +41,8 @@ import type { CasePropertyDataType, FieldKind } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
 import { conversionImpactAction } from "@/lib/preview/engine/caseDataBinding";
 import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
+import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /** One pending conversion awaiting its impact check — the plan's
  *  `dataLossRisk` plus the addressing the dispatch needs. */
@@ -107,6 +109,9 @@ export function ConvertImpactDialog({
 	/** Dispatch the conversion. The caller clears `request`. */
 	readonly onConfirm: (request: ConvertImpactRequest) => void;
 }) {
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const session = useBuilderSessionApi();
 	/* The answered state is BOUND to the request it answers — the
 	 * component stays mounted across requests (null-request renders
 	 * nothing but keeps state), so an unbound state would let request
@@ -116,6 +121,7 @@ export function ConvertImpactDialog({
 	 * reads as "checking". */
 	const [answered, setAnswered] = useState<{
 		request: ConvertImpactRequest;
+		scopeEpoch: number;
 		state: ImpactState;
 	} | null>(null);
 	/* Generation counter: a result only lands while its fetch is still
@@ -124,12 +130,21 @@ export function ConvertImpactDialog({
 	const generation = useRef(0);
 
 	const check = useCallback(() => {
-		if (request === null) return;
+		if (accessPhase !== "authorized" || request === null) return;
+		const start = session.getState();
+		if (start.accessPhase !== "authorized") return;
 		const gen = ++generation.current;
+		const requestScopeEpoch = start.scopeEpoch;
 		setAnswered(null);
 		const answer = (state: ImpactState) => {
-			if (gen !== generation.current) return;
-			setAnswered({ request, state });
+			const current = session.getState();
+			if (
+				gen !== generation.current ||
+				current.scopeEpoch !== requestScopeEpoch ||
+				current.accessPhase !== "authorized"
+			)
+				return;
+			setAnswered({ request, scopeEpoch: requestScopeEpoch, state });
 		};
 		conversionImpactAction({
 			appId,
@@ -162,7 +177,7 @@ export function ConvertImpactDialog({
 				});
 			},
 		);
-	}, [appId, request]);
+	}, [accessPhase, appId, request, session]);
 
 	useEffect(() => {
 		check();
@@ -171,8 +186,19 @@ export function ConvertImpactDialog({
 		};
 	}, [check]);
 
+	const cancelledScopeEpochRef = useRef(scopeEpoch);
+	useEffect(() => {
+		if (cancelledScopeEpochRef.current === scopeEpoch) return;
+		cancelledScopeEpochRef.current = scopeEpoch;
+		generation.current++;
+		setAnswered(null);
+		if (request !== null) onCancel();
+	}, [onCancel, request, scopeEpoch]);
+
 	const state: ImpactState =
-		answered !== null && answered.request === request
+		answered !== null &&
+		answered.request === request &&
+		answered.scopeEpoch === scopeEpoch
 			? answered.state
 			: { kind: "checking" };
 
@@ -181,6 +207,18 @@ export function ConvertImpactDialog({
 	 * the ref latches per request so a re-render (or an unstable
 	 * `onConfirm` identity) can't dispatch the conversion twice. */
 	const autoConfirmed = useRef<ConvertImpactRequest | null>(null);
+	const confirmCurrent = useCallback(
+		(pending: ConvertImpactRequest) => {
+			const current = session.getState();
+			if (
+				current.accessPhase !== "authorized" ||
+				current.scopeEpoch !== scopeEpoch
+			)
+				return;
+			onConfirm(pending);
+		},
+		[onConfirm, scopeEpoch, session],
+	);
 	useEffect(() => {
 		if (request === null) return;
 		if (
@@ -189,11 +227,11 @@ export function ConvertImpactDialog({
 			autoConfirmed.current !== request
 		) {
 			autoConfirmed.current = request;
-			onConfirm(request);
+			confirmCurrent(request);
 		}
-	}, [state, request, onConfirm]);
+	}, [state, request, confirmCurrent]);
 
-	if (request === null) return null;
+	if (request === null || accessPhase !== "authorized") return null;
 
 	const toLabel = fieldRegistry[request.toKind].label;
 	const noun = TYPE_NOUNS[request.toType];
@@ -258,7 +296,7 @@ export function ConvertImpactDialog({
 					{state.kind === "impact" && state.uncastable > 0 && (
 						<AlertDialogAction
 							variant="destructive"
-							onClick={() => onConfirm(request)}
+							onClick={() => confirmCurrent(request)}
 						>
 							{newlyHeld > 0
 								? `Convert and hold ${newlyHeld} ${newlyHeld === 1 ? "case" : "cases"}`

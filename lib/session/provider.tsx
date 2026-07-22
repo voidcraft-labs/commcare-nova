@@ -105,3 +105,11 @@ export function useBuilderSessionApi(): BuilderSessionStoreApi {
 	}
 	return store;
 }
+
+/** Imperative session access for surfaces that also render outside the builder
+ * (for example the account-level media manager). Builder instances use this to
+ * make an authority decision from the store in the event-handler stack; a
+ * standalone surface receives `null` and follows its own page authorization. */
+export function useOptionalBuilderSessionApi(): BuilderSessionStoreApi | null {
+	return useContext(BuilderSessionContext);
+}

@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 /**
  * Network-wiring tests for the React-free reconciler runtime.
  *
@@ -14,6 +16,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import type { LookupManifest } from "@/lib/lookup/types";
+import { createBuilderSessionStore } from "@/lib/session/store";
 
 const SOURCE_MANIFEST = {
 	projectId: "project-source",
@@ -108,6 +111,7 @@ class FakeEventSource {
 
 afterEach(() => {
 	FakeEventSource.instances.length = 0;
+	window.sessionStorage.clear();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
@@ -117,6 +121,12 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
 		const docStore = createBlueprintDocStore();
 		const persistedDoc = toPersistableDoc(emptyDoc());
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
 		docStore.getState().load(persistedDoc);
 		docStore.getState().startTracking();
 
@@ -126,14 +136,18 @@ describe("ReconcilerProvider EventSource ownership", () => {
 				ok: true,
 				status: 200,
 				json: async () => ({
+					projectId: "project-destination",
+					role: "editor",
+					canEdit: true,
 					blueprint: persistedDoc,
-					mutation_seq: 0,
+					baseSeq: 0,
 				}),
 			})),
 		);
 
 		const runtime = createReconcilerRuntime(
 			docStore,
+			sessionStore,
 			{ appId: "app-1", baseSeq: 0, userId: "self" },
 			() => {},
 		);
@@ -148,7 +162,9 @@ describe("ReconcilerProvider EventSource ownership", () => {
 
 		runtime.start();
 		const sourceStream = FakeEventSource.instances[0];
-		expect(sourceStream.url).toBe("/api/apps/app-1/stream?since=0");
+		expect(sourceStream.url).toBe(
+			"/api/apps/app-1/stream?since=0&receiverVersion=1",
+		);
 		sourceStream.emit("lookup-revision", JSON.stringify(SOURCE_MANIFEST));
 		sourceStream.emit("presence", JSON.stringify(SOURCE_PRESENCE));
 		expect(lookupSnapshots).toEqual([SOURCE_MANIFEST]);
@@ -194,6 +210,12 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
 		const persistedDoc = toPersistableDoc(emptyDoc());
 		const docStore = createBlueprintDocStore();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
 		docStore.getState().load(persistedDoc);
 		docStore.getState().startTracking();
 
@@ -210,6 +232,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 
 		const runtime = createReconcilerRuntime(
 			docStore,
+			sessionStore,
 			{ appId: "app-1", baseSeq: 0, userId: "self" },
 			() => {},
 		);
@@ -247,7 +270,13 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		resolveReload?.({
 			ok: true,
 			status: 200,
-			json: async () => ({ blueprint: persistedDoc, mutation_seq: 0 }),
+			json: async () => ({
+				projectId: "project-destination",
+				role: "editor",
+				canEdit: true,
+				blueprint: persistedDoc,
+				baseSeq: 0,
+			}),
 		});
 		await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
 
@@ -255,5 +284,134 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		expect(FakeEventSource.instances[1].readyState).toBe(
 			FakeEventSource.CLOSED,
 		);
+	});
+
+	it("fails closed when a Project-scoped surface cannot clear", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => ({ ok: true, status: 200 })),
+		);
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		const survivor = vi.fn();
+		runtime.lookupManifestBroker.subscribe((snapshot) => {
+			if (snapshot === null) throw new Error("surface retained source data");
+		});
+		runtime.lookupManifestBroker.subscribe(survivor);
+
+		runtime.start();
+		const sourceStream = FakeEventSource.instances[0];
+		sourceStream.emit("lookup-revision", JSON.stringify(SOURCE_MANIFEST));
+		sourceStream.emit("reload");
+
+		expect(survivor).toHaveBeenLastCalledWith(null);
+		expect(sessionStore.getState()).toMatchObject({
+			canEdit: false,
+			accessPhase: "revoked",
+		});
+		expect(runtime.reconciler.getSnapshot().revoked).toBe(true);
+		expect(FakeEventSource.instances).toHaveLength(1);
+		runtime.suspend();
+	});
+
+	it("clears Project-scoped state before confirming that view access is gone", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		const lookupSnapshots: Array<LookupManifest | null> = [];
+		const presenceSnapshots: PresenceFrame[] = [];
+		runtime.lookupManifestBroker.subscribe((snapshot) =>
+			lookupSnapshots.push(snapshot),
+		);
+		runtime.presenceSubs.add((snapshot) => presenceSnapshots.push(snapshot));
+
+		runtime.start();
+		const sourceStream = FakeEventSource.instances[0];
+		sourceStream.emit("lookup-revision", JSON.stringify(SOURCE_MANIFEST));
+		sourceStream.emit("presence", JSON.stringify(SOURCE_PRESENCE));
+		sourceStream.emit("revoked", JSON.stringify({ reason: "access-revoked" }));
+
+		expect(sourceStream.readyState).toBe(FakeEventSource.CLOSED);
+		expect(lookupSnapshots).toEqual([SOURCE_MANIFEST, null]);
+		expect(presenceSnapshots).toEqual([SOURCE_PRESENCE, []]);
+		expect(sessionStore.getState()).toMatchObject({
+			canEdit: false,
+			accessPhase: "revoked",
+		});
+		expect(runtime.reconciler.getSnapshot().revoked).toBe(true);
+		expect(FakeEventSource.instances).toHaveLength(1);
+		runtime.suspend();
+	});
+
+	it("shows a distinct refresh-required state after the one-shot upgrade latch", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		window.sessionStorage.setItem("nova:stream-upgrade:app-1:receiver-1", "1");
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		const snapshots: Array<LookupManifest | null> = [];
+		runtime.lookupManifestBroker.subscribe((snapshot) =>
+			snapshots.push(snapshot),
+		);
+
+		runtime.start();
+		const sourceStream = FakeEventSource.instances[0];
+		sourceStream.emit("lookup-revision", JSON.stringify(SOURCE_MANIFEST));
+		sourceStream.emit(
+			"revoked",
+			JSON.stringify({ reason: "client-upgrade-required" }),
+		);
+
+		expect(sourceStream.readyState).toBe(FakeEventSource.CLOSED);
+		expect(snapshots).toEqual([SOURCE_MANIFEST, null]);
+		expect(sessionStore.getState()).toMatchObject({
+			canEdit: false,
+			accessPhase: "upgradeRequired",
+		});
+		expect(runtime.reconciler.getSnapshot().revoked).toBe(true);
+		expect(FakeEventSource.instances).toHaveLength(1);
+		runtime.suspend();
 	});
 });

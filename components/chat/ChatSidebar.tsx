@@ -33,14 +33,17 @@ import { ThreadList } from "@/components/chat/ThreadList";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { useReconcilerContext } from "@/lib/collab/context";
 import type { ThreadMeta } from "@/lib/db/types";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
+	useAccessPhase,
 	useAgentError,
 	useAgentStage,
 	useAttachmentPrep,
 	useBuilderPhase,
 	usePostBuildEdit,
+	useProjectScopeEpoch,
 	useSessionEventsEmpty,
 	useSetSidebarOpen,
 } from "@/lib/session/hooks";
@@ -67,6 +70,16 @@ interface ChatSidebarProps {
 	/** Locks the composer while a non-chat action owns the screen (creating a
 	 *  blank app, then navigating). Distinct from `readOnly`, which hides it. */
 	composerBusy?: boolean;
+	/** Keep the mounted transcript/draft but make tool + thread interactions
+	 * inert while its Project-bound attachment refs are re-authorized. */
+	interactionBlocked?: boolean;
+	/** Durable recovery shown when an interaction block cannot clear itself. */
+	interactionBlockedRecovery?: {
+		readonly title: string;
+		readonly message: string;
+		readonly actionLabel: string;
+		readonly onAction: () => void;
+	};
 	messages: NovaUIMessage[];
 	status: "submitted" | "streaming" | "ready" | "error";
 	/** Send a turn. `attachments` are asset-id refs to files picked from the file
@@ -136,6 +149,8 @@ export function ChatSidebar({
 	heroLogo,
 	startBlankApp,
 	composerBusy,
+	interactionBlocked = false,
+	interactionBlockedRecovery,
 	messages,
 	status,
 	onSend,
@@ -149,6 +164,9 @@ export function ChatSidebar({
 	onNewChat,
 }: ChatSidebarProps) {
 	const sessionApi = useBuilderSessionApi();
+	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
+	const reconcilerContext = useReconcilerContext();
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
 
@@ -183,7 +201,7 @@ export function ChatSidebar({
 	// silent minute behind a lone "Reading…" chip.
 	const [composerReading, setComposerReading] = useState(false);
 
-	// Build-scoped abort for in-flight document reads. A composer chip's extraction
+	// Build-and-Project-scoped abort for in-flight document reads. A composer chip's extraction
 	// stream must SURVIVE the chip unmounting on send (the doc is still streaming
 	// and only that original request carries the tokens) but must NOT outlive the
 	// build. It is
@@ -192,15 +210,26 @@ export function ChatSidebar({
 	// would stay dead (nothing re-creates it, and no re-render follows), and in dev
 	// Strict Mode that left EVERY read with an already-aborted signal → an instant
 	// "couldn't read". Created in the effect, the remount re-creates it and the
-	// `setState` re-renders with a live signal before any chip can mount.
+	// `setState` re-renders with a live signal before any chip can mount. A
+	// Project epoch change also aborts the old tenant's read before the
+	// authoritative snapshot can reopen the composer.
 	const [extractionAbort, setExtractionAbort] =
 		useState<AbortController | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi is the dep on PURPOSE — recreate and abort the prior build-scoped controller when the store identity changes, even though the body doesn't read it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi and scopeEpoch are the deps on PURPOSE — recreate and abort the prior build/Project-scoped controller even though the body doesn't read them.
 	useEffect(() => {
 		const controller = new AbortController();
 		setExtractionAbort(controller);
-		return () => controller.abort();
-	}, [sessionApi]);
+		const unsubscribe = reconcilerContext?.subscribeProjectScopeReset(() => {
+			/* Registry fan-out is synchronous with the epoch boundary. Abort here,
+			 * before React's effect cleanup, so the source Project's streamed read
+			 * is disowned before its promise can publish a terminal result. */
+			controller.abort();
+		});
+		return () => {
+			unsubscribe?.();
+			controller.abort();
+		};
+	}, [reconcilerContext, sessionApi, scopeEpoch]);
 	const extractionAbortSignal = extractionAbort?.signal;
 
 	/* True while the current `submitted` window was opened by a LOCAL send —
@@ -279,6 +308,7 @@ export function ChatSidebar({
 
 	const handleSelectThread = useCallback(
 		async (threadId: string) => {
+			if (interactionBlocked) return;
 			if (threadId === activeThreadId) {
 				setThreadListOpen(false);
 				return;
@@ -288,7 +318,7 @@ export function ChatSidebar({
 			const opened = await onSelectThread?.(threadId);
 			if (!opened) setOpeningThreadId(null);
 		},
-		[activeThreadId, onSelectThread, openingThreadId],
+		[activeThreadId, interactionBlocked, onSelectThread, openingThreadId],
 	);
 
 	/* Keep the list covering the old transcript until the parent has activated
@@ -301,10 +331,11 @@ export function ChatSidebar({
 	}, [activeThreadId, openingThreadId]);
 
 	const handleNewChat = useCallback(() => {
+		if (interactionBlocked) return;
 		setThreadListOpen(false);
 		setOpeningThreadId(null);
 		onNewChat?.();
-	}, [onNewChat]);
+	}, [interactionBlocked, onNewChat]);
 
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
 
@@ -483,7 +514,7 @@ export function ChatSidebar({
 									<Button
 										type="button"
 										onClick={handleNewChat}
-										disabled={openingThreadId !== null}
+										disabled={interactionBlocked || openingThreadId !== null}
 										variant="ghost"
 										size="lg"
 										className="min-h-11 justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
@@ -495,7 +526,7 @@ export function ChatSidebar({
 								<Button
 									type="button"
 									onClick={() => setThreadListOpen((open) => !open)}
-									disabled={openingThreadId !== null}
+									disabled={interactionBlocked || openingThreadId !== null}
 									aria-pressed={listVisible}
 									variant="ghost"
 									size="lg"
@@ -571,6 +602,7 @@ export function ChatSidebar({
 						activeThreadId={activeThreadId ?? ""}
 						activeThreadStreaming={isLoading}
 						openingThreadId={openingThreadId}
+						disabled={interactionBlocked}
 						onSelect={handleSelectThread}
 					/>
 				)}
@@ -598,6 +630,8 @@ export function ChatSidebar({
 						key={activeThreadId}
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
 						contextRef={captureStickContext}
+						inert={interactionBlocked}
+						aria-busy={interactionBlocked || undefined}
 					>
 						{/* ConversationContent's base `gap-8` is roomier than Nova's chat
 						 *  density; override to `gap-4`. Single-source the spacing via gap
@@ -629,6 +663,7 @@ export function ChatSidebar({
 									message={msg}
 									addToolOutput={handleToolOutput}
 									pendingAnswerRef={pendingAnswerRef}
+									toolInteractionsDisabled={interactionBlocked}
 									isStreaming={isLoading && msgIndex === messages.length - 1}
 								/>
 							))}
@@ -641,6 +676,31 @@ export function ChatSidebar({
 				 * plain-language row that yields entirely in a short inspector dock. */}
 				{!shortInspectorDock && !shortChatFallback && (
 					<ChatActivityStatus state={activity.state} label={activity.label} />
+				)}
+
+				{interactionBlockedRecovery && !shortChatFallback && (
+					<div
+						role="alert"
+						className="mx-3 mb-3 flex shrink-0 items-center gap-3 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.06] p-3"
+					>
+						<div className="min-w-0 flex-1">
+							<p className="text-sm font-medium text-nova-text">
+								{interactionBlockedRecovery.title}
+							</p>
+							<p className="mt-0.5 text-xs leading-5 text-nova-text-muted">
+								{interactionBlockedRecovery.message}
+							</p>
+						</div>
+						<Button
+							type="button"
+							variant="outline"
+							size="lg"
+							onClick={interactionBlockedRecovery.onAction}
+							className="min-h-11 shrink-0"
+						>
+							{interactionBlockedRecovery.actionLabel}
+						</Button>
+					</div>
 				)}
 
 				{/* A view-only member sees why they can't send, where the composer
@@ -662,34 +722,42 @@ export function ChatSidebar({
 				{/* Input — absent only in read-only mode. Short layouts keep its
 				 * subtree mounted so opening an inspector cannot erase a draft or
 				 * staged attachment. */}
-				{!readOnly && (
-					<PersistentChatComposer
-						hidden={shortInspectorDock || shortChatFallback}
-					>
-						<ChatInput
-							onSend={handleSend}
-							disabled={isLoading || isGenerating || composerBusy}
-							// The spinner means "your turn is on its way to the SA", so it
-							// tracks only the chat sources. `composerBusy` locks the composer
-							// for a reason that has nothing to do with a message.
-							submitting={isLoading || isGenerating}
-							// A waiting question card routes the next composer send to it as
-							// a text-only answer, so the composer disables attaching and
-							// preserves any staged files instead of dropping them.
-							answerPending={activeQuestionCount > 0}
-							centered={centered}
-							// "Describe the app" fits only the opening prompt of a
-							// brand-new build; the moment a message exists (sent or
-							// streaming) it becomes an edit conversation, so flip to the
-							// change-oriented copy then, not when the layout docks.
-							openingPrompt={centered && messages.length === 0}
-							// Lift "a staged doc is still being read" into the status row.
-							onReadingChange={setComposerReading}
-							// Build-scoped abort keeps the read alive after its chip unmounts.
-							extractionAbortSignal={extractionAbortSignal}
-						/>
-					</PersistentChatComposer>
-				)}
+				<PersistentChatComposer
+					hidden={
+						shortInspectorDock ||
+						shortChatFallback ||
+						(readOnly === true && accessPhase === "authorized")
+					}
+				>
+					<ChatInput
+						onSend={handleSend}
+						disabled={
+							isLoading ||
+							isGenerating ||
+							composerBusy ||
+							readOnly ||
+							accessPhase !== "authorized"
+						}
+						// The spinner means "your turn is on its way to the SA", so it
+						// tracks only the chat sources. `composerBusy` locks the composer
+						// for a reason that has nothing to do with a message.
+						submitting={isLoading || isGenerating}
+						// A waiting question card routes the next composer send to it as
+						// a text-only answer, so the composer disables attaching and
+						// preserves any staged files instead of dropping them.
+						answerPending={activeQuestionCount > 0}
+						centered={centered}
+						// "Describe the app" fits only the opening prompt of a
+						// brand-new build; the moment a message exists (sent or
+						// streaming) it becomes an edit conversation, so flip to the
+						// change-oriented copy then, not when the layout docks.
+						openingPrompt={centered && messages.length === 0}
+						// Lift "a staged doc is still being read" into the status row.
+						onReadingChange={setComposerReading}
+						// Build-scoped abort keeps the read alive after its chip unmounts.
+						extractionAbortSignal={extractionAbortSignal}
+					/>
+				</PersistentChatComposer>
 			</motion.div>
 
 			{/* Under the card, inside the same centered column — sharing it is the

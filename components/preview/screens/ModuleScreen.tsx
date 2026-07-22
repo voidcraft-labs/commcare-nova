@@ -5,7 +5,7 @@ import { useCallback, useEffect } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
-import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import {
@@ -138,9 +138,8 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 							{form.icon ? (
 								// Form menu-tile icon — CommCare shows it on the form's
 								// command in the module menu.
-								// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-								<img
-									src={mediaSrc(form.icon)}
+								<ProjectMediaImage
+									assetId={form.icon}
 									alt=""
 									className="size-7 rounded object-cover shrink-0"
 								/>

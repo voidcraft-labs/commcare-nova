@@ -76,6 +76,7 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
@@ -706,6 +707,8 @@ function BarcodeScannerDialog({
 		retry: false,
 	});
 	const videoRef = useRef<HTMLVideoElement>(null);
+	const disposeCameraRef = useRef<(() => void) | null>(null);
+	const reconciler = useReconcilerContext();
 	const onScanRef = useRef(onScan);
 	useEffect(() => {
 		onScanRef.current = onScan;
@@ -725,6 +728,7 @@ function BarcodeScannerDialog({
 			const video = videoRef.current;
 			if (video !== null) video.srcObject = null;
 		};
+		disposeCameraRef.current = dispose;
 		const fail = (error: unknown) => {
 			if (disposed) return;
 			if (frameId !== undefined) cancelAnimationFrame(frameId);
@@ -794,8 +798,24 @@ function BarcodeScannerDialog({
 			})
 			.catch(fail);
 
-		return dispose;
+		return () => {
+			if (disposeCameraRef.current === dispose) {
+				disposeCameraRef.current = null;
+			}
+			dispose();
+		};
 	}, [attempt, open, support.detector]);
+
+	useEffect(
+		() =>
+			reconciler?.subscribeProjectScopeReset(() => {
+				/* Camera capture is an external resource: stop its tracks inside the
+				 * reset stack rather than waiting for the keyed search form to unmount. */
+				disposeCameraRef.current?.();
+				setOpen(false);
+			}),
+		[reconciler],
+	);
 
 	const description =
 		status.kind === "starting"

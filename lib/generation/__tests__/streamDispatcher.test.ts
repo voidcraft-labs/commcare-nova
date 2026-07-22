@@ -28,7 +28,15 @@ import { createWiredStores } from "./testHelpers";
  *  network, so the PUT/reload/retry side effects are no-ops. */
 const INERT_DEPS: ReconcilerDeps = {
 	put: async () => ({ ok: true, seq: 0 }),
-	reload: async () => ({ blueprint: MINIMAL_DOC, seq: 0 }),
+	reload: async () => ({
+		kind: "authorized",
+		blueprint: MINIMAL_DOC,
+		seq: 0,
+		projectId: "project-1",
+		role: "editor",
+		canEdit: true,
+	}),
+	canEdit: () => true,
 	resubscribe: () => {},
 	scheduleRetry: () => () => {},
 };

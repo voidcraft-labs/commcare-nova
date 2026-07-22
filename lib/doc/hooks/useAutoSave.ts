@@ -13,8 +13,8 @@
  * registers the batch, PUTs `{ mutations, batchId }`, and re-sends on network
  * failure via its own retry loop). This hook is the throttle + the save-status
  * surface: it computes when to dispatch, hands the reconciler a
- * `SaveObserver`, and renders the status + the "changes aren't being saved"
- * warning from the signals it gets back.
+ * `SaveObserver`, and renders the status from the signals it gets back. Access
+ * transitions are a separate builder-level surface, not save errors.
  *
  * Gate order (load-bearing): `remoteFrameApplyInProgress` is checked FIRST —
  * the store subscriber fires synchronously from `applyMany`, including when the
@@ -29,16 +29,16 @@
 "use client";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
-import { reportClientError } from "@/lib/clientErrorReporter";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { SaveSignal } from "@/lib/collab/reconciler";
+import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { derivePhase } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
-import { showToast, toastStore } from "@/lib/ui/toastStore";
+import { toastStore } from "@/lib/ui/toastStore";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -109,6 +109,7 @@ export function useAutoSave(): SaveState {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const reconcilerCtx = useReconcilerContext();
+	const projectToast = useProjectToast();
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -118,14 +119,6 @@ export function useAutoSave(): SaveState {
 	);
 	const pendingTrailingRef = useRef(false);
 	const unmountedRef = useRef(false);
-	/* 404 warning state. `warned404Ref` gates the persistent toast to ONCE per
-	 * failure episode (not every edit); it does NOT disable dispatching — the
-	 * reconciler keeps retrying, so a transient 404 / re-promotion auto-recovers.
-	 * On recovery the captured `warn404ToastIdRef` toast is DISMISSED. Both reset
-	 * on app change. The Sentry signal is deduped by `reportClientError`'s own
-	 * message Set (the message carries the app id). */
-	const warned404Ref = useRef(false);
-	const warn404ToastIdRef = useRef<string | undefined>(undefined);
 	/* True while the last dispatch errored. Gates the "Saving…" flash so a
 	 * SUSTAINED error episode doesn't bounce the indicator error→saving→error on
 	 * every edit and re-announce the alert region. Cleared on any successful
@@ -140,19 +133,8 @@ export function useAutoSave(): SaveState {
 	const warnedTerminalRef = useRef(false);
 	const terminalToastIdRef = useRef<string | undefined>(undefined);
 
-	/* Clear the 404 warning + dismiss its persistent toast. Called wherever the
-	 * "can't save" state ends — a successful save, an app change, unmount — so
-	 * the pinned toast never outlives the condition it describes. */
-	const dismiss404Warning = useCallback(() => {
-		warned404Ref.current = false;
-		if (warn404ToastIdRef.current) {
-			toastStore.dismiss(warn404ToastIdRef.current);
-			warn404ToastIdRef.current = undefined;
-		}
-	}, []);
-
 	/* Clear the terminal (`permanent` / `tooLarge`) warning + dismiss its
-	 * persistent toast — the terminal twin of `dismiss404Warning`, run on the
+	 * persistent toast — run on the
 	 * app-change reset, a successful save, and unmount. */
 	const dismissTerminalWarning = useCallback(() => {
 		warnedTerminalRef.current = false;
@@ -175,7 +157,6 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
-		dismiss404Warning();
 		dismissTerminalWarning();
 		lastErroredRef.current = false;
 		setState(IDLE_STATE);
@@ -211,7 +192,6 @@ export function useAutoSave(): SaveState {
 				case "saved":
 					inFlightRef.current = false;
 					lastErroredRef.current = false;
-					dismiss404Warning();
 					dismissTerminalWarning();
 					setState({ status: "saved", savedAt: Date.now() });
 					startCooldown();
@@ -221,40 +201,23 @@ export function useAutoSave(): SaveState {
 					 * toast tells the user their edit conflicted. Reaching a 409 proves
 					 * edit access, so a stale 404 warning is dismissed. */
 					inFlightRef.current = false;
-					dismiss404Warning();
 					lastErroredRef.current = false;
 					setState(IDLE_STATE);
-					showToast(
+					projectToast(
 						"warning",
 						"App reloaded",
 						"This app changed in a way that conflicts with your last edit — by an agent connection or another collaborator. We loaded the latest version; redo that change if you still want it.",
 					);
 					startCooldown();
 					return;
-				case "reauth":
-					/* Terminal — edit access was removed. The reconciler froze the
-					 * canvas and OWNS the single Sentry report for a 403
-					 * (`onReauthDenied`), so warn the user WITHOUT a second report
-					 * here (a duplicate would double-count every revocation). */
+				case "accessChanged":
+					/* A reversible capability/scope boundary. The reconciler keeps the
+					 * batch, pauses PUTs, and owns the atomic GET. Release only this
+					 * hook's request indicator; the builder-level access status explains
+					 * why editing is paused without a modal or error toast. */
 					inFlightRef.current = false;
-					lastErroredRef.current = true;
-					warnNotWritable(/* report */ false);
-					setState((prev) =>
-						prev.status === "error" ? prev : { ...prev, status: "error" },
-					);
-					startCooldown();
-					return;
-				case "notFound":
-					/* 404 — edit access revoked mid-session, or the app was deleted.
-					 * The reconciler keeps retrying (no terminal signal owns this), so
-					 * warn AND report from here. */
-					inFlightRef.current = false;
-					lastErroredRef.current = true;
-					warnNotWritable(/* report */ true);
-					setState((prev) =>
-						prev.status === "error" ? prev : { ...prev, status: "error" },
-					);
-					startCooldown();
+					lastErroredRef.current = false;
+					setState(IDLE_STATE);
 					return;
 				case "permanent":
 					/* Terminal — the server permanently rejected a change (a 400
@@ -268,7 +231,7 @@ export function useAutoSave(): SaveState {
 					lastErroredRef.current = true;
 					if (!warnedTerminalRef.current) {
 						warnedTerminalRef.current = true;
-						terminalToastIdRef.current = showToast(
+						terminalToastIdRef.current = projectToast(
 							"error",
 							"These edits couldn't be saved",
 							"The server rejected a change, so saving is paused to avoid losing work. Reload the app to continue from the last saved version.",
@@ -290,7 +253,7 @@ export function useAutoSave(): SaveState {
 					lastErroredRef.current = true;
 					if (!warnedTerminalRef.current) {
 						warnedTerminalRef.current = true;
-						terminalToastIdRef.current = showToast(
+						terminalToastIdRef.current = projectToast(
 							"error",
 							"Your unsaved changes are too large to save",
 							"There are too many unsaved changes to save at once. Reload the app to continue from the last saved version.",
@@ -310,30 +273,6 @@ export function useAutoSave(): SaveState {
 					);
 					startCooldown();
 					return;
-			}
-		}
-
-		/** Warn ONCE per failure episode that the app can't be saved from here
-		 *  (edit access removed, or the app was deleted). The reconciler keeps
-		 *  retrying, so a re-promotion / transient failure auto-recovers. `report`
-		 *  gates the Sentry signal: a 404 reports here, but a 403 does NOT — the
-		 *  reconciler's `onReauthDenied` owns the single 403 report, so warning
-		 *  from both would double-count a revocation. */
-		function warnNotWritable(report: boolean): void {
-			if (warned404Ref.current) return;
-			warned404Ref.current = true;
-			warn404ToastIdRef.current = showToast(
-				"warning",
-				"Your changes aren't being saved",
-				"This app can't be saved from here right now — your edit access may have been removed, or the app was deleted. If this persists, reload to see the current version.",
-				{ persistent: true },
-			);
-			if (report) {
-				reportClientError({
-					message: `Auto-save failed — app ${session.getState().appId} not writable`,
-					source: "manual",
-					url: window.location.href,
-				});
 			}
 		}
 
@@ -421,14 +360,13 @@ export function useAutoSave(): SaveState {
 			pendingTrailingRef.current = false;
 			/* Leaving the builder must not strand a persistent toast on whatever
 			 * screen the user lands on next. */
-			dismiss404Warning();
 			dismissTerminalWarning();
 		};
 	}, [
 		sessionApi,
 		docStore,
 		reconcilerCtx,
-		dismiss404Warning,
+		projectToast,
 		dismissTerminalWarning,
 	]);
 

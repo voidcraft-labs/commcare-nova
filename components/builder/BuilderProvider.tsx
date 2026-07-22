@@ -33,13 +33,28 @@ import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegi
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
-import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
+import {
+	BlueprintDocContext,
+	BlueprintDocProvider,
+	BlueprintEditableContext,
+} from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
+import { useCanEdit } from "@/lib/session/hooks";
 import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
 } from "@/lib/session/provider";
+
+/** Existing-app data captured in one authorized server transaction. Keeping
+ *  the cursor and capability tuple in one prop prevents independently stale
+ *  RSC values from becoming separate client authorities. */
+export interface InitialBuilderAccess {
+	readonly projectId: string;
+	readonly role: string;
+	readonly canEdit: boolean;
+	readonly baseSeq: number;
+}
 
 // ── Provider ────────────────────────────────────────────────────────────
 
@@ -55,8 +70,7 @@ export function BuilderProvider({
 	buildId,
 	children,
 	initialDoc,
-	canEdit = true,
-	baseSeq,
+	initialAccess,
 	userId,
 }: {
 	buildId: string;
@@ -65,13 +79,9 @@ export function BuilderProvider({
 	 *  in the provider so the first render sees populated entities. Persisted
 	 *  as the normalized `BlueprintDoc` shape directly. */
 	initialDoc?: PersistableDoc;
-	/** Whether the viewing user holds `edit` on the app's Project (the build
-	 *  page's server-resolved role). Defaults `true` for new builds. A viewer
-	 *  (`false`) gets the read-only builder; see `useCanEdit`. */
-	canEdit?: boolean;
-	/** The app's `mutation_seq` at server load — the reconciler's `baseSeq`
-	 *  recovery cursor. Omitted for new builds (reconciler mounts dormant at 0). */
-	baseSeq?: number;
+	/** Atomic Project capability + cursor snapshot. Omitted for a new build,
+	 *  whose reconciler is dormant until creation. */
+	initialAccess?: InitialBuilderAccess;
 	/** The session user id — the reconciler's echo classification keys on it. */
 	userId?: string;
 }) {
@@ -80,8 +90,7 @@ export function BuilderProvider({
 			key={buildId}
 			buildId={buildId}
 			initialDoc={initialDoc}
-			canEdit={canEdit}
-			baseSeq={baseSeq}
+			initialAccess={initialAccess}
 			userId={userId}
 		>
 			{children}
@@ -100,15 +109,13 @@ function BuilderProviderInner({
 	buildId,
 	children,
 	initialDoc,
-	canEdit,
-	baseSeq,
+	initialAccess,
 	userId,
 }: {
 	buildId: string;
 	children: ReactNode;
 	initialDoc?: PersistableDoc;
-	canEdit: boolean;
-	baseSeq?: number;
+	initialAccess?: InitialBuilderAccess;
 	userId?: string;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
@@ -119,7 +126,9 @@ function BuilderProviderInner({
 	const sessionInit = useState(() => ({
 		loading: hasExistingData,
 		appId: buildId === "new" ? undefined : buildId,
-		canEdit,
+		projectId: initialAccess?.projectId,
+		role: initialAccess?.role,
+		canEdit: initialAccess?.canEdit ?? true,
 	}))[0];
 
 	/* The builder provider stack below the two stores, wrapped in
@@ -145,24 +154,37 @@ function BuilderProviderInner({
 			appId={buildId === "new" ? undefined : buildId}
 			initialDoc={initialDoc}
 			startTracking={Boolean(initialDoc)}
-			canEdit={canEdit}
 		>
 			<BuilderSessionProvider init={sessionInit}>
-				<ReconcilerProvider
-					appId={buildId === "new" ? undefined : buildId}
-					baseSeq={baseSeq ?? 0}
-					userId={userId ?? ""}
-				>
-					{/* The presence layer rides the reconciler's single
-					 *  EventSource (`subscribePresence`) and reads `useLocation`,
-					 *  so it mounts inside the reconciler + below the stores.
-					 *  It reads the LIVE app id from the session store (not
-					 *  `buildId`), so a new build's creator heartbeats the instant
-					 *  the SA mints the app. */}
-					<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
-				</ReconcilerProvider>
+				<BlueprintEditableBridge>
+					<ReconcilerProvider
+						appId={buildId === "new" ? undefined : buildId}
+						baseSeq={initialAccess?.baseSeq ?? 0}
+						userId={userId ?? ""}
+					>
+						{/* The presence layer rides the reconciler's single
+						 *  EventSource (`subscribePresence`) and reads `useLocation`,
+						 *  so it mounts inside the reconciler + below the stores.
+						 *  It reads the LIVE app id from the session store (not
+						 *  `buildId`), so a new build's creator heartbeats the instant
+						 *  the SA mints the app. */}
+						<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
+					</ReconcilerProvider>
+				</BlueprintEditableBridge>
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>
+	);
+}
+
+/** Reactive edit gate for every mutation hook. The session's access tuple is
+ *  the only authority; a reload can pause, downgrade, or restore editing
+ *  without remounting the document store. */
+function BlueprintEditableBridge({ children }: { children: ReactNode }) {
+	const canEdit = useCanEdit();
+	return (
+		<BlueprintEditableContext.Provider value={canEdit}>
+			{children}
+		</BlueprintEditableContext.Provider>
 	);
 }
 

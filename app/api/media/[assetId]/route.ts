@@ -10,10 +10,10 @@
  * 404 on both missing-asset AND non-member so the response
  * shape can't be used to enumerate other Projects' asset ids.
  *
- * `Cache-Control: private, immutable, max-age=86400` — the bytes
- * are content-hash addressed so they really are immutable for the
- * lifetime of the asset id. `private` keeps shared proxies from
- * caching them between users.
+ * `Cache-Control: private, no-store` — authorization follows current Project
+ * membership, which can change while a tab stays open. Content-hash identity
+ * prevents byte drift but cannot make a previously authorized response safe
+ * to reuse after an app/asset moves or membership is revoked.
  */
 
 import { Readable } from "node:stream";
@@ -81,10 +81,9 @@ export async function GET(
 			headers: {
 				"Content-Type": asset.mimeType,
 				"Content-Length": storedSize.toString(),
-				// Bytes are content-hash addressed → immutable per
-				// assetId. The browser can cache for a day without
-				// risk of staleness.
-				"Cache-Control": "private, immutable, max-age=86400",
+				// Reauthorize every load. Byte immutability does not outlive
+				// Project membership, app moves, or access revocation.
+				"Cache-Control": "private, no-store",
 				"X-Content-Type-Options": "nosniff",
 				// Defense-in-depth for the same-origin serving model. `nosniff`
 				// plus the server-sniffed canonical `Content-Type` already keep
@@ -101,9 +100,13 @@ export async function GET(
 			},
 		});
 	} catch (err) {
-		return handleApiError(
+		const response = handleApiError(
 			err instanceof Error ? err : new ApiError("Media read failed", 500),
 		);
+		/* A cached denial is just as unsafe as cached bytes: after an app/asset
+		 * move it could mask content the newly authorized Project may now read. */
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
 	}
 }
 

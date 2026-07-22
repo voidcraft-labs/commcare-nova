@@ -51,6 +51,7 @@ import type { Location } from "@/lib/routing/types";
 import {
 	useEditMode,
 	usePreviewCaseTarget,
+	useProjectScopeEpoch,
 	useSetPreviewing,
 } from "@/lib/session/hooks";
 import { CaseListScreen } from "./screens/CaseListScreen";
@@ -111,6 +112,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * shape so the Activity boundaries and interact-mode pipeline keep working. */
 	const loc = useLocation();
 	const navigate = useNavigate();
+	const scopeEpoch = useProjectScopeEpoch();
+	const previousScopeEpochRef = useRef(scopeEpoch);
 	/* `useAppStructure` returns a shallow-stable `{moduleOrder, formOrder}`
 	 * pair so the location→screen adapter's `useMemo` below only invalidates
 	 * when one of the top-level order arrays actually changes reference. */
@@ -160,6 +163,17 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	useEffect(() => {
 		if (atCaseRecord && mode !== "preview") setPreviewing(true);
 	}, [atCaseRecord, mode, setPreviewing]);
+	useEffect(() => {
+		if (previousScopeEpochRef.current === scopeEpoch) return;
+		previousScopeEpochRef.current = scopeEpoch;
+		/* A case id is Project-scoped navigation state. A same-app Project
+		 * move must return to Results rather than trying that source id in the
+		 * destination Project. The row hook is epoch-keyed as well, so the
+		 * render before this effect already shows loading rather than old data. */
+		if (loc.kind === "cases" && loc.caseId !== undefined) {
+			navigate.replace({ kind: "cases", moduleUuid: loc.moduleUuid });
+		}
+	}, [loc, navigate, scopeEpoch]);
 
 	/* ── Per-type screen identity ──────────────────────────────────────
 	 * Track the last screen data for each type so Activity boundaries can

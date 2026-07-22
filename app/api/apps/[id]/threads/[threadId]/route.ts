@@ -26,10 +26,15 @@ export async function GET(
 
 		const thread = await loadThread(id, threadId, session.user.id);
 		if (!thread) throw new ApiError("Thread not found", 404);
-		return Response.json({ thread });
+		return Response.json(
+			{ thread },
+			{ headers: { "Cache-Control": "private, no-store" } },
+		);
 	} catch (err) {
-		return handleApiError(
+		const response = handleApiError(
 			err instanceof Error ? err : new ApiError("Failed to load thread", 500),
 		);
+		response.headers.set("Cache-Control", "private, no-store");
+		return response;
 	}
 }

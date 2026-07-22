@@ -167,8 +167,22 @@ export function createLookupManifestBroker(): LookupManifestBroker {
 		reset() {
 			if (latest === null) return;
 			latest = null;
+			const failures: unknown[] = [];
 			for (const subscriber of [...subscribers]) {
-				callSubscriber(subscriber, null);
+				try {
+					subscriber(null);
+				} catch (error) {
+					/* A normal manifest dispatch is best-effort. A tenant-boundary reset
+					 * is not: notify everyone, then let the outer registry fail closed if
+					 * any surface may have retained the prior Project. */
+					failures.push(error);
+				}
+			}
+			if (failures.length > 0) {
+				throw new AggregateError(
+					failures,
+					"Lookup manifest state failed to clear",
+				);
 			}
 		},
 		subscribe(subscriber) {

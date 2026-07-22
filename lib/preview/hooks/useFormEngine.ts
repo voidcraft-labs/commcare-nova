@@ -19,18 +19,25 @@ import type { Uuid } from "@/lib/doc/types";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
+import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 
 export function useFormEngine(
 	formUuid: Uuid | undefined,
 	caseData?: CaseDataByType,
 ): EngineController {
 	const controller = useBuilderFormEngine();
+	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeEpoch deliberately tears down and rebuilds per-Project engine subscriptions
 	useEffect(() => {
-		if (!formUuid) return;
+		if (!formUuid || accessPhase !== "authorized") {
+			controller.deactivate();
+			return;
+		}
 		controller.activateForm(formUuid, caseData);
 		return () => controller.deactivate();
-	}, [controller, formUuid, caseData]);
+	}, [controller, formUuid, caseData, scopeEpoch, accessPhase]);
 
 	return controller;
 }

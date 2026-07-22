@@ -13,6 +13,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 import {
 	type AssetKind,
 	isDocumentKind,
@@ -64,6 +65,7 @@ export function useDocumentExtraction(
 	 *  file-manager case, where the read should stop when its row goes). */
 	abortSignal?: AbortSignal,
 ): DocumentExtraction {
+	const reconciler = useReconcilerContext();
 	const isDoc = isDocumentKind(asset.kind);
 	const [status, setStatus] = useState<MediaExtractStatus | null>(
 		isDoc ? (asset.extract?.status ?? null) : null,
@@ -96,6 +98,17 @@ export function useDocumentExtraction(
 			clearTimeout(pollTimerRef.current);
 		};
 	}, [abortSignal]);
+	useEffect(
+		() =>
+			reconciler?.subscribeProjectScopeReset(() => {
+				/* The chat-owned signal is aborted by ChatSidebar's reset subscriber;
+				 * file-manager reads are owned here and must stop in the same stack. */
+				cancelledRef.current = true;
+				abortRef.current?.abort();
+				clearTimeout(pollTimerRef.current);
+			}),
+		[reconciler],
+	);
 
 	/**
 	 * POST the extract route and reflect the result. The route runs extraction
