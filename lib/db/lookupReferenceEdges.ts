@@ -1,5 +1,3 @@
-import "server-only";
-
 import { type Kysely, sql, type Transaction } from "kysely";
 import {
 	normalizeLookupReferenceTargetSet,
