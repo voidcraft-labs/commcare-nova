@@ -32,6 +32,7 @@ import {
 	updatedExactlyOne,
 } from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
+import { declareRuntimeReader } from "./runtimeReaderVersion";
 import type { AppReservation, CreditGrantDoc } from "./types";
 
 /**
@@ -222,6 +223,9 @@ export async function debitAndBookReservation(
 		priorMarker,
 		owner,
 	} = args;
+	// An absent declaration is the deployed-v0 signal at the migration gate.
+	// Declare before any credit or holder DML in this transaction.
+	await declareRuntimeReader(tx);
 
 	let priorRefundSameRow = 0;
 	let crossRefund: { user: string; period: string; amount: number } | undefined;
@@ -326,6 +330,7 @@ export async function refundReservation(
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
 		if (!reservation || reservation.settled || !chargedUserId) return;
+		await declareRuntimeReader(tx);
 		await refundToMonth(
 			tx,
 			chargedUserId,
@@ -378,6 +383,9 @@ export async function settleAndRelease(
 				outcome: lease.present ? "superseded" : "released",
 			};
 		}
+		// Keep the declaration ahead of both the refund ledger write and the
+		// terminal holder update: absence is how the trigger identifies v0.
+		await declareRuntimeReader(tx);
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
 		if (reservation && !reservation.settled && chargedUserId) {
@@ -446,6 +454,7 @@ export async function refundStaleReservation(
 		const reservation = rowReservation(row) as AppReservation;
 		const chargedUserId = reservation.userId ?? row.owner;
 		if (!chargedUserId) return;
+		await declareRuntimeReader(tx);
 		await refundToMonth(
 			tx,
 			chargedUserId,
@@ -504,6 +513,7 @@ export async function refundStaleGeneration(
 		}
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
+		await declareRuntimeReader(tx);
 		if (reservation && !reservation.settled && chargedUserId) {
 			await refundToMonth(
 				tx,

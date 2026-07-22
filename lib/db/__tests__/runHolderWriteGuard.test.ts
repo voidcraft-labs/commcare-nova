@@ -74,6 +74,83 @@ describe("run-holder write structural guard", () => {
 		);
 	});
 
+	it("declares v1 before every same-holder, heartbeat, and terminal app write", () => {
+		for (const [path, names] of [
+			[
+				"lib/db/apps.ts",
+				[
+					"writeCommittedBatch",
+					"completeAndSettleRun",
+					"refreshEditLease",
+					"refreshBuildLiveness",
+					"clearRunLock",
+					"clearRunLockAndSettle",
+					"failApp",
+					"recoverAppStatus",
+					"setAwaitingInput",
+				],
+			],
+			[
+				"lib/db/credits.ts",
+				[
+					"debitAndBookReservation",
+					"refundReservation",
+					"settleAndRelease",
+					"refundStaleReservation",
+					"refundStaleGeneration",
+				],
+			],
+		] as const) {
+			for (const name of names) {
+				const body = exportedFunction(path, name);
+				const declaration = body.indexOf("declareRuntimeReader(tx)");
+				expect(declaration, `${path}::${name}`).toBeGreaterThanOrEqual(0);
+				expect(declaration, `${path}::${name}`).toBeLessThan(
+					body.indexOf('.updateTable("apps")'),
+				);
+			}
+		}
+	});
+
+	it("proves the app holder before installing a thread marker", () => {
+		const body = exportedFunction("lib/db/threads.ts", "upsertThreadTurn");
+		const appLock = body.indexOf('.selectFrom("apps")');
+		const compatibilityLock = body.indexOf(
+			"readRunHolderNonceEnforcementForShare(tx)",
+		);
+		const threadLock = body.indexOf('.selectFrom("threads")');
+		expect(appLock).toBeGreaterThanOrEqual(0);
+		expect(appLock).toBeLessThan(compatibilityLock);
+		expect(compatibilityLock).toBeLessThan(threadLock);
+		expect(body).toContain("exactRunHolderMatches");
+		expect(body).toContain("throw new RunHolderLostError");
+		expect(body.indexOf("if (holderLost !== null)")).toBeLessThan(
+			body.indexOf("existing.app_id !== args.appId"),
+		);
+
+		const lostBranch = body.slice(
+			body.indexOf("if (holderLost !== null)"),
+			body.indexOf('insertInto("threads")'),
+		);
+		expect(lostBranch).toContain("messages: JSON.stringify(merged)");
+		expect(lostBranch).not.toContain("active_stream_id");
+		expect(lostBranch).not.toContain("active_holder_nonce");
+
+		const route = source("app/api/chat/route.ts");
+		const persist = route.indexOf("threadPersisted = await upsertThreadTurn");
+		const terminate = route.indexOf(
+			'await failRun(err, "route:thread-marker-holder-lost")',
+			persist,
+		);
+		const publishNonce = route.indexOf(
+			"writer.writePrivateHolderNonce(holderNonce)",
+			persist,
+		);
+		expect(terminate).toBeGreaterThan(persist);
+		expect(route.slice(terminate, publishNonce)).toContain("return;");
+		expect(terminate).toBeLessThan(publishNonce);
+	});
+
 	it("requires exact SQL holder predicates on lifecycle and recovery app writes", () => {
 		for (const name of [
 			"writeCommittedBatch",

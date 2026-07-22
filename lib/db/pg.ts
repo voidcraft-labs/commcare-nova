@@ -473,10 +473,11 @@ export async function setTransactionWriterVersion(
 }
 
 /**
- * Declare this code's runtime-reader compatibility for the CURRENT
- * transaction. The database reads it when a holder is created or explicitly
- * replaced. A declared v1 holder must carry the server-minted nonce; ordinary
- * same-holder heartbeats preserve the existing version and cannot restamp it.
+ * Declare this code's runtime-reader compatibility for the CURRENT transaction
+ * before every holder-touching DML, including same-holder heartbeats and
+ * terminal writes. Absence is the deployed-v0 signal. A declared v1 holder
+ * must carry the server-minted nonce; an unchanged declared generation
+ * preserves its original stamp rather than restamping it.
  */
 export async function setTransactionRuntimeReaderVersion(
 	tx: Transaction<AppDatabase>,

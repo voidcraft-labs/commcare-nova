@@ -839,6 +839,11 @@ async function writeCommittedBatch(
 		}>;
 	},
 ): Promise<void> {
+	/* Every current-revision app write that can touch a present holder declares
+	 * v1, including same-generation commits. An absent GUC is the deployed v0
+	 * signal; the database trigger must never infer "current" from an unchanged
+	 * identity. Keep the declaration ahead of every mutation-batch DML. */
+	await declareRuntimeReader(tx);
 	const { upserts, deletedUuids } = diffBlueprints(
 		args.prevDoc,
 		args.committedDoc,
@@ -1932,6 +1937,7 @@ export async function completeAndSettleRun(
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return "released";
 		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+		await declareRuntimeReader(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const expectedHolder = {
 			mode: "build",
@@ -2000,6 +2006,7 @@ export async function refreshEditLease(
 		) {
 			return;
 		}
+		await declareRuntimeReader(tx);
 		await tx
 			.updateTable("apps")
 			.set({ lock_expire_at: new Date(editLeaseDeadlineMs()) })
@@ -2037,6 +2044,7 @@ export async function refreshBuildLiveness(
 		) {
 			return;
 		}
+		await declareRuntimeReader(tx);
 		await tx
 			.updateTable("apps")
 			.set({ updated_at: new Date() })
@@ -2082,6 +2090,7 @@ export async function clearRunLock(
 			) {
 				return;
 			}
+			await declareRuntimeReader(tx);
 			await tx
 				.updateTable("apps")
 				.set({
@@ -2125,6 +2134,7 @@ export async function clearRunLockAndSettle(
 		) {
 			return lease.present ? "superseded" : "released";
 		}
+		await declareRuntimeReader(tx);
 		const reservation = rowReservation(fresh);
 		const result = await tx
 			.updateTable("apps")
@@ -2314,6 +2324,7 @@ export async function failApp(
 			) {
 				return false;
 			}
+			await declareRuntimeReader(tx);
 			const result = await tx
 				.updateTable("apps")
 				.set({ status: "error", error_type: errorType })
@@ -2360,6 +2371,7 @@ export async function recoverAppStatus(
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return { kind: "not_found" };
+		await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const recoveringBuildHolder = lease.holderIdentity?.mode === "build";
 		let holderPredicate: RawBuilder<boolean>;
@@ -2394,6 +2406,7 @@ export async function recoverAppStatus(
 			return { kind: "already_complete" };
 		}
 
+		await declareRuntimeReader(tx);
 		const result = await tx
 			.updateTable("apps")
 			.set({
@@ -2458,6 +2471,7 @@ export async function setAwaitingInput(
 		) {
 			return lease.present ? "superseded" : "released";
 		}
+		await declareRuntimeReader(tx);
 		const result = await tx
 			.updateTable("apps")
 			.set(

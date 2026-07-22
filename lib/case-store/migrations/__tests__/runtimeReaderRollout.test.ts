@@ -191,7 +191,7 @@ describe("runtime-reader rollout migration", () => {
 		expect(holder.rows[0]).toEqual({ nonce: NONCE_A, stamp: 1 });
 	});
 
-	test("an explicit v0 same-run successor clears an inherited v1 generation", async () => {
+	test("an undeclared v0 same-run successor clears an inherited v1 generation", async () => {
 		await h.pool.query("BEGIN");
 		try {
 			await h.pool.query(
@@ -213,23 +213,13 @@ describe("runtime-reader rollout migration", () => {
 			throw error;
 		}
 
-		// An old revision explicitly declares runtime 0 and omits the nonce
+		// The deployed old revision sets no runtime GUC and omits the nonce
 		// column. Reusing the same public thread/run id must still create a v0
 		// successor, not inherit the predecessor capability and v1 stamp.
-		await h.pool.query("BEGIN");
-		try {
-			await h.pool.query(
-				"SELECT set_config('nova.runtime_reader_version', '0', true)",
-			);
-			await h.pool.query(
-				`UPDATE apps SET run_id = 'same-thread-run'
-				 WHERE id = 'v0-successor'`,
-			);
-			await h.pool.query("COMMIT");
-		} catch (error) {
-			await h.pool.query("ROLLBACK");
-			throw error;
-		}
+		await h.pool.query(
+			`UPDATE apps SET run_id = 'same-thread-run'
+			 WHERE id = 'v0-successor'`,
+		);
 		const downgraded = await h.pool.query<{
 			nonce: string | null;
 			stamp: number | null;
@@ -239,6 +229,55 @@ describe("runtime-reader rollout migration", () => {
 			 FROM apps WHERE id = 'v0-successor'`,
 		);
 		expect(downgraded.rows[0]).toEqual({ nonce: null, stamp: null });
+
+		await h.pool.query(
+			`INSERT INTO runtime_reader_traffic_epochs (
+				target_version, continuous_traffic_since
+			 ) VALUES (1, clock_timestamp() - interval '2 hours')`,
+		);
+		await expect(
+			(h.db as Kysely<AppDatabase>)
+				.transaction()
+				.execute((tx) => raiseMinimumRuntimeReaderVersionInTransaction(tx, 1)),
+		).rejects.toMatchObject({ code: "runtime_holders_not_drained" });
+	});
+
+	test("a declared v1 non-holder write preserves an admitted v0 generation", async () => {
+		await h.pool.query(
+			`INSERT INTO apps (
+				id, owner, project_id, app_name, app_name_lower, status, run_id
+			 ) VALUES (
+				'v0-preserved', 'actor', 'project-a', 'Legacy', 'legacy',
+				'generating', 'legacy-run'
+			 )`,
+		);
+
+		// A current autosave/MCP-style app projection write declares v1 but does
+		// not own or replace the legacy holder. Compatibility keeps the v0
+		// generation intact and census-visible until it drains.
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps SET updated_at = now()
+				 WHERE id = 'v0-preserved'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+		const holder = await h.pool.query<{
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'v0-preserved'`,
+		);
+		expect(holder.rows[0]).toEqual({ nonce: null, stamp: null });
 
 		await h.pool.query(
 			`INSERT INTO runtime_reader_traffic_epochs (
@@ -287,13 +326,10 @@ describe("runtime-reader rollout migration", () => {
 		}
 
 		// These are the exact SET-column shapes emitted by the deployed v0
-		// reacquireLease implementation. It declares runtime 0, but never touches
+		// reacquireLease implementation. It sets no runtime GUC and never touches
 		// an identity column or the nonce itself.
 		await h.pool.query("BEGIN");
 		try {
-			await h.pool.query(
-				"SELECT set_config('nova.runtime_reader_version', '0', true)",
-			);
 			await h.pool.query(
 				`UPDATE apps
 				 SET updated_at = now(), awaiting_input = false
@@ -362,13 +398,23 @@ describe("runtime-reader rollout migration", () => {
 		}
 		expect(await runtimeStamp("holder")).toBe(2);
 
-		// The broadened trigger also sees ordinary build lease/pause writes. With
-		// no runtime declaration, an unchanged generation keeps its original stamp.
-		await h.pool.query(
-			`UPDATE apps
-			 SET updated_at = now(), awaiting_input = false
-			 WHERE id = 'holder'`,
-		);
+		// Current same-holder writers explicitly declare v1+ on every transaction.
+		// The generation remains the same, so its original stamp remains stable.
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '2', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps
+				 SET updated_at = now(), awaiting_input = false
+				 WHERE id = 'holder'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
 		expect(await runtimeStamp("holder")).toBe(2);
 
 		// Reservation booking keeps the same effective build identity. A newer
@@ -407,11 +453,21 @@ describe("runtime-reader rollout migration", () => {
 		}
 		expect(await runtimeStamp("holder")).toBe(3);
 
-		await h.pool.query(
-			`UPDATE apps
-			 SET status = 'complete', res_period = NULL, res_run_id = NULL
-			 WHERE id = 'holder'`,
-		);
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '3', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps
+				 SET status = 'complete', res_period = NULL, res_run_id = NULL
+				 WHERE id = 'holder'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
 		expect(await runtimeStamp("holder")).toBeNull();
 
 		await h.pool.query("BEGIN");
@@ -434,20 +490,116 @@ describe("runtime-reader rollout migration", () => {
 		}
 		expect(await runtimeStamp("holder")).toBe(4);
 
-		await h.pool.query(
-			`UPDATE apps
-			 SET lock_expire_at = now() + interval '15 minutes',
-				awaiting_input = false
-			 WHERE id = 'holder'`,
-		);
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '4', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps
+				 SET lock_expire_at = now() + interval '15 minutes',
+					awaiting_input = false
+				 WHERE id = 'holder'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
 		expect(await runtimeStamp("holder")).toBe(4);
 
-		await h.pool.query(
-			`UPDATE apps
-			 SET lock_run_id = NULL, lock_actor_user_id = NULL, lock_expire_at = NULL
-			 WHERE id = 'holder'`,
-		);
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '4', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps
+				 SET lock_run_id = NULL, lock_actor_user_id = NULL, lock_expire_at = NULL
+				 WHERE id = 'holder'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
 		expect(await runtimeStamp("holder")).toBeNull();
+	});
+
+	test("rejects an undeclared terminal writer above floor and admits a declared release", async () => {
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`INSERT INTO apps (
+					id, owner, project_id, app_name, app_name_lower,
+					status, run_id, run_holder_nonce
+				 ) VALUES (
+					'release-cutoff', 'actor', 'project-a', 'Release', 'release',
+					'generating', 'release-run', $1
+				 )`,
+				[NONCE_A],
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+		await h.pool.query(
+			`UPDATE lookup_reference_compatibility
+			 SET minimum_runtime_reader_version = 1 WHERE id = 1`,
+		);
+
+		await expectSqlState(
+			`UPDATE apps SET status = 'complete'
+			 WHERE id = 'release-cutoff'`,
+			"55000",
+		);
+		const retained = await h.pool.query<{
+			status: string;
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT status, run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'release-cutoff'`,
+		);
+		expect(retained.rows[0]).toEqual({
+			status: "generating",
+			nonce: NONCE_A,
+			stamp: 1,
+		});
+
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps SET status = 'complete'
+				 WHERE id = 'release-cutoff'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+		const released = await h.pool.query<{
+			status: string;
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT status, run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'release-cutoff'`,
+		);
+		expect(released.rows[0]).toEqual({
+			status: "complete",
+			nonce: NONCE_A,
+			stamp: null,
+		});
 	});
 
 	test("never falls back through a present reservation and rejects new old holders above floor", async () => {

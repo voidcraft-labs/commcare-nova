@@ -1475,7 +1475,9 @@ export async function POST(req: Request) {
 				 * `false` means the id belongs to another app (the pre-stream guard
 				 * catches this before any claim; this is the structural backstop) —
 				 * surfaced as a failed run rather than silently streaming a
-				 * conversation that will never persist. */
+				 * conversation that will never persist. A holder lost between claim
+				 * and this write throws after preserving any mergeable transcript; it
+				 * must terminate before publishing a stale continuation capability. */
 				try {
 					threadPersisted = await upsertThreadTurn({
 						appId,
@@ -1487,6 +1489,10 @@ export async function POST(req: Request) {
 						messages,
 					});
 				} catch (err) {
+					if (err instanceof RunHolderLostError) {
+						await failRun(err, "route:thread-marker-holder-lost");
+						return;
+					}
 					log.error("[chat] thread turn upsert failed", err, {
 						appId,
 						threadId,

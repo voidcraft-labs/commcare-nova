@@ -36,8 +36,11 @@ import { sql } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
 import { log } from "@/lib/logger";
 import { appHeldLive } from "./apps";
+import { RunHolderLostError } from "./commitGuard";
 import { LEASE_COLUMNS, leaseView } from "./leaseView";
 import { getAppDb, withAppTx } from "./pg";
+import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
+import { exactRunHolderMatches } from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
 import {
 	type ThreadDoc,
@@ -132,7 +135,11 @@ export function mergeTranscript(
  * a thread id under ANOTHER app writes nothing. Returns whether a row was
  * written; the route treats `false` as "this conversation will not persist"
  * (its pre-claim guard already 400s the forged-id case; this is the
- * structural backstop).
+ * structural backstop). The app holder is locked and proved before the thread
+ * row lock. A run that lost that proof may still merge its real incoming
+ * transcript into an existing same-app thread, but it never installs or
+ * clears the successor's identity/stream marker; the merge commits and then a
+ * {@link RunHolderLostError} stops the stale run.
  */
 export async function upsertThreadTurn(args: {
 	appId: string;
@@ -145,13 +152,58 @@ export async function upsertThreadTurn(args: {
 	messages: UIMessage[];
 }): Promise<boolean> {
 	const now = new Date().toISOString();
-	return withAppTx(async (tx) => {
+	const result = await withAppTx(async (tx) => {
+		// Fixed lock order: app row -> rollout compatibility -> thread row. The
+		// cutover never takes app-row locks while holding compatibility, and every
+		// competing thread writer queues on the thread row here.
+		const app = await tx
+			.selectFrom("apps")
+			.select(LEASE_COLUMNS)
+			.where("id", "=", args.appId)
+			.forUpdate()
+			.executeTakeFirst();
+		let holderLost: "superseded" | "released" | null = "released";
+		if (app) {
+			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
+			const lease = runLeaseState(leaseView(app));
+			holderLost = exactRunHolderMatches(
+				lease.holderIdentity,
+				{
+					mode: args.threadType,
+					runId: args.runId,
+					nonce: args.holderNonce ?? null,
+				},
+				enforceNonce,
+			)
+				? null
+				: lease.present
+					? "superseded"
+					: "released";
+		}
 		const existing = await tx
 			.selectFrom("threads")
 			.select(["app_id", "messages"])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
+		if (holderLost !== null) {
+			if (existing?.app_id === args.appId) {
+				const merged = mergeTranscript(
+					(existing.messages ?? []) as StoredMessage[],
+					args.messages,
+				);
+				await tx
+					.updateTable("threads")
+					.set({ updated_at: now, messages: JSON.stringify(merged) })
+					.where("thread_id", "=", args.threadId)
+					.where("app_id", "=", args.appId)
+					.execute();
+			}
+			return { holderLost } as const;
+		}
+		if (existing && existing.app_id !== args.appId) {
+			return false;
+		}
 		if (!existing) {
 			await tx
 				.insertInto("threads")
@@ -170,7 +222,6 @@ export async function upsertThreadTurn(args: {
 				.execute();
 			return true;
 		}
-		if (existing.app_id !== args.appId) return false;
 		const merged = mergeTranscript(
 			(existing.messages ?? []) as StoredMessage[],
 			args.messages,
@@ -189,6 +240,10 @@ export async function upsertThreadTurn(args: {
 			.execute();
 		return true;
 	});
+	if (typeof result === "object") {
+		throw new RunHolderLostError(result.holderLost);
+	}
+	return result;
 }
 
 /**

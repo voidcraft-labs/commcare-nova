@@ -107,7 +107,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			new_run_id text;
 			new_nonce uuid;
 			raw_version text;
-			runtime_declared boolean;
 			runtime_version integer;
 			required_version integer;
 		BEGIN
@@ -137,34 +136,24 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			END IF;
 			new_nonce := NEW.run_holder_nonce;
 
-			-- No present holder means no runtime capability stamp. The nonce is
-			-- deliberately retained as the exact last-holder/reaper tombstone.
-			IF new_mode IS NULL THEN
+			-- A write with no holder on either side carries no rollout authority and
+			-- needs no compatibility lock. This keeps ordinary at-rest app metadata
+			-- writes outside the holder protocol.
+			IF old_mode IS NULL AND new_mode IS NULL THEN
 				NEW.run_runtime_reader_version := NULL;
 				RETURN NEW;
 			END IF;
 
-			raw_version := NULLIF(
-				pg_catalog.current_setting('nova.runtime_reader_version', true),
-				''
+			-- The deployed pre-v1 runtime never set this GUC. Unset/empty is therefore
+			-- the v0 declaration, including a same-mode/run paused resume or terminal
+			-- write. Every v1 holder-touching writer must declare explicitly.
+			raw_version := COALESCE(
+				NULLIF(
+					pg_catalog.current_setting('nova.runtime_reader_version', true),
+					''
+				),
+				'0'
 			);
-			runtime_declared := raw_version IS NOT NULL;
-
-			-- Ordinary commits, heartbeats, and terminal writes do not redeclare a
-			-- runtime version. They may preserve an unchanged holder, but an identity
-			-- change without a declaration is a legacy v0 claim.
-			IF NOT runtime_declared
-				AND old_mode IS NOT DISTINCT FROM new_mode
-				AND old_run_id IS NOT DISTINCT FROM new_run_id
-				AND old_nonce IS NOT DISTINCT FROM new_nonce
-			THEN
-				NEW.run_runtime_reader_version := OLD.run_runtime_reader_version;
-				RETURN NEW;
-			END IF;
-
-			IF NOT runtime_declared THEN
-				raw_version := '0';
-			END IF;
 			IF raw_version !~ '^(0|[1-9][0-9]*)$' THEN
 				RAISE EXCEPTION USING
 					ERRCODE = '22023',
@@ -192,40 +181,52 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 					MESSAGE = 'lookup-reference compatibility state is missing';
 			END IF;
 
-			-- An explicitly declared v0 claim must erase any inherited generation,
-			-- even when a same-thread successor happens to reuse mode/run id. Without
-			-- this downgrade, an old tab could retain the predecessor's nonce and the
-			-- census could falsely bless the v0 successor as v1.
-			IF runtime_version < 1 THEN
-				IF runtime_version < required_version THEN
-					RAISE EXCEPTION USING
-						ERRCODE = '55000',
-						MESSAGE = 'runtime reader version is below the database floor';
-				END IF;
-				NEW.run_holder_nonce := NULL;
-				NEW.run_runtime_reader_version := NULL;
-				RETURN NEW;
-			END IF;
-
-			-- A v1+ holder must always carry the full concrete generation.
-			IF new_run_id IS NULL OR new_nonce IS NULL THEN
-				RAISE EXCEPTION USING
-					ERRCODE = '55000',
-					MESSAGE = 'runtime holder identity is missing below the database floor';
-			END IF;
-
 			IF runtime_version < required_version THEN
 				RAISE EXCEPTION USING
 					ERRCODE = '55000',
 					MESSAGE = 'runtime reader version is below the database floor';
 			END IF;
 
+			-- A release has no current holder to stamp. It still participates in the
+			-- floor cutoff above so an undeclared old terminal writer cannot cross a
+			-- completed v1 cutover. Retain the nonce as the last-holder tombstone.
+			IF new_mode IS NULL THEN
+				NEW.run_runtime_reader_version := NULL;
+				RETURN NEW;
+			END IF;
+
+			-- An undeclared deployed-v0 write must erase any inherited generation,
+			-- even when a paused resume or same-thread successor reuses mode/run id.
+			-- Otherwise the census could falsely bless the old runtime as v1.
+			IF runtime_version < 1 THEN
+				NEW.run_holder_nonce := NULL;
+				NEW.run_runtime_reader_version := NULL;
+				RETURN NEW;
+			END IF;
+
+			-- A current non-holder writer may touch updated_at while a legacy v0 holder
+			-- remains admitted during compatibility. Declaring v1 proves the writer,
+			-- not ownership of that holder generation: preserve an exactly unchanged
+			-- identity (and its v0 stamp) below cutoff rather than falsely upgrading or
+			-- rejecting it. Once a floor excludes the old stamp, fail closed.
 			IF old_mode IS NOT DISTINCT FROM new_mode
 				AND old_run_id IS NOT DISTINCT FROM new_run_id
 				AND old_nonce IS NOT DISTINCT FROM new_nonce
 			THEN
+				IF COALESCE(OLD.run_runtime_reader_version, 0) < required_version THEN
+					RAISE EXCEPTION USING
+						ERRCODE = '55000',
+						MESSAGE = 'existing runtime holder version is below the database floor';
+				END IF;
 				NEW.run_runtime_reader_version := OLD.run_runtime_reader_version;
 				RETURN NEW;
+			END IF;
+
+			-- A new or replaced v1+ holder must carry the full concrete generation.
+			IF new_run_id IS NULL OR new_nonce IS NULL THEN
+				RAISE EXCEPTION USING
+					ERRCODE = '55000',
+					MESSAGE = 'runtime holder identity is missing below the database floor';
 			END IF;
 
 			NEW.run_runtime_reader_version := runtime_version;

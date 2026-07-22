@@ -30,6 +30,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { CREDITS_PER_BUILD, CREDITS_PER_EDIT } from "@/lib/db/creditPolicy";
 import { getCurrentPeriod } from "@/lib/db/period";
 import { runLeaseState } from "@/lib/db/runLiveness";
+import { declareRuntimeReader } from "@/lib/db/runtimeReaderVersion";
 import type { AppDoc } from "@/lib/db/types";
 import {
 	claimAndReserveRun as claimAndReserveRunForProject,
@@ -165,10 +166,15 @@ async function patchApp(
 ): Promise<void> {
 	await h
 		.db()
-		.updateTable("apps")
-		.set(set as never)
-		.where("id", "=", appId)
-		.execute();
+		.transaction()
+		.execute(async (tx) => {
+			await declareRuntimeReader(tx);
+			await tx
+				.updateTable("apps")
+				.set(set as never)
+				.where("id", "=", appId)
+				.execute();
+		});
 }
 
 /** I2: a terminal app is never lock-present + unsettled-marker + no-live-run. */

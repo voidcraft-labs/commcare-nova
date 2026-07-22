@@ -113,6 +113,16 @@ function sseBody(chunks: unknown[], opts: { done?: boolean } = {}): string {
 
 const STREAM_ID = "post-stream-1";
 
+async function holderNonceFor(appId: string): Promise<string> {
+	const row = await appDb
+		.selectFrom("apps")
+		.select("run_holder_nonce")
+		.where("id", "=", appId)
+		.executeTakeFirstOrThrow();
+	if (!row.run_holder_nonce) throw new Error("fixture app has no holder nonce");
+	return row.run_holder_nonce;
+}
+
 /** The run's full chunk sequence — what an unbroken POST would have carried. */
 const FULL: UIMessageChunk[] = [
 	{ type: "start" } as UIMessageChunk,
@@ -212,6 +222,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			threadId: "thread-1",
 			runId: "run-1",
 			streamId: STREAM_ID,
+			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});
@@ -267,7 +278,8 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			threadId: "thread-2",
 			runId: "run-2",
 			streamId: "stream-idle",
-			threadType: "edit",
+			holderNonce: await holderNonceFor(appId),
+			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});
 		await appendThreadResponse({

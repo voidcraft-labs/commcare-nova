@@ -31,6 +31,7 @@ import {
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import { declareRuntimeReader } from "@/lib/db/runtimeReaderVersion";
 
 const {
 	resolveOpenAIKeyMock,
@@ -145,6 +146,7 @@ const RESERVATION_PERIOD = "2026-07";
 const WAIT_APP = "app-serialize-wait-snapshot";
 const WAIT_THREAD = "thread-serialize-wait-snapshot";
 const MOVED_PROJECT = "project-after-serialize-wait";
+const REPLACEMENT_NONCE = "00000000-0000-4000-8000-000000000099";
 
 const PAUSED_USAGE = {
 	inputTokens: 10,
@@ -680,11 +682,17 @@ describe("pause-stamp ownership admission", () => {
 		configurePausedAgent();
 		setAwaitingInputMock.mockImplementationOnce(
 			async (appId: string): Promise<"superseded"> => {
-				await appDb
-					.updateTable("apps")
-					.set({ res_run_id: "replacement-run" })
-					.where("id", "=", appId)
-					.execute();
+				await appDb.transaction().execute(async (tx) => {
+					await declareRuntimeReader(tx);
+					await tx
+						.updateTable("apps")
+						.set({
+							res_run_id: "replacement-run",
+							run_holder_nonce: REPLACEMENT_NONCE,
+						})
+						.where("id", "=", appId)
+						.execute();
+				});
 				return "superseded";
 			},
 		);
@@ -712,16 +720,19 @@ describe("pause-stamp ownership admission", () => {
 		configurePausedAgent();
 		setAwaitingInputMock.mockImplementationOnce(
 			async (appId: string): Promise<"released"> => {
-				await appDb
-					.updateTable("apps")
-					.set({
-						status: "error",
-						error_type: "paused_timeout",
-						res_settled: true,
-						res_run_id: null,
-					})
-					.where("id", "=", appId)
-					.execute();
+				await appDb.transaction().execute(async (tx) => {
+					await declareRuntimeReader(tx);
+					await tx
+						.updateTable("apps")
+						.set({
+							status: "error",
+							error_type: "paused_timeout",
+							res_settled: true,
+							res_run_id: null,
+						})
+						.where("id", "=", appId)
+						.execute();
+				});
 				return "released";
 			},
 		);

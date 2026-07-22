@@ -201,6 +201,9 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 		const released = await commitTransitionWhileWriterWaits({
 			transition: async (client) => {
 				await client.query(
+					"SELECT set_config('nova.runtime_reader_version', '1', true)",
+				);
+				await client.query(
 					`UPDATE apps
 					 SET status = 'error', error_type = 'internal',
 						 res_settled = true, res_run_id = NULL

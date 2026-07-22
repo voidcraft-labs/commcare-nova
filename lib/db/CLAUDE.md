@@ -190,22 +190,27 @@ generating build has no reservation marker. `runId` remains stable attribution;
 the server-minted UUID nonce is the per-claim generation. The
 `apps_runtime_reader_holder_stamp` row trigger reads transaction-local
 `nova.runtime_reader_version`, checks the runtime floor under `FOR SHARE`, and
-requires every declared v1 holder to have a concrete run id + nonce. It stamps a
-new generation, preserves an ordinary unchanged-holder write, clears inherited
-nonce/stamp for an explicitly declared v0 successor (even when a stable thread
-id makes mode/run appear unchanged), and clears the stamp—but retains the nonce
-tombstone—when the holder disappears. Existing null-nonce holders are not
-backfilled and census as v0; replay clears only present null-nonce stamps, so a
-v1 holder survives migration replay. The trigger includes `awaiting_input`,
-`lock_expire_at`, and `updated_at` because the deployed v0 paused-resume SQL
-declares version 0 while updating only those columns; an unchanged holder write
-with no declaration still preserves its stamp. `runtimeReaderVersion.ts`
-derives the v1 declaration from the capability manifest. Generating creation,
-intentional build/edit claim, exact-gated just-created-build reservation, and
-paused-run reacquisition call `declareRuntimeReader(tx)` before their holder
-write; complete/template creation does not declare because it creates no holder.
-Every build claim also stamps root `run_id` before emitting any mutation, so a
-later no-mutation successor remains the durable latest-claim identity after reap.
+uses the declaration as writer capability—not proof of ownership over an
+existing holder. Below cutoff, an exact unchanged legacy holder stays v0 and
+census-visible; an unchanged old stamp below the active floor fails closed. A
+new/replaced v1 holder requires a concrete run id + nonce and receives the
+current stamp. An absent declaration is deployed v0 and clears any inherited
+nonce/stamp (even when a stable thread id makes mode/run appear unchanged).
+Release clears the stamp—but
+retains the nonce tombstone—when the holder disappears. Existing null-nonce
+holders are not backfilled and census as v0; replay clears only present
+null-nonce stamps, so a v1 holder survives migration replay. The trigger
+includes `awaiting_input`, `lock_expire_at`, and `updated_at` because the
+deployed v0 paused-resume SQL
+sets no runtime GUC while updating only those columns. `runtimeReaderVersion.ts`
+derives the v1 declaration from the capability manifest. Every current
+holder-touching path calls `declareRuntimeReader(tx)` before DML: generating
+creation, build/edit claim, reservation, paused reacquisition, same-holder
+blueprint commits, heartbeats/pause writes, and terminal/failure/reaper/recovery
+writes. Complete/template creation does not declare because it creates no
+holder. Every build claim also stamps root `run_id` before emitting any mutation,
+so a later no-mutation successor remains the durable latest-claim identity after
+reap.
 
 `runHolderWrites.ts` owns the shared SQL compare-and-set predicates.
 `lookup_reference_compatibility.run_holder_nonce_enforced` defaults false: in
@@ -240,6 +245,13 @@ exact generation under the app lock and in SQL. A v0/null-nonce holder is not
 operator-recoverable through this command.
 
 Threads persist the active nonce in a dedicated `active_holder_nonce` column.
+`upsertThreadTurn` locks the app row, reads compatibility `FOR SHARE`, and proves
+the admitted holder before taking the thread lock or installing its marker. A
+lost holder may merge its real incoming transcript into an existing same-app
+thread, but the merge-only arm cannot replace or clear the successor's
+`run_id`, `active_stream_id`, or `active_holder_nonce`; it commits that merge and
+then throws `RunHolderLostError` so the route stops before publishing the stale
+capability.
 `loadThread` projects it only when fresh app authority says this exact run and
 nonce is paused by the requesting actor; co-members, unscoped loaders,
 mismatches, unpaused holders, and reaped holders receive no nonce. A paused

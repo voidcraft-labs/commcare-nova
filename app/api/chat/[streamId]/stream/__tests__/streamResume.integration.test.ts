@@ -96,6 +96,7 @@ const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
 const { claimAndReserveRun, createApp } = await import("@/lib/db/apps");
+const { declareRuntimeReader } = await import("@/lib/db/runtimeReaderVersion");
 const { appendThreadResponse, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
@@ -109,6 +110,16 @@ const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_stream_" });
 
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
+
+async function holderNonceFor(appId: string): Promise<string> {
+	const row = await appDb
+		.selectFrom("apps")
+		.select("run_holder_nonce")
+		.where("id", "=", appId)
+		.executeTakeFirstOrThrow();
+	if (!row.run_holder_nonce) throw new Error("fixture app has no holder nonce");
+	return row.run_holder_nonce;
+}
 
 function sessionFor(userId: string) {
 	return { user: { id: userId } } as never;
@@ -398,11 +409,14 @@ describe("live tail", () => {
 		/* Paused finalization clears the live stream marker but deliberately
 		 * retains the nonce for the answer POST. A direct hot reconnect to the
 		 * completed stream must still rehydrate this exact generation. */
-		await appDb
-			.updateTable("apps")
-			.set({ awaiting_input: true })
-			.where("id", "=", appId)
-			.execute();
+		await appDb.transaction().execute(async (tx) => {
+			await declareRuntimeReader(tx);
+			await tx
+				.updateTable("apps")
+				.set({ awaiting_input: true })
+				.where("id", "=", appId)
+				.execute();
+		});
 		await appendThreadResponse({
 			appId,
 			threadId: "thread-private",
@@ -594,6 +608,7 @@ describe("thread resolution", () => {
 			threadId: "thread-live",
 			runId: "run-t1",
 			streamId: "s14",
+			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});
@@ -614,7 +629,8 @@ describe("thread resolution", () => {
 			threadId: "thread-idle",
 			runId: "run-t2",
 			streamId: "s15",
-			threadType: "edit",
+			holderNonce: await holderNonceFor(appId),
+			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});
 		/* Finalize cleared the marker — nothing to resume. The reply must be a
@@ -641,6 +657,7 @@ describe("thread resolution", () => {
 			threadId: "thread-foreign",
 			runId: "run-t3",
 			streamId: "s16",
+			holderNonce: await holderNonceFor(appId),
 			threadType: "build",
 			messages: [{ id: "m1", role: "user", parts: [] }],
 		});

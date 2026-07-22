@@ -547,18 +547,21 @@ stamp, server-minted `apps.run_holder_nonce`, actor-bound
 timestamp + irreversible `run_holder_nonce_enforced` switch, and one
 `runtime_reader_traffic_epochs` row per explicitly prepared target. The holder
 trigger derives `(mode, runId, nonce)` from the run columns and locks the
-compatibility singleton when it must admit a declared holder version. A
-declared v1 holder requires a concrete run id + nonce; an explicit v0 successor
-clears inherited nonce/stamp even when stable thread attribution leaves the
-mode/run pair unchanged. An ordinary same-generation write with no declaration
-preserves the old stamp, and release clears the stamp while retaining the nonce
-tombstone. The trigger deliberately includes `awaiting_input`,
-`lock_expire_at`, and `updated_at`: the deployed v0 resume declares runtime 0
-but updates only those pause/lease columns, so omitting them would let it inherit
-a v1 nonce + stamp and falsely pass the cutover census. A same-holder renewal
-with no runtime declaration still takes the unchanged-identity branch and
-preserves its stamp. Do not backfill null-nonce holders: v0 holders must remain
-census-visible/reapable, and migration replay must preserve any
+compatibility singleton for every transition with a holder on either side; only
+an at-rest→at-rest write bypasses that lock. A v1 declaration identifies the
+writer, not ownership over an unchanged holder. Below cutoff, an exact unchanged
+legacy holder stays v0 and census-visible; an old stamp below the active floor
+fails closed. A new/replaced v1 holder requires a concrete run id + nonce. An
+absent declaration is the deployed-v0 signal and clears inherited nonce/stamp
+even when stable thread attribution leaves mode/run unchanged. A declared
+same-generation write preserves the admitted old stamp, and a declared release
+clears the stamp while retaining the nonce tombstone. The trigger deliberately includes
+`awaiting_input`, `lock_expire_at`, and `updated_at`: the deployed v0 resume sets
+no runtime GUC and updates only those pause/lease columns, so omitting them would
+let it inherit a v1 nonce + stamp and falsely pass the cutover census. Every
+current holder-touching writer—including same-holder renewals and terminal
+paths—must declare v1 before DML. Do not backfill null-nonce holders: v0 holders
+must remain census-visible/reapable, and migration replay must preserve any
 already-concrete v1 generation.
 
 Nonce enforcement defaults false and may move only false→true. Its CHECK

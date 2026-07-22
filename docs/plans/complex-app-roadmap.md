@@ -1174,17 +1174,19 @@ captured Project/role/canEdit tuple without re-reading the floor, and migration
 delivery reauthorizes before advancing its cursor. Registration also performs a
 separate best-effort purge of at most 256 expired leases through the
 `expires_at` index with `SKIP LOCKED`; purge failure cannot roll back or reject
-the already-decided admission. Browser EventSource URL
-emission remains the separate client wiring commit, so current bundles still
-declare v0 by omission. This foundation does **not** label a revision, change
-traffic, raise a floor, or enable a flag. S02c2 owns the no-traffic candidate,
-manifest-label verification, `--timeout` pin, and guarded cutover/rollback
-controller.
+the already-decided admission. `ReconcilerProvider` now appends the manifest's
+compiled receiver version to every EventSource URL, so new browser bundles
+declare v1; already-open pre-wiring bundles still declare v0 by omission. This
+foundation does **not** label a revision, change traffic, raise a floor, or
+enable a flag. S02c2 owns the no-traffic candidate, manifest-label verification,
+`--timeout` pin, and guarded cutover/rollback controller.
 
-The runtime-holder callsite slice is now source-complete too: generating
-creation, intentional claim/replacement, exact-gated just-created-build
-reservation, and paused-run reacquisition declare runtime reader v1. Each
-claim mints a private UUID generation stored beside stable `runId` attribution.
+The runtime-holder callsite slice is now source-complete too: every current
+holder-touching transaction declares runtime reader v1 before DML, including
+creation, claim/replacement, reservation, paused reacquisition, same-holder
+blueprint commits, heartbeats/pause writes, and terminal/failure/reaper/recovery
+paths. Each claim mints a private UUID generation stored beside stable `runId`
+attribution.
 `runHolderWrites.ts` is the shared SQL compare-and-set boundary for terminal,
 failure, pause/heartbeat, recovery, and reaper writes. Reaper scans and queues
 carry the concrete holder they observed instead of a bare app id, and credit
@@ -1201,8 +1203,9 @@ admission and CAS still honor legacy `(mode, runId)` and accept an old paused
 browser continuation with no nonce. Such a v0 resume upgrades itself with a
 server nonce in the same app-locked write. The holder-stamp trigger includes the
 pause/lease columns used by the deployed v0 resume (`awaiting_input`,
-`lock_expire_at`, and `updated_at`), so that old runtime cannot inherit a v1
-nonce/stamp merely because its stable mode/run identity did not change. After
+`lock_expire_at`, and `updated_at`). Deployed v0 sets no runtime GUC, so the
+trigger treats an absent declaration as v0 and clears any inherited nonce/stamp
+even when stable mode/run identity did not change. After
 S02c2 drains the request epoch, v0/null-nonce holders, and old receiver leases,
 it raises the runtime-reader floor to 1 and enables the switch; from then on,
 missing/mismatched nonces fail closed with an explicit refresh. Focused
@@ -1225,9 +1228,13 @@ once activated, that is the exact `(mode, runId, nonce)`. Migration-bearing
 commits check the same capability before
 their locked Phase A; if ownership changes after Phase A, the final guarded
 commit rejects and the existing compensation restores the current committed
-schema/data shape. Every build claim stamps root `run_id` immediately, so a
-successor that emits no mutations still invalidates an older zombie after the
-successor is reaped. The only absent-holder completion remains the existing
+schema/data shape. Thread-marker persistence likewise locks the app, reads the
+compatibility switch, and proves the admitted holder before locking the thread.
+A loser may merge real transcript content into an existing same-app thread, but
+cannot install or clear the successor's run/stream/nonce marker; it terminates
+after that merge commits. Every build claim stamps root `run_id` immediately,
+so a successor that emits no mutations still invalidates an older zombie after
+the successor is reaped. The only absent-holder completion remains the existing
 false-reap self-heal: it requires a free error row, a marker that the reaper
 itself cleared, and matching root `run_id`. A pre-settled stale build retains
 `res_run_id`, deliberately does not satisfy that signature, and is not
@@ -1260,12 +1267,16 @@ stores the runtime-reader version declared transaction-locally by its claimant;
 missing/unset is v0. The database owns the holder-identity state machine, using
 the effective `(mode, runId, nonce)` derived from locked run fields: edit uses
 `lock_run_id`; build uses `res_run_id`, falling back to root `run_id` only for
-the just-created pre-reservation generating state. A declared v1 claim requires
-a concrete run id + nonce and stamps the transaction-local version; an explicit
-v0 successor clears any inherited nonce/stamp even when stable thread
-attribution leaves mode/run unchanged. An ordinary same-generation heartbeat
-preserves the existing stamp, and an identity-owned terminal transition clears
-the stamp while retaining the nonce tombstone. Every terminal/failure/reaper API
+the just-created pre-reservation generating state. A v1 declaration identifies
+the current writer, not ownership of an unchanged holder. Below cutoff, an exact
+unchanged legacy holder therefore remains v0 and census-visible; a below-floor
+old stamp fails after cutoff. Only a new/replaced v1 holder requires a concrete
+run id + nonce and stamps the transaction-local version. An undeclared
+holder-touching write is deployed v0 and clears any inherited nonce/stamp even
+when stable thread attribution leaves mode/run unchanged. Every current
+same-generation heartbeat explicitly declares v1 and preserves the admitted
+existing stamp; an identity-owned terminal transition declares v1, clears the
+stamp, and retains the nonce tombstone. Every terminal/failure/reaper API
 includes the expected holder identity in its locked conditional write, so a
 stale writer affects zero rows and cannot clear or fail a replacement holder.
 Runtime-floor status combines that stamp with fresh `runLeaseState`; every

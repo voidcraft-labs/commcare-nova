@@ -65,9 +65,11 @@ best-effort deletes that exact app/connection lease; expiry covers a crash or
 failed cleanup. Cadence reauthorizes the captured Project/role/canEdit tuple but
 does not re-read the floor, so a floor raise affects new connections only.
 
-Browser EventSource URL emission remains separate client wiring. Until that
-lands, existing browser bundles omit the parameter and therefore declare v0;
-all compatibility floors remain 0, so this is intentionally non-activating.
+`ReconcilerProvider` now appends the manifest's compiled `receiverVersion` to
+every EventSource URL, so newly built v1 browser bundles declare v1. An already
+open pre-wiring bundle still omits the parameter and therefore declares v0.
+All compatibility floors remain 0, so the landed wiring is intentionally
+non-activating until the old leases and request epoch are drained.
 
 ## Runtime-holder writes
 
@@ -89,18 +91,22 @@ receives the inert marker, preserving cursor math without receiving the
 capability. The digest also prevents an old same-run stream from receiving a
 successor claim's fresh nonce after the paused stream marker has cleared.
 
-The manifest runtime reader is v1. Generating creation, intentional
-claim/replacement, exact-gated new-build reservation, and paused reacquisition
-declare it transaction-locally. A v1 holder must have a concrete run id and
-nonce. The trigger preserves an ordinary same-holder write, stamps a genuinely
-new v1 generation, and clears inherited nonce/version when an explicitly
-declared v0 successor takes over—even if a stable thread id leaves the visible
-`(mode, runId)` pair unchanged. Releases clear the runtime stamp but retain the
-nonce as the last-holder/reaper tombstone. It also fires on `awaiting_input`,
-`lock_expire_at`, and `updated_at`, because the deployed v0 paused-resume paths
-declare runtime 0 but update only those pause/lease columns; an undeclared
-same-generation heartbeat still preserves its stamp. Migration replay clears
-only present null-nonce holders, so it cannot erase live v1 state.
+The manifest runtime reader is v1. Every current holder-touching transaction
+declares it before DML: creation, claim/replacement, reservation, paused
+reacquisition, same-holder blueprint commits, heartbeats/pause writes, and all
+terminal/failure/reaper/recovery paths. The declaration identifies the current
+writer, not ownership of an existing holder: below cutoff an exact unchanged
+legacy holder stays v0 and census-visible. Only a genuinely new/replaced v1
+holder must have a concrete run id + nonce and receives a v1 stamp; an unchanged
+holder whose old stamp is below the active floor fails closed. An absent
+declaration is deployed v0 and clears an inherited nonce/version even when a
+stable thread id leaves `(mode, runId)` unchanged. Releases clear the runtime
+stamp but retain the nonce as the last-holder/reaper tombstone; they still pass
+the floor check, so undeclared old terminal writers fail after cutoff. The trigger also
+fires on `awaiting_input`, `lock_expire_at`, and `updated_at`, because the
+deployed v0 paused-resume paths set no runtime GUC and update only those
+pause/lease columns. Migration replay clears only present null-nonce holders,
+so it cannot erase live v1 state.
 
 `lookup_reference_compatibility.run_holder_nonce_enforced` is the activation
 switch and defaults to `false`. While false, lifecycle admission and SQL CAS use
@@ -121,6 +127,11 @@ MCP's ordinary `runId` remains attribution only. Migration Phase A checks the
 capability while holding the app row, and the final committed-batch app update
 repeats it. Every build claim stamps root `run_id` before any mutation, so even
 a no-mutation successor remains the latest-claim fence after reap.
+Thread-marker installation follows the same app-row-first compatibility proof
+before locking the thread. A run that loses ownership in the claim-to-persist
+window may merge its real incoming transcript into an existing same-app thread,
+but it cannot install or clear the successor's run id, stream id, or holder
+nonce; the committed merge is followed by a terminal holder-lost result.
 Reaper queue entries include the identity observed by their scan; never enqueue
 or invoke a reaper with a bare app id, because a delayed bare-id reap can target
 a replacement that later becomes stale. The source guard in
