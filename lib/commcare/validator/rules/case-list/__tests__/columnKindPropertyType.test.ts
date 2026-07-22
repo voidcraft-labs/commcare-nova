@@ -63,7 +63,11 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("passes a date column on a hidden today() writer — inference resolves date", () => {
@@ -78,7 +82,11 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("passes on an UNKNOWN type — missing metadata never manufactures a finding", () => {
@@ -93,7 +101,11 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("fires on a phone column over a standard datetime property", () => {

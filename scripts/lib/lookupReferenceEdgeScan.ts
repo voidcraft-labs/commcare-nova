@@ -9,9 +9,9 @@
  */
 
 import {
-	normalizeLookupReferenceTargetSet,
 	type LookupColumnReferenceTarget,
 	type LookupReferenceTargetSet,
+	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 

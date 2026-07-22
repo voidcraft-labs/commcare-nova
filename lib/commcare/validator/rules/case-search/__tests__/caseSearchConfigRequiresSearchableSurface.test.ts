@@ -56,7 +56,9 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -76,7 +78,9 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -105,7 +109,9 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -127,7 +133,9 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -149,7 +157,9 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -175,7 +185,9 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -199,7 +211,9 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("enable the Search action");
 	});
@@ -227,6 +241,10 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE)).toHaveLength(0);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(e) => e.code === CODE,
+			),
+		).toHaveLength(0);
 	});
 });

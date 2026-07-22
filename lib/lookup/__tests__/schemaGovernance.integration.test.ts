@@ -17,8 +17,8 @@ import {
 } from "@/lib/domain/lookupIds";
 import {
 	applyLookupSchemaGovernance,
-	LookupSchemaGovernanceError,
 	applyLookupSchemaGovernanceInTransaction,
+	LookupSchemaGovernanceError,
 	type LookupSchemaGovernanceOperation,
 } from "../schemaGovernance";
 import { createLookupRow, createLookupTable, getLookupTable } from "../service";
@@ -433,7 +433,7 @@ describe("lookup schema governance", () => {
 			}, 0);
 
 			expect(result.projectRevision).toBe(
-				String(BigInt(before.projectRevision) + 1n),
+				String(BigInt(before.projectRevision) + BigInt(1)),
 			);
 			expect(result).toMatchObject({
 				kind: "remove-column",
@@ -531,7 +531,7 @@ describe("lookup schema governance", () => {
 		`.execute(h.db());
 
 		expect(result.projectRevision).toBe(
-			String(BigInt(before.projectRevision) + 1n),
+			String(BigInt(before.projectRevision) + BigInt(1)),
 		);
 		expect(result).toMatchObject({
 			kind: "retype-column",
@@ -606,7 +606,7 @@ describe("lookup schema governance", () => {
 		expect(result).toEqual({
 			kind: "delete-table",
 			tableId: table.id,
-			projectRevision: String(BigInt(before.projectRevision) + 1n),
+			projectRevision: String(BigInt(before.projectRevision) + BigInt(1)),
 			deletedColumnCount: before.columnCount,
 			deletedRowCount: before.rowCount,
 			freedBytes: before.dataBytes,

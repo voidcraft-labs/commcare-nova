@@ -1,4 +1,3 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import {
 	buildDoc,
@@ -11,6 +10,7 @@ import { connectIdError } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType, Uuid } from "@/lib/domain";
 import {

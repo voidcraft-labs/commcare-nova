@@ -180,35 +180,48 @@ function renameFixtureDocs(): {
 	prior: PersistableDoc;
 	prospective: PersistableDoc;
 } {
-	const build = (name: string) =>
-		toPersistableDoc(
-			buildDoc({
-				appName: "Saga Test",
-				caseTypes: [{ name: "patient", properties: [{ name, label: "Age" }] }],
-				modules: [
-					{
-						name: "Patients",
-						caseType: "patient",
-						forms: [
-							{
-								name: "Register",
-								type: "registration",
-								fields: [
-									f({
-										uuid: "field-age",
-										id: name,
-										kind: "text",
-										label: "Age",
-										case_property_on: "patient",
-									}),
-								],
-							},
-						],
-					},
-				],
-			}),
-		);
-	return { prior: build("age"), prospective: build("years") };
+	const prior = toPersistableDoc(
+		buildDoc({
+			appName: "Saga Test",
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "age", label: "Age" }] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: "field-age",
+									id: "age",
+									kind: "text",
+									label: "Age",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	// Preserve every structural UUID and ordering key so the deterministic diff
+	// describes only the rename. Building the two documents independently would
+	// also mint different form/module identities, making that whole-doc delta an
+	// invalid stand-in for a persisted mutation batch.
+	const prospective = structuredClone(prior);
+	const property = prospective.caseTypes?.[0]?.properties[0];
+	const field = Object.values(prospective.fields).find(
+		(candidate) => candidate.uuid === "field-age",
+	);
+	if (!property || !field) throw new Error("rename fixture is incomplete");
+	property.name = "years";
+	field.id = "years";
+	return { prior, prospective };
 }
 
 /** The persisted (stripped) shape — what real callers hand the saga.

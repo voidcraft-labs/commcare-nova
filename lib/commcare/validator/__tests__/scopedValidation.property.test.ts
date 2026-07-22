@@ -260,10 +260,13 @@ describe("scoped validation ≡ full validation filtered to scope", () => {
 					// scope). Damage outside the edit's scope is exactly what
 					// the filter must exclude on both.
 					for (const target of [next, prevDoc]) {
-						const scoped = runValidation(target, LOOKUP_CONTEXT_UNAVAILABLE, { scope });
-						const filtered = runValidation(target, LOOKUP_CONTEXT_UNAVAILABLE).filter((err) =>
-							errorWithinScope(err, scope),
-						);
+						const scoped = runValidation(target, LOOKUP_CONTEXT_UNAVAILABLE, {
+							scope,
+						});
+						const filtered = runValidation(
+							target,
+							LOOKUP_CONTEXT_UNAVAILABLE,
+						).filter((err) => errorWithinScope(err, scope));
 						expect(scoped).toEqual(filtered);
 					}
 
@@ -278,9 +281,14 @@ describe("scoped validation ≡ full validation filtered to scope", () => {
 					// introduced is within its scope — out-of-scope findings
 					// must all pre-exist (here: the damage batch's).
 					const prevIdentities = new Set(
-						runValidation(prevDoc, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity),
+						runValidation(prevDoc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+							errorIdentity,
+						),
 					);
-					const introducedOutOfScope = runValidation(next, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+					const introducedOutOfScope = runValidation(
+						next,
+						LOOKUP_CONTEXT_UNAVAILABLE,
+					).filter(
 						(err) =>
 							!errorWithinScope(err, scope) &&
 							!prevIdentities.has(errorIdentity(err)),

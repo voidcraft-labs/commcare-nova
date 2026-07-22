@@ -1282,7 +1282,7 @@ export async function commitAppProjectMove(
 			const requestedCandidate =
 				args.assetIdMap.size > 0
 					? hydratePersistedBlueprint(
-							toPersistableDoc(remapAssetRefs(previousDoc, args.assetIdMap)),
+							remapAssetRefs(toPersistableDoc(previousDoc), args.assetIdMap),
 						)
 					: previousDoc;
 			const mutations = diffDocsToMutations(previousDoc, requestedCandidate);

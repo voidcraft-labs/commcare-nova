@@ -18,7 +18,7 @@ import type { Selectable, Transaction } from "kysely";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { assembleBlueprint, type EntityRow } from "@/lib/db/blueprintRows";
 import { readStoredLookupReferenceTargets } from "@/lib/db/lookupReferenceEdges";
-import { getAppDb, type AppDatabase, type AppsTable } from "@/lib/db/pg";
+import { type AppDatabase, type AppsTable, getAppDb } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import {

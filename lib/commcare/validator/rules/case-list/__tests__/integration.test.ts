@@ -346,7 +346,9 @@ describe("case-list validator — cross-rule integration", () => {
 			"MEDIA_ASSET_NOT_FOUND",
 		]);
 		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => dormantColumnCodes.has(error.code)),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) =>
+				dormantColumnCodes.has(error.code),
+			),
 		).toEqual([]);
 	});
 });

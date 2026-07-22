@@ -10,7 +10,6 @@
 import { Client } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setTransactionWriterVersion } from "@/lib/db/pg";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
 	type LookupReferenceTargetSet,
@@ -221,6 +220,7 @@ function setExtractionPair(
 ): void {
 	extractLookupReferenceTargetsMock
 		.mockReset()
+		.mockReturnValue(EMPTY_LOOKUP_REFERENCE_TARGETS)
 		.mockReturnValueOnce(previous)
 		.mockReturnValueOnce(candidate);
 }
@@ -327,10 +327,10 @@ describe("guarded and synthetic writers", () => {
 		await appendSyntheticBatch({
 			appId,
 			expectedBaseSeq: current.mutation_seq,
-			targetDoc: toPersistableDoc({
+			targetDoc: {
 				...current.blueprint,
 				appName: "Synthetic",
-			}),
+			},
 			authority: {
 				kind: "system",
 				actorId: "system:writer-matrix",
@@ -371,10 +371,10 @@ describe("guarded and synthetic writers", () => {
 			appendSyntheticBatch({
 				appId,
 				expectedBaseSeq: 0,
-				targetDoc: toPersistableDoc({
+				targetDoc: {
 					...current.blueprint,
 					appName: "Stale repair",
-				}),
+				},
 				authority: {
 					kind: "system",
 					actorId: "system:stale-repair",
@@ -401,10 +401,10 @@ describe("guarded and synthetic writers", () => {
 				appId,
 				expectedBaseSeq: 0,
 				batchId,
-				targetDoc: toPersistableDoc({
+				targetDoc: {
 					...initial.blueprint,
 					appName: "First synthetic result",
-				}),
+				},
 				authority,
 			}),
 		).resolves.toEqual({ kind: "committed", seq: 1 });
@@ -416,10 +416,10 @@ describe("guarded and synthetic writers", () => {
 				// durable batch latch, not a second diff, owns replay semantics.
 				expectedBaseSeq: 0,
 				batchId,
-				targetDoc: toPersistableDoc({
+				targetDoc: {
 					...initial.blueprint,
 					appName: "Replay must not replace the first result",
-				}),
+				},
 				authority,
 			}),
 		).resolves.toEqual({ kind: "deduped", seq: 1 });
@@ -444,10 +444,10 @@ describe("guarded and synthetic writers", () => {
 		const appId = await createEmptyApp();
 		const current = await loadApp(appId);
 		if (!current) throw new Error("created app disappeared");
-		const targetDoc = toPersistableDoc({
+		const targetDoc = {
 			...current.blueprint,
 			appName: "Guarded repair",
-		});
+		};
 
 		for (const authority of [
 			{

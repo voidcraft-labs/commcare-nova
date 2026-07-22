@@ -2,19 +2,18 @@ import { type Kysely, sql, type Transaction } from "kysely";
 import { describe, expect, it } from "vitest";
 import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
-	normalizeLookupReferenceTargetSet,
 	type LookupReferenceTargetSet,
+	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import {
-	lookupTableIdSchema,
 	type LookupTableId,
+	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { createLookupTable } from "@/lib/lookup/service";
 import type { LookupTableSnapshot } from "@/lib/lookup/types";
-import { setupAppStateTestDb } from "./appStateTestDb";
 import {
-	lockLookupTablesForReferenceWrite,
 	LookupReferenceWriteError,
+	lockLookupTablesForReferenceWrite,
 	readStoredLookupReferenceTargets,
 	replaceLookupReferenceEdges,
 } from "../lookupReferenceEdges";
@@ -23,6 +22,7 @@ import {
 	declareLookupReferenceWriter,
 } from "../lookupReferenceWriter";
 import type { AppDatabase } from "../pg";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("lookup_reference_edges_");
 
@@ -46,9 +46,7 @@ async function createTable(
 		{
 			name,
 			tag: name.toLowerCase().replaceAll(" ", "_"),
-			columns: [
-				{ wireName: "name", label: "Name", dataType: "text" },
-			],
+			columns: [{ wireName: "name", label: "Name", dataType: "text" }],
 		},
 	);
 }
@@ -57,15 +55,18 @@ async function withLockedApp<T>(
 	appId: string,
 	body: (tx: Transaction<AppDatabase>) => Promise<T>,
 ): Promise<T> {
-	return h.db().transaction().execute(async (tx) => {
-		await tx
-			.selectFrom("apps")
-			.select("id")
-			.where("id", "=", appId)
-			.forUpdate()
-			.executeTakeFirstOrThrow();
-		return body(tx);
-	});
+	return h
+		.db()
+		.transaction()
+		.execute(async (tx) => {
+			await tx
+				.selectFrom("apps")
+				.select("id")
+				.where("id", "=", appId)
+				.forUpdate()
+				.executeTakeFirstOrThrow();
+			return body(tx);
+		});
 }
 
 async function readTargets(appId = APP_ID): Promise<LookupReferenceTargetSet> {
@@ -97,9 +98,7 @@ describe("lookup reference edge materialization", () => {
 
 		const columnOnlyInput: LookupReferenceTargetSet = {
 			tableIds: [],
-			columnTargets: [
-				{ tableId: first.id, columnId: first.columns[0].id },
-			],
+			columnTargets: [{ tableId: first.id, columnId: first.columns[0].id }],
 		};
 		await withLockedApp(APP_ID, async (tx) => {
 			await lockLookupTablesForReferenceWrite(tx, PROJECT_A, [first.id]);
@@ -123,9 +122,7 @@ describe("lookup reference edge materialization", () => {
 				.select(["project_id", "table_id", "app_id"])
 				.where("app_id", "=", APP_ID)
 				.execute(),
-		).toEqual([
-			{ project_id: PROJECT_A, table_id: first.id, app_id: APP_ID },
-		]);
+		).toEqual([{ project_id: PROJECT_A, table_id: first.id, app_id: APP_ID }]);
 
 		const replacement = normalizeLookupReferenceTargetSet({
 			tableIds: [second.id, second.id],
@@ -170,9 +167,7 @@ describe("lookup reference edge materialization", () => {
 		const source = await createTable(PROJECT_A, "Source");
 		await h.seedApp({ id: APP_ID, project_id: PROJECT_A });
 		const sourceTargets = normalizeLookupReferenceTargetSet({
-			columnTargets: [
-				{ tableId: source.id, columnId: source.columns[0].id },
-			],
+			columnTargets: [{ tableId: source.id, columnId: source.columns[0].id }],
 		});
 
 		await withLockedApp(APP_ID, async (tx) => {
@@ -264,25 +259,28 @@ describe("lookup reference writer declaration", () => {
 	it("declares version zero transaction-locally and resets it on the pinned connection", async () => {
 		expect(CURRENT_LOOKUP_REFERENCE_WRITER_VERSION).toBe(0);
 
-		await h.db().connection().execute(async (connection) => {
-			const readDeclaredVersion = async (
-				db: Kysely<AppDatabase> | Transaction<AppDatabase>,
-			): Promise<string | null> => {
-				const result = await sql<{ writer_version: string | null }>`
+		await h
+			.db()
+			.connection()
+			.execute(async (connection) => {
+				const readDeclaredVersion = async (
+					db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+				): Promise<string | null> => {
+					const result = await sql<{ writer_version: string | null }>`
 					SELECT NULLIF(
 						current_setting('nova.writer_version', true),
 						''
 					) AS writer_version
 				`.execute(db);
-				return result.rows[0]?.writer_version ?? null;
-			};
+					return result.rows[0]?.writer_version ?? null;
+				};
 
-			expect(await readDeclaredVersion(connection)).toBeNull();
-			await connection.transaction().execute(async (tx) => {
-				await declareLookupReferenceWriter(tx);
-				expect(await readDeclaredVersion(tx)).toBe("0");
+				expect(await readDeclaredVersion(connection)).toBeNull();
+				await connection.transaction().execute(async (tx) => {
+					await declareLookupReferenceWriter(tx);
+					expect(await readDeclaredVersion(tx)).toBe("0");
+				});
+				expect(await readDeclaredVersion(connection)).toBeNull();
 			});
-			expect(await readDeclaredVersion(connection)).toBeNull();
-		});
 	});
 });

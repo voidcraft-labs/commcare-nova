@@ -65,9 +65,9 @@ describe("mediaAssetReady", () => {
 		const manifest = makeManifest([
 			makeAssetRecord("pending-asset", { status: "pending" }),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`At the media on option "r" of field "color" in form "Reg", the attached media asset hasn't finished uploading yet. Wait for the upload to complete (the asset chip shows a spinner during upload), or clear the slot if the upload was abandoned.`,
@@ -81,9 +81,9 @@ describe("mediaAssetReady", () => {
 		const manifest = makeManifest([
 			makeAssetRecord("ready-asset", { status: "ready" }),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 });

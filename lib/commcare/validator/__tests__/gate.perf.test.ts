@@ -90,7 +90,11 @@ describe("evaluateBoundary perf guard", () => {
 	it(`completes a full boundary run over a 3,000-field doc in under ${BUDGET_MS / 1000}s`, () => {
 		const doc = largeDoc();
 		const start = performance.now();
-		const findings = evaluateBoundary(doc, new Map(), LOOKUP_CONTEXT_UNAVAILABLE);
+		const findings = evaluateBoundary(
+			doc,
+			new Map(),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		const elapsed = performance.now() - start;
 
 		// The fixture is intentionally imperfect in benign ways; what the

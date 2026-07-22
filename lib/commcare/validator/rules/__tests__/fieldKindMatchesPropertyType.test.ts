@@ -1,6 +1,6 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { runValidation } from "../../runner";
 
 describe("fieldKindMatchesPropertyType", () => {
@@ -425,7 +425,9 @@ describe("tuple-key encoding is collision-free over arbitrary docs", () => {
 		// Other rules legitimately flag the malformed identifiers; this
 		// rule must not invent a writer disagreement between them.
 		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some((e) => e.code === "FIELD_KIND_WRITERS_DISAGREE"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
+			),
 		).toBe(false);
 	});
 });

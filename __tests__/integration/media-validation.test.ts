@@ -146,7 +146,9 @@ describe("media validation integration", () => {
 			// MEDIA_ASSET_NOT_FOUND.
 		]);
 
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest });
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		});
 
 		// One error per distinct contract violation. The integration
 		// concern is "does each rule fire from the runner under one

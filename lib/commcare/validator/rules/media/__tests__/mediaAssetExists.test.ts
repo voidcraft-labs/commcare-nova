@@ -46,9 +46,9 @@ describe("mediaAssetExists", () => {
 			],
 		});
 		// Manifest is empty — the reference can't resolve.
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: makeManifest([]) }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: makeManifest([]),
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`At the label media on field "case_name" in form "Reg", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
@@ -103,9 +103,9 @@ describe("mediaAssetExists", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		doc.forms[formUuid].audioLabel = "missing-audio";
 
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: makeManifest([]) }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: makeManifest([]),
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(3);
 		const messages = hits.map((h) => h.message).sort();
 		// Sorting both arrays makes the assertion order-independent
@@ -242,7 +242,9 @@ describe("mediaAssetExists", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 });

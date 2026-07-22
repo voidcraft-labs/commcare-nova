@@ -55,7 +55,9 @@ describe("searchInputTypeMatchesPropertyType", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain('"date" widget');
 		expect(hits[0].message).toContain("case_name");
@@ -106,7 +108,9 @@ describe("searchInputTypeMatchesPropertyType", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -155,7 +159,9 @@ describe("searchInputTypeMatchesPropertyType", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -205,7 +211,9 @@ describe("searchInputTypeMatchesPropertyType", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 });

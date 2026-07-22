@@ -88,7 +88,11 @@ describe("mutationCommitVerdict", () => {
 			} as Mutation,
 		];
 
-		const verdict = mutationCommitVerdict(doc, mutations, LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(true);
 		const updated = Object.values(verdict.nextDoc.fields).find(
 			(fl) => fl.id === "village",
@@ -102,15 +106,19 @@ describe("mutationCommitVerdict", () => {
 		const column = doc.modules[moduleUuid].caseListConfig?.columns[0];
 		if (!column) throw new Error("fixture must have a case-list column");
 
-		const noResults = mutationCommitVerdict(doc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: column.uuid,
-				column: { ...column, visibleInList: false },
-				visibilityPatch: { surface: "list", visible: false },
-			},
-		], LOOKUP_CONTEXT_UNAVAILABLE);
+		const noResults = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: column.uuid,
+					column: { ...column, visibleInList: false },
+					visibilityPatch: { surface: "list", visible: false },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(noResults.ok).toBe(false);
 		if (!noResults.ok) {
 			expect(noResults.introduced.map((finding) => finding.code)).toContain(
@@ -118,15 +126,19 @@ describe("mutationCommitVerdict", () => {
 			);
 		}
 
-		const noDetails = mutationCommitVerdict(doc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: column.uuid,
-				column: { ...column, visibleInDetail: false },
-				visibilityPatch: { surface: "detail", visible: false },
-			},
-		], LOOKUP_CONTEXT_UNAVAILABLE);
+		const noDetails = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: column.uuid,
+					column: { ...column, visibleInDetail: false },
+					visibilityPatch: { surface: "detail", visible: false },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(noDetails.ok).toBe(true);
 	});
 
@@ -146,7 +158,11 @@ describe("mutationCommitVerdict", () => {
 			} as Mutation,
 		];
 
-		const verdict = mutationCommitVerdict(doc, mutations, LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.length).toBeGreaterThan(0);
@@ -171,7 +187,11 @@ describe("mutationCommitVerdict", () => {
 			},
 		];
 
-		const verdict = mutationCommitVerdict(doc, mutations, LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain("EMPTY_FORM");
@@ -214,9 +234,11 @@ describe("mutationCommitVerdict", () => {
 			],
 		});
 
-		const verdict = mutationCommitVerdict(broken, [
-			{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" },
-		], LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			broken,
+			[{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(true);
 	});
 
@@ -230,7 +252,9 @@ describe("mutationCommitVerdict", () => {
 
 	it("prepares reducer-minted identities once and evaluation never re-applies", () => {
 		const doc = minDoc();
-		const target = Object.values(doc.fields).find((field) => field.id === "village");
+		const target = Object.values(doc.fields).find(
+			(field) => field.id === "village",
+		);
 		if (target === undefined) throw new Error("fixture village field missing");
 		const randomUuid = vi
 			.spyOn(globalThis.crypto, "randomUUID")
@@ -365,11 +389,15 @@ describe("stored-reference bounce prose", () => {
 	it("rename bounce on a plain-text leaf names the carrier and the re-commit repair", () => {
 		const doc = docWithReference(true);
 		// Valid as it stands — the raw leaf's target exists.
-		expect(mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(true);
+		expect(mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(
+			true,
+		);
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "renameField", uuid: village?.uuid as never, newId: "town" },
-		], LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		const message = describeIntroducedErrors(verdict.introduced);
@@ -384,9 +412,11 @@ describe("stored-reference bounce prose", () => {
 	it("delete bounce on an identity reference names the carrier, never the bare uuid", () => {
 		const doc = docWithReference(false);
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "removeField", uuid: village?.uuid as never },
-		], LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "removeField", uuid: village?.uuid as never }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		const message = describeIntroducedErrors(verdict.introduced);
@@ -401,9 +431,11 @@ describe("stored-reference bounce prose", () => {
 	it("a same-batch rename of a resolved reference still lands (identity needs no repair)", () => {
 		const doc = docWithReference(false);
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "renameField", uuid: village?.uuid as never, newId: "town" },
-		], LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		// The identity leaf re-prints under the new name — nothing dangles.
 		expect(verdict.ok).toBe(true);
 	});

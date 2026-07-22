@@ -5,17 +5,14 @@ import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
 	extractLookupReferenceOccurrences,
 	extractLookupReferenceTargets,
+	type LookupReferenceExtractorRegistry,
 	lookupReferenceTargetsFromOccurrences,
 	normalizeLookupReferenceTargetSet,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
-	type LookupReferenceExtractorRegistry,
 	unionLookupReferenceTargetSets,
 } from "@/lib/doc/lookupReferences";
 import { asUuid } from "@/lib/domain";
-import type {
-	LookupColumnId,
-	LookupTableId,
-} from "@/lib/domain/lookupIds";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 
 const tableId = (suffix: string) =>
 	`00000000-0000-7000-8000-${suffix.padStart(12, "0")}` as LookupTableId;
@@ -61,14 +58,20 @@ describe("lookup reference extraction", () => {
 						subpath: ["value", 1],
 						tableId: tableId("2"),
 						columnId: columnId("2"),
-						acceptedColumnTypes: ["decimal", "int", "decimal"],
-						location: { scope: "field", fieldUuid: asUuid("carrier-b") },
+						acceptedColumnTypes: ["decimal", "int", "decimal"] as const,
+						location: {
+							scope: "field" as const,
+							fieldUuid: asUuid("carrier-b"),
+						},
 					},
 					{
 						carrierUuid: asUuid("carrier-a"),
 						subpath: ["value", 0],
 						tableId: tableId("1"),
-						location: { scope: "module", moduleUuid: asUuid("carrier-a") },
+						location: {
+							scope: "module" as const,
+							moduleUuid: asUuid("carrier-a"),
+						},
 					},
 				],
 			},
@@ -177,9 +180,7 @@ describe("lookup reference target normalization", () => {
 
 		expect(union).toEqual({
 			tableIds: [tableId("1"), tableId("2")],
-			columnTargets: [
-				{ tableId: tableId("1"), columnId: columnId("1") },
-			],
+			columnTargets: [{ tableId: tableId("1"), columnId: columnId("1") }],
 		});
 		expect(normalizeLookupReferenceTargetSet({})).toBe(
 			EMPTY_LOOKUP_REFERENCE_TARGETS,

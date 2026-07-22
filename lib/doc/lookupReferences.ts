@@ -14,10 +14,7 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import type {
-	LookupColumnId,
-	LookupTableId,
-} from "@/lib/domain/lookupIds";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type {
 	LookupDataType,
 	LookupRevision,
@@ -35,9 +32,10 @@ export type LookupValidationContext =
 	| { readonly kind: "unavailable" };
 
 /** The explicit context for a client/test that has no definition snapshot. */
-export const LOOKUP_CONTEXT_UNAVAILABLE: LookupValidationContext = Object.freeze({
-	kind: "unavailable",
-});
+export const LOOKUP_CONTEXT_UNAVAILABLE: LookupValidationContext =
+	Object.freeze({
+		kind: "unavailable",
+	});
 
 export type LookupReferenceValidationScope =
 	| "app"
@@ -116,9 +114,7 @@ export interface ExtractedLookupReference {
 /** One immutable structural carrier walker. */
 export interface LookupReferenceExtractor {
 	readonly registrySlot: string;
-	readonly extract: (
-		doc: BlueprintDoc,
-	) => readonly ExtractedLookupReference[];
+	readonly extract: (doc: BlueprintDoc) => readonly ExtractedLookupReference[];
 }
 
 export type LookupReferenceExtractorRegistry =
@@ -269,9 +265,7 @@ export function normalizeLookupReferenceTargetSet(
 		return EMPTY_LOOKUP_REFERENCE_TARGETS;
 	}
 
-	const normalizedTableIds = Object.freeze(
-		[...tableIds].sort(compareStrings),
-	);
+	const normalizedTableIds = Object.freeze([...tableIds].sort(compareStrings));
 	const normalizedColumnTargets = Object.freeze(
 		[...columnsByKey.values()].sort(
 			(a, b) =>
@@ -312,8 +306,7 @@ export function lookupReferenceTargetsFromOccurrences(
  */
 export function extractLookupReferenceTargets(
 	doc: BlueprintDoc,
-	registry: LookupReferenceExtractorRegistry =
-		PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+	registry: LookupReferenceExtractorRegistry = PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 ): LookupReferenceTargetSet {
 	return lookupReferenceTargetsFromOccurrences(
 		extractLookupReferenceOccurrences(doc, registry),

@@ -1107,7 +1107,9 @@ async function applyOp(
 /** The invariant: once the first module landed, the doc has NO findings. */
 function assertZeroFindings(doc: BlueprintDoc, context: string): void {
 	if (doc.moduleOrder.length === 0) return;
-	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => `${e.code}: ${e.message}`);
+	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+		(e) => `${e.code}: ${e.message}`,
+	);
 	expect.soft(findings, context).toEqual([]);
 	if (findings.length > 0) {
 		throw new Error(

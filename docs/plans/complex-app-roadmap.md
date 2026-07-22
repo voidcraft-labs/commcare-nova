@@ -1,8 +1,8 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-22 against Nova
-> `07c45ef6`; S01 and S02a shipped, and S02b is owned from that merged
-> `main`. This file
+> `07c45ef6`; S01 and S02a shipped, and S02b is in review on its dedicated
+> branch from that merged `main`. This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
@@ -387,12 +387,14 @@ deletion, the app-move saga, the dedicated listener's exact-fit connection budge
 the builder EventSource cursor, the Server Action body boundary, and fractional
 ordering. S01a shipped as PR #295 at `18aa7566`, including production migration
 execution `commcare-nova-migrate-lbzk2` and Cloud Run revision
-`commcare-nova-00350-xgz`; its branch and worktree are cleaned. Fresh worktree
-`agent/s01b-lookup-stream` owns S01b from that merged `main`, so the two review
-units have no stacked-branch dependency. The frozen S01 contract remains in
-progress until S01b ships; delegation remains bounded by the review units below.
+`commcare-nova-00350-xgz`. S01b shipped through PR #296 plus rolling-handoff
+hotfix PR #297 at `7422c4c2`; build `4a6ab710` ran migration
+`commcare-nova-migrate-clvkd` before healthy 100%-traffic revision
+`commcare-nova-00351-dcq`. Production probes and error logs passed, and every S01
+branch/worktree was cleaned. The review units below now record the delivered
+contract rather than active delegation.
 
-S01 is delivered as two review units so persistence/authorization and long-lived
+S01 was delivered as two review units so persistence/authorization and long-lived
 stream behavior are independently understandable and leak-gated:
 
 1. **S01a — storage and write boundary:** additive migration, `lib/lookup`, typed
@@ -716,8 +718,9 @@ S02a shipped as PR #298 at squash `07c45ef6`: Cloud Build
 `commcare-nova-migrate-cccx4` successfully before deploying healthy 100%-traffic
 revision `commcare-nova-00352-gpk`; production probes and the post-deploy error
 query passed, and its branches/worktrees were cleaned. Fresh branch
-`agent/s02b` owns S02b from that merged `main`. S02 remains `in progress` until
-S02b and S02c separately pass review, CI, deployment verification, and cleanup.
+`agent/s02b` now carries the verified S02b implementation from that merged
+`main` and is in review. S02 remains `in progress` until S02b and S02c
+separately pass review, CI, deployment verification, and cleanup.
 
 #### Identity, context, and extraction
 
@@ -1060,7 +1063,7 @@ S02 ships in three sequential review units from merged `main`:
    app uniqueness/indexes, and the database writer-version trigger active at
    floor `0`. It adds no production extractor or edge writer, and old code with
    no transaction setting continues as version `0`. **Shipped in PR #298.**
-2. **S02b — validation and authoritative writes (`agent/s02b`, in progress):**
+2. **S02b — validation and authoritative writes (`agent/s02b`, in review):**
    an empty production target-extractor registry, shared edge materializer plus seeded harness, apply-once
    candidate preparation, consistent context threading, the atomic-creation
    exception, exact-set replacement across every existing app writer, explicit
@@ -1380,6 +1383,21 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-22 — S02b implementation review:** Integrated the required lookup
+  context/finding identity through every validation boundary; exact edge
+  replacement, same-transaction Project reauthorization, apply-once candidate
+  preparation, deterministic synthetic history, and dormant empty-only Project
+  moves through every authoritative app writer; closed schema-governance
+  internals; the three-mode export preparation boundary; and the read-only
+  fleet edge scanner. The scanner includes soft-deleted apps, compares
+  structural and stored targets from one read-only repeatable-read snapshot,
+  and exposes `--prod` without a repair path. Typecheck and scoped Biome passed;
+  the leak detector passed 14 pure files / 141 tests and 9 shared-Postgres files
+  / 101 tests with one worker; scanner, inspector, and repair-script import/help
+  smokes passed. Independent writer, export, and final integrated reviews found
+  no actionable issue. PR, CI, deployment verification, the production
+  zero-carrier scan, and cleanup remain open, so S02b is not yet shipped and
+  S02c remains closed.
 - **2026-07-22 — S02a shipped / S02b owned:** PR #298 shipped the distinct
   lookup identities, rows-free definition snapshot, dormant exact-reference and
   stream-lease storage, compatibility floors/flags, and database writer guard at

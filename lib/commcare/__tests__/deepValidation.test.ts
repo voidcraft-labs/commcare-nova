@@ -1,5 +1,5 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type CaseType } from "@/lib/domain";
 import {
 	buildDoc,
@@ -1348,7 +1348,9 @@ describe("INVALID_REF stored-reference classification", () => {
 		);
 		expect(deepErr?.error.storedRef).toBe("raw-text");
 
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
+			(e) => e.code === "INVALID_REF",
+		);
 		expect(rendered?.message).toContain('Field "total"');
 		expect(rendered?.message).toContain("plain text");
 		expect(rendered?.message).toContain("re-commit");
@@ -1370,7 +1372,9 @@ describe("INVALID_REF stored-reference classification", () => {
 		);
 		expect(deepErr?.error.storedRef).toBe("dangling-identity");
 
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
+			(e) => e.code === "INVALID_REF",
+		);
 		// The carrier + slot are the find-it handle; the uuid is not a path
 		// a person can look up, so it must not appear in the prose.
 		expect(rendered?.message).toContain('Field "total"');
@@ -1393,7 +1397,9 @@ describe("INVALID_REF stored-reference classification", () => {
 			}),
 			f({ kind: "hidden", id: "total", calculate: xp("#form/score") }),
 		]);
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
+			(e) => e.code === "INVALID_REF",
+		);
 		expect(rendered?.message).toContain("`#form/grp/score`");
 		expect(rendered?.message).toContain("did you mean");
 		expect(rendered?.message).not.toContain("re-commit");
@@ -1409,7 +1415,9 @@ describe("INVALID_REF stored-reference classification", () => {
 				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
 		);
 		expect(deepErr?.error.storedRef).toBeUndefined();
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find((e) => e.code === "INVALID_REF");
+		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
+			(e) => e.code === "INVALID_REF",
+		);
 		expect(rendered?.message).toContain("Check for a typo");
 	});
 });

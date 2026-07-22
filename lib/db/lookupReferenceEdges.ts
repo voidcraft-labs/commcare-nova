@@ -1,14 +1,14 @@
 import { type Kysely, sql, type Transaction } from "kysely";
+import type { AppDatabase } from "@/lib/db/pg";
 import {
-	normalizeLookupReferenceTargetSet,
 	type LookupReferenceTargetSet,
+	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import {
+	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
-	type LookupTableId,
 } from "@/lib/domain/lookupIds";
-import type { AppDatabase } from "@/lib/db/pg";
 
 /** A caller-owned handle for package-private edge scans; opens no transaction. */
 export type LookupReferenceReadExecutor =

@@ -13,7 +13,7 @@
  * round-trip-checked). This is the exact shape the deployed code reads.
  *
  * What is evaluated: the full validator at full scope — the same
- * evaluation `collectBoundaryViolations` performs MINUS the media-asset
+ * evaluation `collectExportBoundaryViolations` performs MINUS the media-asset
  * manifest arm (asset existence / readiness / kind and the export byte
  * budget). Asset state is environment, not blueprint content, so the
  * media arm runs as its own opt-in pass: `--media` resolves each app's

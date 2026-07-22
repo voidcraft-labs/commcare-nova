@@ -102,7 +102,9 @@ function docWithFilter(
 }
 
 function csqlFindings(doc: ReturnType<typeof docWithFilter>) {
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE);
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+		(error) => error.code === CODE,
+	);
 }
 
 function docWithAdvancedPredicate(predicate: Predicate) {
@@ -182,13 +184,18 @@ describe("csqlPredicateRepresentability", () => {
 		const rejected = mutationCommitVerdict(
 			searchable,
 			mutation(searchable.moduleOrder[0]),
-		, LOOKUP_CONTEXT_UNAVAILABLE);
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(rejected.ok).toBe(false);
 		if (rejected.ok) throw new Error("Expected search-backed edit to fail");
 		expect(rejected.introduced.map((error) => error.code)).toContain(CODE);
 
 		expect(
-			mutationCommitVerdict(onDevice, mutation(onDevice.moduleOrder[0]), LOOKUP_CONTEXT_UNAVAILABLE).ok,
+			mutationCommitVerdict(
+				onDevice,
+				mutation(onDevice.moduleOrder[0]),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
 		).toBe(true);
 	});
 
@@ -445,7 +452,9 @@ describe("csqlPredicateRepresentability", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === CODE,
+		);
 		expect(hits).toHaveLength(2);
 		const inputHit = hits.find(
 			(error) => error.details?.inputUuid === inputUuid,
@@ -478,9 +487,11 @@ describe("csqlPredicateRepresentability", () => {
 			eq(prop("patient", "age"), prop("patient", "score")),
 		);
 
-		const boundaryHits = evaluateBoundary(doc, new Map(), LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
+		const boundaryHits = evaluateBoundary(
+			doc,
+			new Map(),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).filter((error) => error.code === CODE);
 		expect(boundaryHits).toHaveLength(1);
 		expect(classifyError(CODE)).toBe("soundness");
 	});

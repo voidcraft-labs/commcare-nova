@@ -1,4 +1,3 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * fast-check arbitrary that generates schema-valid `BlueprintDoc`s for the
  * XForm oracle fuzzer.

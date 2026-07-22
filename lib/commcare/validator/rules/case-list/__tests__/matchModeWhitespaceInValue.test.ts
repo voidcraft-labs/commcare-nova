@@ -60,7 +60,9 @@ describe("matchModeWhitespaceInValue", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain('"Alice Smith"');
 		expect(hits[0].message).toContain("fuzzy");
@@ -88,7 +90,9 @@ describe("matchModeWhitespaceInValue", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("phonetic");
 	});
@@ -110,7 +114,9 @@ describe("matchModeWhitespaceInValue", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -135,7 +141,9 @@ describe("matchModeWhitespaceInValue", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -169,7 +177,9 @@ describe("matchModeWhitespaceInValue", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain('"Alice Smith"');
 		expect(hits[0].message).toContain("multi-select-contains");
@@ -195,7 +205,9 @@ describe("matchModeWhitespaceInValue", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -220,7 +232,9 @@ describe("matchModeWhitespaceInValue", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 });

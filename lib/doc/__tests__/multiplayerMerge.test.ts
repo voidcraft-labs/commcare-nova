@@ -278,7 +278,11 @@ describe("granular catalog merges", () => {
 				}) as unknown as Field,
 			},
 		];
-		const verdict = mutationCommitVerdict(freshDoc, batch, LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			freshDoc,
+			batch,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(
@@ -1029,7 +1033,11 @@ describe("disjoint collection edits merge", () => {
 				uuid: asUuid(field.options[0].uuid as string),
 			},
 		];
-		const verdict = mutationCommitVerdict(doc, batch, LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			doc,
+			batch,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(
@@ -1446,7 +1454,11 @@ describe("every case_property_on surface declares the type", () => {
 		const withoutDeclare = scaffold.mutations.filter(
 			(m) => m.kind !== "declareCaseType",
 		);
-		const rejected = mutationCommitVerdict(doc, withoutDeclare, LOOKUP_CONTEXT_UNAVAILABLE);
+		const rejected = mutationCommitVerdict(
+			doc,
+			withoutDeclare,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(rejected.ok).toBe(false);
 		if (!rejected.ok) {
 			expect(
@@ -1458,7 +1470,10 @@ describe("every case_property_on surface declares the type", () => {
 
 		// The shipped builder batch (declare included) passes the gate — the form
 		// is created, not 409'd.
-		expect(mutationCommitVerdict(doc, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(true);
+		expect(
+			mutationCommitVerdict(doc, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE)
+				.ok,
+		).toBe(true);
 	});
 });
 
@@ -2111,9 +2126,13 @@ describe("case-search marker merges", () => {
 				(s) => s.uuid,
 			),
 		).toEqual([peerInputUuid]);
-		expect(mutationCommitVerdict(apply(doc, peerBatch), staleDisable, LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(
-			true,
-		);
+		expect(
+			mutationCommitVerdict(
+				apply(doc, peerBatch),
+				staleDisable,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(true);
 	});
 
 	it("the diff emits semantic marker transitions instead of wholesale writes", () => {
@@ -2472,7 +2491,11 @@ describe("Search-input rename merges", () => {
 			),
 		).toBe(true);
 
-		const verdict = mutationCommitVerdict(current, [staleRename], LOOKUP_CONTEXT_UNAVAILABLE);
+		const verdict = mutationCommitVerdict(
+			current,
+			[staleRename],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) throw new Error("expected duplicate-name rejection");
 		expect(

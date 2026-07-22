@@ -1,20 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
-	LOOKUP_CONTEXT_UNAVAILABLE,
 	type ExtractedLookupReference,
+	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupReferenceExtractorRegistry,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
-import type {
-	LookupColumnId,
-	LookupTableId,
-} from "@/lib/domain/lookupIds";
-import type {
-	LookupRevision,
-	LookupTableDefinition,
-} from "@/lib/lookup/types";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { errorIdentity, evaluateCommit } from "../gate";
 import { validateLookupReferences } from "../lookupReferences";
 import { runValidation } from "../runner";
@@ -154,9 +148,9 @@ describe("lookup reference validation", () => {
 
 	it("enforces the extractor-owned accepted column type set", () => {
 		const doc = buildDoc();
-		expect(
-			lookupFindings(doc, availableContext([definition("text")])),
-		).toEqual([]);
+		expect(lookupFindings(doc, availableContext([definition("text")]))).toEqual(
+			[],
+		);
 
 		const findings = lookupFindings(
 			doc,

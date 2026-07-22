@@ -1,8 +1,8 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type Field, type Uuid } from "@/lib/domain";
@@ -248,7 +248,9 @@ describe("errorIdentity", () => {
 
 	it("is unchanged by an unrelated edit elsewhere in the doc", () => {
 		const doc = docWithEmptyForm();
-		const before = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity).sort();
+		const before = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+			.map(errorIdentity)
+			.sort();
 		// Unrelated edit: rename the registration form's field — a different
 		// form from the one carrying the EMPTY_FORM finding. The rename keeps
 		// the same id, so nothing about the doc's findings changes.
@@ -256,7 +258,9 @@ describe("errorIdentity", () => {
 		const edited = apply(doc, [
 			{ kind: "renameField", uuid: fieldUuid, newId: "case_name" },
 		]);
-		const after = runValidation(edited, LOOKUP_CONTEXT_UNAVAILABLE).map(errorIdentity).sort();
+		const after = runValidation(edited, LOOKUP_CONTEXT_UNAVAILABLE)
+			.map(errorIdentity)
+			.sort();
 		expect(after).toEqual(before);
 	});
 
@@ -406,7 +410,10 @@ describe("diffIntroduced", () => {
 			},
 		]);
 		expect(
-			diffIntroduced(runValidation(twoEmpty, LOOKUP_CONTEXT_UNAVAILABLE), runValidation(fixedOne, LOOKUP_CONTEXT_UNAVAILABLE)),
+			diffIntroduced(
+				runValidation(twoEmpty, LOOKUP_CONTEXT_UNAVAILABLE),
+				runValidation(fixedOne, LOOKUP_CONTEXT_UNAVAILABLE),
+			),
 		).toEqual([]);
 	});
 
@@ -473,7 +480,9 @@ describe("evaluateCommit", () => {
 				field: textField("fld-bad", "q1", { relevant: "#form/missing = '1'" }),
 			},
 		]);
-		expect(runValidation(broken, LOOKUP_CONTEXT_UNAVAILABLE).length).toBeGreaterThan(0);
+		expect(
+			runValidation(broken, LOOKUP_CONTEXT_UNAVAILABLE).length,
+		).toBeGreaterThan(0);
 		const caseNameField = Object.values(broken.fields).find(
 			(x) => x.id === "case_name",
 		);
@@ -676,7 +685,9 @@ describe("evaluateCommit", () => {
 			],
 		});
 		const registerForm = doc.formOrder[doc.moduleOrder[0]][0];
-		const prevCodes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code);
+		const prevCodes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+			(e) => e.code,
+		);
 		expect(prevCodes).toContain("CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY");
 		const verdict = gateCommit(doc, [
 			{
@@ -792,13 +803,19 @@ describe("evaluateBoundary", () => {
 				media: { image: asAssetId("asset-missing") },
 			},
 		]);
-		const findings = evaluateBoundary(withMedia, new Map(), LOOKUP_CONTEXT_UNAVAILABLE);
+		const findings = evaluateBoundary(
+			withMedia,
+			new Map(),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		const codes = findings.map((e) => e.code);
 		expect(codes).toContain("EMPTY_FORM");
 		expect(codes).toContain("MEDIA_ASSET_NOT_FOUND");
 	});
 
 	it("returns nothing for a valid doc", () => {
-		expect(evaluateBoundary(minDoc(), new Map(), LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(
+			evaluateBoundary(minDoc(), new Map(), LOOKUP_CONTEXT_UNAVAILABLE),
+		).toEqual([]);
 	});
 });

@@ -23,7 +23,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
  * ## What "the boundary view" means here
  *
  * `evaluateLegacyFindings` runs the full validator at full scope — the
- * exact evaluation `collectBoundaryViolations` performs MINUS the
+ * exact evaluation `collectExportBoundaryViolations` performs MINUS the
  * media-asset manifest arm (asset existence / readiness / kind, and the
  * export byte budget). Asset state is environment, not blueprint
  * content, and media readiness is being fixed at its own source.
@@ -1395,7 +1395,11 @@ export function repairApp(
 			settled.add(identity);
 			continue;
 		}
-		const gate = mutationCommitVerdict(working, plan.mutations, LOOKUP_CONTEXT_UNAVAILABLE);
+		const gate = mutationCommitVerdict(
+			working,
+			plan.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		if (!gate.ok) {
 			rejected.push({
 				finding: next,

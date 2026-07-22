@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
-	normalizeLookupReferenceTargetSet,
 	type LookupReferenceTargetSet,
+	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import {
 	lookupColumnIdSchema,

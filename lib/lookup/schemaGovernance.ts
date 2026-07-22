@@ -256,8 +256,7 @@ async function lockEnabledCompatibility(
 		.forShare()
 		.executeTakeFirst();
 	if (
-		!compatibility ||
-		!compatibility.destructive_schema_actions_enabled ||
+		!compatibility?.destructive_schema_actions_enabled ||
 		declaredWriterVersion < compatibility.minimum_writer_version
 	) {
 		throw new LookupSchemaGovernanceError(

@@ -70,7 +70,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("`select` widget type");
 		expect(hits[0].message).toContain("status_q");
@@ -119,7 +121,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -165,7 +169,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -229,7 +235,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(2);
 		const offenders = hits.map((h) => h.details?.inputName).sort();
 		expect(offenders).toEqual(["region_q", "status_q"]);
@@ -265,7 +273,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 				},
 			],
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 });

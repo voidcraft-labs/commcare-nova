@@ -51,9 +51,9 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`At the label media on field "case_name" in form "Reg", the slot expects an image but the attached asset is audio/mpeg. Replace it with an image file, or clear the slot.`,
@@ -99,9 +99,9 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`At the help-text media on field "case_name" in form "Reg", the slot expects an audio but the attached asset is image/png. Replace it with an audio file, or clear the slot.`,
@@ -143,9 +143,9 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`At the label media on field "case_name" in form "Reg", the slot expects a video but the attached asset is image/png. Replace it with a video file, or clear the slot.`,
@@ -188,9 +188,9 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`At the icon on module "Patients", the slot expects an image but the attached asset is audio/mpeg. Replace it with an image file, or clear the slot.`,
@@ -233,9 +233,9 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toBe(
 			`At the audio label on module "Patients", the slot expects an audio but the attached asset is image/png. Replace it with an audio file, or clear the slot.`,
@@ -284,9 +284,9 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets: manifest }).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+			mediaAssets: manifest,
+		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
 });
