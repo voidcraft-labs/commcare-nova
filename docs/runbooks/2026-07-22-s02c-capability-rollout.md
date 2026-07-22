@@ -54,9 +54,19 @@ Each lease uses a database-minted connection UUID. The server never accepts a
 client-asserted connection identity.
 
 `lib/db/streamReceiverCapabilities.ts` implements this calculation as a pure
-server-side boundary. Browser URL emission, stream-route registration, and
-lease persistence are separate wiring commits; this module alone does not make
-an active connection registry.
+server-side boundary. The stream route now authenticates first, then registers
+the admitted receiver and a database-minted UUID in one app + serialized fresh
+membership + compatibility transaction. PostgreSQL statement time authors the
+lease after lock waits and expiry is exactly 3,900 seconds later. A below-floor
+request creates no lease or subscription and receives only a seq-less
+`client-upgrade-required` revocation. Teardown disowns the stream first and then
+best-effort deletes that exact app/connection lease; expiry covers a crash or
+failed cleanup. Cadence reauthorizes the captured Project/role/canEdit tuple but
+does not re-read the floor, so a floor raise affects new connections only.
+
+Browser EventSource URL emission remains separate client wiring. Until that
+lands, existing browser bundles omit the parameter and therefore declare v0;
+all compatibility floors remain 0, so this is intentionally non-activating.
 
 ## Build behavior in S02c1
 

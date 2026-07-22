@@ -1140,10 +1140,17 @@ two run-liveness fields to its legacy minute-valued API without authoring either
 value. Cloud Build validates the manifest and bakes its generated declarations
 into the image; Next's two required static route literals and the writer
 declaration are guarded against drift. The pure server receiver resolver now
-enforces exact-one browser parsing and the browser/compiled/deployed minimum;
-browser URL emission, route registration, and lease persistence remain separate
-wiring commits. This foundation does **not** label a revision, change traffic,
-raise a floor, or enable a flag. S02c2 owns the no-traffic candidate,
+enforces exact-one browser parsing and the browser/compiled/deployed minimum.
+The stream route uses it after session authentication and registers a
+database-minted lease in the same app, membership, and compatibility lock set;
+below-floor requests receive only the terminal seq-less upgrade revocation.
+Lease timestamps use PostgreSQL statement time after lock wait, teardown
+deletes the exact lease only after disowning the transport, cadence compares the
+captured Project/role/canEdit tuple without re-reading the floor, and migration
+delivery reauthorizes before advancing its cursor. Browser EventSource URL
+emission remains the separate client wiring commit, so current bundles still
+declare v0 by omission. This foundation does **not** label a revision, change
+traffic, raise a floor, or enable a flag. S02c2 owns the no-traffic candidate,
 manifest-label verification, `--timeout` pin, and guarded cutover/rollback
 controller.
 

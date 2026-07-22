@@ -147,6 +147,19 @@ expiry; it is rollout state, not lookup data or blueprint state.
 requires exactly one strict browser `receiverVersion`, clamps compiled support
 to the strictly parsed deployed environment, requires stream registry v1 on
 both sides, and admits the minimum browser/server receiver version.
+`streamCapabilityLeases.ts` owns the stateful half. Registration composes
+`apps FOR SHARE` -> serialized fresh Project membership/view authorization ->
+compatibility `FOR SHARE` -> floor verdict/lease insert in one transaction.
+Postgres mints the UUID and derives `created_at` plus the exact manifest TTL
+from statement time after lock waits. A below-floor request has no lease or
+stream setup; the route returns only a seq-less `client-upgrade-required`
+revocation. An admitted stream captures Project/role/canEdit and reloads when
+that tuple changes, but cadence reauthorization deliberately does not read the
+receiver floor, so raising it cannot evict an already-admitted connection.
+Migration rows reauthorize before advancing their private cursor; transient
+failure leaves the row pending for retry. Teardown disowns subscriptions,
+pumps, timers, and transport first, then best-effort deletes the exact
+app/connection lease; expiry is the crash fallback.
 
 `lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
 stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags
