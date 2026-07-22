@@ -30,8 +30,10 @@ import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSearch from "@iconify-icons/tabler/search";
 import {
 	Activity,
+	createContext,
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -40,7 +42,6 @@ import {
 } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
-import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
 import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import {
 	AlertDialog,
@@ -97,8 +98,9 @@ import {
 	type Predicate,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { useNavigate } from "@/lib/routing/hooks";
-import { useAppId, useCanEdit } from "@/lib/session/hooks";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import type { Location } from "@/lib/routing/types";
+import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
@@ -140,12 +142,6 @@ import type { WorkspaceSelection } from "./workspaceSelection";
 
 /** Which canvas is showing — derived from the URL location kind. */
 export type CaseListWorkspaceTab = "search" | "list" | "detail";
-
-export interface CaseListConfigWorkspaceProps {
-	/** The module whose case list is being authored. */
-	readonly moduleUuid: Uuid;
-	readonly tab: CaseListWorkspaceTab;
-}
 
 type SearchInputRemovalReviewSession =
 	| {
@@ -327,48 +323,61 @@ function surfaceDisplayName(surface: ColumnSurface): "Results" | "Details" {
 	return surface === "list" ? "Results" : "Details";
 }
 
-// ── Top-level component ───────────────────────────────────────────
+// ── Controller ────────────────────────────────────────────────────
+//
+// The workspace controller runs ONCE, mounted above the builder row by
+// `CaseListWorkspaceProvider` (wired in `BuilderProvider`). The center canvas
+// (`CaseListWorkspaceCanvas`, in the preview shell) and the right-rail inspector
+// are two CONSUMERS of this one controller — so the inspector body lives in the
+// always-mounted rail and rides it off-screen during a preview flip without
+// unmounting (the scroll-survives-for-free guarantee chat and the app tree
+// already have). Selection is retained per module across navigation because the
+// controller never unmounts; it resets when the module identity changes.
 
-export function CaseListConfigWorkspace({
-	moduleUuid,
-	tab,
-}: CaseListConfigWorkspaceProps) {
-	/* WorkspaceBody is intentionally keyed by module identity, but scroll is
-	 * friendlier when returning to a module. Keep this ephemeral map one level
-	 * above the keyed body; same-module tab switches are preserved by Activity,
-	 * while these offsets bridge a module unmount/remount. */
-	const scrollPositions = useRef(new Map<string, number>());
-	/* Key the body by module so selection state can't leak across
-	 * modules — the Activity boundary keeps ONE workspace instance
-	 * alive while the URL's module changes under it. */
-	return (
-		<WorkspaceBody
-			key={moduleUuid}
-			moduleUuid={moduleUuid}
-			tab={tab}
-			scrollPositions={scrollPositions}
-		/>
-	);
+/** The URL location kinds that open a case-list workspace, mapped to the tab. */
+function caseListTarget(
+	loc: Location,
+): { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null {
+	switch (loc.kind) {
+		case "cases":
+			return { moduleUuid: loc.moduleUuid, tab: "list" };
+		case "search-config":
+			return { moduleUuid: loc.moduleUuid, tab: "search" };
+		case "detail-config":
+			return { moduleUuid: loc.moduleUuid, tab: "detail" };
+		default:
+			return null;
+	}
 }
 
-interface WorkspaceBodyProps extends CaseListConfigWorkspaceProps {
-	readonly scrollPositions: { readonly current: Map<string, number> };
-}
+function useController(
+	target: { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null,
+) {
+	/* Retain the last case-list module + tab so navigating away and back keeps
+	 * the selection (this controller never unmounts). Sticky `tab` also keeps the
+	 * tab-change deselect below from firing on a mere navigation away. */
+	const stickyModuleRef = useRef<Uuid>(target?.moduleUuid ?? ("" as Uuid));
+	if (target) stickyModuleRef.current = target.moduleUuid;
+	const moduleUuid = stickyModuleRef.current;
+	const stickyTabRef = useRef<CaseListWorkspaceTab>(target?.tab ?? "list");
+	if (target) stickyTabRef.current = target.tab;
+	const tab = stickyTabRef.current;
 
-function WorkspaceBody({
-	moduleUuid,
-	tab,
-	scrollPositions,
-}: WorkspaceBodyProps) {
 	const mod = useModule(moduleUuid);
 	/* The EFFECTIVE view — the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
-	const appId = useAppId() ?? "";
-	const compactHeight = useIsBreakpoint("max", 360, "height");
 	const navigate = useNavigate();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
+	/* This controller lives ABOVE the preview boundary, so entering preview does
+	 * not navigate — `target` stays a case-list URL and the retained selection
+	 * survives, invisibly, behind the running app. Gate the Escape shortcut below
+	 * on this so it stands down in preview (Escape must exit preview, not clear a
+	 * hidden selection). */
+	const previewing = usePreviewing();
+	const active =
+		target !== null && mod !== undefined && mod.caseType !== undefined;
 
 	const caseType = mod?.caseType;
 	const config = mod?.caseListConfig ?? EMPTY_CONFIG;
@@ -405,6 +414,31 @@ function WorkspaceBody({
 	const searchOverviewScrollRef = useRef<number | null>(null);
 	const pendingSearchOverviewScrollRef = useRef<number | null>(null);
 	const searchConditionReturnFrameRef = useRef<number | null>(null);
+	/* The controller never unmounts, so a module change must drop ALL of this
+	 * module-scoped transient state by hand or it leaks into the next module:
+	 * retained selection, an open removal review, pending focus intents, and the
+	 * search-overview scroll offsets (a stale offset would jump the next module's
+	 * search list to the wrong place). The async-invalidation tokens are
+	 * monotonic and deliberately NOT reset. */
+	const prevModuleRef = useRef(moduleUuid);
+	if (prevModuleRef.current !== moduleUuid) {
+		prevModuleRef.current = moduleUuid;
+		if (sel !== null) setSel(null);
+		if (inputRemovalReview !== null) setInputRemovalReview(null);
+		if (searchButtonConditionFocusRequest !== undefined) {
+			setSearchButtonConditionFocusRequest(undefined);
+		}
+		if (workspaceAnnouncement !== "") setWorkspaceAnnouncement("");
+		pendingCanvasFocusRef.current = null;
+		pendingSearchFocusRef.current = null;
+		pendingInspectorFocusRef.current = null;
+		searchOverviewScrollRef.current = null;
+		pendingSearchOverviewScrollRef.current = null;
+		if (searchConditionReturnFrameRef.current !== null) {
+			cancelAnimationFrame(searchConditionReturnFrameRef.current);
+			searchConditionReturnFrameRef.current = null;
+		}
+	}
 	const openSearchCondition = useCallback(
 		(
 			target: Extract<
@@ -490,29 +524,6 @@ function WorkspaceBody({
 		if (target !== null) markInspectorReturnFocus(target);
 		leaveSearchCondition(null);
 	}, [leaveSearchCondition, sel, tab]);
-	const scrollBodyRefs = useMemo(() => {
-		const bind =
-			(kind: CaseListWorkspaceTab) => (node: HTMLDivElement | null) => {
-				if (node === null) return;
-				const key = `${moduleUuid}:${kind}`;
-				node.scrollTop = scrollPositions.current.get(key) ?? 0;
-				return () => {
-					scrollPositions.current.set(key, node.scrollTop);
-				};
-			};
-		return {
-			search: bind("search"),
-			list: bind("list"),
-			detail: bind("detail"),
-		};
-	}, [moduleUuid, scrollPositions]);
-	const rememberScroll = useCallback(
-		(kind: CaseListWorkspaceTab, scrollTop: number) => {
-			scrollPositions.current.set(`${moduleUuid}:${kind}`, scrollTop);
-		},
-		[moduleUuid, scrollPositions],
-	);
-
 	/* Tab switches deselect — covers in-app tab clicks AND browser
 	 * back/forward, since both arrive as a `tab` prop change. */
 	const prevTabRef = useRef(tab);
@@ -647,15 +658,17 @@ function WorkspaceBody({
 	 * matched key, and later registrations win) so it layers over the
 	 * builder-layout shortcuts and stays quiet while an input or
 	 * CodeMirror editor has focus. Registered only while something is
-	 * selected so a bare Escape still reaches the layout-level handler. */
+	 * selected AND the workspace is actually on-screen (not behind a
+	 * preview flip) so a bare Escape reaches the layout-level handler and,
+	 * in preview, exits preview instead of clearing a hidden selection. */
 	useKeyboardShortcuts(
 		"case-list-workspace",
 		useMemo(
 			() =>
-				sel !== null
+				active && !previewing && sel !== null
 					? [{ key: "Escape", handler: closeSelectionAndRestoreFocus }]
 					: [],
-			[sel, closeSelectionAndRestoreFocus],
+			[active, previewing, sel, closeSelectionAndRestoreFocus],
 		),
 	);
 
@@ -1148,135 +1161,335 @@ function WorkspaceBody({
 		[commitMany, moduleUuid],
 	);
 
-	// `currentCaseType` is required below. When the module has no case
-	// type this URL shouldn't surface — guard defensively so a
-	// deletion-in-flight URL doesn't crash.
-	if (!mod || caseType === undefined) return null;
-
 	// ── Inspector resolution ──
-
-	const inspector = resolveInspector({
-		sel,
-		activeTab: tab,
-		config,
-		searchConfig,
-		caseTypes,
-		caseType,
-		onSearchConfigChange: updateSearchConfig,
-		replaceColumn,
-		replaceInput,
-		onEditInputCondition: (uuid) =>
-			openSearchCondition({ kind: "input", uuid }),
-		onEditSearchButtonCondition: editSearchButtonCondition,
-		searchSettingsHasError: searchButtonConditionBroken,
-		onHideColumn: hideColumnFromSurface,
-		onDeleteColumn: deleteColumn,
-		onRemoveInput: removeInput,
-		inputRemovalReview,
-		onStartInputRemovalReview: startInputRemovalReview,
-		onCancelInputRemovalReview: cancelInputRemovalReview,
-		onCompleteInputRemovalReview: completeInputRemovalReview,
-		onReviewInputRemovalDependency: reviewInputRemovalDependency,
-	});
-
-	/* A bare case-list module has no separate module screen, so its settings
-	 * remain reachable from every workspace tab. Keep that action in the ONE
-	 * existing tab row; the breadcrumb and structure tree already carry the
-	 * module identity, so repeating an editable title here only adds chrome. */
-	const moduleSettings: ReactNode = mod.caseListOnly ? (
-		<ModuleSettingsButton moduleUuid={moduleUuid} />
-	) : null;
-
+	//
+	// Computed only while the workspace is actually on-screen (`active`). When
+	// it isn't — the module has no case type, or the URL moved on while the
+	// controller is retained — there is nothing to inspect and the rail shows
+	// chat. `caseType` is re-narrowed here (a bare `active` boolean can't do it).
+	let inspector: { kicker: string; title: string; body: ReactNode } | null =
+		null;
 	let searchConditionSurface: ReactNode = null;
-	if (sel?.type === "search-condition") {
-		if (sel.target.kind === "input") {
-			const inputUuid = sel.target.uuid;
-			const input = config.searchInputs.find(
-				(candidate) => candidate.uuid === inputUuid,
-			);
-			if (input?.kind === "advanced") {
-				const dependencyReview =
-					inputRemovalReview?.phase === "target" &&
-					inputRemovalReview.dependency.kind === "search-field-condition" &&
-					inputRemovalReview.dependency.inputUuid === input.uuid
-						? {
-								token: inputRemovalReview.token,
-								path: inputRemovalReview.dependency.paths[0],
-								inputLabel: inputRemovalReview.inputLabel,
+	let resultsDependencyReview: CaseListCanvasProps["dependencyReview"];
+	if (active && mod !== undefined && caseType !== undefined) {
+		inspector = resolveInspector({
+			sel,
+			activeTab: tab,
+			config,
+			searchConfig,
+			caseTypes,
+			caseType,
+			onSearchConfigChange: updateSearchConfig,
+			replaceColumn,
+			replaceInput,
+			onEditInputCondition: (uuid) =>
+				openSearchCondition({ kind: "input", uuid }),
+			onEditSearchButtonCondition: editSearchButtonCondition,
+			searchSettingsHasError: searchButtonConditionBroken,
+			onHideColumn: hideColumnFromSurface,
+			onDeleteColumn: deleteColumn,
+			onRemoveInput: removeInput,
+			inputRemovalReview,
+			onStartInputRemovalReview: startInputRemovalReview,
+			onCancelInputRemovalReview: cancelInputRemovalReview,
+			onCompleteInputRemovalReview: completeInputRemovalReview,
+			onReviewInputRemovalDependency: reviewInputRemovalDependency,
+		});
+
+		if (sel?.type === "search-condition") {
+			if (sel.target.kind === "input") {
+				const inputUuid = sel.target.uuid;
+				const input = config.searchInputs.find(
+					(candidate) => candidate.uuid === inputUuid,
+				);
+				if (input?.kind === "advanced") {
+					const dependencyReview =
+						inputRemovalReview?.phase === "target" &&
+						inputRemovalReview.dependency.kind === "search-field-condition" &&
+						inputRemovalReview.dependency.inputUuid === input.uuid
+							? {
+									token: inputRemovalReview.token,
+									path: inputRemovalReview.dependency.paths[0],
+									inputLabel: inputRemovalReview.inputLabel,
+								}
+							: undefined;
+					searchConditionSurface = (
+						<SearchConditionCanvas
+							context={{
+								kind: "input",
+								label:
+									input.label ||
+									labelFromProperty(input.name) ||
+									"this search field",
+							}}
+							value={input.predicate}
+							onChange={(predicate) =>
+								replaceInput(input.uuid, { ...input, predicate })
 							}
-						: undefined;
+							onBack={
+								dependencyReview === undefined
+									? () =>
+											returnFromSearchCondition({
+												type: "input",
+												uuid: input.uuid,
+											})
+									: returnToInputRemovalReview
+							}
+							caseTypes={caseTypes}
+							currentCaseType={caseType}
+							knownInputs={searchInputDecls(config.searchInputs)}
+							dependencyReview={dependencyReview}
+						/>
+					);
+				}
+			} else if (searchConfig?.searchButtonDisplayCondition !== undefined) {
 				searchConditionSurface = (
 					<SearchConditionCanvas
-						context={{
-							kind: "input",
-							label:
-								input.label ||
-								labelFromProperty(input.name) ||
-								"this search field",
+						context={{ kind: "search-button" }}
+						value={searchConfig.searchButtonDisplayCondition}
+						onChange={(searchButtonDisplayCondition) =>
+							updateSearchConfig({
+								...searchConfig,
+								searchButtonDisplayCondition,
+							})
+						}
+						onBack={() => {
+							setSearchButtonConditionFocusRequest(undefined);
+							returnFromSearchCondition({ type: "search-panel" });
 						}}
-						value={input.predicate}
-						onChange={(predicate) =>
-							replaceInput(input.uuid, { ...input, predicate })
-						}
-						onBack={
-							dependencyReview === undefined
-								? () =>
-										returnFromSearchCondition({
-											type: "input",
-											uuid: input.uuid,
-										})
-								: returnToInputRemovalReview
-						}
 						caseTypes={caseTypes}
 						currentCaseType={caseType}
-						knownInputs={searchInputDecls(config.searchInputs)}
-						dependencyReview={dependencyReview}
+						focusRequest={searchButtonConditionFocusRequest}
 					/>
 				);
 			}
-		} else if (searchConfig?.searchButtonDisplayCondition !== undefined) {
-			searchConditionSurface = (
-				<SearchConditionCanvas
-					context={{ kind: "search-button" }}
-					value={searchConfig.searchButtonDisplayCondition}
-					onChange={(searchButtonDisplayCondition) =>
-						updateSearchConfig({
-							...searchConfig,
-							searchButtonDisplayCondition,
-						})
-					}
-					onBack={() => {
-						setSearchButtonConditionFocusRequest(undefined);
-						returnFromSearchCondition({ type: "search-panel" });
-					}}
-					caseTypes={caseTypes}
-					currentCaseType={caseType}
-					focusRequest={searchButtonConditionFocusRequest}
-				/>
-			);
+		}
+		if (
+			inputRemovalReview?.phase === "target" &&
+			inputRemovalReview.dependency.kind === "cases-available"
+		) {
+			resultsDependencyReview = {
+				kind: "cases-available",
+				token: inputRemovalReview.token,
+				path: inputRemovalReview.dependency.paths[0],
+				inputLabel: inputRemovalReview.inputLabel,
+			};
+		} else if (
+			inputRemovalReview?.phase === "target" &&
+			inputRemovalReview.dependency.kind === "assigned-cases"
+		) {
+			resultsDependencyReview = {
+				kind: "assigned-cases",
+				token: inputRemovalReview.token,
+				inputLabel: inputRemovalReview.inputLabel,
+			};
 		}
 	}
-	let resultsDependencyReview: CaseListCanvasProps["dependencyReview"];
-	if (
-		inputRemovalReview?.phase === "target" &&
-		inputRemovalReview.dependency.kind === "cases-available"
-	) {
-		resultsDependencyReview = {
-			kind: "cases-available",
-			token: inputRemovalReview.token,
-			path: inputRemovalReview.dependency.paths[0],
-			inputLabel: inputRemovalReview.inputLabel,
+
+	return {
+		active,
+		moduleUuid,
+		tab,
+		announcement: workspaceAnnouncement,
+		isBareCaseList: mod?.caseListOnly ?? false,
+		inspector,
+		onClose: closeSelectionAndRestoreFocus,
+		config,
+		searchConfig,
+		effectiveSearchConfig,
+		caseTypes,
+		caseType: caseType ?? "",
+		ct,
+		sel,
+		setSel,
+		brokenColumns,
+		errorAreas,
+		filterBroken,
+		excludedOwnerIdsBroken,
+		searchButtonConditionBroken,
+		addDisabledReason,
+		opensResultsAutomatically,
+		searchConditionSurface,
+		resultsDependencyReview,
+		configureSearchAction,
+		addInput,
+		moveInput,
+		addColumn,
+		addCalculatedColumn,
+		moveColumn,
+		updateColumns,
+		showColumn,
+		routeColumnToRepair,
+		updateFilter,
+		clearFilter,
+		updateExcludedOwnerIds,
+		returnToInputRemovalReview,
+	};
+}
+
+// ── Context + provider ────────────────────────────────────────────
+
+type CaseListWorkspace = ReturnType<typeof useController>;
+
+const CaseListWorkspaceContext = createContext<CaseListWorkspace | null>(null);
+
+/**
+ * Read the single case-list workspace controller. Non-null for the whole life of
+ * the builder (the provider always mounts it); `controller.active` is false until
+ * a case-list URL is open. Consumed by the center canvas, which needs the full
+ * controller — inspector-only consumers use `useCaseListInspector` so they don't
+ * re-render on every controller change.
+ */
+export function useCaseListWorkspace(): CaseListWorkspace | null {
+	return useContext(CaseListWorkspaceContext);
+}
+
+/**
+ * The slice the right rail + layout consume: just the resolved inspector
+ * descriptor and its close handler. Split from the full controller context so
+ * the rail (chat) and layout don't re-render on every workspace change — while
+ * the workspace is off-screen `inspector` is a stable `null`, so this value's
+ * identity holds and its consumers stay put.
+ */
+interface CaseListInspectorSlice {
+	readonly inspector: CaseListWorkspace["inspector"];
+	readonly onClose: CaseListWorkspace["onClose"];
+}
+
+const CaseListInspectorContext = createContext<CaseListInspectorSlice | null>(
+	null,
+);
+
+export function useCaseListInspector(): CaseListInspectorSlice | null {
+	return useContext(CaseListInspectorContext);
+}
+
+/**
+ * Mounts the workspace controller ONCE, above the builder row (wired in
+ * `BuilderProvider`), so the center canvas and the right-rail inspector share one
+ * instance. It renders `ActiveHost` UNCONDITIONALLY — the child element type must
+ * stay stable, because swapping it (e.g. gating the controller behind a
+ * first-visit flag) remounts the whole `children` subtree, severing chat's live
+ * run. The controller is simply inert (`active` false) until a case-list URL
+ * opens, and module changes reset selection inside it.
+ */
+export function CaseListWorkspaceProvider({
+	children,
+}: {
+	children: ReactNode;
+}) {
+	const loc = useLocation();
+	const target = caseListTarget(loc);
+	return <ActiveHost target={target}>{children}</ActiveHost>;
+}
+
+function ActiveHost({
+	target,
+	children,
+}: {
+	target: { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null;
+	children: ReactNode;
+}) {
+	const value = useController(target);
+	const { inspector, onClose } = value;
+	const inspectorSlice = useMemo(
+		() => ({ inspector, onClose }),
+		[inspector, onClose],
+	);
+	return (
+		<CaseListWorkspaceContext.Provider value={value}>
+			<CaseListInspectorContext.Provider value={inspectorSlice}>
+				{children}
+			</CaseListInspectorContext.Provider>
+		</CaseListWorkspaceContext.Provider>
+	);
+}
+
+// ── Canvas (center) ───────────────────────────────────────────────
+//
+// The composition surface for the active workspace — a consumer of the shared
+// controller, mounted by `PreviewShell` (which Activity-hides it during a
+// preview flip, when the running CaseListScreen takes over). The inspector body
+// is NOT rendered here; the rail renders it from `controller.inspector`.
+
+export function CaseListWorkspaceCanvas() {
+	const ws = useCaseListWorkspace();
+	const navigate = useNavigate();
+	const appId = useAppId() ?? "";
+	const compactHeight = useIsBreakpoint("max", 360, "height");
+	/* Bridge each tab body's scroll across a module unmount/remount; same-module
+	 * tab switches keep their scroll via the Activity boundaries below. */
+	const scrollPositions = useRef(new Map<string, number>());
+	const moduleUuid = ws?.moduleUuid;
+	const scrollBodyRefs = useMemo(() => {
+		const bind =
+			(kind: CaseListWorkspaceTab) => (node: HTMLDivElement | null) => {
+				if (node === null || moduleUuid === undefined) return;
+				const key = `${moduleUuid}:${kind}`;
+				node.scrollTop = scrollPositions.current.get(key) ?? 0;
+				return () => {
+					scrollPositions.current.set(key, node.scrollTop);
+				};
+			};
+		return {
+			search: bind("search"),
+			list: bind("list"),
+			detail: bind("detail"),
 		};
-	} else if (
-		inputRemovalReview?.phase === "target" &&
-		inputRemovalReview.dependency.kind === "assigned-cases"
-	) {
-		resultsDependencyReview = {
-			kind: "assigned-cases",
-			token: inputRemovalReview.token,
-			inputLabel: inputRemovalReview.inputLabel,
-		};
-	}
+	}, [moduleUuid]);
+	const rememberScroll = useCallback(
+		(kind: CaseListWorkspaceTab, scrollTop: number) => {
+			if (moduleUuid === undefined) return;
+			scrollPositions.current.set(`${moduleUuid}:${kind}`, scrollTop);
+		},
+		[moduleUuid],
+	);
+
+	// Guard the deletion-in-flight window: a peer cleared the case type on the
+	// module this URL points at (dropping caseListConfig with it), before
+	// LocationRecoveryEffect degrades the URL. `ws.caseType` is `caseType ?? ""`,
+	// so `=== ""` means "no case type" — render nothing rather than stand the
+	// whole workspace up against EMPTY_CONFIG with live mutation controls and no
+	// case type behind them. Deliberately NOT gated on `active` (which also goes
+	// false on navigate-away): the sticky module keeps rendering while
+	// Activity-hidden so its scroll survives. (`ws` is non-null for the builder's
+	// whole life.)
+	if (ws === null || ws.caseType === "") return null;
+	const {
+		tab,
+		errorAreas,
+		isBareCaseList,
+		announcement,
+		searchConditionSurface,
+		config,
+		searchConfig,
+		effectiveSearchConfig,
+		caseTypes,
+		caseType,
+		ct,
+		sel,
+		setSel,
+		brokenColumns,
+		filterBroken,
+		excludedOwnerIdsBroken,
+		searchButtonConditionBroken,
+		addDisabledReason,
+		opensResultsAutomatically,
+		resultsDependencyReview,
+		configureSearchAction,
+		addInput,
+		moveInput,
+		addColumn,
+		addCalculatedColumn,
+		moveColumn,
+		updateColumns,
+		showColumn,
+		routeColumnToRepair,
+		updateFilter,
+		clearFilter,
+		updateExcludedOwnerIds,
+		returnToInputRemovalReview,
+	} = ws;
 
 	return (
 		<div className="case-list-workspace @container flex h-full min-h-0 flex-col overflow-hidden">
@@ -1286,19 +1499,23 @@ function WorkspaceBody({
 				aria-live="polite"
 				aria-atomic="true"
 			>
-				{workspaceAnnouncement}
+				{announcement}
 			</p>
 			<WorkspaceTabs
-				moduleSettings={moduleSettings}
+				moduleSettings={
+					isBareCaseList ? (
+						<ModuleSettingsButton moduleUuid={ws.moduleUuid} />
+					) : null
+				}
 				compactHeight={compactHeight}
 				tab={tab}
 				errorAreas={errorAreas}
 				onSelectTab={(next) => {
 					/* Tabs are no-ops when already active. */
 					if (next === tab) return;
-					if (next === "search") navigate.openSearchConfig(moduleUuid);
-					else if (next === "list") navigate.openCaseList(moduleUuid);
-					else navigate.openDetailConfig(moduleUuid);
+					if (next === "search") navigate.openSearchConfig(ws.moduleUuid);
+					else if (next === "list") navigate.openCaseList(ws.moduleUuid);
+					else navigate.openDetailConfig(ws.moduleUuid);
 				}}
 			/>
 
@@ -1402,16 +1619,6 @@ function WorkspaceBody({
 					</div>
 				</Activity>
 			</div>
-
-			{inspector !== null && (
-				<InspectorSurface
-					kicker={inspector.kicker}
-					title={inspector.title}
-					onClose={closeSelectionAndRestoreFocus}
-				>
-					{inspector.body}
-				</InspectorSurface>
-			)}
 		</div>
 	);
 }

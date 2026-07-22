@@ -38,7 +38,7 @@
 "use client";
 import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
 import {
-	CaseListConfigWorkspace,
+	CaseListWorkspaceCanvas,
 	type CaseListWorkspaceTab,
 } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
@@ -346,10 +346,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="CaseListConfigWorkspace"
 					>
-						<CaseListConfigWorkspace
-							moduleUuid={caseListWorkspaceRef.current.moduleUuid}
-							tab={caseListWorkspaceRef.current.tab}
-						/>
+						<CaseListWorkspaceCanvas />
 					</Activity>
 				)}
 				{dataReviewRef.current && (

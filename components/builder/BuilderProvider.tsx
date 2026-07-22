@@ -10,7 +10,8 @@
  *   BuilderSessionProvider      — lifecycle + ephemeral UI state
  *   ScrollRegistryProvider      — imperative scroll plumbing
  *   EditGuardProvider           — select-guard predicate stack
- *   InspectorProvider           — right-rail inspector claim/portal state
+ *   CaseListWorkspaceProvider   — the single case-list workspace controller,
+ *                                 shared by the center canvas + the right rail
  *   BuilderFormEngineProvider   — form preview runtime controller
  *     SyncBridge                — wires doc store ref into session store
  *     LocationRecoveryEffect    — repairs stale URL selection mid-session
@@ -26,6 +27,7 @@
 "use client";
 
 import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
@@ -38,7 +40,6 @@ import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
 } from "@/lib/session/provider";
-import { InspectorProvider } from "@/lib/ui/inspector";
 
 // ── Provider ────────────────────────────────────────────────────────────
 
@@ -127,14 +128,14 @@ function BuilderProviderInner({
 	const inner = (
 		<ScrollRegistryProvider>
 			<EditGuardProvider>
-				<InspectorProvider>
+				<CaseListWorkspaceProvider>
 					<BuilderFormEngineProvider>
 						<SyncBridge />
 						<LocationRecoveryEffect />
 						{initialDoc ? <LoadAppHydrator /> : null}
 						{children}
 					</BuilderFormEngineProvider>
-				</InspectorProvider>
+				</CaseListWorkspaceProvider>
 			</EditGuardProvider>
 		</ScrollRegistryProvider>
 	);

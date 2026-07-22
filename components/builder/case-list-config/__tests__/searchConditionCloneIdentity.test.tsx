@@ -22,7 +22,11 @@ import {
 	lt,
 	prop,
 } from "@/lib/domain/predicate";
-import { CaseListConfigWorkspace } from "../CaseListConfigWorkspace";
+import {
+	CaseListWorkspaceCanvas,
+	CaseListWorkspaceProvider,
+	useCaseListWorkspace,
+} from "../CaseListConfigWorkspace";
 
 const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000001");
 const INPUT_UUID = asUuid("00000000-0000-4000-8000-000000000011");
@@ -48,6 +52,9 @@ const mutationApi = vi.hoisted(() => ({
 	moveSearchInputToIndex: vi.fn(),
 	updateModule: vi.fn(),
 }));
+/* The workspace controller reads its module + tab from the URL; the harness
+ * below feeds them here so the mocked `useLocation` reports the right screen. */
+const harness = vi.hoisted(() => ({ moduleUuid: "" }));
 
 vi.mock("@/lib/doc/hooks/useEntity", () => ({
 	useModule: (uuid: string) => testStore.doc?.modules[uuid],
@@ -82,10 +89,15 @@ vi.mock("@/lib/routing/hooks", () => ({
 		openCaseList: vi.fn(),
 		openDetailConfig: vi.fn(),
 	}),
+	useLocation: () => ({
+		kind: "search-config",
+		moduleUuid: harness.moduleUuid,
+	}),
 }));
 vi.mock("@/lib/session/hooks", () => ({
 	useAppId: () => "app-1",
 	useCanEdit: () => true,
+	usePreviewing: () => false,
 }));
 vi.mock("@/lib/ui/hooks/useIsBreakpoint", () => ({
 	useIsBreakpoint: () => false,
@@ -96,11 +108,6 @@ vi.mock("@/lib/ui/hooks/useKeyboardShortcuts", () => ({
 vi.mock("@/components/builder/ContentFrame", () => ({
 	ContentFrame: ({ children }: { readonly children: ReactNode }) => (
 		<div>{children}</div>
-	),
-}));
-vi.mock("@/components/builder/inspector/InspectorSurface", () => ({
-	InspectorSurface: ({ children }: { readonly children: ReactNode }) => (
-		<aside>{children}</aside>
 	),
 }));
 vi.mock("../canvas/SearchCanvas", () => ({
@@ -189,6 +196,31 @@ function makeDoc(): BlueprintDoc {
 			},
 		],
 	});
+}
+
+/* The workspace is now split into a shared controller (mounted by
+ * `CaseListWorkspaceProvider`, reading the URL) feeding the center canvas and
+ * the right-rail inspector. This harness reunites them, standing in for the old
+ * single `CaseListConfigWorkspace` component. */
+function HarnessInspector() {
+	const ws = useCaseListWorkspace();
+	if (!ws?.inspector) return null;
+	return <aside>{ws.inspector.body}</aside>;
+}
+
+function CaseListConfigWorkspace({
+	moduleUuid,
+}: {
+	moduleUuid: ReturnType<typeof asUuid>;
+	tab: "search";
+}) {
+	harness.moduleUuid = moduleUuid;
+	return (
+		<CaseListWorkspaceProvider>
+			<CaseListWorkspaceCanvas />
+			<HarnessInspector />
+		</CaseListWorkspaceProvider>
+	);
 }
 
 function ReducerBackedWorkspace() {

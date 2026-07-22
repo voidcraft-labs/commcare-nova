@@ -17,11 +17,10 @@
 /**
  * Find a specific field element within the selected field's inspector.
  *
- * The field inspector docks in the right rail (portaled there by
- * `FieldInspectorSurface`), so it's no longer a sibling of the canvas row.
- * We locate its body by the stable `data-field-inspector` uuid tag — not by
- * field `id`, so the lookup survives renames — then match the requested
- * property by `data-field-id`.
+ * The field inspector docks in the right rail (rendered there from the URL
+ * selection), not as a sibling of the canvas row. We locate its body by the
+ * stable `data-field-inspector` uuid tag — not by field `id`, so the lookup
+ * survives renames — then match the requested property by `data-field-id`.
  *
  * Returns `null` when the inspector is not mounted (no current selection) or
  * when the requested property doesn't exist in the current inspector view.
