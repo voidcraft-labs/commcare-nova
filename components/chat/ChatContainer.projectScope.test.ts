@@ -1,11 +1,90 @@
 import { describe, expect, it } from "vitest";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
+	authoritativeThreadActivationOptions,
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
+	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
+	parseCreatedAppActivation,
 	retireProjectAttachmentRefs,
 } from "./ChatContainer";
+
+describe("authoritative thread activation", () => {
+	it("passes through the actor-bound holder nonce and clears it when omitted", () => {
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-paused",
+					holder_nonce: "00000000-0000-4000-8000-000000000001",
+					active_stream_id: "stream-live",
+				},
+				true,
+			),
+		).toEqual({
+			runId: "run-paused",
+			holderNonce: "00000000-0000-4000-8000-000000000001",
+			resume: true,
+			redrive: false,
+			buildResume: true,
+		});
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-terminal",
+					active_stream_id: null,
+				},
+				false,
+			),
+		).toMatchObject({ holderNonce: undefined, resume: false, redrive: false });
+		expect(
+			authoritativeThreadActivationOptions(
+				{
+					run_id: "run-already-redriven",
+					active_stream_id: null,
+					resume_interrupted: true,
+				},
+				true,
+				{ allowRedrive: false },
+			),
+		).toMatchObject({ redrive: false, buildResume: false });
+	});
+});
+
+describe("new-app Project handoff", () => {
+	it("keeps the Project seeded by /build/new instead of a later active-Project cookie", () => {
+		const buildNewSession = {
+			appId: undefined,
+			projectId: "project-seeded-before-cross-tab-switch",
+		};
+
+		expect(expectedProjectIdForChatRequest(buildNewSession)).toBe(
+			"project-seeded-before-cross-tab-switch",
+		);
+		expect(
+			expectedProjectIdForChatRequest({
+				appId: "existing-app",
+				projectId: "project-does-not-ride-existing-app-requests",
+			}),
+		).toBeUndefined();
+	});
+
+	it("accepts only a complete authoritative activation receipt", () => {
+		const receipt = {
+			appId: "app-1",
+			projectId: "project-1",
+			role: "editor",
+			canEdit: true,
+			baseSeq: 0,
+		};
+
+		expect(parseCreatedAppActivation(receipt)).toEqual(receipt);
+		expect(
+			parseCreatedAppActivation({ ...receipt, role: undefined }),
+		).toBeNull();
+		expect(parseCreatedAppActivation({ ...receipt, baseSeq: -1 })).toBeNull();
+	});
+});
 
 describe("retireProjectAttachmentRefs", () => {
 	it("preserves app-owned text/model metadata but removes all Project asset details", () => {

@@ -301,9 +301,13 @@ export interface Reconciler {
 	onDataDone(args: { doc: PersistableDoc; seq: number }): void;
 	/** Set the tab's active run id (from `data-run-id`), before any frame. */
 	setSelfActiveRunId(runId: string | undefined): void;
-	/** Activate a dormant reconciler once the new build's app id is minted
-	 *  (`data-app-id`): seed `{ appId, baseSeq: 0, baseDoc: <current doc> }`. */
-	activate(args: { appId: string; baseDoc: BlueprintDoc }): void;
+	/** Activate a dormant reconciler once the new build's server handoff arrives
+	 *  (`data-app-id`), including its authoritative starting cursor. */
+	activate(args: {
+		appId: string;
+		baseSeq: number;
+		baseDoc: BlueprintDoc;
+	}): void;
 	/** A read-only state snapshot (tests + presence). */
 	getSnapshot(): ReconcilerSnapshot;
 	/**
@@ -1149,9 +1153,13 @@ export function createReconciler(
 	}
 
 	// ── Bootstrap (new build) ────────────────────────────────────────────
-	function activate(args: { appId: string; baseDoc: BlueprintDoc }): void {
+	function activate(args: {
+		appId: string;
+		baseSeq: number;
+		baseDoc: BlueprintDoc;
+	}): void {
 		appId = args.appId;
-		baseSeq = 0;
+		baseSeq = args.baseSeq;
 		confirmedDoc = normalizeConfirmed(args.baseDoc);
 		dormant = false;
 	}

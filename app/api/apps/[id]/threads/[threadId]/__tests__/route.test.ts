@@ -19,6 +19,7 @@ beforeEach(() => {
 	vi.mocked(loadThread).mockResolvedValue({
 		thread_id: "thread-1",
 		messages: [],
+		holder_nonce: "00000000-0000-4000-8000-000000000001",
 	} as never);
 });
 
@@ -31,9 +32,13 @@ describe("GET /api/apps/[id]/threads/[threadId]", () => {
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(resolveAppScope).toHaveBeenCalledWith("app-1", "user-1", "view");
-		expect(loadThread).toHaveBeenCalledWith("app-1", "thread-1");
+		expect(loadThread).toHaveBeenCalledWith("app-1", "thread-1", "user-1");
 		expect(await response.json()).toMatchObject({
-			thread: { thread_id: "thread-1", messages: [] },
+			thread: {
+				thread_id: "thread-1",
+				messages: [],
+				holder_nonce: "00000000-0000-4000-8000-000000000001",
+			},
 		});
 	});
 });

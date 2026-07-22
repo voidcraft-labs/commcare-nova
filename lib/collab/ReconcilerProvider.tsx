@@ -17,8 +17,8 @@
  *
  * A brand-new build mounts DORMANT (no `appId`): no stream opens and human
  * PUTs are disabled until `data-app-id` activates the reconciler (via
- * `activateReconciler`, from the chat wiring), which then opens the stream at
- * cursor 0.
+ * the chat wiring), which then opens the stream at the receipt's authoritative
+ * cursor.
  *
  * Auth rides the session cookie — same-origin `EventSource` + `fetch` carry it
  * automatically; the browser holds no database SDK and no second identity.
@@ -88,8 +88,8 @@ export interface ReconcilerRuntime {
 	 *  ref-cached runtime, so it must fully restore what `suspend` stopped. */
 	start: () => void;
 	/** New-build activation: stamp the minted app id, seed the reconciler, open
-	 *  the stream at cursor 0. No-op if already active. */
-	activate: (appId: string) => void;
+	 *  the stream at the server-provided cursor. No-op if already active. */
+	activate: (appId: string, baseSeq: number) => void;
 	/** Effect cleanup: close the stream + cancel every pending timer and mark
 	 *  the runtime inert so an async continuation (a resolving PUT/reload)
 	 *  can't reopen a stream or schedule work after unmount. Deliberately does
@@ -671,7 +671,7 @@ export function createReconcilerRuntime(
 		deps,
 	);
 
-	function activate(newAppId: string): void {
+	function activate(newAppId: string, baseSeq: number): void {
 		if (appIdBox.current !== undefined) return; // already active
 		appIdBox.current = newAppId;
 		activateBuilderHistoryScope(
@@ -679,8 +679,12 @@ export function createReconcilerRuntime(
 			newAppId,
 			sessionStore.getState().scopeEpoch,
 		);
-		reconciler.activate({ appId: newAppId, baseDoc: docStore.getState() });
-		openStream(0);
+		reconciler.activate({
+			appId: newAppId,
+			baseSeq,
+			baseDoc: docStore.getState(),
+		});
+		openStream(baseSeq);
 	}
 
 	function start(): void {
@@ -696,7 +700,7 @@ export function createReconcilerRuntime(
 		);
 		// An existing app (or a replay of the mount effect after activation)
 		// opens at the reconciler's confirmed cursor; a dormant new build waits
-		// for `activate` to open at 0.
+		// for `activate` to open at the server-provided creation cursor.
 		if (appIdBox.current !== undefined) {
 			openStream(reconciler.getSnapshot().baseSeq);
 		}

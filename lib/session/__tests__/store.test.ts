@@ -938,6 +938,30 @@ describe("generation lifecycle", () => {
 		expect(store.getState()).toBe(prev);
 	});
 
+	it("promotes a created app with its authoritative Project tuple atomically", () => {
+		const store = createBuilderSessionStore({
+			projectId: "project-from-stale-tab",
+			role: "viewer",
+			canEdit: false,
+		});
+		store.getState().beginAccessRefresh();
+
+		store.getState().activateCreatedApp("app-in-seeded-project", {
+			projectId: "project-seeded-by-build-new",
+			role: "editor",
+			canEdit: true,
+		});
+
+		expect(store.getState()).toMatchObject({
+			appId: "app-in-seeded-project",
+			projectId: "project-seeded-by-build-new",
+			role: "editor",
+			canEdit: true,
+			accessPhase: "authorized",
+			hasWaitingAccessChanges: false,
+		});
+	});
+
 	it("setLoading toggles the loading flag", () => {
 		const store = createBuilderSessionStore();
 		expect(store.getState().loading).toBe(false);

@@ -208,6 +208,73 @@ export function chatCallbackCanPublish(
  *  re-drive's run retires the marker), consumed once per activation here. */
 type LoadedThreadDoc = ThreadDoc & { resume_interrupted?: boolean };
 
+/** Authority carried by a server-loaded thread. Every activation must adopt
+ * both values together; an omitted nonce is itself authoritative and clears a
+ * capability retained from an older activation. */
+export function authoritativeThreadActivationOptions(
+	thread: Pick<
+		LoadedThreadDoc,
+		"run_id" | "holder_nonce" | "active_stream_id" | "resume_interrupted"
+	>,
+	appGenerating: boolean,
+	options?: { allowRedrive?: boolean },
+) {
+	const resume = thread.active_stream_id != null;
+	const redrive =
+		!resume &&
+		thread.resume_interrupted === true &&
+		options?.allowRedrive !== false;
+	return {
+		runId: thread.run_id,
+		holderNonce: thread.holder_nonce,
+		resume,
+		redrive,
+		buildResume: (resume || redrive) && appGenerating,
+	};
+}
+
+/** `/build/new` keeps the Project captured by its RSC render even if another
+ * tab later changes the session's active Project cookie. Existing apps are
+ * already scoped by app id and send no creation target. */
+export function expectedProjectIdForChatRequest(session: {
+	appId: string | undefined;
+	projectId: string | undefined;
+}): string | undefined {
+	return session.appId === undefined ? session.projectId : undefined;
+}
+
+export interface CreatedAppActivation {
+	readonly appId: string;
+	readonly projectId: string;
+	readonly role: string;
+	readonly canEdit: boolean;
+	readonly baseSeq: number;
+}
+
+/** Strict boundary for the server's one-shot new-app handoff. Never activate
+ * multiplayer from a partial event: the app id, Project capability, and
+ * confirmed cursor are one authority. */
+export function parseCreatedAppActivation(
+	data: Record<string, unknown>,
+): CreatedAppActivation | null {
+	const { appId, projectId, role, canEdit, baseSeq } = data;
+	if (
+		typeof appId !== "string" ||
+		appId.trim().length === 0 ||
+		typeof projectId !== "string" ||
+		projectId.trim().length === 0 ||
+		typeof role !== "string" ||
+		role.trim().length === 0 ||
+		typeof canEdit !== "boolean" ||
+		typeof baseSeq !== "number" ||
+		!Number.isSafeInteger(baseSeq) ||
+		baseSeq < 0
+	) {
+		return null;
+	}
+	return { appId, projectId, role, canEdit, baseSeq };
+}
+
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  store references — safe across re-renders within the same app session. */
@@ -282,6 +349,7 @@ function createChatInstance(
 			runId: runIdRef.current,
 			holderNonce: holderNonceRef.current,
 			appId: sessionState.appId,
+			expectedProjectId: expectedProjectIdForChatRequest(sessionState),
 			appReady,
 		};
 	};
@@ -404,16 +472,10 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* `data-app-id` is the one-shot identity announcement the server
-			 * emits only on the request that actually minted the app (see
-			 * the `appCreated` gate in app/api/chat/route.ts). Receiving it
-			 * is unambiguous proof that this is the /build/new → /build/{id}
-			 * transition, so we can stamp the session store and rewrite the
-			 * URL without any further checks. Edit requests never emit this
-			 * event, so the handler never runs for them. (A RESUMED build
-			 * replays it: the session setAppId and the URL rewrite are
-			 * idempotent there, and the reconciler provider's `activate`
-			 * no-ops once active.) */
+			/* `data-app-id` is the one-shot authoritative creation handoff. It
+			 * carries identity, Project capability, and cursor together; a replay is
+			 * idempotent, while a partial or cross-scope frame must not activate the
+			 * dormant reconciler. */
 			/* The build finished — sends from this tab are edit-mode from here
 			 * on. One-way latch: without it the `unfinishedBuild` guard in
 			 * `requestFields` re-arms once `acknowledgeCompletion` clears
@@ -425,13 +487,36 @@ function createChatInstance(
 			}
 
 			if (type === "data-app-id") {
-				const newAppId = data.appId as string;
-				sessionApi.getState().setAppId(newAppId);
-				pushBuilderHistory(`/build/${newAppId}`, true);
+				const activation = parseCreatedAppActivation(data);
+				const current = sessionApi.getState();
+				if (activation === null || current.projectId !== activation.projectId) {
+					projectToast(
+						"error",
+						"Reload to finish opening this app",
+						"Nova kept your work in this tab, but couldn't verify the new app's Project scope.",
+						{
+							persistent: true,
+							action: {
+								label: "Reload page",
+								onPress: () => window.location.reload(),
+							},
+						},
+					);
+					return;
+				}
+				sessionApi.getState().activateCreatedApp(activation.appId, {
+					projectId: activation.projectId,
+					role: activation.role,
+					canEdit: activation.canEdit,
+				});
+				pushBuilderHistory(`/build/${activation.appId}`, true);
 				/* Activate the dormant new-build reconciler: seed it at
-				 * `{ appId, baseSeq: 0, baseDoc: current doc }` and open the stream
-				 * at cursor 0, so subsequent chat batches + human edits reconcile. */
-				reconcilerCtxRef.current?.activate(newAppId);
+				 * the receipt's confirmed cursor with the current doc, so subsequent
+				 * chat batches + human edits reconcile. */
+				reconcilerCtxRef.current?.activate(
+					activation.appId,
+					activation.baseSeq,
+				);
 				return;
 			}
 
@@ -823,8 +908,6 @@ export function ChatContainer({
 				const { thread } = (await res.json()) as { thread: LoadedThreadDoc };
 				if (!ownsRead()) return;
 				pendingProjectThreadReloadRef.current = null;
-				const live = thread.active_stream_id != null;
-				const redrive = !live && thread.resume_interrupted === true;
 				setChat(
 					activateThread(
 						{
@@ -834,12 +917,10 @@ export function ChatContainer({
 								pending.retainedMessages,
 							),
 						},
-						{
-							runId: thread.run_id,
-							resume: live,
-							redrive,
-							buildResume: (live || redrive) && appGeneratingRef.current,
-						},
+						authoritativeThreadActivationOptions(
+							thread,
+							appGeneratingRef.current,
+						),
 					),
 				);
 				setThreadScopeReloading(false);
@@ -963,12 +1044,10 @@ export function ChatContainer({
 							threadId: thread.thread_id,
 							messages: thread.messages as NovaUIMessage[],
 						},
-						{
-							runId: thread.run_id,
-							holderNonce: thread.holder_nonce,
-							resume: true,
-							buildResume: appGeneratingRef.current,
-						},
+						authoritativeThreadActivationOptions(
+							thread,
+							appGeneratingRef.current,
+						),
 					),
 				);
 				return;
@@ -990,26 +1069,40 @@ export function ChatContainer({
 							threadId: thread.thread_id,
 							messages: thread.messages as NovaUIMessage[],
 						},
-						{
-							runId: thread.run_id,
-							holderNonce: thread.holder_nonce,
-							redrive: true,
-							buildResume: appGeneratingRef.current,
-						},
+						authoritativeThreadActivationOptions(
+							thread,
+							appGeneratingRef.current,
+						),
 					),
 				);
 				return;
 			}
-			if (thread.messages.length > 0) {
-				setMessages(thread.messages as NovaUIMessage[]);
-			}
+			/* Even a terminal/empty projection authoritatively clears run-holder
+			 * capability. Keep a local optimistic transcript when the server has no
+			 * messages, but re-own it through the same activation seam. */
+			setChat(
+				activateThread(
+					{
+						threadId: thread.thread_id,
+						messages:
+							thread.messages.length > 0
+								? (thread.messages as NovaUIMessage[])
+								: messagesRef.current,
+					},
+					authoritativeThreadActivationOptions(
+						thread,
+						appGeneratingRef.current,
+						{ allowRedrive: false },
+					),
+				),
+			);
 		} catch {
 			/* Best-effort — the conversation still works; the response shows on
 			 * the next open. */
 		} finally {
 			activeThreadReadsRef.current.delete(controller);
 		}
-	}, [chat, setMessages, activateThread]);
+	}, [chat, activateThread]);
 
 	// ── Thread switching ──────────────────────────────────────────────────
 
@@ -1055,27 +1148,20 @@ export function ChatContainer({
 			/* Abort the current thread's client-side stream read (the run — if
 			 * any — continues server-side and stays resumable from its row). */
 			stopRef.current?.();
-			const live = thread.active_stream_id != null;
-			/* This fetch just HEALED a dead marker on the opened thread — the
-			 * same instance-death signal the page load acts on. Re-drive it. */
-			const redrive = !live && thread.resume_interrupted === true;
 			setChat(
 				activateThread(
 					{
 						threadId: thread.thread_id,
 						messages: thread.messages as NovaUIMessage[],
 					},
-					{
-						runId: thread.run_id,
-						holderNonce: thread.holder_nonce,
-						resume: live,
-						redrive,
+					authoritativeThreadActivationOptions(
+						thread,
 						/* `appGenerating` (not thread_type, which freezes at
 						 * creation) is the build-run signal — an edit run resumed
 						 * in the app's original build-typed thread must keep the
 						 * edit-mode capture. */
-						buildResume: (live || redrive) && !!appGenerating,
-					},
+						!!appGenerating,
+					),
 				),
 			);
 			return true;
@@ -1309,12 +1395,14 @@ export function ChatContainer({
 		if (
 			session?.accessPhase !== "authorized" ||
 			!session.canEdit ||
+			!session.projectId ||
 			session.scopeEpoch !== scopeEpoch
 		)
 			return;
+		const expectedProjectId = session.projectId;
 		creatingBlankAppRef.current = true;
 		setCreatingBlankApp(true);
-		createBlankApp().then(
+		createBlankApp(expectedProjectId).then(
 			(result) => {
 				/* The app was created either way; we just no longer own the screen. */
 				if (!mountedRef.current) return;

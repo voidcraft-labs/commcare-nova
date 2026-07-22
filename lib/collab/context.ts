@@ -24,11 +24,11 @@ export interface ReconcilerContextValue {
 	 * Unlike the per-session epoch, it does not collide with another builder
 	 * lifetime that also starts at zero. */
 	readonly projectScopeId: string;
-	/** Activate a dormant reconciler once a new build mints its app id
+	/** Activate a dormant reconciler from the server's new-app handoff
 	 *  (`data-app-id`): the provider stamps the app id on the network deps,
-	 *  seeds the reconciler at `{ appId, baseSeq: 0, baseDoc: current doc }`,
-	 *  and opens the stream at cursor 0. No-op if already active. */
-	activate: (appId: string) => void;
+	 *  seeds the reconciler at the authoritative cursor with the current doc,
+	 *  and opens the stream there. No-op if already active. */
+	activate: (appId: string, baseSeq: number) => void;
 	/** Subscribe to `event: presence` roster frames off the shared stream.
 	 *  Returns an unsubscribe. P7's presence layer is the only consumer; the
 	 *  seam ships in P6 so the single EventSource stays the one transport. */

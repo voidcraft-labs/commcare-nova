@@ -23,7 +23,8 @@ import {
 	turnRetryDelayMs,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { resolveActiveProjectId, resolveOpenAIKey } from "@/lib/auth-utils";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
 import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
@@ -162,6 +163,16 @@ export async function POST(req: Request) {
 		return new Response(JSON.stringify({ error: "Invalid request body" }), {
 			status: 400,
 		});
+	}
+	if (!parsed.data.appId && !parsed.data.expectedProjectId) {
+		return Response.json(
+			{
+				error:
+					"This new-app page is missing its Project scope. Reload the page and try again.",
+				type: "invalid_request",
+			},
+			{ status: 400 },
+		);
 	}
 
 	// Reject an over-length typed message — defense in depth behind the
@@ -358,6 +369,14 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	let createdAppAccess:
+		| {
+				projectId: string;
+				role: string;
+				canEdit: boolean;
+				baseSeq: number;
+		  }
+		| undefined;
 	/* The credit reservation this run booked — set atomically with the claim
 	 * (`claimAndReserveRun` / `reserveForNewBuild`) pre-stream on the free /
 	 * first-claim paths, or inside `execute` after the serialize-with-wait poll
@@ -372,7 +391,7 @@ export async function POST(req: Request) {
 		| Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>["app"]
 		| undefined;
 	/* The app's Project — the media tenant. Set in BOTH branches below (the
-	 * active Project for a new build, the app's Project for an existing one) and
+	 * page-bound expected Project for a new build, the app's Project for an existing one) and
 	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
 	 * Project the documents live in. */
 	let projectId: string | undefined;
@@ -403,16 +422,31 @@ export async function POST(req: Request) {
 	 * (needs `ctx`), uniform across both paused shapes via `reacquireLease`. */
 	let resumeMustCheckSupersede = false;
 	if (!appId) {
-		/* New builds land in the caller's active Project (shared resolver: the
-		 * session's stamped activeOrganizationId, self-healing to the personal
-		 * Project for pre-Projects sessions). Creating an app is a WRITE, so the
-		 * caller must hold the active Project at EDIT — a viewer in a shared
-		 * Project must not create apps there (resolveActiveProjectId only proves
-		 * membership). An AppAccessError is a permission denial (403), not a save
-		 * failure. */
+		const expectedProjectId = parsed.data.expectedProjectId;
+		if (expectedProjectId === undefined) {
+			return Response.json(
+				{
+					error:
+						"This new-app page is missing its Project scope. Reload the page and try again.",
+					type: "invalid_request",
+				},
+				{ status: 400 },
+			);
+		}
+		/* `/build/new` captured this Project in its server-rendered access tuple.
+		 * Another tab may have switched the session's active Project since then;
+		 * bind creation to the captured id and freshly authorize it at EDIT instead
+		 * of re-reading mutable session state. The client supplies no capability —
+		 * role/canEdit below come only from this server-side gate. */
 		try {
-			projectId = await resolveActiveProjectId(keyResult.session);
-			await resolveProjectAccess(userId, projectId, "edit");
+			projectId = expectedProjectId;
+			const access = await resolveProjectAccess(userId, projectId, "edit");
+			createdAppAccess = {
+				projectId,
+				role: access.role,
+				canEdit: roleAllowsApp(access.role, "edit"),
+				baseSeq: 0,
+			};
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -423,7 +457,7 @@ export async function POST(req: Request) {
 					{ status: 403 },
 				);
 			}
-			log.error("[chat] active-Project resolution failed", err);
+			log.error("[chat] expected-Project authorization failed", err);
 			return Response.json(
 				{
 					error: "Unable to save app. Please try again shortly.",
@@ -438,6 +472,15 @@ export async function POST(req: Request) {
 			});
 			appCreated = true;
 		} catch (err) {
+			if (err instanceof CommitReauthError) {
+				return Response.json(
+					{
+						error: "You don't have permission to create apps in this Project.",
+						type: "forbidden",
+					},
+					{ status: 403 },
+				);
+			}
 			log.error("[chat] app creation failed", err);
 			return Response.json(
 				{
@@ -733,19 +776,20 @@ export async function POST(req: Request) {
 					data: { runId: effectiveRunId },
 					transient: true,
 				});
-				/* Announce the freshly-minted appId to the client exactly once, on
-				 * the request that created it, so a new build can promote its URL
+				/* Announce the freshly-minted app and its server-derived access tuple
+				 * to the client exactly once, on the request that created it, so a new
+				 * build can promote its URL
 				 * from `/build/new` to `/build/{appId}`. The client's handler for
 				 * this event unconditionally rewrites the URL to `/build/{appId}`;
 				 * emitting on edit requests would clobber any form/field selection
 				 * segments (e.g. `/build/{id}/{formUuid}/{fieldUuid}`) that the
-				 * user has already navigated into. This is a one-shot identity
-				 * signal, not a save receipt — per-mutation persistence happens
-				 * silently server-side inside the mutation tool handlers. */
-				if (appCreated) {
+				 * user has already navigated into. This is a one-shot creation receipt;
+				 * per-mutation persistence happens silently server-side inside the
+				 * mutation tool handlers. */
+				if (appCreated && createdAppAccess) {
 					writer.write({
 						type: "data-app-id",
-						data: { appId },
+						data: { appId, ...createdAppAccess },
 						transient: true,
 					});
 				}

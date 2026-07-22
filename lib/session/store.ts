@@ -395,6 +395,11 @@ export interface BuilderSessionState {
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
 
+	/** Promote a dormant new-build session using the server's complete creation
+	 * handoff. App identity and Project capability move together so no observer
+	 * can see the new app under the Project tuple seeded by another request. */
+	activateCreatedApp: (id: string, snapshot: BuilderAccessSnapshot) => void;
+
 	/** Pause writes and begin one serialized authoritative access refresh.
 	 *  Returns the current scope epoch; repeated calls while already refreshing
 	 *  or reconnecting coalesce without incrementing it again. */
@@ -719,6 +724,17 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setAppId(id: string) {
 					if (id === get().appId) return;
 					set({ appId: id });
+				},
+
+				activateCreatedApp(id: string, snapshot: BuilderAccessSnapshot) {
+					set({
+						appId: id,
+						projectId: snapshot.projectId,
+						role: snapshot.role,
+						canEdit: snapshot.canEdit,
+						accessPhase: "authorized",
+						hasWaitingAccessChanges: false,
+					});
 				},
 
 				beginAccessRefresh() {

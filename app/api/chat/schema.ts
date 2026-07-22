@@ -22,8 +22,8 @@ export const chatHolderNonceSchema = z.string().uuid();
  * The client sends only ids + signals — never the blueprint. The route LOADS
  * the persisted blueprint server-side off the same authorization read that
  * gates the request, so a per-turn whole-doc upload never crosses the wire.
- * A brand-new build sends no `appId` and the route seeds the SA from an
- * empty doc.
+ * A brand-new build sends no `appId`, carries the Project captured by its RSC
+ * render as `expectedProjectId`, and the route seeds the SA from an empty doc.
  *
  * `messages` is the FULL conversation history of the thread — hydrated from
  * the `threads` row on page load, extended client-side as the session runs.
@@ -46,6 +46,15 @@ export const chatRequestSchema = z.object({
 	holderNonce: chatHolderNonceSchema.optional(),
 	/** App ID — present after first save so subsequent saves update the same doc. */
 	appId: z.string().optional(),
+	/** Project captured by the server-rendered `/build/new` page. New-app
+	 *  creation targets this exact Project after a fresh server-side edit gate;
+	 *  it never re-resolves the session's mutable active Project mid-request. */
+	expectedProjectId: z
+		.string()
+		.min(1)
+		.max(255)
+		.refine((value) => value.trim().length > 0)
+		.optional(),
 	/** True when the app has completed initial generation (builder phase is Ready
 	 *  or Completed). Prevents fresh-edit mode from activating mid-generation
 	 *  when modules exist but the build isn't finished yet. */

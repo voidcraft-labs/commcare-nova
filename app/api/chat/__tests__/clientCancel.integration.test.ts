@@ -226,6 +226,7 @@ function chatRequest(): Request {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			threadId: THREAD,
+			expectedProjectId: PROJECT,
 			messages: [
 				{
 					id: "u1",
@@ -493,7 +494,10 @@ beforeEach(async () => {
 		session: { user: { id: USER } },
 	});
 	resolveActiveProjectIdMock.mockResolvedValue(PROJECT);
-	resolveProjectAccessMock.mockResolvedValue({ projectId: PROJECT });
+	resolveProjectAccessMock.mockResolvedValue({
+		projectId: PROJECT,
+		role: "editor",
+	});
 	projectRoleForInTransactionMock.mockResolvedValue("editor");
 });
 
@@ -590,6 +594,16 @@ describe("mid-run client disconnect", () => {
 			return all.some((row) => row.terminal) ? all : undefined;
 		});
 		const logged = rows.flatMap((row) => row.chunks as UIMessageChunk[]);
+		const creation = logged.find((chunk) => chunk.type === "data-app-id") as
+			| { data: Record<string, unknown> }
+			| undefined;
+		expect(creation?.data).toMatchObject({
+			appId: app.id,
+			projectId: PROJECT,
+			role: "editor",
+			canEdit: true,
+			baseSeq: 0,
+		});
 		const deltas = logged
 			.filter((c) => c.type === "text-delta")
 			.map((c) => (c as { delta: string }).delta)

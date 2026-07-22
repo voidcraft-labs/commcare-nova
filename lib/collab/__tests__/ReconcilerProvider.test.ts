@@ -121,6 +121,45 @@ afterEach(() => {
 });
 
 describe("ReconcilerProvider EventSource ownership", () => {
+	it("activates a dormant build at the server-provided cursor without replacing its doc", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		docStore
+			.getState()
+			.applyMany([{ kind: "setAppName", name: "Built locally" }]);
+		const sessionStore = createBuilderSessionStore({
+			projectId: "project-seeded-by-build-new",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: undefined, baseSeq: 0, userId: "self" },
+			() => {},
+		);
+
+		runtime.start();
+		expect(FakeEventSource.instances).toHaveLength(0);
+		sessionStore.getState().activateCreatedApp("app-created", {
+			projectId: "project-seeded-by-build-new",
+			role: "editor",
+			canEdit: true,
+		});
+		runtime.activate("app-created", 7);
+
+		expect(runtime.reconciler.getSnapshot()).toMatchObject({
+			appId: "app-created",
+			baseSeq: 7,
+		});
+		expect(docStore.getState().appName).toBe("Built locally");
+		expect(FakeEventSource.instances[0]?.url).toBe(
+			"/api/apps/app-created/stream?since=7&receiverVersion=1",
+		);
+		runtime.suspend();
+	});
+
 	it("clears Project-scoped state on reload and ignores the superseded stream", async () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
 		const docStore = createBlueprintDocStore();

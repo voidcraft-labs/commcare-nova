@@ -250,7 +250,10 @@ carrying only the thread id and a SHA-256 nonce digest. The reconnect route
 rehydrates it through the retained-thread/current-holder actor proof. Other
 Project viewers receive the inert marker, so shared replay stays count-identical
 without sharing continuation authority; an old same-run stream's digest also
-cannot resolve to a successor generation.
+cannot resolve to a successor generation. Every client activation from a
+server-loaded thread adopts `run_id` and the optional `holder_nonce` together;
+an omitted nonce authoritatively clears any capability from the prior
+activation rather than retaining it by accident.
 
 `runtimeReaderHolders.ts` is the fail-closed census projection over
 `runLeaseState`: every present holder blocks a higher target when its effective

@@ -1925,12 +1925,13 @@ describe("reconciler", () => {
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Built" }]);
 			h.reconciler.activate({
 				appId: "app-1",
+				baseSeq: 7,
 				baseDoc: h.docStore.getState(),
 			});
 			const snap = h.reconciler.getSnapshot();
 			expect(snap.dormant).toBe(false);
 			expect(snap.appId).toBe("app-1");
-			expect(snap.baseSeq).toBe(0);
+			expect(snap.baseSeq).toBe(7);
 			expect(snap.confirmedDoc.appName).toBe("Built");
 			expect(h.reconciler.canPut()).toBe(true);
 		});
