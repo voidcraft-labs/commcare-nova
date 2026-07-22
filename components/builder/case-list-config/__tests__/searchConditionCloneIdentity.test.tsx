@@ -97,6 +97,7 @@ vi.mock("@/lib/routing/hooks", () => ({
 vi.mock("@/lib/session/hooks", () => ({
 	useAppId: () => "app-1",
 	useCanEdit: () => true,
+	usePreviewing: () => false,
 }));
 vi.mock("@/lib/ui/hooks/useIsBreakpoint", () => ({
 	useIsBreakpoint: () => false,

@@ -100,7 +100,7 @@ import {
 } from "@/lib/domain/predicate";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import type { Location } from "@/lib/routing/types";
-import { useAppId, useCanEdit } from "@/lib/session/hooks";
+import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
@@ -370,6 +370,13 @@ function useController(
 	const navigate = useNavigate();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
+	/* This controller lives ABOVE the preview boundary, so entering preview does
+	 * not navigate — `target` stays a case-list URL and the retained selection
+	 * survives, invisibly, behind the running app. Read previewing so the Escape
+	 * shortcut below can stand down (Escape must exit preview, not clear a hidden
+	 * selection). The old workspace lived inside the preview Activity, which tore
+	 * its keyboard registration down for free; this one must gate explicitly. */
+	const previewing = usePreviewing();
 	const active =
 		target !== null && mod !== undefined && mod.caseType !== undefined;
 
@@ -404,9 +411,17 @@ function useController(
 		readonly path: readonly [];
 		readonly focusTarget: "first-control";
 	}>();
-	/* Module identity changed under the never-unmounting controller — drop the
-	 * previous module's retained selection + review so they can't leak across
-	 * modules (the old keyed-remount reset this for free). */
+	const pendingInspectorFocusRef = useRef<WorkspaceSelection | null>(null);
+	const searchOverviewScrollRef = useRef<number | null>(null);
+	const pendingSearchOverviewScrollRef = useRef<number | null>(null);
+	const searchConditionReturnFrameRef = useRef<number | null>(null);
+	/* Module identity changed under the never-unmounting controller. The old
+	 * keyed remount reset ALL of this module-scoped transient state for free; do
+	 * it by hand so nothing leaks into the next module — retained selection, an
+	 * open removal review, pending focus intents, and the search-overview scroll
+	 * offsets (a stale offset would jump the next module's search list to the
+	 * wrong place). The async-invalidation tokens are monotonic and deliberately
+	 * NOT reset. */
 	const prevModuleRef = useRef(moduleUuid);
 	if (prevModuleRef.current !== moduleUuid) {
 		prevModuleRef.current = moduleUuid;
@@ -415,11 +430,17 @@ function useController(
 		if (searchButtonConditionFocusRequest !== undefined) {
 			setSearchButtonConditionFocusRequest(undefined);
 		}
+		if (workspaceAnnouncement !== "") setWorkspaceAnnouncement("");
+		pendingCanvasFocusRef.current = null;
+		pendingSearchFocusRef.current = null;
+		pendingInspectorFocusRef.current = null;
+		searchOverviewScrollRef.current = null;
+		pendingSearchOverviewScrollRef.current = null;
+		if (searchConditionReturnFrameRef.current !== null) {
+			cancelAnimationFrame(searchConditionReturnFrameRef.current);
+			searchConditionReturnFrameRef.current = null;
+		}
 	}
-	const pendingInspectorFocusRef = useRef<WorkspaceSelection | null>(null);
-	const searchOverviewScrollRef = useRef<number | null>(null);
-	const pendingSearchOverviewScrollRef = useRef<number | null>(null);
-	const searchConditionReturnFrameRef = useRef<number | null>(null);
 	const openSearchCondition = useCallback(
 		(
 			target: Extract<
@@ -639,15 +660,17 @@ function useController(
 	 * matched key, and later registrations win) so it layers over the
 	 * builder-layout shortcuts and stays quiet while an input or
 	 * CodeMirror editor has focus. Registered only while something is
-	 * selected so a bare Escape still reaches the layout-level handler. */
+	 * selected AND the workspace is actually on-screen (not behind a
+	 * preview flip) so a bare Escape reaches the layout-level handler and,
+	 * in preview, exits preview instead of clearing a hidden selection. */
 	useKeyboardShortcuts(
 		"case-list-workspace",
 		useMemo(
 			() =>
-				active && sel !== null
+				active && !previewing && sel !== null
 					? [{ key: "Escape", handler: closeSelectionAndRestoreFocus }]
 					: [],
-			[active, sel, closeSelectionAndRestoreFocus],
+			[active, previewing, sel, closeSelectionAndRestoreFocus],
 		),
 	);
 
@@ -1313,20 +1336,46 @@ type CaseListWorkspace = ReturnType<typeof useController>;
 const CaseListWorkspaceContext = createContext<CaseListWorkspace | null>(null);
 
 /**
- * Read the single case-list workspace controller. `null` until a case-list
- * workspace has been opened this session — the provider mounts the controller
- * lazily on first visit, then keeps it mounted for per-module retention.
+ * Read the single case-list workspace controller. Non-null for the whole life of
+ * the builder (the provider always mounts it); `controller.active` is false until
+ * a case-list URL is open. Consumed by the center canvas, which needs the full
+ * controller — inspector-only consumers use `useCaseListInspector` so they don't
+ * re-render on every controller change.
  */
 export function useCaseListWorkspace(): CaseListWorkspace | null {
 	return useContext(CaseListWorkspaceContext);
 }
 
 /**
+ * The slice the right rail + layout consume: just the resolved inspector
+ * descriptor and its close handler. Split from the full controller context so
+ * the rail (chat) and layout don't re-render on every workspace change — while
+ * the workspace is off-screen `inspector` is a stable `null`, so this value's
+ * identity holds and its consumers stay put.
+ */
+interface CaseListInspectorSlice {
+	readonly inspector: CaseListWorkspace["inspector"];
+	readonly onClose: CaseListWorkspace["onClose"];
+}
+
+const CaseListInspectorContext = createContext<CaseListInspectorSlice | null>(
+	null,
+);
+
+export function useCaseListInspector(): CaseListInspectorSlice | null {
+	return useContext(CaseListInspectorContext);
+}
+
+/**
  * Mounts the workspace controller ONCE, above the builder row (wired in
  * `BuilderProvider`), so the center canvas and the right-rail inspector share one
- * instance. The controller is created on the first case-list visit and never
- * unmounts thereafter — `ActiveHost` is NOT keyed, so `children` (the whole
- * builder) never remount; module changes reset selection inside the controller.
+ * instance. It renders `ActiveHost` UNCONDITIONALLY: a lazy first-visit branch
+ * that swapped the child element type (a bare `Context.Provider` before the first
+ * visit, `ActiveHost` after) would remount the whole `children` subtree — the
+ * chat's live run included — the moment the type changed, defeating the entire
+ * point of hosting the controller here. A stable element type means `children`
+ * never remount; the controller is simply inert (`active` false) until a
+ * case-list URL opens, and module changes reset selection inside it.
  */
 export function CaseListWorkspaceProvider({
 	children,
@@ -1335,15 +1384,7 @@ export function CaseListWorkspaceProvider({
 }) {
 	const loc = useLocation();
 	const target = caseListTarget(loc);
-	const [everVisited, setEverVisited] = useState(false);
-	if (target && !everVisited) setEverVisited(true);
-	return everVisited ? (
-		<ActiveHost target={target}>{children}</ActiveHost>
-	) : (
-		<CaseListWorkspaceContext.Provider value={null}>
-			{children}
-		</CaseListWorkspaceContext.Provider>
-	);
+	return <ActiveHost target={target}>{children}</ActiveHost>;
 }
 
 function ActiveHost({
@@ -1354,9 +1395,16 @@ function ActiveHost({
 	children: ReactNode;
 }) {
 	const value = useController(target);
+	const { inspector, onClose } = value;
+	const inspectorSlice = useMemo(
+		() => ({ inspector, onClose }),
+		[inspector, onClose],
+	);
 	return (
 		<CaseListWorkspaceContext.Provider value={value}>
-			{children}
+			<CaseListInspectorContext.Provider value={inspectorSlice}>
+				{children}
+			</CaseListInspectorContext.Provider>
 		</CaseListWorkspaceContext.Provider>
 	);
 }
@@ -1401,7 +1449,16 @@ export function CaseListWorkspaceCanvas() {
 		[moduleUuid],
 	);
 
-	if (ws === null) return null;
+	// Guard the deletion-in-flight window: a peer cleared the case type on the
+	// module this URL points at (dropping caseListConfig with it), before
+	// LocationRecoveryEffect degrades the URL. `ws.caseType` is `caseType ?? ""`,
+	// so `=== ""` is exactly the old `!mod || caseType === undefined` — render
+	// nothing rather than stand the whole workspace up against EMPTY_CONFIG with
+	// live mutation controls and no case type behind them. Deliberately NOT gated
+	// on `active` (which also goes false on navigate-away): the sticky module
+	// keeps rendering while Activity-hidden so its scroll survives, as before.
+	// (`ws` is non-null for the builder's whole life.)
+	if (ws === null || ws.caseType === "") return null;
 	const {
 		tab,
 		errorAreas,

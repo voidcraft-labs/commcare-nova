@@ -77,6 +77,7 @@ vi.mock("@/lib/session/hooks", async () => {
 	return {
 		...actual,
 		useEditMode: () => "edit" as const,
+		usePreviewing: () => false,
 		useAppId: () => "app-integration-test",
 		useBuilderIsReady: () => true,
 		useSetPreviewing: () => setPreviewingMock,

@@ -5,8 +5,10 @@
  * selection sources and hand the rail a ready-to-render descriptor:
  *
  *   - a selected form FIELD (URL state, `useSelectedField`), or
- *   - the case-list workspace's current selection (the shared controller's
- *     resolved `inspector`, `useCaseListWorkspace`).
+ *   - the case-list workspace's current selection (`useCaseListInspector` — the
+ *     narrow, memoized slice of the shared controller carrying just the resolved
+ *     `inspector` + its close handler, so these hooks don't re-render on every
+ *     unrelated workspace change).
  *
  * They are mutually exclusive: a field is only selected on a form screen, and
  * the case-list `inspector` is non-null only while its workspace is on-screen.
@@ -19,7 +21,7 @@
 "use client";
 
 import { type ReactNode, useCallback } from "react";
-import { useCaseListWorkspace } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { useCaseListInspector } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { fieldRegistry } from "@/lib/domain";
@@ -36,7 +38,7 @@ export interface ActiveInspector {
 export function useActiveInspector(): ActiveInspector | null {
 	const field = useSelectedField();
 	const select = useSelect();
-	const ws = useCaseListWorkspace();
+	const caseList = useCaseListInspector();
 
 	if (field) {
 		// Title = the field's prompt, falling back to its id (the `hidden` kind
@@ -57,8 +59,8 @@ export function useActiveInspector(): ActiveInspector | null {
 			onClose: () => select(undefined),
 		};
 	}
-	if (ws?.inspector) {
-		return { ...ws.inspector, onClose: ws.onClose };
+	if (caseList?.inspector) {
+		return { ...caseList.inspector, onClose: caseList.onClose };
 	}
 	return null;
 }
@@ -74,9 +76,9 @@ export function useInspectorPresence(): {
 } {
 	const field = useSelectedField();
 	const select = useSelect();
-	const ws = useCaseListWorkspace();
-	const caseListClose = ws?.onClose;
-	const docked = field !== null || (ws?.inspector ?? null) !== null;
+	const caseList = useCaseListInspector();
+	const caseListClose = caseList?.onClose;
+	const docked = field !== null || (caseList?.inspector ?? null) !== null;
 	const requestClose = useCallback(() => {
 		if (field !== null) select(undefined);
 		else caseListClose?.();
