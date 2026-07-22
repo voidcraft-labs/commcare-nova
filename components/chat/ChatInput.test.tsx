@@ -14,8 +14,10 @@ import { ChatInput } from "@/components/chat/ChatInput";
 const builder = vi.hoisted(() => ({ ready: false }));
 
 vi.mock("@/lib/session/hooks", () => ({
+	useAccessPhase: () => "authorized",
 	useAppId: () => null,
 	useBuilderIsReady: () => builder.ready,
+	useProjectScopeEpoch: () => 0,
 }));
 
 vi.mock("@/lib/credits/useCreditBalance", () => ({

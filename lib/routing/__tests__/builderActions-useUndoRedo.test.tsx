@@ -63,6 +63,7 @@ vi.mock("@/lib/routing/domQueries", () => ({
 
 vi.mock("@/lib/session/hooks", () => ({
 	useActiveFieldId: () => activeFieldIdRef.current,
+	useProjectScopeEpoch: () => 0,
 	useSetFocusHint: () => setFocusHint,
 }));
 

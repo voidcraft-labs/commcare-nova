@@ -82,6 +82,7 @@ vi.mock("@/lib/session/hooks", () => ({
 	useBuilderIsReady: () => state.isReady,
 	useCanEdit: () => state.canEdit,
 	usePreviewing: () => state.previewing,
+	useProjectScopeEpoch: () => 0,
 }));
 
 const REGISTRATION_ID = "builder-shortcuts-test";

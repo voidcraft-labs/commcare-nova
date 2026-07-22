@@ -213,7 +213,10 @@ describe("geopoint Project-scope continuations", () => {
 			registry.reset(1);
 			view.rerender(<AddressSearch key={1} value="" onSelect={onSelect} />);
 		});
-		expect(screen.getByLabelText("Search for an address")).toHaveValue("");
+		expect(
+			(screen.getByLabelText("Search for an address") as HTMLInputElement)
+				.value,
+		).toBe("");
 		await act(async () => {
 			fields.resolve();
 			await fields.promise;

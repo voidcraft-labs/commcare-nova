@@ -16,8 +16,10 @@ vi.mock("motion/react", () => ({
 }));
 
 afterEach(() => {
-	toastStore.clear();
-	toastStore.deactivateProjectScope("toast-dom-test");
+	act(() => {
+		toastStore.clear();
+		toastStore.deactivateProjectScope("toast-dom-test");
+	});
 });
 
 describe("ToastContainer Project retirement", () => {

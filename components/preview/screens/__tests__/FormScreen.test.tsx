@@ -41,6 +41,7 @@ import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { Location } from "@/lib/routing/types";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
@@ -269,17 +270,25 @@ function renderFormScreen(opts: {
 				fieldOrder: { [opts.formUuid]: [activeFieldUuid] },
 			}}
 		>
-			<BuilderFormEngineProvider>
-				<FormScreen
-					screen={{
-						type: "form",
-						moduleIndex: 0,
-						formIndex: 0,
-						caseId: opts.caseId,
-					}}
-					onBack={onBackMock}
-				/>
-			</BuilderFormEngineProvider>
+			<BuilderSessionProvider
+				init={{
+					projectId: "project-form-screen-test",
+					role: "editor",
+					canEdit: true,
+				}}
+			>
+				<BuilderFormEngineProvider>
+					<FormScreen
+						screen={{
+							type: "form",
+							moduleIndex: 0,
+							formIndex: 0,
+							caseId: opts.caseId,
+						}}
+						onBack={onBackMock}
+					/>
+				</BuilderFormEngineProvider>
+			</BuilderSessionProvider>
 		</BlueprintDocProvider>,
 	);
 }

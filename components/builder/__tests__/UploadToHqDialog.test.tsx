@@ -27,6 +27,7 @@ vi.mock("@/lib/session/hooks", () => ({
 	 * the current imperative store snapshot before starting the request. */
 	useAccessPhase: () => "authorized",
 	useCanEdit: () => true,
+	useProjectScopeEpoch: () => 0,
 }));
 
 vi.mock("@/lib/session/provider", () => ({

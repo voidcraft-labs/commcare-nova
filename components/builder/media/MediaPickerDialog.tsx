@@ -1017,20 +1017,24 @@ function LibraryTab({
 									{/* Preview without picking — a sibling of the pick button
 									 *  (not nested), revealed on hover/focus. Lets a user check
 									 *  a document's "What Nova reads" extract before attaching.
+									 *  When the thumbnail's primary action already previews (the
+									 *  manager or a viewer), omit this duplicate affordance.
 									 *  Tooltip.Root emits no DOM, so the button stays an absolute
 									 *  sibling anchored to the relative wrapper. */}
-									<SimpleTooltip content="Preview">
-										<Button
-											type="button"
-											variant="ghost"
-											size="icon"
-											onClick={() => onPreview(asset)}
-											aria-label={`Preview ${fileName}`}
-											className="pointer-events-none absolute top-1 right-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-										>
-											<Icon icon={tablerEye} className="size-4" />
-										</Button>
-									</SimpleTooltip>
+									{primaryAction === "Choose" && (
+										<SimpleTooltip content="Preview">
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												onClick={() => onPreview(asset)}
+												aria-label={`Preview ${fileName}`}
+												className="pointer-events-none absolute top-1 right-1 z-10 size-11 bg-nova-overlay text-nova-text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+											>
+												<Icon icon={tablerEye} className="size-4" />
+											</Button>
+										</SimpleTooltip>
+									)}
 									{/* Delete — a sibling of the pick button (not nested),
 									 *  top-left so it doesn't collide with the preview
 									 *  affordance. Opens a confirmation before removing the

@@ -65,6 +65,7 @@ vi.mock("@/lib/session/hooks", () => ({
 	useAccessPhase: () => mocks.accessPhase,
 	useBuilderIsReady: () => true,
 	useCanEdit: () => mocks.canEdit,
+	useProjectScopeEpoch: () => 0,
 }));
 vi.mock("@/lib/ui/hooks/useIsBreakpoint", () => ({
 	useIsBreakpoint: (_mode: string, breakpoint: number) =>

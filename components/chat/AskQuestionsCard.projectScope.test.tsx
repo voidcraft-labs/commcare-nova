@@ -26,7 +26,7 @@ describe("AskQuestionsCard Project hydration gate", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "One" }));
-		expect(screen.getByText("Question 1 of 2")).toBeInTheDocument();
+		expect(screen.getByText("Question 1 of 2")).toBeTruthy();
 		expect(addToolOutput).not.toHaveBeenCalled();
 
 		view.rerender(
@@ -38,7 +38,7 @@ describe("AskQuestionsCard Project hydration gate", () => {
 			/>,
 		);
 		fireEvent.click(screen.getByRole("button", { name: "One" }));
-		expect(screen.getByText("Question 2 of 2")).toBeInTheDocument();
+		expect(screen.getByText("Question 2 of 2")).toBeTruthy();
 
 		view.rerender(
 			<AskQuestionsCard
@@ -49,7 +49,7 @@ describe("AskQuestionsCard Project hydration gate", () => {
 				disabled
 			/>,
 		);
-		expect(screen.getByText("Question 2 of 2")).toBeInTheDocument();
+		expect(screen.getByText("Question 2 of 2")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Two" }));
 		expect(addToolOutput).not.toHaveBeenCalled();
 	});

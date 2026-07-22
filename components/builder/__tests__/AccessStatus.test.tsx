@@ -25,8 +25,10 @@ describe("builder access status", () => {
 			</BuilderSessionContext>,
 		);
 
-		expect(screen.getByText("View only")).toBeInTheDocument();
-		expect(screen.getByRole("status")).toHaveTextContent("View-only access");
+		expect(screen.getByText("View only")).toBeTruthy();
+		expect(screen.getByRole("status").textContent).toContain(
+			"View-only access",
+		);
 
 		act(() => {
 			store
@@ -36,8 +38,8 @@ describe("builder access status", () => {
 					{ hasWaitingChanges: true },
 				);
 		});
-		expect(screen.getByText("View only · Changes kept")).toBeInTheDocument();
-		expect(screen.getByRole("status")).toHaveTextContent(
+		expect(screen.getByText("View only · Changes kept")).toBeTruthy();
+		expect(screen.getByRole("status").textContent).toContain(
 			"Your changes are kept in this tab",
 		);
 	});
@@ -59,18 +61,20 @@ describe("builder access status", () => {
 		});
 		expect(
 			screen.getByRole("heading", { name: "Refreshing app" }),
-		).toBeInTheDocument();
-		expect(screen.getByText(/waiting to save are still kept/i)).toBeVisible();
+		).toBeTruthy();
+		expect(
+			screen.getByText(/waiting to save are still kept/i).closest("[hidden]"),
+		).toBeNull();
 
 		act(() => {
 			store.getState().requireClientUpgrade();
 		});
 		expect(
 			screen.getByRole("heading", { name: "Nova needs to refresh" }),
-		).toBeInTheDocument();
+		).toBeTruthy();
 		const refresh = screen.getByRole("button", { name: "Refresh Nova" });
-		expect(refresh).toBeVisible();
-		expect(refresh).toHaveClass("h-11");
+		expect(refresh.closest("[hidden]")).toBeNull();
+		expect(refresh.classList.contains("h-11")).toBe(true);
 
 		view.unmount();
 	});
@@ -104,29 +108,29 @@ describe("builder access status", () => {
 		act(() => {
 			store.getState().beginAccessRefresh();
 		});
-		expect(draft).toBeInTheDocument();
+		expect(draft.isConnected).toBe(true);
 		expect(draft.closest("[inert]")).not.toBeNull();
 		expect(unmounts).toBe(0);
 		expect(
 			screen.getByRole("heading", { name: "Refreshing app" }),
-		).toBeInTheDocument();
+		).toBeTruthy();
 
 		act(() => {
 			store.getState().markAccessReconnecting();
 		});
-		expect(draft).toBeInTheDocument();
+		expect(draft.isConnected).toBe(true);
 		expect(unmounts).toBe(0);
 
 		act(() => {
 			store.getState().revokeAccess();
 		});
-		expect(screen.queryByLabelText("Local draft")).not.toBeInTheDocument();
+		expect(screen.queryByLabelText("Local draft")).toBeNull();
 		expect(unmounts).toBe(1);
 		expect(
 			screen.getByRole("heading", {
 				name: "This app is no longer available",
 			}),
-		).toBeInTheDocument();
+		).toBeTruthy();
 
 		view.unmount();
 	});
@@ -160,8 +164,8 @@ describe("builder access status", () => {
 		act(() => {
 			store.getState().beginAccessRefresh();
 		});
-		expect(portalRoot).toHaveAttribute("data-nova-access-quarantined");
-		expect(portalRoot).toHaveAttribute("hidden");
+		expect(portalRoot.hasAttribute("data-nova-access-quarantined")).toBe(true);
+		expect(portalRoot.hidden).toBe(true);
 		expect(portalRoot).toHaveProperty("inert", true);
 		expect(portalRoot.style.getPropertyValue("display")).toBe("none");
 		expect(portalRoot.style.getPropertyPriority("display")).toBe("important");
@@ -176,8 +180,8 @@ describe("builder access status", () => {
 			 * root after the destination Project becomes authorized. */
 			portalRoot.hidden = false;
 		});
-		expect(portalRoot).not.toHaveAttribute("hidden");
-		expect(portalRoot).toHaveAttribute("data-nova-access-quarantined");
+		expect(portalRoot.hidden).toBe(false);
+		expect(portalRoot.hasAttribute("data-nova-access-quarantined")).toBe(true);
 		expect(portalRoot.style.getPropertyValue("display")).toBe("none");
 		expect(portalRoot.style.getPropertyPriority("display")).toBe("important");
 

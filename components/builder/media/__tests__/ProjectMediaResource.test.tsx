@@ -49,12 +49,10 @@ describe("Project media resources", () => {
 		);
 		const sourceImage = screen.getByRole("img", { name: "Source image" });
 		const sourceAudio = screen.getByLabelText("Source audio");
-		expect(sourceImage).toHaveAttribute(
-			"src",
+		expect(sourceImage.getAttribute("src")).toBe(
 			"/api/media/source-image?scope=0",
 		);
-		expect(sourceAudio).toHaveAttribute(
-			"src",
+		expect(sourceAudio.getAttribute("src")).toBe(
 			"/api/media/source-audio?scope=0",
 		);
 
@@ -63,8 +61,8 @@ describe("Project media resources", () => {
 			registry.reset(epoch);
 			/* These assertions run inside the reset stack, before React commits the
 			 * unresolved-access render. No decoded source or player survives it. */
-			expect(sourceImage).not.toHaveAttribute("src");
-			expect(sourceAudio).not.toHaveAttribute("src");
+			expect(sourceImage.hasAttribute("src")).toBe(false);
+			expect(sourceAudio.hasAttribute("src")).toBe(false);
 			expect(pause).toHaveBeenCalledOnce();
 			expect(load).toHaveBeenCalledOnce();
 		});
@@ -84,12 +82,10 @@ describe("Project media resources", () => {
 		const destinationAudio = screen.getByLabelText("Source audio");
 		expect(destinationImage).not.toBe(sourceImage);
 		expect(destinationAudio).not.toBe(sourceAudio);
-		expect(destinationImage).toHaveAttribute(
-			"src",
+		expect(destinationImage.getAttribute("src")).toBe(
 			"/api/media/source-image?scope=1",
 		);
-		expect(destinationAudio).toHaveAttribute(
-			"src",
+		expect(destinationAudio.getAttribute("src")).toBe(
 			"/api/media/source-audio?scope=1",
 		);
 	});
