@@ -244,6 +244,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			run_id,
 			res_period,
 			res_run_id,
+			res_settled,
 			lock_run_id,
 			awaiting_input,
 			lock_expire_at,

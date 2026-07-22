@@ -92,7 +92,7 @@ describe("runtime-reader rollout migration", () => {
 			triggers.rows.map((row) => [row.tgname, row.definition]),
 		);
 		expect(byName.get("apps_runtime_reader_holder_stamp")).toContain(
-			"BEFORE INSERT OR UPDATE OF status, run_id, res_period, res_run_id, lock_run_id, awaiting_input, lock_expire_at, updated_at, run_holder_nonce, run_runtime_reader_version",
+			"BEFORE INSERT OR UPDATE OF status, run_id, res_period, res_run_id, res_settled, lock_run_id, awaiting_input, lock_expire_at, updated_at, run_holder_nonce, run_runtime_reader_version",
 		);
 		for (const name of [
 			"lookup_reference_compatibility_cutover_gate",
@@ -599,6 +599,114 @@ describe("runtime-reader rollout migration", () => {
 			status: "complete",
 			nonce: NONCE_A,
 			stamp: null,
+		});
+	});
+
+	test("gates reservation-only settlement writes by the runtime floor", async () => {
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`INSERT INTO apps (
+					id, owner, project_id, app_name, app_name_lower,
+					status, run_id, res_period, res_settled, res_run_id,
+					run_holder_nonce
+				 ) VALUES
+					(
+						'settle-floor-0', 'actor', 'project-a', 'Settle zero',
+						'settle-zero', 'generating', 'public-run-zero', '2026-07',
+						false, 'reserved-run-zero', $1
+					),
+					(
+						'settle-floor-1', 'actor', 'project-a', 'Settle one',
+						'settle-one', 'generating', 'public-run-one', '2026-07',
+						false, 'reserved-run-one', $2
+					)`,
+				[NONCE_A, NONCE_B],
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+
+		// This is the exact deployed-v0 refund/settle shape: no runtime GUC and
+		// only the reservation settlement bit changes. At floor zero it is still
+		// admitted, but must downgrade the inherited concrete generation.
+		await h.pool.query(
+			`UPDATE apps SET res_settled = true
+			 WHERE id = 'settle-floor-0'`,
+		);
+		const downgraded = await h.pool.query<{
+			settled: boolean;
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT res_settled AS settled, run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'settle-floor-0'`,
+		);
+		expect(downgraded.rows[0]).toEqual({
+			settled: true,
+			nonce: null,
+			stamp: null,
+		});
+
+		await h.pool.query(
+			`UPDATE lookup_reference_compatibility
+			 SET minimum_runtime_reader_version = 1 WHERE id = 1`,
+		);
+		await expectSqlState(
+			`UPDATE apps SET res_settled = true
+			 WHERE id = 'settle-floor-1'`,
+			"55000",
+		);
+
+		const retained = await h.pool.query<{
+			settled: boolean;
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT res_settled AS settled, run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'settle-floor-1'`,
+		);
+		expect(retained.rows[0]).toEqual({
+			settled: false,
+			nonce: NONCE_B,
+			stamp: 1,
+		});
+
+		await h.pool.query("BEGIN");
+		try {
+			await h.pool.query(
+				"SELECT set_config('nova.runtime_reader_version', '1', true)",
+			);
+			await h.pool.query(
+				`UPDATE apps SET res_settled = true
+				 WHERE id = 'settle-floor-1'`,
+			);
+			await h.pool.query("COMMIT");
+		} catch (error) {
+			await h.pool.query("ROLLBACK");
+			throw error;
+		}
+
+		const settled = await h.pool.query<{
+			settled: boolean;
+			nonce: string | null;
+			stamp: number | null;
+		}>(
+			`SELECT res_settled AS settled, run_holder_nonce AS nonce,
+				run_runtime_reader_version AS stamp
+			 FROM apps WHERE id = 'settle-floor-1'`,
+		);
+		expect(settled.rows[0]).toEqual({
+			settled: true,
+			nonce: NONCE_B,
+			stamp: 1,
 		});
 	});
 
