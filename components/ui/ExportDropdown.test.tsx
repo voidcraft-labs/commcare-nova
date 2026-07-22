@@ -3,8 +3,13 @@
 import tablerDownload from "@iconify-icons/tabler/download";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { ExportDropdown } from "./ExportDropdown";
+
+afterEach(async () => {
+	await settleBaseUiTransitions();
+});
 
 vi.mock("@/components/shadcn/tooltip", () => ({
 	SimpleTooltip: ({ children }: { children: ReactNode }) => children,

@@ -117,7 +117,6 @@ describe("PUT /api/apps/[id]", () => {
 		const response = await PUT(
 			new Request("http://localhost/api/apps/app-1", {
 				method: "PUT",
-				body: JSON.stringify({}),
 			}),
 			params(),
 		);
