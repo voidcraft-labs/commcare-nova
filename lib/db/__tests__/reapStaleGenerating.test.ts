@@ -10,11 +10,12 @@
  * happened and the next scan retries). Here we mock `refundStaleGeneration` and
  * observe only that delegation.
  *
- * `setAwaitingInput` is exercised against the real per-test DB (it writes the
- * `apps` row directly), since the load-bearing behavior is the write itself:
- * clearing the pause re-arms `updated_at` (the resuming run needs a fresh
- * staleness window), while setting it must NOT bump the clock (the flag, not a
- * fresh timestamp, is what spared the paused row).
+ * `setAwaitingInput` is exercised against the real per-test DB. It locks the
+ * app row and re-checks the exact holder before writing: clearing the pause
+ * re-arms `updated_at` (the resuming run needs a fresh staleness window), while
+ * setting it must NOT bump the clock (the flag, not a fresh timestamp, is what
+ * spared the paused row). Replacement/reaper ownership regressions live in
+ * `runHolderWrites.integration.test.ts`.
  *
  * Claim + reserve are one atomic `claimAndReserveRun` with no prior-state
  * snapshot (every rejection is a rollback), so the build-claim scenarios — a
@@ -64,6 +65,8 @@ describe("reapStaleGenerating", () => {
 
 describe("setAwaitingInput", () => {
 	const APP = "app-await";
+	const RUN = "run-await";
+	const PERIOD = "2026-07";
 
 	it("clearing (resume) re-arms updated_at so the resuming run gets a fresh staleness window", async () => {
 		// The flag — not the timestamp — is what spared the paused row, so clearing
@@ -76,10 +79,19 @@ describe("setAwaitingInput", () => {
 			status: "generating",
 			awaiting_input: true,
 			updated_at: stale,
+			reservation: {
+				period: PERIOD,
+				reserved: 100,
+				settled: false,
+				userId: "owner-test",
+				runId: RUN,
+			},
 		});
 		const { setAwaitingInput } = await import("../apps");
 
-		await setAwaitingInput(APP, false);
+		await expect(
+			setAwaitingInput(APP, RUN, false, "owner-test", "project-test"),
+		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);
 		if (!row) throw new Error("seeded app row missing");
@@ -97,10 +109,19 @@ describe("setAwaitingInput", () => {
 			status: "generating",
 			awaiting_input: false,
 			updated_at: stale,
+			reservation: {
+				period: PERIOD,
+				reserved: 100,
+				settled: false,
+				userId: "owner-test",
+				runId: RUN,
+			},
 		});
 		const { setAwaitingInput } = await import("../apps");
 
-		await setAwaitingInput(APP, true);
+		await expect(
+			setAwaitingInput(APP, RUN, true, "owner-test", "project-test"),
+		).resolves.toBe("owned");
 
 		const row = await h.readAppRow(APP);
 		if (!row) throw new Error("seeded app row missing");

@@ -16,8 +16,8 @@
  *     seq/basis, writes NOTHING.
  *   - Per-commit reauth: a non-member / a role without `edit` is denied
  *     `CommitReauthError`; a null-`project_id` app defers to the owner (owner ok,
- *     non-owner denied, no auth read); a concurrent `project_id` move rejects
- *     `BlueprintCommitRejectedError` (retryable).
+ *     non-owner denied, no auth read); a move away from the caller's expected
+ *     Project rejects the distinct `AppProjectChangedError` terminal signal.
  *   - The batch re-applies onto the FRESH stored doc (a concurrent commit
  *     survives); a batch targeting a concurrently-removed entity or one the
  *     re-run verdict rejects is a `BlueprintCommitRejectedError`.
@@ -27,9 +27,9 @@
  *   - `appendSyntheticBatch` upholds the identical seq+stream coupling while
  *     persisting the deterministic repair mutations under migration kind.
  *
- * The `auth_member` role read (`projectRoleFor`) is mocked so each test controls
- * the actor's role; the reauth LOGIC downstream is the real code under test (the
- * role read itself is covered by the auth integration suites).
+ * The in-transaction `auth_member` role read is mocked so each test controls
+ * the actor's fresh role; the reauth LOGIC downstream is the real code under
+ * test (the role read itself is covered by the auth integration suites).
  *
  * Runs unconditionally under `npm test`.
  */
@@ -42,27 +42,26 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
-// The role read is the only auth dependency in the guarded path. Mock it so each
-// test controls the actor's role (or null = non-member); the reauth LOGIC
-// downstream is the real code under test.
-const { projectRoleForMock, projectRoleForInTransactionMock } = vi.hoisted(
-	() => ({
-		projectRoleForMock:
-			vi.fn<(u: string, o: string) => Promise<string | null>>(),
-		projectRoleForInTransactionMock:
-			vi.fn<(_tx: unknown, u: string, o: string) => Promise<string | null>>(),
-	}),
-);
+// The fresh role read is the only auth dependency in the guarded path. Mock it
+// so each test controls the role observed under the app transaction's locks.
+const { projectRoleForInTransactionMock } = vi.hoisted(() => ({
+	projectRoleForInTransactionMock:
+		vi.fn<(_tx: unknown, u: string, o: string) => Promise<string | null>>(),
+}));
 vi.mock("@/lib/db/projectMembership", () => ({
-	projectRoleFor: projectRoleForMock,
+	// Keep the legacy out-of-transaction helper present for any incidental
+	// module consumer; the guarded writer authorizes exclusively in-transaction.
+	projectRoleFor: vi.fn(),
 	projectRoleForInTransaction: projectRoleForInTransactionMock,
 }));
 
 const { appendSyntheticBatch, commitGuardedBatch, UNTITLED_APP_NAME } =
 	await import("../apps");
-const { CommitReauthError, BlueprintCommitRejectedError } = await import(
-	"../commitGuard"
-);
+const {
+	AppProjectChangedError,
+	CommitReauthError,
+	BlueprintCommitRejectedError,
+} = await import("../commitGuard");
 const { decomposeBlueprint } = await import("../blueprintRows");
 
 const OWNER = "user-owner";
@@ -268,7 +267,6 @@ async function readStream(appId: string): Promise<
 
 beforeEach(() => {
 	// Default: the actor is an editor of the app's Project.
-	projectRoleForMock.mockReset().mockResolvedValue("editor");
 	projectRoleForInTransactionMock.mockReset().mockResolvedValue("editor");
 });
 
@@ -280,6 +278,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		const result = await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId,
 			runId: "run-1",
 			mutations: renameVillageLabel(doc, "Home village"),
@@ -322,6 +321,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		const result = await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: renameVillageLabel(doc, "Reassembled"),
 			actorUserId: OWNER,
@@ -346,6 +346,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		for (let i = 1; i <= 4; i++) {
 			const result = await commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
 				mutations: renameVillageLabel(working, `Village v${i}`),
 				actorUserId: OWNER,
@@ -365,6 +366,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		const first = await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId,
 			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: OWNER,
@@ -377,6 +379,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		// replays the latch: same seq, deduped, no new write.
 		const replay = await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId,
 			mutations: renameVillageLabel(doc, "IGNORED — dedup replay"),
 			actorUserId: OWNER,
@@ -412,6 +415,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			runId: "e1",
 			mutations: renameVillageLabel(doc, "Lease refresh"),
@@ -443,6 +447,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			runId: "other-run",
 			mutations: renameVillageLabel(doc, "Other run edit"),
@@ -457,11 +462,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 	it("denies a non-member with a terminal CommitReauthError (nothing written)", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
-		projectRoleForMock.mockResolvedValue(null); // not a member
+		projectRoleForInTransactionMock.mockResolvedValue(null); // not a member
 
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
 				mutations: renameVillageLabel(doc, "Home village"),
 				actorUserId: MEMBER,
@@ -474,11 +480,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 	it("denies a member whose role lacks `edit` (viewer) with CommitReauthError", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
-		projectRoleForMock.mockResolvedValue("viewer");
+		projectRoleForInTransactionMock.mockResolvedValue("viewer");
 
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
 				mutations: renameVillageLabel(doc, "Home village"),
 				actorUserId: MEMBER,
@@ -493,37 +500,37 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		const ok = await commitGuardedBatch({
 			appId,
+			expectedProjectId: null,
 			batchId: crypto.randomUUID(),
 			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: OWNER,
 			kind: "autosave",
 		});
 		expect(ok.seq).toBe(1);
-		expect(projectRoleForMock).not.toHaveBeenCalled();
 		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
 
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: null,
 				batchId: crypto.randomUUID(),
 				mutations: renameVillageLabel(doc, "Peer edit"),
 				actorUserId: MEMBER,
 				kind: "autosave",
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
-		expect(projectRoleForMock).not.toHaveBeenCalled();
 		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
 	});
 
-	it("denies a role removed after preflight when the same-transaction membership read runs", async () => {
+	it("denies when the fresh in-transaction membership read finds no role", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
-		projectRoleForMock.mockResolvedValue("editor");
 		projectRoleForInTransactionMock.mockResolvedValue(null);
 
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
 				mutations: renameVillageLabel(doc, "Home village"),
 				actorUserId: MEMBER,
@@ -533,36 +540,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(await readSeq(appId)).toBe(0);
 	});
 
-	it("rejects a concurrent project_id move with a RETRYABLE BlueprintCommitRejectedError", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: PROJECT });
-		// The pre-txn reauth resolves the actor's role against PROJECT; a concurrent
-		// move then flips the stored project_id BEFORE the transaction reads the
-		// fresh row. Drive that interleaving from inside the mocked pre-txn role read
-		// (which runs AFTER loadAppProjectId resolved PROJECT, BEFORE the txn).
-		projectRoleForMock.mockImplementationOnce(async () => {
-			await h
-				.db()
-				.updateTable("apps")
-				.set({ project_id: "project-moved" })
-				.where("id", "=", appId)
-				.execute();
-			return "editor";
-		});
-
-		await expect(
-			commitGuardedBatch({
-				appId,
-				batchId: crypto.randomUUID(),
-				mutations: renameVillageLabel(doc, "Home village"),
-				actorUserId: MEMBER,
-				kind: "autosave",
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-		expect(await readSeq(appId)).toBe(0);
-	});
-
-	it("preauthorized: skips the pre-txn role read but still commits", async () => {
+	it("commits when the caller's expected Project still matches", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
 
@@ -572,10 +550,9 @@ describe("commitGuardedBatch (Postgres)", () => {
 			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: MEMBER,
 			kind: "autosave",
-			preauthorized: { projectId: PROJECT },
+			expectedProjectId: PROJECT,
 		});
 		expect(ok.seq).toBe(1);
-		expect(projectRoleForMock).not.toHaveBeenCalled();
 		expect(projectRoleForInTransactionMock).toHaveBeenCalledWith(
 			expect.anything(),
 			MEMBER,
@@ -583,7 +560,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		);
 	});
 
-	it("preauthorized: a concurrent move away from the passed projectId still rejects (in-txn gate authoritative)", async () => {
+	it("rejects when the app moved away from the caller's expected Project", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
 		await h
@@ -600,10 +577,10 @@ describe("commitGuardedBatch (Postgres)", () => {
 				mutations: renameVillageLabel(doc, "Home village"),
 				actorUserId: MEMBER,
 				kind: "autosave",
-				preauthorized: { projectId: PROJECT },
+				expectedProjectId: PROJECT,
 			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-		expect(projectRoleForMock).not.toHaveBeenCalled();
+		).rejects.toBeInstanceOf(AppProjectChangedError);
+		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
 	});
 
 	it("rejects a batch targeting a concurrently-removed field with BlueprintCommitRejectedError", async () => {
@@ -620,6 +597,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		const err = await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations,
 			actorUserId: OWNER,
@@ -646,6 +624,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
 				mutations,
 				actorUserId: OWNER,
@@ -662,6 +641,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		// A concurrent writer renamed the app AFTER we captured `doc`.
 		await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: [{ kind: "setAppName", name: "Renamed Concurrently" }],
 			actorUserId: OWNER,
@@ -671,6 +651,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		// Our batch (built against the stale `doc`) edits a DIFFERENT slot.
 		const result = await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: renameVillageLabel(doc, "Home village"),
 			actorUserId: OWNER,
@@ -692,6 +673,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 
 		const result = await commitGuardedBatch({
 			appId,
+			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: attachVillageLabelImage(doc, assetId),
 			actorUserId: OWNER,
@@ -717,6 +699,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
 				mutations: attachVillageLabelImage(doc, missingAssetId),
 				actorUserId: OWNER,
@@ -738,6 +721,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
 				mutations: [{ kind: "duplicateField", uuid: target.uuid }],
 				actorUserId: OWNER,
@@ -824,6 +808,7 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 		await expect(
 			commitGuardedBatch({
 				appId,
+				expectedProjectId: null,
 				batchId: crypto.randomUUID(),
 				mutations,
 				actorUserId: OWNER,
@@ -836,6 +821,7 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 		// The same batch with its pair covered commits normally.
 		const result = await commitGuardedBatch({
 			appId,
+			expectedProjectId: null,
 			batchId: crypto.randomUUID(),
 			mutations,
 			actorUserId: OWNER,
@@ -845,5 +831,95 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 			],
 		});
 		expect(result.seq).toBe(1);
+	});
+
+	it("rejects a pre-migrated diff rename when a peer's fresh writer keeps the old property", async () => {
+		/* M's diff/undo/collab batch prepared village→hamlet from a prior containing only the first
+		 * writer, then Phase A moved every saved `village` value. Before M's
+		 * blueprint commit, a peer added the second unchanged `village` writer.
+		 * Unlike interactive `renameField`, the diff encoding is an `updateField`
+		 * id patch targeting only M's original UUID, so the peer stays on `village`.
+		 * The fresh diff now suppresses the rename proof because `village` stays
+		 * live for that keeper. Accepting M would leave the final schema with both
+		 * properties while the keeper's values had already been moved to `hamlet`. */
+		const fresh = buildDoc({
+			appName: "Kept rename race",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Original writer",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "text",
+									id: "village",
+									label: "Moving village writer",
+									case_property_on: "patient",
+								}),
+							],
+						},
+						{
+							name: "Peer writer",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "village",
+									label: "Keeping village writer",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "village", label: "Village" },
+					],
+				},
+			],
+		});
+		const appId = await seedApp(fresh, { projectId: null });
+		const movingWriter = Object.values(fresh.fields).find(
+			(field) => "label" in field && field.label === "Moving village writer",
+		);
+		if (!movingWriter) throw new Error("fixture is missing the moving writer");
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: null,
+				batchId: crypto.randomUUID(),
+				mutations: [
+					{
+						kind: "updateField",
+						uuid: movingWriter.uuid,
+						targetKind: "text",
+						patch: { id: "hamlet" },
+					} as Mutation,
+				],
+				actorUserId: OWNER,
+				kind: "autosave",
+				renameExpectations: [
+					{ caseType: "patient", from: "village", to: "hamlet" },
+				],
+			}),
+		).rejects.toThrow(
+			'Saved case data was prepared for a rename of "village" to "hamlet"',
+		);
+		expect(await readSeq(appId)).toBe(0);
 	});
 });

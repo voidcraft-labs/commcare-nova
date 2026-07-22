@@ -141,6 +141,7 @@ describe("blueprint clear nested field", () => {
 
 		const result = await commitGuardedBatch({
 			appId: APP_ID,
+			expectedProjectId: TEST_PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: clearMutations,
 			actorUserId: TEST_OWNER,
@@ -167,6 +168,7 @@ describe("blueprint clear nested field", () => {
 
 		await commitGuardedBatch({
 			appId: APP_ID,
+			expectedProjectId: TEST_PROJECT,
 			batchId: crypto.randomUUID(),
 			mutations: [
 				{

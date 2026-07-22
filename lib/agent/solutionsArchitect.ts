@@ -137,10 +137,13 @@ export function createSolutionsArchitect(
 	 *
 	 * Both `then` handlers swallow their value (success result and
 	 * rejection alike) so the chain stays a `Promise<void>` and a failing
-	 * tool doesn't poison the chain for subsequent calls; the `next`
-	 * promise still rejects to its caller, preserving error visibility at
-	 * the AI SDK boundary (it's converted to a `tool-error` content
-	 * part). */
+	 * ordinary tool failure doesn't poison the chain for subsequent calls;
+	 * the `next` promise still rejects to its caller, preserving error
+	 * visibility at the AI SDK boundary (it's converted to a `tool-error`
+	 * content part). Terminal tenant-scope failures are the exception:
+	 * `throwIfTerminalScopeError` reads their durable GenerationContext latch
+	 * at the start of every queued body, so the recovered promise chain stays
+	 * structurally coherent without permitting more work in a dead run. */
 	let chain: Promise<void> = Promise.resolve();
 	function serial<T>(fn: () => Promise<T>): Promise<T> {
 		const next = chain.then(fn);
@@ -149,6 +152,19 @@ export function createSolutionsArchitect(
 			() => {},
 		);
 		return next;
+	}
+
+	/**
+	 * Fence all work after an authoritative scope failure. A guarded commit
+	 * stores the exact thrown object on GenerationContext before rethrowing it.
+	 * Parallel tool calls from one model step may already be queued behind that
+	 * commit, so every serialized body must consult the latch before it reads or
+	 * writes the working doc. Re-throwing the stored instance also preserves the
+	 * route's authoritative error classification.
+	 */
+	function throwIfTerminalScopeError(): void {
+		const scopeError = ctx.projectChangedError() ?? ctx.reauthError();
+		if (scopeError !== undefined) throw scopeError;
 	}
 
 	/**
@@ -206,6 +222,7 @@ export function createSolutionsArchitect(
 			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
+					throwIfTerminalScopeError();
 					try {
 						/* `kind: "mutate"` discriminator is internal to the shared
 						 * tool contract — the chat-side AI SDK tool surface only
@@ -238,15 +255,16 @@ export function createSolutionsArchitect(
 						return result;
 					} catch (err) {
 						/* A RETRYABLE conflict — a peer deleted/changed what this
-						 * tool targeted, or the app moved Projects, between our read
-						 * and the commit. Surface the standard `{ error }` envelope
-						 * to the SA AND reload fresh so the next tool builds on the
-						 * current server state, not the stale closure doc. (A
+						 * tool targeted between our read and the commit. Surface the
+						 * standard `{ error }` envelope to the SA AND reload fresh so
+						 * the next tool builds on the current server state, not the
+						 * stale closure doc. (A
 						 * pre-commit validity finding does NOT throw — the tool
-						 * returns its own `{ error }` and nothing reloads. A terminal
-						 * `CommitReauthError` — the actor lost access — is NOT caught
-						 * here: it propagates and fails the run, since reloading can't
-						 * restore authorization.) */
+						 * returns its own `{ error }` and nothing reloads. Terminal
+						 * `AppProjectChangedError` and `CommitReauthError` signals are
+						 * NOT caught here: both propagate and fail the run, since the
+						 * former must not reload across tenant scope and the latter
+						 * cannot restore authorization by reloading.) */
 						if (err instanceof BlueprintCommitRejectedError) {
 							const fresh = await loadApp(ctx.appId);
 							if (fresh) {
@@ -289,6 +307,7 @@ export function createSolutionsArchitect(
 			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
+					throwIfTerminalScopeError();
 					/* `kind: "read"` discriminator is internal to the shared
 					 * tool contract — the AI SDK tool surface sees the bare
 					 * `data`. Unwrap. */
@@ -423,6 +442,11 @@ export function createSolutionsArchitect(
 		 * owns those. */
 		maxRetries: 4,
 		prepareStep: () => {
+			// A tool execution error is a non-fatal AI SDK content part. Stop the
+			// loop explicitly once an authoritative scope error has been latched;
+			// otherwise the SDK would ask the model for another step in a run whose
+			// every future commit is guaranteed to fail.
+			throwIfTerminalScopeError();
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
 			// streamed reasoning summaries the live-thinking feed needs, plus

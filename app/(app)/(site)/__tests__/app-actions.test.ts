@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CommitReauthError } from "@/lib/db/commitGuard";
 
 const mocks = vi.hoisted(() => {
 	class MockAppAccessError extends Error {}
@@ -46,10 +47,56 @@ vi.mock("@/lib/db/moveAppToProject", () => ({
 	moveAppToProject: mocks.moveAppToProject,
 }));
 
-import { moveApp } from "../app-actions";
+import {
+	deleteApp,
+	moveApp,
+	restoreApp as restoreAppAction,
+} from "../app-actions";
+
+describe("delete/restore authoritative admission", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+	});
+
+	it("passes the authenticated actor to the locked delete writer", async () => {
+		mocks.softDeleteApp.mockResolvedValue("2026-08-20T00:00:00.000Z");
+
+		await expect(deleteApp("app-1")).resolves.toEqual({
+			success: true,
+			recoverableUntil: "2026-08-20T00:00:00.000Z",
+		});
+		expect(mocks.softDeleteApp).toHaveBeenCalledWith("app-1", "user-1");
+		expect(mocks.resolveAppScope).not.toHaveBeenCalled();
+	});
+
+	it("keeps write-time delete revocation IDOR-opaque", async () => {
+		mocks.softDeleteApp.mockRejectedValue(
+			new CommitReauthError("permission denied"),
+		);
+
+		await expect(deleteApp("foreign-app")).resolves.toEqual({
+			success: false,
+			error: "App not found.",
+		});
+	});
+
+	it("passes the authenticated actor to restore and maps its revocation", async () => {
+		mocks.restoreApp.mockRejectedValue(
+			new CommitReauthError("permission denied"),
+		);
+
+		await expect(restoreAppAction("app-1")).resolves.toEqual({
+			success: false,
+			error: "App not found.",
+		});
+		expect(mocks.restoreApp).toHaveBeenCalledWith("app-1", "user-1");
+	});
+});
 
 describe("moveApp temporary Project policy", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
 		mocks.resolveAppAccess.mockResolvedValue({
 			projectId: "project-source",

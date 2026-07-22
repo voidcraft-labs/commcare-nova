@@ -197,6 +197,7 @@ export function registerSharedTool(
 					server,
 					ctx,
 					appId,
+					loaded.access.projectId,
 					runId,
 					extra,
 				);

@@ -88,7 +88,8 @@ the template exactly once outside the retryable transaction, then takes the
 shared Project-membership advisory gate, authorizes, inserts the root,
 locks/reads lookup definitions, evaluates, checks template
 export readiness, replaces edges, and inserts entity rows atomically. Ordinary
-commits lock the app, check the dedup latch, take the shared membership gate,
+commits lock the app, compare the caller's required `expectedProjectId`, check
+the dedup latch, take the shared membership gate,
 lock and authorize the actor's exact `auth_member` row in the SAME transaction,
 hydrate the fresh doc, reject
 reducer-minted identity mutations, prepare once, lock the union of prior and
@@ -117,6 +118,18 @@ trigger is an operational barrier rather than a privilege boundary; S02c2 owns
 runtime/migration role separation and the runtime privilege revoke. All
 destructive-schema,
 carrier-commit, and true Project-move flags remain false.
+
+Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
+app-row-first membership protocol; no route preflight decides their admission.
+Migration-bearing blueprint saves use
+`withAuthorizedAppEditSideEffect`: one non-retrying transaction and one physical
+connection lock the app, compare the caller's Project snapshot, freshly authorize,
+then run every sorted case-schema/data Phase A. The transaction commits as a unit;
+only afterward do concurrent-index Phase B completions run, followed by a separately
+fresh `commitGuardedBatch`. An admission denial or Phase-A/outer-commit failure
+therefore has nothing to compensate; a Phase-B or blueprint-commit failure
+compensates the already-durable reports.
+
 `lookup_stream_capability_leases` carries an
 app-scoped, database-minted connection UUID plus a required receiver version and
 expiry; it is rollout state, not lookup data or blueprint state.
@@ -225,9 +238,10 @@ clarification round-trip.
 
 ## Claim and reserve are ONE transaction
 
-`claimAndReserveRun(appId, mode, runId, actorUserId, cost)` (and its
-new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
-transaction: the busy check (`lease.live`, or a paused run of ANOTHER actor →
+`claimAndReserveRun(appId, mode, runId, actorUserId, cost, expectedProjectId)`
+(and its new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
+transaction: fresh Project `edit` authorization, then the busy check
+(`lease.live`, or a paused run of ANOTHER actor →
 `RunConflictError`; the claimant's OWN paused run is SUPERSEDED instead — an
 abandoned `askQuestions` round must not lock its own user out until the lease
 lapses; the leftover refund + claim writes below resolve it and its late
@@ -314,17 +328,29 @@ always target the marker's charged actor (`res_user_id`, falling back to
 
 **Resume re-acquires — renew, don't get reaped.** A free-continuation resume
 calls `reacquireLease`: one transaction asserting `ownedByResume` (keyed on
-the RESUME's own mode) and, on success, re-establishing the mode's horizon +
+the RESUME's own mode), freshly authorizing its actor, and, on success,
+re-establishing the mode's horizon +
 clearing `awaiting_input`. A lost resume touched nothing; the return
 distinguishes `"superseded"` (another run occupies the app) from `"released"`
 (the reap simply freed it) so the route's message is true.
+
+**Pause and prelude cleanup are exact-holder writes.** `setAwaitingInput`
+locks the app, compares the caller's Project snapshot, freshly authorizes the
+actor, and applies the pause only while `runLeaseState.mine(runId)` still holds;
+it returns the same owned/superseded/released vocabulary as reacquire and throws
+infrastructure faults. The route treats either lost-ownership result as a
+terminal, non-owning, non-paused stream, so no stale question becomes a
+resumable claim on a successor. `clearRunLock(appId, runId)` is the awaited
+prelude-failure net: under the app lock it clears only that exact edit holder;
+a replacement or reap is a clean no-op.
 
 ## Guarded commit
 
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
-→ reauth against the fresh row (owner fallback for null-Project apps; a
-concurrent move rejects retryably) → media expectations re-checked against
+→ reject when the row no longer matches the caller's required
+`expectedProjectId` → reauth against the fresh row (owner fallback for
+null-Project apps) → media expectations re-checked against
 rows read `FOR SHARE` → assemble + hydrate the fresh doc →
 `batchTargetsMissing` → re-run verdict → literal `seq + 1` → entity-row diff
 write + the permanent stream row + the in-commit NOTIFY. The per-commit edit

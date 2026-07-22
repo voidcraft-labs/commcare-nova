@@ -21,9 +21,10 @@
 // handle inside test bodies (`h.db()` / `h.pool()` throw outside a test, the
 // same guard `setupPerTestDatabase` imposes).
 
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
 import type { Pool } from "pg";
 import { afterEach, beforeEach } from "vitest";
+import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { UNTITLED_APP_NAME } from "@/lib/db/apps";
@@ -81,6 +82,12 @@ export interface AppStateTestDb {
 			projectId?: string | null;
 		},
 	): Promise<string>;
+	/** Insert or replace a Project membership used by authoritative app writers. */
+	seedProjectMember(
+		userId: string,
+		projectId: string,
+		role?: "viewer" | "editor" | "admin" | "owner",
+	): Promise<void>;
 	/** Insert (or replace) a `credit_months` row for a user's current/other period. */
 	seedCreditMonth(
 		userId: string,
@@ -110,12 +117,24 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 
 	beforeEach(async () => {
 		await runCaseStoreMigrations(handle.db);
+		await handle.pool.query(`
+			CREATE TABLE auth_member (
+				id text PRIMARY KEY,
+				"userId" text NOT NULL,
+				"organizationId" text NOT NULL,
+				role text NOT NULL,
+				UNIQUE ("organizationId", "userId")
+			)
+		`);
 		injected = new Kysely<AppDatabase>({
 			dialect: new PostgresDialect({
 				pool: handle.pool as unknown as PostgresPool,
 			}),
 		});
 		__setAppDbForTests(injected);
+		await installAuthMemberSerialization(
+			injected as unknown as Kysely<unknown>,
+		);
 	});
 
 	afterEach(async () => {
@@ -137,12 +156,18 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		const appName = opts.app_name ?? "";
 		const reservation = opts.reservation ?? undefined;
 		const lock = opts.run_lock ?? undefined;
+		const owner = opts.owner ?? "owner-test";
+		const projectId =
+			opts.project_id === undefined ? "project-test" : opts.project_id;
+		if (projectId !== null) {
+			await seedProjectMember(owner, projectId, "owner");
+		}
 		await db()
 			.insertInto("apps")
 			.values({
 				id,
-				owner: opts.owner ?? "owner-test",
-				project_id: opts.project_id ?? "project-test",
+				owner,
+				project_id: projectId,
 				app_name: appName,
 				app_name_lower: (appName || UNTITLED_APP_NAME).toLowerCase(),
 				connect_type: opts.connect_type ?? null,
@@ -178,6 +203,12 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 	): Promise<string> {
 		const persistable = toPersistableDoc(doc);
 		const id = opts.id ?? crypto.randomUUID();
+		const owner = opts.owner ?? "owner-test";
+		const projectId =
+			opts.projectId === undefined ? "project-test" : opts.projectId;
+		if (projectId !== null) {
+			await seedProjectMember(owner, projectId, "owner");
+		}
 		const formCount = persistable.moduleOrder.reduce(
 			(sum, m) => sum + (persistable.formOrder[m]?.length ?? 0),
 			0,
@@ -186,9 +217,8 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			.insertInto("apps")
 			.values({
 				id,
-				owner: opts.owner ?? "owner-test",
-				project_id:
-					opts.projectId === undefined ? "project-test" : opts.projectId,
+				owner,
+				project_id: projectId,
 				app_name: persistable.appName,
 				app_name_lower: (
 					persistable.appName || UNTITLED_APP_NAME
@@ -227,6 +257,19 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 				.execute();
 		}
 		return id;
+	}
+
+	async function seedProjectMember(
+		userId: string,
+		projectId: string,
+		role: "viewer" | "editor" | "admin" | "owner" = "editor",
+	): Promise<void> {
+		await sql`
+			INSERT INTO auth_member (id, "userId", "organizationId", role)
+			VALUES (${crypto.randomUUID()}, ${userId}, ${projectId}, ${role})
+			ON CONFLICT ("organizationId", "userId")
+			DO UPDATE SET role = EXCLUDED.role
+		`.execute(db());
 	}
 
 	async function seedCreditMonth(
@@ -315,6 +358,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		uri: () => handle.uri,
 		seedApp,
 		seedAppWithBlueprint,
+		seedProjectMember,
 		seedCreditMonth,
 		readConsumed,
 		readAppRow,

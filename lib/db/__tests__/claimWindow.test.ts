@@ -30,6 +30,7 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 const h = setupAppStateTestDb("claimwindow_");
 const PERIOD = getCurrentPeriod();
 const APP = "app-1";
+const PROJECT_ID = "project-test";
 
 /** An `updated_at` past the build staleness window (a hard-killed build). */
 const staleClock = () => new Date(Date.now() - 60 * 60_000);
@@ -58,7 +59,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 			bonus: 0,
 		});
 
-		await reserveForNewBuild(APP, "user-1", 100, "run-2");
+		await reserveForNewBuild(APP, "user-1", 100, "run-2", PROJECT_ID);
 
 		// Leftover 100 refunded, fresh 100 booked → net stays 100.
 		expect(await h.readConsumed("user-1", PERIOD)).toBe(100);
@@ -99,7 +100,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 		});
 
 		// The owner books fresh; the leftover refunds to the dead member.
-		await reserveForNewBuild(APP, "owner-1", 100, "run-2");
+		await reserveForNewBuild(APP, "owner-1", 100, "run-2", PROJECT_ID);
 
 		expect(await h.readConsumed("member-2", PERIOD)).toBe(0); // dead member's hold handed back
 		expect(await h.readConsumed("owner-1", PERIOD)).toBe(100); // fresh on owner's ledger
@@ -166,9 +167,10 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 				userId: "user-1",
 			},
 		});
+		await h.seedProjectMember("user-2", PROJECT_ID);
 
 		await expect(
-			claimAndReserveRun(APP, "build", "waiter", "user-2", 100),
+			claimAndReserveRun(APP, "build", "waiter", "user-2", 100, PROJECT_ID),
 		).rejects.toBeInstanceOf(RunConflictError);
 		// Nothing written — the paused run's marker is untouched.
 		expect(await h.readReservation(APP)).toMatchObject({

@@ -32,6 +32,7 @@ const TEST_APP_ID = "app-credit-integration";
 
 const h = setupAppStateTestDb("credits_int_");
 const period = getCurrentPeriod();
+const PROJECT_ID = "project-test";
 
 /** Read the raw credit-month row for the test user's current period. */
 async function readCreditMonth(): Promise<
@@ -100,6 +101,7 @@ describe("reserveForNewBuild credit debit", () => {
 			TEST_USER_ID,
 			CREDITS_PER_BUILD,
 			"run-1",
+			PROJECT_ID,
 		);
 		expect(result).toEqual({ period, reserved: CREDITS_PER_BUILD });
 
@@ -125,12 +127,14 @@ describe("reserveForNewBuild credit debit", () => {
 			TEST_USER_ID,
 			CREDITS_PER_BUILD,
 			"run-a",
+			PROJECT_ID,
 		);
 		await reserveForNewBuild(
 			TEST_APP_ID,
 			TEST_USER_ID,
 			CREDITS_PER_BUILD,
 			"run-b",
+			PROJECT_ID,
 		);
 		expect((await readCreditMonth())?.consumed).toBe(CREDITS_PER_BUILD);
 
@@ -144,7 +148,13 @@ describe("reserveForNewBuild credit debit", () => {
 			bonus: 0,
 		});
 		await expect(
-			reserveForNewBuild(TEST_APP_ID, TEST_USER_ID, CREDITS_PER_BUILD, "run-c"),
+			reserveForNewBuild(
+				TEST_APP_ID,
+				TEST_USER_ID,
+				CREDITS_PER_BUILD,
+				"run-c",
+				PROJECT_ID,
+			),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 
 		// The rejected reservation booked nothing — the row is exactly as seeded.

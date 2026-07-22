@@ -43,12 +43,12 @@
  *   1. Compute the prospective new blueprint state in memory.
  *   2. Diff prior vs. prospective via `classifyCaseTypeChanges` and
  *      partition into migration-bearing vs. additive entries.
- *   3. If there ARE migration-bearing entries, reauthorize the actor
- *      against the app's Project BEFORE running their Phase-1 DDL — a
- *      deauth'd caller must not mutate `case_type_schemas` before
- *      `commitGuardedBatch`'s own reauth would reject. A pure additive
- *      / non-case-type commit runs no pre-commit DDL, so it skips this
- *      gate and relies on `commitGuardedBatch`'s reauth alone.
+ *   3. If there ARE migration-bearing entries, hold the app row plus fresh
+ *      Project edit authorization while every entry's schema/data Phase A runs
+ *      in that same transaction and connection. This blocks membership DML
+ *      and Project moves for the entire side effect. A pure additive /
+ *      non-case-type commit runs no pre-commit DDL and relies on
+ *      `commitGuardedBatch` alone.
  *   4. Run the MIGRATION-BEARING entries Postgres-first against the
  *      prospective; a mid-loop failure compensates the already-applied
  *      ones and rethrows.
@@ -111,16 +111,17 @@ import type {
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
-import { commitGuardedBatch, loadApp, loadAppProjectId } from "./apps";
+import {
+	commitGuardedBatch,
+	loadApp,
+	withAuthorizedAppEditSideEffect,
+} from "./apps";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
 	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
-import {
-	BlueprintCommitRejectedError,
-	reauthorizeActorForCommit,
-} from "./commitGuard";
+import { BlueprintCommitRejectedError } from "./commitGuard";
 import { getAppDb } from "./pg";
 import { isTransientDbError } from "./schemaSyncRetry";
 import type { AcceptedMutationDoc } from "./types";
@@ -149,6 +150,8 @@ import type { AcceptedMutationDoc } from "./types";
 export interface ApplyBlueprintChangeArgs {
 	readonly appId: string;
 	readonly userId: string;
+	/** Project captured with the caller's blueprint/scope snapshot. */
+	readonly expectedProjectId: string | null;
 	/**
 	 * Advisory whole-doc projection retained for callers that already computed
 	 * one. It never drives schema work or persistence: the saga derives its own
@@ -333,28 +336,13 @@ export async function applyBlueprintChange(
 	// the same view `buildCaseTypeMap` builds — so no absent-type filter is
 	// needed before Phase 1.
 	const prospectiveSchemas = buildCaseTypeMap(prospectiveBlueprint);
-	const migrationEntries = entries.filter(
-		(entry) => entry.change !== undefined,
-	);
-
-	// Reauthorize BEFORE the migration-bearing Phase-1 DDL — ONLY when there is
-	// such DDL to protect. The saga applies that DDL before
-	// `commitGuardedBatch`'s own in-txn reauth would fire, so a caller
-	// deauthorized mid-window must be rejected here or they'd mutate
-	// `case_type_schemas` (and, if the compensating call also failed, leave
-	// store drift). For a pure additive / non-case-type commit there is no
-	// pre-commit DDL, so `commitGuardedBatch`'s reauth is the single gate — no
-	// second `loadAppProjectId` + `projectRoleFor` round trip on the hot path.
-	//
-	// When it DOES run, the resolved `projectId` is threaded into the commit as
-	// `preauthorized` so `commitGuardedBatch` doesn't re-run the identical
-	// resolve + reauth for the same actor moments later.
-	let preauthorized: { projectId: string | null } | undefined;
-	if (migrationEntries.length > 0) {
-		const projectId = await loadAppProjectId(args.appId);
-		await reauthorizeActorForCommit(projectId, args.userId);
-		preauthorized = { projectId };
-	}
+	const migrationEntries = entries
+		.filter((entry) => entry.change !== undefined)
+		.toSorted(
+			(a, b) =>
+				a.caseType.localeCompare(b.caseType) ||
+				(a.property ?? "").localeCompare(b.property ?? ""),
+		);
 
 	// Every rename pair the classifier proved, flattened for the guarded
 	// commit's rename-expectation gate: inside the commit transaction the
@@ -380,13 +368,10 @@ export async function applyBlueprintChange(
 	// entries are NOT applied here — they wait for the post-commit sweep of the
 	// committed doc.
 	//
-	// On any failure, compensate over ALL `migrationEntries` (not just the ones
-	// whose `applySchemaChange` fully returned): `applySchemaChange` is
-	// two-phase, so an entry whose Phase A committed and whose Phase B then
-	// threw exits this loop UN-recorded, yet its schema DID change. Compensate
-	// is idempotent (it re-derives each type from the fresh committed doc), so
-	// re-syncing a type whose Phase A rolled back is a harmless no-op while a
-	// Phase-A-committed / Phase-B-failed type is correctly reconciled.
+	// All migration entries' Phase A work shares the app/membership transaction;
+	// it either commits as a unit or rolls back as a unit. Only after that commit
+	// do their concurrent-index Phase B completions run without an old snapshot
+	// or a second connection pinned behind the app lock.
 	// Every report the saga's schema syncs produce, aggregated into the
 	// result's `migration` outcome; the parked ids additionally feed the
 	// compensation path — a failed commit un-parks what its forward
@@ -395,31 +380,53 @@ export async function applyBlueprintChange(
 	const forwardParkedIds = (): string[] =>
 		forwardReports.flatMap(({ report }) => report.parkedIds);
 	try {
-		for (const entry of migrationEntries) {
-			forwardReports.push({
-				caseType: entry.caseType,
-				report: await store.applySchemaChange({
-					appId: args.appId,
-					caseType: entry.caseType,
-					caseTypeSchemas: prospectiveSchemas,
-					...(entry.property !== undefined && { property: entry.property }),
-					...(entry.change !== undefined && { change: entry.change }),
-				}),
-			});
+		if (migrationEntries.length > 0) {
+			const admitted = await withAuthorizedAppEditSideEffect(
+				args.appId,
+				args.userId,
+				args.expectedProjectId,
+				async (tx) => {
+					const phases: Array<{
+						caseType: string;
+						phaseA: Awaited<ReturnType<typeof store.applySchemaChangePhaseA>>;
+					}> = [];
+					for (const entry of migrationEntries) {
+						phases.push({
+							caseType: entry.caseType,
+							phaseA: await store.applySchemaChangePhaseA(tx, {
+								appId: args.appId,
+								caseType: entry.caseType,
+								caseTypeSchemas: prospectiveSchemas,
+								...(entry.property !== undefined && {
+									property: entry.property,
+								}),
+								...(entry.change !== undefined && { change: entry.change }),
+							}),
+						});
+					}
+					return phases;
+				},
+			);
+			// Every Phase A is now durable, so record every report before any Phase B
+			// can throw; compensation needs all parked ids, including a later entry
+			// whose index completion was never reached.
+			forwardReports.push(
+				...admitted.value.map(({ caseType, phaseA }) => ({
+					caseType,
+					report: phaseA.report,
+				})),
+			);
+			for (const { phaseA } of admitted.value) {
+				await phaseA.completeAfterCommit();
+			}
 		}
 	} catch (forwardErr) {
-		// A Phase-B failure is thrown AFTER Phase A committed its schema
-		// write + row migrations — harvest the committed report off the
-		// typed wrapper so compensation can still un-park what Phase A
-		// set aside (losing it here would strand those values with no
-		// restore path).
-		if (forwardErr instanceof SchemaChangePhaseBError) {
-			forwardReports.push({
-				caseType: forwardErr.caseType,
-				report: forwardErr.report,
-			});
+		// Admission denial and any Phase-A/outer-COMMIT failure left the shared
+		// transaction rolled back, so there is nothing to compensate. Reports are
+		// populated only after that transaction successfully commits.
+		if (forwardReports.length > 0) {
+			await compensate(args.appId, store, migrationEntries, forwardParkedIds());
 		}
-		await compensate(args.appId, store, migrationEntries, forwardParkedIds());
 		throw forwardErr;
 	}
 
@@ -428,11 +435,7 @@ export async function applyBlueprintChange(
 	let result: ApplyBlueprintChangeResult;
 	let deduped: boolean;
 	try {
-		({ result, deduped } = await persistBlueprint(
-			args,
-			renameExpectations,
-			preauthorized,
-		));
+		({ result, deduped } = await persistBlueprint(args, renameExpectations));
 	} catch (commitErr) {
 		await compensate(args.appId, store, migrationEntries, forwardParkedIds());
 		throw commitErr;
@@ -518,14 +521,12 @@ async function resolvePriorBlueprint(
  * `seq` with the CURRENT (peer-advanced) doc, an inconsistent pair the sweep
  * must not sync from (it already swept at the original commit).
  *
- * `preauthorized` (the migration path only) forwards the `projectId` the saga
- * already resolved + reauthed so `commitGuardedBatch` skips the redundant
- * second resolve + role check for the same actor.
+ * The caller's `expectedProjectId` detects a move since its source snapshot;
+ * it never skips the commit's own fresh transactional authorization.
  */
 async function persistBlueprint(
 	args: ApplyBlueprintChangeArgs,
 	renameExpectations: readonly RenameExpectation[],
-	preauthorized?: { projectId: string | null },
 ): Promise<{ result: ApplyBlueprintChangeResult; deduped: boolean }> {
 	if (args.guard === undefined) {
 		throw new Error("[applyBlueprintChange] a persist requires a `guard`");
@@ -539,8 +540,8 @@ async function persistBlueprint(
 		actorUserId: args.userId,
 		kind: args.kind,
 		renameExpectations,
+		expectedProjectId: args.expectedProjectId,
 		...(mediaExpectations !== undefined && { mediaExpectations }),
-		...(preauthorized !== undefined && { preauthorized }),
 	});
 	return {
 		result: {

@@ -19,6 +19,7 @@ import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
@@ -386,6 +387,25 @@ describe("GenerationContext.recordMutations", () => {
 		);
 		expect(ctx.reauthError()).toBe(reauth);
 		// Nothing committed → nothing emitted.
+		expect(writer.write).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).not.toHaveBeenCalled();
+	});
+
+	it("stashes an AppProjectChangedError as terminal scope loss, re-throws it, and emits nothing", async () => {
+		// A Project move is distinct from both a retryable blueprint conflict and
+		// authorization loss: this run's admitted tenant scope is stale, so the
+		// route must fail/refund it rather than letting the SA reload and continue.
+		const projectChanged = new AppProjectChangedError();
+		vi.mocked(commitGuardedBatch).mockRejectedValueOnce(projectChanged);
+
+		expect(ctx.projectChangedError()).toBeUndefined();
+		await expect(ctx.recordMutations([TEXT_FIELD_MUTATION], DOC)).rejects.toBe(
+			projectChanged,
+		);
+		expect(ctx.projectChangedError()).toBe(projectChanged);
+		expect(ctx.reauthError()).toBeUndefined();
+		// Nothing committed, so neither the client stream nor durable event log
+		// may claim the rejected mutation happened.
 		expect(writer.write).not.toHaveBeenCalled();
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
 	});

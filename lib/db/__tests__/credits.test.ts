@@ -33,6 +33,7 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("credits_unit_");
 const period = getCurrentPeriod();
+const PROJECT_ID = "project-test";
 
 /**
  * Build a minimal `UIMessage` of a given role for the `isChargeableTurn` cases —
@@ -138,6 +139,7 @@ describe("reserveForNewBuild debit", () => {
 			USER,
 			CREDITS_PER_BUILD,
 			"run-1",
+			PROJECT_ID,
 		);
 
 		expect(await readMonth(USER)).toEqual({
@@ -166,7 +168,7 @@ describe("reserveForNewBuild debit", () => {
 		});
 		const { reserveForNewBuild } = await import("../apps");
 
-		await reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1");
+		await reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1", PROJECT_ID);
 
 		expect(await readMonth(USER)).toEqual({
 			allowance: 2000,
@@ -184,7 +186,7 @@ describe("reserveForNewBuild debit", () => {
 		});
 		const { reserveForNewBuild } = await import("../apps");
 
-		await reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1");
+		await reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1", PROJECT_ID);
 		expect((await readMonth(USER))?.consumed).toBe(2000);
 	});
 
@@ -199,7 +201,7 @@ describe("reserveForNewBuild debit", () => {
 		const { reserveForNewBuild } = await import("../apps");
 
 		await expect(
-			reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1"),
+			reserveForNewBuild(APP, USER, CREDITS_PER_BUILD, "run-1", PROJECT_ID),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 		// The rejected reservation booked nothing — the row is exactly as seeded.
 		expect(await readMonth(USER)).toEqual({
@@ -234,11 +236,17 @@ describe("reserveForNewBuild debit", () => {
 		const { OutOfCreditsError } = await import("../credits");
 		const { reserveForNewBuild } = await import("../apps");
 
-		await reserveForNewBuild("app-1", USER, CREDITS_PER_BUILD, "run-1");
+		await reserveForNewBuild(
+			"app-1",
+			USER,
+			CREDITS_PER_BUILD,
+			"run-1",
+			PROJECT_ID,
+		);
 		expect((await readMonth(USER))?.consumed).toBe(2000);
 
 		await expect(
-			reserveForNewBuild("app-2", USER, CREDITS_PER_BUILD, "run-2"),
+			reserveForNewBuild("app-2", USER, CREDITS_PER_BUILD, "run-2", PROJECT_ID),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 		expect((await readMonth(USER))?.consumed).toBe(2000);
 	});

@@ -32,13 +32,13 @@ import { getCurrentPeriod } from "@/lib/db/period";
 import { runLeaseState } from "@/lib/db/runLiveness";
 import type { AppDoc } from "@/lib/db/types";
 import {
-	claimAndReserveRun,
+	claimAndReserveRun as claimAndReserveRunForProject,
 	clearRunLockAndSettle,
 	completeAndSettleRun,
 	hasActiveGeneration,
 	loadApp,
 	RunConflictError,
-	reacquireLease,
+	reacquireLease as reacquireLeaseForProject,
 	reapStaleGenerating,
 	reapStaleReservation,
 	refreshBuildLiveness,
@@ -50,9 +50,42 @@ const OWNER = "user-lifecycle-owner";
 const MEMBER = "user-lifecycle-member";
 const APP = "app-lifecycle";
 const APP_B = "app-lifecycle-b";
+const PROJECT_ID = "project-test";
 
 const h = setupAppStateTestDb("lifecycle_");
 const period = getCurrentPeriod();
+
+async function claimAndReserveRun(
+	appId: string,
+	mode: "build" | "edit",
+	runId: string,
+	actorUserId: string,
+	cost: number,
+) {
+	return await claimAndReserveRunForProject(
+		appId,
+		mode,
+		runId,
+		actorUserId,
+		cost,
+		PROJECT_ID,
+	);
+}
+
+async function reacquireLease(
+	appId: string,
+	runId: string,
+	mode: "build" | "edit",
+	actorUserId: string,
+) {
+	return await reacquireLeaseForProject(
+		appId,
+		runId,
+		mode,
+		actorUserId,
+		PROJECT_ID,
+	);
+}
 
 async function consumed(userId: string): Promise<number> {
 	return (await h.readConsumed(userId, period)) ?? 0;
@@ -63,6 +96,9 @@ async function seedApp(
 	over: Parameters<typeof h.seedApp>[0] = {},
 ): Promise<void> {
 	await h.seedApp({ id: appId, owner: OWNER, ...over });
+	const projectId =
+		over.project_id === undefined ? PROJECT_ID : over.project_id;
+	if (projectId !== null) await h.seedProjectMember(MEMBER, projectId);
 }
 /** The full AppDoc — reservation/run_lock reassembled — for `runLeaseState`. */
 const readApp = (appId: string): Promise<AppDoc | null> => loadApp(appId);
@@ -194,7 +230,7 @@ describe("run-lifecycle invariant matrix", () => {
 			lock_expire_at: new Date(Date.now() - 1000),
 		});
 		// The resume re-acquires: still mine → renew the lease, don't get reaped.
-		expect(await reacquireLease(APP, "e1", "edit")).toBe("owned");
+		expect(await reacquireLease(APP, "e1", "edit", OWNER)).toBe("owned");
 		const app = await readApp(APP);
 		expect(app?.awaiting_input).toBeFalsy();
 		expect(runLeaseState(app ?? {}).live).toBe(true); // lease renewed → live
@@ -412,7 +448,7 @@ describe("run-lifecycle invariant matrix", () => {
 		await patchApp(APP, { awaiting_input: true });
 
 		// Its own answered-resume re-acquires cleanly (still owns the lock + marker).
-		expect(await reacquireLease(APP, "e1", "edit")).toBe("owned");
+		expect(await reacquireLease(APP, "e1", "edit", OWNER)).toBe("owned");
 		const app = await readApp(APP);
 		expect(app?.awaiting_input).toBeFalsy();
 		expect(runLeaseState(app ?? {}).mine("e1")).toBe(true);

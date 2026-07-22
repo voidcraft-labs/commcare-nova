@@ -109,6 +109,7 @@ export function makeTestContext(
 		usage,
 		session,
 		appId: opts.appId ?? "test-app",
+		projectId: "project-test",
 		// Build-mode fixture by default (no edit run_lock, so no lease heartbeat).
 		editLease: opts.editLease ?? false,
 		conversionImpact: opts.conversionImpact ?? emptyConversionImpact,
@@ -208,6 +209,7 @@ export function makeMcpTestContext(
 	const ctx = new McpContext({
 		appId: opts.appId ?? "test-app",
 		userId: opts.userId ?? "user-1",
+		projectId: "project-test",
 		runId: opts.runId ?? "run-1",
 		logWriter: logWriterStub,
 		progress: progressStub,

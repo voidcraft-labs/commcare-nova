@@ -6,8 +6,9 @@ import type { AppDoc } from "./types";
  *
  * Every credit/claim decision — claimRun's busy check, `reacquireLease`, both
  * reapers, the terminal WRITERS (`completeAndSettleRun` / `clearRunLockAndSettle` /
- * `settleAndRelease` / the flush `refundReservation`, which re-check ownership IN
- * THEIR TXN before mutating), the concurrency gate — derives from
+ * `settleAndRelease` / `failApp` / the flush `refundReservation`, which re-check
+ * ownership IN THEIR TXN before mutating), the exact-holder pause/prelude writers
+ * (`setAwaitingInput` / `clearRunLock`), the concurrency gate — derives from
  * {@link runLeaseState}. NO other module reads `run_lock.expireAt`,
  * `run_lock.runId`, or `reservation.runId` for a decision (a build-time grep guard
  * fails on a raw read of those three PURE fields outside this file; see
@@ -141,6 +142,15 @@ export interface RunLease {
 	 */
 	terminalWriteOwned: (runId: string) => boolean;
 	/**
+	 * Whether a BUILD may stamp its terminal error. Unlike marker settlement,
+	 * this remains true after this run's marker was settled so the subsequent
+	 * status flip can land. A just-created build may fail before reservation;
+	 * only that marker-absent shape falls back to the root `run_id`. A reaper
+	 * clears the marker run id and a replacement claim writes a new one, so a
+	 * stale build cannot fail its successor.
+	 */
+	buildFailureWriteOwned: (runId: string) => boolean;
+	/**
 	 * Whether `runId` still owns the PAUSED run it is RESUMING — keyed on the
 	 * resume's OWN mode, not the doc's derived `mode`. A paused run's lease lapses
 	 * while it waits for the user (no heartbeat during a pause), so it CAN be reaped
@@ -269,6 +279,12 @@ export function runLeaseState(
 		return true; // mode "none": no run occupies the app
 	};
 
+	const buildFailureWriteOwned = (runId: string): boolean => {
+		if (mode !== "build") return false;
+		if (reservation !== undefined) return reservation.runId === runId;
+		return fresh.run_id === runId;
+	};
+
 	const ownedByResume = (
 		runId: string,
 		resumeMode: "build" | "edit",
@@ -318,6 +334,7 @@ export function runLeaseState(
 		pausedBy,
 		mine,
 		terminalWriteOwned,
+		buildFailureWriteOwned,
 		ownedByResume,
 		markerSettleable,
 		reaperResolved,

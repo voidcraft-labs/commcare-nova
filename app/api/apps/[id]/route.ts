@@ -20,6 +20,7 @@ import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
@@ -67,7 +68,8 @@ export async function PUT(
 		 * the `AppDoc` whose `blueprint` threads into the saga as
 		 * `priorBlueprint` (no second `loadApp`). An `AppAccessError` maps to 404
 		 * in `handleApiError` — the shared IDOR-safe not-found posture. */
-		const app = (await resolveAppAccess(id, session.user.id, "edit")).app;
+		const access = await resolveAppAccess(id, session.user.id, "edit");
+		const app = access.app;
 
 		// Cap the body before materializing it. A mutation delta is far
 		// smaller than the blueprint, so 2 MB rejects only the pathological;
@@ -112,6 +114,7 @@ export async function PUT(
 		const result = await applyBlueprintChange({
 			appId: id,
 			userId: session.user.id,
+			expectedProjectId: access.projectId,
 			priorBlueprint: app.blueprint,
 			batchId: parsed.data.batchId,
 			kind: "autosave",
@@ -134,6 +137,13 @@ export async function PUT(
 			...(touchedRows && { migration }),
 		});
 	} catch (err) {
+		if (err instanceof AppProjectChangedError) {
+			log.warn(`[apps] save scope changed (409): ${err.message}`);
+			return Response.json(
+				{ error: err.message, type: "app_changed" },
+				{ status: 409 },
+			);
+		}
 		if (err instanceof CommitReauthError) {
 			/* The actor lost edit access to this app (removed from its Project, or
 			 * not the owner of a personal app) — TERMINAL. 403, not a 409-reload:
@@ -148,7 +158,7 @@ export async function PUT(
 		if (err instanceof BlueprintCommitRejectedError) {
 			/* The delta is invalid against the fresh server doc — a genuine
 			 * concurrent conflict (this edit targets an entity another writer
-			 * changed, or the app moved Projects). 409 with the person-to-person
+			 * changed). 409 with the person-to-person
 			 * message; the builder reloads the server doc and re-authorizes. */
 			log.warn(`[apps] save rejected (409): ${err.message}`);
 			return Response.json(

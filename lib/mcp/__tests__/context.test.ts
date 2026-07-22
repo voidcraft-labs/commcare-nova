@@ -107,6 +107,7 @@ describe("McpContext", () => {
 		const ctx = new McpContext({
 			appId: "a",
 			userId: "u",
+			projectId: "p",
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
@@ -149,6 +150,7 @@ describe("McpContext", () => {
 		const ctx = new McpContext({
 			appId: "a",
 			userId: "u",
+			projectId: "p",
 			runId: "r",
 			logWriter: mockLogWriter(),
 			progress: mockProgress(),
@@ -183,6 +185,7 @@ describe("McpContext", () => {
 		const ctx = new McpContext({
 			appId: "a",
 			userId: "u",
+			projectId: "p",
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
@@ -205,6 +208,7 @@ describe("McpContext", () => {
 		const ctx = new McpContext({
 			appId: "a",
 			userId: "u",
+			projectId: "p",
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),
@@ -247,6 +251,7 @@ describe("McpContext", () => {
 		const ctx = new McpContext({
 			appId: "a",
 			userId: "u",
+			projectId: "p",
 			runId: "r",
 			logWriter,
 			progress: mockProgress(),

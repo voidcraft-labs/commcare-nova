@@ -55,7 +55,10 @@ import {
 	refreshBuildLiveness,
 	refreshEditLease,
 } from "@/lib/db/apps";
-import { CommitReauthError } from "@/lib/db/commitGuard";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -138,6 +141,8 @@ interface GenerationContextOptions {
 	/** App id. The chat route creates the app doc before this
 	 * constructor runs so every context has a valid target app. */
 	appId: string;
+	/** Project captured with the run's authoritative app admission. */
+	projectId: string;
 	/**
 	 * True when this run holds an EDIT `run_lock` (an edit-mode run: a chargeable
 	 * edit that claimed, or an edit resume) — it selects WHICH horizon the
@@ -202,6 +207,7 @@ export class GenerationContext implements ToolExecutionContext {
 	/** App id — required. Created before construction by the
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
+	readonly projectId: string;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
 	 * each request; event row ids are Postgres-assigned, so no cross-request
@@ -232,6 +238,10 @@ export class GenerationContext implements ToolExecutionContext {
 	 * through `failRun` (refund, never keep the charge) instead. TERMINAL — a
 	 * reload can't restore access, so it's never cleared within a run. */
 	private _reauthError: CommitReauthError | undefined;
+	/** A guarded write observed a Project different from this run's admitted
+	 * scope. Terminal for this run even when the actor belongs to both Projects:
+	 * every later write would reject until the caller reloads authoritatively. */
+	private _projectChangedError: AppProjectChangedError | undefined;
 	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
@@ -256,6 +266,7 @@ export class GenerationContext implements ToolExecutionContext {
 		this.usage = opts.usage;
 		this.session = opts.session;
 		this.appId = opts.appId;
+		this.projectId = opts.projectId;
 		this.editLease = opts.editLease;
 		this.conversionImpact = opts.conversionImpact;
 	}
@@ -505,6 +516,7 @@ export class GenerationContext implements ToolExecutionContext {
 				const saga = await applyBlueprintChange({
 					appId: this.appId,
 					userId: this.session.user.id,
+					expectedProjectId: this.projectId,
 					runId: this.usage.runId,
 					batchId,
 					kind: "chat",
@@ -545,12 +557,16 @@ export class GenerationContext implements ToolExecutionContext {
 					runId: this.usage.runId,
 					mutations,
 					actorUserId: this.session.user.id,
+					expectedProjectId: this.projectId,
 					kind: "chat",
 					...(mediaExpectations !== undefined && { mediaExpectations }),
 				});
 			}
 		} catch (err) {
 			if (err instanceof CommitReauthError) this._reauthError = err;
+			if (err instanceof AppProjectChangedError) {
+				this._projectChangedError = err;
+			}
 			throw err;
 		}
 		this._latestDoc = result.committedDoc;
@@ -682,6 +698,11 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	reauthError(): CommitReauthError | undefined {
 		return this._reauthError;
+	}
+
+	/** Project-scope mismatch captured from a guarded write; see the field. */
+	projectChangedError(): AppProjectChangedError | undefined {
+		return this._projectChangedError;
 	}
 
 	/**

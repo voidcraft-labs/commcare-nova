@@ -106,6 +106,7 @@ import type {
 	GenerateSampleDataArgs,
 	MigrationReport,
 	ParkedValueEntry,
+	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
 	SchemaChangeKind,
@@ -1166,6 +1167,17 @@ export class PostgresCaseStore implements CaseStore {
 	async applySchemaChange(
 		args: ApplySchemaChangeArgs,
 	): Promise<MigrationReport> {
+		const phaseA = await this.db
+			.transaction()
+			.execute((tx) => this.applySchemaChangePhaseA(tx, args));
+		await phaseA.completeAfterCommit();
+		return phaseA.report;
+	}
+
+	async applySchemaChangePhaseA(
+		tx: Transaction<Database>,
+		args: ApplySchemaChangeArgs,
+	): Promise<PreparedSchemaChangePhaseB> {
 		// `change` (a per-row migration) and `syncedSeq` (the monotone additive
 		// gate) are mutually exclusive: the migration path runs pre-commit with
 		// no committed seq, the additive path carries a seq and no migration. If
@@ -1217,7 +1229,7 @@ export class PostgresCaseStore implements CaseStore {
 		// below — a lost SELECT→UPSERT race re-converges on the next sync
 		// (perf-only, not a correctness gate).
 		if (args.syncedSeq !== undefined) {
-			const existing = await this.db
+			const existing = await tx
 				.selectFrom("case_type_schemas")
 				.select("synced_seq")
 				.where("app_id", "=", args.appId)
@@ -1228,13 +1240,16 @@ export class PostgresCaseStore implements CaseStore {
 				args.syncedSeq < Number(existing.synced_seq)
 			) {
 				return {
-					migrated: 0,
-					reshaped: 0,
-					retyped: 0,
-					restored: 0,
-					skipped: 0,
-					parkedIds: [],
-					failureReasons: [],
+					report: {
+						migrated: 0,
+						reshaped: 0,
+						retyped: 0,
+						restored: 0,
+						skipped: 0,
+						parkedIds: [],
+						failureReasons: [],
+					},
+					completeAfterCommit: async () => {},
 				};
 			}
 		}
@@ -1246,7 +1261,7 @@ export class PostgresCaseStore implements CaseStore {
 		// versioned fine-gate WHERE suppressed the UPSERT (a monotone loser).
 		// Phase B and the step-2 reshape are both gated on it.
 		let won = true;
-		const report = await this.db.transaction().execute(async (trx) => {
+		const report = await (async (trx: Transaction<Database>) => {
 			// Read the stored schema BEFORE the UPSERT overwrites it — the
 			// string↔array reshape (step 2) diffs stored vs desired per
 			// property. `FOR UPDATE` serializes concurrent syncs of the same
@@ -1465,7 +1480,7 @@ export class PostgresCaseStore implements CaseStore {
 					...(migration?.failureReasons ?? []),
 				],
 			};
-		});
+		})(tx);
 
 		// Phase B: per-property expression-index DDL. Runs against
 		// the post-commit state so the migration's row rewrites have
@@ -1482,27 +1497,29 @@ export class PostgresCaseStore implements CaseStore {
 		// run) Phase B with the correct desired set. (The coarse-gate no-op
 		// earlier already returns before reaching Phase B; this closes the
 		// narrower fine-gate-loser window.)
-		if (won) {
-			try {
-				await this.syncExpressionIndexes({
-					appId: args.appId,
-					caseType: args.caseType,
-					desired: desiredIndexes,
-				});
-			} catch (phaseBErr) {
-				// Phase A is already durable — wrap so the COMMITTED report
-				// (parked ids and all) survives the throw for compensating
-				// callers; `cause` keeps transient classification working.
-				throw new SchemaChangePhaseBError({
-					appId: args.appId,
-					caseType: args.caseType,
-					report,
-					cause: phaseBErr,
-				});
-			}
-		}
-
-		return report;
+		return {
+			report,
+			completeAfterCommit: async () => {
+				if (!won) return;
+				try {
+					await this.syncExpressionIndexes({
+						appId: args.appId,
+						caseType: args.caseType,
+						desired: desiredIndexes,
+					});
+				} catch (phaseBErr) {
+					// Phase A is already durable — wrap so the COMMITTED report
+					// (parked ids and all) survives the throw for compensating
+					// callers; `cause` keeps transient classification working.
+					throw new SchemaChangePhaseBError({
+						appId: args.appId,
+						caseType: args.caseType,
+						report,
+						cause: phaseBErr,
+					});
+				}
+			},
+		};
 	}
 
 	async dropSchema(args: { appId: string; caseType: string }): Promise<void> {

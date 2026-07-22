@@ -9,6 +9,7 @@
 
 import { produce } from "immer";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
@@ -202,15 +203,18 @@ export interface ReadToolResult<R> {
  *
  * A tool wraps its whole body — including the guarded commit — in a blanket
  * `catch` so an unexpected throw surfaces to the model as a friendly `{ error }`
- * rather than an unhandled rejection. But the two AUTHORITATIVE commit signals
+ * rather than an unhandled rejection. But the three AUTHORITATIVE commit signals
  * MUST NOT be swallowed there: they are how the chat SA's `wrapMutating`
  * (`solutionsArchitect.ts`) recovers.
  *
- * - `BlueprintCommitRejectedError` — a peer deleted/changed the target, or the
- *   app moved Projects, between the tool's read and the guarded commit. RE-THROWN
- *   so `wrapMutating` catches it, returns `{ error }` to the SA, AND reloads
- *   fresh so the next tool builds on the current server state (not the stale
- *   closure doc). Swallowing it here strands the SA on a stale doc.
+ * - `BlueprintCommitRejectedError` — a peer deleted/changed the target between
+ *   the tool's read and the guarded commit. RE-THROWN so `wrapMutating` catches
+ *   it, returns `{ error }` to the SA, AND reloads fresh so the next tool builds
+ *   on the current server state (not the stale closure doc). Swallowing it here
+ *   strands the SA on a stale doc.
+ * - `AppProjectChangedError` — the app no longer belongs to the Project this run
+ *   was admitted against. RE-THROWN past `wrapMutating` so the route terminates
+ *   the stale-scope run; reloading inside it must not cross the tenant boundary.
  * - `CommitReauthError` — the actor lost edit access mid-run. RE-THROWN so it
  *   propagates past `wrapMutating` (which does NOT catch it) and fails the run;
  *   a reload can't restore authorization, so continuing would just re-deny.
@@ -227,6 +231,7 @@ export function toToolErrorResult(
 	doc: BlueprintDoc,
 ): MutatingToolResult<{ error: string }> {
 	if (
+		err instanceof AppProjectChangedError ||
 		err instanceof BlueprintCommitRejectedError ||
 		err instanceof CommitReauthError
 	) {

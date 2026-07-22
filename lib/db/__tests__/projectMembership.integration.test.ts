@@ -18,7 +18,7 @@ import {
 	up as installAuthMemberSerialization,
 	down as removeAuthMemberSerialization,
 } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
-import { commitGuardedBatch } from "../apps";
+import { commitGuardedBatch, withAuthorizedAppEditSideEffect } from "../apps";
 import { CommitReauthError } from "../commitGuard";
 import { projectRoleForInTransaction } from "../projectMembership";
 import {
@@ -156,17 +156,10 @@ function deferred<T>(): {
 
 beforeEach(async () => {
 	await h.pool().query(`
-		CREATE TABLE auth_member (
-			id text PRIMARY KEY,
-			"userId" text NOT NULL,
-			"organizationId" text NOT NULL,
-			role text NOT NULL,
-			UNIQUE ("organizationId", "userId")
-		);
+		DELETE FROM auth_member;
 		INSERT INTO auth_member (id, "userId", "organizationId", role)
 		VALUES ('membership-row', '${USER}', '${PROJECT}', 'editor');
 	`);
-	await installAuthMemberSerialization(h.db() as unknown as Kysely<unknown>);
 });
 
 describe("Project membership advisory gate", () => {
@@ -341,7 +334,7 @@ describe("Project membership advisory gate", () => {
 				mutations: [],
 				actorUserId: USER,
 				kind: "autosave",
-				preauthorized: { projectId: PROJECT },
+				expectedProjectId: PROJECT,
 			}).then(
 				() => ({ ok: true as const }),
 				(error: unknown) => ({ ok: false as const, error }),
@@ -377,6 +370,136 @@ describe("Project membership advisory gate", () => {
 				observer.query("ROLLBACK"),
 			]);
 			await Promise.all([mutator.end(), contender.end(), observer.end()]);
+		}
+	});
+
+	it("denies schema/data Phase A without invoking it when membership DML wins", async () => {
+		const appId = await h.seedApp({
+			id: "membership-side-effect-denied",
+			owner: USER,
+			project_id: PROJECT,
+			status: "complete",
+		});
+		const mutator = new Client({ connectionString: h.uri() });
+		const observer = new Client({ connectionString: h.uri() });
+		await Promise.all([mutator.connect(), observer.connect()]);
+		let sideEffect:
+			| Promise<{ ok: true } | { ok: false; error: unknown }>
+			| undefined;
+		let membershipCommitted = false;
+		let effectCalled = false;
+		try {
+			await mutator.query("BEGIN");
+			await mutator.query(
+				`UPDATE auth_member
+				 SET role = 'viewer'
+				 WHERE "userId" = $1 AND "organizationId" = $2`,
+				[USER, PROJECT],
+			);
+			const mutatorPid = await backendPid(mutator);
+
+			sideEffect = withAuthorizedAppEditSideEffect(
+				appId,
+				USER,
+				PROJECT,
+				async () => {
+					effectCalled = true;
+				},
+			).then(
+				() => ({ ok: true as const }),
+				(error: unknown) => ({ ok: false as const, error }),
+			);
+			await waitUntilBackendBlockedBy(observer, mutatorPid);
+
+			await mutator.query("COMMIT");
+			membershipCommitted = true;
+			const outcome = await sideEffect;
+			expect(outcome.ok).toBe(false);
+			if (!outcome.ok) {
+				expect(outcome.error).toBeInstanceOf(CommitReauthError);
+			}
+			expect(effectCalled).toBe(false);
+		} finally {
+			if (!membershipCommitted) {
+				await Promise.allSettled([mutator.query("ROLLBACK")]);
+			}
+			await Promise.allSettled([sideEffect, observer.query("ROLLBACK")]);
+			await Promise.all([mutator.end(), observer.end()]);
+		}
+	});
+
+	it("holds membership serialization through schema/data Phase A when the app transaction wins", async () => {
+		const appId = await h.seedApp({
+			id: "membership-side-effect-wins",
+			owner: USER,
+			project_id: PROJECT,
+			status: "complete",
+		});
+		const mutator = new Client({ connectionString: h.uri() });
+		const observer = new Client({ connectionString: h.uri() });
+		await Promise.all([mutator.connect(), observer.connect()]);
+		const phaseAStarted = deferred<number>();
+		const releasePhaseA = deferred<void>();
+		let membershipMutation:
+			| Promise<{ ok: true } | { ok: false; error: unknown }>
+			| undefined;
+		try {
+			const sideEffect = withAuthorizedAppEditSideEffect(
+				appId,
+				USER,
+				PROJECT,
+				async (tx) => {
+					const identity = await sql<{ pid: number }>`
+						SELECT pg_backend_pid() AS pid
+					`.execute(tx);
+					const pid = identity.rows[0]?.pid;
+					if (pid === undefined) throw new Error("missing Phase-A backend pid");
+					await tx
+						.insertInto("case_type_schemas")
+						.values({
+							app_id: appId,
+							case_type: "patient",
+							schema: JSON.stringify({ type: "object", properties: {} }),
+						})
+						.execute();
+					phaseAStarted.resolve(pid);
+					await releasePhaseA.promise;
+				},
+			);
+
+			const holderPid = await phaseAStarted.promise;
+			const mutatorPid = await backendPid(mutator);
+			membershipMutation = mutator
+				.query(
+					`UPDATE auth_member
+					 SET role = 'viewer'
+					 WHERE "userId" = $1 AND "organizationId" = $2`,
+					[USER, PROJECT],
+				)
+				.then(
+					() => ({ ok: true as const }),
+					(error: unknown) => ({ ok: false as const, error }),
+				);
+			await waitUntilBlockedBy(observer, mutatorPid, holderPid);
+
+			releasePhaseA.resolve();
+			await sideEffect;
+			expect((await membershipMutation).ok).toBe(true);
+			const schema = await h.pool().query<{ count: string }>(
+				`SELECT count(*)::text AS count
+				 FROM case_type_schemas
+				 WHERE app_id = $1 AND case_type = 'patient'`,
+				[appId],
+			);
+			expect(schema.rows[0]?.count).toBe("1");
+		} finally {
+			releasePhaseA.resolve();
+			await Promise.allSettled([
+				membershipMutation,
+				mutator.query("ROLLBACK"),
+				observer.query("ROLLBACK"),
+			]);
+			await Promise.all([mutator.end(), observer.end()]);
 		}
 	});
 

@@ -59,12 +59,12 @@ import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 // references survive across tests for assertion access; each test's
 // `beforeEach` resets them.
 
-const { loadAppMock, loadAppProjectIdMock, commitGuardedBatchMock } =
+const { loadAppMock, commitGuardedBatchMock, authorizedSideEffectMock } =
 	vi.hoisted(() => {
 		return {
 			loadAppMock: vi.fn(),
-			loadAppProjectIdMock: vi.fn(),
 			commitGuardedBatchMock: vi.fn(),
+			authorizedSideEffectMock: vi.fn(),
 		};
 	});
 
@@ -80,8 +80,8 @@ const { withSchemaContextMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
-	loadAppProjectId: loadAppProjectIdMock,
 	commitGuardedBatch: commitGuardedBatchMock,
+	withAuthorizedAppEditSideEffect: authorizedSideEffectMock,
 }));
 
 // The saga's top-level dedup read is a non-transactional SELECT on the
@@ -130,12 +130,15 @@ beforeEach(async () => {
 
 beforeEach(() => {
 	loadAppMock.mockReset();
-	loadAppProjectIdMock.mockReset();
 	commitGuardedBatchMock.mockReset();
-	// A null-project (owner-scoped) app: `reauthorizeActorForCommit(null, …)`
-	// is a no-op, so the REAL helper runs without a live auth DB. The saga's
-	// reauth-before-DDL gate is unit-pinned in `applyBlueprintChangeGuard.test`.
-	loadAppProjectIdMock.mockResolvedValue(null);
+	authorizedSideEffectMock.mockReset();
+	authorizedSideEffectMock.mockImplementation(
+		async (_appId, _userId, expectedProjectId, effect) =>
+			await dbHandle.db.transaction().execute(async (tx) => ({
+				projectId: expectedProjectId,
+				value: await effect(tx, { projectId: expectedProjectId }),
+			})),
+	);
 	// The guarded blueprint commit succeeds by default. Additive tests that rely
 	// on the post-commit sweep override `committedDoc` (the sweep skips a
 	// `committedDoc`-undefined result); commit-failure tests reject it.
@@ -321,6 +324,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
+			expectedProjectId: null,
 			prospective,
 			batchId: "batch-add-1",
 			kind: "mcp",
@@ -364,6 +368,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
+			expectedProjectId: null,
 			prospective,
 			runId: "run-mcp-1",
 			batchId: "batch-run-1",
@@ -396,6 +401,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
+			expectedProjectId: null,
 			prospective,
 			priorBlueprint: prior,
 			batchId: "batch-prior-1",
@@ -439,6 +445,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
+			expectedProjectId: null,
 			prospective,
 			batchId: "batch-fastpath-1",
 			kind: "autosave",
@@ -502,6 +509,7 @@ describe("applyBlueprintChange — rename batches", () => {
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
+			expectedProjectId: null,
 			prospective,
 			batchId: "batch-rename-1",
 			kind: "mcp",
@@ -591,6 +599,7 @@ describe("applyBlueprintChange — rename batches", () => {
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
+				expectedProjectId: null,
 				prospective,
 				batchId: "batch-rollback-1",
 				kind: "mcp",
@@ -667,6 +676,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
+				expectedProjectId: null,
 				prospective,
 				batchId: "batch-compensate-1",
 				kind: "autosave",
@@ -709,6 +719,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
+				expectedProjectId: null,
 				prospective: addedBlueprint,
 				batchId: "batch-compensate-2",
 				kind: "autosave",
@@ -774,6 +785,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
+				expectedProjectId: null,
 				prospective,
 				priorBlueprint: prior,
 				batchId: "batch-compensate-peer",

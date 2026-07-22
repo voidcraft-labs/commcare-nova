@@ -49,10 +49,12 @@ export type {
 	MigrationReport,
 	ParkedValueEntry,
 	ParkedValueStanding,
+	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
 	SchemaCaseStore,
 	SchemaChangeKind,
 	SortKey,
+	TransactionalSchemaCaseStore,
 } from "./store";
 export { buildCaseTypeMap } from "./store";

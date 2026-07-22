@@ -597,17 +597,20 @@ port the chat SA, the cross-Project move, and the migration scripts; add per-com
 - Chat intermediate saves don't rotate `blueprint_token` today; under the port every chat
   stage commits via `commitGuardedBatch` (rotates the token, advances the seq). The author's
   own tab absorbs its own chat frames as echoes (P6).
-- A pre-commit gate finding returns `{ error }` without throwing (no reload). The two commit
-  signals differ: `BlueprintCommitRejectedError` (retryable conflict / concurrent move) →
+- A pre-commit gate finding returns `{ error }` without throwing (no reload). The three commit
+  signals differ: `BlueprintCommitRejectedError` (retryable document conflict) →
   `wrapMutating` reloads + retries, PUT 409, MCP error; `CommitReauthError` (terminal authz
   denial) → propagates, PUT 403, MCP IDOR-safe `not_found`, and fails the chat run via the
-  `ctx.reauthError()` flag. Both are defined in `commitGuard.ts` (no `AppAccessError` import,
-  keeping the `apps.ts`↔`appAccess.ts` cycle broken).
+  `ctx.reauthError()` flag; `AppProjectChangedError` (the run/request's admitted Project is
+  stale) → PUT 409 or MCP reload guidance, but propagates terminally through an already-running
+  chat turn via `ctx.projectChangedError()` so the SA never reloads across tenant scope. All are
+  defined in `commitGuard.ts` (no `AppAccessError` import, keeping the
+  `apps.ts`↔`appAccess.ts` cycle broken).
 
 **Tests** (emulator): atomic `mutation_seq` + `acceptedMutations` + `batchDedup`; gap-free
 seqs under contention; `batchId` idempotency does zero schema work; per-commit reauth denies a
 non-member with `CommitReauthError`; null `project_id` owner fallback; a concurrent `project_id`
-change rejects with `BlueprintCommitRejectedError`; the in-transaction `mediaExpectations`
+change rejects with `AppProjectChangedError`; the in-transaction `mediaExpectations`
 re-check rejects a concurrently-deleted asset (and commits when present); `batchTargetsMissing`
 covers every kind at item granularity; `appendSyntheticBatchTx` advances seq + stream atomically
 on a passed client. Chat-port: a stage surfaces the merged `committedDoc`; a
@@ -655,12 +658,16 @@ migration. The sync splits by change kind:
   CURRENT committed doc — so a concurrent peer's committed property survives) applied seq-guarded
   at the current `mutation_seq`, never an un-versioned revert to a stale prior; it iterates
   EVERY migration entry's type, so an entry whose Phase A committed and whose non-transactional
-  Phase B then threw is still reconciled. **Reauth-before-DDL:** the shared
-  `reauthorizeActorForCommit(projectId, actorUserId)` (`commitGuard.ts`) runs at the saga top
-  **only when there are migration-bearing entries** (it guards the pre-commit Phase-1 DDL; a
-  pure additive / non-case-type commit pays no saga reauth — `commitGuardedBatch`'s own reauth
-  is the single gate); the resolved `projectId` threads into `commitGuardedBatch` via
-  `preauthorized` so it isn't re-read on that path.
+  Phase B then threw is still reconciled. **Current Postgres authorization amendment:**
+  migration entries are sorted by `(caseType, property)` and every schema/data Phase A runs
+  inside the same one-connection transaction that first locks the app, compares the caller's
+  required `expectedProjectId`, and freshly locks/checks Project membership. The transaction
+  commits as a unit before any concurrent-index Phase B completion. `commitGuardedBatch` then
+  repeats the Project comparison and fresh authorization in its own blueprint transaction;
+  there is no `preauthorized` bypass or out-of-transaction role read. Authorization denial,
+  Project mismatch, Phase-A failure, or outer commit failure runs no compensation because no
+  Phase A became durable; Phase-B and later blueprint-commit failures compensate all recorded
+  Phase-A reports. Pure additive/non-case-type commits still rely on the guarded commit alone.
 - `lib/case-store/store.ts` — `ApplySchemaChangeArgs` gains `syncedSeq?: number`.
 - `lib/case-store/postgres/store.ts::applySchemaChange` — `change` and `syncedSeq` are mutually
   exclusive (a runtime throw at the top guards it). When `syncedSeq` is set: a **coarse** SELECT
@@ -700,8 +707,9 @@ migration. The sync splits by change kind:
 additive sync is a full no-op; a fine-gate loser does NOT drop the winner's live index; a
 migration failure compensates and preserves a concurrent peer's committed property; a
 deterministic build-materialize fault routes through `failRun` (refund) while a transient one
-retries-then-swallows; the sweep skips on an in-transaction dedup; the reauth-before-DDL rejects
-a deauthorized caller before any `applySchemaChange`.
+retries-then-swallows; the sweep skips on an in-transaction dedup; transactional admission
+rejects a deauthorized or moved caller before any Phase A, and membership DML/Phase-A winner
+orders prove the shared gate is held through the schema/data transaction.
 
 **Depends on.** P1, P3.
 

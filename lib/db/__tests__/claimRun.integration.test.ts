@@ -43,6 +43,8 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 const OWNER = "user-claimrun-owner";
 const MEMBER = "user-claimrun-member";
 const APP_ID = "app-claimrun-integration";
+const PROJECT_ID = "project-test";
+const STALE_PROJECT_ID = "project-before-move";
 
 const h = setupAppStateTestDb("claimrun_");
 const period = getCurrentPeriod();
@@ -58,6 +60,9 @@ async function seedApp(
 	opts: Parameters<typeof h.seedApp>[0] = {},
 ): Promise<void> {
 	await h.seedApp({ id: APP_ID, owner: OWNER, ...opts });
+	const projectId =
+		opts.project_id === undefined ? PROJECT_ID : opts.project_id;
+	if (projectId !== null) await h.seedProjectMember(MEMBER, projectId);
 }
 async function seedCredits(userId: string, consumed: number): Promise<void> {
 	await h.seedCreditMonth(userId, period, {
@@ -86,6 +91,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"run-1",
 			OWNER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("edit");
 		expect(claim.reservation).toEqual({
@@ -107,27 +113,107 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		});
 	});
 
+	it("rejects a stale expected Project before a claim charges credits or writes a lease", async () => {
+		const { claimAndReserveRun } = await import("../apps");
+		const { AppProjectChangedError } = await import("../commitGuard");
+		await seedCredits(OWNER, 0);
+		await seedApp({ status: "complete" });
+
+		await expect(
+			claimAndReserveRun(
+				APP_ID,
+				"edit",
+				"stale-scope-run",
+				OWNER,
+				CREDITS_PER_EDIT,
+				STALE_PROJECT_ID,
+			),
+		).rejects.toBeInstanceOf(AppProjectChangedError);
+
+		expect(await readConsumed(OWNER)).toBe(0);
+		expect(await h.readReservation(APP_ID)).toBeUndefined();
+		expect(await h.readRunLock(APP_ID)).toBeUndefined();
+		expect(await readStatus()).toBe("complete");
+		expect(await readAwaiting()).toBe(false);
+	});
+
+	it("rejects a stale expected Project before resume renews its lease or clears its pause", async () => {
+		const { reacquireLease } = await import("../apps");
+		const { AppProjectChangedError } = await import("../commitGuard");
+		const pausedExpiry = lockExpiry(5);
+		await seedCredits(OWNER, CREDITS_PER_EDIT);
+		await seedApp({
+			status: "complete",
+			awaiting_input: true,
+			run_lock: {
+				runId: "paused-edit",
+				actorUserId: OWNER,
+				expireAt: pausedExpiry,
+			},
+			reservation: {
+				period,
+				reserved: CREDITS_PER_EDIT,
+				settled: false,
+				userId: OWNER,
+				runId: "paused-edit",
+			},
+		});
+
+		await expect(
+			reacquireLease(APP_ID, "paused-edit", "edit", OWNER, STALE_PROJECT_ID),
+		).rejects.toBeInstanceOf(AppProjectChangedError);
+
+		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
+		expect(await readAwaiting()).toBe(true);
+		expect(await h.readReservation(APP_ID)).toMatchObject({
+			settled: false,
+			userId: OWNER,
+			runId: "paused-edit",
+		});
+		const lock = await h.readRunLock(APP_ID);
+		expect(lock).toMatchObject({
+			runId: "paused-edit",
+			actorUserId: OWNER,
+		});
+		expect(lock?.expireAt.getTime()).toBe(pausedExpiry.getTime());
+	});
+
 	it("a second EDIT claim conflicts while the lock is live, then succeeds after clearRunLock", async () => {
 		const { claimAndReserveRun, clearRunLock, RunConflictError } = await import(
 			"../apps"
 		);
 		await seedApp({ status: "complete" });
 
-		await claimAndReserveRun(APP_ID, "edit", "run-1", OWNER, CREDITS_PER_EDIT);
+		await claimAndReserveRun(
+			APP_ID,
+			"edit",
+			"run-1",
+			OWNER,
+			CREDITS_PER_EDIT,
+			PROJECT_ID,
+		);
 		// A concurrent editor's claim finds the app held — it throws, and the
 		// chat route's poll loop turns that into a wait rather than a 429.
 		await expect(
-			claimAndReserveRun(APP_ID, "edit", "run-2", MEMBER, CREDITS_PER_EDIT),
+			claimAndReserveRun(
+				APP_ID,
+				"edit",
+				"run-2",
+				MEMBER,
+				CREDITS_PER_EDIT,
+				PROJECT_ID,
+			),
 		).rejects.toBeInstanceOf(RunConflictError);
 
 		// The holder finishes and releases; the waiter's next poll succeeds.
-		await clearRunLock(APP_ID);
+		await clearRunLock(APP_ID, "run-1");
 		const claim = await claimAndReserveRun(
 			APP_ID,
 			"edit",
 			"run-2",
 			MEMBER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("edit");
 		expect(await h.readRunLock(APP_ID)).toMatchObject({ runId: "run-2" });
@@ -144,18 +230,26 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
 		});
 		await expect(
-			claimAndReserveRun(APP_ID, "build", "b1", MEMBER, CREDITS_PER_BUILD),
+			claimAndReserveRun(
+				APP_ID,
+				"build",
+				"b1",
+				MEMBER,
+				CREDITS_PER_BUILD,
+				PROJECT_ID,
+			),
 		).rejects.toBeInstanceOf(RunConflictError);
 
 		// Release the edit-lock — the build claim then takes the window (flipping
 		// to `generating` and clearing the dead lock).
-		await clearRunLock(APP_ID);
+		await clearRunLock(APP_ID, "e1");
 		const buildClaim = await claimAndReserveRun(
 			APP_ID,
 			"build",
 			"b1",
 			MEMBER,
 			CREDITS_PER_BUILD,
+			PROJECT_ID,
 		);
 		expect(buildClaim.mode).toBe("build");
 		expect(await readStatus()).toBe("generating");
@@ -163,7 +257,14 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 
 		// Now a live build blocks an edit claim (the reverse of the matrix).
 		await expect(
-			claimAndReserveRun(APP_ID, "edit", "e2", OWNER, CREDITS_PER_EDIT),
+			claimAndReserveRun(
+				APP_ID,
+				"edit",
+				"e2",
+				OWNER,
+				CREDITS_PER_EDIT,
+				PROJECT_ID,
+			),
 		).rejects.toBeInstanceOf(RunConflictError);
 		// The rejected edit claim wrote nothing.
 		expect(await h.readRunLock(APP_ID)).toBeUndefined();
@@ -183,6 +284,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"b1",
 			MEMBER,
 			CREDITS_PER_BUILD,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("build");
 		expect(await readStatus()).toBe("generating");
@@ -203,6 +305,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"e2",
 			MEMBER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("edit");
 		expect(await h.readRunLock(APP_ID)).toMatchObject({
@@ -335,6 +438,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"edit-1",
 			MEMBER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 
 		// The build's 100 kept credits are intact (NOT clawed back); the edit's 5
@@ -418,6 +522,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"waiter",
 			MEMBER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		).then(
 			() => undefined,
 			(err) => err,
@@ -433,6 +538,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"waiter",
 			MEMBER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("edit");
 		// The abandoned run's hold was refunded by the reap (not buried).
@@ -462,6 +568,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"waiter",
 			MEMBER,
 			CREDITS_PER_BUILD,
+			PROJECT_ID,
 		).then(
 			() => undefined,
 			(err) => err,
@@ -477,6 +584,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"waiter",
 			MEMBER,
 			CREDITS_PER_BUILD,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("build");
 		expect(await readConsumed(OWNER)).toBe(0);
@@ -511,6 +619,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"new-run",
 			OWNER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("edit");
 		// The abandoned round's hold refunded, the new debit booked — net ONE charge.
@@ -522,7 +631,9 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		expect((await h.readRunLock(APP_ID))?.runId).toBe("new-run");
 		expect(await readAwaiting()).toBeFalsy();
 		// The superseded round's late answer bails instead of double-running.
-		expect(await reacquireLease(APP_ID, "p", "edit")).toBe("superseded");
+		expect(await reacquireLease(APP_ID, "p", "edit", OWNER, PROJECT_ID)).toBe(
+			"superseded",
+		);
 	});
 
 	it("the claimant's OWN paused build is likewise superseded (fresh clock, marker-actor match)", async () => {
@@ -549,6 +660,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"new-run",
 			OWNER,
 			CREDITS_PER_BUILD,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("build");
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_BUILD);
@@ -557,7 +669,9 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			runId: "new-run",
 		});
 		expect(await readAwaiting()).toBeFalsy();
-		expect(await reacquireLease(APP_ID, "p", "build")).toBe("superseded");
+		expect(await reacquireLease(APP_ID, "p", "build", OWNER, PROJECT_ID)).toBe(
+			"superseded",
+		);
 	});
 
 	it("ANOTHER actor's recently-paused run still blocks — an open answer round is not stolen", async () => {
@@ -577,7 +691,14 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		});
 
 		await expect(
-			claimAndReserveRun(APP_ID, "edit", "waiter", MEMBER, CREDITS_PER_EDIT),
+			claimAndReserveRun(
+				APP_ID,
+				"edit",
+				"waiter",
+				MEMBER,
+				CREDITS_PER_EDIT,
+				PROJECT_ID,
+			),
 		).rejects.toBeInstanceOf(RunConflictError);
 		// Touched nothing — the pause, its lock, and its hold all stand.
 		expect(await readAwaiting()).toBe(true);
@@ -784,6 +905,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"run-fresh",
 			OWNER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 
 		// Net: the leftover 5 refunded, then the fresh 5 booked → still 5, not 10.
@@ -822,6 +944,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"run-retry",
 			OWNER,
 			CREDITS_PER_BUILD,
+			PROJECT_ID,
 		);
 
 		// The dead member's hold handed back…
@@ -849,7 +972,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		await clearRunLock(APP_ID);
+		await clearRunLock(APP_ID, "r");
 		expect(await h.readRunLock(APP_ID)).toBeUndefined();
 		expect(await readStatus()).toBe("complete");
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: true });
@@ -950,7 +1073,9 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		expect(await reacquireLease(APP_ID, "build-run", "build")).toBe("owned");
+		expect(
+			await reacquireLease(APP_ID, "build-run", "build", OWNER, PROJECT_ID),
+		).toBe("owned");
 		expect(await readAwaiting()).toBeFalsy();
 		expect(await readStatus()).toBe("generating");
 		// updated_at re-armed to ~now (the frozen-during-pause clock restarts).
@@ -973,7 +1098,9 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 
-		expect(await reacquireLease(APP_ID, "edit-paused", "edit")).toBe("owned");
+		expect(
+			await reacquireLease(APP_ID, "edit-paused", "edit", OWNER, PROJECT_ID),
+		).toBe("owned");
 		expect(await readAwaiting()).toBeFalsy();
 		// The lease was RE-STAMPED to a fresh future deadline — not left lapsed.
 		const lock = await h.readRunLock(APP_ID);
@@ -999,9 +1126,9 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			},
 		});
 		await refundStaleGeneration(APP_ID);
-		expect(await reacquireLease(APP_ID, "late-answer", "build")).toBe(
-			"released",
-		);
+		expect(
+			await reacquireLease(APP_ID, "late-answer", "build", OWNER, PROJECT_ID),
+		).toBe("released");
 
 		// A co-member re-claims the freed app before the answer arrives: now a run
 		// really does occupy it, so the late answer reads "superseded".
@@ -1012,10 +1139,11 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"taker",
 			MEMBER,
 			CREDITS_PER_BUILD,
+			PROJECT_ID,
 		);
-		expect(await reacquireLease(APP_ID, "late-answer", "build")).toBe(
-			"superseded",
-		);
+		expect(
+			await reacquireLease(APP_ID, "late-answer", "build", OWNER, PROJECT_ID),
+		).toBe("superseded");
 	});
 
 	// ── Per-step edit-lease heartbeat (refreshEditLease) ──────────────────
@@ -1087,6 +1215,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			"e1",
 			OWNER,
 			CREDITS_PER_EDIT,
+			PROJECT_ID,
 		);
 		expect(claim.mode).toBe("edit");
 		expect(await readStatus()).toBe("complete");
@@ -1118,7 +1247,14 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({ status: "complete" });
 
 		await expect(
-			claimAndReserveRun(APP_ID, "build", "b1", MEMBER, CREDITS_PER_BUILD),
+			claimAndReserveRun(
+				APP_ID,
+				"build",
+				"b1",
+				MEMBER,
+				CREDITS_PER_BUILD,
+				PROJECT_ID,
+			),
 		).rejects.toBeInstanceOf(GenerationInProgressError);
 		// The claim rolled back — no marker, no status flip on the target app.
 		expect(await readStatus()).toBe("complete");

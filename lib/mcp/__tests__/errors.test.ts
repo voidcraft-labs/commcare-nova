@@ -20,7 +20,10 @@
 
 import { describe, expect, it } from "vitest";
 import { MESSAGES } from "@/lib/agent/errorClassifier";
-import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import {
+	AppProjectChangedError,
+	BlueprintCommitRejectedError,
+} from "@/lib/db/commitGuard";
 import { toMcpErrorResult } from "../errors";
 import { McpAccessError } from "../ownership";
 import { McpScopeError, SCOPES } from "../scopes";
@@ -104,6 +107,22 @@ describe("toMcpErrorResult", () => {
 		expect(payload.error_type).toBe("invalid_input");
 		expect(payload.message).toBe(findings);
 		expect(payload.app_id).toBe("app-9");
+	});
+
+	it("serializes AppProjectChangedError as reloadable invalid_input with app context", () => {
+		const projectChanged = new AppProjectChangedError();
+		const result = toMcpErrorResult(projectChanged, {
+			appId: "app-9",
+			userId: "user-1",
+		});
+
+		expect(result.isError).toBe(true);
+		const payload = parsePayload(result);
+		expect(payload).toEqual({
+			error_type: "invalid_input",
+			message: projectChanged.message,
+			app_id: "app-9",
+		});
 	});
 
 	it("propagates ctx.appId into the payload when provided", () => {

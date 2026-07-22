@@ -33,23 +33,26 @@ import {
 	CommitReauthError,
 } from "../commitGuard";
 
-const { loadAppMock, loadAppProjectIdMock, commitGuardedBatchMock } =
+const { loadAppMock, commitGuardedBatchMock, authorizedSideEffectMock } =
 	vi.hoisted(() => ({
 		loadAppMock: vi.fn(),
-		loadAppProjectIdMock: vi.fn(),
 		commitGuardedBatchMock: vi.fn(),
+		authorizedSideEffectMock: vi.fn(),
 	}));
 
 const unparkValuesMock = vi.fn(async () => ({ restored: 0, kept: 0 }));
-const { applySchemaChangeMock, dropSchemaMock, withSchemaContextMock } =
-	vi.hoisted(() => ({
-		applySchemaChangeMock: vi.fn(),
-		dropSchemaMock: vi.fn(),
-		withSchemaContextMock: vi.fn(),
-	}));
-
-const { reauthorizeActorForCommitMock } = vi.hoisted(() => ({
-	reauthorizeActorForCommitMock: vi.fn(),
+const {
+	applySchemaChangeMock,
+	applySchemaChangePhaseAMock,
+	completeAfterCommitMock,
+	dropSchemaMock,
+	withSchemaContextMock,
+} = vi.hoisted(() => ({
+	applySchemaChangeMock: vi.fn(),
+	applySchemaChangePhaseAMock: vi.fn(),
+	completeAfterCommitMock: vi.fn(),
+	dropSchemaMock: vi.fn(),
+	withSchemaContextMock: vi.fn(),
 }));
 
 // The top-level dedup pre-check reads the `accepted_mutations (app_id, batch_id)`
@@ -61,24 +64,9 @@ const { latchRowMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
-	loadAppProjectId: loadAppProjectIdMock,
 	commitGuardedBatch: commitGuardedBatchMock,
+	withAuthorizedAppEditSideEffect: authorizedSideEffectMock,
 }));
-
-// The pre-DDL reauth is the shared `reauthorizeActorForCommit`; mock it so the
-// saga's authorization gate is a controllable seam (its own throw-behavior is
-// pinned in `commitGuard`'s tests). The real error classes stay real for the
-// propagation assertions below.
-vi.mock("@/lib/db/commitGuard", async () => {
-	const actual = (await vi.importActual("@/lib/db/commitGuard")) as Record<
-		string,
-		unknown
-	>;
-	return {
-		...actual,
-		reauthorizeActorForCommit: reauthorizeActorForCommitMock,
-	};
-});
 
 // The top-level dedup read is `getAppDb().selectFrom("accepted_mutations")…
 // .executeTakeFirst()`. Mock `getAppDb` to return a chainable stub whose terminal
@@ -183,10 +171,20 @@ function minDoc(appName = "Test"): BlueprintDoc {
 beforeEach(() => {
 	vi.clearAllMocks();
 	loadAppMock.mockImplementation(async () => null);
-	// A null-project app: `reauthorizeActorForCommit(null, …)` is a no-op, and
-	// the in-txn owner check lives in `commitGuardedBatch` (mocked away here).
-	loadAppProjectIdMock.mockResolvedValue(null);
-	reauthorizeActorForCommitMock.mockResolvedValue(undefined);
+	authorizedSideEffectMock.mockImplementation(
+		async (
+			_appId: string,
+			_userId: string,
+			expectedProjectId: string | null,
+			effect: (
+				tx: never,
+				scope: { projectId: string | null },
+			) => Promise<unknown>,
+		) => ({
+			projectId: expectedProjectId,
+			value: await effect({} as never, { projectId: expectedProjectId }),
+		}),
+	);
 	// Default: no prior dedup latch — the saga proceeds to the guarded commit.
 	latchRowMock.mockResolvedValue(undefined);
 	// Every sync returns the empty report by default — the saga aggregates
@@ -200,8 +198,14 @@ beforeEach(() => {
 		parkedIds: [],
 		failureReasons: [],
 	});
+	completeAfterCommitMock.mockResolvedValue(undefined);
+	applySchemaChangePhaseAMock.mockImplementation(async (_tx, args) => ({
+		report: await applySchemaChangeMock(args),
+		completeAfterCommit: completeAfterCommitMock,
+	}));
 	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
+		applySchemaChangePhaseA: applySchemaChangePhaseAMock,
 		dropSchema: dropSchemaMock,
 		unparkValues: unparkValuesMock,
 	});
@@ -222,6 +226,7 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 		const result = await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: null,
 			prospective: toPersistableDoc(fresh),
 			runId: "run-1",
 			batchId: "batch-uuid-1",
@@ -256,6 +261,7 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 		await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: null,
 			prospective: toPersistableDoc(fresh),
 			batchId: "batch-uuid-media",
 			kind: "autosave",
@@ -286,6 +292,7 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
+				expectedProjectId: null,
 				priorBlueprint: toPersistableDoc(fresh),
 				batchId: "batch-uuid-2",
 				kind: "autosave",
@@ -307,6 +314,7 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
+				expectedProjectId: null,
 				priorBlueprint: toPersistableDoc(fresh),
 				batchId: "batch-uuid-3",
 				kind: "autosave",
@@ -326,6 +334,7 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
+				expectedProjectId: null,
 				prospective: toPersistableDoc(prior),
 				batchId: "raw-duplicate",
 				kind: "autosave",
@@ -352,6 +361,7 @@ describe("applyBlueprintChange — top-level batchId dedup", () => {
 		const result = await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: null,
 			prospective: toPersistableDoc(prior),
 			batchId: "already-committed",
 			kind: "mcp",
@@ -363,22 +373,19 @@ describe("applyBlueprintChange — top-level batchId dedup", () => {
 		// The recorded seq comes straight off the latch — no committedDoc.
 		expect(result).toEqual({ seq: 42 });
 		expect(result.committedDoc).toBeUndefined();
-		// Nothing downstream ran — not even the pre-DDL reauth.
+		// Nothing downstream ran — not even the app-locked Phase-1 admission.
 		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
 		expect(loadAppMock).not.toHaveBeenCalled();
-		expect(loadAppProjectIdMock).not.toHaveBeenCalled();
-		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
+		expect(authorizedSideEffectMock).not.toHaveBeenCalled();
 		expect(withSchemaContextMock).not.toHaveBeenCalled();
 	});
 });
 
-describe("applyBlueprintChange — reauth before any Postgres DDL", () => {
+describe("applyBlueprintChange — locked admission before any Postgres DDL", () => {
 	it("rejects a deauth'd caller BEFORE the migration-bearing Phase-1 DDL runs", async () => {
 		const prior = minDoc();
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-		loadAppProjectIdMock.mockResolvedValue("proj-1");
-		// The shared reauth throws for a member who lost edit access.
-		reauthorizeActorForCommitMock.mockRejectedValue(
+		authorizedSideEffectMock.mockRejectedValue(
 			new CommitReauthError("You no longer have edit access."),
 		);
 
@@ -386,6 +393,7 @@ describe("applyBlueprintChange — reauth before any Postgres DDL", () => {
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
+				expectedProjectId: null,
 				priorBlueprint: toPersistableDoc(prior),
 				// The rename batch would otherwise drive Phase-1 DDL — the
 				// reauth must fire first so no `case_type_schemas` mutation
@@ -398,13 +406,16 @@ describe("applyBlueprintChange — reauth before any Postgres DDL", () => {
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
 
-		// The reauth resolved the Project and rejected before any store work.
-		expect(loadAppProjectIdMock).toHaveBeenCalledWith("app-1");
-		expect(reauthorizeActorForCommitMock).toHaveBeenCalledWith(
-			"proj-1",
+		expect(authorizedSideEffectMock).toHaveBeenCalledWith(
+			"app-1",
 			"user-1",
+			null,
+			expect.any(Function),
 		);
 		expect(applySchemaChangeMock).not.toHaveBeenCalled();
+		expect(applySchemaChangePhaseAMock).not.toHaveBeenCalled();
+		expect(dropSchemaMock).not.toHaveBeenCalled();
+		expect(unparkValuesMock).not.toHaveBeenCalled();
 		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
 	});
 });
@@ -448,6 +459,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
+				expectedProjectId: null,
 				priorBlueprint: toPersistableDoc(prior),
 				runId: "run-1",
 				batchId: "batch-uuid-4",
@@ -497,22 +509,26 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		expect(unparkOrder).toBeGreaterThan(resyncOrder);
 	});
 
-	it("compensates a migration entry whose forward apply THREW (Phase-A-committed-Phase-B-failed shape)", async () => {
-		// `applySchemaChange` is two-phase; an entry whose Phase A committed and
-		// whose Phase B then threw exits the forward loop un-recorded, yet its
-		// schema DID change. Compensate must still reconcile it — the fix
-		// iterates ALL migration entries, not just the ones that fully returned.
-		// Model that here: the FORWARD `applySchemaChange` throws, and
-		// compensate's re-sync (the 2nd call, no `change`) must still fire for
-		// the type.
+	it("compensates a migration entry whose post-commit Phase B fails", async () => {
+		// The shared authorization + Phase-A transaction has committed before
+		// concurrent-index Phase B runs. A Phase-B failure therefore must retain
+		// the recorded report and compensate the durable schema/data work.
 		const prior = minDoc();
 		loadAppMock.mockResolvedValue({
 			blueprint: toPersistableDoc(prior),
 			mutation_seq: 4,
 		});
 		applySchemaChangeMock
-			// Forward apply throws (Phase B failed after Phase A committed).
-			.mockRejectedValueOnce(new Error("phase B index DDL failed"))
+			// Phase A succeeds and commits before Phase B fails.
+			.mockResolvedValueOnce({
+				migrated: 1,
+				reshaped: 0,
+				retyped: 0,
+				restored: 0,
+				parkedIds: [],
+				skipped: 0,
+				failureReasons: [],
+			})
 			// Compensate's re-sync succeeds.
 			.mockResolvedValueOnce({
 				migrated: 0,
@@ -523,11 +539,15 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 				skipped: 0,
 				failureReasons: [],
 			});
+		completeAfterCommitMock.mockRejectedValueOnce(
+			new Error("phase B index DDL failed"),
+		);
 
 		await expect(
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
+				expectedProjectId: null,
 				priorBlueprint: toPersistableDoc(prior),
 				batchId: "batch-phaseB-fail",
 				kind: "autosave",
@@ -535,12 +555,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			}),
 		).rejects.toThrow("phase B index DDL failed");
 
-		// TWO calls: the forward (threw) + the compensating re-sync — compensate
-		// did NOT skip the type just because the forward never "succeeded".
-		// THREE calls: the forward (threw) + the compensating inverse
-		// rename + the seq-guarded additive re-sync. The inverse is a
-		// harmless zero-row no-op when the forward's Phase A rolled back.
+		// Three schema operations: committed Phase A (through the test adapter),
+		// then the compensating inverse rename and seq-guarded additive re-sync.
 		expect(applySchemaChangeMock).toHaveBeenCalledTimes(3);
+		expect(completeAfterCommitMock).toHaveBeenCalledTimes(1);
 		const inversion = applySchemaChangeMock.mock.calls[1]?.[0];
 		expect(inversion).toMatchObject({
 			appId: "app-1",
@@ -591,6 +609,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: null,
 			prospective,
 			batchId: "batch-uuid-sweep",
 			kind: "autosave",
@@ -640,6 +659,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			const result = await applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
+				expectedProjectId: null,
 				prospective,
 				batchId: `batch-uuid-sweepfail-${_label}`,
 				kind: "autosave",
@@ -665,6 +685,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: null,
 			prospective: toPersistableDoc(fresh),
 			batchId: "batch-uuid-5",
 			kind: "autosave",
@@ -675,11 +696,8 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 		expect(withSchemaContextMock).not.toHaveBeenCalled();
-		// No pre-DDL reauth on the fast path — `commitGuardedBatch`'s own reauth
-		// is the single gate (no Phase-1 DDL to protect), so the saga doesn't
-		// pay a second `loadAppProjectId` + `reauthorizeActorForCommit`.
-		expect(loadAppProjectIdMock).not.toHaveBeenCalled();
-		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
+		// No Phase-1 admission on the fast path; the guarded commit is the gate.
+		expect(authorizedSideEffectMock).not.toHaveBeenCalled();
 	});
 
 	it("runs NO saga-level reauth on the ADDITIVE (post-commit-sweep) path", async () => {
@@ -711,30 +729,34 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: null,
 			prospective,
 			batchId: "batch-additive-noreauth",
 			kind: "autosave",
 			guard: { mutations: addHouseholdBatch() },
 		});
 
-		expect(loadAppProjectIdMock).not.toHaveBeenCalled();
-		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
+		expect(authorizedSideEffectMock).not.toHaveBeenCalled();
 	});
 
-	it("reauths BEFORE any applySchemaChange on the migration-bearing path", async () => {
-		// The migration path DOES reauth (it runs pre-commit Phase-1 DDL) — and
-		// the reauth must resolve before the FIRST `applySchemaChange`, or a
-		// deauth'd caller could mutate `case_type_schemas`.
+	it("commits locked Phase A before post-commit Phase B and the blueprint", async () => {
 		const order: string[] = [];
 		const prior = minDoc();
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-		loadAppProjectIdMock.mockImplementation(async () => {
-			order.push("loadAppProjectId");
-			return "proj-1";
-		});
-		reauthorizeActorForCommitMock.mockImplementation(async () => {
-			order.push("reauth");
-		});
+		authorizedSideEffectMock.mockImplementation(
+			async (
+				_appId: string,
+				_userId: string,
+				expectedProjectId: string,
+				effect: (tx: never, scope: { projectId: string }) => Promise<unknown>,
+			) => {
+				order.push("admission:start");
+				expect(expectedProjectId).toBe("proj-1");
+				const value = await effect({} as never, { projectId: "proj-1" });
+				order.push("admission:end");
+				return { projectId: "proj-1", value };
+			},
+		);
 		applySchemaChangeMock.mockImplementation(async () => {
 			order.push("applySchemaChange");
 			return {
@@ -746,6 +768,9 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 				parkedIds: [],
 				failureReasons: [],
 			};
+		});
+		completeAfterCommitMock.mockImplementation(async () => {
+			order.push("phaseB");
 		});
 		commitGuardedBatchMock.mockImplementation(async () => {
 			order.push("commit");
@@ -759,24 +784,26 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: "proj-1",
 			priorBlueprint: toPersistableDoc(prior),
 			batchId: "batch-order",
 			kind: "autosave",
 			guard: { mutations: renameVillageBatch(prior) },
 		});
 
-		// Reauth (loadAppProjectId → reauth) precedes the first applySchemaChange.
-		expect(order[0]).toBe("loadAppProjectId");
-		expect(order[1]).toBe("reauth");
-		expect(order.indexOf("reauth")).toBeLessThan(
+		expect(order[0]).toBe("admission:start");
+		expect(order.indexOf("admission:start")).toBeLessThan(
 			order.indexOf("applySchemaChange"),
 		);
-		// [c5] the resolved projectId is threaded into commitGuardedBatch as
-		// `preauthorized`, and resolved EXACTLY ONCE (the saga's, not doubled by
-		// the commit) — so the commit skips its own redundant resolve + reauth.
-		expect(loadAppProjectIdMock).toHaveBeenCalledTimes(1);
+		expect(order.indexOf("applySchemaChange")).toBeLessThan(
+			order.indexOf("admission:end"),
+		);
+		expect(order.indexOf("admission:end")).toBeLessThan(
+			order.indexOf("phaseB"),
+		);
+		expect(order.indexOf("phaseB")).toBeLessThan(order.indexOf("commit"));
 		expect(commitGuardedBatchMock.mock.calls[0]?.[0]).toMatchObject({
-			preauthorized: { projectId: "proj-1" },
+			expectedProjectId: "proj-1",
 			// The migrated pairs ride into the commit's rename gate, which
 			// re-proves them against the FRESH doc pair in-transaction.
 			renameExpectations: [
@@ -816,6 +843,7 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		const result = await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
+			expectedProjectId: null,
 			prospective,
 			batchId: "batch-intxn-dedup",
 			kind: "autosave",

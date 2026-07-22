@@ -43,7 +43,6 @@ import {
 	clearRunLockAndSettle,
 	completeAndSettleRun,
 	createApp,
-	editRunLockHeldBy,
 	failApp,
 	GenerationInProgressError,
 	loadApp,
@@ -54,6 +53,10 @@ import {
 	reserveForNewBuild,
 	setAwaitingInput,
 } from "@/lib/db/apps";
+import {
+	AppProjectChangedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import {
 	getCurrentCreditBalance,
@@ -428,13 +431,28 @@ export async function POST(req: Request) {
 					userId,
 					cost,
 					effectiveRunId,
+					projectId,
 				);
 			} catch (err) {
+				if (err instanceof AppProjectChangedError) {
+					await failApp(appId, effectiveRunId, "app_changed");
+					return Response.json(
+						{ error: MESSAGES.app_changed, type: "app_changed" },
+						{ status: 409 },
+					);
+				}
+				if (err instanceof CommitReauthError) {
+					await failApp(appId, effectiveRunId, "access_revoked");
+					return Response.json(
+						{ error: "App not found", type: "not_found" },
+						{ status: 404 },
+					);
+				}
 				if (err instanceof GenerationInProgressError) {
 					/* Awaited: the reserve rolled back, so this fresh `generating` row
 					 * carries no marker — until it flips to `error` it reads as the
 					 * user's own live build and blocks their next POST. */
-					await failApp(appId, "generation_in_progress");
+					await failApp(appId, effectiveRunId, "generation_in_progress");
 					return Response.json(
 						{
 							error: MESSAGES.generation_in_progress,
@@ -444,7 +462,7 @@ export async function POST(req: Request) {
 					);
 				}
 				if (err instanceof OutOfCreditsError) {
-					await failApp(appId, "out_of_credits");
+					await failApp(appId, effectiveRunId, "out_of_credits");
 					return Response.json(
 						{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
 						{ status: 429 },
@@ -508,12 +526,23 @@ export async function POST(req: Request) {
 					effectiveRunId,
 					userId,
 					cost,
+					projectId,
 				);
 				reservation = claimedRun.reservation;
 			} catch (err) {
 				if (err instanceof RunConflictError) {
 					/* The app is held — wait inside the stream (below), don't reject. */
 					waitForClaim = true;
+				} else if (err instanceof AppProjectChangedError) {
+					return Response.json(
+						{ error: MESSAGES.app_changed, type: "app_changed" },
+						{ status: 409 },
+					);
+				} else if (err instanceof CommitReauthError) {
+					return Response.json(
+						{ error: "App not found", type: "not_found" },
+						{ status: 404 },
+					);
 				} else if (err instanceof GenerationInProgressError) {
 					return Response.json(
 						{
@@ -551,6 +580,11 @@ export async function POST(req: Request) {
 			 * unflag / re-pause an app this POST no longer owns). */
 			resumeMustCheckSupersede = true;
 		}
+	}
+	if (projectId === undefined) {
+		throw new Error(
+			"[chat] compiler invariant: app admission completed without a Project scope",
+		);
 	}
 
 	/* The paused-run resume's pause-flag clear does NOT happen pre-stream — it
@@ -678,6 +712,7 @@ export async function POST(req: Request) {
 					usage,
 					session: keyResult.session,
 					appId,
+					projectId,
 					/* An EDIT run (chargeable claim OR free-continuation resume) holds a
 					 * `run_lock`, so it heartbeats the lease off SA activity. A BUILD holds
 					 * via `status` (no lock) → no heartbeat. `appReady` is the build-vs-edit
@@ -794,7 +829,7 @@ export async function POST(req: Request) {
 						 * leaves the build `generating` for the reaper to retry (mirroring
 						 * `reapStaleGenerating`'s refund-before-flip). */
 						if (refundSettled && !appReady) {
-							failApp(appId, failure.type);
+							await failApp(appId, effectiveRunId, failure.type);
 						}
 					} else if (!failure && !paused && heldApp && appReady) {
 						/* Clean, non-paused EDIT completion — release the `run_lock` AND
@@ -1010,7 +1045,11 @@ export async function POST(req: Request) {
 					 * transaction rolled back). */
 					let gateBail:
 						| {
-								type: "generation_in_progress" | "out_of_credits";
+								type:
+									| "generation_in_progress"
+									| "out_of_credits"
+									| "access_revoked"
+									| "app_changed";
 								message: string;
 						  }
 						| undefined;
@@ -1023,11 +1062,26 @@ export async function POST(req: Request) {
 								effectiveRunId,
 								userId,
 								cost,
+								projectId,
 							);
 							reservation = claimedRun.reservation;
 							break;
 						} catch (err) {
 							if (err instanceof RunConflictError) continue; // still held — keep waiting
+							if (err instanceof AppProjectChangedError) {
+								gateBail = {
+									type: "app_changed",
+									message: MESSAGES.app_changed,
+								};
+								break;
+							}
+							if (err instanceof CommitReauthError) {
+								gateBail = {
+									type: "access_revoked",
+									message: MESSAGES.access_revoked,
+								};
+								break;
+							}
 							if (err instanceof GenerationInProgressError) {
 								gateBail = {
 									type: "generation_in_progress",
@@ -1128,21 +1182,68 @@ export async function POST(req: Request) {
 				 * `run_lock.expireAt`; build → re-arm `updated_at`) AND clears
 				 * `awaiting_input` in the SAME transaction, so a resume RENEWS its lease
 				 * rather than proceeding on an already-lapsed one and being reaped mid-run.
-				 * If superseded (returns `false`), it touched NOTHING and we BAIL gracefully
+				 * If superseded or released, it touched NOTHING and we BAIL gracefully
 				 * rather than start a second SA loop on an app it no longer owns.
 				 * Nothing was claimed/reserved on this free continuation, so
-				 * `heldApp: false` keeps the finalize from touching the holder's state. A
-				 * transient failure fails OPEN (proceed): the solo-editor resume is the
-				 * common case, and the guarded per-commit writer stays the backstop. */
+				 * `heldApp: false` keeps the finalize from touching the holder's state.
+				 * Authorization, Project-scope, and infrastructure failures all fail CLOSED:
+				 * the route emits one terminal error and never starts the SA. */
 				if (resumeMustCheckSupersede) {
 					const resumeMode = appReady ? "edit" : "build";
-					let reacquire: ReacquireOutcome = "owned";
+					let reacquire:
+						| ReacquireOutcome
+						| "access_revoked"
+						| "app_changed"
+						| "failed" = "failed";
 					try {
-						reacquire = await reacquireLease(appId, effectiveRunId, resumeMode);
+						reacquire = await reacquireLease(
+							appId,
+							effectiveRunId,
+							resumeMode,
+							userId,
+							projectId,
+						);
 					} catch (err) {
-						log.error("[chat] resume reacquire failed", err, { appId });
+						if (err instanceof CommitReauthError) {
+							reacquire = "access_revoked";
+						} else if (err instanceof AppProjectChangedError) {
+							reacquire = "app_changed";
+						} else {
+							log.error("[chat] resume reacquire failed", err, { appId });
+						}
 					}
 					if (reacquire !== "owned") {
+						if (
+							reacquire === "access_revoked" ||
+							reacquire === "app_changed" ||
+							reacquire === "failed"
+						) {
+							const failure =
+								reacquire === "access_revoked"
+									? {
+											type: "access_revoked" as const,
+											message: MESSAGES.access_revoked,
+										}
+									: reacquire === "app_changed"
+										? {
+												type: "app_changed" as const,
+												message: MESSAGES.app_changed,
+											}
+										: {
+												type: "internal" as const,
+												message: MESSAGES.internal,
+											};
+							ctx.emitError(
+								{
+									...failure,
+									recoverable: false,
+								},
+								`route:resume-${reacquire}`,
+							);
+							await persistBailedHistory();
+							await finalizeRun(undefined, { heldApp: false });
+							return;
+						}
 						/* The lost shapes read very differently to the person answering, so
 						 * tell the truth per shape: "superseded" means another run actually
 						 * holds the app now — the requester's OWN newer request (a paused
@@ -1693,7 +1794,12 @@ export async function POST(req: Request) {
 						 * than carry a stale pause latch into a retried attempt — a clean
 						 * attempt 2 would then wrongly park a finished run as
 						 * awaiting-input. */
-						if (!sawFatalError || ctx.reauthError() || ctx.pausedOnInput()) {
+						if (
+							!sawFatalError ||
+							ctx.reauthError() ||
+							ctx.projectChangedError() ||
+							ctx.pausedOnInput()
+						) {
 							if (heldFinish !== undefined) writer.write(heldFinish);
 							break;
 						}
@@ -1730,29 +1836,63 @@ export async function POST(req: Request) {
 						);
 					}
 
-					/* A guarded commit that threw `CommitReauthError` (the actor lost
-					 * edit access mid-run) is a FATAL run failure that must take
+					/* A guarded commit that observed revoked access or a moved Project is
+					 * a FATAL run failure that must take
 					 * precedence over the clean-completion writers (`completeAndSettleRun` / `clearRunLockAndSettle`) / `awaiting_input` / the edit arm — a
-					 * deauthorized run must refund and end in `error`, never report
+					 * stale-scope run must refund and end in `error`, never report
 					 * success and keep its charge. The AI SDK turns the tool `execute()`
 					 * throw into a NON-fatal chunk (so `sawFatalError` stays false), which
 					 * is why the context flag, not the stream, carries the signal. */
-					const reauthErr = ctx.reauthError();
-					if (sawFatalError || reauthErr) {
+					const scopeErr = ctx.reauthError() ?? ctx.projectChangedError();
+					if (sawFatalError || scopeErr) {
 						await failRun(
-							reauthErr ??
+							scopeErr ??
 								pendingError ??
 								new Error("The generation stream ended in an error."),
-							reauthErr ? "route:reauth" : "route:stream",
+							scopeErr ? "route:scope-change" : "route:stream",
 						);
 					} else if (ctx.pausedOnInput()) {
 						/* The run paused on an `askQuestions` round (awaiting the user's
-						 * answer) rather than finishing. Mark the build `awaiting_input` so the
-						 * staleness reaper skips it — it's alive, not hard-killed, and a later
-						 * POST will resume it. The charge stands (the clean finally's
-						 * `finalizeRun()` flushes it); the flag is cleared when that POST
-						 * resumes the run. */
-						await setAwaitingInput(appId, true);
+						 * answer) rather than finishing. Stamp `awaiting_input` only while this
+						 * exact run still owns the app. A durable `"owned"` leaves the live hold
+						 * paused for the answer POST. A reaped/replaced outcome is terminal for
+						 * THIS stream: tell the truth, finalize as non-owning/non-paused, and never
+						 * leave a resumable question claim on the successor. Infrastructure faults
+						 * are not ownership answers, so they take the ordinary failure funnel. */
+						let pauseOutcome: ReacquireOutcome | "failed" = "failed";
+						try {
+							pauseOutcome = await setAwaitingInput(
+								appId,
+								effectiveRunId,
+								true,
+								userId,
+								projectId,
+							);
+						} catch (error) {
+							await failRun(error, "route:pause-stamp");
+						}
+						if (pauseOutcome === "superseded" || pauseOutcome === "released") {
+							ctx.emitError(
+								pauseOutcome === "superseded"
+									? {
+											type: "generation_in_progress",
+											message:
+												"A newer request took over this app before this question round could pause. Refresh to pick up its changes, then continue there.",
+											recoverable: false,
+										}
+									: {
+											type: "run_released",
+											message:
+												"This run was released before its question round could pause. Refresh to get the latest state, then send your answer again.",
+											recoverable: false,
+										},
+								`route:pause-${pauseOutcome}`,
+							);
+							await finalizeRun(undefined, {
+								heldApp: false,
+								paused: false,
+							});
+						}
 					} else if (editing) {
 						/* Tripwire, not a gate: with every committed batch gated against
 						 * introducing findings, an edit run that ends with a NEW
@@ -1907,21 +2047,13 @@ export async function POST(req: Request) {
 				 * busy"). Release it, but ONLY when `finalizeRun` never ran (the
 				 * prelude-throw case) — a run that DID finalize already made the right
 				 * lock decision, and a PAUSED edit deliberately keeps its lock. Also
-				 * gated on this run STILL holding the lock (its `runId`): a
-				 * superseded/taken-over app now carries a co-member's lock this must not
-				 * touch. Gated on `claimedRun.mode === "edit"` so a build or a lock-less
-				 * run pays no extra read. The flush above already settled the marker, so
-				 * this release can't strand the hold. */
+				 * exact-holder gated on this run's `runId` INSIDE the app-row-locked
+				 * clear: a superseded/taken-over app now carries a co-member's lock this
+				 * must not touch. Gated on `claimedRun.mode === "edit"` so a build or a
+				 * lock-less run pays no extra transaction. The flush above already settled
+				 * the marker, so this release can't strand the hold. */
 				if (!finalizeRan && claimedRun?.mode === "edit") {
-					try {
-						if (await editRunLockHeldBy(appId, effectiveRunId)) {
-							void clearRunLock(appId);
-						}
-					} catch (err) {
-						log.error("[chat] prelude-net run-lock release check failed", err, {
-							appId,
-						});
-					}
+					await clearRunLock(appId, effectiveRunId);
 				}
 			}
 		},

@@ -35,6 +35,7 @@
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
@@ -668,14 +669,17 @@ describe("solutionsArchitect — no finishing tool", () => {
 //
 // The P3 chat-SA port routes every mutating tool through the guarded writer,
 // and every tool's blanket `catch (err)` now runs through
-// `common.ts::toToolErrorResult`, which RE-THROWS the two authoritative commit
-// signals so they escape the tool body and reach `wrapMutating`. Three distinct
+// `common.ts::toToolErrorResult`, which RE-THROWS the three authoritative commit
+// signals so they escape the tool body and reach `wrapMutating`. Four distinct
 // behaviors, all exercised here through a REAL tool (`addFields`):
 //
 //   - a RETRYABLE `BlueprintCommitRejectedError` (a peer deleted/changed the
-//     target, or the app moved Projects) escapes the tool → `wrapMutating`
-//     catches it → returns `{ error }` to the SA AND reloads fresh via
-//     `loadApp`, so the NEXT tool builds on the current server state;
+//     target) escapes the tool → `wrapMutating` catches it → returns `{ error }`
+//     to the SA AND reloads fresh via `loadApp`, so the NEXT tool builds on the
+//     current server state;
+//   - a TERMINAL `AppProjectChangedError` (the run's admitted tenant scope is
+//     stale) escapes the tool → `wrapMutating` does NOT catch it → it propagates
+//     without reloading or retrying inside the stale run;
 //   - a TERMINAL `CommitReauthError` (the actor lost edit access) escapes the
 //     tool → `wrapMutating` does NOT catch it → it propagates out of the tool's
 //     execute and fails the run (a reload can't restore authorization);
@@ -757,6 +761,70 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		).rejects.toBeInstanceOf(CommitReauthError);
 		expect(loadAppMock).not.toHaveBeenCalled();
 	});
+
+	it("propagates AppProjectChangedError past wrapMutating without reload or retry", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		const projectChanged = new AppProjectChangedError();
+		// The tool's blanket catch re-throws the scope signal. Unlike a document
+		// conflict, wrapMutating must not reload into a different Project inside
+		// the already-admitted run.
+		commitGuardedBatchMock.mockRejectedValueOnce(projectChanged);
+
+		await expect(
+			runTool(sa, "addFields", {
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			}),
+		).rejects.toBe(projectChanged);
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+		expect(loadAppMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			"lost authorization",
+			() => new CommitReauthError("You no longer have edit access."),
+		],
+		["a Project move", () => new AppProjectChangedError()],
+	])(
+		"poisons queued same-step tools and the next model step after %s",
+		async (_label, makeScopeError) => {
+			const { ctx } = buildCtx();
+			const sa = makeSa(ctx, makeFixtureDoc(), true);
+			const scopeError = makeScopeError();
+			commitGuardedBatchMock.mockRejectedValueOnce(scopeError);
+
+			// AI SDK dispatches parallel tool calls together. The serializer starts
+			// the second body only after the first body has latched this terminal
+			// signal; it must then reject with that SAME signal before committing.
+			const settled = await Promise.allSettled([
+				runTool(sa, "addFields", {
+					moduleIndex: 0,
+					formIndex: 0,
+					fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+				}),
+				runTool(sa, "addFields", {
+					moduleIndex: 0,
+					formIndex: 0,
+					fields: [{ id: "nickname", kind: "text", label: "Nickname" }],
+				}),
+			]);
+
+			expect(settled).toEqual([
+				{ status: "rejected", reason: scopeError },
+				{ status: "rejected", reason: scopeError },
+			]);
+			expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+
+			// `prepareStep` is the second fence: even after the recovered promise
+			// chain settles, the agent must not make another model step in this run.
+			await expect(
+				sa.generate({ prompt: "Continue editing this app." }),
+			).rejects.toBe(scopeError);
+		},
+	);
 
 	it("does NOT reload on a pre-commit validity finding (the tool returns { error }, commit never runs)", async () => {
 		const { ctx } = buildCtx();

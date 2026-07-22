@@ -964,6 +964,20 @@ required for move and stream registration, actor-scoped case/presence writes, ap
 creation/commit, run claim/reserve, and soft-delete/restore; authorization
 outside the write transaction never decides their admission.
 
+A migration-bearing blueprint write captures the caller's Project with its
+source snapshot, then runs `apps FOR UPDATE` -> shared membership gate -> fresh
+`edit` authorization -> every sorted `(caseType, property)` schema/data Phase A
+on one physical connection and transaction. All Phase As commit or roll back as
+one unit. Only after that commit may concurrent-index Phase B run; the later
+blueprint transaction must compare the same expected Project and freshly
+authorize again. An admission denial, Project mismatch, Phase-A error, or outer
+commit failure invokes no compensation because no schema/data work became
+durable. A Phase-B or blueprint-commit failure compensates every recorded
+durable report. This single-connection split is required: nesting the existing
+schema transaction behind an app lock can exhaust the small shared pool while
+membership/move waiters occupy the remaining connections, and concurrent index
+DDL is illegal inside a transaction.
+
 After `apps FOR UPDATE`, the move takes the shared gate, then uses the same
 database transaction to discover and lock the actor's source/destination
 membership rows and every source-owner/source-and-destination membership pair

@@ -33,6 +33,8 @@ describe("shouldRetryTurn", () => {
 		"out_of_credits",
 		"generation_in_progress",
 		"run_released",
+		"access_revoked",
+		"app_changed",
 		"internal",
 	];
 

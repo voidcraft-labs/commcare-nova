@@ -7,7 +7,8 @@ import type { AppDoc } from "../types";
  * The pure spec of the single-reader liveness model. Every credit/claim decision
  * derives from `runLeaseState`, so this matrix over {build, edit, none} ×
  * {clean, live, paused, hard-killed} IS the authoritative statement of what
- * `live` / `paused` / `mine` / `terminalWriteOwned` / `ownedByResume` /
+ * `live` / `paused` / `mine` / `terminalWriteOwned` /
+ * `buildFailureWriteOwned` / `ownedByResume` /
  * `markerSettleable` / `reapableStrandedEdit` / `reapableStaleBuild` mean. A
  * behavior change to the model must change a row here.
  *
@@ -228,6 +229,27 @@ describe("runLeaseState — mine", () => {
 	it("none is nobody's", () => {
 		expect(lease({ status: "complete" }).mine(RUN)).toBe(false);
 	});
+	it("is the exact-holder gate for pause stamps and prelude cleanup after replacement/reap", () => {
+		/* Replacement: both holder shapes now name OTHER, so RUN's late pause or
+		 * cleanup write must not touch them. */
+		expect(
+			lease({
+				status: "generating",
+				reservation: marker({ runId: OTHER }),
+			}).mine(RUN),
+		).toBe(false);
+		expect(
+			lease({ status: "complete", run_lock: lockAt(5, OTHER) }).mine(RUN),
+		).toBe(false);
+		/* Reap: the build marker's run id and the edit lock are gone. */
+		expect(
+			lease({
+				status: "error",
+				reservation: marker({ settled: true, runId: undefined }),
+			}).mine(RUN),
+		).toBe(false);
+		expect(lease({ status: "complete" }).mine(RUN)).toBe(false);
+	});
 });
 
 describe("runLeaseState — terminalWriteOwned", () => {
@@ -268,6 +290,46 @@ describe("runLeaseState — terminalWriteOwned", () => {
 	});
 	it("none: always owned (no competing run occupies the app)", () => {
 		expect(lease({ status: "complete" }).terminalWriteOwned(RUN)).toBe(true);
+	});
+});
+
+describe("runLeaseState — buildFailureWriteOwned", () => {
+	it("accepts this build before reservation and after its marker settles", () => {
+		expect(
+			lease({ status: "generating", run_id: RUN }).buildFailureWriteOwned(RUN),
+		).toBe(true);
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				reservation: marker({ settled: true, runId: RUN }),
+			}).buildFailureWriteOwned(RUN),
+		).toBe(true);
+	});
+
+	it("rejects a reaped ghost, replacement holder, edit, or idle app", () => {
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				reservation: marker({ settled: true, runId: undefined }),
+			}).buildFailureWriteOwned(RUN),
+		).toBe(false);
+		expect(
+			lease({
+				status: "generating",
+				run_id: RUN,
+				reservation: marker({ runId: OTHER }),
+			}).buildFailureWriteOwned(RUN),
+		).toBe(false);
+		expect(
+			lease({ status: "complete", run_lock: lockAt(5) }).buildFailureWriteOwned(
+				RUN,
+			),
+		).toBe(false);
+		expect(lease({ status: "complete" }).buildFailureWriteOwned(RUN)).toBe(
+			false,
+		);
 	});
 });
 

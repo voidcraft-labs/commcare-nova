@@ -391,6 +391,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				await delay(300);
 				await commitGuardedBatch({
 					appId,
+					expectedProjectId: null,
 					batchId: crypto.randomUUID(),
 					mutations: [{ kind: "setAppName", name: "Live" }],
 					actorUserId: USER,

@@ -21,10 +21,11 @@
  */
 
 import Fuse from "fuse.js";
-import type { Selectable, Transaction } from "kysely";
+import type { Kysely, Selectable, Transaction } from "kysely";
 import type { ErrorType } from "@/lib/agent";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import { log } from "@/lib/logger";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import {
@@ -75,10 +76,10 @@ import {
 	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
 import {
+	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 	CommitReauthError,
-	reauthorizeActorForCommit,
 } from "./commitGuard";
 import {
 	debitAndBookReservation,
@@ -361,6 +362,97 @@ async function assertProjectCapabilityInTransaction(
 	if (role === null || !roleAllowsApp(role, capability)) {
 		throw new CommitReauthError(message);
 	}
+}
+
+/**
+ * Authorize an actor against the Project carried by the freshly locked app
+ * row. Legacy rows without a Project retain their owner-only recovery path;
+ * normal Project apps join the shared membership gate and lock the actor's
+ * exact membership row before the caller makes any write-side decision.
+ */
+async function assertAppCapabilityInTransaction(
+	tx: Transaction<AppDatabase>,
+	app: Pick<Selectable<AppsTable>, "owner" | "project_id">,
+	actorUserId: string,
+	capability: AppCapability,
+	message: string,
+): Promise<void> {
+	if (app.project_id === null) {
+		if (app.owner !== actorUserId) throw new CommitReauthError(message);
+		return;
+	}
+	await assertProjectCapabilityInTransaction(
+		tx,
+		actorUserId,
+		app.project_id,
+		capability,
+		message,
+	);
+}
+
+/** Reject a writer whose admitted Project snapshot no longer matches the app. */
+function assertExpectedAppProject(
+	app: Pick<Selectable<AppsTable>, "project_id">,
+	expectedProjectId: string | null,
+): void {
+	if (app.project_id !== expectedProjectId) {
+		throw new AppProjectChangedError();
+	}
+}
+
+/** Result of one app-locked, authoritatively admitted external side effect. */
+export interface AuthorizedAppSideEffectResult<T> {
+	readonly projectId: string | null;
+	readonly value: T;
+}
+
+/**
+ * Hold the app row and fresh edit authorization while `effect` applies case
+ * schema/data Phase A on the SAME transaction and connection. This avoids the
+ * small-pool deadlock created by nesting a second transaction behind locks held
+ * by the first. The transaction runs exactly once because the caller's Phase A
+ * plan is not replay-safe; callers compensate any already-committed result if a
+ * later phase fails.
+ *
+ * This is intentionally narrower than a general transaction escape hatch. It
+ * exists for the migration-bearing blueprint saga, whose case-schema Phase A
+ * commits before the blueprint and must not run after a membership removal or
+ * Project move. Normal app transactions stay on retrying {@link withAppTx}.
+ */
+export async function withAuthorizedAppEditSideEffect<T>(
+	appId: string,
+	actorUserId: string,
+	expectedProjectId: string | null,
+	effect: (
+		tx: Transaction<CaseDatabase>,
+		scope: { readonly projectId: string | null },
+	) => Promise<T>,
+): Promise<AuthorizedAppSideEffectResult<T>> {
+	// App state and case data deliberately share one physical Postgres database
+	// and pool. Kysely keeps their table maps separate at the package boundary,
+	// so join the generic types at this one explicit cross-store transaction
+	// seam without changing the runtime handle or checking out another client.
+	const db = (await getAppDb()) as unknown as Kysely<
+		AppDatabase & CaseDatabase
+	>;
+	return await db.transaction().execute(async (fullTx) => {
+		const tx = fullTx.$pickTables<keyof AppDatabase>();
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new CommitReauthError("App not found.");
+		}
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
+		const scope = { projectId: fresh.project_id } as const;
+		const caseTx = fullTx.$pickTables<keyof CaseDatabase>();
+		return { ...scope, value: await effect(caseTx, scope) };
+	});
 }
 
 /** Map a replay-unsafe payload to the commit rejection shape wire callers know. */
@@ -710,23 +802,23 @@ export interface CommitGuardedBatchArgs {
 	 * The rename pairs the caller's Phase-1 case-store migration covered
 	 * (the cross-store saga passes this, possibly EMPTY). When present,
 	 * the commit re-proves renames against the FRESH doc pair inside the
-	 * transaction (`provenRenamePairs`) and REJECTS if the re-apply
-	 * would rename a pair not in this list — the batch was prepared
-	 * against a prior that trailed a concurrent commit, and letting it
-	 * land would strand row values with the rename evidence expired
-	 * (both sides of every later diff would already hold the new name).
+	 * transaction (`provenRenamePairs`) and requires the two pair sets to
+	 * match exactly. Either direction of mismatch means Phase A migrated a
+	 * different property population from the one this fresh commit would
+	 * rename. In particular, an expected pair can disappear when a peer added
+	 * another unchanged writer that keeps the old property alive; accepting
+	 * that shape would move the keeper's saved values to the new property.
 	 * Absent (direct chat fast-path / cross-Project-move callers, whose
 	 * batches carry no rename kinds): no check.
 	 */
 	readonly renameExpectations?: readonly RenameExpectation[];
 	/**
-	 * A `{ projectId }` the caller ALREADY resolved and reauthed the actor's
-	 * role against moments ago (the migration-bearing `applyBlueprintChange`
-	 * path, which reauths before its Phase-1 DDL). When present, the
-	 * pre-transaction reauth here is skipped; the IN-transaction checks remain
-	 * the authoritative gate either way.
+	 * Project captured with the caller's admitted blueprint/scope snapshot. A
+	 * move before this commit rejects so stale work reloads instead of silently
+	 * crossing tenant scope. This is only a scope expectation: fresh
+	 * authorization below always runs transactionally.
 	 */
-	readonly preauthorized?: { readonly projectId: string | null };
+	readonly expectedProjectId: string | null;
 }
 
 /** Outcome of {@link commitGuardedBatch}. */
@@ -769,16 +861,6 @@ export async function commitGuardedBatch(
 	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
 	const mediaExpectations = args.mediaExpectations;
 
-	// Pre-transaction reauth for the common (non-null project) case — out of
-	// the lock. A null `project_id` defers to the in-transaction owner check.
-	let projectId: string | null;
-	if (args.preauthorized !== undefined) {
-		projectId = args.preauthorized.projectId;
-	} else {
-		projectId = await loadAppProjectId(appId);
-		await reauthorizeActorForCommit(projectId, actorUserId);
-	}
-
 	type InternalResult = CommitGuardedBatchResult & {
 		persistable?: PersistedBlueprint;
 	};
@@ -800,14 +882,10 @@ export async function commitGuardedBatch(
 				.where("app_id", "=", appId)
 				.where("batch_id", "=", batchId)
 				.executeTakeFirst();
-			// The outside role read is only an early rejection optimization. The app
-			// row and the actor's exact membership row now join this transaction's
-			// lock set before either a real commit OR an idempotent return.
-			if (fresh.project_id !== projectId) {
-				throw new BlueprintCommitRejectedError(
-					"This app moved to a different Project while you were editing. Reload to get the latest state.",
-				);
-			}
+			// A migration-bearing saga held this Project while its separately
+			// committed schema Phase A ran. If the app moved after that lock released,
+			// reject so the saga compensates instead of committing mismatched work.
+			assertExpectedAppProject(fresh, args.expectedProjectId);
 			if (fresh.project_id === null) {
 				if (fresh.owner !== actorUserId) {
 					throw new CommitReauthError(
@@ -903,19 +981,24 @@ export async function commitGuardedBatch(
 				);
 			}
 			// Rename-expectation gate — re-prove renames against the FRESH
-			// pair. A fresh-proven pair the caller's Phase-1 migration did
-			// not cover means the batch renames something other than what
-			// was migrated (its prior trailed a concurrent commit);
-			// committing it would strand row values permanently, because
-			// after this commit both sides of every future diff hold the
-			// new name and no sync can ever prove the migration again. The
-			// reverse asymmetry is fine: an expected pair the fresh diff
-			// does NOT prove means a peer already committed the same
-			// rename (the forward migration no-oped) — nothing to reject.
+			// pair and require exact set equality with what Phase A migrated.
+			// A fresh-only pair would strand values after commit. An
+			// expected-only pair is unsafe too: it can mean a peer added an
+			// unchanged writer that now KEEPS the old property, in which case
+			// stale Phase A moved that keeper's values even though the fresh
+			// mutation is no longer a property rename. Conservatively reject
+			// even the harmless peer-already-renamed case; compensation is
+			// idempotent, while guessing wrong here relocates saved case data.
 			if (args.renameExpectations !== undefined) {
 				const proven = provenRenamePairs(freshDoc, verdict.nextDoc);
+				const freshExpectations: RenameExpectation[] = [];
 				for (const [renamedType, pairs] of proven) {
 					for (const pair of pairs) {
+						freshExpectations.push({
+							caseType: renamedType,
+							from: pair.from,
+							to: pair.to,
+						});
 						const covered = args.renameExpectations.some(
 							(expectation) =>
 								expectation.caseType === renamedType &&
@@ -927,6 +1010,19 @@ export async function commitGuardedBatch(
 								`This change would rename the case property "${pair.from}" to "${pair.to}" on "${renamedType}", but it was prepared against an older version of the app and the saved case data was migrated for a different rename. Reload to get the latest state, then redo the rename.`,
 							);
 						}
+					}
+				}
+				for (const expectation of args.renameExpectations) {
+					const stillProven = freshExpectations.some(
+						(freshExpectation) =>
+							freshExpectation.caseType === expectation.caseType &&
+							freshExpectation.from === expectation.from &&
+							freshExpectation.to === expectation.to,
+					);
+					if (!stillProven) {
+						throw new BlueprintCommitRejectedError(
+							`Saved case data was prepared for a rename of "${expectation.from}" to "${expectation.to}" on "${expectation.caseType}", but the current app no longer proves that exact rename. Reload to get the latest state, then redo the rename.`,
+						);
 					}
 				}
 			}
@@ -1435,6 +1531,7 @@ export async function claimAndReserveRun(
 	runId: string,
 	actorUserId: string,
 	cost: number,
+	expectedProjectId: string | null,
 ): Promise<ClaimedRun> {
 	const period = getCurrentPeriod();
 	try {
@@ -1449,6 +1546,14 @@ export async function claimAndReserveRun(
 					`[claimAndReserveRun] app row missing for appId=${appId}`,
 				);
 			}
+			assertExpectedAppProject(fresh, expectedProjectId);
+			await assertAppCapabilityInTransaction(
+				tx,
+				fresh,
+				actorUserId,
+				"edit",
+				"You no longer have edit access to this app's Project.",
+			);
 			const lease = runLeaseState(leaseView(fresh));
 			/* Busy — with one carve-out: the claimant's OWN paused run does not
 			 * block. A paused run is process-less and its ask card may be gone
@@ -1543,6 +1648,7 @@ export async function reserveForNewBuild(
 	actorUserId: string,
 	cost: number,
 	runId: string,
+	expectedProjectId: string | null,
 ): Promise<Reservation> {
 	const period = getCurrentPeriod();
 	const reapable: string[] = [];
@@ -1554,6 +1660,14 @@ export async function reserveForNewBuild(
 				`[reserveForNewBuild] app row missing for appId=${appId}`,
 			);
 		}
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
 		const scan = await scanActiveGeneration(tx, actorUserId, appId);
 		reapable.push(...scan.reapable);
 		if (scan.live) throw new GenerationInProgressError();
@@ -1672,13 +1786,24 @@ export async function refreshBuildLiveness(
  * Release an edit run's `run_lock` WITHOUT touching the reservation marker —
  * for terminal states that are NOT a clean kept-charge completion (a failed
  * edit whose marker the failure funnel already settled, the prelude-throw
- * net's release of a stranded lock). Fire-and-forget; a dropped clear
- * degrades to the lock expiring at `expireAt`.
+ * net's release of a stranded lock).
+ *
+ * The exact `runId` is re-checked through the one liveness reader while the app
+ * row is locked. A reaped run or a replacement holder therefore makes this a
+ * no-op instead of letting a stale prelude cleanup clear the new run's lock.
+ * Best-effort: a storage failure degrades to the lock expiring at `expireAt`.
  */
-export function clearRunLock(appId: string): Promise<void> {
-	return getAppDb()
-		.then((db) =>
-			db
+export async function clearRunLock(
+	appId: string,
+	runId: string,
+): Promise<void> {
+	try {
+		await withAppTx(async (tx) => {
+			const fresh = await lockAppRow(tx, appId);
+			if (!fresh) return;
+			const lease = runLeaseState(leaseView(fresh));
+			if (lease.mode !== "edit" || !lease.mine(runId)) return;
+			await tx
 				.updateTable("apps")
 				.set({
 					lock_run_id: null,
@@ -1686,14 +1811,11 @@ export function clearRunLock(appId: string): Promise<void> {
 					lock_expire_at: null,
 				})
 				.where("id", "=", appId)
-				.execute(),
-		)
-		.then(
-			() => {},
-			(err) => {
-				log.error("[clearRunLock] write failed", err, { appId });
-			},
-		);
+				.execute();
+		});
+	} catch (err) {
+		log.error("[clearRunLock] write failed", err, { appId, runId });
+	}
 }
 
 /**
@@ -1723,25 +1845,6 @@ export async function clearRunLockAndSettle(
 			.where("id", "=", appId)
 			.execute();
 	});
-}
-
-/**
- * Whether the app is STILL an EDIT run owned by `runId` — the guard the
- * route's prelude-throw net runs before releasing a stranded lock.
- */
-export async function editRunLockHeldBy(
-	appId: string,
-	runId: string,
-): Promise<boolean> {
-	const db = await getAppDb();
-	const row = await db
-		.selectFrom("apps")
-		.select(LEASE_COLUMNS)
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	if (!row) return false;
-	const lease = runLeaseState(leaseView(row as AppRow));
-	return lease.mode === "edit" && lease.mine(runId);
 }
 
 /**
@@ -1785,10 +1888,20 @@ export async function reacquireLease(
 	appId: string,
 	runId: string,
 	mode: "build" | "edit",
+	actorUserId: string,
+	expectedProjectId: string | null,
 ): Promise<ReacquireOutcome> {
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return "released";
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
 		const lease = runLeaseState(leaseView(fresh));
 		if (!lease.ownedByResume(runId, mode)) {
 			return lease.present ? "superseded" : "released";
@@ -1814,55 +1927,85 @@ export async function reacquireLease(
 }
 
 /**
- * Mark an app as failed after an error during generation. Fire-and-forget —
- * a storage outage must never block the error response; the staleness reaper
+ * Mark a BUILD as failed only while `runId` still owns that exact holder.
+ * Ownership is re-checked under the app lock, including the just-created
+ * pre-reservation fallback; a reaped or replacement run makes this a no-op.
+ * Storage failure remains best-effort because the canonical stale-build reaper
  * is the backstop.
  */
-export function failApp(appId: string, errorType: ErrorType): Promise<void> {
-	return getAppDb()
-		.then((db) =>
-			db
+export async function failApp(
+	appId: string,
+	runId: string,
+	errorType: ErrorType,
+): Promise<boolean> {
+	try {
+		return await withAppTx(async (tx) => {
+			const fresh = await lockAppRow(tx, appId);
+			if (!fresh) return false;
+			const lease = runLeaseState(leaseView(fresh));
+			if (!lease.buildFailureWriteOwned(runId)) return false;
+			await tx
 				.updateTable("apps")
 				.set({ status: "error", error_type: errorType })
 				.where("id", "=", appId)
-				.execute(),
-		)
-		.then(
-			() => {},
-			(err) => log.error("[failApp] write failed", err),
-		);
+				.execute();
+			return true;
+		});
+	} catch (err) {
+		log.error("[failApp] write failed", err, { appId, runId });
+		return false;
+	}
 }
 
 /**
- * Set or clear a build's `awaiting_input` pause flag. Clearing ALSO re-arms
- * `updated_at` — the flag (not a fresh timestamp) is what spared the row from
- * staleness during the pause, so removing it must hand the resuming run a
- * fresh window; the SET path must NOT bump the clock. The route AWAITS the
- * pause SET (durably recorded before the response resolves); the resume CLEAR
- * is fire-and-forget.
+ * Set or clear a run's `awaiting_input` pause flag. The exact `runId` is
+ * re-checked through the one liveness reader while the app row is locked, so a
+ * stale drain cannot pause a replacement holder and a late clear cannot unpause
+ * it. Clearing ALSO re-arms `updated_at` — the flag (not a fresh timestamp) is
+ * what spared a paused BUILD from staleness, so removing it must hand the
+ * resuming build a fresh window; the SET path must NOT bump the clock. The
+ * route AWAITS the pause SET (durably recorded before the response resolves).
+ * Production resume clears through `reacquireLease`; the clear arm remains for
+ * exact-holder repair/tests. The outcome distinguishes a replacement holder
+ * (`"superseded"`) from a fully released/reaped run (`"released"`), and
+ * infrastructure errors throw so callers never mistake an unknown write for a
+ * durable pause. Project scope + fresh edit authorization are checked after the
+ * app lock, matching resume admission: even a no-mutation question turn cannot
+ * park a run after its actor loses access or its app moves Projects.
  */
-export function setAwaitingInput(
+export async function setAwaitingInput(
 	appId: string,
+	runId: string,
 	awaiting: boolean,
-): Promise<void> {
-	return getAppDb()
-		.then((db) =>
-			db
-				.updateTable("apps")
-				.set(
-					awaiting
-						? { awaiting_input: true }
-						: { awaiting_input: false, updated_at: new Date() },
-				)
-				.where("id", "=", appId)
-				.execute(),
-		)
-		.then(
-			() => {},
-			(err) => {
-				log.error("[setAwaitingInput] write failed", err);
-			},
+	actorUserId: string,
+	expectedProjectId: string | null,
+): Promise<ReacquireOutcome> {
+	return await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) return "released";
+		assertExpectedAppProject(fresh, expectedProjectId);
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"edit",
+			"You no longer have edit access to this app's Project.",
 		);
+		const lease = runLeaseState(leaseView(fresh));
+		if (!lease.mine(runId)) {
+			return lease.present ? "superseded" : "released";
+		}
+		await tx
+			.updateTable("apps")
+			.set(
+				awaiting
+					? { awaiting_input: true }
+					: { awaiting_input: false, updated_at: new Date() },
+			)
+			.where("id", "=", appId)
+			.execute();
+		return "owned";
+	});
 }
 
 /**
@@ -1913,34 +2056,58 @@ export async function reapStaleReservation(appId: string): Promise<void> {
  * axes. Throws on a missing row (matching the update-a-ghost posture).
  * Returns the ISO `recoverable_until` so callers surface the deadline.
  */
-export async function softDeleteApp(appId: string): Promise<string> {
+export async function softDeleteApp(
+	appId: string,
+	actorUserId: string,
+): Promise<string> {
 	const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 	const now = new Date();
 	const recoverableUntil = new Date(now.getTime() + RETENTION_MS);
-	const db = await getAppDb();
-	const result = await db
-		.updateTable("apps")
-		.set({ deleted_at: now, recoverable_until: recoverableUntil })
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	if (Number(result.numUpdatedRows) === 0) {
-		throw new Error(`[softDeleteApp] app row missing for appId=${appId}`);
-	}
+	await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new CommitReauthError("App not found.");
+		}
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"delete",
+			"You no longer have permission to delete this app.",
+		);
+		await tx
+			.updateTable("apps")
+			.set({ deleted_at: now, recoverable_until: recoverableUntil })
+			.where("id", "=", appId)
+			.execute();
+	});
 	return recoverableUntil.toISOString();
 }
 
 /** Restore a soft-deleted app — clears both soft-delete fields as a pair;
  *  status untouched; `updated_at` deliberately not bumped. */
-export async function restoreApp(appId: string): Promise<void> {
-	const db = await getAppDb();
-	const result = await db
-		.updateTable("apps")
-		.set({ deleted_at: null, recoverable_until: null })
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	if (Number(result.numUpdatedRows) === 0) {
-		throw new Error(`[restoreApp] app row missing for appId=${appId}`);
-	}
+export async function restoreApp(
+	appId: string,
+	actorUserId: string,
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new CommitReauthError("App not found.");
+		}
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"delete",
+			"You no longer have permission to restore this app.",
+		);
+		await tx
+			.updateTable("apps")
+			.set({ deleted_at: null, recoverable_until: null })
+			.where("id", "=", appId)
+			.execute();
+	});
 }
 
 // ── Loads ───────────────────────────────────────────────────────────

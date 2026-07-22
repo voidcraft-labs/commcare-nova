@@ -115,6 +115,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 
 		const result = await commitGuardedBatch({
 			appId,
+			expectedProjectId: null,
 			batchId: crypto.randomUUID(),
 			mutations: renameVillageLabel(doc, "Home"),
 			actorUserId: OWNER,
@@ -148,6 +149,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 			const [a, b] = await Promise.all([
 				commitGuardedBatch({
 					appId,
+					expectedProjectId: null,
 					batchId: crypto.randomUUID(),
 					mutations: renameVillageLabel(doc, "Home A"),
 					actorUserId: OWNER,
@@ -155,6 +157,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 				}),
 				commitGuardedBatch({
 					appId,
+					expectedProjectId: null,
 					batchId: crypto.randomUUID(),
 					mutations: renameVillageLabel(doc, "Home B"),
 					actorUserId: OWNER,

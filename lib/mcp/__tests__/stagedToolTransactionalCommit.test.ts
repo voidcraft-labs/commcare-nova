@@ -94,6 +94,7 @@ function makeMcpCtx() {
 	const ctx = new McpContext({
 		appId: "app-1",
 		userId: "user-1",
+		projectId: "project-1",
 		runId: "run-1",
 		logWriter,
 		progress: { notify: vi.fn() },
