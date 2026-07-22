@@ -1,7 +1,8 @@
 # Complex app roadmap
 
-> **Authoritative living plan.** Last rebaselined 2026-07-21 against Nova
-> `db954a15`; S01 shipped and S02 was re-sliced against `7422c4c2`. This file
+> **Authoritative living plan.** Last rebaselined 2026-07-22 against Nova
+> `07c45ef6`; S01 and S02a shipped, and S02b is owned from that merged
+> `main`. This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
@@ -710,6 +711,14 @@ runtime activation after preview and SQL execution are total. Until S07's rollou
 gate opens, carrier commits, true cross-Project moves, and destructive
 lookup-schema actions remain unavailable.
 
+S02a shipped as PR #298 at squash `07c45ef6`: Cloud Build
+`99ae1f72-048b-4515-8652-1f3caa669b99` ran migration execution
+`commcare-nova-migrate-cccx4` successfully before deploying healthy 100%-traffic
+revision `commcare-nova-00352-gpk`; production probes and the post-deploy error
+query passed, and its branches/worktrees were cleaned. Fresh branch
+`agent/s02b` owns S02b from that merged `main`. S02 remains `in progress` until
+S02b and S02c separately pass review, CI, deployment verification, and cleanup.
+
 #### Identity, context, and extraction
 
 Define runtime UUIDv7 schemas and distinct `LookupTableId`, `LookupColumnId`, and
@@ -760,6 +769,13 @@ boundary. `unavailable` is never an empty registry or permission to skip rules:
 - finding identity includes carrier UUID, registry slot, nested subpath, table
   UUID, and column UUID when present, so one old dangling ref cannot mask a new
   one.
+
+The stable S02b codes are `LOOKUP_CONTEXT_UNAVAILABLE`,
+`LOOKUP_TABLE_NOT_AVAILABLE`, `LOOKUP_COLUMN_NOT_AVAILABLE`, and
+`LOOKUP_COLUMN_TYPE_MISMATCH`. They use introduced-error/soundness delta
+semantics: an unrelated edit may leave an existing lookup finding in place, but
+may not introduce a new occurrence. Missing and foreign definitions remain the
+same not-available shape.
 
 Context and revisions never enter mutations or `accepted_mutations`; replay
 remains reducer-only. S02 adds a normalized target-set and edge-materializer seam,
@@ -840,6 +856,16 @@ evaluation so no reducer that can mint UUIDs is applied twice. S02 proves both
 seeded introduction-versus-delete winner orders through the production lock/
 edge protocol; S05 repeats them using real carriers.
 
+Authoritative mutation payloads are replay-deterministic: every identity they
+create is carried in the payload. `duplicateField` remains a UI-only gesture;
+autosave lowers its resulting document diff to deterministic `addField`
+mutations, and a server persistence boundary rejects the reducer-minted form.
+For ordinary writes, “apply once” means one candidate preparation per retryable
+transaction attempt after the app lock; evaluation never invokes the reducer.
+A SQL retry may replay only that deterministic payload against its newly locked
+basis. Any pre-transaction case-schema projection is advisory and consumes only
+deterministic batches.
+
 Atomic creation is the sole app-lock exception. It constructs and applies its
 seed exactly once outside the retryable transaction closure. Inside one
 transaction it declares the writer version, freshly authorizes the exact Project,
@@ -847,6 +873,13 @@ inserts the still-uncommitted app row as its serialization root, locks candidate
 lookup tables `FOR KEY SHARE` in UUID order, loads fresh context, validates, and
 inserts entities and exact edges. Any failure rolls back the app insertion. S05
 uses this same path for carrier-bearing seeds.
+
+A legacy app with `project_id = null` receives an unavailable lookup context and
+may commit only an empty structural target set; an authoritative write still
+clears any stale stored edges. During S02b the dormant Project-move writer
+declares writer v0 and permits a Project flip only when structural and stored
+lookup target sets are both empty, clearing source edges before the flip. S02c
+replaces that restriction with the complete dual-Project protocol.
 
 #### Schema behavior
 
@@ -868,6 +901,25 @@ applicable edges and remain runtime-disabled until S07 activation:
   freed bytes. It rejects removal of the last remaining column before touching
   rows: a table always retains 1–250 columns, and deleting the table is the only
   path to no schema. S09 owns confirmation UX.
+
+S02b implements those operations only as package-private governance. Its
+production wrapper declares shared writer v0, locks the compatibility row
+`FOR SHARE`, and fails closed while the activation flag is false; it never
+smuggles a local writer-v1 override past the rollout floor. The transaction core
+is integration-tested under explicit writer v1 plus enabled compatibility.
+Column removal advances both definition and rows revisions because it changes
+schema and row JSON. Blocker diagnostics return exact app ids only; the
+actionable carrier re-walk belongs to S09 and never reverses the resource-to-app
+lock order.
+
+The neutral export boundary has three explicit modes: `ccz`, `hq-json`, and
+`hq-upload`. It loads definitions even for an empty target set, validates with
+one exact rows-free snapshot, and returns that snapshot with prepared resources
+so S05 emission cannot read a different definition generation. Operational
+definition-read failures propagate and stop before expansion, compilation, or
+HQ import; they are never recast as unavailable-context findings. Local CCZ may
+gain embedded fixtures in S05, while HQ JSON/upload remain blocked until their
+later rollout contract permits them.
 
 #### Cross-Project moves and transport
 
@@ -1007,9 +1059,9 @@ S02 ships in three sequential review units from merged `main`:
    multi-axis compatibility-state row and disabled activation flags, supporting
    app uniqueness/indexes, and the database writer-version trigger active at
    floor `0`. It adds no production extractor or edge writer, and old code with
-   no transaction setting continues as version `0`.
-2. **S02b — validation and authoritative writes:** an empty production target-
-   extractor registry, shared edge materializer plus seeded harness, apply-once
+   no transaction setting continues as version `0`. **Shipped in PR #298.**
+2. **S02b — validation and authoritative writes (`agent/s02b`, in progress):**
+   an empty production target-extractor registry, shared edge materializer plus seeded harness, apply-once
    candidate preparation, consistent context threading, the atomic-creation
    exception, exact-set replacement across every existing app writer, explicit
    writer-version `0` declaration, schema-governance internals, export-boundary
@@ -1035,6 +1087,12 @@ closed; S07 owns the first sequential desktop/compact browser move/reload journe
 through an actually enabled path. Each unit gets independent review, green CI,
 squash merge, blocking migration/Cloud Run follow-through, production probes/
 error check, and cleanup.
+
+S02b also ships a read-only `scan-lookup-reference-edges` inspector, including
+soft-deleted apps and `--prod` support, that compares the shared structural
+extractor with complete stored sets and fails on structural-only, stored-only, or
+unassemblable apps. It is the zero-carrier production audit now and the S05
+scan-before-migrate/rescan tool later; it never repairs data.
 
 ### S03 — display conditions: domain and wire
 
@@ -1322,6 +1380,17 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-22 — S02a shipped / S02b owned:** PR #298 shipped the distinct
+  lookup identities, rows-free definition snapshot, dormant exact-reference and
+  stream-lease storage, compatibility floors/flags, and database writer guard at
+  squash `07c45ef6`. Build `99ae1f72-048b-4515-8652-1f3caa669b99`, migration
+  `commcare-nova-migrate-cccx4`, revision `commcare-nova-00352-gpk`, production
+  probes, and error logs passed; all S02a branches/worktrees were cleaned. The
+  S02b readiness audit then froze deterministic persisted mutations,
+  same-snapshot validation, null-Project and dormant-move behavior,
+  fail-closed private schema governance, exact app-id blocker diagnostics, and
+  the three-mode neutral export boundary. Fresh branch `agent/s02b` owns the
+  implementation from merged `main`.
 - **2026-07-22 — S01 shipped / S02 infrastructure contract:** PR #295 shipped
   lookup persistence through healthy revision `commcare-nova-00350-xgz`. PR #296
   then passed review and CI, but its first Cloud Build was deliberately cancelled
