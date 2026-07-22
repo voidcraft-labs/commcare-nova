@@ -9,6 +9,7 @@ import {
 	isPathAllowedOnHost,
 	MCP_RESOURCE_URL,
 	normalizeHost,
+	STARTUP_PROBE_PATH,
 } from "../hostnames";
 
 describe("normalizeHost", () => {
@@ -156,17 +157,23 @@ describe("isPathAllowedOnHost", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/api/dev/login")).toBe(false);
 		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/dev/login")).toBe(false);
 	});
+	it("keeps the startup probe off every public-host allowlist", () => {
+		expect(STARTUP_PROBE_PATH).toBe("/warmup");
+		for (const host of Object.values(HOSTNAMES)) {
+			expect(isPathAllowedOnHost(host, STARTUP_PROBE_PATH)).toBe(false);
+		}
+	});
 });
 
 /**
  * Structural guard for the deploy-time footgun this file's `/api/media` case
  * already documents: a new page route under the main-host `app/(app)/` tree
- * that nobody adds to `HOSTNAME_ALLOWLIST` renders fine on localhost (the
- * unknown-host branch in `proxy.ts` skips the allowlist) and 404s in prod (the
- * main host gates every path). `/project` and `/accept-invitation` both shipped
- * this way with the shared-Project work. Rather than trust everyone to remember
- * the allowlist, we walk the router tree and assert every main-host page path is
- * reachable — a missing entry fails CI instead of prod.
+ * that nobody adds to `HOSTNAME_ALLOWLIST` renders fine on development
+ * localhost and 404s on the production main host. `/project` and
+ * `/accept-invitation` both shipped this way with the shared-Project work.
+ * Rather than trust everyone to remember the allowlist, we walk the router tree
+ * and assert every main-host page path is reachable — a missing entry fails CI
+ * instead of prod.
  */
 const APP_DIR = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -218,7 +225,7 @@ describe("main-host page routes are all allowlisted (regression guard)", () => {
 		.map(toWirePath)
 		/* `/warmup` is the Cloud Run startup probe on the internal `*.run.app`
 		 * host; `proxy.ts` documents that the main host deliberately 404s it. */
-		.filter((path) => path !== "/warmup");
+		.filter((path) => path !== STARTUP_PROBE_PATH);
 
 	it("discovers the known main-host pages (walker sanity check)", () => {
 		expect(mainHostPages).toContain("/project");

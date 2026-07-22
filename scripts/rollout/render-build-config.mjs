@@ -5,8 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	canonicalRuntimeCapabilityManifest,
+	RUNTIME_BUILD_ID_ENV_KEY,
+	RUNTIME_BUILD_ID_FILE_PATH,
+	RUNTIME_REVISION_LABELS_ENV_KEY,
+	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
+	runtimeCapabilityRevisionLabelsFromHash,
 } from "../../lib/runtimeCapabilities/core.mts";
 import { hashCanonicalRuntimeCapabilityManifest } from "../../lib/runtimeCapabilities/serverHash.mts";
 
@@ -15,6 +20,7 @@ const manifestPath = path.join(repoRoot, "config/runtime-capabilities.json");
 
 function parseArgs(argv) {
 	let check = false;
+	let buildId;
 	let output;
 	for (let index = 0; index < argv.length; index += 1) {
 		const arg = argv[index];
@@ -32,9 +38,23 @@ function parseArgs(argv) {
 			index += 1;
 			continue;
 		}
+		if (arg === "--build-id") {
+			if (buildId !== undefined)
+				throw new Error("--build-id may be supplied once");
+			buildId = argv[index + 1];
+			if (!buildId || buildId.startsWith("--")) {
+				throw new Error("--build-id requires a Cloud Build UUID");
+			}
+			index += 1;
+			continue;
+		}
 		throw new Error(`Unknown argument: ${arg}`);
 	}
-	return { check, output };
+	return {
+		buildId: buildId === undefined ? undefined : requireRuntimeBuildId(buildId),
+		check,
+		output,
+	};
 }
 
 async function readText(relativePath) {
@@ -62,7 +82,7 @@ function shellQuote(value) {
 	return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function renderShellEnvironment(manifest, manifestHash) {
+function renderShellEnvironment(manifest, manifestHash, buildId) {
 	const environment = runtimeCapabilityEnvironmentFromHash(
 		manifest,
 		manifestHash,
@@ -72,6 +92,17 @@ function renderShellEnvironment(manifest, manifestHash) {
 	];
 	for (const [key, value] of Object.entries(environment)) {
 		lines.push(`export ${key}=${shellQuote(value)}`);
+	}
+	if (buildId !== undefined) {
+		lines.push(`export ${RUNTIME_BUILD_ID_ENV_KEY}=${shellQuote(buildId)}`);
+		const revisionLabels = Object.entries(
+			runtimeCapabilityRevisionLabelsFromHash(manifest, manifestHash, buildId),
+		)
+			.map(([key, value]) => `${key}=${value}`)
+			.join(",");
+		lines.push(
+			`export ${RUNTIME_REVISION_LABELS_ENV_KEY}=${shellQuote(revisionLabels)}`,
+		);
 	}
 	return `${lines.join("\n")}\n`;
 }
@@ -163,6 +194,24 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		requireExactlyOnce(dockerfile, `ARG ${key}`, "Dockerfile", issues);
 		requireExactlyOnce(dockerfile, `${key}="\${${key}}"`, "Dockerfile", issues);
 	}
+	requireExactlyOnce(
+		dockerfile,
+		`ARG ${RUNTIME_BUILD_ID_ENV_KEY}`,
+		"Dockerfile",
+		issues,
+	);
+	requireExactlyOnce(
+		dockerfile,
+		`${RUNTIME_BUILD_ID_ENV_KEY}="\${${RUNTIME_BUILD_ID_ENV_KEY}}"`,
+		"Dockerfile",
+		issues,
+	);
+	requireExactlyOnce(
+		dockerfile,
+		`> ${RUNTIME_BUILD_ID_FILE_PATH}`,
+		"Dockerfile",
+		issues,
+	);
 
 	requireStaticRouteTimeout(
 		appStream,
@@ -213,7 +262,7 @@ async function main() {
 	const manifestHash = hashCanonicalRuntimeCapabilityManifest(
 		canonicalRuntimeCapabilityManifest(manifest),
 	);
-	const rendered = renderShellEnvironment(manifest, manifestHash);
+	const rendered = renderShellEnvironment(manifest, manifestHash, args.buildId);
 
 	if (args.check) await checkRepositoryWiring(manifest, manifestHash, source);
 	if (args.output !== undefined) {

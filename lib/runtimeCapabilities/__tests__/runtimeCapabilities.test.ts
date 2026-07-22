@@ -15,7 +15,10 @@ import {
 	parseRuntimeCapabilityEnvironment,
 	parseRuntimeCapabilityManifest,
 	parseRuntimeCapabilityVersion,
+	RUNTIME_BUILD_ID_ENV_KEY,
 	RUNTIME_CAPABILITY_ENV_KEYS,
+	RUNTIME_REVISION_LABELS_ENV_KEY,
+	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
 	streamLeaseTtlSeconds,
@@ -29,6 +32,7 @@ import {
 
 const manifest = requireRuntimeCapabilityManifest(rawManifest);
 const manifestHash = RUNTIME_CAPABILITY_MANIFEST_HASH;
+const buildId = "99ae1f72-048b-4515-8652-1f3caa669b99";
 
 describe("runtime capability manifest", () => {
 	it("pins the S02c1 versions and keeps transport time separate from run liveness", () => {
@@ -176,17 +180,21 @@ describe("runtime capability manifest", () => {
 				"c151a1240c6508fe027f6cc04b36dba43122067bdf957798d8681a30483e7719",
 		});
 		expect(Object.isFrozen(environment)).toBe(true);
-		expect(runtimeCapabilityRevisionLabels(manifest, "build-123")).toEqual({
+		expect(runtimeCapabilityRevisionLabels(manifest, buildId)).toEqual({
 			nova_writer: "0",
 			nova_stream_receiver: "1",
 			nova_runtime_reader: "1",
 			nova_stream_registry: "1",
 			nova_manifest: "c151a1240c6508fe",
-			nova_build: "build-123",
+			nova_build: buildId,
 		});
 		expect(() =>
 			runtimeCapabilityRevisionLabels(manifest, "BAD BUILD"),
-		).toThrow("buildId is not a valid Google Cloud label value");
+		).toThrow("buildId must be one lowercase UUID");
+		expect(requireRuntimeBuildId(buildId)).toBe(buildId);
+		expect(() => requireRuntimeBuildId("build-123")).toThrow(
+			"buildId must be one lowercase UUID",
+		);
 		expect(() => runtimeCapabilityEnvironmentFromHash(manifest, "bad")).toThrow(
 			"manifestHash must be one lowercase SHA-256 hex digest",
 		);
@@ -229,5 +237,38 @@ describe("runtime capability manifest", () => {
 		expect(output).toContain(
 			"Runtime capability manifest and build wiring are valid",
 		);
+	});
+
+	it("renders deterministic shell-safe build identity and revision labels", () => {
+		const repoRoot = path.resolve(import.meta.dirname, "../../..");
+		const args = [
+			"scripts/rollout/render-build-config.mjs",
+			"--build-id",
+			buildId,
+		];
+		const first = execFileSync(process.execPath, args, {
+			cwd: repoRoot,
+			encoding: "utf8",
+		});
+		const second = execFileSync(process.execPath, args, {
+			cwd: repoRoot,
+			encoding: "utf8",
+		});
+		expect(second).toBe(first);
+		expect(first).toContain(`export ${RUNTIME_BUILD_ID_ENV_KEY}='${buildId}'`);
+		expect(first).toContain(
+			`export ${RUNTIME_REVISION_LABELS_ENV_KEY}='nova_writer=0,nova_stream_receiver=1,nova_runtime_reader=1,nova_stream_registry=1,nova_manifest=c151a1240c6508fe,nova_build=${buildId}'`,
+		);
+		expect(() =>
+			execFileSync(
+				process.execPath,
+				[
+					"scripts/rollout/render-build-config.mjs",
+					"--build-id",
+					"bad'; touch /tmp/not-safe; #",
+				],
+				{ cwd: repoRoot, stdio: "pipe" },
+			),
+		).toThrow();
 	});
 });
