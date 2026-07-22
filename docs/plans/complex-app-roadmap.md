@@ -1151,6 +1151,13 @@ first disowns/closes the transport, then best-effort deletes its own lease, whil
 expiry covers crashes and cleanup failure without expiring a still-live request.
 
 **S02c1 implementation status (2026-07-22):**
+Shipped in PR #300 and deployed by Cloud Build as revision
+`commcare-nova-00354-dq4` at 100% traffic. Production verification covered the
+main, docs, and MCP host contracts, the blocking migration execution, revision
+health, and an empty ERROR-level revision log query. The production
+compatibility state remained intentionally dormant: every floor was `0`, every
+activation flag was false, there were no runtime epochs or active stream
+leases, and seven present legacy holders remained visible as v0 blockers.
 `config/runtime-capabilities.json` is now the strict, version-controlled source
 for writer `0`, stream receiver `1`, runtime reader `1`, stream registry `1`,
 the 3,600-second request cap, the 300-second stream grace, the independently
@@ -1205,10 +1212,12 @@ server nonce in the same app-locked write. The holder-stamp trigger includes the
 pause/lease columns used by the deployed v0 resume (`awaiting_input`,
 `lock_expire_at`, and `updated_at`). Deployed v0 sets no runtime GUC, so the
 trigger treats an absent declaration as v0 and clears any inherited nonce/stamp
-even when stable mode/run identity did not change. After
-S02c2 drains the request epoch, v0/null-nonce holders, and old receiver leases,
-it raises the runtime-reader floor to 1 and enables the switch; from then on,
-missing/mismatched nonces fail closed with an explicit refresh. Focused
+even when stable mode/run identity did not change. After a later total-consumer
+activation unit drains the request epoch, v0/null-nonce holders, and old
+receiver leases, it may raise the runtime-reader floor and enable the switch;
+from then on, missing/mismatched nonces fail closed with an explicit refresh.
+S02c2 deliberately exposes no floor-raise or nonce-activation command and has
+no database privilege to perform either. Focused
 pure/integration tests and the app-DML structural guard ship with the slice;
 execution remains part of the integration/CI verification gate. This work
 changes no floor, switch, traffic, or production state.
@@ -1334,15 +1343,20 @@ advisory lock. The pipeline deploys a capability-labelled candidate with
 least-privilege service account holds the
 session advisory lock on one dedicated database connection across the Cloud Run
 traffic mutation. Before cutover it requires the candidate Ready, verifies its
-capability labels and manifest hash, and passes a tagged/private rollout-health
-probe. It captures concrete revision percentages and tags from the exact prior
-split, re-reads both floors before and after, then verifies the intended exact
-traffic state plus app/docs/MCP health. Any injected or real post-mutation
-failure restores that exact revision/tag split and verifies the restoration
-before reporting failure. It records the exact timestamp at which the current
-uninterrupted interval of 100% registry-capable traffic begins, since leases
-cannot observe pre-registry
-streams; any later traffic to a pre-registry revision clears the marker, and a
+capability labels, immutable image/build identity, and manifest hash. The
+service keeps its default `run.app` URL disabled: instead of provisioning a
+permanent internal load balancer solely for a tagged probe, the exact candidate
+must become Ready through a strengthened `/warmup` startup probe that fails on
+declaration mismatch or database unavailability. The controller independently
+verifies the revision template and Ready condition through the Cloud Run API.
+After cutover it verifies the intended exact traffic state plus the public
+app/docs/MCP contracts. Any injected or real post-mutation failure restores the
+durably journaled exact revision/tag split and verifies the restoration before
+reporting failure. A process restart resumes or rolls back an incomplete journal
+entry before accepting another cutover. It records the exact timestamp at which
+the current uninterrupted interval of 100% registry-capable traffic begins,
+since leases cannot observe pre-registry streams; any later traffic to a
+pre-registry revision clears the marker, and a
 later return to 100% starts a new interval. Cover S02c -> S02b rollback -> S02c
 and prove the original timestamp cannot authorize the second rollout. The
 controller also preserves or clears each prepared runtime-reader target epoch
@@ -1352,6 +1366,23 @@ runtime service account never receives Cloud Run Admin. S02c ships and exercises
 this machinery with all floors at `0` and all activation flags false; it performs
 no production floor raise. An instance-local code rollout alone never activates
 vocabulary.
+
+S02c2 also closes the current unknown-Host bypass in the multi-host proxy:
+production accepts only the three configured public hosts plus the platform's
+exact `/warmup` startup probe; any other host/path pair returns 404 before the
+generic API short-circuit. Localhost affordances remain development-only. This
+keeps the hostname allowlists a real security boundary even when the external
+load balancer receives a forged HTTP `Host` value.
+
+Deployment identities split into build, migration, runtime, and rollout roles.
+The rollout role can inspect/update this one Cloud Run service and reconcile only
+the compatibility continuity fields and runtime epochs; it cannot raise floors,
+enable flags, or write application data. Migration owns fixed schema objects.
+Runtime receives ordinary application DML but not ownership of auth/control
+tables. The one documented temporary exception is `cases`: runtime schema
+materialization still creates and drops indexes concurrently, which PostgreSQL
+restricts to the table owner. Removing that exception requires a later
+privileged asynchronous schema worker rather than broadening the web runtime.
 
 The database writer guard covers app insertion, every `blueprint_entities`
 write, `accepted_mutations` insertion, mutation-sequence/Project-id advance, and
@@ -1386,7 +1417,7 @@ S02 ships in three sequential review units from merged `main`:
    exception, exact-set replacement across every existing app writer, explicit
    writer-version `0` declaration, schema-governance internals, export-boundary
    generalization, and the zero-carrier edge audit. **Shipped in PR #299.**
-3. **S02c — move and transport safety (`agent/s02c`, in progress):** exact
+3. **S02c — move and transport safety (in progress):** exact
    membership serialization, capability manifest, stream leases, and
    runtime-holder versioning,
    authoritative reload and mutable editability, per-operation case/presence
@@ -1404,14 +1435,15 @@ guarded pipeline to dogfood the final move deployment:
    matrix; auth-membership serialization; authoritative app transactions and
    reload snapshots; the capability manifest; compatibility, stream-lease, and
    runtime-holder primitives; receiver-v1 admission and migration
-   classification; and mutable client writability.
+   classification; and mutable client writability. **Shipped in PR #300.**
 2. **S02c2 — guarded deployment:** the no-traffic candidate path,
    least-privilege cutover/rollback controller, capability labels and health
    contract, runtime/migration database-role separation, drain/status runbook,
    and structural CI guards. Apply the reviewed
    IAM/Cloud SQL scaffolding before merging the pipeline switch. Its own first
    production cutover exercises the controller while every floor remains `0`
-   and every activation flag remains false.
+   and every activation flag remains false. **In progress on
+   `agent/s02c2`.**
 3. **S02c3 — tenant-safe dormant move:** per-operation case authorization and
    transactional presence, atomic move and run normalization, exact media
    protocol, and same-Project repair. Its deployment dogfoods S02c2; true moves

@@ -1,11 +1,11 @@
 # S02c runtime-capability rollout
 
-**Status:** S02c1 foundation plus runtime-holder callsite hardening. This
-document records the checked-in contract and its safe verification commands.
-It is not yet a manual traffic-
-cutover procedure; S02c2 must add and exercise the guarded no-traffic deploy,
-cutover, exact rollback, and drain controller before any operator raises a
-floor or enables a feature flag.
+**Status:** S02c1 shipped in PR #300 and is live as
+`commcare-nova-00354-dq4`; S02c2 guarded deployment is in progress on
+`agent/s02c2`. This document records the checked-in contract and its safe
+verification commands. It is not yet a manual traffic-cutover procedure;
+S02c2 must add and exercise the guarded no-traffic deploy, durable exact
+rollback, and drain/status controller before it replaces the current pipeline.
 
 ## Source of truth
 
@@ -175,13 +175,41 @@ state.
 ## S02c2 activation boundary
 
 This commit stores and transports nonce generations but does not activate exact
-nonce authority. S02c2 must first serve 100% runtime-reader-v1 code, then drain
-the request epoch, every v0/null-nonce run holder, and every below-floor stream
-receiver lease. Under the deployment cutover gate it may then raise
-`minimum_runtime_reader_version` to 1 and irreversibly set
-`run_holder_nonce_enforced = true`. Rollback remains available only before that
-final switch; after activation an old tab without the exact nonce is required
-to refresh.
+nonce authority. S02c2 exercises only deployment and reconciliation while all
+floors remain `0` and every activation flag remains false. Its controller has no
+floor-raise or nonce-activation command, and its database role has no privilege
+to perform either. A later explicitly reviewed total-consumer activation must
+first serve compatible code at 100% traffic, drain the request epoch, every
+v0/null-nonce run holder, and every below-floor stream receiver lease. Only that
+later unit may raise the runtime-reader floor and irreversibly set
+`run_holder_nonce_enforced = true`; after activation an old tab without the
+exact nonce is required to refresh.
+
+## S02c2 topology decisions
+
+The default `run.app` URL remains disabled. A traffic-tag URL therefore is not
+the health contract, and Nova will not provision a permanently billed internal
+load balancer solely to manufacture one. The exact no-traffic candidate must
+instead reach Ready through `/warmup`, strengthened to fail closed when its
+baked capability environment, build identity, or bounded database check is
+wrong. Before traffic, the controller independently verifies the exact
+revision's image, labels, template, and Ready condition through the Cloud Run
+API. After traffic it probes the public main/docs/MCP contracts; any failure
+restores and verifies the durably journaled prior concrete percentages and tags.
+
+Production unknown hosts are not a general internal trust zone. Apart from the
+platform's exact `/warmup` request, they return 404 before `/api/*` handling;
+localhost-only conveniences remain development-only. This closes the forged
+Host path through the public load balancer without exposing a rollout-only
+application route.
+
+Migration, runtime, rollout, and build use distinct IAM/database identities.
+Migration owns fixed objects; rollout receives only narrow compatibility
+reconciliation access and cannot change floors or flags; runtime does not own
+auth/control tables. Runtime temporarily remains the owner of `cases` because
+the live schema path performs concurrent index DDL. Removing that last ownership
+exception requires a privileged schema worker and is not faked by granting the
+web process broad migration authority.
 
 ## Build behavior in S02c1
 
