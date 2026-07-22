@@ -61,7 +61,7 @@ function retryDelayMs(attempt: number): number {
 const REOPEN_PROBE_AFTER = 3;
 
 /** Everything the provider builds once per mount and drives via effects. */
-interface ReconcilerRuntime {
+export interface ReconcilerRuntime {
 	readonly reconciler: Reconciler;
 	/** The app id, mutable once (new-build activation). Deps read it here. */
 	readonly appIdBox: { current: string | undefined };
@@ -97,7 +97,7 @@ export interface ReconcilerProviderProps {
 
 /** Build the reconciler and its network wiring once. Pure of React — the
  *  provider calls it lazily from a `useRef` initializer. */
-function buildRuntime(
+export function createReconcilerRuntime(
 	docStore: BlueprintDocStoreApi,
 	init: { appId?: string; baseSeq: number; userId: string },
 	/** Leaves preview mode — the conversion toast's "Review data" action
@@ -107,6 +107,23 @@ function buildRuntime(
 	const appIdBox: { current: string | undefined } = { current: init.appId };
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
 	const lookupManifestBroker = createLookupManifestBroker();
+	let presenceMayBeRetained = false;
+
+	/** Clear data whose authorization follows the app's current Project. Lookup
+	 * subscribers receive the broker's explicit loading sentinel; presence has no
+	 * retained broker, so push an empty roster directly to mounted consumers. */
+	function clearProjectScopedReadState(): void {
+		lookupManifestBroker.reset();
+		if (!presenceMayBeRetained) return;
+		presenceMayBeRetained = false;
+		for (const subscriber of [...presenceSubs]) {
+			try {
+				subscriber([]);
+			} catch {
+				/* Presence is best-effort and one consumer must not block the rest. */
+			}
+		}
+	}
 	const retryTimers = new Set<ReturnType<typeof setTimeout>>();
 	let eventSource: EventSource | null = null;
 	/* True between the mount effect's `start` and its `suspend` cleanup. Gates
@@ -163,6 +180,7 @@ function buildRuntime(
 		const es = new EventSource(`/api/apps/${id}/stream?since=${cursor}`);
 		eventSource = es;
 		es.addEventListener("mutation", (ev) => {
+			if (es !== eventSource) return;
 			try {
 				const frame = JSON.parse((ev as MessageEvent).data) as MutationFrame;
 				reconciler.onFrame(frame);
@@ -186,23 +204,41 @@ function buildRuntime(
 				});
 			}
 		});
-		es.addEventListener("reload", () => reconciler.onReloadEvent());
-		es.addEventListener("revoked", () => {
-			reconciler.onRevoked();
+		es.addEventListener("reload", () => {
+			if (es !== eventSource) return;
+			/* The server's reload frame is terminal for this connection. Prevent the
+			 * native EventSource from reconnecting at the pre-reload cursor while the
+			 * authoritative GET is pending; `resubscribe` opens the replacement. */
 			es.close();
+			eventSource = null;
+			/* A reload is also the cross-Project handoff boundary: clear both the
+			 * retained snapshot and its Project latch before fresh scope is resolved. */
+			clearProjectScopedReadState();
+			reconciler.onReloadEvent();
+		});
+		es.addEventListener("revoked", () => {
+			if (es !== eventSource) return;
+			es.close();
+			eventSource = null;
+			clearProjectScopedReadState();
+			reconciler.onRevoked();
 		});
 		es.addEventListener("presence", (ev) => {
+			if (es !== eventSource) return;
 			try {
 				const roster = JSON.parse((ev as MessageEvent).data) as PresenceFrame;
+				presenceMayBeRetained = roster.length > 0;
 				for (const cb of presenceSubs) cb(roster);
 			} catch {
 				/* a malformed presence frame is best-effort — skip it. */
 			}
 		});
 		es.addEventListener("lookup-revision", (ev) => {
+			if (es !== eventSource) return;
 			lookupManifestBroker.dispatch((ev as MessageEvent).data);
 		});
 		es.addEventListener("open", () => {
+			if (es !== eventSource) return;
 			streamRetryAttempt = 0;
 		});
 		es.addEventListener("error", () => {
@@ -222,6 +258,7 @@ function buildRuntime(
 			if (!active || reconciler.getSnapshot().revoked) return;
 			const timer = setTimeout(() => {
 				retryTimers.delete(timer);
+				if (es !== eventSource) return;
 				const now = reconciler.getSnapshot();
 				if (!active || now.revoked) return;
 				/* A reload's `resubscribe` may have already replaced the failed
@@ -247,6 +284,7 @@ function buildRuntime(
 					void fetch(`/api/apps/${appIdBox.current}`)
 						.then((res) => {
 							void res.body?.cancel();
+							if (es !== eventSource) return;
 							if (!active || reconciler.getSnapshot().revoked) return;
 							/* Re-check for a healthy replacement stream — a reload's
 							 * `resubscribe` may have landed while the probe was in
@@ -258,12 +296,16 @@ function buildRuntime(
 								return;
 							}
 							if (res.status === 404) {
+								eventSource = null;
+								es.close();
+								clearProjectScopedReadState();
 								reconciler.onRevoked();
 								return;
 							}
 							openStream(reconciler.getSnapshot().baseSeq);
 						})
 						.catch(() => {
+							if (es !== eventSource) return;
 							// Network down — keep the backoff loop alive.
 							const snap = reconciler.getSnapshot();
 							if (!active || snap.revoked) return;
@@ -411,6 +453,13 @@ function buildRuntime(
 	const reload = async () => {
 		const id = appIdBox.current;
 		if (!id) throw new Error("reconciler reload with no appId");
+		/* A reload can begin without an SSE `reload` listener (a 409, a mutation
+		 * gap, or a recovery tick). Disown transport before the authoritative GET
+		 * so no source-scoped frame or queued reopen can land during the handoff. */
+		const previousStream = eventSource;
+		eventSource = null;
+		previousStream?.close();
+		clearProjectScopedReadState();
 		const res = await fetch(`/api/apps/${id}`);
 		if (!res.ok) throw new Error(`reload failed: HTTP ${res.status}`);
 		const data = (await res.json()) as {
@@ -440,6 +489,10 @@ function buildRuntime(
 		put,
 		reload,
 		resubscribe: (cursor) => {
+			/* Every reconciler reload path (gap, conflict, migration sentinel) lands
+			 * here. Idempotent with the SSE reload handler and required for paths
+			 * whose trigger was not itself an SSE `reload` frame. */
+			lookupManifestBroker.reset();
 			openStream(cursor);
 			// A resubscribe follows a reload, which folded frames this tab
 			// never saw individually — any of them could have migrated case
@@ -540,7 +593,7 @@ export function ReconcilerProvider({
 	const runtimeRef = useRef<ReconcilerRuntime | null>(null);
 	if (runtimeRef.current === null && docStore && sessionApi) {
 		const sessionStore = sessionApi;
-		runtimeRef.current = buildRuntime(
+		runtimeRef.current = createReconcilerRuntime(
 			docStore,
 			{
 				appId,
@@ -583,8 +636,9 @@ export function ReconcilerProvider({
 							runtime.presenceSubs.add(cb);
 							return () => runtime.presenceSubs.delete(cb);
 						},
-						subscribeLookupManifest: (cb: (manifest: LookupManifest) => void) =>
-							runtime.lookupManifestBroker.subscribe(cb),
+						subscribeLookupManifest: (
+							cb: (manifest: LookupManifest | null) => void,
+						) => runtime.lookupManifestBroker.subscribe(cb),
 					}
 				: null,
 		[runtime],

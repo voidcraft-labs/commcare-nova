@@ -31,11 +31,11 @@ export interface ReconcilerContextValue {
 	/** Subscribe to full Project lookup manifests from `event: lookup-revision`
 	 *  on the shared app stream. Lookup revisions are independent of blueprint
 	 *  mutation sequence and therefore never enter reconciler state. The latest
-	 *  validated manifest is replayed immediately to late subscribers. One
-	 *  provider runtime latches one Project and advances its revision forward
-	 *  only; a future admitted cross-Project move must reset/remount it. */
+	 *  validated manifest is replayed immediately to late subscribers. `null`
+	 *  clears tenant state on reload or revocation. Between resets, one provider
+	 *  runtime latches one Project and advances its revision forward only. */
 	subscribeLookupManifest: (
-		cb: (manifest: LookupManifest) => void,
+		cb: (manifest: LookupManifest | null) => void,
 	) => () => void;
 }
 
