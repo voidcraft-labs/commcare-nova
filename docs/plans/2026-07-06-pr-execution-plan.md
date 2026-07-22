@@ -1,5 +1,11 @@
 # Execution plan: F1–F7 as fifteen PRs
 
+> **Historical execution plan — superseded 2026-07-21.** Do not delegate or
+> implement the fifteen PRs from this index. The authoritative living plan is
+> `docs/plans/complex-app-roadmap.md`; it replaces the stale persistence,
+> identity, validation, UX, deployment, review, and sequencing contracts while
+> preserving these documents as evidence archives.
+
 *2026-07-06. This index supersedes the per-feature execution prompts in the
 `2026-07-06-f*.md` plans — those plans remain the **reference** for verified platform facts
 and design rationale; the PR docs under `docs/plans/prs/` own **execution**. Each PR doc is

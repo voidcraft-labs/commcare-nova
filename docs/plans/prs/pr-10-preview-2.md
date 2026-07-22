@@ -1,5 +1,12 @@
 # PR-10: Preview II — typed personas, owner sets, restore scope
 
+> [!IMPORTANT]
+> **Execution superseded (2026-07-21).** Do not implement this PR document
+> directly. The live sequence and acceptance contract are in
+> [`../complex-app-roadmap.md`](../complex-app-roadmap.md), stage **S17**. This
+> file remains the evidence and design-rationale record; where it disagrees
+> with the roadmap, the roadmap wins.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f2-users.md`
 §3.2/§3.4, `…f3-locations.md` §3/L5. Scope rulings in
 `docs/plans/2026-07-06-pr-execution-plan.md` apply — multi-location personas are IN.
@@ -18,6 +25,47 @@ derive from the org tree exactly the way HQ derives them, and case lists/menus/f
 against the persona's **restore scope** — a faithful, measured implementation of CommCare's
 sync closure. Create a referral owned by another facility's bucket as persona A, switch to
 persona B, watch it appear in B's queue — real Postgres rows, no simulation.
+
+## 2026-07-21 rebaseline (S17 execution contract)
+
+S17 consumes the three-identity people model established in S15: a preview
+persona is a first-class named design artifact, not a user type. Persona
+identity derives from `(app_id, persona.uuid)`, persona location assignments
+live on the persona, and any referenced user type contributes reusable user-data
+defaults only. Two personas of one type must get distinct userids, usercases,
+owner sets, assignments, and ad-hoc overrides. The `PreviewPersona` upgrade and
+`(app_id, userType uuid)` derivation below are historical.
+
+Restore-scope invalidation is authoritative and revisioned, not a session-only
+in-memory set. Every case/index write advances a monotonic Postgres revision in
+the same transaction. Start by running the measured CTE inline. If current
+measurements later justify caching or materialization, it is keyed by app,
+Project, persona, and revision, has an explicit retention/bounds policy, and is
+safe across Cloud Run instances; stale revisions are never reused. Current main
+already has the client-side `caseDataInvalidation` channel, which S17 extends to
+refresh visible resources rather than replacing with a second local mechanism.
+The corpus and measured two-phase closure below remain the semantic contract.
+
+The recursive query must preserve the case store's structural tenancy rule:
+every recursive join back to `cases`, not only the seed, constrains both
+`app_id` and `project_id`. Acceptance includes cross-Project corruption probes,
+cross-instance revision invalidation, bounded cache growth when a cache exists, and one corpus run
+that reuses the existing isolated Postgres harness rather than starting a
+container/schema per fixture.
+
+Persona materialization synchronizes only source-managed usercase fields when
+the persona/type/locations change and preserves app-written fields. Persona
+retirement has an explicit durable-row policy. Session fidelity follows the
+corrected S15 catalog: `commcare_project` is an HQ-domain value that Nova must
+represent honestly in preview, and normal workers do not receive an invented
+`user_type='standard'` key.
+
+Location evaluation uses the same app-wide location-field catalog as S16.
+Persona assignments may name only roles that accept users, and an owner
+expression must be proven to yield a case-owning id for every persona to which
+it applies. Address-book visibility is part of validity: a specific or
+reverse-hop location reference that HQ would omit from the persona's fixture
+must not appear to work only in Nova's full-tree authoring view.
 
 ## Verified contracts this PR relies on
 

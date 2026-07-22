@@ -1,5 +1,31 @@
 # PR-05: Builder UI I — display conditions, case operations, tables
 
+> [!WARNING]
+> **Execution superseded as of 2026-07-21.** Do not implement or sequence this legacy PR
+> directly. Use the [Complex App Roadmap](../complex-app-roadmap.md) as the execution source
+> of truth. This file remains as historical research, verified emission evidence, and design
+> rationale; where it conflicts with the roadmap, current code, or current `CLAUDE.md`
+> contracts, the current sources win.
+
+## 2026-07-21 rebaseline
+
+**Roadmap mapping:** this scope is re-cut across **S08 and S09**; follow those stages' owned
+files and acceptance criteria instead of treating this document as one PR.
+
+- Project data surfaces and app authoring workspaces are **URL-owned locations** in the
+  current routing model. Tables remain Project-scoped data; display conditions and Case
+  Operations remain app workspaces. Their expanded tree, collapsed rail, mobile navigation,
+  route recovery, permissions, and Preview behavior must agree rather than being local
+  component state or popover-only destinations.
+- Extend the current expression-admission policy (`TypeContext`, evaluation scope, and
+  `admitExpressionChange`) for each slot. Do not replace it with an unconstrained caller-
+  supplied context: module display conditions must distinguish aggregate case counts from
+  forbidden row-property reads, while forms-first display conditions admit neither.
+- The legacy no-RTL rule below is superseded. Keep transformations pure where useful, but
+  use focused RTL coverage for interaction, accessibility, and focus behavior. All React
+  work must be committed inside `act(...)`: use the repository's act-wrapped focus and
+  popup-settling helpers and await mounted async loads.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f1-…` §5.6,
 `…f4-…` §5 (builder UI), `…f5-…` §5. Depends on PR-01 (vocabulary + contexts + mutations),
 PR-02 (table registry + rows actions), PR-03 (emission — for compile-verified fixtures in

@@ -2,6 +2,44 @@
 
 The conventions every React component in the app obeys — builder, chat, preview, landing, docs. Builder-specific behavior (the flipbook, drag-and-drop, the inspector rail, the case-list workspace) lives in `components/builder/CLAUDE.md`.
 
+## Design-system authority
+
+Nova generally follows **Google Material 3** for foundations, semantic design
+tokens, adaptive layout, interaction states, accessibility, content hierarchy,
+and motion. **Apple HIG** adds platform polish for focus, keyboard/pointer
+behavior, touch ergonomics, and motion where it does not conflict with Material
+3, web semantics, or Nova's established language. Neither is permission to copy
+another product's authoring model or component catalog.
+
+The project owner's current Material 3 distillation is available to Codex at
+`/Users/braxtonperry/work/personal/docs/material3_design_system.md`. That path is
+an execution reference, not a repo or build dependency. A supervisor or reviewer
+with access reads the relevant sections while preparing a UI slice and records
+every concrete new rule here or in the nearest subtree `CLAUDE.md`. Implementers
+then follow the repo-recorded contract; no shipped decision or delegated task may
+require undocumented access to a personal file.
+
+Precedence is: accessibility and semantic behavior; the feature's explicit Nova
+product/UX contract; Nova's existing tokens and components; Material 3; then
+Apple HIG polish. In practice:
+
+- use semantic HTML, landmarks/headings, logical DOM and focus order, visible
+  keyboard focus, and trigger-to-surface focus entry/return;
+- design adaptive behavior, not a scaled desktop canvas: review compact, medium,
+  expanded, large, and extra-large widths and deliberately show/hide, reflow, or
+  swap panes and navigation;
+- aim for 48 x 48 CSS-pixel touch targets and never go below a 44 x 44 pointer
+  target; preserve adequate spacing and keyboard alternatives;
+- represent enabled, disabled, hover, focus, pressed, selected, and dragged
+  states consistently with the established Nova semantic tokens and more than
+  color alone; and
+- use restrained motion to explain state or spatial relationship, respect
+  reduced motion, stabilize loading layouts, and make exits faster than entries.
+
+`components/shadcn` remains the implementation source of generic controls. M3
+guidance shapes their use and Nova's system; it does not bypass the wrappers or
+introduce one-off Android-styled controls.
+
 ## Primitives come from `components/shadcn`
 
 `components/shadcn` (shadcn on Base UI, restyled to Nova) is the ONE source of generic controls — button, badge, input, select, switch, checkbox, tooltip (`SimpleTooltip` for the everyday `content`+child case; `TooltipProvider` mounts ONCE in `(app)/layout.tsx`), dialog, alert-dialog, drawer, dropdown-menu, popover, skeleton, spinner, tabs, date-picker (`DatePicker` — the Button + Popover + Calendar composition as ONE component; feature code never assembles that popover itself and never renders a native `<input type="date">`/`"datetime-local"`, whose browser picker pops over Nova's theme), time-field (`TimeField` — locale-clock text entry, example "2:30 PM"; its strict parse/format pair lives in `lib/ui/clockTime.ts`). Never hand-roll one, never use a native `<select>`/`<dialog>`/checkbox, and never reach for raw `@base-ui/react` when a wrapper exists; a missing primitive lands via `npx shadcn add <name>` and then gets the Nova pass (icons → Tabler/iconify, `nova-*` tokens, disabled/hover rules below) — the CLI writes registry-stock files, so re-adding with `--overwrite` reverts the Nova pass; restore it from git if that happens. Composites (checkbox-cards, pickers, editable rows) compose these primitives rather than duplicating them.

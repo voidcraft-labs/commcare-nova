@@ -1,5 +1,31 @@
 # PR-04: Preview I — persona substrate, display conditions, op transactions, table choices
 
+> [!WARNING]
+> **Execution superseded.** This document is retained as historical evidence and rationale,
+> not as an implementation checklist. Execute from the living
+> [complex-app roadmap](../complex-app-roadmap.md) and its current slice contracts instead.
+
+## 2026-07-21 rebaseline
+
+Execution of this legacy PR is now split across **S06 and S07**. Preserve the verified
+runtime parity facts below, but use the living slices for the preview architecture and UX.
+
+- Preview identity is explicit. S06-S07 activate **Preview as me** and establish one resolved
+  identity contract feeding search, predicates, form XPath/session values, display
+  conditions, lookup filters, operation values, and owner stamping. S15 later plugs
+  persisted **Preview as persona** identities into that same contract; reveal-hidden
+  authoring affordances are a separate concern.
+- A submission is represented by an atomic envelope containing both the existing base form
+  mutation and advanced case operations. The CaseStore applies the whole envelope in one
+  transaction; advanced operations are not a mutually exclusive submission variant.
+- All operation conditions, targets, and values are evaluated from the same pre-submission
+  snapshot, then effects are applied in the pinned order with tenant and target-type checks.
+- Table-backed preview reads use authoritative Project-scoped definitions and rows, stable
+  table/column UUIDs, deterministic ordering, and the same absence/coercion semantics as the
+  emitted artifact.
+- Persona identities used to stamp real preview case rows must be stable and persisted by
+  S15; S06-S07 do not create a session-only random identity as an owner contract.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f1-…` §3.3,
 `…f4-…` §3.5–3.6, `…f5-…` §3.3, `…f2-users.md` §3.2 (the persona shape this PR pre-builds).
 Depends on PR-01 (vocabulary, AST arms, check contexts) and PR-02 (table registry + rows

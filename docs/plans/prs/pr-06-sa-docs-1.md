@@ -1,5 +1,27 @@
 # PR-06: SA tools, MCP, docs I
 
+> [!WARNING]
+> **Execution superseded as of 2026-07-21.** Do not implement or sequence this legacy PR
+> directly. Use the [Complex App Roadmap](../complex-app-roadmap.md) as the execution source
+> of truth. This file remains as historical research, verified emission evidence, and design
+> rationale; where it conflicts with the roadmap, current code, or current `CLAUDE.md`
+> contracts, the current sources win.
+
+## 2026-07-21 rebaseline
+
+**Roadmap mapping:** the surviving SA, MCP, and documentation scope is **S10**.
+
+- Tool-schema acceptance now follows the **OpenAI Responses API** path in
+  `scripts/test-schema.ts`, including the agent's wire-schema projection and strict-mode
+  normalization. Preserve prompt-cache/schema-size discipline; the legacy Anthropic claim
+  below is superseded.
+- Chat and MCP remain separate registration surfaces: chat exposes camelCase tool names and
+  MCP exposes snake_case names. A new capability is not complete until both manifests and
+  their projected schemas are covered.
+- Reuse the current field-path and UUID-or-human-id resolvers, refusing ambiguous human ids;
+  do not recreate the resolver described below. Clears travel as `null` through the current
+  Postgres/JSONB/SSE mutation path, not a Firestore event log.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f1-…` §5.7,
 `…f4-…` §3.8/§5, `…f5-…` §5. Scope rulings in `docs/plans/2026-07-06-pr-execution-plan.md`
 apply. Depends on PR-01 (vocabulary), PR-02 (table registry), PR-03/04/05 (so the SA's edits

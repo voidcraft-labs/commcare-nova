@@ -1,5 +1,29 @@
 # PR-07: Case tiles + tile grouping
 
+> [!WARNING]
+> **Execution superseded as of 2026-07-21.** Do not implement or sequence this legacy PR
+> directly. Use the [Complex App Roadmap](../complex-app-roadmap.md) as the execution source
+> of truth. This file remains as historical research, verified emission evidence, and design
+> rationale; where it conflicts with the roadmap, current code, or current `CLAUDE.md`
+> contracts, the current sources win.
+
+## 2026-07-21 rebaseline
+
+**Roadmap mapping:** tiles are deliberately split across **S11 and S12**; do not revive this
+as one domain/wire/query/renderer/drag-editor PR.
+
+- Group ordering and pagination require a group-aware data/query contract before renderer
+  work: the current case list pages cases first, so grouping a returned page cannot preserve
+  whole groups or group-count pagination.
+- The initial release excludes `entitiesPerRow` and `uniformCells`. They are not portable
+  through HQ's authoring/emission model; the legacy preview/local-`.ccz` proposal below is
+  retained as research, not current scope.
+- Keep Nova's controls outcome-oriented rather than exposing HQ names such as `pullDown` or
+  raw index machinery. The interaction stage must include keyboard/numeric alternatives to
+  drag/resize, focus and collision feedback, touch/mobile behavior, and viewer mode.
+- The verified HQ and CommCare runtime findings below remain emission evidence. They do not
+  collapse the roadmap's staged delivery or make HQ's authoring UX a Nova requirement.
+
 *Self-contained implementation plan. Verified 2026-07-06 across HQ (models/emission/
 fixtures/toggles), commcare-core (DetailParser/StyleParser/GridParser/DetailGroupParser),
 and formplayer+cloudcare (response beans + the CSS-grid renderer). Supersedes the F4 plan's

@@ -1,5 +1,32 @@
 # PR-08: Attachments — capture to case
 
+> [!WARNING]
+> **Execution superseded as of 2026-07-21.** Do not implement or sequence this legacy PR
+> directly. Use the [Complex App Roadmap](../complex-app-roadmap.md) as the execution source
+> of truth. This file remains as historical research, verified emission evidence, and design
+> rationale; where it conflicts with the roadmap, current code, or current `CLAUDE.md`
+> contracts, the current sources win.
+
+## 2026-07-21 rebaseline
+
+**Roadmap mapping:** capture/storage lifecycle and production emission/presentation are
+split across **S13 and S14**; do not implement this document as one attachment PR.
+
+- **Link-first URL-property mode is the default.** Store the URL as text and present an
+  explicit link on supported case surfaces. Do not default to a picture column while Web
+  Apps' HTTPS resource passthrough remains broken; inline-image emission is a later,
+  capability-backed enhancement.
+- `<attachment>` compatibility mode is never inferred or offered as a portable default. It
+  is available only when deployment capability is known and the deprecated
+  `MM_CASE_PROPERTIES` mode is explicitly enabled, with the limitation visible before the
+  user selects it.
+- Case captures need a staged upload/submission lifecycle, tenant keys, compensation and
+  orphan cleanup, and distinct provenance/library visibility from reusable Project media.
+  GCS and Postgres writes are not one transaction.
+- URL emission must be target-aware: a generic local `.ccz` compile cannot invent an HQ
+  origin/domain. The runtime field value supplies the attachment filename in the verified
+  HQ bytes route. The source findings and verdict table below remain authoritative evidence.
+
 *Self-contained implementation plan. Verified 2026-07-06/07 end-to-end (HQ + formplayer +
 commcare-core + cloudcare) — the verdict table below is the ground truth; it corrects the
 F4 plan's too-narrow "attachments are dead in Web Apps" line AND this plan's own earlier

@@ -1,5 +1,12 @@
 # PR-11: Wire II, HQ push framework, setup artifact
 
+> [!IMPORTANT]
+> **Execution superseded (2026-07-21).** Do not implement this PR document
+> directly. The live sequence and acceptance contract are in
+> [`../complex-app-roadmap.md`](../complex-app-roadmap.md), stages **S17 and S19-S20**.
+> This file remains the evidence and design-rationale record; where it disagrees
+> with the roadmap, the roadmap wins.
+
 *Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f2-users.md`
 §3.3, `…f3-locations.md` §4, `…f5-lookup-tables.md` §3.4 (push half), `…f6-domain-automations.md`
 §3.2–3.3. Scope rulings in `docs/plans/2026-07-06-pr-execution-plan.md` apply. Depends on:
@@ -14,6 +21,53 @@ and **one consolidated setup artifact** covering everything HQ has no write API 
 this PR, "upload to HQ" delivers: the app, its media, its referenced tables, its location
 tree — plus a precise setup document for the rest, and on-demand worker provisioning
 functions that PR-12's surface invokes (users are deliberately NOT an automatic phase).
+
+## 2026-07-21 rebaseline (S17 and S19-S20 execution contract)
+
+Current main has no Firestore app document. All deployment state introduced by
+S19-S20 lives in Postgres. Use one durable deployment-resource mapping keyed by
+Nova app/Project, target HQ **server plus domain**, resource kind, and stable
+Nova resource uuid. It records the HQ id, last pushed identity/revision, and
+whether the target was created by Nova or explicitly adopted. A domain slug
+alone is not globally unique across HQ US, India, and EU.
+
+Reconciliation is non-destructive by default. A same-tag lookup table,
+same-`site_code` location, or same-username worker that lacks a trusted mapping
+is a collision requiring an explicit adoption decision and a visible diff.
+Renaming a mapped table creates/repoints as needed and reports the old remote
+resource; it never automatically deletes an HQ table that another app may use.
+Likewise, `replace=true` may overwrite rows only for a Nova-owned or explicitly
+adopted table. No resource is auto-deleted as cleanup.
+
+Deployment prerequisites are blocking, target-aware preflight results rather
+than warnings discovered after mutation. Missing/conflicting organization
+levels or Location Fields prevent the location phase; the resulting deployment
+is explicitly **incomplete**, with the generated setup instructions and a
+retry action. Each phase is idempotently retryable from its durable mapping so a
+user can finish setup without importing a duplicate app. A successful app
+import with a failed required phase must never render as an unqualified success.
+S19 does not activate uploads for these new resource-bearing apps: the guards
+remain until S20 can push and verify required resources before app import or
+release where the target API permits. If a required step is unavoidably
+post-import and fails, the durable state remains `incomplete` and never becomes
+`released` or `runnable`.
+
+Location archive is not silently promised: the cited v0.6 resource exposes
+active locations but no archive/delete method. S20 must report the unsupported
+remote transition and keep it out of automatic reconciliation unless a newly
+verified API contract is added.
+
+Provisioning consumes explicit deployed-worker records from the approved
+three-identity people model; username-to-id alone is not the model, and the
+statement below that no provisioning list is stored is superseded. Passwords
+are never persisted. The create flow must resolve two-stage confirmation versus
+temporary-password requirements before making the external write.
+
+The workbook dependency choice is already resolved on current main: use the
+existing SheetJS `xlsx` dependency. Do not add a second spreadsheet writer.
+The usercase emitter must also pin preload behavior for registration, survey,
+follow-up, and close forms; reading `#user` in an expression is not itself an HQ
+`usercase_preload` mapping.
 
 ## Verified contracts this PR relies on
 
