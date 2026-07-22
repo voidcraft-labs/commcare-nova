@@ -64,6 +64,29 @@ use separate single-flight pumps whose retry delay is capped but whose attempts
 continue until success or stream teardown. The SQL and value rules live in
 `lib/lookup`, which is the only lookup write boundary.
 
+**Lookup-reference storage is installed but dormant.**
+`lookup_table_references` and `lookup_column_references` persist exact
+Project/resource/app identity edges; a column edge is impossible without its
+implied table edge. Resource deletion/identity changes are `RESTRICT`, while
+physical app deletion cascades edges. No production extractor or edge writer
+exists yet, and all destructive-schema, carrier-commit, and true Project-move
+flags remain false. `lookup_stream_capability_leases` carries an app-scoped,
+database-minted connection UUID plus a required receiver version and expiry;
+it is rollout state, not lookup data or blueprint state.
+
+`lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
+stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags
+may be turned off but can turn on only at their database-enforced floor
+thresholds. Statement-level database guards protect app creation/deletion,
+`apps.mutation_seq`/`project_id` changes, every blueprint-entity write,
+accepted-mutation inserts, and destructive lookup table/column writes. Each
+guard locks the singleton `FOR SHARE`, making a floor increase a linearizable
+cutoff; missing state and stale writers fail with non-retryable SQLSTATE
+`55000`. An unset writer is version 0. Later writers must call
+`setTransactionWriterVersion(tx, version)` inside their transaction; its
+`set_config(..., true)` value is transaction-local and must never be installed
+as a pooled session setting.
+
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
 appends every UI chunk a POST streams, in write order, batched; the reconnect

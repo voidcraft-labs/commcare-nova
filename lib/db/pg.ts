@@ -34,6 +34,8 @@ import { delay } from "@/lib/utils/delay";
 
 /** Server-set timestamp: read as `Date`, write as `Date`/ISO, omit when defaulted. */
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
+/** Caller-required timestamp: unlike `Timestamp`, INSERT has no undefined arm. */
+type RequiredTimestamp = ColumnType<Date, Date | string, Date | string>;
 /** Legacy `bigint` counters whose bounded readers intentionally `Number(...)`. */
 type BigIntColumn = ColumnType<string | number, number, number>;
 /** Lookup revisions stay exact decimal strings on every application boundary. */
@@ -46,6 +48,8 @@ type DefaultedLookupRevisionColumn = ColumnType<
 >;
 /** Server-defaulted UUIDv7 identity: optional on INSERT, immutable on UPDATE. */
 type DefaultedUuidV7Column = ColumnType<string, string | undefined, never>;
+/** Server-only UUIDv7 default: callers may omit it but cannot supply identity. */
+type ServerDefaultedUuidV7Column = ColumnType<string, undefined, never>;
 
 export interface AppsTable {
 	id: string;
@@ -328,6 +332,60 @@ export interface LookupRowsTable {
 	updated_at: Timestamp;
 }
 
+/** One exact app -> lookup-table target. Structural occurrence paths stay in memory. */
+export interface LookupTableReferencesTable {
+	project_id: string;
+	table_id: string;
+	app_id: string;
+}
+
+/** One exact app -> lookup-column target; its parent table edge must also exist. */
+export interface LookupColumnReferencesTable {
+	project_id: string;
+	table_id: string;
+	column_id: string;
+	app_id: string;
+}
+
+/**
+ * A live builder stream's receiver-version lease. `connection_id` is minted by
+ * the server/database, never accepted as client identity.
+ */
+export interface LookupStreamCapabilityLeasesTable {
+	app_id: string;
+	connection_id: ServerDefaultedUuidV7Column;
+	receiver_version: number;
+	expires_at: RequiredTimestamp;
+	created_at: Timestamp;
+}
+
+/**
+ * The one persistent compatibility row. Floors only increase; activation flags
+ * may turn back off for emergency response without lowering a floor.
+ */
+export interface LookupReferenceCompatibilityTable {
+	id: ColumnType<1, 1 | undefined, never>;
+	minimum_writer_version: ColumnType<number, number | undefined, number>;
+	minimum_stream_receiver_version: ColumnType<
+		number,
+		number | undefined,
+		number
+	>;
+	minimum_runtime_reader_version: ColumnType<
+		number,
+		number | undefined,
+		number
+	>;
+	carrier_commits_enabled: ColumnType<boolean, boolean | undefined, boolean>;
+	destructive_schema_actions_enabled: ColumnType<
+		boolean,
+		boolean | undefined,
+		boolean
+	>;
+	project_moves_enabled: ColumnType<boolean, boolean | undefined, boolean>;
+	updated_at: Timestamp;
+}
+
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
@@ -347,6 +405,38 @@ export interface AppDatabase {
 	lookup_tables: LookupTablesTable;
 	lookup_columns: LookupColumnsTable;
 	lookup_rows: LookupRowsTable;
+	lookup_table_references: LookupTableReferencesTable;
+	lookup_column_references: LookupColumnReferencesTable;
+	lookup_stream_capability_leases: LookupStreamCapabilityLeasesTable;
+	lookup_reference_compatibility: LookupReferenceCompatibilityTable;
+}
+
+/**
+ * The custom Postgres setting read by the database writer-version guards.
+ * Keep this literal in lockstep with the immutable migration that creates the
+ * guards; migrations must not import mutable runtime constants.
+ */
+export const WRITER_VERSION_GUC = "nova.writer_version";
+
+/**
+ * Declare this code's compatibility version for the CURRENT transaction.
+ * `set_config(..., true)` is PostgreSQL's parameterized `SET LOCAL`: the value
+ * resets on commit/rollback and cannot leak through the shared connection pool.
+ */
+export async function setTransactionWriterVersion(
+	tx: Transaction<AppDatabase>,
+	version: number,
+): Promise<void> {
+	if (
+		!Number.isSafeInteger(version) ||
+		version < 0 ||
+		version > 2_147_483_647
+	) {
+		throw new RangeError("writer version must be a nonnegative int4");
+	}
+	await sql`SELECT set_config(${WRITER_VERSION_GUC}, ${String(version)}, true)`.execute(
+		tx,
+	);
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;

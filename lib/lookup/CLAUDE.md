@@ -52,6 +52,22 @@ column retype. Established table-tag and column-wire-name changes require the
 existing `delete` capability; all row operations and non-identity edits require
 `edit`; reads require `view`.
 
+## Dormant reference infrastructure
+
+S02a installs exact `lookup_table_references` and
+`lookup_column_references` tables, but `lib/lookup` does not populate or consult
+them yet. They store only stable Project/table/column/app UUID identity, never
+names, wire names, carrier paths, or caller-provided edge deltas. A column edge
+is constrained to an existing table edge. Later authoritative app commits will
+replace a complete freshly extracted edge set in their own transaction.
+
+This storage does not activate table deletion, column removal, column retype,
+lookup carriers, or cross-Project moves. Their compatibility flags begin false,
+so the S01 public service contract above remains unchanged. Stream-capability
+leases and the singleton compatibility floors live alongside app-state tables
+for rolling-deploy safety; they are not Project lookup resources and must not be
+exposed through this package's table/row APIs.
+
 ## Values, ordering, and limits
 
 - Missing UUID key means a missing cell. JSON `null`, booleans, arrays, objects,
