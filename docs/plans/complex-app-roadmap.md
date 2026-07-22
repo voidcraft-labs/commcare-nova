@@ -620,11 +620,17 @@ jumps are expected and lossless.
 through a `subscribeLookupManifest` context seam parallel to presence. Lookup
 manifests stay outside reconciler state: their Project revision is independent of
 the app mutation `baseSeq`, and a lookup frame neither advances nor reseeds that
-cursor. The app-runtime broker retains the latest validated manifest for immediate
-late-subscriber replay, latches the first Project, and ignores lower-revision or
-foreign-Project frames. This settles transport ownership for S02/S09 consumers
-without opening a second stream or coupling lookup snapshots to blueprint
-reconciliation.
+cursor. Between reload boundaries, the app-runtime broker retains the latest
+validated manifest for immediate late-subscriber replay, latches one Project,
+and ignores lower-revision or foreign-Project frames. Every reconciler reload or
+view revocation clears the retained snapshot and Project latch and broadcasts
+`null` to mounted consumers. A server reload or view revocation also clears the
+last presence roster, and callbacks from superseded EventSource instances are
+ignored before a replacement stream may establish a new Project lineage. A PUT
+403 removes edit capability but does not clear read state for an actor who
+remains an authorized viewer. This settles transport ownership and tenant-safe
+handoff for S02/S09 consumers without opening a second stream or coupling lookup
+snapshots to blueprint reconciliation.
 
 Every true cross-Project app move is temporarily blocked in both the Server
 Action, after source authorization, and the orchestrator, before media copying.
@@ -704,9 +710,12 @@ app moves with actionable referencing-app information.
 
 When the exact edge set is empty and a cross-Project move is admitted, rebind
 every open app stream from the source lookup Project to the destination Project
-without treating the user as revoked. Reset or remount the retained lookup
-manifest broker, emit the destination's authoritative snapshot, and preserve the
-independent app mutation cursor.
+without treating the user as revoked. Reuse S01b's reset-on-reload broker
+boundary, emit the destination's authoritative snapshot, and preserve the
+independent app mutation cursor. At the Project flip, purge the app's source
+presence rows transactionally (and notify) before a destination roster can be
+emitted; presence is app-keyed today, so waiting for TTL would leak source
+collaborator names, emails, and locations across the tenant boundary.
 
 Acceptance must include simultaneous reference introduction versus delete,
 stale client snapshot versus fresh server result, foreign-Project
@@ -930,12 +939,17 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
-- **2026-07-22 — S01a shipped / S01b started:** PR #295 shipped the lookup
+- **2026-07-22 — S01a shipped / S01b readiness correction:** PR #295 shipped the lookup
   persistence, authorization, lifecycle guards, transactional notification
   writes, and production migration through healthy revision
   `commcare-nova-00350-xgz`; its branch/worktree were cleaned. Cut fresh
   `agent/s01b-lookup-stream` from merged `main`, clarified lifetime retry with a
-  capped delay, and fixed the browser ownership seam for lookup manifests.
+  capped delay, and fixed the browser ownership seam for lookup manifests. PR
+  #296 passed review and CI, but its first deployment was cancelled before the
+  migration Job when a rolling-version audit found that an already-open tab kept
+  its source-Project broker latch across a later app move. The readiness follow-up
+  makes every reload/revocation a broker reset boundary and rejects callbacks from
+  superseded EventSource instances before a corrected deployment is admitted.
 - **2026-07-21 — S01 readiness:** Re-audited lookup persistence against the
   Postgres app-state store, Project roles/lifecycle, app-move saga, Server Action
   limit, order-key implementation, shared listener, and builder stream. Froze the

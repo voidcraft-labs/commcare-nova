@@ -124,7 +124,7 @@ describe("lookup manifest stream frames", () => {
 		broker.dispatch(JSON.stringify(MANIFEST));
 		broker.dispatch("not json");
 
-		const late = vi.fn<(manifest: LookupManifest) => void>();
+		const late = vi.fn<(manifest: LookupManifest | null) => void>();
 		broker.subscribe(late);
 		expect(late).toHaveBeenCalledOnce();
 		expect(late).toHaveBeenCalledWith(MANIFEST);
@@ -132,7 +132,7 @@ describe("lookup manifest stream frames", () => {
 
 	it("keeps a latched Project manifest forward-only within one runtime", () => {
 		const broker = createLookupManifestBroker();
-		const current = vi.fn<(manifest: LookupManifest) => void>();
+		const current = vi.fn<(manifest: LookupManifest | null) => void>();
 		broker.subscribe(current);
 		broker.dispatch(JSON.stringify(MANIFEST));
 
@@ -164,17 +164,43 @@ describe("lookup manifest stream frames", () => {
 		broker.dispatch(JSON.stringify(newer));
 		expect(current).toHaveBeenCalledTimes(3);
 
-		const late = vi.fn<(manifest: LookupManifest) => void>();
+		const late = vi.fn<(manifest: LookupManifest | null) => void>();
 		broker.subscribe(late);
 		expect(late).toHaveBeenCalledWith(newer);
 	});
 
+	it("clears subscribers and permits a new Project lineage after reset", () => {
+		const broker = createLookupManifestBroker();
+		const current = vi.fn<(manifest: LookupManifest | null) => void>();
+		broker.subscribe(current);
+		broker.dispatch(JSON.stringify(MANIFEST));
+
+		broker.reset();
+		broker.reset();
+		expect(current).toHaveBeenNthCalledWith(1, MANIFEST);
+		expect(current).toHaveBeenNthCalledWith(2, null);
+		expect(current).toHaveBeenCalledTimes(2);
+
+		const late = vi.fn<(manifest: LookupManifest | null) => void>();
+		broker.subscribe(late);
+		expect(late).not.toHaveBeenCalled();
+
+		const destination = {
+			projectId: "project-2",
+			projectRevision: "1",
+			tables: [],
+		};
+		broker.dispatch(JSON.stringify(destination));
+		expect(current).toHaveBeenLastCalledWith(destination);
+		expect(late).toHaveBeenCalledExactlyOnceWith(destination);
+	});
+
 	it("isolates subscriber faults and makes unsubscribe idempotent", () => {
 		const broker = createLookupManifestBroker();
-		const failing = vi.fn<(manifest: LookupManifest) => void>(() => {
+		const failing = vi.fn<(manifest: LookupManifest | null) => void>(() => {
 			throw new Error("consumer failed");
 		});
-		const healthy = vi.fn<(manifest: LookupManifest) => void>();
+		const healthy = vi.fn<(manifest: LookupManifest | null) => void>();
 		const unsubscribeFailing = broker.subscribe(failing);
 		const unsubscribeHealthy = broker.subscribe(healthy);
 

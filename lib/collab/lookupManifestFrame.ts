@@ -109,8 +109,14 @@ export function parseLookupManifestFrame(data: string): LookupManifest | null {
 export interface LookupManifestBroker {
 	/** Validate, retain, and fan out one full-manifest SSE payload. */
 	dispatch: (data: string) => void;
-	/** Subscribe to future manifests and immediately replay the latest one, if any. */
-	subscribe: (subscriber: (manifest: LookupManifest) => void) => () => void;
+	/** Clear the retained tenant snapshot. Current subscribers receive `null`; a
+	 * later valid frame may latch a different Project and revision lineage. */
+	reset: () => void;
+	/** Subscribe to future snapshots and immediately replay the latest manifest,
+	 * if any. `null` means an authorization/reload boundary cleared the snapshot. */
+	subscribe: (
+		subscriber: (manifest: LookupManifest | null) => void,
+	) => () => void;
 }
 
 /**
@@ -119,12 +125,12 @@ export interface LookupManifestBroker {
  * reload folding, or mutation reconciliation.
  */
 export function createLookupManifestBroker(): LookupManifestBroker {
-	const subscribers = new Set<(manifest: LookupManifest) => void>();
+	const subscribers = new Set<(manifest: LookupManifest | null) => void>();
 	let latest: LookupManifest | null = null;
 
 	function callSubscriber(
-		subscriber: (manifest: LookupManifest) => void,
-		manifest: LookupManifest,
+		subscriber: (manifest: LookupManifest | null) => void,
+		manifest: LookupManifest | null,
 	): void {
 		try {
 			subscriber(manifest);
@@ -156,6 +162,13 @@ export function createLookupManifestBroker(): LookupManifestBroker {
 			// changing which consumers receive this already-started dispatch.
 			for (const subscriber of [...subscribers]) {
 				callSubscriber(subscriber, manifest);
+			}
+		},
+		reset() {
+			if (latest === null) return;
+			latest = null;
+			for (const subscriber of [...subscribers]) {
+				callSubscriber(subscriber, null);
 			}
 		},
 		subscribe(subscriber) {
