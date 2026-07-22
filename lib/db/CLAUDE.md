@@ -68,11 +68,17 @@ continue until success or stream teardown. The SQL and value rules live in
 `lookup_table_references` and `lookup_column_references` persist exact
 Project/resource/app identity edges; a column edge is impossible without its
 implied table edge. Resource deletion/identity changes are `RESTRICT`, while
-physical app deletion cascades edges. No production extractor or edge writer
-exists yet, and all destructive-schema, carrier-commit, and true Project-move
-flags remain false. `lookup_stream_capability_leases` carries an app-scoped,
-database-minted connection UUID plus a required receiver version and expiry;
-it is rollout state, not lookup data or blueprint state.
+physical app deletion cascades edges. `lookupReferenceEdges.ts` is the internal
+materializer seam: after the app row is locked, it takes exact Project-scoped
+table locks `FOR KEY SHARE` in lexical UUID order, reads stored targets app-wide
+without a Project filter, and replaces complete sets child-delete/parent-delete
+then parent-insert/child-insert. Empty replacement can clear stale source-Project
+edges; a null-Project app cannot gain a nonempty set, and missing/foreign targets
+share one opaque error. No production extractor or authoritative app-writer
+integration exists yet, and all destructive-schema, carrier-commit, and true
+Project-move flags remain false. `lookup_stream_capability_leases` carries an
+app-scoped, database-minted connection UUID plus a required receiver version and
+expiry; it is rollout state, not lookup data or blueprint state.
 
 `lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
 stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags
@@ -85,7 +91,11 @@ cutoff; missing state and stale writers fail with non-retryable SQLSTATE
 `55000`. An unset writer is version 0. Later writers must call
 `setTransactionWriterVersion(tx, version)` inside their transaction; its
 `set_config(..., true)` value is transaction-local and must never be installed
-as a pooled session setting.
+as a pooled session setting. `lookupReferenceWriter.ts` is the one runtime
+declaration seam. This unit does not wire authoritative call sites; S02b
+integration must make each one call `declareLookupReferenceWriter(tx)`, and S05
+changes the single `CURRENT_LOOKUP_REFERENCE_WRITER_VERSION` constant from 0 to
+1.
 
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
