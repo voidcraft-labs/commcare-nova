@@ -2,7 +2,7 @@ import rawManifest from "@/config/runtime-capabilities.json";
 import {
 	requireRuntimeCapabilityManifest,
 	streamLeaseTtlSeconds,
-} from "@/lib/runtimeCapabilities/core.mjs";
+} from "@/lib/runtimeCapabilities/core.mts";
 
 /**
  * The validated capability contract compiled into this revision.
@@ -27,10 +27,10 @@ export const BUILD_STALENESS_SECONDS =
 export type {
 	RuntimeCapabilityManifest,
 	RuntimeCapabilityVersions,
-} from "@/lib/runtimeCapabilities/core.mjs";
+} from "@/lib/runtimeCapabilities/core.mts";
 export {
 	canonicalRuntimeCapabilityManifest,
 	parseRevisionCapabilityLabels,
 	parseRuntimeCapabilityEnvironment,
 	parseRuntimeCapabilityVersion,
-} from "@/lib/runtimeCapabilities/core.mjs";
+} from "@/lib/runtimeCapabilities/core.mts";

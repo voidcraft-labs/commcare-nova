@@ -6,8 +6,8 @@ import {
 	type RuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
 	runtimeCapabilityRevisionLabelsFromHash,
-} from "@/lib/runtimeCapabilities/core.mjs";
-import { hashCanonicalRuntimeCapabilityManifest } from "@/lib/runtimeCapabilities/serverHash.mjs";
+} from "@/lib/runtimeCapabilities/core.mts";
+import { hashCanonicalRuntimeCapabilityManifest } from "@/lib/runtimeCapabilities/serverHash.mts";
 
 export function hashRuntimeCapabilityManifest(
 	manifest: RuntimeCapabilityManifest,
