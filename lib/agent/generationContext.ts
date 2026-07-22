@@ -58,6 +58,7 @@ import {
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
@@ -699,7 +700,10 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	warnIfEditRunIncomplete(): void {
 		if (!this._latestDoc) return;
-		const completeness = runValidation(this._latestDoc)
+		const completeness = runValidation(
+			this._latestDoc,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		)
 			.filter((err) => classifyValidityError(err.code) === "completeness")
 			.map((err) => err.code);
 		if (completeness.length === 0) return;

@@ -16,6 +16,7 @@ import {
 	describeIntroducedErrors,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -85,7 +86,14 @@ export async function guardedMutate(
 	stage?: string,
 	mediaExpectations?: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
-	const verdict = mutationCommitVerdict(prevDoc, mutations);
+	// S02b has no constructible lookup carriers. Keep this advisory tool-layer
+	// verdict explicit about lacking a definition snapshot; the authoritative
+	// writer always reloads fresh Project definitions before it commits.
+	const verdict = mutationCommitVerdict(
+		prevDoc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
@@ -131,7 +139,11 @@ export async function guardedMutateStages(
 	stages: StagedMutationBatch[],
 ): Promise<GuardedMutateOutcome> {
 	const all = stages.flatMap((s) => s.mutations);
-	const verdict = mutationCommitVerdict(prevDoc, all);
+	const verdict = mutationCommitVerdict(
+		prevDoc,
+		all,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
