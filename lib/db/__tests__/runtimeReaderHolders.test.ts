@@ -15,13 +15,13 @@ const updatedAgo = (minutes: number) =>
 	new Date(NOW - minutes * 60_000) as AppDoc["updated_at"];
 
 const reservation = (
-	runId: string | undefined = RUN,
+	runId: string | null = RUN,
 ): NonNullable<AppDoc["reservation"]> => ({
 	period: "2026-07",
 	reserved: 5,
 	settled: false,
 	userId: "actor",
-	...(runId !== undefined && { runId }),
+	...(runId !== null && { runId }),
 });
 
 const editLock = (minutes: number, runId = RUN) => ({
@@ -52,7 +52,7 @@ describe("runtime holder identity", () => {
 				{
 					status: "generating",
 					run_id: "must-not-fallback",
-					reservation: reservation(undefined),
+					reservation: reservation(null),
 					updated_at: updatedAgo(1),
 				},
 				NOW,
@@ -171,7 +171,7 @@ describe("runtime holder census state", () => {
 				{
 					status: "generating",
 					run_id: "must-not-fallback",
-					reservation: reservation(undefined),
+					reservation: reservation(null),
 					updated_at: updatedAgo(1),
 				},
 				NOW,
