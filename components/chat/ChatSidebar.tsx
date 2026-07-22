@@ -21,6 +21,8 @@ import {
 	ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent } from "@/components/ai-elements/message";
+import { useActiveInspector } from "@/components/builder/inspector/activeInspector";
+import { InspectorPanel } from "@/components/builder/inspector/InspectorPanel";
 import {
 	ChatActivityStatus,
 	deriveChatActivity,
@@ -44,7 +46,7 @@ import {
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
-import { INSPECTOR_RAIL_WIDTH, useInspectorContext } from "@/lib/ui/inspector";
+import { INSPECTOR_RAIL_WIDTH } from "@/lib/ui/inspector";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
@@ -150,17 +152,13 @@ export function ChatSidebar({
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
 
-	/* Inspector dock — when a builder surface claims the rail, the chat
-	 * condenses to a compact status row + composer beneath the
-	 * inspector slot. `setPortalEl` registers the slot node the active
-	 * `InspectorSurface` portals into; `closeInspector` asks the claim's
-	 * owner to clear its selection. */
-	const {
-		active: inspectorActive,
-		setPortalEl,
-		requestClose: closeInspector,
-	} = useInspectorContext();
-	const docked = inspectorActive && !centered;
+	/* Inspector dock — when something is selected for inspection, the chat
+	 * condenses to a compact status row + composer beneath the inspector panel.
+	 * The rail renders the panel body directly from shared selection state
+	 * (`useActiveInspector`) — no claim, no portal — so it never unmounts across
+	 * a preview flip and keeps its scroll for free. */
+	const inspector = useActiveInspector();
+	const docked = inspector !== null && !centered;
 	const shortViewport = useIsBreakpoint("max", 700, "height");
 	const veryShortViewport = useIsBreakpoint("max", 360, "height");
 	const shortInspectorDock = docked && shortViewport;
@@ -513,16 +511,19 @@ export function ChatSidebar({
 					</>
 				)}
 
-				{/* Inspector dock — the slot the active InspectorSurface portals
-				 *  into, plus the condensed chat strip. The Conversation block
-				 *  below unmounts while docked; messages are props, so the
+				{/* Inspector dock — the properties panel rendered from shared
+				 *  selection state, plus the condensed chat strip. The Conversation
+				 *  block below unmounts while docked; messages are props, so the
 				 *  thread re-renders intact (re-pinned to bottom) on expand. */}
-				{docked && (
+				{docked && inspector && (
 					<>
-						<div
-							ref={setPortalEl}
-							className="flex-1 min-h-0 flex flex-col overflow-hidden"
-						/>
+						<InspectorPanel
+							kicker={inspector.kicker}
+							title={inspector.title}
+							onClose={inspector.onClose}
+						>
+							{inspector.body}
+						</InspectorPanel>
 						{/* The condensed conversation's grab handle — ONE full-width
 						 *  row (not a label plus a small link) so the affordance is
 						 *  unmissable and the target spans the rail at full height.
@@ -537,7 +538,7 @@ export function ChatSidebar({
 									// Restore the conversation's open state before releasing the
 									// rail so this action always does what its label promises.
 									setSidebarOpen("chat", true);
-									closeInspector();
+									inspector.onClose();
 								}}
 								aria-label="Close properties and open chat"
 								className="group h-auto min-h-11 w-full shrink-0 justify-start gap-2 rounded-none border-t border-nova-border px-4 text-left not-disabled:hover:bg-white/[0.03]"

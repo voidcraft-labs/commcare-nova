@@ -27,8 +27,8 @@ interface EditableFieldWrapperProps {
  * On click, `useSelect()` replaces the `sel=` param via the History API
  * (`history.replaceState`, not Next's router) — no Zustand write, no
  * re-render cascade. Editing the selected field docks in the right rail
- * (`FieldInspectorSurface`); this wrapper only draws the canvas selection
- * ring, it mounts no panel of its own.
+ * (the rail renders it from the URL selection via `useActiveInspector`); this
+ * wrapper only draws the canvas selection ring, it mounts no panel of its own.
  *
  * Scroll behavior is delegated to `ScrollRegistryContext.setPending` so the
  * selected field's ROW (which consumes `useFulfillPendingScroll` in

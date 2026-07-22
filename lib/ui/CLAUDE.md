@@ -6,7 +6,7 @@ Stateless, domain-agnostic React hooks + the imperative UI singletons they subsc
 
 - Imperative UI singletons (`toastStore`, `keyboardManager`) — module-level instances callable from anywhere, including callbacks and catch blocks.
 - Pure interaction models + their DOM bindings (`insertionIntent.ts` — the insertion-affordance intent state machine (EMA'd pointer speed, dwell-evidence accumulator, geometric zone containment), pure and clock-injected so gestures unit-test deterministically; `hooks/useInsertionZone.tsx` — its provider/zone binding: document-level listeners, throttled rect cache, occlusion hit-test against `[data-insertion-surface]`, and a rAF loop that runs only while a zone is arming/open/closing).
-- Cross-surface UI coordination contexts (`inspector.tsx` — the right-rail inspector's claim stack + portal target, shared by the chat sidebar and the builder surfaces that claim it; see `components/builder/CLAUDE.md` § Inspector rail).
+- Shared right-rail width constants (`inspector.tsx`) — chat and the docked inspector resolve to the SAME width so selecting something never reflows the canvas. The inspector itself is rendered directly from shared selection state by the chat sidebar (`components/builder/inspector/activeInspector.tsx`); there is no claim/portal coordination here. See `components/builder/CLAUDE.md` § Inspector rail.
 - DOM observers (`useIsBreakpoint`).
 - Input-interaction models (`useCommitField` — the commit/cancel/checkmark pattern).
 - Keyboard / focus / menu navigation primitives (`useMenuNavigation`, `useKeyboardShortcuts`).

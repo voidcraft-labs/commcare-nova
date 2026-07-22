@@ -1,7 +1,8 @@
 /**
  * FieldInspectorBody — the right-rail inspector body for a selected form
- * field. Portaled into the rail by `FieldInspectorSurface` (which owns the
- * kicker/title/close header), it stacks the field's editing surface:
+ * field. Rendered by the rail from shared selection state (`useActiveInspector`
+ * builds the descriptor, `InspectorPanel` owns the kicker/title/close header),
+ * it stacks the field's editing surface:
  *
  *   - `FieldIdentitySection` — the "Field ID" section (id editor + actions).
  *   - `FieldEditorPanel`     — Data / Logic / Appearance, registry-driven.

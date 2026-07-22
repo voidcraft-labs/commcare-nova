@@ -10,19 +10,19 @@
  * everything that visually travels does so via transforms on the shared
  * `SIDEBAR_TRANSITION`:
  *
- *   - The structure column and the collapsed chat rail mount/unmount
- *     through `AnimatePresence mode="popLayout"` — an exiting column is
- *     popped out of the flex flow instantly (the canvas gets its final
- *     width in one commit) while the popped element slides off-screen;
- *     an entering column takes its layout slot immediately and slides
- *     in from off-screen into it.
- *   - The chat panel must NEVER unmount (ChatContainer owns the live
- *     useChat stream, the draft, and run-boundary refs — unmounting
- *     would sever an active run), so it can't ride popLayout. Instead
- *     it is an absolutely-positioned right dock that slides via `x`,
- *     with an in-flow SPACER owning its layout width. The spacer snaps
- *     on mode flips (one layout commit) and tweens on manual open/close
- *     and inspector claims, mirroring the panel's slide.
+ *   - Both flanks are absolutely-positioned docks that slide via `x`
+ *     over an in-flow SPACER that owns their layout width. The app-tree
+ *     panel must NOT unmount on a preview flip (an unmount/remount resets
+ *     the tree's scroll, expand, and search state), and the chat panel
+ *     must NEVER unmount at all (ChatContainer owns the live useChat
+ *     stream, the draft, and run-boundary refs — unmounting would sever
+ *     an active run). So each is the same shape: spacer + absolute panel.
+ *     The spacer snaps its width on a mode flip (one layout commit, so
+ *     the canvas gets its final width in a single render) and tweens on
+ *     manual open/close and inspector claims, mirroring the panel's
+ *     slide. AnimatePresence still carries each flank's coarse enter/exit
+ *     slide (app open/close, the handset dock swap) — not the preview
+ *     flip, which the persistent panels ride via transform alone.
  *   - Centered canvas content glides through `ModeFlipGlideProvider` +
  *     `ContentFrame`.
  *
@@ -58,6 +58,7 @@ import {
 	SIDEBAR_TRANSITION,
 } from "@/components/builder/ContentFrame";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
+import { useInspectorPresence } from "@/components/builder/inspector/activeInspector";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import { ChatContainer } from "@/components/chat/ChatContainer";
 import { ChatRail } from "@/components/chat/ChatRail";
@@ -88,7 +89,6 @@ import {
 	COMPACT_BUILDER_RAIL_BREAKPOINT,
 	COMPACT_INSPECTOR_RAIL_WIDTH,
 	INSPECTOR_RAIL_WIDTH,
-	useInspectorContext,
 } from "@/lib/ui/inspector";
 
 /** Width of the collapsed icon rails (w-14) — structure and chat
@@ -181,7 +181,15 @@ export function BuilderContentArea({
 	/* Layout visibility — these only change on deliberate user interactions
 	 * (sidebar toggle, preview toggle), not on every keystroke or message. */
 	const { open: chatOpen } = useSidebarState("chat");
-	const { open: structureOpen } = useSidebarState("structure");
+	const { open: structureOpen, stashed: structureStashed } =
+		useSidebarState("structure");
+	/* Entering preview stashes the open-state and closes both sidebars (see
+	 * `setPreviewing`). The layout WIDTHS collapse off the `previewing` flag,
+	 * not this close — so the app-tree panel renders against the EFFECTIVE
+	 * open-state (the stashed pre-preview value while previewing), keeping the
+	 * open StructureSidebar mounted as it slides off instead of swapping to the
+	 * rail and dropping its scroll. */
+	const structureEffectiveOpen = structureStashed ?? structureOpen;
 	const previewing = usePreviewing();
 	const reduceMotion = useReducedMotion();
 	const sidebarTransition = reduceMotion
@@ -249,15 +257,21 @@ export function BuilderContentArea({
 			?.focus({ preventScroll: true });
 	}, [chatOpen, structureOpen]);
 
-	/* The right rail belongs to the inspector while a surface claims it:
+	/* The right rail belongs to the inspector while something is selected:
 	 * it stays open even when the chat sidebar is toggled closed — a
 	 * selection without a visible properties panel would be dead UI.
-	 * Chat and inspector share ONE live width, so claiming the rail never
+	 * Chat and inspector share ONE live width, so docking the rail never
 	 * reflows the canvas. Open rails compact together on narrow desktops;
 	 * the overlay layout reserves only icon rails, or the bottom dock on a
-	 * handset. */
-	const { active: inspectorActive, requestClose: closeInspector } =
-		useInspectorContext();
+	 * handset.
+	 *
+	 * A selection survives a preview flip in the URL, but preview parks the whole
+	 * rail off-screen — so the inspector must NOT drive layout there. Gate the
+	 * layout signal on `!previewing`; the rail (ChatSidebar) owns its own mount
+	 * and keeps the panel mounted while parked, so scroll survives the flip. */
+	const { docked: inspectorDocked, requestClose: closeInspector } =
+		useInspectorPresence();
+	const inspectorActive = inspectorDocked && !previewing;
 	const previousInspectorActiveRef = useRef(false);
 	const previousNarrowLayoutRef = useRef(narrowLayout);
 	useLayoutEffect(() => {
@@ -335,6 +349,19 @@ export function BuilderContentArea({
 				? openRailWidth
 				: COLLAPSED_RAIL_WIDTH
 		: 0;
+	/* The app-tree panel stays MOUNTED across a preview flip (like the chat
+	 * dock) so the tree keeps its scroll + expand + search state — an
+	 * unmount/remount reset all three. Only its LAYOUT width (`structureWidth`,
+	 * owned by the spacer below) collapses to 0 in preview, so the canvas
+	 * glides to full width in lockstep. `structureContentWidth` is the panel's
+	 * own width — the width it holds while it slides off, so its content never
+	 * reflows mid-slide (`previewing` deliberately absent). */
+	const structurePanelMounted = showFlanks && !handsetLayout;
+	const structureContentWidth = narrowLayout
+		? COLLAPSED_RAIL_WIDTH
+		: structureEffectiveOpen
+			? openRailWidth
+			: COLLAPSED_RAIL_WIDTH;
 	const chatRailWidth =
 		sideRailsVisible && (narrowLayout || (!chatOpen && !inspectorActive))
 			? COLLAPSED_RAIL_WIDTH
@@ -370,36 +397,57 @@ export function BuilderContentArea({
 				handsetLayout ? "handset" : narrowLayout ? "narrow" : "desktop"
 			}
 		>
-			{/* Structure sidebar (left) — full tree when open, icon rail when
-			 *  collapsed or when the narrow overlay is parked. The rail keeps
-			 *  every destination (modules, each
-			 *  case list, every form) one click away, so collapsing trades
-			 *  width for labels, never for reach. popLayout pops the exiting
-			 *  column out of the flow while it slides off-screen; the exit
-			 *  carries z-raised because the canvas column behind it is a
-			 *  positioned sibling LATER in the DOM, which would otherwise
-			 *  paint its full-width strips over the departing panel. Exit
-			 *  only — a resting z would form a stacking context that flattens
-			 *  the sidebar's own popovers below canvas ones. */}
-			<AnimatePresence initial={false} mode="popLayout">
-				{sideRailsVisible && (
+			{/* App-tree spacer — owns the structure column's LAYOUT width; the
+			 *  visible tree is the absolute dock below, mirroring the chat side.
+			 *  On a mode flip the width SNAPS to its post-flip value in one commit
+			 *  (transition disabled) so the canvas glides in lockstep; manual
+			 *  collapse/open tweens it. */}
+			{!isCentered && (
+				<div
+					className="shrink-0"
+					data-builder-flank="structure-spacer"
+					style={{
+						width: structureWidth,
+						transition: modeFlip
+							? "none"
+							: "width 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+					}}
+				/>
+			)}
+
+			{/* App-tree panel (left) — full tree when open, icon rail when
+			 *  collapsed. The rail keeps every destination (modules, each case
+			 *  list, every form) one click away, so collapsing trades width for
+			 *  labels, never for reach. The MIRROR of the chat dock: ALWAYS
+			 *  mounted across a preview flip so the tree keeps its scroll, expand,
+			 *  and search state (an unmount/remount reset all three). It's an
+			 *  absolute left dock sliding via transform over the spacer's reserved
+			 *  gap; parked (previewing) it sits past the row's left edge, clipped
+			 *  by the row's overflow-hidden. z-raised ONLY while it slides so it
+			 *  paints above the canvas, but rests without a stacking context that
+			 *  would flatten its own popovers below canvas ones. AnimatePresence
+			 *  still carries the coarse enter/exit slide (app open/close, the
+			 *  handset dock swap). Its width rides `animate` (in lockstep with the
+			 *  spacer's CSS tween on manual collapse) yet never changes on a
+			 *  preview flip, so no late-frame width commit can shear the flip. */}
+			<AnimatePresence initial={false}>
+				{structurePanelMounted && (
 					<motion.div
-						key="structure"
-						className={`relative h-full shrink-0 ${
-							narrowStructureOpen
-								? "z-raised overflow-visible"
-								: "overflow-hidden"
-						}`}
+						key="structure-panel"
+						className={`absolute inset-y-0 left-0 h-full ${
+							previewing || narrowStructureOpen ? "z-raised" : ""
+						} ${narrowStructureOpen ? "overflow-visible" : "overflow-hidden"}`}
 						data-builder-flank="structure"
-						style={{ width: structureWidth }}
+						style={{ width: structureContentWidth }}
 						initial={{ x: "-100%" }}
-						animate={{ x: 0, width: structureWidth }}
+						animate={{
+							x: previewing ? "-100%" : 0,
+							width: structureContentWidth,
+						}}
 						exit={{ x: "-100%", zIndex: "var(--z-raised)" }}
 						transition={sidebarTransition}
 					>
-						{narrowLayout ? (
-							<AppTreeRail onExpand={expandStructure} />
-						) : structureOpen ? (
+						{!narrowLayout && structureEffectiveOpen ? (
 							<StructureSidebar />
 						) : (
 							<AppTreeRail onExpand={expandStructure} />

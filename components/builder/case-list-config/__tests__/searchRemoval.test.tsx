@@ -39,7 +39,12 @@ import {
 	type ValueExpression,
 	whenInput,
 } from "@/lib/domain/predicate";
-import { CaseListConfigWorkspace } from "../CaseListConfigWorkspace";
+import {
+	CaseListWorkspaceCanvas,
+	CaseListWorkspaceProvider,
+	type CaseListWorkspaceTab,
+	useCaseListWorkspace,
+} from "../CaseListConfigWorkspace";
 import { searchInputRemovalDependencies } from "../searchInputRemovalDependencies";
 
 interface MutableWorkspaceModule {
@@ -72,6 +77,12 @@ const navigationApi = vi.hoisted(() => ({
 	openCaseList: vi.fn(),
 	openDetailConfig: vi.fn(),
 }));
+/* The workspace controller reads its module + tab from the URL; the harness
+ * below feeds them here so the mocked `useLocation` reports the right screen. */
+const harness = vi.hoisted(() => ({
+	moduleUuid: "",
+	tab: "search" as "search" | "list" | "detail",
+}));
 
 vi.mock("@/lib/doc/hooks/useEntity", () => ({
 	useModule: () => testState.module,
@@ -102,6 +113,15 @@ vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 }));
 vi.mock("@/lib/routing/hooks", () => ({
 	useNavigate: () => navigationApi,
+	useLocation: () => ({
+		kind:
+			harness.tab === "search"
+				? "search-config"
+				: harness.tab === "list"
+					? "cases"
+					: "detail-config",
+		moduleUuid: harness.moduleUuid,
+	}),
 }));
 vi.mock("@/lib/session/hooks", () => ({
 	useAppId: () => "app-1",
@@ -110,24 +130,6 @@ vi.mock("@/lib/session/hooks", () => ({
 vi.mock("@/components/builder/ContentFrame", () => ({
 	ContentFrame: ({ children }: { readonly children: ReactNode }) => (
 		<div>{children}</div>
-	),
-}));
-vi.mock("@/components/builder/inspector/InspectorSurface", () => ({
-	InspectorSurface: ({
-		children,
-		onClose,
-		title,
-	}: {
-		readonly children: ReactNode;
-		readonly onClose: () => void;
-		readonly title: string;
-	}) => (
-		<aside aria-label={title}>
-			<button type="button" onClick={onClose}>
-				Close properties
-			</button>
-			{children}
-		</aside>
 	),
 }));
 vi.mock("../ColumnEditor", () => ({
@@ -342,6 +344,43 @@ vi.mock("../configValidity", () => ({
 }));
 
 const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000001");
+
+/* The workspace is now split: a shared controller (mounted by
+ * `CaseListWorkspaceProvider`, reading the URL) feeds the center canvas and the
+ * right-rail inspector. This harness reunites them for the DOM assertions —
+ * standing in for the old single `CaseListConfigWorkspace` component so the
+ * render call sites below are unchanged. The inspector wrapper mirrors the rail
+ * chrome the assertions expect (an `aria-label={title}` region with a "Close
+ * properties" button). */
+function HarnessInspector() {
+	const ws = useCaseListWorkspace();
+	if (!ws?.inspector) return null;
+	return (
+		<aside aria-label={ws.inspector.title}>
+			<button type="button" onClick={ws.onClose}>
+				Close properties
+			</button>
+			{ws.inspector.body}
+		</aside>
+	);
+}
+
+function CaseListConfigWorkspace({
+	moduleUuid,
+	tab,
+}: {
+	moduleUuid: ReturnType<typeof asUuid>;
+	tab: CaseListWorkspaceTab;
+}) {
+	harness.moduleUuid = moduleUuid;
+	harness.tab = tab;
+	return (
+		<CaseListWorkspaceProvider>
+			<CaseListWorkspaceCanvas />
+			<HarnessInspector />
+		</CaseListWorkspaceProvider>
+	);
+}
 const FIRST_UUID = asUuid("00000000-0000-4000-8000-000000000011");
 const SECOND_UUID = asUuid("00000000-0000-4000-8000-000000000012");
 const COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000021");

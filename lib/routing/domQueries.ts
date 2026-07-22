@@ -17,8 +17,8 @@
 /**
  * Find a specific field element within the selected field's inspector.
  *
- * The field inspector docks in the right rail (portaled there by
- * `FieldInspectorSurface`), so it's no longer a sibling of the canvas row.
+ * The field inspector docks in the right rail (rendered there by the rail from
+ * the URL selection), so it's no longer a sibling of the canvas row.
  * We locate its body by the stable `data-field-inspector` uuid tag — not by
  * field `id`, so the lookup survives renames — then match the requested
  * property by `data-field-id`.

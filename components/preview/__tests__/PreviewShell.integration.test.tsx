@@ -19,6 +19,7 @@
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { Location } from "@/lib/routing/types";
@@ -142,7 +143,9 @@ function renderShell() {
 				fieldOrder: {},
 			}}
 		>
-			<PreviewShell />
+			<CaseListWorkspaceProvider>
+				<PreviewShell />
+			</CaseListWorkspaceProvider>
 		</BlueprintDocProvider>
 	);
 	return render(tree);

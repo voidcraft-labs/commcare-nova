@@ -94,16 +94,15 @@ vi.mock("@/lib/session/hooks", async () => {
 	};
 });
 
-// Stub the screens so the PreviewShell's dispatch logic is the
-// only subject under test. The workspace stub surfaces its `tab`
-// prop so the URL-kind → tab derivation is assertable.
+// Stub the screens so the PreviewShell's dispatch logic is the only subject
+// under test. The workspace canvas reads its module + tab from the shared
+// controller (via the URL), so PreviewShell only owns the Activity visibility
+// gating asserted below — not which tab shows.
 vi.mock(
 	"@/components/builder/case-list-config/CaseListConfigWorkspace",
 	() => ({
-		CaseListConfigWorkspace: ({ tab }: { tab: string }) => (
-			<div data-testid="workspace-stub" data-tab={tab}>
-				CaseListConfigWorkspace
-			</div>
+		CaseListWorkspaceCanvas: () => (
+			<div data-testid="workspace-stub">CaseListWorkspaceCanvas</div>
 		),
 	}),
 );
@@ -218,13 +217,12 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 	});
 
 	for (const { location, tab } of WORKSPACE_LOCATIONS) {
-		it(`edit mode at ${location.kind} → workspace visible with tab="${tab}"; CaseListScreen hidden`, () => {
+		it(`edit mode at ${location.kind} (tab="${tab}") → workspace visible; CaseListScreen hidden`, () => {
 			editModeMock.mockReturnValue("edit");
 			locationMock.mockReturnValue(location);
 			const { getByTestId } = renderShell();
 			const workspace = getByTestId("workspace-stub");
 			expect(isVisible(workspace)).toBe(true);
-			expect(workspace.getAttribute("data-tab")).toBe(tab);
 			expect(isVisible(getByTestId("legacy-case-list-stub"))).toBe(false);
 		});
 
