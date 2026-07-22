@@ -1,13 +1,12 @@
-import "server-only";
-
 import type { Transaction } from "kysely";
-import {
-	type AppDatabase,
-	setTransactionWriterVersion,
-} from "@/lib/db/pg";
+import { type AppDatabase, setTransactionWriterVersion } from "@/lib/db/pg";
 
 /**
  * Compatibility version declared by every authoritative app writer.
+ *
+ * This module is intentionally safe to load from plain Node/tsx inspectors:
+ * `apps.ts` is part of their dependency graph. Its only callable API still
+ * requires a server-owned Postgres transaction.
  *
  * S02 has no production lookup-reference carriers, so its writers remain
  * version 0. S05 activates the first carriers by changing this ONE constant to
