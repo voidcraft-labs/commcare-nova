@@ -31,6 +31,7 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 // `editor` so the commit's reauth passes without a seeded membership row.
 vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleFor: vi.fn(async () => "editor"),
+	projectRoleForInTransaction: vi.fn(async () => "editor"),
 }));
 
 const h = setupAppStateTestDb("bp_clear_");

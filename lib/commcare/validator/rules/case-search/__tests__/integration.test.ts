@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Cross-rule integration tests for the case-search-config validator
  * surface. Two pins:
@@ -119,7 +120,7 @@ describe("case-search validator — cross-rule integration", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -229,7 +230,7 @@ describe("case-search validator — cross-rule integration", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const caseSearchCodes = new Set([
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",

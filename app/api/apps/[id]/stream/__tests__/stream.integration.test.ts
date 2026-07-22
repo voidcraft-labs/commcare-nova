@@ -16,8 +16,8 @@
  *     `event: reload` and closes without replaying.
  *   - Reconnect via `Last-Event-ID`: the header sets the cursor, so a reconnect
  *     resumes past the frames it already saw.
- *   - A migration sentinel (empty `mutations`, `kind:'migration'`) emits
- *     `event: reload`, not a `mutation` frame.
+ *   - A `kind:'migration'` batch emits `event: reload`, not a `mutation` frame;
+ *     reload behavior keys on kind, not on an empty-mutations sentinel.
  *   - A gap (first delivered seq isn't cursor+1) emits `event: reload`.
  *   - Bounded revocation, CONFIRMED-only: a ban (`isUserActive → false`), a
  *     membership loss (`AppAccessError`), and a session-identity change each
@@ -89,6 +89,10 @@ vi.mock("@/lib/db/appAccess", () => ({
 vi.mock("@/lib/db/api-keys", () => ({
 	isUserActive: isUserActiveMock,
 }));
+vi.mock("@/lib/db/projectMembership", () => ({
+	projectRoleFor: vi.fn(async () => "editor"),
+	projectRoleForInTransaction: vi.fn(async () => "editor"),
+}));
 
 /* The route reads its revocation cadence from `NOVA_STREAM_CADENCE_MS` at
  * MODULE LOAD, so set it before the dynamic import below — a short cadence lets
@@ -153,7 +157,7 @@ async function seedApp(head: number): Promise<string> {
 	return appId;
 }
 
-/** Insert one `accepted_mutations` row directly (a real delta unless migration). */
+/** Insert one `accepted_mutations` row directly. */
 async function writeEntry(
 	appId: string,
 	seq: number,
@@ -169,9 +173,7 @@ async function writeEntry(
 			run_id: opts.runId ?? null,
 			actor_id: USER,
 			kind,
-			mutations: JSON.stringify(
-				kind === "migration" ? [] : [{ kind: "setAppName", name: `v${seq}` }],
-			),
+			mutations: JSON.stringify([{ kind: "setAppName", name: `v${seq}` }]),
 		})
 		.execute();
 }
@@ -702,7 +704,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((f) => f.event === "mutation")).toBe(false);
 	});
 
-	it("reloads on a migration sentinel instead of emitting a mutation frame", async () => {
+	it("reloads on migration kind even when its history row carries mutations", async () => {
 		const appId = await seedApp(1);
 		await writeEntry(appId, 1, { kind: "migration" });
 

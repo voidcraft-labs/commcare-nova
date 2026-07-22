@@ -4,6 +4,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { expandHashtags } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -405,14 +406,18 @@ describe("case_name in case list columns", () => {
 
 	it("validator allows case_name in case_list_columns", () => {
 		expect(
-			runValidation(doc).some((e) => e.code === "RESERVED_CASE_PROPERTY"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "RESERVED_CASE_PROPERTY",
+			),
 		).toBe(false);
 	});
 });
 
 describe("runValidation", () => {
 	it("passes for a valid blueprint", () => {
-		expect(runValidation(registrationDoc)).toEqual([]);
+		expect(runValidation(registrationDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+			[],
+		);
 	});
 
 	it("catches missing case_type on case forms", () => {
@@ -438,7 +443,7 @@ describe("runValidation", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "NO_CASE_TYPE")).toBe(true);
 	});
 
@@ -470,7 +475,7 @@ describe("runValidation", () => {
 			],
 			caseTypes: [{ name: "c", properties: [{ name: "name", label: "Q" }] }],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "RESERVED_CASE_PROPERTY")).toBe(true);
 	});
 
@@ -495,7 +500,7 @@ describe("runValidation", () => {
 			],
 			caseTypes: [{ name: "c", properties: [{ name: "q", label: "Q" }] }],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "NO_CASE_NAME_FIELD")).toBe(true);
 	});
 });
@@ -2646,6 +2651,7 @@ describe("unquoted string literal detection", () => {
 	it("catches bare string in default_value", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", default_value: "no", calculate: "1" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(
 			errors.some(
@@ -2659,6 +2665,7 @@ describe("unquoted string literal detection", () => {
 	it("catches bare string in calculate", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", calculate: "pending" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(
 			errors.some(
@@ -2670,7 +2677,10 @@ describe("unquoted string literal detection", () => {
 	});
 
 	it("catches bare string in relevant", () => {
-		const errors = runValidation(makeDoc({ relevant: "yes" }));
+		const errors = runValidation(
+			makeDoc({ relevant: "yes" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(
 			errors.some(
 				(e) =>
@@ -2683,6 +2693,7 @@ describe("unquoted string literal detection", () => {
 	it("allows quoted string literal", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", default_value: "'no'", calculate: "1" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2690,14 +2701,20 @@ describe("unquoted string literal detection", () => {
 	});
 
 	it("allows function calls", () => {
-		const errors = runValidation(makeDoc({ required: "true()" }));
+		const errors = runValidation(
+			makeDoc({ required: "true()" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
 		);
 	});
 
 	it("allows XPath expressions", () => {
-		const errors = runValidation(makeDoc({ relevant: "/data/age > 18" }));
+		const errors = runValidation(
+			makeDoc({ relevant: "/data/age > 18" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
 		);
@@ -2706,6 +2723,7 @@ describe("unquoted string literal detection", () => {
 	it("allows hashtag references", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", calculate: "#case/status" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2715,6 +2733,7 @@ describe("unquoted string literal detection", () => {
 	it("allows number literals", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", default_value: "0", calculate: "1" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2724,6 +2743,7 @@ describe("unquoted string literal detection", () => {
 	it("allows today() function", () => {
 		const errors = runValidation(
 			makeDoc({ kind: "hidden", default_value: "today()", calculate: "1" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
@@ -2731,7 +2751,10 @@ describe("unquoted string literal detection", () => {
 	});
 
 	it("allows dot expressions", () => {
-		const errors = runValidation(makeDoc({ validate: ". > 0" }));
+		const errors = runValidation(
+			makeDoc({ validate: ". > 0" }),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
 			false,
 		);
@@ -2767,7 +2790,7 @@ describe("unquoted string literal detection", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -2829,7 +2852,7 @@ describe("child case type module requirement", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "MISSING_CHILD_CASE_MODULE")).toBe(
 			true,
 		);
@@ -2882,7 +2905,7 @@ describe("child case type module requirement", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "MISSING_CHILD_CASE_MODULE")).toBe(
 			false,
 		);
@@ -2921,7 +2944,7 @@ describe("case_list_only validation", () => {
 			],
 			caseTypes: [{ name: "thing", properties: [] }],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CASE_LIST_ONLY_HAS_FORMS")).toBe(
 			true,
 		);
@@ -2938,7 +2961,7 @@ describe("case_list_only validation", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CASE_LIST_ONLY_NO_CASE_TYPE")).toBe(
 			true,
 		);
@@ -2956,7 +2979,7 @@ describe("case_list_only validation", () => {
 			],
 			caseTypes: [{ name: "thing", properties: [] }],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "NO_FORMS_OR_CASE_LIST")).toBe(true);
 	});
 });
@@ -3304,7 +3327,7 @@ describe("Connect learn-only expansion", () => {
 		// a learn_module nor an assessment — the learn-only config here
 		// satisfies the requirement.
 		expect(
-			runValidation(learnOnlyDoc).some(
+			runValidation(learnOnlyDoc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CONNECT_MISSING_LEARN",
 			),
 		).toBe(false);
@@ -3530,7 +3553,9 @@ describe("form_links emission", () => {
 
 		// Validator accepts the configuration.
 		expect(
-			runValidation(doc).filter((e) => e.code.startsWith("FORM_LINK")),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) =>
+				e.code.startsWith("FORM_LINK"),
+			),
 		).toEqual([]);
 
 		const hq = expandDoc(doc);

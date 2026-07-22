@@ -11,7 +11,7 @@
  * pending rows, which the production library list filters out — a
  * real-loader fixture for the kind/library surfaces wouldn't reach
  * those states. The boundary gate's manifest loader
- * (`lib/media/boundaryValidation.ts::collectBoundaryViolations` — run
+ * (`lib/export/boundaryValidation.ts::collectExportBoundaryViolations` — run
  * by every export entry point) DOES include pending rows, so this
  * fixture matches the manifest those rules see in production.
  */

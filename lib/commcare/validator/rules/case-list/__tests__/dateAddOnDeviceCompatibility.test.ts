@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	advancedSearchInputDef,
@@ -85,7 +86,9 @@ function errorsFor(
 		],
 		caseTypes: standardCaseTypes,
 	});
-	return runValidation(doc).filter((error) => error.code === CODE);
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+		(error) => error.code === CODE,
+	);
 }
 
 describe("dateAddOnDeviceCompatibility", () => {

@@ -477,7 +477,7 @@ references it → the ref re-anchors as a nested hashtag and still renders
 
 Landed as specified, with these deltas vs the text below:
 - The boundary entry point unified with media validation rather than
-  sitting beside it: `lib/media/boundaryValidation.ts::collectBoundaryViolations`
+  sitting beside it: `lib/export/boundaryValidation.ts::prepareExportBoundary`
   (renamed from `mediaValidation.ts`) runs the full validator with the
   resolved asset manifest at every compile/upload entry, so "the
   media-only gate" didn't get a sibling — it became the whole gate.

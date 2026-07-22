@@ -26,11 +26,16 @@ targets, because reducer side effects like a rename's prose cascade touch
 entities the batch never named). `apps.app_name` stores the TRUE (possibly
 empty) name; list projections apply the `UNTITLED_APP_NAME` display fallback.
 
-**`accepted_mutations` is permanent history.** Every committed batch appends
-one row — no TTL, no prune. It is the realtime catch-up stream AND the app's
-durable edit history: folding every batch from an app's first seq reproduces
-its entity rows (an app whose history was seeded from a snapshot starts at
-that snapshot's seq, not seq 1). `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
+**`accepted_mutations` is permanent history.** Every committed blueprint batch
+appends one row — no TTL, no prune. It is the realtime catch-up stream AND the
+app's durable edit history: folding every batch from an app's first seq
+reproduces its entity rows (an app whose history was seeded from a snapshot
+starts at that snapshot's seq, not seq 1). A `migration` row tells live clients
+to reload, but it still stores the deterministic mutations when the blueprint
+changed; an empty migration batch is reserved for an atomic non-blueprint
+change such as a Project-only move, never a fake whole-document replacement.
+System repair/migration writers use a named `system:<task>` actor; user-driven
+synthetic writes retain the actual user id. `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
 commit reads it under the app row lock; a concurrent same-batch retry that
 races past the read is caught by the constraint and converges on the deduped
 result). Future blueprint-shape migrations must migrate the STORED MUTATIONS
@@ -64,15 +69,47 @@ use separate single-flight pumps whose retry delay is capped but whose attempts
 continue until success or stream teardown. The SQL and value rules live in
 `lib/lookup`, which is the only lookup write boundary.
 
-**Lookup-reference storage is installed but dormant.**
+**Lookup-reference carriers are dormant; authoritative writers are integrated.**
 `lookup_table_references` and `lookup_column_references` persist exact
 Project/resource/app identity edges; a column edge is impossible without its
 implied table edge. Resource deletion/identity changes are `RESTRICT`, while
-physical app deletion cascades edges. No production extractor or edge writer
-exists yet, and all destructive-schema, carrier-commit, and true Project-move
-flags remain false. `lookup_stream_capability_leases` carries an app-scoped,
-database-minted connection UUID plus a required receiver version and expiry;
-it is rollout state, not lookup data or blueprint state.
+physical app deletion cascades edges. `lookupReferenceEdges.ts` is the internal
+materializer seam: after the app row is locked, it takes exact Project-scoped
+table locks `FOR KEY SHARE` in lexical UUID order, reads stored targets app-wide
+without a Project filter, and replaces complete sets child-delete/parent-delete
+then parent-insert/child-insert. Empty replacement can clear stale source-Project
+edges; a null-Project app cannot gain a nonempty set, and missing/foreign targets
+share one opaque error.
+
+`apps.ts` is the authoritative protocol. Every `createApp`,
+`commitGuardedBatch`, `appendSyntheticBatch`, and dormant
+`commitAppProjectMove` transaction declares lookup writer v0. Creation prepares
+the template exactly once outside the retryable transaction, then authorizes,
+inserts the root, locks/reads lookup definitions, evaluates, checks template
+export readiness, replaces edges, and inserts entity rows atomically. Ordinary
+commits lock the app, check the dedup latch, lock and authorize the actor's exact
+`auth_member` row in the SAME transaction, hydrate the fresh doc, reject
+reducer-minted identity mutations, prepare once, lock the union of prior and
+candidate lookup tables, evaluate against that snapshot, replace the complete
+edge set, then write rows + history. Missing or foreign tables become one
+Nova-language `BlueprintCommitRejectedError`; operational SQL errors are not
+misreported as user fixes. `applyBlueprintChange` treats caller-supplied
+whole-doc projections as advisory and derives schema work from the guarded
+deterministic mutations.
+
+`appendSyntheticBatch` requires an exact expected sequence and explicit user or
+named-system authority. After locking fresh state it diffs to the requested
+target, proves replay identity, and persists the actual mutations; a true no-op
+writes no row and advances no sequence. The dormant Project move is deliberately
+closed while lookup targets exist: both structural and stored sets must be
+empty, the destination context is evaluated, source edges are cleared before
+the Project flip, and media remaps are deterministic attributed mutations. S02c
+adds the membership absence/advisory protocol; this S02b seam only locks existing
+source and destination membership rows. All destructive-schema,
+carrier-commit, and true Project-move flags remain false.
+`lookup_stream_capability_leases` carries an
+app-scoped, database-minted connection UUID plus a required receiver version and
+expiry; it is rollout state, not lookup data or blueprint state.
 
 `lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
 stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags
@@ -85,7 +122,11 @@ cutoff; missing state and stale writers fail with non-retryable SQLSTATE
 `55000`. An unset writer is version 0. Later writers must call
 `setTransactionWriterVersion(tx, version)` inside their transaction; its
 `set_config(..., true)` value is transaction-local and must never be installed
-as a pooled session setting.
+as a pooled session setting. `lookupReferenceWriter.ts` is the one runtime
+declaration seam. All authoritative call sites use
+`declareLookupReferenceWriter(tx)`; S05 changes the single
+`CURRENT_LOOKUP_REFERENCE_WRITER_VERSION` constant from 0 to 1 when its first
+production carrier lands.
 
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)

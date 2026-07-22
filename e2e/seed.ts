@@ -292,7 +292,12 @@ async function main(): Promise<void> {
 	const caseWorkspaceDoc = toPersistableDoc(
 		buildCaseWorkspaceBlueprint(caseWorkspaceAppId),
 	);
-	await appendSyntheticBatch(caseWorkspaceAppId, caseWorkspaceDoc);
+	await appendSyntheticBatch({
+		appId: caseWorkspaceAppId,
+		expectedBaseSeq: 0,
+		targetDoc: caseWorkspaceDoc,
+		authority: { kind: "user", actorUserId: SEED.userId },
+	});
 	await materializeCaseStoreSchemas({
 		appId: caseWorkspaceAppId,
 		blueprint: caseWorkspaceDoc,
@@ -333,10 +338,13 @@ async function main(): Promise<void> {
 		randomUUID(),
 		{ appName: SEED.threadsAppName, status: "complete" },
 	);
-	await appendSyntheticBatch(
-		threadsAppId,
-		toPersistableDoc(
+	await appendSyntheticBatch({
+		appId: threadsAppId,
+		expectedBaseSeq: 0,
+		authority: { kind: "user", actorUserId: SEED.userId },
+		targetDoc: toPersistableDoc(
 			buildDoc({
+				appId: threadsAppId,
 				appName: SEED.threadsAppName,
 				modules: [
 					{
@@ -361,7 +369,7 @@ async function main(): Promise<void> {
 				],
 			}),
 		),
-	);
+	});
 	const olderThreadId = randomUUID();
 	await seedSettledThread({
 		appId: threadsAppId,
@@ -409,10 +417,13 @@ async function main(): Promise<void> {
 		randomUUID(),
 		{ appName: SEED.scrollAppName, status: "complete" },
 	);
-	await appendSyntheticBatch(
-		scrollAppId,
-		toPersistableDoc(
+	await appendSyntheticBatch({
+		appId: scrollAppId,
+		expectedBaseSeq: 0,
+		authority: { kind: "user", actorUserId: SEED.userId },
+		targetDoc: toPersistableDoc(
 			buildDoc({
+				appId: scrollAppId,
 				appName: SEED.scrollAppName,
 				modules: [
 					{
@@ -437,7 +448,7 @@ async function main(): Promise<void> {
 				],
 			}),
 		),
-	);
+	});
 	const scrollQuestionThreadId = randomUUID();
 	{
 		const streamId = randomUUID();

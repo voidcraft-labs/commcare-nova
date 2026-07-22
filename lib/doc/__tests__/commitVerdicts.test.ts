@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * `mutationCommitVerdict` — the shared pre-dispatch gate every commit
  * surface (SA/MCP tool layer, builder dispatch hook) consults. These
@@ -11,12 +12,15 @@
  * person-to-person.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
+	assertPersistenceSafeMutationIdentities,
 	describeIntroducedErrors,
+	evaluatePreparedMutationCandidate,
 	mutationCommitVerdict,
+	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
@@ -84,7 +88,11 @@ describe("mutationCommitVerdict", () => {
 			} as Mutation,
 		];
 
-		const verdict = mutationCommitVerdict(doc, mutations);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(true);
 		const updated = Object.values(verdict.nextDoc.fields).find(
 			(fl) => fl.id === "village",
@@ -98,15 +106,19 @@ describe("mutationCommitVerdict", () => {
 		const column = doc.modules[moduleUuid].caseListConfig?.columns[0];
 		if (!column) throw new Error("fixture must have a case-list column");
 
-		const noResults = mutationCommitVerdict(doc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: column.uuid,
-				column: { ...column, visibleInList: false },
-				visibilityPatch: { surface: "list", visible: false },
-			},
-		]);
+		const noResults = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: column.uuid,
+					column: { ...column, visibleInList: false },
+					visibilityPatch: { surface: "list", visible: false },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(noResults.ok).toBe(false);
 		if (!noResults.ok) {
 			expect(noResults.introduced.map((finding) => finding.code)).toContain(
@@ -114,15 +126,19 @@ describe("mutationCommitVerdict", () => {
 			);
 		}
 
-		const noDetails = mutationCommitVerdict(doc, [
-			{
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: column.uuid,
-				column: { ...column, visibleInDetail: false },
-				visibilityPatch: { surface: "detail", visible: false },
-			},
-		]);
+		const noDetails = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: column.uuid,
+					column: { ...column, visibleInDetail: false },
+					visibilityPatch: { surface: "detail", visible: false },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(noDetails.ok).toBe(true);
 	});
 
@@ -142,7 +158,11 @@ describe("mutationCommitVerdict", () => {
 			} as Mutation,
 		];
 
-		const verdict = mutationCommitVerdict(doc, mutations);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.length).toBeGreaterThan(0);
@@ -167,7 +187,11 @@ describe("mutationCommitVerdict", () => {
 			},
 		];
 
-		const verdict = mutationCommitVerdict(doc, mutations);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain("EMPTY_FORM");
@@ -210,18 +234,69 @@ describe("mutationCommitVerdict", () => {
 			],
 		});
 
-		const verdict = mutationCommitVerdict(broken, [
-			{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" },
-		]);
+		const verdict = mutationCommitVerdict(
+			broken,
+			[{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(true);
 	});
 
 	it("passes an empty batch through without validating", () => {
 		const doc = minDoc();
-		const verdict = mutationCommitVerdict(doc, []);
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(verdict).toEqual({ ok: true, nextDoc: doc, results: [] });
 		// Reference equality — no candidate apply ran.
 		expect(verdict.nextDoc).toBe(doc);
+	});
+
+	it("prepares reducer-minted identities once and evaluation never re-applies", () => {
+		const doc = minDoc();
+		const target = Object.values(doc.fields).find(
+			(field) => field.id === "village",
+		);
+		if (target === undefined) throw new Error("fixture village field missing");
+		const randomUuid = vi
+			.spyOn(globalThis.crypto, "randomUUID")
+			.mockReturnValue("00000000-0000-4000-8000-000000000901");
+
+		try {
+			const prepared = prepareMutationCandidate(doc, [
+				{ kind: "duplicateField", uuid: target.uuid },
+			]);
+			expect(randomUuid).toHaveBeenCalledTimes(1);
+			const cloneUuid = Object.keys(prepared.nextDoc.fields).find(
+				(uuid) => doc.fields[asUuid(uuid)] === undefined,
+			);
+			expect(cloneUuid).toBe("00000000-0000-4000-8000-000000000901");
+
+			const verdict = evaluatePreparedMutationCandidate(
+				doc,
+				prepared,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(randomUuid).toHaveBeenCalledTimes(1);
+			expect(verdict.nextDoc).toBe(prepared.nextDoc);
+		} finally {
+			randomUuid.mockRestore();
+		}
+	});
+
+	it("keeps reducer-minted duplicateField UI-only at persistence boundaries", () => {
+		const doc = minDoc();
+		const target = Object.values(doc.fields)[0];
+		if (target === undefined) throw new Error("fixture field missing");
+		expect(() =>
+			assertPersistenceSafeMutationIdentities([
+				{ kind: "duplicateField", uuid: target.uuid },
+			]),
+		).toThrow("duplicateField is UI-only");
+
+		expect(() =>
+			assertPersistenceSafeMutationIdentities([
+				{ kind: "setAppName", name: "Renamed" },
+			]),
+		).not.toThrow();
 	});
 });
 
@@ -314,11 +389,15 @@ describe("stored-reference bounce prose", () => {
 	it("rename bounce on a plain-text leaf names the carrier and the re-commit repair", () => {
 		const doc = docWithReference(true);
 		// Valid as it stands — the raw leaf's target exists.
-		expect(mutationCommitVerdict(doc, []).ok).toBe(true);
+		expect(mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(
+			true,
+		);
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "renameField", uuid: village?.uuid as never, newId: "town" },
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		const message = describeIntroducedErrors(verdict.introduced);
@@ -333,9 +412,11 @@ describe("stored-reference bounce prose", () => {
 	it("delete bounce on an identity reference names the carrier, never the bare uuid", () => {
 		const doc = docWithReference(false);
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "removeField", uuid: village?.uuid as never },
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "removeField", uuid: village?.uuid as never }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		const message = describeIntroducedErrors(verdict.introduced);
@@ -350,9 +431,11 @@ describe("stored-reference bounce prose", () => {
 	it("a same-batch rename of a resolved reference still lands (identity needs no repair)", () => {
 		const doc = docWithReference(false);
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "renameField", uuid: village?.uuid as never, newId: "town" },
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		// The identity leaf re-prints under the new name — nothing dangles.
 		expect(verdict.ok).toBe(true);
 	});

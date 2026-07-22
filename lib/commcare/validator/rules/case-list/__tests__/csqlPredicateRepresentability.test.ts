@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * CSQL is narrower than Nova's predicate AST: a server-side case-search
  * comparison needs one query anchor, and the remaining value must not read a
@@ -101,7 +102,9 @@ function docWithFilter(
 }
 
 function csqlFindings(doc: ReturnType<typeof docWithFilter>) {
-	return runValidation(doc).filter((error) => error.code === CODE);
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+		(error) => error.code === CODE,
+	);
 }
 
 function docWithAdvancedPredicate(predicate: Predicate) {
@@ -181,13 +184,18 @@ describe("csqlPredicateRepresentability", () => {
 		const rejected = mutationCommitVerdict(
 			searchable,
 			mutation(searchable.moduleOrder[0]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(rejected.ok).toBe(false);
 		if (rejected.ok) throw new Error("Expected search-backed edit to fail");
 		expect(rejected.introduced.map((error) => error.code)).toContain(CODE);
 
 		expect(
-			mutationCommitVerdict(onDevice, mutation(onDevice.moduleOrder[0])).ok,
+			mutationCommitVerdict(
+				onDevice,
+				mutation(onDevice.moduleOrder[0]),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
 		).toBe(true);
 	});
 
@@ -375,7 +383,7 @@ describe("csqlPredicateRepresentability", () => {
 	it("delegates strict-null to the portable-null rule without a duplicate CSQL finding", () => {
 		const doc = docWithAdvancedPredicate(isNull(prop("patient", "case_name")));
 
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.filter((error) => error.code === CODE)).toHaveLength(0);
 		const portableHits = errors.filter(
 			(error) => error.code === "CASE_LIST_STRICT_NULL_NOT_PORTABLE",
@@ -444,7 +452,9 @@ describe("csqlPredicateRepresentability", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === CODE,
+		);
 		expect(hits).toHaveLength(2);
 		const inputHit = hits.find(
 			(error) => error.details?.inputUuid === inputUuid,
@@ -477,9 +487,11 @@ describe("csqlPredicateRepresentability", () => {
 			eq(prop("patient", "age"), prop("patient", "score")),
 		);
 
-		const boundaryHits = evaluateBoundary(doc, new Map()).filter(
-			(error) => error.code === CODE,
-		);
+		const boundaryHits = evaluateBoundary(
+			doc,
+			new Map(),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).filter((error) => error.code === CODE);
 		expect(boundaryHits).toHaveLength(1);
 		expect(classifyError(CODE)).toBe("soundness");
 	});

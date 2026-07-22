@@ -213,11 +213,12 @@ Export stays total: the checker (PR-01) is the gate; no emit-time errors.
    BOTH generators — `blueprintDocArbitrary` (XForm + binding-resolution suites) AND
    `suiteDocArbitrary` (the suite-oracle fuzz, which is the one exercising menu/command
    relevancy + embedded fixtures) — with display conditions, ops, and options_source.
-7. **Wave-1 upload guard** (interim, removed by PR-11): the HQ-upload route's OWN boundary
-   gate — `app/api/commcare/upload/route.ts`'s `collectBoundaryViolations` call (the route
-   never touches `prepareCompileRequest.ts`, which serves only the two compile/export
-   routes and must NOT gain this rejection — the `.ccz` path embeds the data and stays
-   unaffected) — REJECTS an app referencing lookup tables with a person-readable message
+7. **Wave-1 upload guard** (interim, removed by PR-11): after the shared
+   `prepareExportBoundary({ mode: "hq-upload", ... })` gate, the HQ-upload route's OWN
+   target-policy check (the route never touches `prepareCompileRequest.ts`, which serves
+   only the two compile/export routes and must NOT gain this upload-only rejection — the
+   `.ccz` path embeds the data and stays unaffected) REJECTS an app referencing lookup
+   tables with a person-readable message
    ("this app uses lookup tables; pushing table data to CommCare HQ ships in a later
    release — until then the uploaded app would crash in Web Apps with a missing-fixture
    error"). Implement it as a named exported check —

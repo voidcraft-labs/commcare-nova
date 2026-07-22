@@ -45,7 +45,11 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppDoc } from "@/lib/db/types";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
@@ -176,35 +180,48 @@ function renameFixtureDocs(): {
 	prior: PersistableDoc;
 	prospective: PersistableDoc;
 } {
-	const build = (name: string) =>
-		toPersistableDoc(
-			buildDoc({
-				appName: "Saga Test",
-				caseTypes: [{ name: "patient", properties: [{ name, label: "Age" }] }],
-				modules: [
-					{
-						name: "Patients",
-						caseType: "patient",
-						forms: [
-							{
-								name: "Register",
-								type: "registration",
-								fields: [
-									f({
-										uuid: "field-age",
-										id: name,
-										kind: "text",
-										label: "Age",
-										case_property_on: "patient",
-									}),
-								],
-							},
-						],
-					},
-				],
-			}),
-		);
-	return { prior: build("age"), prospective: build("years") };
+	const prior = toPersistableDoc(
+		buildDoc({
+			appName: "Saga Test",
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "age", label: "Age" }] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: "field-age",
+									id: "age",
+									kind: "text",
+									label: "Age",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	// Preserve every structural UUID and ordering key so the deterministic diff
+	// describes only the rename. Building the two documents independently would
+	// also mint different form/module identities, making that whole-doc delta an
+	// invalid stand-in for a persisted mutation batch.
+	const prospective = structuredClone(prior);
+	const property = prospective.caseTypes?.[0]?.properties[0];
+	const field = Object.values(prospective.fields).find(
+		(candidate) => candidate.uuid === "field-age",
+	);
+	if (!property || !field) throw new Error("rename fixture is incomplete");
+	property.name = "years";
+	field.id = "years";
+	return { prior, prospective };
 }
 
 /** The persisted (stripped) shape — what real callers hand the saga.
@@ -223,6 +240,13 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 		formOrder: {},
 		fieldOrder: {},
 	};
+}
+
+function mutationsBetween(prior: PersistableDoc, prospective: PersistableDoc) {
+	return diffDocsToMutations(
+		hydratePersistedBlueprint(prior),
+		hydratePersistedBlueprint(prospective),
+	);
 }
 
 /**
@@ -300,7 +324,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			prospective,
 			batchId: "batch-add-1",
 			kind: "mcp",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		// The blueprint committed through the unified guarded writer, carrying the
@@ -344,7 +368,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			runId: "run-mcp-1",
 			batchId: "batch-run-1",
 			kind: "mcp",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
@@ -376,7 +400,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			priorBlueprint: prior,
 			batchId: "batch-prior-1",
 			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		// The blueprint committed; `loadApp` was NOT called because the
@@ -418,7 +442,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 			prospective,
 			batchId: "batch-fastpath-1",
 			kind: "autosave",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: [{ kind: "setAppName", name: "Renamed" }] },
 		});
 
 		// The blueprint committed; case-store factory was never invoked.
@@ -481,7 +505,7 @@ describe("applyBlueprintChange — rename batches", () => {
 			prospective,
 			batchId: "batch-rename-1",
 			kind: "mcp",
-			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+			guard: { mutations: mutationsBetween(prior, prospective) },
 		});
 
 		// The blueprint committed.
@@ -570,7 +594,7 @@ describe("applyBlueprintChange — rename batches", () => {
 				prospective,
 				batchId: "batch-rollback-1",
 				kind: "mcp",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(prior, prospective) },
 			}),
 		).rejects.toThrow();
 
@@ -646,7 +670,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 				prospective,
 				batchId: "batch-compensate-1",
 				kind: "autosave",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(prior, prospective) },
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 
@@ -688,7 +712,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 				prospective: addedBlueprint,
 				batchId: "batch-compensate-2",
 				kind: "autosave",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(priorBlueprint, addedBlueprint) },
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 
@@ -754,7 +778,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 				priorBlueprint: prior,
 				batchId: "batch-compensate-peer",
 				kind: "autosave",
-				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				guard: { mutations: mutationsBetween(prior, prospective) },
 			}),
 		).rejects.toThrow("simulated app-state commit failure");
 

@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Property-based fuzzer that proves `expandDoc` TOTAL against CommCare HQ's
  * import-deserialization contract: for every schema-valid doc the generator
@@ -17,7 +18,7 @@
  * `caseSearchConfig` spanning every search-input shape — so it exercises the
  * action-shape + workflow + condition + subcase-relationship + detail-display
  * surfaces the HQ-JSON oracle's enum checks key off. Each property body re-asserts
- * `runValidation(doc).length === 0` first: the totality claim is scoped to
+ * `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0` first: the totality claim is scoped to
  * schema-valid docs, so a generator slip fails loud as a generator bug rather
  * than silently feeding an invalid doc to the emitter.
  *
@@ -73,7 +74,7 @@ const FUZZ_TIMEOUT_MS = 120_000;
  */
 function prepareAndGuard(doc: BlueprintDoc): void {
 	rebuildFieldParent(doc);
-	const domainErrors = runValidation(doc);
+	const domainErrors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (domainErrors.length > 0) {
 		throw new Error(
 			`Generator produced a doc the domain validator rejects (generator bug, not an emitter finding):\n${domainErrors

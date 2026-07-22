@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	asUuid,
 	calculatedColumn,
@@ -39,7 +40,7 @@ describe("columnReferences", () => {
 			],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -91,7 +92,7 @@ describe("columnReferences", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(error) =>
 					error.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
 					error.details?.columnUuid === "col-sort",
@@ -135,7 +136,7 @@ describe("columnReferences", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
 			),
 		).toBe(false);
@@ -182,7 +183,7 @@ describe("columnReferences", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
 					e.message.includes("missing_date"),
@@ -231,7 +232,7 @@ describe("columnReferences", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
 			),
 		).toBe(false);
@@ -282,7 +283,7 @@ describe("columnReferences", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
 					e.message.includes("weight"),
@@ -307,7 +308,7 @@ describe("columnReferences", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
 			),
 		).toBe(false);

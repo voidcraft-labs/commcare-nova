@@ -10,6 +10,7 @@ import { connectIdError } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType, Uuid } from "@/lib/domain";
 import {
@@ -392,7 +393,7 @@ function makeConnectValidationDoc(
 describe("Connect validation", () => {
 	it("validates learn form with neither learn_module nor assessment", () => {
 		const doc = makeConnectValidationDoc("learn", {});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(true);
 	});
 
@@ -400,13 +401,13 @@ describe("Connect validation", () => {
 		const doc = makeConnectValidationDoc("learn", {
 			assessment: { user_score: xp("100") },
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
 	});
 
 	it("validates deliver form missing both deliver_unit and task", () => {
 		const doc = makeConnectValidationDoc("deliver", {});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(true);
 	});
 
@@ -414,7 +415,7 @@ describe("Connect validation", () => {
 		const doc = makeConnectValidationDoc("deliver", {
 			task: { name: "Delivery Task", description: "Complete the delivery" },
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
 			false,
 		);
@@ -438,7 +439,7 @@ describe("Connect validation", () => {
 			"Form",
 			[f({ kind: "text", id: "q", label: "Q" })],
 		);
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors).toHaveLength(0);
 	});
 
@@ -456,7 +457,7 @@ describe("Connect validation", () => {
 			"Form",
 			[f({ kind: "text", id: "q", label: "Q" })],
 		);
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors).toHaveLength(0);
 	});
 });

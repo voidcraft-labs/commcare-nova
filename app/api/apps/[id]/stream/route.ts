@@ -33,7 +33,7 @@
  *   event: presence            — the full presence roster snapshot.
  *   event: reload              — replay is impossible (below the retention
  *                                efficiency bound, a gap, or a migration
- *                                sentinel); the client GETs the fresh blueprint.
+ *                                batch); the client GETs the fresh blueprint.
  *                                Seq-less, no `id:` line.
  *   event: revoked             — access was revoked; the client stops. Seq-less.
  */
@@ -252,7 +252,7 @@ function openStream(args: {
 				if (closed) return;
 				let frame = `event: ${event}\n`;
 				/* `revoked` / `reload` are seq-less — no `id:` line, so a reconnect
-				 * never resumes from a sentinel. */
+				 * never resumes from a migration reload. */
 				if (seqId !== undefined) frame += `id: ${seqId}\n`;
 				frame += `data: ${JSON.stringify(data)}\n\n`;
 				try {
@@ -331,8 +331,8 @@ function openStream(args: {
 						return;
 					}
 					deliveredThrough = seq;
-					/* A migration sentinel (empty `mutations`, `kind: 'migration'`)
-					 * can't be replayed — the client reloads the snapshot instead. */
+					/* Migration batches reload the complete snapshot even when their
+					 * durable history row carries replayable deterministic mutations. */
 					if (row.kind === "migration") {
 						reloadAndClose();
 						return;

@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Cross-rule integration tests for the case-list-config validator
  * surface. Each test pins an interaction across rules: a single
@@ -91,7 +92,7 @@ describe("case-list validator — cross-rule integration", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some((e) => e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH"),
 		).toBe(true);
@@ -160,7 +161,7 @@ describe("case-list validator — cross-rule integration", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const disagreeErrors = errors.filter(
 			(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
 		);
@@ -233,7 +234,7 @@ describe("case-list validator — cross-rule integration", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const newCodes = new Set([
 			"CASE_LIST_COLUMN_UNKNOWN_FIELD",
 			"CASE_LIST_FILTER_TYPE_ERROR",
@@ -345,7 +346,9 @@ describe("case-list validator — cross-rule integration", () => {
 			"MEDIA_ASSET_NOT_FOUND",
 		]);
 		expect(
-			runValidation(doc).filter((error) => dormantColumnCodes.has(error.code)),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((error) =>
+				dormantColumnCodes.has(error.code),
+			),
 		).toEqual([]);
 	});
 });

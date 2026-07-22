@@ -28,6 +28,7 @@ import { createStore } from "zustand/vanilla";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -820,7 +821,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * they were. The findings announce as the error toast unless
 					 * the caller renders them itself (`announce: false` — the
 					 * manager's footer). */
-					const verdict = mutationCommitVerdict(docState, mutations);
+					const verdict = mutationCommitVerdict(
+						docState,
+						mutations,
+						LOOKUP_CONTEXT_UNAVAILABLE,
+					);
 					if (!verdict.ok) {
 						// Concise builder copy for both the toast and the returned
 						// outcome (the manager footer reads it); the SA keeps the

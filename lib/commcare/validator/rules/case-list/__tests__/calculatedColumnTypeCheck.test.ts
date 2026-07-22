@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
 import { arith, prop, term } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
@@ -62,7 +63,7 @@ describe("calculatedColumnTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 			),
 		).toBe(true);
@@ -123,7 +124,7 @@ describe("calculatedColumnTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -166,7 +167,7 @@ describe("calculatedColumnTypeCheck", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) =>
 					e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR" &&
 					e.message.toLowerCase().includes("unknown property"),
@@ -215,7 +216,7 @@ describe("calculatedColumnTypeCheck", () => {
 			],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
-		const hits = runValidation(doc).filter(
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 		);
 		expect(hits.length).toBeGreaterThan(0);
@@ -282,7 +283,7 @@ describe("calculatedColumnTypeCheck", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -328,7 +329,7 @@ describe("calculatedColumnTypeCheck", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 			),
 		).toBe(false);
@@ -380,7 +381,7 @@ describe("calculatedColumnTypeCheck", () => {
 			],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		// The property exists (so no "Unknown property"); the type
 		// rule fires (so we see "numeric" / "arith" in the message).
 		const hits = errors.filter(
@@ -420,7 +421,7 @@ describe("calculatedColumnTypeCheck", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 			),
 		).toBe(false);

@@ -159,6 +159,11 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 			created_at: new Date() as unknown as LoadedApp["app"]["created_at"],
 			updated_at: new Date() as unknown as LoadedApp["app"]["updated_at"],
 		},
+		access: {
+			projectId: "project-1",
+			role: "owner",
+			actorUserId: "u1",
+		},
 	};
 }
 

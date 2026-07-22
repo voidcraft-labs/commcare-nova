@@ -18,14 +18,14 @@ import { ApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
 vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
-vi.mock("@/lib/media/boundaryValidation", () => ({
-	collectBoundaryViolations: vi.fn(),
+vi.mock("@/lib/export/boundaryValidation", () => ({
+	prepareExportBoundary: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 
@@ -77,13 +77,28 @@ function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 7) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
 		app: { blueprint: doc, owner: "u1", mutation_seq: mutationSeq },
 		projectId: "project-1",
+		role: "owner",
+		actorUserId: "u1",
 	} as never);
 }
 
 beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
-	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	vi.mocked(prepareExportBoundary).mockImplementation(
+		async (input) =>
+			({
+				ok: true,
+				prepared: {
+					...input,
+					assets: await resolveMediaManifest(
+						input.doc,
+						input.access.projectId,
+						{ withBytes: true },
+					),
+				},
+			}) as never,
+	);
 	loadsDoc(validDoc());
 });
 
@@ -91,6 +106,7 @@ describe("prepareCompileRequest", () => {
 	it("throws a 400 ApiError when the body carries no appId", async () => {
 		const err = await prepareCompileRequest(reqWith({}), {
 			boundaryErrorVerb: "compile",
+			mode: "ccz",
 		}).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ApiError);
@@ -98,26 +114,30 @@ describe("prepareCompileRequest", () => {
 		expect((err as ApiError).message).toBe("appId is required");
 		// No load, gate, or manifest I/O on a missing appId.
 		expect(resolveAppAccess).not.toHaveBeenCalled();
-		expect(collectBoundaryViolations).not.toHaveBeenCalled();
+		expect(prepareExportBoundary).not.toHaveBeenCalled();
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
 
 	it("throws a 422 carrying the caller's verb + per-finding details on a boundary rejection", async () => {
-		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
-			validationError(
-				"EMPTY_FORM",
-				"form",
-				'"Reg" in "Patients" has no fields.',
-				{ formName: "Reg" },
-			),
-			validationError("MEDIA_KIND_MISMATCH", "field", "stale ref", {
-				formName: "Reg",
-				fieldId: "case_name",
-			}),
-		]);
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: false,
+			violations: [
+				validationError(
+					"EMPTY_FORM",
+					"form",
+					'"Reg" in "Patients" has no fields.',
+					{ formName: "Reg" },
+				),
+				validationError("MEDIA_KIND_MISMATCH", "field", "stale ref", {
+					formName: "Reg",
+					fieldId: "case_name",
+				}),
+			],
+		} as never);
 
 		const compileErr = await prepareCompileRequest(reqWith({ appId: "a1" }), {
 			boundaryErrorVerb: "compile",
+			mode: "ccz",
 		}).catch((e) => e);
 		expect(compileErr).toBeInstanceOf(ApiError);
 		expect((compileErr as ApiError).status).toBe(422);
@@ -132,14 +152,18 @@ describe("prepareCompileRequest", () => {
 			"An attached file is the wrong type for its slot. Swap it out, or clear the slot.",
 		]);
 
-		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
-			validationError("MEDIA_KIND_MISMATCH", "field", "stale ref", {
-				formName: "Reg",
-				fieldId: "case_name",
-			}),
-		]);
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: false,
+			violations: [
+				validationError("MEDIA_KIND_MISMATCH", "field", "stale ref", {
+					formName: "Reg",
+					fieldId: "case_name",
+				}),
+			],
+		} as never);
 		const exportErr = await prepareCompileRequest(reqWith({ appId: "a1" }), {
 			boundaryErrorVerb: "export",
+			mode: "hq-json",
 		}).catch((e) => e);
 		expect((exportErr as ApiError).message).toBe(
 			"This app isn't ready to export — fix the issues below, then try again.",
@@ -152,6 +176,7 @@ describe("prepareCompileRequest", () => {
 	it("returns the loaded doc (with fieldParent rebuilt) + manifest on success", async () => {
 		const result = await prepareCompileRequest(reqWith({ appId: "a1" }), {
 			boundaryErrorVerb: "compile",
+			mode: "ccz",
 		});
 
 		expect(result.doc.appName).toBe("Vaccine Tracker");
@@ -161,6 +186,18 @@ describe("prepareCompileRequest", () => {
 		// `compiledAtSeq` is the `mutation_seq` off the SAME loaded snapshot as
 		// the blueprint — each export names the exact document version it emitted.
 		expect(result.compiledAtSeq).toBe(7);
+		expect(result.mode).toBe("ccz");
+		expect(prepareExportBoundary).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: "ccz",
+				compiledAtSeq: 7,
+				access: {
+					projectId: "project-1",
+					role: "owner",
+					actorUserId: "u1",
+				},
+			}),
+		);
 		// Media resolves at the app's PROJECT scope (the sharing boundary).
 		expect(resolveMediaManifest).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),

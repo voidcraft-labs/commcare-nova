@@ -1,19 +1,12 @@
 import "server-only";
 
-import {
-	type Selectable,
-	sql,
-	type Transaction,
-	type Updateable,
-} from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import type { ZodType } from "zod";
 import {
 	type AppDatabase,
 	getAppDb,
 	type LookupColumnsTable,
 	type LookupRowsTable,
-	type LookupTablesTable,
-	notifyLookupProject,
 	withAppTx,
 } from "@/lib/db/pg";
 import { balancedKeysBetween, deriveKeyAtIndex } from "@/lib/doc/order/keys";
@@ -30,6 +23,7 @@ import {
 	LOOKUP_MAX_TABLE_BYTES,
 	LOOKUP_MAX_VALIDATION_DETAILS,
 } from "./constants";
+import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
 import {
 	addLookupColumnInputSchema,
@@ -37,7 +31,6 @@ import {
 	createLookupTableInputSchema,
 	deleteLookupRowInputSchema,
 	lookupRowValuesSchema,
-	maxLookupRevision,
 	moveLookupColumnInputSchema,
 	moveLookupRowInputSchema,
 	parseLookupRevision,
@@ -63,9 +56,7 @@ import type {
 	LookupRow,
 	LookupRowValues,
 	LookupScope,
-	LookupTableDefinition,
 	LookupTableManifestEntry,
-	LookupTableRevisions,
 	LookupTableSnapshot,
 	LookupValidationDetail,
 	MoveLookupColumnInput,
@@ -77,27 +68,18 @@ import type {
 	UpdateLookupTableNameInput,
 	UpdateLookupTableTagInput,
 } from "./types";
+import {
+	advanceLookupProjectRevision as advanceProjectRevision,
+	lockLookupProjectState as lockProjectState,
+	lockLookupTableForUpdate as lockTable,
+	notifyCommittedLookupMutation,
+	lookupTableRevisions as revisionsOf,
+	type StoredLookupTable as StoredTable,
+	updateLockedLookupTable as updateLockedTable,
+} from "./writerTransaction";
 
-type StoredTable = Selectable<LookupTablesTable>;
 type StoredColumn = Selectable<LookupColumnsTable>;
 type StoredRow = Selectable<LookupRowsTable>;
-
-interface LockedProjectState {
-	revision: LookupRevision;
-}
-
-interface StoredDefinitionRow {
-	project_revision: string;
-	table_id: string | null;
-	table_name: string | null;
-	table_tag: string | null;
-	definition_revision: string | null;
-	column_table_id: string | null;
-	column_id: string | null;
-	column_wire_name: string | null;
-	column_label: string | null;
-	column_data_type: StoredColumn["data_type"] | null;
-}
 
 /**
  * The service receives a scope only after a request boundary has authenticated
@@ -138,23 +120,8 @@ function parseTableId(value: unknown): LookupTableId {
 	return parseInput(lookupTableIdSchema, value);
 }
 
-function parseTableIds(value: unknown): LookupTableId[] {
-	const ids = parseInput(lookupTableIdSchema.array(), value);
-	return [...new Set(ids)].sort(compareAscii);
-}
-
 function toIso(value: Date): string {
 	return value.toISOString();
-}
-
-function revisionsOf(table: StoredTable): LookupTableRevisions {
-	const definitionRevision = parseLookupRevision(table.definition_revision);
-	const rowsRevision = parseLookupRevision(table.rows_revision);
-	return {
-		definitionRevision,
-		rowsRevision,
-		tableRevision: maxLookupRevision(definitionRevision, rowsRevision),
-	};
 }
 
 function manifestEntryOf(table: StoredTable): LookupTableManifestEntry {
@@ -231,64 +198,6 @@ function notFound(): never {
 	throw new LookupError("not_found", "Lookup resource was not found.");
 }
 
-function currentRevisionConflict(table: StoredTable): never {
-	throw new LookupError(
-		"conflict",
-		"This lookup table changed since it was loaded. Refresh and try again.",
-		{ currentRevisions: revisionsOf(table) },
-	);
-}
-
-function assertExpectedRevision(
-	table: StoredTable,
-	expected: LookupRevision,
-): void {
-	if (revisionsOf(table).tableRevision !== expected) {
-		currentRevisionConflict(table);
-	}
-}
-
-async function lockProjectState(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-): Promise<LockedProjectState> {
-	await tx
-		.insertInto("lookup_project_state")
-		.values({ project_id: projectId })
-		.onConflict((conflict) => conflict.column("project_id").doNothing())
-		.execute();
-	const state = await tx
-		.selectFrom("lookup_project_state")
-		.select("revision")
-		.where("project_id", "=", projectId)
-		.forUpdate()
-		.executeTakeFirst();
-	if (!state) {
-		throw new Error(
-			"Lookup Project state disappeared after its locked upsert.",
-		);
-	}
-	return { revision: parseLookupRevision(state.revision) };
-}
-
-async function lockTable(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	tableId: LookupTableId,
-	expectedRevision: LookupRevision,
-): Promise<StoredTable> {
-	const table = await tx
-		.selectFrom("lookup_tables")
-		.selectAll()
-		.where("project_id", "=", projectId)
-		.where("id", "=", tableId)
-		.forUpdate()
-		.executeTakeFirst();
-	if (!table) notFound();
-	assertExpectedRevision(table, expectedRevision);
-	return table;
-}
-
 async function orderedColumns(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
@@ -317,54 +226,6 @@ async function orderedRows(
 		.orderBy("order_key", "asc")
 		.orderBy("id", "asc")
 		.execute();
-}
-
-async function advanceProjectRevision(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-): Promise<LookupRevision> {
-	const row = await tx
-		.updateTable("lookup_project_state")
-		.set({
-			revision: sql<string>`revision + 1`,
-			updated_at: new Date(),
-		})
-		.where("project_id", "=", projectId)
-		.returning("revision")
-		.executeTakeFirst();
-	if (!row) {
-		throw new Error(
-			"Lookup Project state disappeared while advancing revision.",
-		);
-	}
-	return parseLookupRevision(row.revision);
-}
-
-async function updateLockedTable(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	tableId: LookupTableId,
-	values: Updateable<LookupTablesTable>,
-): Promise<StoredTable> {
-	const table = await tx
-		.updateTable("lookup_tables")
-		.set(values)
-		.where("project_id", "=", projectId)
-		.where("id", "=", tableId)
-		.returningAll()
-		.executeTakeFirst();
-	if (!table) {
-		throw new Error("Locked lookup table disappeared before its update.");
-	}
-	return table;
-}
-
-async function notifyCommittedLookupMutation(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	projectRevision: LookupRevision,
-): Promise<void> {
-	await notifyLookupProject(tx, projectId, projectRevision);
 }
 
 function valuesEqual(left: LookupRowValues, right: LookupRowValues): boolean {
@@ -508,110 +369,7 @@ export async function getLookupManifest(
 		});
 }
 
-/**
- * Rows-free definition projection inside a caller-owned transaction. S02b app
- * commits use this after taking their table locks, avoiding a nested snapshot.
- */
-export async function readLookupDefinitionsInTransaction(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	tableIdsInput: readonly LookupTableId[],
-): Promise<LookupDefinitionsSnapshot> {
-	if (typeof projectId !== "string" || projectId.length === 0) {
-		throw new Error("Lookup definition reader received an invalid Project id.");
-	}
-	const tableIds = parseTableIds(tableIdsInput);
-	const result = await sql<StoredDefinitionRow>`
-		WITH project_snapshot AS (
-			SELECT COALESCE(
-				(
-					SELECT revision::text
-					FROM lookup_project_state
-					WHERE project_id = ${projectId}
-				),
-				'0'
-			) AS project_revision
-		)
-		SELECT
-			project_snapshot.project_revision,
-			table_row.id::text AS table_id,
-			table_row.name AS table_name,
-			table_row.tag AS table_tag,
-			table_row.definition_revision::text AS definition_revision,
-			column_row.table_id::text AS column_table_id,
-			column_row.id::text AS column_id,
-			column_row.wire_name AS column_wire_name,
-			column_row.label AS column_label,
-			column_row.data_type AS column_data_type
-		FROM project_snapshot
-		LEFT JOIN LATERAL (
-			SELECT id, name, tag, definition_revision
-			FROM lookup_tables
-			WHERE project_id = ${projectId}
-				AND id = ANY(${tableIds}::uuid[])
-		) AS table_row ON TRUE
-		LEFT JOIN lookup_columns AS column_row
-			ON column_row.project_id = ${projectId}
-			AND column_row.table_id = table_row.id
-		ORDER BY table_row.id ASC NULLS LAST,
-			column_row.order_key ASC NULLS LAST,
-			column_row.id ASC NULLS LAST
-	`.execute(tx);
-	const projectRevision = parseLookupRevision(
-		result.rows[0]?.project_revision ?? "0",
-	);
-	const definitionsById = new Map<
-		LookupTableId,
-		LookupTableDefinition & { columns: LookupColumn[] }
-	>();
-	for (const row of result.rows) {
-		if (row.table_id === null) continue;
-		const tableId = lookupTableIdSchema.parse(row.table_id);
-		let definition = definitionsById.get(tableId);
-		if (!definition) {
-			if (
-				row.table_name === null ||
-				row.table_tag === null ||
-				row.definition_revision === null
-			) {
-				throw new Error("Lookup definition query returned a partial table.");
-			}
-			definition = {
-				id: tableId,
-				name: row.table_name,
-				tag: row.table_tag,
-				definitionRevision: parseLookupRevision(row.definition_revision),
-				columns: [],
-			};
-			definitionsById.set(tableId, definition);
-		}
-		if (row.column_id === null) continue;
-		if (
-			row.column_table_id === null ||
-			row.column_wire_name === null ||
-			row.column_label === null ||
-			row.column_data_type === null
-		) {
-			throw new Error("Lookup definition query returned a partial column.");
-		}
-		const columnTableId = lookupTableIdSchema.parse(row.column_table_id);
-		if (columnTableId !== tableId) {
-			throw new Error("Lookup definition query returned a mis-scoped column.");
-		}
-		definition.columns.push({
-			id: lookupColumnIdSchema.parse(row.column_id),
-			wireName: row.column_wire_name,
-			label: row.column_label,
-			dataType: row.column_data_type,
-		});
-	}
-
-	return {
-		projectId,
-		projectRevision,
-		definitions: [...definitionsById.values()],
-	};
-}
+export { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 
 /** Exact requested definitions from one read-only repeatable-read snapshot. */
 export async function getLookupDefinitions(

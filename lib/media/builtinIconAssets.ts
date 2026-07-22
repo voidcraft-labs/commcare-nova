@@ -8,7 +8,8 @@
 // Built-in awareness is QUARANTINED here (plus the reverse-index sync + the
 // browser's `mediaSrc`): the validator, the wire emitters, and the export budget
 // stay built-in-agnostic and consume the entries this module synthesizes. The
-// manifest (`./manifest.ts`) and the boundary (`./boundaryValidation.ts`) each
+// manifest (`./manifest.ts`) and the export boundary
+// (`../export/boundaryValidation.ts`) each
 // partition refs through `partitionAssetRefs`, run the existing asset-load path on
 // the real ids only, and merge in these synthesized entries.
 //

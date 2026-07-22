@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `searchInputViaModeCompatibility`. The rule rejects
  * simple-arm `(mode, via, name vs property)` combinations no CCHQ
@@ -107,7 +108,9 @@ describe("searchInputViaModeCompatibility", () => {
 			caseTypes,
 		});
 
-		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			inputType: "date",
@@ -142,7 +145,9 @@ describe("searchInputViaModeCompatibility", () => {
 			caseTypes,
 		});
 
-		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			inputType: "date-range",
@@ -179,7 +184,9 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("child_tags");
 		expect(hits[0].message).toContain("multi-select-contains");
@@ -219,7 +226,9 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("tag_pick");
 		expect(hits[0].message).toContain("multi-select-contains");
@@ -252,7 +261,9 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("range");
 		expect(hits[0].message).toContain("ancestor");
@@ -327,7 +338,11 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("admits `range` on a self-walk input with `name === property` (the only bare-prompt-compatible range shape)", () => {
@@ -374,7 +389,11 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("admits a legacy date-opened target when its prompt name is canonical", () => {
@@ -402,7 +421,11 @@ describe("searchInputViaModeCompatibility", () => {
 			caseTypes,
 		});
 
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("fires for `range` mode on self-walk when `name !== property`", () => {
@@ -448,7 +471,9 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("window");
 		expect(hits[0].message).toContain("visit_date");
@@ -479,6 +504,10 @@ describe("searchInputViaModeCompatibility", () => {
 			],
 			caseTypes,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 });

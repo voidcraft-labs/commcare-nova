@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `caseSearchConfigRequiresCaseType`. Fires when a module
  * carries a `caseSearchConfig` but has no `caseType`. CCHQ's
@@ -50,7 +51,9 @@ describe("caseSearchConfigRequiresCaseType", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("case search");
 		expect(hits[0].message).toContain("caseType");
@@ -81,7 +84,9 @@ describe("caseSearchConfigRequiresCaseType", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -100,7 +105,9 @@ describe("caseSearchConfigRequiresCaseType", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -129,7 +136,9 @@ describe("caseSearchConfigRequiresCaseType", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 });

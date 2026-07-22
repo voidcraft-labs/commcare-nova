@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `ancestorExistsCannotNestSubcase`. CCHQ's CSQL evaluator
  * rejects a subcase-relation walk nested inside the filter argument
@@ -109,7 +110,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		// Elm-style three-component message in domain vocabulary
 		// (ancestor / child, not subcase). State the CCHQ restriction
@@ -144,7 +147,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -179,7 +184,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -210,7 +217,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -241,7 +250,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -266,7 +277,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("ancestor case");
 		expect(hits[0].message).toContain("child case");
@@ -293,7 +306,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc)).toEqual([]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
 	it("fires when a `subcase-count` sits inside the ancestor envelope's filter", () => {
@@ -323,7 +336,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("count");
 		expect(hits[0].message).toContain("child case");
@@ -357,7 +372,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -380,7 +397,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("admits sibling top-level walks (ancestor and subcase as separate top-level predicates)", () => {
@@ -407,7 +428,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("admits ancestor-on-ancestor nesting (no cross-direction walk)", () => {
@@ -435,7 +460,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("fires on an advanced-arm searchInput predicate", () => {
@@ -466,7 +495,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("Adv");
 	});
@@ -498,7 +529,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("admits a `multi-select-contains` via subcase at top level (no outer ancestor envelope)", () => {
@@ -524,7 +559,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("admits `match-all` filter (no envelopes to flag)", () => {
@@ -545,7 +584,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("admits absent filter and absent searchInputs", () => {
@@ -566,7 +609,11 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("walks `not(exists(ancestor, ...))` and `match(prop(via=ancestor))` envelopes too", () => {
@@ -594,7 +641,9 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 	});
 
@@ -618,6 +667,10 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc).some((error) => error.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(error) => error.code === CODE,
+			),
+		).toBe(false);
 	});
 });

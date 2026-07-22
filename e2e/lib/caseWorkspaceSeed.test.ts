@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
 import {
 	buildCaseWorkspaceBlueprint,
@@ -17,7 +18,7 @@ describe("case workspace visual-QA seed", () => {
 		const doc = buildCaseWorkspaceBlueprint(APP_ID);
 		const persistable = toPersistableDoc(doc);
 		expect(blueprintDocSchema.parse(persistable)).toEqual(persistable);
-		expect(runValidation(doc)).toEqual([]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 
 		const module = doc.modules[CASE_WORKSPACE_SEED.moduleUuid];
 		expect(module).toBeDefined();

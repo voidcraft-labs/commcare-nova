@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Atomic structural creation — `createForm` / `createModule` land an
  * entity TOGETHER with what makes it sound and complete, in one gated
@@ -456,7 +457,7 @@ describe("atomic creation on a complete Connect app", () => {
 			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
 		);
 		expect(addForm?.form.connect).toBeUndefined();
-		expect(runValidation(out.newDoc)).toEqual([]);
+		expect(runValidation(out.newDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
 	it("removing the LAST participating form's block bounces with the app-level participation finding", async () => {
@@ -515,7 +516,7 @@ describe("atomic creation on a complete Connect app", () => {
 		);
 
 		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
-		expect(runValidation(out.newDoc)).toEqual([]);
+		expect(runValidation(out.newDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
 	it("createForm parses assessment.user_score text to the expression AST, resolving a same-call field to an identity leaf", async () => {

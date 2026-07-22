@@ -47,26 +47,53 @@ are canonical nonnegative decimal strings within signed-int64 range on every
 application wire. Never convert one through `Number`, serialize native `bigint`,
 or compare revision strings lexically.
 
-S01 permits additive columns but exposes no table delete, column removal, or
-column retype. Established table-tag and column-wire-name changes require the
-existing `delete` capability; all row operations and non-identity edits require
-`edit`; reads require `view`.
+The public lookup surface permits additive columns but exposes no table delete,
+column removal, or column retype. Established table-tag and column-wire-name
+changes require the existing `delete` capability; all row operations and
+non-identity edits require `edit`; reads require `view`.
 
-## Dormant reference infrastructure
+## Dormant reference and schema-governance infrastructure
 
-S02a installs exact `lookup_table_references` and
-`lookup_column_references` tables, but `lib/lookup` does not populate or consult
-them yet. They store only stable Project/table/column/app UUID identity, never
-names, wire names, carrier paths, or caller-provided edge deltas. A column edge
-is constrained to an existing table edge. Later authoritative app commits will
-replace a complete freshly extracted edge set in their own transaction.
+`lookup_table_references` and `lookup_column_references` store only stable
+Project/table/column/app UUID identity, never names, wire names, carrier paths,
+or caller-provided edge deltas. A column edge is constrained to an existing
+table edge. Authoritative app commits replace each app's complete freshly
+extracted edge sets in their own transaction; the production extractor registry
+is empty until the first carrier slice.
 
-This storage does not activate table deletion, column removal, column retype,
-lookup carriers, or cross-Project moves. Their compatibility flags begin false,
-so the S01 public service contract above remains unchanged. Stream-capability
-leases and the singleton compatibility floors live alongside app-state tables
-for rolling-deploy safety; they are not Project lookup resources and must not be
-exposed through this package's table/row APIs.
+`schemaGovernance.ts` is a package-private, server-only seam with no action,
+route, MCP tool, or public barrel export. It reuses `writerTransaction.ts`, the
+same Project-state/table lock and revision helpers as every live lookup writer.
+Both its wrapper and transaction core require the scope's `delete` capability
+before taking a lock and collapse an insufficient role to the same not-found
+shape as a missing or foreign resource.
+Its complete lock prefix is Project state `FOR UPDATE` -> exact table `FOR
+UPDATE` -> compatibility singleton `FOR SHARE` -> exact table/column edges. It
+never takes an app lock. Blocker results contain the sorted exact app-id set
+only; a fresh carrier-path re-walk belongs to confirmation UX.
+
+The production wrapper declares the shared writer version, which remains v0.
+Schema-action activation requires writer floor v1, so the wrapper rolls back
+without a data write whether the flag is false or a floor-1 flag races it. The
+transaction core exists for seeded integration coverage under an explicit v1
+transaction declaration and enabled compatibility row; it is not an activation
+surface.
+
+Inside that closed seam, an unreferenced table deletion uses the existing
+row/column cascades, retains Project state, and advances/notifies once. Column
+removal rejects the last column before row changes, removes only that immutable
+UUID key where present, uses Postgres-generated before/after `value_bytes`,
+updates row provenance plus table counters, stamps both revision axes, and
+reports affected rows/cells/freed bytes. Column retype inspects only present
+cells through typed-input validation, never coercion or stored-value rewriting,
+and changes the definition only after every value passes. Projection changes
+remain allowed while referenced and do not rewrite edges.
+
+This infrastructure does not activate lookup carriers, public destructive
+operations, or cross-Project moves. Stream-capability leases and the singleton
+compatibility floors live alongside app-state tables for rolling-deploy safety;
+they are not Project lookup resources and must not be exposed through this
+package's table/row APIs.
 
 ## Values, ordering, and limits
 
@@ -101,6 +128,11 @@ table definitions, and ordered columns come from one read-only `REPEATABLE
 READ` snapshot. Its transaction-taking reader is the only composition seam for
 an already-open app transaction after it has acquired the production table
 locks; callers must not open a nested definition snapshot.
+`definitionSnapshot.ts` owns that transaction reader and intentionally carries
+no `server-only` runtime marker: authoritative `apps.ts` writers are also in
+plain `tsx` inspector dependency graphs. `service.ts` re-exports the same
+function for lookup-package callers; the transaction type remains the server
+boundary.
 
 `nova_lookup_stream` writes and reads are live. The one shared dedicated listener
 fans exact decimal revisions only to subscribers for that Project, and the app
@@ -116,6 +148,9 @@ state and its mutation `baseSeq`.
 
 - `service.ts` is server-only and owns SQL. It accepts an authorized
   `LookupScope`; no route or action contains database logic.
+- `writerTransaction.ts` is the one private lookup-writer lock/revision/notify
+  protocol shared by `service.ts` and dormant schema governance. Do not fork its
+  lock order in a new writer.
 - `actions.ts` authenticates, runtime-parses untrusted arguments, authorizes the
   explicit Project, calls the service, and maps typed errors to discriminated
   results.

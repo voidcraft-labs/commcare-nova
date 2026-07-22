@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // scripts/__tests__/legacyMediaRefs.test.ts
 //
 // Coverage for the media-reference arm behind the legacy scripts'
@@ -201,7 +202,11 @@ describe("planMediaRefClears", () => {
 		// Four clears: logo, module icon, field bundle image, option image.
 		expect(plan.notes).toHaveLength(4);
 
-		const gate = mutationCommitVerdict(doc, plan.mutations);
+		const gate = mutationCommitVerdict(
+			doc,
+			plan.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(gate.ok).toBe(true);
 		if (!gate.ok) return;
 

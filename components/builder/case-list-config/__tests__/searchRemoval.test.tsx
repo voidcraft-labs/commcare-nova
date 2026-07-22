@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // @vitest-environment happy-dom
 
 import {
@@ -739,7 +740,7 @@ describe("Search field removal", () => {
 				},
 			],
 		});
-		expect(runValidation(doc)).toEqual([]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 
 		const module = makeModule([first, second], {}, filter);
 		testState.module = module;

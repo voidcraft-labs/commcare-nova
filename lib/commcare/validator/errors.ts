@@ -255,10 +255,15 @@ export type ValidationErrorCode =
 	| "MEDIA_ASSET_NOT_FOUND"
 	| "MEDIA_ASSET_NOT_READY"
 	| "MEDIA_KIND_MISMATCH"
+	// Lookup references — structural carrier vs Project definition snapshot.
+	| "LOOKUP_CONTEXT_UNAVAILABLE"
+	| "LOOKUP_TABLE_NOT_AVAILABLE"
+	| "LOOKUP_COLUMN_NOT_AVAILABLE"
+	| "LOOKUP_COLUMN_TYPE_MISMATCH"
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
 	// memory at once, so the total count + bytes are bounded before any
-	// download. Fires from `collectBoundaryViolations`, not a rule file.
+	// download. Fires from `collectExportBoundaryViolations`, not a rule file.
 	| "MEDIA_EXPORT_TOO_LARGE"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"

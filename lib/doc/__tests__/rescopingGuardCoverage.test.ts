@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Guard coverage per mutation kind — the second half of the proof that
  * licenses deleting the validate-fix loop (beside the construction fuzz):
@@ -915,7 +916,11 @@ describe("re-scoping guard coverage — every mutation kind is decided", () => {
 				// The kind's scope decision matches its documented reach — it
 				// never silently widens to a full run (nor needs to).
 				expect(scopeOfMutations(doc, batch)).not.toBe("full");
-				const verdict = mutationCommitVerdict(doc, batch);
+				const verdict = mutationCommitVerdict(
+					doc,
+					batch,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
 				expect(verdict.ok).toBe(true);
 			});
 			continue;
@@ -925,7 +930,11 @@ describe("re-scoping guard coverage — every mutation kind is decided", () => {
 			if ("fullScope" in coverage && coverage.fullScope) {
 				expect(scopeOfMutations(doc, batch)).toBe("full");
 			}
-			const verdict = mutationCommitVerdict(doc, batch);
+			const verdict = mutationCommitVerdict(
+				doc,
+				batch,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
 			expect(verdict.ok).toBe(false);
 			if (!verdict.ok) {
 				const codes = verdict.introduced.map((e) => e.code);

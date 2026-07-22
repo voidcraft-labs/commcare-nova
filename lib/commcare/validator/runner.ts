@@ -5,6 +5,10 @@
  * at the app, module, form, and field levels, then runs deep XPath
  * validation. Returns structured `ValidationError[]` keyed by uuid.
  *
+ * Every run receives an explicit lookup-definition context. The production
+ * extractor registry is empty until S05, but the argument remains required so
+ * no future carrier can inherit a silent skip/default at an old call site.
+ *
  * Asset-context media rules (existence / ready / kind-match) need data
  * the doc alone can't carry: the resolved media-asset rows for the assets
  * the doc references. Callers that have those (the SA validation loop)
@@ -16,6 +20,11 @@
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
+import {
+	type LookupReferenceExtractorRegistry,
+	type LookupValidationContext,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 import { validationError } from "./errors";
@@ -28,6 +37,7 @@ import {
 	validateBlueprintDeep,
 	type XPathSurface,
 } from "./index";
+import { validateLookupReferences } from "./lookupReferences";
 import { APP_RULES } from "./rules/app";
 import { runFieldRules } from "./rules/field";
 import { runFormRules } from "./rules/form";
@@ -55,6 +65,11 @@ export interface RunValidationOptions {
 	 * Omitted = full run.
 	 */
 	readonly scope?: ValidationScope;
+	/**
+	 * Explicit extractor seam for synthetic pure tests. Production callers omit
+	 * it and use the immutable production registry (empty until S05).
+	 */
+	readonly lookupReferenceExtractors?: LookupReferenceExtractorRegistry;
 }
 
 /**
@@ -70,7 +85,7 @@ export interface RunValidationOptions {
  *     never run on the commit path (no caller passes both a manifest and
  *     a scope today), kept scope-exempt so the law below stays total;
  *   - `MEDIA_EXPORT_TOO_LARGE` — produced by the media-validation entry
- *     point (`lib/media/boundaryValidation.ts`), never by `runValidation`;
+ *     point (`lib/export/boundaryValidation.ts`), never by `runValidation`;
  *     listed so the filter is total over every code a boundary caller
  *     can see.
  *
@@ -95,13 +110,19 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"MEDIA_ASSET_NOT_READY",
 	"MEDIA_KIND_MISMATCH",
 	"MEDIA_EXPORT_TOO_LARGE",
+	// Lookup validation always extracts the full doc. Context findings can span
+	// carriers and are therefore scope-exempt just like app-wide rules.
+	"LOOKUP_CONTEXT_UNAVAILABLE",
+	"LOOKUP_TABLE_NOT_AVAILABLE",
+	"LOOKUP_COLUMN_NOT_AVAILABLE",
+	"LOOKUP_COLUMN_TYPE_MISMATCH",
 ]);
 
 /**
  * The scoped-run ≡ full-run-filtered law: for every doc and scope,
  *
- *   runValidation(doc, { scope }) ≡
- *     runValidation(doc).filter((e) => errorWithinScope(e, scope))
+ *   runValidation(doc, context, { scope }) ≡
+ *     runValidation(doc, context).filter((e) => errorWithinScope(e, scope))
  *
  * order-preserved (the property test pins this). This function is the
  * filter side of that law — attribution rides on which WALK produces a
@@ -135,6 +156,7 @@ export function errorWithinScope(
  */
 export function runValidation(
 	doc: BlueprintDoc,
+	lookupContext: LookupValidationContext,
 	options?: RunValidationOptions,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
@@ -185,6 +207,15 @@ export function runValidation(
 			errors.push(...rule(doc, options.mediaAssets));
 		}
 	}
+
+	errors.push(
+		...validateLookupReferences(
+			doc,
+			lookupContext,
+			options?.lookupReferenceExtractors ??
+				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		),
+	);
 
 	errors.push(...runDeepValidation(doc, scope));
 

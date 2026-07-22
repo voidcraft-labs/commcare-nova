@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Fix-registry dissolution proofs — one test per entry of the RETIRED
  * `FIX_REGISTRY` (deleted with the validate-fix loop), each showing the
@@ -268,9 +269,11 @@ describe("NO_CASE_NAME_FIELD — the gate owns it (no construction default exist
 	it("removing the case_name field is rejected — the writer never disappears", () => {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "case_name");
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "removeField", uuid: target.uuid },
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "removeField", uuid: target.uuid }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -349,14 +352,18 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 	function verdictForRelevantPatch(expr: string) {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "village");
-		return mutationCommitVerdict(doc, [
-			{
-				kind: "updateField",
-				uuid: target.uuid,
-				targetKind: "text",
-				patch: { relevant: xp(expr) },
-			} as Mutation,
-		]);
+		return mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: target.uuid,
+					targetKind: "text",
+					patch: { relevant: xp(expr) },
+				} as Mutation,
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 	}
 
 	it("UNQUOTED_STRING_LITERAL: a bare-word value in an XPath slot is rejected", () => {
@@ -364,14 +371,18 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 		// expression belongs (the author meant the string 'approved').
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "village");
-		const verdict = mutationCommitVerdict(doc, [
-			{
-				kind: "updateField",
-				uuid: target.uuid,
-				targetKind: "text",
-				patch: { default_value: xp("approved") },
-			} as Mutation,
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: target.uuid,
+					targetKind: "text",
+					patch: { default_value: xp("approved") },
+				} as Mutation,
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -499,13 +510,17 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		const doc = closeFormDoc();
 		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
 
-		const verdict = mutationCommitVerdict(doc, [
-			{
-				kind: "updateForm",
-				uuid: closeFormUuid,
-				patch: { closeCondition: { field: asUuid("ghost"), answer: "done" } },
-			},
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateForm",
+					uuid: closeFormUuid,
+					patch: { closeCondition: { field: asUuid("ghost"), answer: "done" } },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -518,13 +533,19 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		const doc = minDoc();
 		// minDoc's only form is a registration form — a close condition on
 		// it is exactly the contradictory config the rule names.
-		const verdict = mutationCommitVerdict(doc, [
-			{
-				kind: "updateForm",
-				uuid: doc.formOrder[doc.moduleOrder[0]][0],
-				patch: { closeCondition: { field: asUuid("village"), answer: "done" } },
-			},
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateForm",
+					uuid: doc.formOrder[doc.moduleOrder[0]][0],
+					patch: {
+						closeCondition: { field: asUuid("village"), answer: "done" },
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -536,15 +557,19 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 	it("a close condition missing its field or answer is rejected (INCOMPLETE)", () => {
 		const doc = closeFormDoc();
 		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
-		const verdict = mutationCommitVerdict(doc, [
-			{
-				kind: "updateForm",
-				uuid: closeFormUuid,
-				// The schema admits empty strings, so this is a live input
-				// shape — both halves are required for a conditional close.
-				patch: { closeCondition: { field: asUuid("outcome"), answer: "" } },
-			},
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateForm",
+					uuid: closeFormUuid,
+					// The schema admits empty strings, so this is a live input
+					// shape — both halves are required for a conditional close.
+					patch: { closeCondition: { field: asUuid("outcome"), answer: "" } },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(

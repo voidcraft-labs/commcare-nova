@@ -3,6 +3,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 // ── XForm XML Validator ────────────────────────────────────────────
 
@@ -434,7 +435,7 @@ describe("case list column validation", () => {
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -475,7 +476,7 @@ describe("case list column validation", () => {
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some((e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD"),
 		).toBe(false);
@@ -524,7 +525,7 @@ describe("case list column validation", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some((e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD"),
 		).toBe(false);

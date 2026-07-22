@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Contract tests for the assigned-case exclusion expression.
  *
@@ -89,15 +90,17 @@ function codesFor(
 	expression: ValueExpression,
 	searchInputs?: SearchInputDef[],
 ) {
-	return runValidation(docWithExpression(expression, searchInputs)).map(
-		(finding) => finding.code,
-	);
+	return runValidation(
+		docWithExpression(expression, searchInputs),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	).map((finding) => finding.code);
 }
 
 describe("excludedOwnerIdsTypeCheck", () => {
 	it("rejects a text-valued case property read that would diverge by runtime", () => {
 		const findings = runValidation(
 			docWithExpression(term(prop("patient", "owner_id"))),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		).filter((finding) => finding.code === CASE_DATA_CODE);
 
 		expect(findings).toHaveLength(1);
@@ -167,15 +170,19 @@ describe("excludedOwnerIdsTypeCheck", () => {
 			// answer is useful here because blank is the safe "exclude nobody"
 			// identity on Preview, remote Search, and the guarded ordinary list.
 			expect(
-				runValidation(docWithExpression(expression, [searchInput])),
+				runValidation(
+					docWithExpression(expression, [searchInput]),
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				),
 			).toEqual([]);
 		}
 	});
 
 	it("still rejects a row-independent expression that does not resolve to text", () => {
-		const findings = runValidation(docWithExpression(term(literal(42)))).filter(
-			(finding) => finding.code === TYPE_CODE,
-		);
+		const findings = runValidation(
+			docWithExpression(term(literal(42))),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).filter((finding) => finding.code === TYPE_CODE);
 		expect(findings).toHaveLength(1);
 		expect(findings[0].message).toContain("Expected 'text'");
 		expect(findings[0].message).toContain("resolves to 'int'");
@@ -183,9 +190,10 @@ describe("excludedOwnerIdsTypeCheck", () => {
 	});
 
 	it("short-circuits when the assigned-case slot is absent", () => {
-		const codes = runValidation(docWithExpression(undefined)).map(
-			(finding) => finding.code,
-		);
+		const codes = runValidation(
+			docWithExpression(undefined),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).map((finding) => finding.code);
 		expect(codes).not.toContain(CASE_DATA_CODE);
 		expect(codes).not.toContain(TYPE_CODE);
 	});

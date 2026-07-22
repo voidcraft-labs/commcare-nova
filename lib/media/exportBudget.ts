@@ -6,7 +6,7 @@
 // ready media (`MAX_MEDIA_EXPORT_ASSETS` / `MAX_MEDIA_EXPORT_BYTES`) —
 // and three surfaces hold the same line with this module's math:
 //
-//   - `lib/media/boundaryValidation.ts` — the export boundary's
+//   - `lib/export/boundaryValidation.ts` — the export boundary's
 //     aggregate check, run on every compile/upload entry point.
 //   - `lib/media/attachVerdicts.ts` — the SA/MCP attach verdict, so an
 //     over-budget attach is refused at the tool call.

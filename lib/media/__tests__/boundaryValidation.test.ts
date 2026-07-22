@@ -1,6 +1,7 @@
 /**
- * Tests for `collectBoundaryViolations` — the zero-tolerance boundary
- * gate the four export entry points delegate to.
+ * Tests for the media arm of `collectExportBoundaryViolations` — the
+ * zero-tolerance boundary evaluator every export surface reaches through
+ * `prepareExportBoundary`.
  *
  * Only `loadAssetsByIds` is mocked (it reads Postgres); the REAL
  * validator runs so these tests prove the actual rule wiring, not a
@@ -23,11 +24,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAssetRecord } from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { MAX_MEDIA_EXPORT_BYTES } from "@/lib/domain/multimedia";
-import { collectBoundaryViolations } from "../boundaryValidation";
+import { collectExportBoundaryViolations as collectBoundaryViolationsWithContext } from "@/lib/export/boundaryValidation";
 
 const PROJECT = "project-1";
+
+function collectBoundaryViolations(
+	doc: Parameters<typeof collectBoundaryViolationsWithContext>[0],
+	projectId: string,
+) {
+	return collectBoundaryViolationsWithContext(
+		doc,
+		projectId,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+}
 
 /* Only the Postgres read is mocked — the validator runs for real. */
 vi.mock("@/lib/db/mediaAssets", () => ({
@@ -90,7 +103,7 @@ function validDoc(assetId?: string) {
 	});
 }
 
-describe("collectBoundaryViolations", () => {
+describe("collectExportBoundaryViolations media arm", () => {
 	it("returns no violations for a fully valid doc with resolved media", async () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([
 			makeAssetRecord("good-asset"),

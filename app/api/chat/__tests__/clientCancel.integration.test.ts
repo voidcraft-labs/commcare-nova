@@ -36,12 +36,14 @@ const {
 	resolveActiveProjectIdMock,
 	resolveAppAccessMock,
 	resolveProjectAccessMock,
+	projectRoleForInTransactionMock,
 	createSolutionsArchitectMock,
 } = vi.hoisted(() => ({
 	resolveOpenAIKeyMock: vi.fn(),
 	resolveActiveProjectIdMock: vi.fn(),
 	resolveAppAccessMock: vi.fn(),
 	resolveProjectAccessMock: vi.fn(),
+	projectRoleForInTransactionMock: vi.fn(),
 	createSolutionsArchitectMock: vi.fn(),
 }));
 
@@ -60,6 +62,13 @@ vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: MockAppAccessError,
 	resolveAppAccess: resolveAppAccessMock,
 	resolveProjectAccess: resolveProjectAccessMock,
+}));
+/* New-app creation reauthorizes against the membership row inside the same
+ * transaction as the insert. This route test deliberately mocks auth + Project
+ * access, so grant that transactional seam explicitly as well. Its locking and
+ * denial behavior are covered by the authoritative-writer integration suites. */
+vi.mock("@/lib/db/projectMembership", () => ({
+	projectRoleForInTransaction: projectRoleForInTransactionMock,
 }));
 /* Only the SA constructor is faked — `GenerationContext`, the retry loop,
  * the finalizers, and every persistence path stay real. */
@@ -185,6 +194,7 @@ beforeEach(async () => {
 	resolveActiveProjectIdMock.mockReset();
 	resolveAppAccessMock.mockReset();
 	resolveProjectAccessMock.mockReset();
+	projectRoleForInTransactionMock.mockReset();
 	createSolutionsArchitectMock.mockReset();
 
 	resolveOpenAIKeyMock.mockResolvedValue({
@@ -194,6 +204,7 @@ beforeEach(async () => {
 	});
 	resolveActiveProjectIdMock.mockResolvedValue(PROJECT);
 	resolveProjectAccessMock.mockResolvedValue({ projectId: PROJECT });
+	projectRoleForInTransactionMock.mockResolvedValue("editor");
 });
 
 afterEach(async () => {

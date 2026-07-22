@@ -30,12 +30,11 @@
  * pending upload, a cross-account reference, an image-map row) is
  * reported needs-owner and never touched.
  *
- * The write goes through `appendSyntheticBatch` (`lib/db/apps.ts` — it
- * replaces the blueprint wholesale, advances `mutation_seq`, and appends a
- * `kind: "migration"` reload-sentinel to the stream), so a builder tab
- * still open across the write reloads onto the repaired row, and any
- * straggler auto-save is a mutation delta re-applied onto it by the
- * guarded commit — never a silent overwrite with its pre-repair doc.
+ * The write goes through `appendSyntheticBatch` (`lib/db/apps.ts`): against
+ * the exact sequence this scan loaded, it derives and persists deterministic
+ * mutations and advances `mutation_seq` with `kind: "migration"`. A builder
+ * tab still open across the write reloads onto the repaired row, and a stale
+ * preparation rejects instead of silently replacing newer work.
  *
  * Idempotent (a repaired app re-evaluates clean, so a re-run plans
  * nothing) and resumable per app (each app loads, repairs, and writes
@@ -48,6 +47,7 @@
  * `--help` for flags.
  */
 import { Command } from "commander";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { closeCaseStoreDatabase } from "../lib/case-store/postgres/connection";
 import { appendSyntheticBatch, loadApp } from "../lib/db/apps";
 import { getAppDb } from "../lib/db/pg";
@@ -222,7 +222,11 @@ async function main() {
 				if (plan.mutations.length > 0) {
 					/* The same commit gate every live write surface runs — a clear
 					 * batch that would introduce any finding is refused whole. */
-					const gate = mutationCommitVerdict(working, plan.mutations);
+					const gate = mutationCommitVerdict(
+						working,
+						plan.mutations,
+						LOOKUP_CONTEXT_UNAVAILABLE,
+					);
 					if (!gate.ok) {
 						console.log(
 							"  MEDIA GATE-REFUSED — the planned clears would introduce:\n" +
@@ -266,13 +270,22 @@ async function main() {
 			if (changed) {
 				appsRepaired++;
 				if (apply) {
-					/* Replaces the blueprint wholesale + appends a `kind:
-					 * "migration"` reload-sentinel to the stream — a builder tab
-					 * open across the write reloads onto the repaired row instead
-					 * of overwriting the repairs. Repairs only remove or rename —
+					/* Derives a deterministic mutation batch against the exact
+					 * loaded sequence and appends it as `kind: "migration"` — a
+					 * builder tab open across the write reloads onto the repaired
+					 * row instead of overwriting the repairs. Repairs only remove or rename —
 					 * never add an asset reference — so the writers' reverse-index
 					 * sync has nothing to add for this write. */
-					await appendSyntheticBatch(appId, toPersistableDoc(working));
+					await appendSyntheticBatch({
+						appId,
+						expectedBaseSeq: appDoc.mutation_seq,
+						targetDoc: toPersistableDoc(working),
+						authority: {
+							kind: "system",
+							actorId: "system:legacy-findings-repair",
+							reason: "Operator-approved legacy finding repair",
+						},
+					});
 				}
 			}
 			if (hasFindings || printedMediaLines) console.log("");

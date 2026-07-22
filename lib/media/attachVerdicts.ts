@@ -31,7 +31,7 @@
 //     `confirmAssetReady` refines `mimeType`/`extension` but never
 //     `kind`.
 //
-// The export boundary (`lib/media/boundaryValidation.ts`) keeps running
+// The export boundary (`lib/export/boundaryValidation.ts`) keeps running
 // the same media rules with a freshly resolved manifest — as
 // defense-in-depth for refs committed before this verdict existed and
 // for ops disasters (a hand-deleted row, a reaped object), not as the
@@ -152,7 +152,7 @@ export function describeMediaExpectationFailures(
  * ids) in one Project-filtered batch, run the per-asset judgment over the
  * expectations, then hold the post-attach aggregate of referenced READY
  * media inside the export ceiling — the same `MAX_MEDIA_EXPORT_ASSETS` /
- * `MAX_MEDIA_EXPORT_BYTES` budget `boundaryValidation.ts` enforces at
+ * `MAX_MEDIA_EXPORT_BYTES` budget `lib/export/boundaryValidation.ts` enforces at
  * export, applied here so the user hears "remove other media first" at
  * the attach instead of at the export door.
  *

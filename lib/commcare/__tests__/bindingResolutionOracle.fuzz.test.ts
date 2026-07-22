@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Property-based fuzzer for the binding-resolution oracle.
  *
@@ -68,7 +69,7 @@ const FUZZ_TIMEOUT_MS = 120_000;
  */
 function prepareAndGuard(doc: BlueprintDoc): void {
 	rebuildFieldParent(doc);
-	const errors = runValidation(doc);
+	const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (errors.length > 0) {
 		throw new Error(
 			`Generator slip: produced schema-invalid doc with errors:\n${errors

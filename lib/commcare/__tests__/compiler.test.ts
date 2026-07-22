@@ -8,6 +8,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -1671,7 +1672,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			],
 		});
 
-		const errors = runValidation(novaDoc);
+		const errors = runValidation(novaDoc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.find(
 				(e) =>

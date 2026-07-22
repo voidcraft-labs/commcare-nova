@@ -159,7 +159,7 @@ export function applyMutation(
  */
 export function applyMutations(
 	draft: Draft<BlueprintDoc>,
-	muts: Mutation[],
+	muts: readonly Mutation[],
 ): MutationResult[] {
 	ensureReferenceIndex(draft as unknown as BlueprintDoc);
 	const results: MutationResult[] = [];

@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { buildDoc, caseListConfig, f, xp } from "../../__tests__/docHelpers";
 import { errorIdentity, evaluateBoundary } from "../validator/gate";
@@ -73,7 +74,7 @@ describe("app rules", () => {
 		const doc = update(minDoc(), (d) => {
 			d.appName = "";
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "EMPTY_APP_NAME")).toBe(true);
 	});
 
@@ -81,14 +82,16 @@ describe("app rules", () => {
 		// CommCare HQ rejects a moduleless app at build time; the validator must
 		// catch it at authoring time rather than let it surface as an HQ failure.
 		const doc = buildDoc({ appName: "Test", modules: [] });
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "NO_MODULES")).toBe(true);
 	});
 
 	it("does not flag NO_MODULES when a module exists", () => {
-		expect(runValidation(minDoc()).some((e) => e.code === "NO_MODULES")).toBe(
-			false,
-		);
+		expect(
+			runValidation(minDoc(), LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "NO_MODULES",
+			),
+		).toBe(false);
 	});
 
 	it("phrases NO_MODULES for the remove-last-module case, not just export", () => {
@@ -96,9 +99,10 @@ describe("app rules", () => {
 		// message must not just say "add a module" (backwards for a delete) — it
 		// names the remove-path resolution.
 		const msg =
-			runValidation(buildDoc({ appName: "Test", modules: [] })).find(
-				(e) => e.code === "NO_MODULES",
-			)?.message ?? "";
+			runValidation(
+				buildDoc({ appName: "Test", modules: [] }),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).find((e) => e.code === "NO_MODULES")?.message ?? "";
 		expect(msg).toMatch(/if you're removing your last one, add another first/i);
 	});
 
@@ -133,7 +137,7 @@ describe("app rules", () => {
 				},
 			],
 		});
-		expect(runValidation(doc)).toEqual([]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
 	it("a case type created by forms with no module fires; a planned record alone stays clean", () => {
@@ -146,7 +150,7 @@ describe("app rules", () => {
 			];
 		});
 		expect(
-			runValidation(planned).some(
+			runValidation(planned, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "MISSING_CHILD_CASE_MODULE",
 			),
 		).toBe(false);
@@ -190,7 +194,7 @@ describe("app rules", () => {
 			],
 		});
 		expect(
-			runValidation(written).some(
+			runValidation(written, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "MISSING_CHILD_CASE_MODULE",
 			),
 		).toBe(true);
@@ -225,7 +229,7 @@ describe("app rules", () => {
 			caseTypes: [{ name: "visit", properties: [] }],
 		});
 		expect(
-			runValidation(surveyAnnotated).some(
+			runValidation(surveyAnnotated, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "MISSING_CHILD_CASE_MODULE",
 			),
 		).toBe(false);
@@ -241,7 +245,9 @@ describe("module rules", () => {
 			mod.caseType = "123_bad";
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "INVALID_CASE_TYPE_FORMAT"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "INVALID_CASE_TYPE_FORMAT",
+			),
 		).toBe(true);
 	});
 
@@ -250,7 +256,9 @@ describe("module rules", () => {
 			d.modules[d.moduleOrder[0]].caseType = "my case";
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "INVALID_CASE_TYPE_FORMAT"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "INVALID_CASE_TYPE_FORMAT",
+			),
 		).toBe(true);
 	});
 
@@ -259,7 +267,9 @@ describe("module rules", () => {
 			d.modules[d.moduleOrder[0]].caseType = "case@type!";
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "INVALID_CASE_TYPE_FORMAT"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "INVALID_CASE_TYPE_FORMAT",
+			),
 		).toBe(true);
 	});
 
@@ -268,7 +278,9 @@ describe("module rules", () => {
 			d.modules[d.moduleOrder[0]].caseType = "health-check_v2";
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "INVALID_CASE_TYPE_FORMAT"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "INVALID_CASE_TYPE_FORMAT",
+			),
 		).toBe(false);
 	});
 
@@ -277,7 +289,9 @@ describe("module rules", () => {
 			d.modules[d.moduleOrder[0]].caseType = "a".repeat(256);
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "CASE_TYPE_TOO_LONG"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "CASE_TYPE_TOO_LONG",
+			),
 		).toBe(true);
 	});
 
@@ -287,7 +301,9 @@ describe("module rules", () => {
 			mod.caseListConfig = undefined;
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "MISSING_CASE_LIST_COLUMNS",
+			),
 		).toBe(true);
 	});
 
@@ -301,7 +317,9 @@ describe("module rules", () => {
 			}
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "MISSING_CASE_LIST_COLUMNS",
+			),
 		).toBe(true);
 	});
 
@@ -312,7 +330,9 @@ describe("module rules", () => {
 			if (column) column.visibleInDetail = false;
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "MISSING_CASE_LIST_COLUMNS",
+			),
 		).toBe(false);
 	});
 
@@ -323,7 +343,9 @@ describe("module rules", () => {
 			caseTypes: [{ name: "c", properties: [] }],
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "MISSING_CASE_LIST_COLUMNS",
+			),
 		).toBe(true);
 	});
 });
@@ -368,7 +390,9 @@ describe("form rules", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_CASE_PROPERTY"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "DUPLICATE_CASE_PROPERTY",
+			),
 		).toBe(false);
 	});
 
@@ -408,7 +432,7 @@ describe("form rules", () => {
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		// Fires both INVALID_FIELD_ID and CASE_PROPERTY_BAD_FORMAT
 		expect(errors.some((e) => e.code === "CASE_PROPERTY_BAD_FORMAT")).toBe(
 			true,
@@ -454,14 +478,18 @@ describe("form rules", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "CASE_PROPERTY_TOO_LONG"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "CASE_PROPERTY_TOO_LONG",
+			),
 		).toBe(true);
 	});
 
 	it("allows case_name even though it is technically reserved", () => {
 		const doc = minDoc();
 		expect(
-			runValidation(doc).some((e) => e.code === "RESERVED_CASE_PROPERTY"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "RESERVED_CASE_PROPERTY",
+			),
 		).toBe(false);
 	});
 
@@ -471,7 +499,9 @@ describe("form rules", () => {
 			f({ kind: "text", id: "name", label: "B" }),
 		]);
 		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_FIELD_ID"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "DUPLICATE_FIELD_ID",
+			),
 		).toBe(true);
 	});
 
@@ -486,7 +516,9 @@ describe("form rules", () => {
 			}),
 		]);
 		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_FIELD_ID"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "DUPLICATE_FIELD_ID",
+			),
 		).toBe(false);
 	});
 
@@ -503,7 +535,9 @@ describe("form rules", () => {
 			}),
 		]);
 		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_FIELD_ID"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === "DUPLICATE_FIELD_ID",
+			),
 		).toBe(true);
 	});
 });
@@ -514,6 +548,7 @@ describe("field rules", () => {
 	it("catches field ID starting with digit", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "123_bad", label: "Q" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(true);
 	});
@@ -521,6 +556,7 @@ describe("field rules", () => {
 	it("catches field ID with hyphens (not valid XML element name)", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "my-field", label: "Q" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(true);
 	});
@@ -528,6 +564,7 @@ describe("field rules", () => {
 	it("allows field IDs with underscores", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "my_question", label: "Q" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(false);
 	});
@@ -535,6 +572,7 @@ describe("field rules", () => {
 	it("allows field IDs starting with underscore", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "_hidden", label: "Q" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(false);
 	});
@@ -546,6 +584,7 @@ describe("field rules", () => {
 	it("rejects a field ID under the reserved __nova_ prefix", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "__nova_count_x", label: "Q" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "RESERVED_FIELD_ID_PREFIX")).toBe(
 			true,
@@ -555,6 +594,7 @@ describe("field rules", () => {
 	it("allows a single leading underscore (not the reserved prefix)", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "_my_field", label: "Q" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "RESERVED_FIELD_ID_PREFIX")).toBe(
 			false,
@@ -577,6 +617,7 @@ describe("field rules", () => {
 					validate_msg: "Risk must resolve",
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			true,
@@ -599,6 +640,7 @@ describe("field rules", () => {
 					required: "true()",
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "REQUIRED_ON_HIDDEN")).toBe(true);
 	});
@@ -608,6 +650,7 @@ describe("field rules", () => {
 			surveyDoc([
 				f({ kind: "hidden", id: "risk", calculate: "/data/age + 1" }),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "REQUIRED_ON_HIDDEN")).toBe(false);
 	});
@@ -621,6 +664,7 @@ describe("field rules", () => {
 			surveyDoc([
 				f({ kind: "text", id: "score", label: "Score", calculate: "1 + 1" }),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "CALCULATE_ON_VISIBLE_INPUT")).toBe(
 			true,
@@ -630,6 +674,7 @@ describe("field rules", () => {
 	it("does not flag a calculate on a hidden field (its legitimate home)", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "hidden", id: "score", calculate: "1 + 1" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "CALCULATE_ON_VISIBLE_INPUT")).toBe(
 			false,
@@ -646,6 +691,7 @@ describe("field rules", () => {
 					validate: ". != ''",
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			true,
@@ -663,6 +709,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "name", label: "Name" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			true,
@@ -680,6 +727,7 @@ describe("field rules", () => {
 					validate_msg: "Age must be between 1 and 149",
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "VALIDATION_ON_NON_INPUT_KIND")).toBe(
 			false,
@@ -706,6 +754,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "note", label: "Note" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		const empty = errors.filter((e) => e.code === "EMPTY_REPEAT_COUNT");
 		expect(empty).toHaveLength(1);
@@ -725,6 +774,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "note", label: "Note" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		const empty = errors.filter((e) => e.code === "EMPTY_IDS_QUERY");
 		expect(empty).toHaveLength(1);
@@ -744,6 +794,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "note", label: "Note" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(false);
 	});
@@ -763,6 +814,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "note", label: "Note" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(false);
 	});
@@ -778,6 +830,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "name", label: "Name" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(false);
 		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(false);
@@ -802,6 +855,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "note", label: "Note" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(true);
 	});
@@ -818,6 +872,7 @@ describe("field rules", () => {
 					children: [f({ kind: "text", id: "note", label: "Note" })],
 				}),
 			]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(true);
 	});
@@ -833,7 +888,7 @@ describe("post_submit validation", () => {
 			const doc = update(minDoc(), (d) => {
 				d.forms[d.formOrder[d.moduleOrder[0]][0]].postSubmit = dest;
 			});
-			const errors = runValidation(doc);
+			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 			expect(
 				errors.filter(
 					(e) =>
@@ -851,7 +906,7 @@ describe("post_submit validation", () => {
 			(d.forms[formUuid] as unknown as { postSubmit: string }).postSubmit =
 				"nowhere";
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find((e) => e.code === "INVALID_POST_SUBMIT");
 		expect(err).toBeDefined();
 		expect(err?.message).toContain('"nowhere"');
@@ -864,7 +919,7 @@ describe("post_submit validation", () => {
 		const doc = update(minDoc(), (d) => {
 			d.forms[d.formOrder[d.moduleOrder[0]][0]].postSubmit = "parent_module";
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find(
 			(e) => e.code === "POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
 		);
@@ -899,7 +954,7 @@ describe("post_submit validation", () => {
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find(
 			(e) => e.code === "POST_SUBMIT_MODULE_CASE_LIST_ONLY",
 		);
@@ -910,7 +965,7 @@ describe("post_submit validation", () => {
 
 	it("does not produce errors when post_submit is absent", () => {
 		const doc = minDoc();
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.filter(
 				(e) =>
@@ -930,7 +985,7 @@ describe("form_links validation", () => {
 				d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [];
 			},
 		);
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.find((e) => e.code === "FORM_LINK_EMPTY")).toBeDefined();
 	});
 
@@ -949,7 +1004,7 @@ describe("form_links validation", () => {
 				];
 			},
 		);
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
 		expect(err?.message).toContain("ghost-module");
@@ -969,7 +1024,7 @@ describe("form_links validation", () => {
 				},
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
 		expect(err?.message).toContain("nonexistent-form");
@@ -984,7 +1039,7 @@ describe("form_links validation", () => {
 				{ target: { type: "form", moduleUuid, formUuid } },
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.find((e) => e.code === "FORM_LINK_SELF_REFERENCE"),
 		).toBeDefined();
@@ -1021,7 +1076,7 @@ describe("form_links validation", () => {
 				},
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.find((e) => e.code === "FORM_LINK_NO_FALLBACK"),
 		).toBeDefined();
@@ -1059,7 +1114,7 @@ describe("form_links validation", () => {
 				},
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.find((e) => e.code === "FORM_LINK_NO_FALLBACK"),
 		).toBeUndefined();
@@ -1096,7 +1151,7 @@ describe("form_links validation", () => {
 				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
 	});
 
@@ -1128,7 +1183,7 @@ describe("form_links validation", () => {
 				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
 	});
 
@@ -1171,7 +1226,7 @@ describe("form_links validation", () => {
 				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
 	});
 
@@ -1203,7 +1258,7 @@ describe("form_links validation", () => {
 				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.filter((e) => e.code.startsWith("FORM_LINK"))).toEqual([]);
 	});
 
@@ -1241,7 +1296,7 @@ describe("form_links validation", () => {
 				{ target: { type: "module", moduleUuid: m1 } },
 			];
 		});
-		const errors = runValidation(doc2);
+		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.filter((e) => e.code.startsWith("FORM_LINK"))).toEqual([]);
 	});
 });
@@ -1270,6 +1325,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 	it("rejects instance('item-list:lookup') in a calculate", () => {
 		const errors = runValidation(
 			surveyWithFieldCalculate("instance('item-list:countries')/list/item/id"),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		const fixture = errors.find(
 			(e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED",
@@ -1282,6 +1338,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 	it("rejects instance('commcare:reports') in a calculate", () => {
 		const errors = runValidation(
 			surveyWithFieldCalculate("instance('commcare:reports')/foo"),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
 			true,
@@ -1291,6 +1348,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 	it("rejects instance('commcare-reports:abc') in a calculate", () => {
 		const errors = runValidation(
 			surveyWithFieldCalculate("instance('commcare-reports:abc')/x"),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
 			true,
@@ -1308,7 +1366,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 				} as Parameters<typeof f>[0]),
 			]);
 			expect(
-				runValidation(doc).some(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 					(e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED",
 				),
 			).toBe(true);
@@ -1320,6 +1378,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			surveyWithFieldCalculate(
 				"instance('casedb')/casedb/case[@case_type='x']/foo",
 			),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
 			false,
@@ -1331,6 +1390,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			surveyWithFieldCalculate(
 				"instance('commcaresession')/session/context/userid",
 			),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
 			false,
@@ -1340,6 +1400,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 	it("allows fields with no XPath surface containing an instance ref", () => {
 		const errors = runValidation(
 			surveyDoc([f({ kind: "text", id: "q1", label: "Q" })]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
 			false,
@@ -1440,7 +1501,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	] as const) {
 		it(`fires on a primary case field inside a ${mode} repeat`, () => {
 			const doc = withPrimaryFieldInRepeat(mode);
-			const errors = runValidation(doc);
+			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 			const offender = errors.find(
 				(e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT",
 			);
@@ -1493,7 +1554,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT")).toBe(
 			false,
 		);
@@ -1542,7 +1603,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT")).toBe(
 			false,
 		);
@@ -1604,7 +1665,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT")).toBe(
 			false,
 		);
@@ -1665,7 +1726,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
 		expect(offender).toBeDefined();
 		expect(offender?.message).toContain("child");
@@ -1731,7 +1792,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
 		expect(offender).toBeDefined();
 		expect(offender?.message).toContain('"kids"');
@@ -1789,7 +1850,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
 			false,
 		);
@@ -1828,7 +1889,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
 			false,
 		);
@@ -1971,7 +2032,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 			kind: "calculate",
 			expr: "#case/age + 1",
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find(
 			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
 		);
@@ -1991,7 +2052,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 				kind: surface,
 				expr: "#case/total_visits",
 			});
-			const errors = runValidation(doc);
+			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 			expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
 				true,
 			);
@@ -2003,7 +2064,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 			kind: "calculate",
 			expr: "#case/case_id",
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.filter((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM"),
 		).toEqual([]);
@@ -2016,7 +2077,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 			kind: "calculate",
 			expr: "#case/case_id_x",
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find(
 			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
 		);
@@ -2066,7 +2127,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.filter((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM"),
 		).toEqual([]);
@@ -2084,7 +2145,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 			const field = Object.values(d.fields)[0] as Record<string, unknown>;
 			field.label = "Age: #case/age";
 		});
-		const errors = runValidation(docWithLabel);
+		const errors = runValidation(docWithLabel, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
 			true,
 		);
@@ -2142,7 +2203,7 @@ describe("prose case-ref validation", () => {
 			surface: "label",
 			text: "Code: #mother/typoprop",
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const offender = errors.find(
 			(e) =>
 				e.code === "INVALID_CASE_REF" && e.message.includes("#mother/typoprop"),
@@ -2158,7 +2219,7 @@ describe("prose case-ref validation", () => {
 			surface: "validate_msg",
 			text: "Must match #mother/typoprop",
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some(
 				(e) =>
@@ -2173,7 +2234,7 @@ describe("prose case-ref validation", () => {
 			surface: "label",
 			text: "Code: #mother/household_code",
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.filter((e) => e.code === "INVALID_CASE_REF")).toEqual([]);
 	});
 
@@ -2190,7 +2251,7 @@ describe("prose case-ref validation", () => {
 	]) {
 		it(`leaves unresolved prose untouched: "${text}"`, () => {
 			const doc = followupWithProse({ surface: "label", text });
-			const errors = runValidation(doc);
+			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 			expect(errors.filter((e) => e.code === "INVALID_CASE_REF")).toEqual([]);
 		});
 	}
@@ -2202,7 +2263,7 @@ describe("prose case-ref validation", () => {
 			surface: "label",
 			text: "See #N/A and #case/case_name and #mother/typoprop",
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const caseRefErrors = errors.filter((e) => e.code === "INVALID_CASE_REF");
 		expect(caseRefErrors).toHaveLength(1);
 		expect(caseRefErrors[0].message).toContain("#mother/typoprop");
@@ -2244,7 +2305,10 @@ describe("RESERVED_CASE_TYPE_NAME", () => {
 	}
 
 	it("rejects a case type named 'user' with the collision message", () => {
-		const errors = runValidation(appWithCaseType("user"));
+		const errors = runValidation(
+			appWithCaseType("user"),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		const offender = errors.find((e) => e.code === "RESERVED_CASE_TYPE_NAME");
 		expect(offender).toBeDefined();
 		expect(offender?.message).toContain("#user/");
@@ -2257,7 +2321,10 @@ describe("RESERVED_CASE_TYPE_NAME", () => {
 
 	it("rejects 'case', 'form', and 'parent' too", () => {
 		for (const name of ["case", "form", "parent"]) {
-			const errors = runValidation(appWithCaseType(name));
+			const errors = runValidation(
+				appWithCaseType(name),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
 			expect(errors.some((e) => e.code === "RESERVED_CASE_TYPE_NAME")).toBe(
 				true,
 			);
@@ -2265,12 +2332,18 @@ describe("RESERVED_CASE_TYPE_NAME", () => {
 	});
 
 	it("is case-insensitive (rejects 'Parent')", () => {
-		const errors = runValidation(appWithCaseType("Parent"));
+		const errors = runValidation(
+			appWithCaseType("Parent"),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(errors.some((e) => e.code === "RESERVED_CASE_TYPE_NAME")).toBe(true);
 	});
 
 	it("leaves a project-specific case type alone", () => {
-		const errors = runValidation(appWithCaseType("user_record"));
+		const errors = runValidation(
+			appWithCaseType("user_record"),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(errors.some((e) => e.code === "RESERVED_CASE_TYPE_NAME")).toBe(
 			false,
 		);
@@ -2321,7 +2394,7 @@ describe("connect rules", () => {
 
 	it("flags a Connect app whose forms ALL lack blocks — zero participation — once, app-scoped", () => {
 		const doc = connectDoc({ connectType: "deliver" });
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const noParticipation = errors.filter(
 			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		);
@@ -2339,12 +2412,13 @@ describe("connect rules", () => {
 		 * name. */
 		const learnDoc = connectDoc({ connectType: "learn" });
 		const deliverDoc = connectDoc({ connectType: "deliver" });
-		const learnMsg = runValidation(learnDoc).find(
+		const learnMsg = runValidation(learnDoc, LOOKUP_CONTEXT_UNAVAILABLE).find(
 			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		)?.message;
-		const deliverMsg = runValidation(deliverDoc).find(
-			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
-		)?.message;
+		const deliverMsg = runValidation(
+			deliverDoc,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).find((e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS")?.message;
 		expect(learnMsg).toContain("learn_module");
 		expect(learnMsg).toContain("assessment");
 		expect(deliverMsg).toContain("deliver_unit");
@@ -2374,7 +2448,7 @@ describe("connect rules", () => {
 				},
 			],
 		});
-		const errors = runValidation(doc).filter((e) =>
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) =>
 			e.code.startsWith("CONNECT_"),
 		);
 		expect(errors).toEqual([]);
@@ -2387,7 +2461,7 @@ describe("connect rules", () => {
 		 * documented first move. */
 		const doc = buildDoc({ appName: "Connect App", connectType: "learn" });
 		expect(
-			runValidation(doc).some(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 			),
 		).toBe(false);
@@ -2402,7 +2476,7 @@ describe("connect rules", () => {
 			connectType: "learn",
 			formConnect: { deliver_unit: { id: "stray", name: "Stray" } },
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some((e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS"),
 		).toBe(true);
@@ -2413,7 +2487,7 @@ describe("connect rules", () => {
 		/* A blockless form is auxiliary, not malformed — CONNECT_MISSING_*
 		 * adjudicate a block that IS present. */
 		const doc = connectDoc({ connectType: "deliver" });
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
 			false,
 		);
@@ -2439,7 +2513,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const empty = errors.filter((e) => e.code === "CONNECT_EMPTY_XPATH");
 		expect(empty).toHaveLength(1);
 		expect(empty[0].message).toContain("entity_id");
@@ -2457,7 +2531,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const empty = errors.filter((e) => e.code === "CONNECT_EMPTY_XPATH");
 		expect(empty).toHaveLength(1);
 		expect(empty[0].message).toContain("entity_name");
@@ -2470,7 +2544,7 @@ describe("connect rules", () => {
 				assessment: { id: "quiz", user_score: xp("") },
 			},
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const empty = errors.filter((e) => e.code === "CONNECT_EMPTY_XPATH");
 		expect(empty).toHaveLength(1);
 		expect(empty[0].message).toContain("user_score");
@@ -2491,7 +2565,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc).filter((e) =>
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) =>
 			e.code.startsWith("CONNECT_"),
 		);
 		expect(errors).toEqual([]);
@@ -2519,7 +2593,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc).filter(
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
 		);
 		expect(errors).toHaveLength(1);
@@ -2540,7 +2614,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc).filter(
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
 		);
 		expect(errors).toHaveLength(1);
@@ -2559,7 +2633,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc).filter(
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
 		);
 		expect(errors).toEqual([]);
@@ -2578,7 +2652,7 @@ describe("connect rules", () => {
 				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
 			},
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.filter((e) => e.code === "CONNECT_ID_INVALID_FORMAT"),
 		).toEqual([]);
@@ -2596,7 +2670,7 @@ describe("connect rules", () => {
 				assessment: { user_score: xp("100") },
 			},
 		});
-		const missing = runValidation(doc).filter(
+		const missing = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_MISSING",
 		);
 		expect(missing).toHaveLength(2);
@@ -2623,7 +2697,9 @@ describe("connect rules", () => {
 			},
 		});
 		expect(
-			runValidation(doc).filter((e) => e.code === "CONNECT_ID_MISSING"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(e) => e.code === "CONNECT_ID_MISSING",
+			),
 		).toEqual([]);
 	});
 
@@ -2638,7 +2714,11 @@ describe("connect rules", () => {
 				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
 			},
 		});
-		const findings = evaluateBoundary(doc, new Map());
+		const findings = evaluateBoundary(
+			doc,
+			new Map(),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(findings.some((e) => e.code === "CONNECT_ID_MISSING")).toBe(true);
 	});
 
@@ -2665,12 +2745,12 @@ describe("connect rules", () => {
 			},
 		});
 		expect(
-			runValidation(learnDoc).filter(
+			runValidation(learnDoc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 				(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
 			),
 		).toHaveLength(1);
 		expect(
-			runValidation(deliverDoc).filter(
+			runValidation(deliverDoc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 				(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
 			),
 		).toHaveLength(2);
@@ -2697,7 +2777,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc).filter(
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_TOO_LONG",
 		);
 		expect(errors).toHaveLength(1);
@@ -2718,7 +2798,7 @@ describe("connect rules", () => {
 				},
 			},
 		});
-		const errors = runValidation(doc).filter(
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_TOO_LONG",
 		);
 		expect(errors).toEqual([]);
@@ -2740,10 +2820,14 @@ describe("connect rules", () => {
 			},
 		});
 		expect(
-			runValidation(learnDoc).filter((e) => e.code === "CONNECT_ID_TOO_LONG"),
+			runValidation(learnDoc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(e) => e.code === "CONNECT_ID_TOO_LONG",
+			),
 		).toHaveLength(1);
 		expect(
-			runValidation(deliverDoc).filter((e) => e.code === "CONNECT_ID_TOO_LONG"),
+			runValidation(deliverDoc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(e) => e.code === "CONNECT_ID_TOO_LONG",
+			),
 		).toHaveLength(2);
 	});
 
@@ -2794,7 +2878,7 @@ describe("connect rules", () => {
 				},
 			],
 		});
-		const dups = runValidation(doc).filter(
+		const dups = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(e) => e.code === "CONNECT_ID_DUPLICATE",
 		);
 		expect(dups).toHaveLength(1);
@@ -2845,7 +2929,9 @@ describe("connect rules", () => {
 			],
 		});
 		expect(
-			runValidation(doc).filter((e) => e.code === "CONNECT_ID_DUPLICATE"),
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(e) => e.code === "CONNECT_ID_DUPLICATE",
+			),
 		).toEqual([]);
 	});
 });

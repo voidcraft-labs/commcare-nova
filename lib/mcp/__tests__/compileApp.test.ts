@@ -39,7 +39,7 @@ import { validationError } from "@/lib/commcare/validator/errors";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
@@ -62,8 +62,8 @@ vi.mock("@/lib/commcare/compiler", () => ({
 /* The media-validation gate reads the DB; mock it so the unit suite
  * stays hermetic. Default `[]` = no media issues = proceed; the
  * media-rejection test overrides per-call. */
-vi.mock("@/lib/media/boundaryValidation", () => ({
-	collectBoundaryViolations: vi.fn(),
+vi.mock("@/lib/export/boundaryValidation", () => ({
+	prepareExportBoundary: vi.fn(),
 }));
 /* The manifest resolver reads the DB + GCS; mock it so tests pin the
  * media set. Default empty `Map` = media-free; the media-bearing json test
@@ -121,12 +121,20 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 }
 
 /**
- * Assemble the `{ doc, app }` pair `loadAppBlueprint` resolves to on
+ * Assemble the `{ doc, app, access }` value `loadAppBlueprint` resolves to on
  * the happy path. Both sides share the same fixture blueprint so
  * downstream assertions can compare-by-reference.
  */
 function fixtureLoadedApp(appOverrides?: Partial<AppDoc>): LoadedApp {
-	return { doc: fixtureBlueprint(), app: fixtureAppDoc(appOverrides) };
+	return {
+		doc: fixtureBlueprint(),
+		app: fixtureAppDoc(appOverrides),
+		access: {
+			projectId: "project-1",
+			role: "owner",
+			actorUserId: "u1",
+		},
+	};
 }
 
 /**
@@ -149,14 +157,27 @@ beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
-	vi.mocked(collectBoundaryViolations).mockReset();
+	vi.mocked(prepareExportBoundary).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	/* Default: no media issues → the gate is transparent. Tests that
 	 * exercise the rejection path override with `mockResolvedValueOnce`. */
-	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	/* Default: media-free → empty manifest. The media-bearing json test
 	 * overrides with a populated `Map`. */
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	vi.mocked(prepareExportBoundary).mockImplementation(
+		async (input) =>
+			({
+				ok: true,
+				prepared: {
+					...input,
+					assets: await resolveMediaManifest(
+						input.doc,
+						input.access.projectId,
+						{ withBytes: true },
+					),
+				},
+			}) as never,
+	);
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -346,14 +367,17 @@ describe("registerCompileApp — media validation gate", () => {
 		/* A stale media ref — the kind of issue that would otherwise make
 		 * `expandDoc`'s `requireAssetRef` throw an opaque internal error.
 		 * The gate surfaces the rule's actionable message instead. */
-		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
-			validationError(
-				"MEDIA_ASSET_NOT_READY",
-				"field",
-				"At the icon on module 'Patients', the image is still uploading. Wait for it to finish, then try again.",
-				{ moduleName: "Patients" },
-			),
-		]);
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: false,
+			violations: [
+				validationError(
+					"MEDIA_ASSET_NOT_READY",
+					"field",
+					"At the icon on module 'Patients', the image is still uploading. Wait for it to finish, then try again.",
+					{ moduleName: "Patients" },
+				),
+			],
+		} as never);
 
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
@@ -380,6 +404,28 @@ describe("registerCompileApp — media validation gate", () => {
 		expect(compileCcz).not.toHaveBeenCalled();
 	});
 
+	it("does not recast an operational lookup-read failure as invalid_input", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		vi.mocked(prepareExportBoundary).mockRejectedValueOnce(
+			new Error("lookup database unavailable"),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+			isError?: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+		};
+
+		expect(out.isError).toBe(true);
+		expect(payload.error_type).not.toBe("invalid_input");
+		expect(expandDoc).not.toHaveBeenCalled();
+		expect(compileCcz).not.toHaveBeenCalled();
+	});
+
 	it("proceeds to compile when the ccz boundary gate is clean", async () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
@@ -397,7 +443,9 @@ describe("registerCompileApp — media validation gate", () => {
 			format: string;
 		};
 		expect(payload.format).toBe("ccz");
-		expect(collectBoundaryViolations).toHaveBeenCalledTimes(1);
+		expect(prepareExportBoundary).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "ccz" }),
+		);
 		expect(compileCcz).toHaveBeenCalledTimes(1);
 	});
 
@@ -406,14 +454,17 @@ describe("registerCompileApp — media validation gate", () => {
 		/* A stale ref on a json compile would make the bundle emit
 		 * references to bytes the manifest can't supply — so the json path
 		 * runs the SAME gate as ccz and surfaces `invalid_input`. */
-		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
-			validationError(
-				"MEDIA_ASSET_NOT_READY",
-				"field",
-				"At the icon on module 'Patients', the image is still uploading. Wait for it to finish, then try again.",
-				{ moduleName: "Patients" },
-			),
-		]);
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: false,
+			violations: [
+				validationError(
+					"MEDIA_ASSET_NOT_READY",
+					"field",
+					"At the icon on module 'Patients', the image is still uploading. Wait for it to finish, then try again.",
+					{ moduleName: "Patients" },
+				),
+			],
+		} as never);
 
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
@@ -428,7 +479,9 @@ describe("registerCompileApp — media validation gate", () => {
 			error_type: string;
 		};
 		expect(payload.error_type).toBe("invalid_input");
-		expect(collectBoundaryViolations).toHaveBeenCalledTimes(1);
+		expect(prepareExportBoundary).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "hq-json" }),
+		);
 		/* Gate fires before expand — no broken bundle is built. */
 		expect(expandDoc).not.toHaveBeenCalled();
 	});

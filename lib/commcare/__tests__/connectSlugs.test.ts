@@ -32,6 +32,7 @@ import {
 } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 
 // ── Fixture helpers ──────────────────────────────────────────────────
@@ -680,7 +681,9 @@ describe("Connect id — validator valid-path set exposes the stored id", () => 
 	}
 
 	const refErrors = (doc: BlueprintDoc) =>
-		runValidation(doc).filter((e) => e.code === "INVALID_REF");
+		runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === "INVALID_REF",
+		);
 
 	it("validates clean when a field references the learn_module path", () => {
 		expect(refErrors(learnDocReferencing("/data/intro_module"))).toEqual([]);

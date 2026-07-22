@@ -52,6 +52,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import {
@@ -561,7 +562,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
-				const verdict = mutationCommitVerdict(get(), mutations);
+				const verdict = mutationCommitVerdict(
+					get(),
+					mutations,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
 				if (!verdict.ok) {
 					// Render to the concise BUILDER copy once — both the toast
 					// and the returned `CommitOutcome.messages` speak it. The

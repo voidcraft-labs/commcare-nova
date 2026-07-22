@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Per-mode + per-nest compiler tests for repeat-context subcase
  * emission. Pins the wire shape across the (repeat_mode, nest)
@@ -54,7 +55,7 @@ function compile(doc: ReturnType<typeof buildDoc>): {
 	form: string;
 	suite: string;
 } {
-	const errors = runValidation(doc);
+	const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	expect(
 		errors.find(
 			(e) =>

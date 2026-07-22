@@ -1,3 +1,4 @@
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // The gate half of the shared column-kind ↔ property-type predicate:
 // a RESOLVED mismatch is a finding; unknown passes (honest-unknown-
 // permissive — the same verdict the workspace + pickers derive, so
@@ -44,7 +45,7 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some((e) => e.code === CODE && e.message.includes("nickname")),
 		).toBe(true);
@@ -62,7 +63,11 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("passes a date column on a hidden today() writer — inference resolves date", () => {
@@ -77,7 +82,11 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("passes on an UNKNOWN type — missing metadata never manufactures a finding", () => {
@@ -92,7 +101,11 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(e) => e.code === CODE,
+			),
+		).toBe(false);
 	});
 
 	it("fires on a phone column over a standard datetime property", () => {
@@ -107,7 +120,7 @@ describe("columnKindPropertyType", () => {
 				}),
 			],
 		});
-		const errors = runValidation(doc);
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
 			errors.some((e) => e.code === CODE && e.message.includes("date_opened")),
 		).toBe(true);

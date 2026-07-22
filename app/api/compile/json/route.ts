@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
 	try {
 		const { doc, assets, compiledAtSeq } = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "export",
+			mode: "hq-json",
 		});
 
 		// Only a media-bearing app passes the manifest to `expandDoc`; a

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type Field, fieldKinds, fieldSchema } from "@/lib/domain";
 import { NEW_FIELD_BUILDERS } from "../newFieldDefaults";
 
@@ -86,9 +87,11 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
 		const field = { ...built, uuid: UUID } as Field;
-		const verdict = mutationCommitVerdict(doc, [
-			{ kind: "addField", parentUuid: formUuid, field },
-		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "addField", parentUuid: formUuid, field }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(
 			verdict.ok,
 			verdict.ok

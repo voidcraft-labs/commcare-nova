@@ -20,14 +20,14 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { asAssetId } from "@/lib/domain/multimedia";
-import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
+import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
 vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
-vi.mock("@/lib/media/boundaryValidation", () => ({
-	collectBoundaryViolations: vi.fn(),
+vi.mock("@/lib/export/boundaryValidation", () => ({
+	prepareExportBoundary: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
@@ -79,14 +79,30 @@ function reqWith(body: unknown) {
 function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 13) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
 		app: { blueprint: doc, owner: "u1", mutation_seq: mutationSeq },
+		projectId: "project-1",
+		role: "owner",
+		actorUserId: "u1",
 	} as never);
 }
 
 beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	loadsDoc(validDoc());
-	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	vi.mocked(prepareExportBoundary).mockImplementation(
+		async (input) =>
+			({
+				ok: true,
+				prepared: {
+					...input,
+					assets: await resolveMediaManifest(
+						input.doc,
+						input.access.projectId,
+						{ withBytes: true },
+					),
+				},
+			}) as never,
+	);
 	vi.mocked(expandDoc).mockReturnValue({
 		doc_type: "Application",
 		name: "Vaccine Tracker",
@@ -106,6 +122,9 @@ describe("POST /api/compile/json", () => {
 		expect(JSON.parse(await res.text())).toMatchObject({
 			name: "Vaccine Tracker",
 		});
+		expect(prepareExportBoundary).toHaveBeenCalledWith(
+			expect.objectContaining({ mode: "hq-json" }),
+		);
 	});
 
 	it("returns a zip bundling the json + HQ-format multimedia.zip when the app has media", async () => {
@@ -157,14 +176,17 @@ describe("POST /api/compile/json", () => {
 	});
 
 	it("returns 422 (not 500) when a media reference is stale", async () => {
-		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
-			validationError(
-				"MEDIA_KIND_MISMATCH",
-				"field",
-				"The attached asset is an audio file but the slot expects an image.",
-				{ formName: "Reg", fieldId: "case_name" },
-			),
-		]);
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: false,
+			violations: [
+				validationError(
+					"MEDIA_KIND_MISMATCH",
+					"field",
+					"The attached asset is an audio file but the slot expects an image.",
+					{ formName: "Reg", fieldId: "case_name" },
+				),
+			],
+		} as never);
 
 		const res = await POST(reqWith({ appId: "a1" }));
 		// Read the body (asserting the message + closing the response
@@ -175,6 +197,19 @@ describe("POST /api/compile/json", () => {
 		expect(body.error).toContain("isn't ready to export");
 		expect(body.details?.[0]).toContain("wrong type");
 		// The boundary gate short-circuits before expand.
+		expect(expandDoc).not.toHaveBeenCalled();
+	});
+
+	it("keeps an operational lookup-read failure operational and emits nothing", async () => {
+		vi.mocked(prepareExportBoundary).mockRejectedValueOnce(
+			new Error("lookup database unavailable"),
+		);
+
+		const res = await POST(reqWith({ appId: "a1" }));
+		const body = (await res.json()) as { error: string };
+
+		expect(res.status).toBe(500);
+		expect(body.error).not.toContain("isn't ready to export");
 		expect(expandDoc).not.toHaveBeenCalled();
 	});
 });
