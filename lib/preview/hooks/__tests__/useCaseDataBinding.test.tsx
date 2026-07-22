@@ -221,9 +221,10 @@ describe("useCases query constraints", () => {
 		act(() => {
 			store.getState().beginAccessRefresh();
 		});
-		// The epoch is part of the render identity, so no effect must run before
-		// source rows disappear.
-		expect(hook.result.current.state).toEqual({ kind: "loading" });
+		// The epoch is part of the render identity, so source rows disappear in
+		// the same render. The query is deliberately idle while no authoritative
+		// Project snapshot exists; it becomes loading only after authorization.
+		expect(hook.result.current.state).toEqual({ kind: "idle" });
 		/* The new epoch is intentionally dormant until GET installs its atomic
 		 * Project/role/doc snapshot. A pre-snapshot read could otherwise publish
 		 * source-authorized data under the destination generation. */
@@ -253,7 +254,7 @@ describe("useCases query constraints", () => {
 				constraintSource: "unconstrained",
 			});
 		});
-		expect(hook.result.current.state).toEqual({ kind: "loading" });
+		expect(hook.result.current.state).toEqual({ kind: "idle" });
 		act(() => {
 			store.getState().applyAccessSnapshot({
 				projectId: "destination-project",

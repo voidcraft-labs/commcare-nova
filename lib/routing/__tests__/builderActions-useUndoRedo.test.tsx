@@ -61,11 +61,17 @@ vi.mock("@/lib/routing/domQueries", () => ({
 	flashUndoHighlight: (el: HTMLElement) => flashUndoHighlight(el),
 }));
 
-vi.mock("@/lib/session/hooks", () => ({
-	useActiveFieldId: () => activeFieldIdRef.current,
-	useProjectScopeEpoch: () => 0,
-	useSetFocusHint: () => setFocusHint,
-}));
+vi.mock("@/lib/session/hooks", async () => {
+	const actual = await vi.importActual<typeof import("@/lib/session/hooks")>(
+		"@/lib/session/hooks",
+	);
+	return {
+		...actual,
+		useActiveFieldId: () => activeFieldIdRef.current,
+		useProjectScopeEpoch: () => 0,
+		useSetFocusHint: () => setFocusHint,
+	};
+});
 
 import { useUndoRedo } from "@/lib/routing/builderActions";
 

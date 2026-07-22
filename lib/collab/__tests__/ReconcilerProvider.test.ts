@@ -18,6 +18,9 @@ import type { BlueprintDoc } from "@/lib/doc/types";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
+const reportClientError = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/clientErrorReporter", () => ({ reportClientError }));
+
 const SOURCE_MANIFEST = {
 	projectId: "project-source",
 	projectRevision: "17",
@@ -112,6 +115,7 @@ class FakeEventSource {
 afterEach(() => {
 	FakeEventSource.instances.length = 0;
 	window.sessionStorage.clear();
+	reportClientError.mockReset();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
@@ -326,6 +330,11 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		});
 		expect(runtime.reconciler.getSnapshot().revoked).toBe(true);
 		expect(FakeEventSource.instances).toHaveLength(1);
+		expect(reportClientError).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "Project-scope cache reset failed (app app-1)",
+			}),
+		);
 		runtime.suspend();
 	});
 

@@ -1851,25 +1851,41 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			h.enableManualReload();
-			// Batch A 409s → rejectedBatchId = A, a reload is requested + starts.
+			// Batch A first fails transiently, so its retry sends while the shared
+			// recovery loop has already armed the following tick.
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "A" }]);
 			const aId = h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
-			expect(h.pendingReloads()).toBe(1);
+			await h.resolvePut(0, { ok: false, kind: "network" });
+			expect(h.hasScheduledRetry()).toBe(true);
+			await h.runScheduledRetry();
+			expect(h.puts).toHaveLength(2);
+			expect(h.hasScheduledRetry()).toBe(true);
 
-			// A second edit dispatches B behind the barrier — nothing sends.
+			// The retry 409s → rejectedBatchId = A and the reload starts. Fire the
+			// already-armed tick while that GET is pending: it must not re-send A.
+			await h.resolvePut(1, { ok: false, kind: "commitRejected" });
+			expect(h.pendingReloads()).toBe(1);
+			await h.runScheduledRetry();
+			expect(h.puts).toHaveLength(2);
+
+			// A second edit lands while access is paused. It stays in the displayed
+			// human delta rather than minting a batch under the source capability.
 			h.docStore
 				.getState()
 				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
-			const bId = h.reconciler.dispatchHumanBatch();
-			expect(h.puts).toHaveLength(1);
+			expect(h.reconciler.dispatchHumanBatch()).toBeUndefined();
+			expect(h.puts).toHaveLength(2);
 
-			// The reload lands: A (rejected) is dropped, B survives and re-sends.
+			// The reload lands: A (rejected) is dropped, then the authoritative
+			// editor snapshot mints the preserved human delta as the next batch.
 			const putsBefore = h.puts.length;
 			await h.resolveReload({ blueprint: makeDoc("Fresh"), seq: 6 });
-			const sentAfter = h.puts.slice(putsBefore).map((p) => p.batchId);
-			expect(sentAfter).not.toContain(aId);
-			expect(sentAfter).toContain(bId);
+			const sentAfter = h.puts.slice(putsBefore);
+			expect(sentAfter).toHaveLength(1);
+			expect(sentAfter[0].batchId).not.toBe(aId);
+			expect(sentAfter[0].mutations).toEqual([
+				{ kind: "setConnectType", connectType: "learn" },
+			]);
 		});
 	});
 

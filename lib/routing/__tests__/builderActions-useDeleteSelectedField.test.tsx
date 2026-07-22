@@ -24,10 +24,19 @@ const pathname = "/build/test-app";
 
 /* Mock the client path hook — segments control the current location. */
 const mockSegments = { current: [] as string[] };
-vi.mock("@/lib/routing/useClientPath", () => ({
-	useBuilderPathSegments: () => mockSegments.current,
-	notifyPathChange: vi.fn(),
-}));
+vi.mock("@/lib/routing/useClientPath", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/lib/routing/useClientPath")
+	>("@/lib/routing/useClientPath");
+	return {
+		...actual,
+		pushBuilderHistory: (url: string, replace = false) => {
+			if (replace) window.history.replaceState(null, "", url);
+			else window.history.pushState(null, "", url);
+		},
+		useBuilderPathSegments: () => mockSegments.current,
+	};
+});
 
 vi.mock("next/navigation", async () => {
 	const actual =
@@ -50,11 +59,17 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 	useConsultEditGuard: () => () => true,
 }));
 
-vi.mock("@/lib/session/hooks", () => ({
-	useActiveFieldId: () => undefined,
-	useClearFocusHint: () => () => {},
-	useProjectScopeEpoch: () => 0,
-}));
+vi.mock("@/lib/session/hooks", async () => {
+	const actual = await vi.importActual<typeof import("@/lib/session/hooks")>(
+		"@/lib/session/hooks",
+	);
+	return {
+		...actual,
+		useActiveFieldId: () => undefined,
+		useClearFocusHint: () => () => {},
+		useProjectScopeEpoch: () => 0,
+	};
+});
 
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 

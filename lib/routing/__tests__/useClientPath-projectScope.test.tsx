@@ -35,7 +35,7 @@ describe("Project-scoped builder history", () => {
 		window.history.replaceState(null, "", "/build/app-1/module-1/results");
 		const view = renderHook(() => useBuilderPathSegments());
 		activateBuilderHistoryScope("history-test", "app-1", 0);
-		pushBuilderHistory("/build/app-1/module-1/cases/source-case");
+		act(() => pushBuilderHistory("/build/app-1/module-1/cases/source-case"));
 		expect(view.result.current).toEqual(["module-1", "cases", "source-case"]);
 
 		act(() => activateBuilderHistoryScope("history-test", "app-1", 1));
