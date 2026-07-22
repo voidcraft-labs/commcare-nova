@@ -1,12 +1,13 @@
 /**
- * Server Actions for the home-page app list — soft-delete and restore.
+ * Server Actions for the home-page app list — soft-delete, restore, and the
+ * temporary Project-placement policy boundary.
  *
  * Mirrors the discriminated-union pattern in `settings/oauth-actions.ts`:
  * never throws, always returns a structured result. Next surfaces
  * unhandled Server Action errors as full-page error boundaries, which
  * would tear down the per-card state machine mid-flight.
  *
- * Both actions follow the same pre-flight: session → ownership → write
+ * Delete and restore follow the same pre-flight: session → ownership → write
  * → `revalidatePath("/")`. The revalidate is the primary refresh
  * mechanism — it re-runs the home page's RSC, both lists re-fetch, and
  * the row drops out of (or into) the appropriate list naturally. No
@@ -16,24 +17,24 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { roleIsOwner } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import {
 	AppAccessError,
 	resolveAppAccess,
 	resolveAppScope,
-	resolveProjectAccess,
-	userInProject,
 } from "@/lib/db/appAccess";
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
 import {
 	AppBusyError,
 	CaseDataStrandedError,
+	CrossProjectAppMoveBlockedError,
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
-import { MediaCopyFailedError } from "@/lib/media/moveMedia";
-import { projectOwnerId } from "@/lib/projects/membership";
+import {
+	appProjectMovePolicy,
+	type CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
+} from "@/lib/projects/moveTargets";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -47,13 +48,20 @@ export type RestoreAppResult =
 	| { success: true }
 	| { success: false; error: string };
 
-/** Result of `moveApp`. `warning` rides a SUCCESS (the app moved) when something
- *  non-fatal needs surfacing — e.g. the case-data sync failed after the flip. The
- *  card shows it as a persistent toast (which survives the post-move unmount),
- *  never inline card state (which the revalidate-driven unmount would discard). */
+export type MoveAppErrorCode =
+	| "unauthenticated"
+	| "invalid_input"
+	| "not_found"
+	| typeof CROSS_PROJECT_MOVE_UNAVAILABLE_CODE
+	| "busy"
+	| "case_sync_failed"
+	| "internal_error";
+
+/** Result of the temporary S01 `moveApp` boundary. A true move is unavailable;
+ * the sole success is an idempotent same-Project case-data reconciliation. */
 export type MoveAppResult =
-	| { success: true; warning?: string }
-	| { success: false; error: string };
+	| { success: true; kind: "same_project_recovered" }
+	| { success: false; code: MoveAppErrorCode; error: string };
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -158,26 +166,12 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 }
 
 /**
- * Move an app into another Project the caller helps run. Moving an app is a
- * governance act on BOTH Projects — it removes the app (and its case data) from
- * the source for everyone there, and injects it into the destination's shared
- * space — so both bars are admin/owner (`delete`): admin/owner of the source to
- * release it, admin/owner of the destination to accept it. The orchestrator
- * re-tenants the app's case data + media to match (`moveAppToProject`).
- *
- * Owner-protection closes the "pocket someone else's app" hole. Moving an app out
- * removes it from the source Project's OWNER too, so unless the caller IS that
- * owner, the destination must also include the owner — a legit team reorg keeps
- * them, but relocating into any space the owner can't follow (a personal Project
- * OR a solo shared Project the admin created) is refused. Checking destination
- * MEMBERSHIP of the owner — not "is the destination personal" — is what makes the
- * single-member-shared-Project bypass impossible. The caller-is-owner case (e.g.
- * taking your own app private) is unrestricted.
- *
- * Every authorization denial collapses to a not-found-shaped message — the source
- * to the same `App not found` as a missing row, the destination to one generic
- * line that neither confirms nor denies an arbitrary `toProjectId` exists — so a
- * crafted request can't probe either side.
+ * Temporary S01 Project-move boundary. Source authorization happens before the
+ * policy response, so a caller cannot use the unavailable-operation message to
+ * distinguish another tenant's app from a missing id. Every authorized true
+ * cross-Project request is then refused without resolving or touching the target
+ * Project. An exact same-Project call remains available only as the idempotent
+ * recovery path that reconciles case rows after a historical partial move.
  */
 export async function moveApp(
 	appId: string,
@@ -186,7 +180,11 @@ export async function moveApp(
 	try {
 		const session = await getSession();
 		if (!session) {
-			return { success: false, error: "Authentication required." };
+			return {
+				success: false,
+				code: "unauthenticated",
+				error: "Authentication required.",
+			};
 		}
 
 		/* Server Actions deserialize JSON; the `string` annotation is not a runtime
@@ -197,47 +195,34 @@ export async function moveApp(
 			typeof toProjectId !== "string" ||
 			!toProjectId.trim()
 		) {
-			return { success: false, error: "Missing app or Project identifier." };
+			return {
+				success: false,
+				code: "invalid_input",
+				error: "Missing app or Project identifier.",
+			};
 		}
 
-		// Source (admin/owner of the app's current Project) and destination
-		// (admin/owner of the target) are independent reads — resolve them in
-		// parallel. Destination `delete` passes trivially when the target IS the
-		// current Project, so a move against the app's own home falls through to the
-		// orchestrator's idempotent case re-tenant — the recovery path for a prior
-		// move whose re-tenant failed after the doc flip.
-		const [sourceResult, destResult] = await Promise.allSettled([
-			resolveAppAccess(appId, session.user.id, "delete"),
-			resolveProjectAccess(session.user.id, toProjectId, "delete"),
-		]);
-		if (sourceResult.status === "rejected") {
-			if (sourceResult.reason instanceof AppAccessError) {
-				return { success: false, error: "App not found." };
-			}
-			throw sourceResult.reason;
-		}
-		if (destResult.status === "rejected") {
-			if (destResult.reason instanceof AppAccessError) {
+		let access: Awaited<ReturnType<typeof resolveAppAccess>>;
+		try {
+			access = await resolveAppAccess(appId, session.user.id, "delete");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
 				return {
 					success: false,
-					error: "Couldn't move the app to that Project.",
+					code: "not_found",
+					error: "App not found.",
 				};
 			}
-			throw destResult.reason;
+			throw err;
 		}
-		const access = sourceResult.value;
 
-		// Owner-protection: unless the caller is the source Project's owner, the
-		// destination must include that owner, so a non-owner admin can't relocate
-		// an app somewhere its owner loses access (personal OR solo-shared).
-		if (!roleIsOwner(access.role)) {
-			const ownerId = await projectOwnerId(access.projectId);
-			if (ownerId && !(await userInProject(ownerId, toProjectId, "view"))) {
-				return {
-					success: false,
-					error: "Couldn't move the app to that Project.",
-				};
-			}
+		const policy = appProjectMovePolicy(access.projectId, toProjectId);
+		if (policy.kind === "cross_project_blocked") {
+			return {
+				success: false,
+				code: policy.code,
+				error: policy.message,
+			};
 		}
 
 		await moveAppToProject({
@@ -245,43 +230,38 @@ export async function moveApp(
 			fromProjectId: access.projectId,
 			toProjectId,
 			actorUserId: session.user.id,
-			app: access.app,
 		});
 		revalidatePath("/");
-		return { success: true };
+		return { success: true, kind: "same_project_recovered" };
 	} catch (err) {
+		if (err instanceof CrossProjectAppMoveBlockedError) {
+			return {
+				success: false,
+				code: err.code,
+				error: err.message,
+			};
+		}
 		if (err instanceof AppBusyError) {
 			return {
 				success: false,
+				code: "busy",
 				error:
-					"This app is being generated right now — try again once it finishes.",
-			};
-		}
-		if (err instanceof MediaCopyFailedError) {
-			// Copy failed before the flip — nothing moved. Actionable + recoverable
-			// (the asset is missing/unreadable, or a transient outage outlasted the
-			// retries), so the user can fix the asset or just retry shortly.
-			return {
-				success: false,
-				error:
-					"Couldn't move the app — a media file couldn't be copied to the new Project. Try again shortly; if it keeps failing, re-upload that media and retry.",
+					"This app is being generated right now. Try again once it finishes.",
 			};
 		}
 		if (err instanceof CaseDataStrandedError) {
-			// The app DID move; only the case-data sync failed (already logged by the
-			// orchestrator). Report it as a success+warning so the list revalidates
-			// AND the message reaches the user via a persistent toast — returning a
-			// failure here would lose the message when revalidate unmounts the card.
-			// Don't promise "move it again" (the picker excludes the current Project,
-			// so it's not reachable) — the data is safe and support can reconcile it.
-			revalidatePath("/");
 			return {
-				success: true,
-				warning:
-					"The app moved, but syncing its case data to the new Project failed. Its data is safe and hasn't been lost — please contact support to finish the sync.",
+				success: false,
+				code: "case_sync_failed",
+				error:
+					"Couldn't finish syncing this app's case data in its current Project. The data is safe. Try again shortly; if it keeps failing, contact support.",
 			};
 		}
 		log.error("[home/move-app] error", err);
-		return { success: false, error: "Could not move. Please try again." };
+		return {
+			success: false,
+			code: "internal_error",
+			error: "Could not check this app's Project. Try again.",
+		};
 	}
 }

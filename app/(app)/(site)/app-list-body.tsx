@@ -21,17 +21,14 @@ import { useState } from "react";
 import { AppCard } from "@/components/ui/AppCard";
 import { DeletedAppCard } from "@/components/ui/DeletedAppCard";
 import type { AppSummary, DeletedAppSummary } from "@/lib/db/apps";
-import type { MoveTarget } from "@/lib/projects/moveTargets";
-import { deleteApp, moveApp, restoreApp } from "./app-actions";
+import { deleteApp, restoreApp } from "./app-actions";
 
 interface AppListBodyProps {
 	active: AppSummary[];
 	deleted: DeletedAppSummary[];
-	/** Whether the user may move apps out of the active Project (admin/owner) —
-	 *  drives whether the move menu appears (even with no destinations). */
-	canMove: boolean;
-	/** Eligible destination Projects; empty renders the menu's empty-state hint. */
-	moveTargets: MoveTarget[];
+	/** Whether to retain the Project-placement affordance as an informational
+	 *  popover for the admins/owners who would otherwise manage app placement. */
+	showProjectMoveInfo: boolean;
 }
 
 type View = "active" | "deleted";
@@ -39,8 +36,7 @@ type View = "active" | "deleted";
 export function AppListBody({
 	active,
 	deleted,
-	canMove,
-	moveTargets,
+	showProjectMoveInfo,
 }: AppListBodyProps) {
 	const [view, setView] = useState<View>("active");
 
@@ -71,9 +67,7 @@ export function AppListBody({
 									index={i}
 									href={app.status === "error" ? undefined : `/build/${app.id}`}
 									onDelete={deleteApp}
-									onMove={moveApp}
-									canMove={canMove}
-									moveTargets={moveTargets}
+									showProjectMoveInfo={showProjectMoveInfo}
 								/>
 							</li>
 						))}

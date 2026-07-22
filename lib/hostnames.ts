@@ -129,6 +129,7 @@ export const HOSTNAME_ALLOWLIST = {
 		/* Sentry browser-event tunnel (`tunnelRoute` in next.config.ts) — not a
 		 * route handler; a Next rewrite forwards the POST to Sentry ingest. */
 		"/api/monitoring",
+		"/api/projects",
 		"/api/user",
 		"/api/admin",
 		"/.well-known/oauth-authorization-server",

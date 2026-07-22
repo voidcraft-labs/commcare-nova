@@ -9,7 +9,6 @@
 
 import { cache } from "react";
 import { getAuthDb } from "@/lib/auth/db";
-import { roleIsOwner } from "@/lib/auth/projectRoles";
 import { isPersonalProjectMetadata } from "./invitePolicy";
 
 /** One Project the user belongs to — drives the header switcher. */
@@ -49,24 +48,6 @@ export interface IncomingInvitationRow {
 	organizationName: string;
 	role: string | null;
 	expiresAt: Date;
-}
-
-/**
- * The user id of `projectId`'s owner (the creator's `owner` role), or null if the
- * Project has none. The move action uses it to protect the source Project's owner:
- * a non-owner admin may move an app out, but not somewhere that owner can't follow
- * it. Roles may be comma-joined (Better Auth allows multiple), so match on parts.
- */
-export async function projectOwnerId(
-	projectId: string,
-): Promise<string | null> {
-	const db = await getAuthDb();
-	const rows = await db
-		.selectFrom("auth_member")
-		.select(["userId", "role"])
-		.where("organizationId", "=", projectId)
-		.execute();
-	return rows.find((r) => roleIsOwner(r.role))?.userId ?? null;
 }
 
 /**

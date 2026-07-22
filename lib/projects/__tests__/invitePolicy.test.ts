@@ -65,8 +65,11 @@ describe("isPersonalProjectMetadata", () => {
 });
 
 describe("PERSONAL_PROJECT_NOT_SHAREABLE_ERROR", () => {
-	it("is a non-empty message the hook + UI surface verbatim", () => {
+	it("points to an available collaboration path without promising app moves", () => {
 		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR).toBeTruthy();
-		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR.length).toBeGreaterThan(0);
+		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR).toContain("shared Project");
+		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR.toLowerCase()).not.toContain(
+			"move",
+		);
 	});
 });

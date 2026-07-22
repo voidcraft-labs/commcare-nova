@@ -89,6 +89,17 @@ describe("isPathAllowedOnHost", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/api/media")).toBe(false);
 		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/media")).toBe(false);
 	});
+	it("allows Project lookup imports only on the main host", () => {
+		const path = "/api/projects/project-1/lookup/tables/table-1/import";
+		expect(isPathAllowedOnHost(HOSTNAMES.main, path)).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, path)).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, path)).toBe(false);
+		/* Prefix matching stays segment-anchored: a similarly named future API
+		 * does not inherit this tenant-scoped write surface. */
+		expect(
+			isPathAllowedOnHost(HOSTNAMES.main, "/api/projectships/project-1"),
+		).toBe(false);
+	});
 	it("allows docs search only on the docs host", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/search")).toBe(true);
 		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/search")).toBe(false);

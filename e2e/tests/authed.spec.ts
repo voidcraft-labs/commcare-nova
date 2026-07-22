@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
+import { CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE } from "../../lib/projects/moveTargets";
 import { expect, test } from "../lib/fixtures";
 
 /**
@@ -264,12 +265,33 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("heading", { name: "Your Apps", level: 1 }),
 		).toBeVisible();
-		await expect(page.getByText(seed.openAppName)).toBeVisible();
+		await expect(
+			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
+		).toBeVisible();
 
-		// Open the app — each card is a single <a href="/build/{id}">. getByRole's
-		// `name` does a substring match, so the plain string suffices (no RegExp,
-		// no regex-injection risk if a name ever contains a metachar).
-		await page.getByRole("link", { name: seed.openAppName }).click();
+		// Admin/owner placement help is a real sibling action, never nested in the
+		// primary card link. Exercise its focus contract before navigating.
+		const moveInfo = page.getByRole("button", {
+			name: `About moving ${seed.openAppName}`,
+		});
+		await expect(moveInfo).toBeVisible();
+		const moveInfoBox = await moveInfo.boundingBox();
+		expect(moveInfoBox).not.toBeNull();
+		expect(moveInfoBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+		expect(moveInfoBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+		await moveInfo.click();
+		const moveInfoTitle = page.getByRole("heading", {
+			name: "Moving between Projects",
+		});
+		await expect(moveInfoTitle).toBeFocused();
+		await expect(
+			page.getByText(CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE),
+		).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(moveInfo).toBeFocused();
+
+		// The primary navigation link and card actions are accessible siblings.
+		await page.getByRole("link", { name: `Open ${seed.openAppName}` }).click();
 		await page.waitForURL(new RegExp(`/build/${seed.openAppId}`));
 
 		// An empty app opens into the chat-first builder (the structural
@@ -1390,15 +1412,16 @@ test.describe("authenticated builder", () => {
 		const before = await deleteHeadings.count();
 		expect(before).toBeGreaterThan(0);
 
-		// Trash → confirm on the first throwaway card. The trash click flips THAT
-		// card to a confirming state (re-rendered as a non-link); exactly one
+		// Trash → confirm on the first throwaway card. Its app-specific accessible
+		// name disambiguates the sibling action from every other card; exactly one
 		// confirm dialog is open at a time, so target Confirm at the page level.
 		// This is the real deleteApp Server Action → softDeleteApp →
 		// revalidatePath("/") round-trip.
 		await page
-			.getByRole("link", { name: seed.deleteAppName })
+			.getByRole("button", {
+				name: `Move ${seed.deleteAppName} to recently deleted`,
+			})
 			.first()
-			.getByRole("button", { name: "Delete app" })
 			.click();
 		await page.getByRole("button", { name: "Confirm delete" }).click();
 

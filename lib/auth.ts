@@ -136,6 +136,19 @@ const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Project deletion is globally unavailable until Nova has a reviewed
+ * whole-tenant lifecycle for every Project-owned resource. This must remain a
+ * native organization-plugin option, not a `beforeDeleteOrganization` hook:
+ * Better Auth clears `activeOrganizationId` before that hook can veto, and a
+ * conditional hook cannot close concurrent resource-creation races. The native
+ * flag rejects both HTTP and typed API calls before session or tenant state
+ * changes.
+ */
+export const NOVA_PROJECT_LIFECYCLE_OPTIONS = Object.freeze({
+	disableOrganizationDeletion: true,
+} as const);
+
+/**
  * Creates the Better Auth instance. Async because it acquires the shared
  * Cloud SQL pool. Named (not inlined) so `Awaited<ReturnType<typeof createAuth>>`
  * (the exported `Auth` type) captures the full config-specific instance type —
@@ -763,6 +776,7 @@ async function createAuth() {
 				roles: PROJECT_ROLES,
 				creatorRole: "owner",
 				allowUserToCreateOrganization: true,
+				...NOVA_PROJECT_LIFECYCLE_OPTIONS,
 				membershipLimit: MEMBERSHIP_LIMIT,
 				teams: { enabled: false },
 				schema: ORGANIZATION_SCHEMA,
@@ -780,8 +794,9 @@ async function createAuth() {
 							});
 						}
 						/* A personal Project is private and accepts no invitations at
-						 * all — collaboration happens by moving an app into a shared
-						 * Project. The members UI renders a read-only "can't be shared"
+						 * all. While cross-Project moves are unavailable, team apps are
+						 * created in a shared Project. The members UI renders a read-only
+						 * "can't be shared"
 						 * panel; this is the wire-level enforcement (a crafted request
 						 * can't escape it). `organization.metadata` carries the personal
 						 * flag (set by `ensurePersonalProject`). */

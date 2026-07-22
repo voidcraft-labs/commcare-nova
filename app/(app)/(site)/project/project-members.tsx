@@ -192,9 +192,8 @@ export function ProjectMembers({
 
 	/* A personal Project is private — it holds only its owner and accepts no
 	 * invitations, so there's nothing to invite or manage. Render a read-only
-	 * card that explains why and points to the collaboration path (move an app
-	 * into a shared Project) instead of the invite form + roster controls. The
-	 * shared-Project render below is never reached for a personal Project. */
+	 * card that explains why and points to the currently available collaboration
+	 * path instead of promising the temporarily blocked app move. */
 	if (personal) {
 		return (
 			<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
@@ -212,8 +211,8 @@ export function ProjectMembers({
 							Members
 						</h2>
 						<p className="text-xs text-nova-text-muted">
-							This is your personal Project — private to just you. To work with
-							others, move an app into a shared Project.
+							This is your personal Project, private to you. Use a shared
+							Project for team apps.
 						</p>
 					</div>
 				</div>
@@ -231,11 +230,10 @@ export function ProjectMembers({
 								Personal Projects can't be shared
 							</p>
 							<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-								This Project is yours alone, so you can't invite anyone to it.
-								To work with teammates, move an app into a shared Project, then
-								invite them there — create a shared Project from the switcher at
-								the top of the page, and use "Move to Project" on any app on
-								your home page.
+								You can't invite anyone to this Project. Create or switch to a
+								shared Project from the Project switcher, then create the team
+								app there. Existing apps and their shared data stay in their
+								current Project while moves are unavailable.
 							</p>
 						</div>
 					</div>

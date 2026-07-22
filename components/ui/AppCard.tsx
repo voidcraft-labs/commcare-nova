@@ -1,39 +1,35 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerApps from "@iconify-icons/tabler/apps";
-import tablerFolderSymlink from "@iconify-icons/tabler/folder-symlink";
+import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { Button } from "@/components/shadcn/button";
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuGroup,
-	DropdownMenuItem,
-	DropdownMenuLabel,
-	DropdownMenuTrigger,
-} from "@/components/shadcn/dropdown-menu";
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverHeader,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AppSummary } from "@/lib/db/apps";
-import type { MoveTarget } from "@/lib/projects/moveTargets";
-import { showToast } from "@/lib/ui/toastStore";
+import { CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE } from "@/lib/projects/moveTargets";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
 
 /**
- * Generic discriminated-union results the optional `onDelete` / `onMove`
- * callbacks return. Inlined here (rather than imported from the home-page
- * action module) to keep `components/ui` independent of `app/` — structural
- * typing lets a wider success shape flow in transparently.
+ * Generic discriminated-union result the optional `onDelete` callback returns.
+ * Inlined here (rather than imported from the home-page action module) to keep
+ * `components/ui` independent of `app/`.
  */
 type DeleteResult = { success: true } | { success: false; error: string };
-type MoveResult =
-	| { success: true; warning?: string }
-	| { success: false; error: string };
 
 interface AppCardProps {
 	app: Pick<
@@ -49,7 +45,7 @@ interface AppCardProps {
 	>;
 	/** Animation stagger index. */
 	index: number;
-	/** If provided, the card links to this URL on click (idle/error states only). */
+	/** If provided, the card links to this URL whenever no delete is in flight. */
 	href?: string;
 	/**
 	 * If provided, the card grows a trash control + per-card
@@ -58,22 +54,10 @@ interface AppCardProps {
 	 * no delete affordance appears.
 	 */
 	onDelete?: (appId: string) => Promise<DeleteResult>;
-	/**
-	 * If provided AND `canMove` is true, the card grows a "Move to Project" menu.
-	 * The handler is the home-page `moveApp` Server Action; on success its
-	 * `revalidatePath("/")` re-renders the list and the card unmounts (the app
-	 * left this Project's scope).
-	 */
-	onMove?: (appId: string, toProjectId: string) => Promise<MoveResult>;
-	/**
-	 * Whether the caller may move this app out (admin/owner of its Project). Drives
-	 * whether the menu is shown at all — independent of whether any destinations
-	 * exist, so a user with only their personal Project still sees the menu (with
-	 * an empty-state hint) rather than no affordance at all.
-	 */
-	canMove?: boolean;
-	/** Projects the app may move into. Empty renders the menu's empty-state hint. */
-	moveTargets?: MoveTarget[];
+	/** Show the temporary Project-placement informational popover to admins/owners.
+	 * The trigger stays enabled so pointer, keyboard, touch, and assistive-tech
+	 * users can all discover why the app cannot move right now. */
+	showProjectMoveInfo?: boolean;
 }
 
 /**
@@ -84,42 +68,36 @@ interface AppCardProps {
  * the Server Action's `revalidatePath` re-runs the parent RSC and the
  * card naturally unmounts when the row drops off the active query.
  *
- * When `href` is provided AND no delete is in-flight (idle / error),
- * the card is a `<Link>`; while confirming or deleting it downgrades
- * to a `<div>` so a misplaced click on the confirm row never
- * navigates away mid-action.
+ * When `href` is provided and no delete is in flight, an absolute primary link
+ * sits behind the card content. Action controls are siblings above it, never
+ * nested inside it. Confirming or deleting removes the primary link so a stray
+ * click cannot navigate away mid-action.
  */
 export function AppCard({
 	app,
 	index,
 	href,
 	onDelete,
-	onMove,
-	canMove,
-	moveTargets,
+	showProjectMoveInfo,
 }: AppCardProps) {
 	const [cardState, setCardState] = useState<CardState>({ type: "idle" });
+	const moveInfoTriggerRef = useRef<HTMLButtonElement>(null);
+	const moveInfoTitleRef = useRef<HTMLHeadingElement>(null);
 
 	const style = STATUS_STYLES[app.status];
 	const isFailed = app.status === "error";
 	const updatedAt = new Date(app.updated_at);
+	const displayName = app.app_name || "Untitled";
+	const moveInfoLabel = `About moving ${displayName}`;
 
-	/* idle / error / pickingMove keep the card a <Link>; an in-flight action
-	 * (deleting / moving) or the delete-confirm row downgrade it to a <div> so a
-	 * stray click can't navigate mid-action. `pickingMove` stays a <Link>
-	 * deliberately: the move menu is portaled, so swapping the wrapper element
-	 * type on open would remount (and mis-anchor) the menu it just opened. */
+	/* Keep navigation available while the information popover is open. The card's
+	 * DOM shape is stable because the primary Link is an overlay sibling rather
+	 * than the surface wrapper. Confirm/delete states remove that overlay. */
 	const interactive =
 		cardState.type === "idle" ||
 		cardState.type === "error" ||
-		cardState.type === "pickingMove";
+		cardState.type === "showingMoveInfo";
 	const errorMessage = cardState.type === "error" ? cardState.message : null;
-	/* Show the move menu whenever the caller can move the app out, even with no
-	 * destinations yet — the menu then shows an empty-state hint, which is more
-	 * discoverable than no affordance (and matches the personal-Project panel,
-	 * which tells users to "use Move to Project"). */
-	const showMove = Boolean(onMove && canMove);
-	const hasMoveTargets = Boolean(moveTargets && moveTargets.length > 0);
 
 	const handleConfirmDelete = async () => {
 		if (!onDelete) return;
@@ -136,40 +114,6 @@ export function AppCard({
 			setCardState({
 				type: "error",
 				message: "Could not delete. Check your connection and try again.",
-			});
-		}
-	};
-
-	const handleMove = async (target: MoveTarget) => {
-		if (!onMove) return;
-		setCardState({ type: "moving", destName: target.name });
-		try {
-			const result = await onMove(app.id, target.id);
-			if (!result.success) {
-				setCardState({ type: "error", message: result.error });
-				return;
-			}
-			/* On success `moveApp`'s `revalidatePath("/")` re-renders the home RSC;
-			 * the app leaves this Project's list and this card unmounts. So both the
-			 * confirmation AND any non-fatal warning (e.g. case-data sync failed) go
-			 * through the global toast store, which survives the unmount — never
-			 * inline card state, which would be discarded with the card. A warning is
-			 * persistent so the user can act on it after the card is gone. */
-			if (result.warning) {
-				showToast("warning", "App moved", result.warning, {
-					persistent: true,
-				});
-			} else {
-				showToast(
-					"info",
-					"App moved",
-					`"${app.app_name || "Untitled"}" is now in ${target.name}.`,
-				);
-			}
-		} catch {
-			setCardState({
-				type: "error",
-				message: "Could not move. Check your connection and try again.",
 			});
 		}
 	};
@@ -193,6 +137,7 @@ export function AppCard({
 			)}
 			<div className="min-w-0 flex-1">
 				<h3
+					title={displayName}
 					className={`font-medium truncate ${isFailed ? "text-nova-text-muted" : href ? "group-hover:text-nova-text" : ""} transition-colors`}
 				>
 					{app.app_name || "Untitled"}
@@ -228,7 +173,7 @@ export function AppCard({
 					)}
 				</AnimatePresence>
 			</div>
-			<div className="shrink-0 flex items-center gap-2">
+			<div className="pointer-events-auto relative z-10 shrink-0 flex items-center gap-2">
 				{cardState.type === "confirmingDelete" ? (
 					<>
 						<button
@@ -238,7 +183,7 @@ export function AppCard({
 								e.stopPropagation();
 								setCardState({ type: "idle" });
 							}}
-							className="cursor-pointer rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-border/30 hover:text-nova-text"
+							className="min-h-11 cursor-pointer rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-border/30 hover:text-nova-text"
 						>
 							Cancel
 						</button>
@@ -249,7 +194,7 @@ export function AppCard({
 								e.stopPropagation();
 								void handleConfirmDelete();
 							}}
-							className="cursor-pointer rounded-md bg-nova-rose/10 px-3 py-1.5 text-sm font-medium text-nova-rose transition-colors hover:bg-nova-rose/15"
+							className="min-h-11 cursor-pointer rounded-md bg-nova-rose/10 px-3 py-1.5 text-sm font-medium text-nova-rose transition-colors hover:bg-nova-rose/15"
 						>
 							Confirm delete
 						</button>
@@ -264,16 +209,6 @@ export function AppCard({
 						/>
 						Deleting…
 					</span>
-				) : cardState.type === "moving" ? (
-					<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
-						<Icon
-							icon={tablerLoader2}
-							width="14"
-							height="14"
-							className="animate-spin"
-						/>
-						Moving to {cardState.destName}…
-					</span>
 				) : (
 					<>
 						<span
@@ -281,55 +216,56 @@ export function AppCard({
 						>
 							{style.label}
 						</span>
-						{showMove && !isFailed && (
-							<DropdownMenu
-								open={cardState.type === "pickingMove"}
+						{showProjectMoveInfo && !isFailed && (
+							<Popover
+								open={cardState.type === "showingMoveInfo"}
 								onOpenChange={(open) =>
 									setCardState((s) =>
 										open
-											? { type: "pickingMove" }
-											: s.type === "pickingMove"
+											? { type: "showingMoveInfo" }
+											: s.type === "showingMoveInfo"
 												? { type: "idle" }
 												: s,
 									)
 								}
 							>
-								<SimpleTooltip content="Move to another Project">
-									<DropdownMenuTrigger
-										aria-label="Move to another Project"
+								<SimpleTooltip content="About moving this app">
+									<PopoverTrigger
+										ref={moveInfoTriggerRef}
+										render={
+											<Button type="button" variant="ghost" size="icon-lg" />
+										}
+										aria-label={moveInfoLabel}
 										onClick={(e) => {
 											e.preventDefault();
 											e.stopPropagation();
 										}}
-										className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
+										className="size-12 text-nova-text-muted not-disabled:hover:bg-nova-violet/10 not-disabled:hover:text-nova-text"
 									>
-										<Icon icon={tablerFolderSymlink} width="18" height="18" />
-									</DropdownMenuTrigger>
+										<Icon icon={tablerInfoCircle} width="18" height="18" />
+									</PopoverTrigger>
 								</SimpleTooltip>
-								<DropdownMenuContent align="end">
-									<DropdownMenuGroup>
-										<DropdownMenuLabel>Move to Project</DropdownMenuLabel>
-										{hasMoveTargets ? (
-											moveTargets?.map((target) => (
-												<DropdownMenuItem
-													key={target.id}
-													onClick={(e) => {
-														e.preventDefault();
-														e.stopPropagation();
-														void handleMove(target);
-													}}
-												>
-													{target.name}
-												</DropdownMenuItem>
-											))
-										) : (
-											<DropdownMenuItem disabled>
-												No other Projects yet
-											</DropdownMenuItem>
-										)}
-									</DropdownMenuGroup>
-								</DropdownMenuContent>
-							</DropdownMenu>
+								<PopoverContent
+									align="end"
+									sideOffset={6}
+									className="w-80"
+									initialFocus={moveInfoTitleRef}
+									finalFocus={moveInfoTriggerRef}
+								>
+									<PopoverHeader>
+										<PopoverTitle
+											ref={moveInfoTitleRef}
+											tabIndex={-1}
+											className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-nova-violet-bright/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-surface"
+										>
+											Moving between Projects
+										</PopoverTitle>
+									</PopoverHeader>
+									<PopoverDescription className="leading-relaxed text-nova-text-secondary">
+										{CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE}
+									</PopoverDescription>
+								</PopoverContent>
+							</Popover>
 						)}
 						{onDelete && (
 							<SimpleTooltip content="Move to recently deleted">
@@ -340,8 +276,8 @@ export function AppCard({
 										e.stopPropagation();
 										setCardState({ type: "confirmingDelete" });
 									}}
-									className="p-1.5 text-nova-text-muted hover:text-nova-rose transition-colors rounded-md hover:bg-nova-rose/[0.08] cursor-pointer"
-									aria-label="Delete app"
+									className="inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-nova-rose/[0.08] hover:text-nova-rose"
+									aria-label={`Move ${displayName} to recently deleted`}
 								>
 									<Icon icon={tablerTrash} width="18" height="18" />
 								</button>
@@ -354,7 +290,8 @@ export function AppCard({
 	);
 
 	const cardClass =
-		"block p-4 bg-nova-surface border border-nova-border rounded-lg";
+		"relative p-4 bg-nova-surface border border-nova-border rounded-lg";
+	const openHref = !isFailed && interactive ? href : undefined;
 	const linkClass = `${cardClass} hover:border-nova-border-bright transition-colors group`;
 	const dimmedClass = `${cardClass} opacity-60`;
 
@@ -364,25 +301,27 @@ export function AppCard({
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ delay: index * 0.03 }}
 		>
-			{isFailed || !href || !interactive ? (
-				<div className={isFailed ? dimmedClass : cardClass}>{content}</div>
-			) : (
-				<Link href={href} className={linkClass}>
-					{content}
-				</Link>
-			)}
+			<div
+				className={isFailed ? dimmedClass : openHref ? linkClass : cardClass}
+			>
+				{openHref && (
+					<Link
+						href={openHref}
+						aria-label={`Open ${displayName}`}
+						className="absolute inset-0 rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+					/>
+				)}
+				<div className="pointer-events-none relative z-10">{content}</div>
+			</div>
 		</motion.div>
 	);
 }
 
-/** One in-flight notion for the whole card — delete and move can't overlap, so
- *  they share a single state machine (idle ↔ a confirm/picker ↔ an in-flight
- *  action ↔ error). `pickingMove` and `moving` join the delete states in
- *  downgrading the card from <Link> to <div> via `interactive`. */
+/** Delete owns the only in-flight state. `showingMoveInfo` keeps navigation
+ * available while the portaled informational popover is open. */
 type CardState =
 	| { type: "idle" }
 	| { type: "confirmingDelete" }
 	| { type: "deleting" }
-	| { type: "pickingMove" }
-	| { type: "moving"; destName: string }
+	| { type: "showingMoveInfo" }
 	| { type: "error"; message: string };

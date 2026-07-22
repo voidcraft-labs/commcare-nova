@@ -30,17 +30,18 @@ export function isInvitableEmail(email: string): boolean {
 //
 // A personal Project is the user's own auto-provisioned solo space. It is
 // private and accepts no members but its owner — invitations and role changes
-// on it are rejected outright. To collaborate, a user moves an app into a shared
-// Project and invites people there. Enforced server-side by the org plugin's
+// on it are rejected outright. To collaborate while cross-Project app moves are
+// unavailable, a user creates or switches to a shared Project and builds the team
+// app there. Enforced server-side by the org plugin's
 // `beforeCreateInvitation` + `beforeUpdateMemberRole` hooks (`lib/auth.ts`); the
 // members UI reflects it (a personal Project renders a read-only "can't be
 // shared" panel instead of the invite form).
 
 /** Wire-and-UI message when an invitation or role change targets a personal
- *  Project. Personal Projects are private; collaboration happens by moving an
- *  app into a shared Project. */
+ * Project. It points to the currently available collaboration path without
+ * promising the temporarily blocked cross-Project move. */
 export const PERSONAL_PROJECT_NOT_SHAREABLE_ERROR =
-	"Your personal Project is private and can't be shared. To collaborate on an app, move it into a shared Project and invite people there.";
+	"Your personal Project is private and can't be shared. Create or switch to a shared Project to build apps with teammates.";
 
 /**
  * Whether a Project's stored metadata marks it the user's auto-provisioned
