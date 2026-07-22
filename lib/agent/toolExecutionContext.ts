@@ -58,6 +58,9 @@ export interface ToolExecutionContext {
 	/** Current app id. Every tool operates against one app. */
 	readonly appId: string;
 
+	/** Project scope authoritatively admitted for this tool execution. */
+	readonly projectId: string;
+
 	/** Authenticated user id. Used by tools that need to resolve
 	 * user-scoped resources (e.g., KMS-encrypted HQ credentials). */
 	readonly userId: string;

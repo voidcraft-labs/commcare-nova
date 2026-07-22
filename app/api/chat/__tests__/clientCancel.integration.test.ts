@@ -36,9 +36,11 @@ const {
 	resolveOpenAIKeyMock,
 	resolveActiveProjectIdMock,
 	resolveAppAccessMock,
+	resolveAuthorizedAppSnapshotMock,
 	resolveProjectAccessMock,
 	projectRoleForInTransactionMock,
 	createSolutionsArchitectMock,
+	claimAndReserveRunMock,
 	reacquireLeaseMock,
 	setAwaitingInputMock,
 	clearRunLockMock,
@@ -51,9 +53,11 @@ const {
 	resolveOpenAIKeyMock: vi.fn(),
 	resolveActiveProjectIdMock: vi.fn(),
 	resolveAppAccessMock: vi.fn(),
+	resolveAuthorizedAppSnapshotMock: vi.fn(),
 	resolveProjectAccessMock: vi.fn(),
 	projectRoleForInTransactionMock: vi.fn(),
 	createSolutionsArchitectMock: vi.fn(),
+	claimAndReserveRunMock: vi.fn(),
 	reacquireLeaseMock: vi.fn(),
 	setAwaitingInputMock: vi.fn(),
 	clearRunLockMock: vi.fn(),
@@ -78,6 +82,7 @@ vi.mock("@/lib/auth-utils", () => ({
 vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: MockAppAccessError,
 	resolveAppAccess: resolveAppAccessMock,
+	resolveAuthorizedAppSnapshot: resolveAuthorizedAppSnapshotMock,
 	resolveProjectAccess: resolveProjectAccessMock,
 }));
 /* New-app creation reauthorizes against the membership row inside the same
@@ -93,6 +98,7 @@ vi.mock("@/lib/db/projectMembership", () => ({
  * does not infer ownership strongly enough to settle/refund/release anything. */
 vi.mock("@/lib/db/apps", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/db/apps")>();
+	claimAndReserveRunMock.mockImplementation(actual.claimAndReserveRun);
 	reacquireLeaseMock.mockImplementation(actual.reacquireLease);
 	setAwaitingInputMock.mockImplementation(actual.setAwaitingInput);
 	clearRunLockMock.mockImplementation(actual.clearRunLock);
@@ -101,6 +107,7 @@ vi.mock("@/lib/db/apps", async (importOriginal) => {
 	failAppMock.mockImplementation(actual.failApp);
 	return {
 		...actual,
+		claimAndReserveRun: claimAndReserveRunMock,
 		reacquireLease: reacquireLeaseMock,
 		setAwaitingInput: setAwaitingInputMock,
 		clearRunLock: clearRunLockMock,
@@ -135,6 +142,9 @@ const RESUME_APP = "app-resume-reacquire-error";
 const RESUME_RUN = "run-resume-reacquire-error";
 const RESUME_THREAD = "thread-resume-reacquire-error";
 const RESERVATION_PERIOD = "2026-07";
+const WAIT_APP = "app-serialize-wait-snapshot";
+const WAIT_THREAD = "thread-serialize-wait-snapshot";
+const MOVED_PROJECT = "project-after-serialize-wait";
 
 const PAUSED_USAGE = {
 	inputTokens: 10,
@@ -252,6 +262,25 @@ function resumeChatRequest(): Request {
 	});
 }
 
+function waitingEditRequest(): Request {
+	return new Request("http://localhost/api/chat", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			appId: WAIT_APP,
+			appReady: true,
+			threadId: WAIT_THREAD,
+			messages: [
+				{
+					id: "waiting-edit-user",
+					role: "user",
+					parts: [{ type: "text", text: "Add a clinic status field." }],
+				},
+			],
+		}),
+	});
+}
+
 /** Configure the fake SA to finish on an `askQuestions` step. The generation
  * context's step observer is the production pause latch; only the provider is
  * replaced. */
@@ -332,6 +361,109 @@ async function chunkRows(streamId: string) {
 		.execute();
 }
 
+async function seedSerializeWaitEdit() {
+	await appDb
+		.insertInto("apps")
+		.values({
+			id: WAIT_APP,
+			owner: USER,
+			project_id: PROJECT,
+			app_name: "Waited edit app",
+			app_name_lower: "waited edit app",
+			connect_type: null,
+			case_types: null,
+			logo: null,
+			module_count: 0,
+			form_count: 0,
+			mutation_seq: 0,
+			status: "complete",
+			awaiting_input: false,
+			error_type: null,
+			deleted_at: null,
+			recoverable_until: null,
+			run_id: null,
+			res_period: null,
+			res_reserved: null,
+			res_settled: null,
+			res_user_id: null,
+			res_run_id: null,
+			lock_run_id: null,
+			lock_actor_user_id: null,
+			lock_expire_at: null,
+		})
+		.execute();
+
+	const { loadApp, RunConflictError } = await import("@/lib/db/apps");
+	const app = await loadApp(WAIT_APP);
+	if (!app) throw new Error("serialize-wait fixture app was not persisted");
+	const initialSnapshot = {
+		app,
+		projectId: PROJECT,
+		role: "editor",
+		canEdit: true,
+		baseSeq: app.mutation_seq,
+		actorUserId: USER,
+	};
+	resolveAuthorizedAppSnapshotMock.mockResolvedValueOnce(initialSnapshot);
+	/* Deterministically enter serialize-with-wait without constructing an
+	 * invalid holder row. The next call falls through to the real transactional
+	 * claim+reservation writer, so the post-wait failure assertions still cover
+	 * its exact refund/settle/release semantics against Postgres. */
+	claimAndReserveRunMock.mockRejectedValueOnce(new RunConflictError());
+	return initialSnapshot;
+}
+
+async function expectSerializeWaitSnapshotFailure(errorType: string) {
+	const response = await POST(waitingEditRequest());
+	expect(response.status).toBe(200);
+	const wire = await response.text();
+	expect(wire).toContain(`"type":"${errorType}"`);
+	expect(wire).toContain('"type":"data-credit-refund"');
+	expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+	expect(claimAndReserveRunMock).toHaveBeenCalledTimes(2);
+	expect(resolveAuthorizedAppSnapshotMock).toHaveBeenNthCalledWith(
+		1,
+		WAIT_APP,
+		USER,
+		"edit",
+	);
+	expect(resolveAuthorizedAppSnapshotMock).toHaveBeenNthCalledWith(
+		2,
+		WAIT_APP,
+		USER,
+		"edit",
+	);
+
+	const app = await appDb
+		.selectFrom("apps")
+		.select([
+			"status",
+			"error_type",
+			"res_reserved",
+			"res_settled",
+			"lock_run_id",
+			"lock_actor_user_id",
+		])
+		.where("id", "=", WAIT_APP)
+		.executeTakeFirstOrThrow();
+	expect(app).toEqual({
+		status: "complete",
+		error_type: null,
+		res_reserved: 5,
+		res_settled: true,
+		lock_run_id: null,
+		lock_actor_user_id: null,
+	});
+	const credit = await appDb
+		.selectFrom("credit_months")
+		.select("consumed")
+		.where("user_id", "=", USER)
+		.executeTakeFirstOrThrow();
+	expect(credit.consumed).toBe(0);
+	expect(settleAndReleaseMock).toHaveBeenCalledTimes(1);
+	expect(failAppMock).not.toHaveBeenCalled();
+}
+
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
 	harness = createPerTestAppDb(dbHandle.uri);
@@ -341,9 +473,11 @@ beforeEach(async () => {
 	resolveOpenAIKeyMock.mockReset();
 	resolveActiveProjectIdMock.mockReset();
 	resolveAppAccessMock.mockReset();
+	resolveAuthorizedAppSnapshotMock.mockReset();
 	resolveProjectAccessMock.mockReset();
 	projectRoleForInTransactionMock.mockReset();
 	createSolutionsArchitectMock.mockReset();
+	claimAndReserveRunMock.mockClear();
 	reacquireLeaseMock.mockClear();
 	setAwaitingInputMock.mockClear();
 	clearRunLockMock.mockClear();
@@ -496,6 +630,37 @@ describe("mid-run client disconnect", () => {
 	}, 30_000);
 });
 
+describe("serialize-with-wait authorized snapshot admission", () => {
+	it("refunds and stops as access_revoked when membership disappears after the claim", async () => {
+		await seedSerializeWaitEdit();
+		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
+			new MockAppAccessError("not_member"),
+		);
+
+		await expectSerializeWaitSnapshotFailure("access_revoked");
+	}, 30_000);
+
+	it("refunds and stops as app_changed instead of seeding from a different Project", async () => {
+		const initial = await seedSerializeWaitEdit();
+		resolveAuthorizedAppSnapshotMock.mockResolvedValueOnce({
+			...initial,
+			app: { ...initial.app, project_id: MOVED_PROJECT },
+			projectId: MOVED_PROJECT,
+		});
+
+		await expectSerializeWaitSnapshotFailure("app_changed");
+	}, 30_000);
+
+	it("refunds and stops as internal when the post-claim snapshot read faults", async () => {
+		await seedSerializeWaitEdit();
+		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
+			new Error("authorized snapshot connection dropped"),
+		);
+
+		await expectSerializeWaitSnapshotFailure("internal");
+	}, 30_000);
+});
+
 describe("pause-stamp ownership admission", () => {
 	it("ends as superseded without publishing a resumable pause when a replacement owns the app", async () => {
 		configurePausedAgent();
@@ -620,10 +785,12 @@ describe("free-continuation resume admission", () => {
 		const { loadApp } = await import("@/lib/db/apps");
 		const app = await loadApp(RESUME_APP);
 		if (!app) throw new Error("resume fixture app was not persisted");
-		resolveAppAccessMock.mockResolvedValue({
+		resolveAuthorizedAppSnapshotMock.mockResolvedValue({
 			app,
 			projectId: PROJECT,
 			role: "editor",
+			canEdit: true,
+			baseSeq: app.mutation_seq,
 			actorUserId: USER,
 		});
 		reacquireLeaseMock.mockRejectedValueOnce(

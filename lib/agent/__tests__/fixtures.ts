@@ -277,6 +277,7 @@ export function makeStubToolContext(
 	);
 	const ctx: ToolExecutionContext = {
 		appId: opts.appId ?? "test-app",
+		projectId: "project-test",
 		userId: opts.userId ?? "user-1",
 		runId: opts.runId ?? "run-1",
 		recordMutations,

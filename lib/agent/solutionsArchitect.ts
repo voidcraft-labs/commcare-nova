@@ -21,8 +21,15 @@
  */
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { ZodType } from "zod";
-import { loadApp } from "@/lib/db/apps";
-import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import {
+	AppAccessError,
+	resolveAuthorizedAppSnapshot,
+} from "@/lib/db/appAccess";
+import {
+	AppProjectChangedError,
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
@@ -155,12 +162,12 @@ export function createSolutionsArchitect(
 	}
 
 	/**
-	 * Fence all work after an authoritative scope failure. A guarded commit
-	 * stores the exact thrown object on GenerationContext before rethrowing it.
-	 * Parallel tool calls from one model step may already be queued behind that
-	 * commit, so every serialized body must consult the latch before it reads or
-	 * writes the working doc. Re-throwing the stored instance also preserves the
-	 * route's authoritative error classification.
+	 * Fence all work after an authoritative scope failure. A guarded commit or
+	 * conflict-reload check stores the exact thrown object on GenerationContext
+	 * before rethrowing it. Parallel tool calls from one model step may already
+	 * be queued behind that check, so every serialized body must consult the latch
+	 * before it reads or writes the working doc. Re-throwing the stored instance
+	 * also preserves the route's authoritative error classification.
 	 */
 	function throwIfTerminalScopeError(): void {
 		const scopeError = ctx.projectChangedError() ?? ctx.reauthError();
@@ -258,7 +265,9 @@ export function createSolutionsArchitect(
 						 * tool targeted between our read and the commit. Surface the
 						 * standard `{ error }` envelope to the SA AND reload fresh so
 						 * the next tool builds on the current server state, not the
-						 * stale closure doc. (A
+						 * stale closure doc. The reload is one atomic authorized
+						 * snapshot, and its Project must still match the run's admitted
+						 * scope before the closure adopts the blueprint. (A
 						 * pre-commit validity finding does NOT throw — the tool
 						 * returns its own `{ error }` and nothing reloads. Terminal
 						 * `AppProjectChangedError` and `CommitReauthError` signals are
@@ -266,12 +275,33 @@ export function createSolutionsArchitect(
 						 * former must not reload across tenant scope and the latter
 						 * cannot restore authorization by reloading.) */
 						if (err instanceof BlueprintCommitRejectedError) {
-							const fresh = await loadApp(ctx.appId);
-							if (fresh) {
-								doc = hydratePersistedBlueprint(
-									fresh.blueprint as PersistableDoc,
+							let fresh: Awaited<
+								ReturnType<typeof resolveAuthorizedAppSnapshot>
+							>;
+							try {
+								fresh = await resolveAuthorizedAppSnapshot(
+									ctx.appId,
+									ctx.userId,
+									"edit",
 								);
+							} catch (reloadError) {
+								if (reloadError instanceof AppAccessError) {
+									const scopeError = new CommitReauthError(
+										"You no longer have edit access.",
+									);
+									ctx.latchTerminalScopeError(scopeError);
+									throw scopeError;
+								}
+								throw reloadError;
 							}
+							if (fresh.projectId !== ctx.projectId) {
+								const scopeError = new AppProjectChangedError();
+								ctx.latchTerminalScopeError(scopeError);
+								throw scopeError;
+							}
+							doc = hydratePersistedBlueprint(
+								fresh.app.blueprint as PersistableDoc,
+							);
 							return { error: err.message } as R;
 						}
 						throw err;

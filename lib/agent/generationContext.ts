@@ -231,16 +231,18 @@ export class GenerationContext implements ToolExecutionContext {
 	 * `data-done` so a reconnecting client knows the run's terminal cursor.
 	 * Absent until the first mutation batch lands. */
 	private _latestSeq: number | undefined;
-	/** Set when a guarded commit threw `CommitReauthError` — the actor lost
-	 * edit access mid-run. Load-bearing for finalization: a tool `execute()`
-	 * throw becomes a NON-fatal AI-SDK chunk, so the route can't key run
-	 * failure on it; it reads this flag after the drain and routes the run
-	 * through `failRun` (refund, never keep the charge) instead. TERMINAL — a
-	 * reload can't restore access, so it's never cleared within a run. */
+	/** Set when an authoritative commit or conflict-reload check produced
+	 * `CommitReauthError` — the actor lost edit access mid-run. Load-bearing for
+	 * finalization: a tool `execute()` throw becomes a NON-fatal AI-SDK chunk,
+	 * so the route can't key run failure on it; it reads this flag after the
+	 * drain and routes the run through `failRun` (refund, never keep the charge)
+	 * instead. TERMINAL — a reload can't restore access, so it's never cleared
+	 * within a run. */
 	private _reauthError: CommitReauthError | undefined;
-	/** A guarded write observed a Project different from this run's admitted
-	 * scope. Terminal for this run even when the actor belongs to both Projects:
-	 * every later write would reject until the caller reloads authoritatively. */
+	/** A guarded write or authorized conflict reload observed a Project different
+	 * from this run's admitted scope. Terminal for this run even when the actor
+	 * belongs to both Projects: every later write would reject until the caller
+	 * reloads authoritatively. */
 	private _projectChangedError: AppProjectChangedError | undefined;
 	private _parkedNote: string | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
@@ -563,9 +565,11 @@ export class GenerationContext implements ToolExecutionContext {
 				});
 			}
 		} catch (err) {
-			if (err instanceof CommitReauthError) this._reauthError = err;
-			if (err instanceof AppProjectChangedError) {
-				this._projectChangedError = err;
+			if (
+				err instanceof CommitReauthError ||
+				err instanceof AppProjectChangedError
+			) {
+				this.latchTerminalScopeError(err);
 			}
 			throw err;
 		}
@@ -690,19 +694,37 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * The `CommitReauthError` a guarded commit threw when the actor lost edit
-	 * access mid-run, or `undefined` if none did. The route's drain-end finalize
-	 * reads it and routes the run through `failRun` (a deauthorized run must
-	 * refund, not keep the charge) — a tool `execute()` throw alone becomes a
-	 * non-fatal AI-SDK chunk that can't fail the run.
+	 * The `CommitReauthError` an authoritative write/reload check produced when
+	 * the actor lost edit access mid-run, or `undefined` if none did. The route's
+	 * drain-end finalize reads it and routes the run through `failRun` (a
+	 * deauthorized run must refund, not keep the charge) — a tool `execute()`
+	 * throw alone becomes a non-fatal AI-SDK chunk that can't fail the run.
 	 */
 	reauthError(): CommitReauthError | undefined {
 		return this._reauthError;
 	}
 
-	/** Project-scope mismatch captured from a guarded write; see the field. */
+	/** Project-scope mismatch captured from a guarded write/reload; see the field. */
 	projectChangedError(): AppProjectChangedError | undefined {
 		return this._projectChangedError;
+	}
+
+	/**
+	 * Latch an authoritative terminal scope failure discovered outside the
+	 * guarded writer. Conflict recovery performs its own authorized snapshot
+	 * read after `recordMutations` has already returned a conflict, so that read
+	 * cannot rely on `commitBatch`'s catch to make the failure visible to queued
+	 * tools, `prepareStep`, and the route's drain-end finalizer. Preserve the
+	 * exact error object so every fence rethrows and classifies one signal.
+	 */
+	latchTerminalScopeError(
+		error: CommitReauthError | AppProjectChangedError,
+	): void {
+		if (error instanceof AppProjectChangedError) {
+			this._projectChangedError ??= error;
+		} else {
+			this._reauthError ??= error;
+		}
 	}
 
 	/**

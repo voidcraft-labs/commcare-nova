@@ -33,7 +33,7 @@ import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	AppAccessError,
-	resolveAppAccess,
+	resolveAuthorizedAppSnapshot,
 	resolveProjectAccess,
 } from "@/lib/db/appAccess";
 import {
@@ -45,7 +45,6 @@ import {
 	createApp,
 	failApp,
 	GenerationInProgressError,
-	loadApp,
 	loadAppHolder,
 	type ReacquireOutcome,
 	RunConflictError,
@@ -341,7 +340,7 @@ export async function POST(req: Request) {
 	 * blueprint with no extra load. Undefined for a new build (no
 	 * app exists yet); the seed falls back to the empty doc there. */
 	let loadedApp:
-		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
+		| Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>["app"]
 		| undefined;
 	/* The app's Project — the media tenant. Set in BOTH branches below (the
 	 * active Project for a new build, the app's Project for an existing one) and
@@ -485,13 +484,19 @@ export async function POST(req: Request) {
 	} else {
 		/* Project-membership gate (edit) — apps are a root-level collection, so
 		 * the path doesn't scope writes; without this a crafted request with
-		 * another Project's appId could drive a build against it. The same
-		 * authorization read yields the persisted app doc, so the SA's working
-		 * doc seeds from `loadedApp.blueprint` below without a second fetch. */
+		 * another Project's appId could drive a build against it. Authorization,
+		 * Project scope, the persisted blueprint, and its mutation cursor come
+		 * from ONE locked snapshot. The SA therefore never seeds from an app row,
+		 * entity set, or membership decision taken on different sides of a move or
+		 * membership write. */
 		try {
-			const access = await resolveAppAccess(appId, userId, "edit");
-			loadedApp = access.app;
-			projectId = access.projectId;
+			const snapshot = await resolveAuthorizedAppSnapshot(
+				appId,
+				userId,
+				"edit",
+			);
+			loadedApp = snapshot.app;
+			projectId = snapshot.projectId;
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -1159,15 +1164,42 @@ export async function POST(req: Request) {
 					});
 
 					/* A held app may have advanced while we waited (the prior holder
-					 * committed batches), so re-read the persisted blueprint for the SA's
-					 * seed rather than trusting the pre-wait `loadedApp`. */
+					 * committed batches), so re-read one authorized persisted snapshot for
+					 * the SA's seed rather than trusting the pre-wait `loadedApp`. This
+					 * admission happens AFTER this POST owns the claim + reservation. It
+					 * therefore fails through the normal run failure funnel: refund/settle
+					 * and exact-holder release happen before the stream closes, and the SA
+					 * never starts on an unknown or cross-Project document. */
 					try {
-						const fresh = await loadApp(appId);
-						if (fresh) loadedApp = fresh;
-					} catch (err) {
-						log.error("[chat] serialize-wait blueprint reload failed", err, {
+						const fresh = await resolveAuthorizedAppSnapshot(
 							appId,
-						});
+							userId,
+							"edit",
+						);
+						if (fresh.projectId !== projectId) {
+							throw new AppProjectChangedError();
+						}
+						loadedApp = fresh.app;
+					} catch (err) {
+						const failure =
+							err instanceof AppAccessError
+								? new CommitReauthError(
+										"You no longer have edit access to this app's Project.",
+									)
+								: err;
+						if (
+							!(failure instanceof CommitReauthError) &&
+							!(failure instanceof AppProjectChangedError)
+						) {
+							log.error(
+								"[chat] serialize-wait authorized snapshot reload failed",
+								failure,
+								{ appId },
+							);
+						}
+						await persistBailedHistory();
+						await failRun(failure, "route:serialize-wait-snapshot");
+						return;
 					}
 				}
 
