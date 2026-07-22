@@ -143,6 +143,10 @@ compensates the already-durable reports.
 `lookup_stream_capability_leases` carries an
 app-scoped, database-minted connection UUID plus a required receiver version and
 expiry; it is rollout state, not lookup data or blueprint state.
+`streamReceiverCapabilities.ts` is the pure server admission boundary: it
+requires exactly one strict browser `receiverVersion`, clamps compiled support
+to the strictly parsed deployed environment, requires stream registry v1 on
+both sides, and admits the minimum browser/server receiver version.
 
 `lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
 stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags

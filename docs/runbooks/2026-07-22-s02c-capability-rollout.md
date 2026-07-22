@@ -38,6 +38,26 @@ server entry. A missing, padded, signed, fractional, overflowing, or otherwise
 malformed version declaration is v0. The transaction-local lookup writer
 declaration derives from `writerVersion`.
 
+## Stream receiver admission
+
+Every browser EventSource URL must carry exactly one `receiverVersion` from the
+capability manifest compiled into that browser bundle. Missing, duplicate,
+padded, signed, fractional, overflowing, or otherwise malformed declarations
+are v0. A serving revision supports the minimum of its compiled receiver and
+its strictly parsed deployed-environment receiver, and supports only v0 unless
+both its compiled and deployed stream-registry declarations are at least 1.
+The admitted lease version is the minimum of browser and serving support. This
+keeps a newly deployed server from attributing v1 support to an already-open old
+browser bundle.
+
+Each lease uses a database-minted connection UUID. The server never accepts a
+client-asserted connection identity.
+
+`lib/db/streamReceiverCapabilities.ts` implements this calculation as a pure
+server-side boundary. Browser URL emission, stream-route registration, and
+lease persistence are separate wiring commits; this module alone does not make
+an active connection registry.
+
 ## Build behavior in S02c1
 
 Before Docker runs, Cloud Build executes:

@@ -1099,8 +1099,17 @@ Receiver capabilities are cumulative and separate from writer/runtime versions:
 - v3 is the S07 total browser receiver, including every client-side committed-
   state consumer and preview execution, and is the minimum for a carrier commit.
 
-Add a durable stream-capability lease keyed by app and a server-generated
-connection id. Registration commits before the first frame: lock `apps FOR
+Every browser EventSource URL carries exactly one `receiverVersion` declaration
+from that browser bundle's compiled capability manifest. Missing, duplicate,
+or malformed declarations are v0. A serving revision supports the minimum of
+its compiled receiver and its strictly parsed deployed-environment declaration,
+and supports only v0 unless both compiled and deployed stream-registry versions
+are at least 1. The lease admits the minimum of browser and serving support, so
+a new server cannot attribute v1 to an old open browser bundle.
+
+Add a durable stream-capability lease keyed by app and a database-minted
+connection UUID; the server never accepts client-asserted connection identity.
+Registration commits before the first frame: lock `apps FOR
 SHARE`, take the Project membership serialization lock, freshly resolve
 scope/view authorization in that transaction, lock the compatibility-state row
 `FOR SHARE`, reject a receiver below its persistent floor, and insert the lease.
@@ -1129,11 +1138,14 @@ or environment version declarations read as v0. Only request cap plus stream
 grace derives the 3,900-second stream lease; `lib/db/constants.ts` projects the
 two run-liveness fields to its legacy minute-valued API without authoring either
 value. Cloud Build validates the manifest and bakes its generated declarations
-into the image;
-Next's two required static route literals and the writer declaration are guarded
-against drift. This foundation does **not** label a revision, change traffic,
-raise a floor, or enable a flag. S02c2 owns the no-traffic candidate, manifest-
-label verification, `--timeout` pin, and guarded cutover/rollback controller.
+into the image; Next's two required static route literals and the writer
+declaration are guarded against drift. The pure server receiver resolver now
+enforces exact-one browser parsing and the browser/compiled/deployed minimum;
+browser URL emission, route registration, and lease persistence remain separate
+wiring commits. This foundation does **not** label a revision, change traffic,
+raise a floor, or enable a flag. S02c2 owns the no-traffic candidate,
+manifest-label verification, `--timeout` pin, and guarded cutover/rollback
+controller.
 
 SA runs can outlive the browser connection that started them, so request and
 stream bounds alone cannot prove a runtime-reader drain. Every app run holder
