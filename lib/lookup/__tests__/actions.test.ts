@@ -131,6 +131,26 @@ describe("lookup Server Actions", () => {
 		expect(result).toEqual({ success: true, value: manifest });
 	});
 
+	it("runtime-parses a table identity before calling the read service", async () => {
+		const table = { id: TABLE_ID };
+		mocks.getLookupTable.mockResolvedValue(table);
+
+		const result = await actions.getLookupTableAction(
+			"project-1",
+			TABLE_ID.toUpperCase(),
+		);
+
+		expect(mocks.getLookupTable).toHaveBeenCalledWith(
+			{
+				projectId: "project-1",
+				actorId: "user-1",
+				role: "editor",
+			},
+			TABLE_ID,
+		);
+		expect(result).toEqual({ success: true, value: table });
+	});
+
 	it("requires edit for additive schema and row creation, returning minted ids", async () => {
 		const column = await actions.addLookupColumnAction("project-1", {
 			tableId: TABLE_ID,

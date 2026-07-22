@@ -8,9 +8,11 @@ references and emits the CommCare fixture wire.
 
 ## Identity and tenancy
 
-- Tables, columns, and rows use server-minted UUIDv7 identity. Display names,
-  table tags, column wire names, and order keys are mutable projections, never
-  identity.
+- Tables, columns, and rows use the distinct server-minted UUIDv7 identities
+  and runtime schemas from the import-light `lib/domain/lookupIds` leaf. There
+  is no public generic lookup id: a table id cannot satisfy a column- or row-id
+  slot. Display names, table tags, column wire names, and order keys are mutable
+  projections, never identity.
 - Row values are keyed by immutable column UUID. Never key or rewrite stored
   values by `wire_name`.
 - Every resource query includes both `project_id` and its resource UUID. A
@@ -75,6 +77,14 @@ Manifest and full-table reads are authoritative snapshots, not change logs.
 Compose each from one SQL statement or a read-only `REPEATABLE READ`
 transaction. Multiple ordinary `READ COMMITTED` reads can pair data N with head
 N+1 and leave a client permanently stale.
+
+`getLookupDefinitions(scope, tableIds)` is the rows-free validation/compiler
+read. It returns only existing requested tables in deterministic table-UUID
+order; missing and foreign-Project ids are omitted identically. Project clock,
+table definitions, and ordered columns come from one read-only `REPEATABLE
+READ` snapshot. Its transaction-taking reader is the only composition seam for
+an already-open app transaction after it has acquired the production table
+locks; callers must not open a nested definition snapshot.
 
 `nova_lookup_stream` writes and reads are live. The one shared dedicated listener
 fans exact decimal revisions only to subscribers for that Project, and the app

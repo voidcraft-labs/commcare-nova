@@ -1,3 +1,4 @@
+import type { LookupColumnId } from "@/lib/domain/lookupIds";
 import { validateLookupRowValues } from "./coercion";
 import {
 	LOOKUP_MAX_COLUMNS,
@@ -388,7 +389,7 @@ export function validateLookupCsv(
 
 	const rows = [] as ValidatedLookupCsv["rows"];
 	for (const row of document.rows) {
-		const uuidValues: Record<string, string> = {};
+		const uuidValues: Record<LookupColumnId, string> = {};
 		for (const [wireName, value] of Object.entries(row.values)) {
 			const column = columnByWireName.get(wireName);
 			if (column) uuidValues[column.id] = value;

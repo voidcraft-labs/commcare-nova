@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
@@ -15,7 +16,6 @@ import {
 } from "@/lib/lookup/constants";
 import {
 	compareLookupRevisions,
-	lookupIdSchema,
 	lookupRevisionSchema,
 	lookupTableNameSchema,
 	lookupTagSchema,
@@ -29,7 +29,7 @@ const exactLookupTableNameSchema = z.string().refine((value) => {
 
 const lookupTableManifestEntrySchema = z
 	.object({
-		id: lookupIdSchema,
+		id: lookupTableIdSchema,
 		name: exactLookupTableNameSchema,
 		tag: lookupTagSchema,
 		columnCount: z.number().int().min(1).max(LOOKUP_MAX_COLUMNS),

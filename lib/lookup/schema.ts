@@ -1,5 +1,11 @@
 import { z } from "zod";
 import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import {
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
 	LOOKUP_MAX_COLUMN_LABEL_LENGTH,
@@ -14,15 +20,8 @@ import {
 	LOOKUP_WIRE_IDENTIFIER_PATTERN,
 	LOOKUP_XML_PREFIX_PATTERN,
 } from "./constants";
-import type {
-	LookupCellValue,
-	LookupId,
-	LookupRevision,
-	LookupRowValues,
-} from "./types";
+import type { LookupCellValue, LookupRevision, LookupRowValues } from "./types";
 
-const UUID_V7_PATTERN =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REVISION_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 const ORDER_KEY_PATTERN = /^[0-9A-Za-z]*[1-9A-Za-z]$/;
 const textEncoder = new TextEncoder();
@@ -45,11 +44,6 @@ export function hasUnpairedUtf16Surrogate(value: string): boolean {
 export function utf8ByteLength(value: string): number {
 	return textEncoder.encode(value).byteLength;
 }
-
-export const lookupIdSchema = z
-	.string()
-	.regex(UUID_V7_PATTERN, "Expected a UUIDv7 identifier.")
-	.transform((value) => value.toLowerCase() as LookupId);
 
 export const lookupRevisionSchema = z
 	.string()
@@ -198,7 +192,7 @@ export const lookupRowValuesSchema = z
 		}
 		const seen = new Set<string>();
 		for (const key of keys) {
-			const parsed = lookupIdSchema.safeParse(key);
+			const parsed = lookupColumnIdSchema.safeParse(key);
 			if (!parsed.success) {
 				ctx.addIssue({
 					code: "custom",
@@ -218,11 +212,11 @@ export const lookupRowValuesSchema = z
 		}
 	})
 	.transform((values) => {
-		const normalized: Record<string, LookupCellValue> = {};
+		const normalized: Record<LookupColumnId, LookupCellValue> = {};
 		for (const [key, value] of Object.entries(values)) {
-			normalized[lookupIdSchema.parse(key)] = value;
+			normalized[lookupColumnIdSchema.parse(key)] = value;
 		}
-		return normalized as LookupRowValues;
+		return normalized satisfies LookupRowValues;
 	});
 
 export const lookupColumnDraftSchema = z
@@ -259,7 +253,7 @@ export const createLookupTableInputSchema = z
 	});
 
 const expectedTableRevisionShape = {
-	tableId: lookupIdSchema,
+	tableId: lookupTableIdSchema,
 	expectedTableRevision: lookupRevisionSchema,
 };
 
@@ -281,7 +275,7 @@ export const addLookupColumnInputSchema = z
 
 const columnMutationShape = {
 	...expectedTableRevisionShape,
-	columnId: lookupIdSchema,
+	columnId: lookupColumnIdSchema,
 };
 
 export const updateLookupColumnLabelInputSchema = z
@@ -324,7 +318,7 @@ export const createLookupRowInputSchema = z
 
 const rowMutationShape = {
 	...expectedTableRevisionShape,
-	rowId: lookupIdSchema,
+	rowId: lookupRowIdSchema,
 };
 
 export const updateLookupRowInputSchema = z

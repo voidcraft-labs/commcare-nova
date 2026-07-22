@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
+import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+} from "@/lib/domain/lookupIds";
 import { LOOKUP_MAX_CSV_BYTES, LOOKUP_MAX_ROWS } from "../constants";
 import { parseLookupCsv, validateLookupCsv } from "../csv";
-import type { LookupColumn, LookupId } from "../types";
+import type { LookupColumn } from "../types";
 
 const encoder = new TextEncoder();
 
-function id(suffix: number): LookupId {
-	return `01890f45-0000-7000-8000-${suffix.toString(16).padStart(12, "0")}` as LookupId;
+function id(suffix: number): LookupColumnId {
+	return lookupColumnIdSchema.parse(
+		`01890f45-0000-7000-8000-${suffix.toString(16).padStart(12, "0")}`,
+	);
 }
 
 const COLUMNS: LookupColumn[] = [
