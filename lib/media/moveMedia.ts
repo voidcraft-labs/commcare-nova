@@ -13,6 +13,9 @@
 // blueprint. The source asset + bytes are left untouched, so a sibling app in the
 // source Project that shares the asset is unaffected. Content-addressed GCS keys
 // make the copy idempotent: a re-run dedups on the existing destination row.
+// Every copy holds the source + destination content identities in sorted order
+// while it re-reads the source pair, and a failed metadata publication performs
+// a winner-aware destination cleanup before retrying.
 
 import "server-only";
 
@@ -20,10 +23,12 @@ import {
 	createReadyAsset,
 	findReadyAssetByProjectAndHash,
 	findReadyExtractForProjectAndHash,
+	getAssetsInTransaction,
 	installCopiedReadyExtract,
 	loadAssetsByIds,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
+import type { MediaAssetExtract } from "@/lib/db/types";
 import {
 	extractGcsObjectKeyFor,
 	extractObjectKeyForAsset,
@@ -31,8 +36,12 @@ import {
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { copyAssetObject, getStoredObjectSize } from "@/lib/storage/media";
-import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
+import { withMediaObjectKeyLocks } from "@/lib/storage/mediaObjectKeyLock";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import {
+	cleanupUnpublishedAssetObject,
+	cleanupUnpublishedExtractObject,
+} from "./assetDeletion";
 import { partitionAssetRefs } from "./builtinIconAssets";
 
 /**
@@ -172,51 +181,94 @@ async function copyOneAsset(
 ): Promise<[string, string]> {
 	let lastErr: unknown;
 	for (let attempt = 1; attempt <= MAX_COPY_ATTEMPTS; attempt++) {
+		const destKey = gcsObjectKeyFor(
+			args.toProjectId,
+			row.contentHash,
+			row.extension,
+		);
+		let baseObjectMayNeedCleanup: string | null = null;
+		let extractObjectMayNeedCleanup: ExtractPublicationCleanup | null = null;
 		try {
-			const destKey = gcsObjectKeyFor(
-				args.toProjectId,
-				row.contentHash,
-				row.extension,
-			);
-			const readyExtract =
-				row.extract?.status === "ready" ? row.extract : undefined;
-			return await withMediaObjectKeyLock(destKey, async (lockedDb) => {
-				// Re-check dedup under the key lock. A browser/MCP upload or another
-				// move can have published between the pre-copy scan and this asset.
-				const existing = await findReadyAssetByProjectAndHash(
-					args.toProjectId,
-					row.contentHash,
-					lockedDb,
-				);
-				if (existing) {
-					await copyReadyExtractToExisting(row, existing, lockedDb);
-					return [row.id, existing.id];
-				}
+			const mapping = await withMediaObjectKeyLocks(
+				[row.gcsObjectKey, destKey],
+				async (lockedDb) => {
+					/* Relocation reads the exact source row only after BOTH content
+					 * identities are held. Extraction publication uses the source
+					 * identity too, so the ready metadata and versioned source object
+					 * cannot change between this re-read and the GCS copy. */
+					const source = await reReadReadySourceAsset(
+						row,
+						args.fromProjectId,
+						lockedDb,
+					);
+					const sourceExtractPair = await readReadySourceExtractPair(
+						source,
+						args.toProjectId,
+					);
 
-				await copyAssetObject(row.gcsObjectKey, destKey);
-				await copyReadyExtractObject(row, args.toProjectId);
-				const { assetId } = await createReadyAsset(
-					{
-						owner: args.actorUserId,
-						project_id: args.toProjectId,
-						contentHash: row.contentHash,
-						mimeType: row.mimeType,
-						kind: row.kind,
-						extension: row.extension,
-						sizeBytes: row.sizeBytes,
-						gcsObjectKey: destKey,
-						originalFilename: row.originalFilename,
-						displayName: row.displayName,
-						dimensions: row.dimensions,
-						durationMs: row.durationMs,
-						extract: readyExtract,
-					},
-					lockedDb,
-				);
-				return [row.id, assetId];
-			});
+					// Re-check dedup under the destination lock. A browser/MCP upload
+					// or another move may have published after the pre-copy scan.
+					const existing = await findReadyAssetByProjectAndHash(
+						args.toProjectId,
+						source.contentHash,
+						lockedDb,
+					);
+					if (existing) {
+						await copyReadyExtractToExisting(
+							sourceExtractPair,
+							existing,
+							lockedDb,
+							(cleanup) => {
+								extractObjectMayNeedCleanup = cleanup;
+							},
+						);
+						return [row.id, existing.id] as [string, string];
+					}
+
+					baseObjectMayNeedCleanup = destKey;
+					await copyAssetObject(source.gcsObjectKey, destKey);
+					if (sourceExtractPair !== null) {
+						extractObjectMayNeedCleanup = cleanupForExtractPair(
+							sourceExtractPair,
+							source,
+							args.toProjectId,
+						);
+						await copyAssetObject(
+							sourceExtractPair.sourceKey,
+							sourceExtractPair.destinationKey,
+						);
+					}
+					const { assetId } = await createReadyAsset(
+						{
+							owner: args.actorUserId,
+							project_id: args.toProjectId,
+							contentHash: source.contentHash,
+							mimeType: source.mimeType,
+							kind: source.kind,
+							extension: source.extension,
+							sizeBytes: source.sizeBytes,
+							gcsObjectKey: destKey,
+							originalFilename: source.originalFilename,
+							displayName: source.displayName,
+							dimensions: source.dimensions,
+							durationMs: source.durationMs,
+							extract: sourceExtractPair?.extract,
+						},
+						lockedDb,
+					);
+					return [row.id, assetId] as [string, string];
+				},
+			);
+			baseObjectMayNeedCleanup = null;
+			extractObjectMayNeedCleanup = null;
+			return mapping;
 		} catch (err) {
 			lastErr = err;
+			await cleanupFailedMovePublication({
+				assetId: row.id,
+				baseObjectKey: baseObjectMayNeedCleanup,
+				extractObject: extractObjectMayNeedCleanup,
+			});
 			if (attempt < MAX_COPY_ATTEMPTS) {
 				await new Promise((resolve) =>
 					setTimeout(resolve, COPY_RETRY_DELAY_MS * attempt),
@@ -236,28 +288,78 @@ async function copyOneAsset(
 	throw new MediaCopyFailedError(row.id, { cause: lastErr });
 }
 
-async function copyReadyExtractObject(
+type LockedMediaDb = NonNullable<Parameters<typeof createReadyAsset>[1]>;
+
+interface ReadySourceExtractPair {
+	extract: MediaAssetExtract & { status: "ready" };
+	sourceKey: string;
+	destinationKey: string;
+}
+
+interface ExtractPublicationCleanup {
+	gcsObjectKey: string;
+	projectId: string;
+	contentHash: string;
+	version: number;
+}
+
+async function reReadReadySourceAsset(
+	initial: MediaAssetRecord,
+	fromProjectId: string,
+	lockedDb: LockedMediaDb,
+): Promise<MediaAssetRecord> {
+	const assets = await lockedDb
+		.transaction()
+		.execute((tx) => getAssetsInTransaction(tx, [initial.id]));
+	const source = assets.get(initial.id);
+	if (
+		source === undefined ||
+		source.project_id !== fromProjectId ||
+		source.status !== "ready"
+	) {
+		throw new Error(
+			`Source asset ${initial.id} is no longer ready in its source Project.`,
+		);
+	}
+	if (
+		source.contentHash !== initial.contentHash ||
+		source.gcsObjectKey !== initial.gcsObjectKey
+	) {
+		throw new Error(
+			`Ready source asset ${initial.id} changed immutable content identity during relocation.`,
+		);
+	}
+	return source;
+}
+
+async function readReadySourceExtractPair(
 	source: MediaAssetRecord,
 	toProjectId: string,
-): Promise<void> {
-	if (source.extract?.status !== "ready") return;
+): Promise<ReadySourceExtractPair | null> {
+	if (source.extract?.status !== "ready") return null;
 	const sourceKey = extractObjectKeyForAsset(source);
-	if (sourceKey === null) return;
+	if (sourceKey === null) return null;
+	if ((await getStoredObjectSize(sourceKey)) === null) return null;
 	const destinationKey = extractGcsObjectKeyFor(
 		toProjectId,
 		source.contentHash,
 		source.extract.version,
 	);
-	await copyAssetObject(sourceKey, destinationKey);
+	return {
+		extract: source.extract as MediaAssetExtract & { status: "ready" },
+		sourceKey,
+		destinationKey,
+	};
 }
 
 async function copyReadyExtractToExisting(
-	source: MediaAssetRecord,
+	sourcePair: ReadySourceExtractPair | null,
 	destination: MediaAssetRecord,
-	lockedDb: NonNullable<Parameters<typeof installCopiedReadyExtract>[1]>,
+	lockedDb: LockedMediaDb,
+	markObjectForCleanup: (cleanup: ExtractPublicationCleanup) => void,
 ): Promise<void> {
-	const sourceExtract = source.extract;
-	if (sourceExtract?.status !== "ready") return;
+	if (sourcePair === null) return;
+	const sourceExtract = sourcePair.extract;
 	if (
 		destination.extract !== undefined &&
 		destination.extract.version > sourceExtract.version
@@ -288,7 +390,13 @@ async function copyReadyExtractToExisting(
 		);
 		return;
 	}
-	await copyReadyExtractObject(source, destination.project_id);
+	markObjectForCleanup({
+		gcsObjectKey: destinationKey,
+		projectId: destination.project_id,
+		contentHash: destination.contentHash,
+		version: sourceExtract.version,
+	});
+	await copyAssetObject(sourcePair.sourceKey, destinationKey);
 	await installCopiedReadyExtract(
 		{
 			assetId: destination.id,
@@ -296,4 +404,49 @@ async function copyReadyExtractToExisting(
 		},
 		lockedDb,
 	);
+}
+
+function cleanupForExtractPair(
+	pair: ReadySourceExtractPair,
+	source: MediaAssetRecord,
+	destinationProjectId: string,
+): ExtractPublicationCleanup {
+	return {
+		gcsObjectKey: pair.destinationKey,
+		projectId: destinationProjectId,
+		contentHash: source.contentHash,
+		version: pair.extract.version,
+	};
+}
+
+async function cleanupFailedMovePublication(args: {
+	assetId: string;
+	baseObjectKey: string | null;
+	extractObject: ExtractPublicationCleanup | null;
+}): Promise<void> {
+	if (args.extractObject !== null) {
+		await cleanupUnpublishedExtractObject(args.extractObject).catch(
+			(error: unknown) => {
+				log.error(
+					"[copyAssetsIntoProject] lost extract-publication cleanup failed",
+					error,
+					{
+						assetId: args.assetId,
+						gcsObjectKey: args.extractObject?.gcsObjectKey,
+					},
+				);
+			},
+		);
+	}
+	if (args.baseObjectKey !== null) {
+		await cleanupUnpublishedAssetObject(args.baseObjectKey).catch(
+			(error: unknown) => {
+				log.error(
+					"[copyAssetsIntoProject] lost base-publication cleanup failed",
+					error,
+					{ assetId: args.assetId, gcsObjectKey: args.baseObjectKey },
+				);
+			},
+		);
+	}
 }

@@ -264,3 +264,36 @@ export async function cleanupUnpublishedAssetObject(
 		if (!published) await deleteGcsObject(gcsObjectKey);
 	});
 }
+
+/**
+ * Remove a versioned extract object copied by a publication attempt whose
+ * metadata commit lost. The post-failure recheck runs under the same
+ * Project/hash lock as every publisher and retains the object whenever a ready
+ * sibling now names that version. A probe failure fails closed and keeps bytes:
+ * deleting a winner's shared extract is worse than retaining an orphan for
+ * later repair.
+ */
+export async function cleanupUnpublishedExtractObject(args: {
+	gcsObjectKey: string;
+	projectId: string;
+	contentHash: string;
+	version: number;
+}): Promise<void> {
+	await withMediaObjectKeyLock(args.gcsObjectKey, async (lockedDb) => {
+		const published = await hasReadyExtractForProjectAndHash(
+			args.projectId,
+			args.contentHash,
+			args.version,
+			lockedDb,
+		).catch((err: unknown) => {
+			log.error("[asset-publication] published-extract check failed", err, {
+				gcsObjectKey: args.gcsObjectKey,
+				projectId: args.projectId,
+				contentHash: args.contentHash,
+				version: args.version,
+			});
+			return true;
+		});
+		if (!published) await deleteGcsObject(args.gcsObjectKey);
+	});
+}

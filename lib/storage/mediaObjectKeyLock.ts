@@ -75,26 +75,35 @@ export function mediaObjectLockIdentity(gcsObjectKey: string): string {
 }
 
 /**
- * Serialize publication and last-reference cleanup for one canonical media
- * content identity. Final base objects with different extensions but the same
- * Project/hash deliberately share this lock because they also share an extract
- * object.
+ * Serialize publication and last-reference cleanup for canonical media content
+ * identities. Every identity is acquired on one checked-out session in sorted
+ * order and released in reverse order. Cross-Project relocation needs both its
+ * source and destination identities at once: sorting here gives every caller
+ * the same lock order and prevents source-A/destination-B from deadlocking a
+ * source-B/destination-A move.
  *
  * This deliberately uses a dedicated checked-out session: session advisory
  * locks outlive SQL transactions, which lets the critical section span GCS and
  * Postgres without pretending those systems share a transaction. A hash
  * collision only over-serializes two unrelated keys; it cannot weaken safety.
  */
-export async function withMediaObjectKeyLock<T>(
-	gcsObjectKey: string,
+export async function withMediaObjectKeyLocks<T>(
+	gcsObjectKeys: readonly string[],
 	body: (lockedDb: Kysely<AppDatabase>) => Promise<T>,
 ): Promise<T> {
+	const lockIdentities = [
+		...new Set(gcsObjectKeys.map(mediaObjectLockIdentity)),
+	].sort();
+	if (lockIdentities.length === 0) {
+		throw new Error(
+			"withMediaObjectKeyLocks requires at least one media object key.",
+		);
+	}
 	await acquireLocalKeyLockPermit();
 	try {
-		const lockIdentity = mediaObjectLockIdentity(gcsObjectKey);
 		const pool = await getCaseStorePool();
 		const client = await pool.connect();
-		let acquired = false;
+		const acquiredIdentities: string[] = [];
 		let lockedDb: Kysely<AppDatabase> | null = null;
 		let discardClient: Error | undefined;
 		let failed = false;
@@ -102,11 +111,13 @@ export async function withMediaObjectKeyLock<T>(
 		let value!: T;
 		try {
 			try {
-				await client.query(
-					"SELECT pg_advisory_lock(hashtextextended($1, 0::bigint))",
-					[lockIdentity],
-				);
-				acquired = true;
+				for (const lockIdentity of lockIdentities) {
+					await client.query(
+						"SELECT pg_advisory_lock(hashtextextended($1, 0::bigint))",
+						[lockIdentity],
+					);
+					acquiredIdentities.push(lockIdentity);
+				}
 				lockedDb = databasePinnedToClient(client, pool.options);
 				value = await body(lockedDb);
 			} catch (error) {
@@ -121,7 +132,8 @@ export async function withMediaObjectKeyLock<T>(
 					failure = error;
 				}
 			}
-			if (acquired) {
+			for (let index = acquiredIdentities.length - 1; index >= 0; index--) {
+				const lockIdentity = acquiredIdentities[index];
 				try {
 					const result = await client.query<{ unlocked: boolean }>(
 						"SELECT pg_advisory_unlock(hashtextextended($1, 0::bigint)) AS unlocked",
@@ -151,4 +163,12 @@ export async function withMediaObjectKeyLock<T>(
 	} finally {
 		releaseLocalKeyLockPermit();
 	}
+}
+
+/** Serialize one canonical media content identity. */
+export async function withMediaObjectKeyLock<T>(
+	gcsObjectKey: string,
+	body: (lockedDb: Kysely<AppDatabase>) => Promise<T>,
+): Promise<T> {
+	return withMediaObjectKeyLocks([gcsObjectKey], body);
 }

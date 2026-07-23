@@ -7,31 +7,45 @@ const {
 	createReadyAsset,
 	findReadyAssetByProjectAndHash,
 	findReadyExtractForProjectAndHash,
+	getAssetsInTransaction,
 	installCopiedReadyExtract,
 	loadAssetsByIds,
 	copyAssetObject,
 	getStoredObjectSize,
-	withMediaObjectKeyLock,
+	withMediaObjectKeyLocks,
+	cleanupUnpublishedAssetObject,
+	cleanupUnpublishedExtractObject,
 } = vi.hoisted(() => ({
 	createReadyAsset: vi.fn(),
 	findReadyAssetByProjectAndHash: vi.fn(),
 	findReadyExtractForProjectAndHash: vi.fn(),
+	getAssetsInTransaction: vi.fn(),
 	installCopiedReadyExtract: vi.fn(() => Promise.resolve()),
 	loadAssetsByIds: vi.fn(),
-	copyAssetObject: vi.fn(() => Promise.resolve()),
+	copyAssetObject: vi.fn((_sourceKey: string, _destinationKey: string) =>
+		Promise.resolve(),
+	),
 	getStoredObjectSize: vi.fn<() => Promise<number | null>>(() =>
 		Promise.resolve(100),
 	),
-	withMediaObjectKeyLock: vi.fn(
-		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
-			body({ pinned: true }),
+	withMediaObjectKeyLocks: vi.fn(
+		async (_keys: string[], body: (lockedDb: unknown) => Promise<unknown>) =>
+			body({
+				transaction: () => ({
+					execute: (callback: (tx: unknown) => Promise<unknown>) =>
+						callback({ pinned: true }),
+				}),
+			}),
 	),
+	cleanupUnpublishedAssetObject: vi.fn(() => Promise.resolve()),
+	cleanupUnpublishedExtractObject: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/db/mediaAssets", () => ({
 	createReadyAsset,
 	findReadyAssetByProjectAndHash,
 	findReadyExtractForProjectAndHash,
+	getAssetsInTransaction,
 	installCopiedReadyExtract,
 	loadAssetsByIds,
 }));
@@ -40,11 +54,16 @@ vi.mock("@/lib/storage/media", () => ({
 	getStoredObjectSize,
 }));
 vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
-	withMediaObjectKeyLock,
+	withMediaObjectKeyLocks,
+}));
+vi.mock("../assetDeletion", () => ({
+	cleanupUnpublishedAssetObject,
+	cleanupUnpublishedExtractObject,
 }));
 
 const FROM = "project-source";
 const TO = "project-destination";
+let freshSourceRows = new Map<string, MediaAssetRecord>();
 
 function asset(
 	id: string,
@@ -67,11 +86,69 @@ function asset(
 	};
 }
 
+function arrangeLoadedAssets(rows: MediaAssetRecord[]): void {
+	freshSourceRows = new Map(rows.map((row) => [row.id, row]));
+	loadAssetsByIds.mockResolvedValue(rows);
+}
+
+function fakeLockedDb() {
+	return {
+		transaction: () => ({
+			execute: (callback: (tx: unknown) => Promise<unknown>) =>
+				callback({ pinned: true }),
+		}),
+	};
+}
+
+function deferred() {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+function installContentLockMutex(): void {
+	let tail = Promise.resolve();
+	withMediaObjectKeyLocks.mockImplementation(
+		async (_keys: string[], body: (lockedDb: unknown) => Promise<unknown>) => {
+			const prior = tail;
+			let release!: () => void;
+			tail = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			await prior;
+			try {
+				return await body(fakeLockedDb());
+			} finally {
+				release();
+			}
+		},
+	);
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	freshSourceRows = new Map();
+	withMediaObjectKeyLocks.mockImplementation(
+		async (_keys: string[], body: (lockedDb: unknown) => Promise<unknown>) =>
+			body(fakeLockedDb()),
+	);
 	findReadyAssetByProjectAndHash.mockResolvedValue(null);
 	findReadyExtractForProjectAndHash.mockResolvedValue(null);
 	getStoredObjectSize.mockResolvedValue(100);
+	copyAssetObject.mockResolvedValue(undefined);
+	installCopiedReadyExtract.mockResolvedValue(undefined);
+	cleanupUnpublishedAssetObject.mockResolvedValue(undefined);
+	cleanupUnpublishedExtractObject.mockResolvedValue(undefined);
+	getAssetsInTransaction.mockImplementation(async (_tx, ids: string[]) => {
+		return new Map(
+			ids.flatMap((id) => {
+				const row = freshSourceRows.get(id);
+				return row === undefined ? [] : [[id, row] as const];
+			}),
+		);
+	});
 	let copy = 0;
 	createReadyAsset.mockImplementation(async () => ({
 		assetId: asAssetId(`destination-${++copy}`),
@@ -80,7 +157,7 @@ beforeEach(() => {
 
 describe("copyAssetsIntoProject", () => {
 	it("fails closed when a required blueprint asset is missing or unready", async () => {
-		loadAssetsByIds.mockResolvedValue([]);
+		arrangeLoadedAssets([]);
 
 		await expect(
 			copyAssetsIntoProject({
@@ -116,7 +193,7 @@ describe("copyAssetsIntoProject", () => {
 				title: "Requirements",
 			},
 		});
-		loadAssetsByIds.mockResolvedValue([image, document]);
+		arrangeLoadedAssets([image, document]);
 
 		const result = await copyAssetsIntoProject({
 			requiredAssetIds: [image.id],
@@ -145,10 +222,296 @@ describe("copyAssetsIntoProject", () => {
 			}),
 			expect.anything(),
 		);
-		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
-			`projects/${TO}/${"d".repeat(64)}.pdf`,
+		expect(withMediaObjectKeyLocks).toHaveBeenCalledWith(
+			[document.gcsObjectKey, `projects/${TO}/${"d".repeat(64)}.pdf`],
 			expect.any(Function),
 		);
+	});
+
+	it("re-reads the source extract pair after acquiring source and destination locks", async () => {
+		const contentHash = "9".repeat(64);
+		const initial = asset("document-source", {
+			contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			gcsObjectKey: `projects/${FROM}/${contentHash}.pdf`,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "stale-model",
+				truncated: false,
+				charCount: 10,
+				extractedAt: 100,
+				title: "Stale title",
+			},
+		});
+		const fresh = asset("document-source", {
+			...initial,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "fresh-model",
+				truncated: true,
+				charCount: 40,
+				extractedAt: 200,
+				title: "Fresh title",
+			},
+		});
+		loadAssetsByIds.mockResolvedValue([initial]);
+		freshSourceRows = new Map([[fresh.id, fresh]]);
+
+		await copyAssetsIntoProject({
+			requiredAssetIds: [initial.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+
+		expect(withMediaObjectKeyLocks).toHaveBeenCalledWith(
+			[initial.gcsObjectKey, `projects/${TO}/${contentHash}.pdf`],
+			expect.any(Function),
+		);
+		expect(getAssetsInTransaction).toHaveBeenCalledWith(expect.anything(), [
+			initial.id,
+		]);
+		expect(getStoredObjectSize).toHaveBeenCalledWith(
+			`projects/${FROM}/${contentHash}.extract.v2.md`,
+		);
+		expect(createReadyAsset).toHaveBeenCalledWith(
+			expect.objectContaining({ extract: fresh.extract }),
+			expect.anything(),
+		);
+		expect(createReadyAsset).not.toHaveBeenCalledWith(
+			expect.objectContaining({ extract: initial.extract }),
+			expect.anything(),
+		);
+		expect(withMediaObjectKeyLocks.mock.invocationCallOrder[0]).toBeLessThan(
+			getAssetsInTransaction.mock.invocationCallOrder[0] ?? Number.MAX_VALUE,
+		);
+	});
+
+	it("waits for a source publication winner, then copies its exact refreshed pair", async () => {
+		installContentLockMutex();
+		const contentHash = "6".repeat(64);
+		const initial = asset("document-source", {
+			contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			gcsObjectKey: `projects/${FROM}/${contentHash}.pdf`,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "initial-model",
+				truncated: false,
+				charCount: 10,
+				extractedAt: 100,
+			},
+		});
+		const refreshed = asset("document-source", {
+			...initial,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "publication-winner",
+				truncated: true,
+				charCount: 40,
+				extractedAt: 200,
+			},
+		});
+		arrangeLoadedAssets([initial]);
+		const publisherEntered = deferred();
+		const releasePublisher = deferred();
+		const sourcePublication = withMediaObjectKeyLocks(
+			[initial.gcsObjectKey],
+			async () => {
+				freshSourceRows = new Map([[refreshed.id, refreshed]]);
+				publisherEntered.resolve();
+				await releasePublisher.promise;
+			},
+		);
+		await publisherEntered.promise;
+
+		const move = copyAssetsIntoProject({
+			requiredAssetIds: [initial.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+		await Promise.resolve();
+		expect(getAssetsInTransaction).not.toHaveBeenCalled();
+
+		releasePublisher.resolve();
+		await Promise.all([sourcePublication, move]);
+
+		expect(createReadyAsset).toHaveBeenCalledWith(
+			expect.objectContaining({ extract: refreshed.extract }),
+			expect.anything(),
+		);
+	});
+
+	it("holds the source pair stable until a waiting publication can replace it", async () => {
+		installContentLockMutex();
+		const contentHash = "5".repeat(64);
+		const initial = asset("document-source", {
+			contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			gcsObjectKey: `projects/${FROM}/${contentHash}.pdf`,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "move-winner",
+				truncated: false,
+				charCount: 10,
+				extractedAt: 100,
+			},
+		});
+		const refreshed = asset("document-source", {
+			...initial,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "later-publication",
+				truncated: true,
+				charCount: 40,
+				extractedAt: 200,
+			},
+		});
+		arrangeLoadedAssets([initial]);
+		const baseCopyStarted = deferred();
+		const releaseBaseCopy = deferred();
+		copyAssetObject.mockImplementation(async (sourceKey: string) => {
+			if (sourceKey === initial.gcsObjectKey) {
+				baseCopyStarted.resolve();
+				await releaseBaseCopy.promise;
+			}
+		});
+
+		const move = copyAssetsIntoProject({
+			requiredAssetIds: [initial.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+		await baseCopyStarted.promise;
+		let sourcePublisherRan = false;
+		const sourcePublication = withMediaObjectKeyLocks(
+			[initial.gcsObjectKey],
+			async () => {
+				sourcePublisherRan = true;
+				freshSourceRows = new Map([[refreshed.id, refreshed]]);
+			},
+		);
+		await Promise.resolve();
+		expect(sourcePublisherRan).toBe(false);
+
+		releaseBaseCopy.resolve();
+		await Promise.all([move, sourcePublication]);
+
+		expect(createReadyAsset).toHaveBeenCalledWith(
+			expect.objectContaining({ extract: initial.extract }),
+			expect.anything(),
+		);
+		expect(sourcePublisherRan).toBe(true);
+	});
+
+	it("cleans copied base and extract objects when destination metadata insertion fails", async () => {
+		const contentHash = "8".repeat(64);
+		const source = asset("document-source", {
+			contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			gcsObjectKey: `projects/${FROM}/${contentHash}.pdf`,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "extract-model",
+				truncated: false,
+				charCount: 10,
+				extractedAt: 100,
+			},
+		});
+		arrangeLoadedAssets([source]);
+		createReadyAsset.mockRejectedValue(new Error("insert failed"));
+
+		await expect(
+			copyAssetsIntoProject({
+				requiredAssetIds: [source.id],
+				historicalAssetIds: [],
+				fromProjectId: FROM,
+				toProjectId: TO,
+				actorUserId: "actor-1",
+			}),
+		).rejects.toBeInstanceOf(MediaCopyFailedError);
+
+		expect(cleanupUnpublishedAssetObject).toHaveBeenCalledTimes(3);
+		expect(cleanupUnpublishedAssetObject).toHaveBeenCalledWith(
+			`projects/${TO}/${contentHash}.pdf`,
+		);
+		expect(cleanupUnpublishedExtractObject).toHaveBeenCalledTimes(3);
+		expect(cleanupUnpublishedExtractObject).toHaveBeenCalledWith({
+			gcsObjectKey: `projects/${TO}/${contentHash}.extract.v2.md`,
+			projectId: TO,
+			contentHash,
+			version: 2,
+		});
+	});
+
+	it("cleans a copied repair extract when destination metadata installation fails", async () => {
+		const contentHash = "7".repeat(64);
+		const source = asset("document-source", {
+			contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			gcsObjectKey: `projects/${FROM}/${contentHash}.pdf`,
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "extract-model",
+				truncated: false,
+				charCount: 10,
+				extractedAt: 100,
+			},
+		});
+		const existing = asset("existing-destination", {
+			project_id: TO,
+			contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			gcsObjectKey: `projects/${TO}/${contentHash}.pdf`,
+			extract: undefined,
+		});
+		arrangeLoadedAssets([source]);
+		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
+		installCopiedReadyExtract.mockRejectedValue(new Error("install failed"));
+
+		await expect(
+			copyAssetsIntoProject({
+				requiredAssetIds: [source.id],
+				historicalAssetIds: [],
+				fromProjectId: FROM,
+				toProjectId: TO,
+				actorUserId: "actor-1",
+			}),
+		).rejects.toBeInstanceOf(MediaCopyFailedError);
+
+		expect(cleanupUnpublishedAssetObject).not.toHaveBeenCalled();
+		expect(cleanupUnpublishedExtractObject).toHaveBeenCalledTimes(3);
+		expect(cleanupUnpublishedExtractObject).toHaveBeenCalledWith({
+			gcsObjectKey: `projects/${TO}/${contentHash}.extract.v2.md`,
+			projectId: TO,
+			contentHash,
+			version: 2,
+		});
 	});
 
 	it("reuses a destination row and publishes a missing ready extract under the same key lock", async () => {
@@ -176,7 +539,7 @@ describe("copyAssetsIntoProject", () => {
 			gcsObjectKey: `projects/${TO}/${"e".repeat(64)}.pdf`,
 			extract: undefined,
 		});
-		loadAssetsByIds.mockResolvedValue([source]);
+		arrangeLoadedAssets([source]);
 		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
 
 		const result = await copyAssetsIntoProject({
@@ -242,7 +605,7 @@ describe("copyAssetsIntoProject", () => {
 			extractedAt: 300,
 			title: "Destination winner",
 		};
-		loadAssetsByIds.mockResolvedValue([source]);
+		arrangeLoadedAssets([source]);
 		findReadyAssetByProjectAndHash.mockResolvedValue(selectedDestination);
 		findReadyExtractForProjectAndHash.mockResolvedValue(sharedReady);
 
@@ -296,10 +659,10 @@ describe("copyAssetsIntoProject", () => {
 			charCount: 30,
 			extractedAt: 300,
 		};
-		loadAssetsByIds.mockResolvedValue([source]);
+		arrangeLoadedAssets([source]);
 		findReadyAssetByProjectAndHash.mockResolvedValue(selectedDestination);
 		findReadyExtractForProjectAndHash.mockResolvedValue(brokenSharedMetadata);
-		getStoredObjectSize.mockResolvedValue(null);
+		getStoredObjectSize.mockResolvedValueOnce(100).mockResolvedValueOnce(null);
 
 		await copyAssetsIntoProject({
 			requiredAssetIds: [source.id],
@@ -354,7 +717,7 @@ describe("copyAssetsIntoProject", () => {
 				title: "Destination title",
 			},
 		});
-		loadAssetsByIds.mockResolvedValue([source]);
+		arrangeLoadedAssets([source]);
 		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
 		findReadyExtractForProjectAndHash.mockResolvedValue(existing.extract);
 
@@ -408,7 +771,7 @@ describe("copyAssetsIntoProject", () => {
 				extractedAt: 300,
 			},
 		});
-		loadAssetsByIds.mockResolvedValue([source]);
+		arrangeLoadedAssets([source]);
 		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
 		findReadyExtractForProjectAndHash.mockResolvedValue(existing.extract);
 
@@ -440,7 +803,7 @@ describe("copyAssetsIntoProject", () => {
 				extractedAt: 200,
 			},
 		});
-		loadAssetsByIds.mockResolvedValue([source]);
+		arrangeLoadedAssets([source]);
 
 		await copyAssetsIntoProject({
 			requiredAssetIds: [source.id],
@@ -459,6 +822,7 @@ describe("copyAssetsIntoProject", () => {
 
 	it("does not block when a historical-only attachment is deleted during pre-copy", async () => {
 		const historical = asset("historical-race");
+		freshSourceRows = new Map([[historical.id, historical]]);
 		loadAssetsByIds
 			.mockResolvedValueOnce([historical])
 			.mockResolvedValueOnce([]);
@@ -478,6 +842,7 @@ describe("copyAssetsIntoProject", () => {
 
 	it("still fails when a historical asset row remains ready but its bytes cannot be copied", async () => {
 		const historical = asset("historical-corrupt");
+		freshSourceRows = new Map([[historical.id, historical]]);
 		loadAssetsByIds
 			.mockResolvedValueOnce([historical])
 			.mockResolvedValueOnce([historical]);

@@ -24,6 +24,7 @@ import {
 	carriersForAsset,
 	cleanupReleasedAssetStorage,
 	cleanupUnpublishedAssetObject,
+	cleanupUnpublishedExtractObject,
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
@@ -436,6 +437,57 @@ describe("canonical object-key cleanup/publication winner orders", () => {
 		hasAssetForGcsObjectKey.mockResolvedValue(true);
 
 		await cleanupUnpublishedAssetObject("projects/project-1/published.pdf");
+
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("deletes a copied extract when no ready metadata publication names its version", async () => {
+		const key = "projects/project-1/hash.extract.v2.md";
+
+		await cleanupUnpublishedExtractObject({
+			gcsObjectKey: key,
+			projectId: PROJECT,
+			contentHash: "hash",
+			version: 2,
+		});
+
+		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
+			key,
+			expect.any(Function),
+		);
+		expect(hasReadyExtractForProjectAndHash).toHaveBeenCalledWith(
+			PROJECT,
+			"hash",
+			2,
+			expect.anything(),
+		);
+		expect(deleteGcsObject).toHaveBeenCalledWith(key);
+	});
+
+	it("retains a copied extract when a ready sibling won before cleanup", async () => {
+		hasReadyExtractForProjectAndHash.mockResolvedValue(true);
+
+		await cleanupUnpublishedExtractObject({
+			gcsObjectKey: "projects/project-1/hash.extract.v2.md",
+			projectId: PROJECT,
+			contentHash: "hash",
+			version: 2,
+		});
+
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("fails closed when the post-failure extract metadata recheck errors", async () => {
+		hasReadyExtractForProjectAndHash.mockRejectedValue(
+			new Error("database unavailable"),
+		);
+
+		await cleanupUnpublishedExtractObject({
+			gcsObjectKey: "projects/project-1/hash.extract.v2.md",
+			projectId: PROJECT,
+			contentHash: "hash",
+			version: 2,
+		});
 
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});

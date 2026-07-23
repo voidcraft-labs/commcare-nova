@@ -9,9 +9,11 @@ vi.mock("@/lib/case-store/postgres/connection", () => ({
 	POOL_MAX_PER_INSTANCE: 3,
 }));
 
-const { mediaObjectLockIdentity, withMediaObjectKeyLock } = await import(
-	"../mediaObjectKeyLock"
-);
+const {
+	mediaObjectLockIdentity,
+	withMediaObjectKeyLock,
+	withMediaObjectKeyLocks,
+} = await import("../mediaObjectKeyLock");
 
 function fakeClient(assetId = "asset-1") {
 	const query = vi.fn(async (statement: string, _params?: unknown[]) => {
@@ -105,6 +107,45 @@ describe("withMediaObjectKeyLock", () => {
 			`projects/project-1/${hash}`,
 			`projects/project-1/${hash}`,
 		]);
+	});
+
+	it("acquires multiple content identities once in sorted order and releases in reverse", async () => {
+		const hash = "c".repeat(64);
+		const source = `projects/z-source/${hash}.pdf`;
+		const destination = `projects/a-destination/${hash}.pdf`;
+		const duplicateDestination = `projects/a-destination/${hash}.extract.v2.md`;
+		const client = fakeClient();
+		getCaseStorePool.mockResolvedValue({
+			connect: vi.fn(async () => client),
+			options: {},
+		});
+
+		await withMediaObjectKeyLocks(
+			[source, duplicateDestination, destination],
+			async () => undefined,
+		);
+
+		const lockIdentities = client.query.mock.calls
+			.filter(([statement]) => statement.includes("pg_advisory_lock("))
+			.map(([, params]) => params?.[0]);
+		const unlockIdentities = client.query.mock.calls
+			.filter(([statement]) => statement.includes("pg_advisory_unlock("))
+			.map(([, params]) => params?.[0]);
+		expect(lockIdentities).toEqual([
+			`projects/a-destination/${hash}`,
+			`projects/z-source/${hash}`,
+		]);
+		expect(unlockIdentities).toEqual([
+			`projects/z-source/${hash}`,
+			`projects/a-destination/${hash}`,
+		]);
+	});
+
+	it("rejects an empty multi-lock request before checking out a connection", async () => {
+		await expect(
+			withMediaObjectKeyLocks([], async () => undefined),
+		).rejects.toThrow("at least one media object key");
+		expect(getCaseStorePool).not.toHaveBeenCalled();
 	});
 
 	it("leaves one connection of the three-slot pool available", async () => {
