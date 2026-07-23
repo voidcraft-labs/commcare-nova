@@ -1703,7 +1703,7 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a in progress (implementation checkpoint `a136b121`); S05b blocked
+**Status:** S05a in progress (implementation checkpoint `c27217b6`); S05b blocked
 on S05a; S05c blocked on S05b and a fresh owner decision between maintenance
 and additional rollout machinery.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
@@ -1858,15 +1858,16 @@ compiled-artifact budget.
 
 Implementation remains split into independently reviewed units:
 
-1. **S05a — dormant carriers and compatibility (ready):** add every carrier and
+1. **S05a — dormant carriers and compatibility (in progress):** add every carrier and
    AST schema/identity, top-level mutation extension,
    hydration/persistence/replay/diff behavior, exhaustive walks/rewrites and
    reference extraction, validation/type checking, explicit downstream
    rejection behavior, and receiver-v2 compatibility while commit and export
-   gates remain closed. Before registering a production extractor, change the
-   one shared capability manifest to writer v1 and stream receiver v2 and prove
-   every authoritative writer still uses its shared declaration helper. This
-   deploys support only: every database floor and feature flag remains zero/off.
+   gates remain closed. The immutable production extractor and the one shared
+   capability manifest's writer-v1 / stream-receiver-v2 declarations land as
+   one support checkpoint, with every authoritative writer still using its
+   shared declaration helper. Every database floor and feature flag remains
+   zero/off.
 2. **S05b — local wire (blocked on S05a):** add lowering/emission for the
    already-preservable table expressions, predicates, and itemsets; instance
    accumulation; the one-snapshot multi-table reader; deterministic fixture
@@ -1879,7 +1880,7 @@ Implementation remains split into independently reviewed units:
 
 #### S05a execution checkpoint — 2026-07-23
 
-Commits `fe0a7027` through `a136b121` on `agent/s05a-lookup-carriers`
+Commits `fe0a7027` through `c27217b6` on `agent/s05a-lookup-carriers`
 form a reviewed internal implementation checkpoint, not a contract-complete or
 merge-ready S05a result. They now own:
 
@@ -1903,37 +1904,45 @@ merge-ready S05a result. They now own:
 - deliberate rejection or incompatibility results at the existing preview,
   case-store SQL, on-device XPath, CSQL, suite, and instance boundaries,
   including terminal rejection before lookup-row predicates are misread as case
-  predicates.
+  predicates;
+- the immutable 17-slot production extractor over complete normalized entity
+  maps, with stable semantic operation anchors and exact nested occurrences;
+- writer-v1 and stream-receiver-v2 declarations in the shared capability
+  manifest while all database floors and feature flags remain zero/off;
+- commit-only fingerprinted dormant-carrier findings that permit unrelated
+  repairs to historical documents but reject every new or changed carrier; and
+- mode-aware `ccz`, `hq-json`, and `hq-upload` export rejection before media
+  resolution or emission, plus real JSONB carrier coverage through hydration,
+  production extraction, authoritative edge backfill/removal, both deletion
+  race orders, and Project-move closure.
 
 The foundation checkpoint passed its 21-file, 515-test matrix. The boundary
-slice passes a fresh 20-file, 382-test matrix covering canonical replay,
+slice passed a 20-file, 382-test matrix covering canonical replay,
 rolling envelopes, misplaced-carrier rejection, all nine SA/MCP write schemas,
 chat/MCP prompt grammar, raw MCP registration, all three read projections, and
 legacy fallbacks. TypeScript and scoped Biome pass, and independent review
 closed the replay/schema-generation defects it found before returning no
-remaining findings.
+remaining findings. The extractor/gate checkpoint then passed a fresh 4-file,
+41-test focused matrix, TypeScript, scoped Biome, manifest/build-wiring
+validation, and diff hygiene; independent integrated review returned no
+Critical, Important, or Minor findings after the real-carrier writer matrix
+closed its only Important coverage gap.
 
 The following work remains in S05a and must land before a PR is called
 merge-ready:
 
-1. register the immutable production lookup extractor, cover every carrier
-   location, and then bump only the shared manifest's writer to v1 and stream
-   receiver to v2 (database floors and feature flags stay zero/off);
-2. add explicit dormant commit and mode-aware export findings so structurally
-   valid carriers remain uncommittable and all three export modes remain closed;
-   the commit-finding identity must include a canonical carrier fingerprint so
-   set/replace/filter edits cannot hide behind an already-present carrier while
-   unrelated edits beside historical carriers still pass;
-3. thread the rows-free lookup type index through validation, implement the
+1. thread the rows-free lookup type index through validation, implement the
    select-filter and containing-slot term policies (including earlier-field and
    repeat ancestry), avoid duplicate structural/type diagnostics, and join
    option-filter field reads to a validation-only dependency-cycle graph that
    also covers the existing `default_value` slot without activating preview
    evaluation;
-4. extend the actual frozen pre-S05 reducer, raw-SSE,
-   JSONB/hydration/log, authoritative-writer race, removal, and export
-   short-circuit test matrices using real carriers; then run independent
-   review, CI, and the normal merge/deploy verification.
+2. finish the compatibility matrix with actual raw HTTP SSE set/replace/clear,
+   stream-dispatch replay, and Postgres log writer-to-reader carrier events.
+   Frozen pre-S05 reducer replay, JSON round trips with explicit `null`, JSONB
+   hydration, real-carrier authoritative writer races/removal, and export
+   short-circuiting are now covered. Then run consolidated independent review,
+   CI, and the normal merge/deploy verification.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
@@ -2228,6 +2237,16 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S05a extractor/gate checkpoint reviewed:** Commit `c27217b6`
+  registers all 17 production carrier extractors, declares writer v1 and stream
+  receiver v2 with every database floor and feature flag unchanged, and closes
+  commit plus all export boundaries around dormant carriers. Canonical
+  fingerprints distinguish carrier changes from unrelated historical repairs.
+  Real JSONB carriers now exercise authoritative edge backfill/removal, both
+  deletion race orders, missing/foreign parity, and Project-move closure without
+  mocking the extractor. Independent integrated review is clean. Rows-free type
+  policy/dependency validation and the remaining raw-SSE/dispatcher/log
+  compatibility cases are the two unfinished S05a units.
 - **2026-07-23 — S05a ready / S22 census complete:** S05 domain/wire readiness
   now pins the inline select fallback, mutation compatibility, fixture lexical
   semantics, option validity, answer/repeat/dependency rules, one-snapshot
