@@ -376,7 +376,7 @@ export interface HqForm {
 	version: null;
 	actions: FormActions;
 	case_references_data: CaseReferencesData;
-	form_filter: null;
+	form_filter: string | null;
 	post_form_workflow: string;
 	no_vellum: boolean;
 	media_image: Record<string, string>;
@@ -417,7 +417,7 @@ export interface HqModule {
 	media_audio: Record<string, string>;
 	custom_icons: unknown[];
 	is_training_module: boolean;
-	module_filter: null;
+	module_filter: string | null;
 	auto_select_case: boolean;
 	parent_select: {
 		active: boolean;

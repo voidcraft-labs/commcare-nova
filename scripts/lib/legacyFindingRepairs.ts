@@ -176,6 +176,27 @@ export const REPAIR_JUDGMENTS: Readonly<
 	MISSING_CASE_LIST_COLUMNS: proposed(
 		'show one existing Results field, preferring "case_name", or seed it when no definition exists — which information to show is still a display choice, so this applies only under --apply-proposed',
 	),
+	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: owner(
+		"a module is evaluated before case selection; choosing a session-based replacement changes the author's condition",
+	),
+	MODULE_DISPLAY_CONDITION_TYPE_ERROR: owner(
+		"rewriting the module display condition changes who can see the module",
+	),
+	FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: owner(
+		"changing a form's case-dependent visibility rule changes who can reach the form",
+	),
+	FORM_DISPLAY_CONDITION_TYPE_ERROR: owner(
+		"rewriting the form display condition changes who can see the form",
+	),
+	DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE: owner(
+		"the referenced Search answer does not exist in navigation scope; choosing a replacement is content",
+	),
+	DISPLAY_CONDITION_NOT_ON_DEVICE: owner(
+		"replacing an unsupported expression changes the authored visibility rule",
+	),
+	DISPLAY_CONDITION_ALWAYS_FALSE: owner(
+		"whether to remove the navigation item or make it reachable is an authoring decision",
+	),
 	// ── Case-list-config rules ───────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: owner(
 		"pointing the column at a real case property (or dropping it) is content",

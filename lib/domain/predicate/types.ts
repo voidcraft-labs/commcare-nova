@@ -488,9 +488,17 @@ export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
  *     semantic — surfacing it as a filterable field would expose a
  *     diagnostic to the SA tool surface that authors have no reason
  *     to express against.
- *   - `window_width` is a UI-internal viewport metric used by the
- *     CommCare web client's responsive layout — not a stable
- *     case-data signal authors filter on.
+ *   - `window_width` is deliberately NOT an authoring input because its
+ *     presence differs by runtime. At Core commit
+ *     `130df00962a289381a8e0936c3ea5d3f53d96f73`,
+ *     `SessionInstanceBuilder.addMetadata` writes it only when the supplied
+ *     value is non-null. HQ Web Apps at
+ *     `0fa01e0e8aea95ed9013d564145ad6cffeb91371` supplies
+ *     `String(window.innerWidth)` on navigation requests, while Android at
+ *     `3dd87e3838d57230b1452bdfd845a9151b8a6861` constructs its session
+ *     wrapper without a width value. A condition on this node would therefore
+ *     mean one thing on web and another on mobile. Viewport policy belongs to
+ *     responsive rendering, not Nova's stable workflow vocabulary.
  *   - `applanguage` is a localization concern; localization belongs
  *     in the form / module's translation surface, not in case-search
  *     filtering against an instance path.

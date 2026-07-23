@@ -12,7 +12,10 @@ import {
 	renameSearchInputInPredicate,
 } from "@/lib/domain/predicate";
 import { cascadeDeleteForm } from "./helpers";
-import { rewriteModuleSearchInputRefs } from "./referenceRewrites";
+import {
+	rewriteFormSearchInputRefs,
+	rewriteModuleSearchInputRefs,
+} from "./referenceRewrites";
 
 /**
  * Module mutations operate on the `modules`, `moduleOrder`, and `formOrder`
@@ -454,7 +457,7 @@ export function applyModuleMutation(
 			// References to the fresh target name are identity-safe: they were rewritten
 			// when this same uuid was renamed by a peer, so always carry them forward.
 			if (freshName !== desiredName) {
-				rewriteModuleSearchInputRefs(mod, freshName, desiredName);
+				rewriteSearchInputRefs(draft, mut.moduleUuid, freshName, desiredName);
 			}
 			// The fallback name is safe module-wide only while no different fresh row
 			// owns it. Otherwise those refs belong to that new uuid; rewriting them
@@ -468,7 +471,12 @@ export function applyModuleMutation(
 				fallbackName !== freshName &&
 				!fallbackOwnedByPeer
 			) {
-				rewriteModuleSearchInputRefs(mod, fallbackName, desiredName);
+				rewriteSearchInputRefs(
+					draft,
+					mut.moduleUuid,
+					fallbackName,
+					desiredName,
+				);
 			}
 			return;
 		}
@@ -503,6 +511,23 @@ export function applyModuleMutation(
 				else target[key] = value;
 			}
 			return;
+		}
+	}
+}
+
+function rewriteSearchInputRefs(
+	draft: Draft<BlueprintDoc>,
+	moduleUuid: string,
+	oldName: string,
+	newName: string,
+): void {
+	const mod = draft.modules[moduleUuid];
+	if (mod === undefined) return;
+	rewriteModuleSearchInputRefs(mod, oldName, newName);
+	for (const formUuid of draft.formOrder[moduleUuid] ?? []) {
+		const form = draft.forms[formUuid];
+		if (form !== undefined) {
+			rewriteFormSearchInputRefs(form, oldName, newName);
 		}
 	}
 }

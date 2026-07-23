@@ -547,6 +547,33 @@ function cascadeDoc(modulePatches: {
 }
 
 describe("case-property cascade rewrites module predicate-AST slots", () => {
+	it("rewrites module and form display conditions", () => {
+		const base = cascadeDoc({
+			x: {
+				displayCondition: eq(prop("patient", "age"), literal(18)),
+			},
+		});
+		const form = base.forms[F("1")];
+		if (!form) throw new Error("fixture form missing");
+		const start: BlueprintDoc = {
+			...base,
+			forms: {
+				...base.forms,
+				[F("1")]: {
+					...form,
+					displayCondition: eq(prop("patient", "age"), literal(18)),
+				} as Form,
+			},
+		};
+		const { next } = rename(start, Q("src"), "years");
+		expect(next.modules[M("X")]?.displayCondition).toEqual(
+			eq(prop("patient", "years"), literal(18)),
+		);
+		expect(next.forms[F("1")]?.displayCondition).toEqual(
+			eq(prop("patient", "years"), literal(18)),
+		);
+	});
+
 	it("rewrites a matching PropertyRef in caseListConfig.filter", () => {
 		const start = cascadeDoc({
 			x: {

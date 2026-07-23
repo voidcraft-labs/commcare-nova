@@ -48,7 +48,7 @@ import {
 	searchInputDefSchema,
 	simpleSearchInputDef,
 } from "../modules";
-import { literal, term } from "../predicate";
+import { eq, literal, sessionUser, term } from "../predicate";
 import { asUuid, type Uuid } from "../uuid";
 
 // Sample uuids — sequential nibbles so test failure diffs are easy
@@ -75,6 +75,19 @@ describe("moduleSchema — caseListConfig presence", () => {
 			caseListConfig: { columns: [], searchInputs: [] },
 		});
 		expect(parsed.success).toBe(true);
+	});
+
+	it("stores a typed display condition", () => {
+		const displayCondition = eq(sessionUser("username"), literal("alice"));
+		const parsed = moduleSchema.safeParse({
+			uuid: u(1),
+			id: "patients",
+			name: "Patients",
+			displayCondition,
+		});
+		expect(parsed.success).toBe(true);
+		if (parsed.success)
+			expect(parsed.data.displayCondition).toEqual(displayCondition);
 	});
 
 	it("rejects unknown top-level keys", () => {

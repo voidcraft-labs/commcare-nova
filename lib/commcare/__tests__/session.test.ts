@@ -465,6 +465,29 @@ describe("deriveEntryDefinition", () => {
 		expect(ids).toContain("commcaresession");
 	});
 
+	it("accumulates both selected-case instances for form-command relevance", () => {
+		const displayCondition = eq(prop("patient", "status"), literal("open"));
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{},
+			displayCondition,
+		);
+		expect(entry.instances.map((instance) => instance.id)).toEqual(
+			expect.arrayContaining(["casedb", "commcaresession"]),
+		);
+	});
+
 	it("accumulates instances referenced by the owner-exclusion expression", () => {
 		const excludedOwners = term({
 			kind: "session-user",

@@ -38,6 +38,8 @@ import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import {
+	effectiveDisplayConditionForEmission,
+	predicateReadsCaseData,
 	substituteUnansweredSearchInputsInExpression,
 	substituteUnansweredSearchInputsInPredicate,
 } from "@/lib/domain/predicate";
@@ -242,6 +244,7 @@ function accumulateCaseLoadingInstances(
 	caseListFilter: Predicate | undefined,
 	excludedOwnerIds: ValueExpression | undefined,
 	searchButtonDisplayCondition: Predicate | undefined,
+	formDisplayCondition: Predicate | undefined,
 	caseListColumnExpressions: readonly ValueExpression[] | undefined,
 	instances: EntryInstance[],
 	seen: Set<string>,
@@ -285,6 +288,27 @@ function accumulateCaseLoadingInstances(
 
 	if (searchButtonDisplayCondition !== undefined) {
 		for (const id of collectPredicateInstances(searchButtonDisplayCondition)) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id) });
+		}
+	}
+
+	// A form command's relevant expression is evaluated in the matching
+	// entry's instance scope. Deep all-true conditions vanish from the wire,
+	// so collect only the exact predicate that emission retains. A selected-
+	// case property structurally emits through BOTH casedb and
+	// commcaresession (the latter supplies session/data/case_id); the generic
+	// AST collector sees the property but cannot see that injected anchor.
+	const effectiveFormCondition =
+		effectiveDisplayConditionForEmission(formDisplayCondition);
+	if (effectiveFormCondition !== undefined) {
+		const ids = collectPredicateInstances(effectiveFormCondition);
+		if (predicateReadsCaseData(effectiveFormCondition)) {
+			ids.add("casedb");
+			ids.add("commcaresession");
+		}
+		for (const id of ids) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });
@@ -602,6 +626,12 @@ export function deriveFormLinkStack(
  * needs an `<instance>` declaration here alongside the filter's
  * instances.
  *
+ * `formDisplayCondition` is the form command's menu visibility predicate.
+ * Nova canonically puts its session dependencies on the direct matching entry;
+ * the emitted menu topology has no same-id nested menu that could make Core
+ * select another entry first. A selected-case read contributes both the
+ * `casedb` row source and `commcaresession`'s `case_id` anchor.
+ *
  * `caseListColumnExpressions` carries each calculated expression
  * the module's case-list short / long detail actually emits. CCHQ's runtime
  * resolves a detail's `instance(...)` references against the
@@ -627,6 +657,7 @@ export function deriveEntryDefinition(
 	actions?: FormActions,
 	excludedOwnerIds?: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
+	formDisplayCondition?: Predicate,
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -656,15 +687,17 @@ export function deriveEntryDefinition(
 	}
 
 	// Accumulate the `<instance>` declarations the entry's body reaches —
-	// the case-list filter, the search-button display condition, and each
-	// runtime-relevant calc-column expression. Shared with the `caseListOnly` browse entry
-	// so the two case-loading shapes can't drift on which instances they
-	// declare. Runs after the datum's `casedb` seed above so the final
-	// order is casedb → predicate instances → calc-column instances.
+	// the case-list filter, search-button condition, form-command condition,
+	// and each runtime-relevant calc-column expression. Shared with the
+	// `caseListOnly` browse entry so the two case-loading shapes can't drift on
+	// which instances they declare. Runs after the datum's `casedb` seed above
+	// so the final order is casedb → predicate instances → calc-column
+	// instances.
 	accumulateCaseLoadingInstances(
 		caseListFilter,
 		excludedOwnerIds,
 		searchButtonDisplayCondition,
+		formDisplayCondition,
 		caseListColumnExpressions,
 		instances,
 		seen,
@@ -788,6 +821,7 @@ export function deriveCaseListEntryDefinition(
 		caseListFilter,
 		excludedOwnerIds,
 		searchButtonDisplayCondition,
+		undefined,
 		caseListColumnExpressions,
 		instances,
 		seen,

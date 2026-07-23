@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
 	and,
 	count,
+	effectiveDisplayConditionForEmission,
 	effectiveFilterForEmission,
 	eq,
 	exists,
@@ -188,6 +189,22 @@ describe("effectiveFilterForEmission — folds the always-true result to undefin
 	it("does NOT fold match-none — it narrows to the empty set, a real query", () => {
 		expect(effectiveFilterForEmission(matchNone())).toEqual(matchNone());
 		expect(effectiveFilterForEmission(and(matchNone(), a))).toEqual(
+			matchNone(),
+		);
+	});
+});
+
+describe("effectiveDisplayConditionForEmission", () => {
+	it("folds absent and deeply always-true conditions to no wire carrier", () => {
+		expect(effectiveDisplayConditionForEmission(undefined)).toBeUndefined();
+		expect(
+			effectiveDisplayConditionForEmission(or(matchAll(), a)),
+		).toBeUndefined();
+	});
+
+	it("keeps a real condition and the always-false sentinel", () => {
+		expect(effectiveDisplayConditionForEmission(and(matchAll(), a))).toEqual(a);
+		expect(effectiveDisplayConditionForEmission(matchNone())).toEqual(
 			matchNone(),
 		);
 	});
