@@ -213,7 +213,13 @@ export interface DatabaseRoleFact {
 export interface DatabaseRoleMembershipFacts {
 	readonly currentCanUseMigration: boolean;
 	readonly migrationCanUseRuntime: boolean;
+	readonly migrationIsRuntimeMember: boolean;
+	readonly migrationCanSetRuntime: boolean;
 	readonly runtimeCanUseMigration: boolean;
+	readonly runtimeCanCreateDatabase: boolean;
+	readonly runtimeCanCreatePublicSchema: boolean;
+	readonly unexpectedMigrationParentRoles: readonly string[];
+	readonly unexpectedRuntimeParentRoles: readonly string[];
 }
 
 /** The migration identity is the only privileged path. Its runtime membership
@@ -253,16 +259,43 @@ export function assertDatabaseRolePolicy(
 			"The migration connection is not authorized to use the configured migration role.",
 		);
 	}
-	if (!membership.migrationCanUseRuntime) {
+	if (
+		!membership.migrationCanUseRuntime ||
+		!membership.migrationIsRuntimeMember ||
+		!membership.migrationCanSetRuntime
+	) {
 		throw new DatabasePrivilegeConvergenceError(
 			"role_policy_invalid",
-			"The migration role must be a member of the runtime role while `cases` remains runtime-owned.",
+			"The migration role must have MEMBER, SET, and inherited access to the runtime role while `cases` remains runtime-owned.",
 		);
 	}
 	if (membership.runtimeCanUseMigration) {
 		throw new DatabasePrivilegeConvergenceError(
 			"role_policy_invalid",
 			"The runtime role must not inherit migration privileges.",
+		);
+	}
+	const unexpectedParents = [
+		...membership.unexpectedMigrationParentRoles.map(
+			(role) => `migration -> ${role}`,
+		),
+		...membership.unexpectedRuntimeParentRoles.map(
+			(role) => `runtime -> ${role}`,
+		),
+	];
+	if (unexpectedParents.length > 0) {
+		throw new DatabasePrivilegeConvergenceError(
+			"role_policy_invalid",
+			`Nova database roles inherit unexpected direct parent roles: ${unexpectedParents.join(", ")}.`,
+		);
+	}
+	if (
+		membership.runtimeCanCreateDatabase ||
+		membership.runtimeCanCreatePublicSchema
+	) {
+		throw new DatabasePrivilegeConvergenceError(
+			"role_policy_invalid",
+			"The runtime role has effective CREATE on the database or public schema.",
 		);
 	}
 }
@@ -326,6 +359,18 @@ async function readAndAssertRolePolicy(
 		WHERE rolname IN (${sql.join(roleNames)})
 	`.execute(tx);
 	const membership = await sql<DatabaseRoleMembershipFacts>`
+		WITH direct_parents AS (
+			SELECT member.rolname AS member_name,
+				parent.rolname AS parent_name
+			FROM pg_catalog.pg_auth_members AS membership
+			JOIN pg_catalog.pg_roles AS member
+				ON member.oid = membership.member
+			JOIN pg_catalog.pg_roles AS parent
+				ON parent.oid = membership.roleid
+			WHERE member.rolname IN (
+				${config.migrationRole}, ${config.runtimeRole}
+			)
+		)
 		SELECT
 			pg_catalog.pg_has_role(
 				current_user,
@@ -338,10 +383,46 @@ async function readAndAssertRolePolicy(
 				'USAGE'
 			) AS "migrationCanUseRuntime",
 			pg_catalog.pg_has_role(
+				${config.migrationRole},
+				${config.runtimeRole},
+				'MEMBER'
+			) AS "migrationIsRuntimeMember",
+			pg_catalog.pg_has_role(
+				${config.migrationRole},
+				${config.runtimeRole},
+				'SET'
+			) AS "migrationCanSetRuntime",
+			pg_catalog.pg_has_role(
 				${config.runtimeRole},
 				${config.migrationRole},
 				'USAGE'
-			) AS "runtimeCanUseMigration"
+			) AS "runtimeCanUseMigration",
+			pg_catalog.has_database_privilege(
+				${config.runtimeRole},
+				pg_catalog.current_database(),
+				'CREATE'
+			) AS "runtimeCanCreateDatabase",
+			pg_catalog.has_schema_privilege(
+				${config.runtimeRole},
+				'public',
+				'CREATE'
+			) AS "runtimeCanCreatePublicSchema",
+			ARRAY(
+				SELECT parent_name::text
+				FROM direct_parents
+				WHERE member_name = ${config.migrationRole}
+					AND parent_name NOT IN (
+						${config.runtimeRole}, 'cloudsqliamserviceaccount'
+					)
+				ORDER BY parent_name
+			) AS "unexpectedMigrationParentRoles",
+			ARRAY(
+				SELECT parent_name::text
+				FROM direct_parents
+				WHERE member_name = ${config.runtimeRole}
+					AND parent_name <> 'cloudsqliamserviceaccount'
+				ORDER BY parent_name
+			) AS "unexpectedRuntimeParentRoles"
 	`.execute(tx);
 	const membershipRow = membership.rows[0];
 	if (!membershipRow)
@@ -772,6 +853,9 @@ async function convergePrivilegesInTransaction(
 			REVOKE ALL PRIVILEGES ON ${sql.raw(objectType)} FROM PUBLIC
 		`.execute(tx);
 	}
+	// Re-read effective privileges after every grant. This assertion stays
+	// inside the transaction, so privilege drift cannot partially commit.
+	await readAndAssertRolePolicy(tx, config);
 }
 
 /** Re-audit and converge ownership/grants after all three migration phases.

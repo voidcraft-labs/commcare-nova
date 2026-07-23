@@ -4,11 +4,13 @@ import {
 	assertDatabaseBootstrapResult,
 	type DatabaseBootstrapFacts,
 	databaseOwnerBootstrapStatements,
+	LEGACY_DATABASE_ROLE,
 	quoteIdentifier,
 } from "../databaseOwnerBootstrap";
 
 const safeFacts: DatabaseBootstrapFacts = {
 	currentUser: "nova-deployment-bootstrap",
+	currentDatabase: "nova_cases",
 	currentUserCanCreateRole: true,
 	currentUserCanCreateDatabase: true,
 	currentUserIsCloudSqlSuperuser: true,
@@ -16,23 +18,48 @@ const safeFacts: DatabaseBootstrapFacts = {
 	publicSchemaOwner: "pg_database_owner",
 	migrationRoleExists: true,
 	runtimeRoleExists: true,
-	migrationCanUseRuntime: true,
-	runtimeCanUseMigration: false,
-	currentUserCanUseMigration: false,
+	legacyRoleExists: true,
+	currentUserIsMigrationMember: true,
+	currentUserCanSetMigration: true,
+	currentUserIsLegacyMember: true,
+	currentUserCanSetLegacy: true,
+	migrationIsRuntimeMember: true,
+	migrationCanSetRuntime: true,
+	runtimeIsMigrationMember: false,
+	runtimeCanSetMigration: false,
+	runtimeIsLegacyMember: false,
+	runtimeCanSetLegacy: false,
+	runtimeCanCreateDatabase: false,
+	runtimeCanCreatePublicSchema: false,
+	legacyCanCreateDatabase: false,
+	legacyCanCreatePublicSchema: false,
+	legacyDependencyCount: 0,
+	legacyForeignOrSharedDependencyCount: 0,
+	legacyOwnedSchemaCount: 0,
+	legacyOwnedRelationCount: 0,
+	legacyOwnedRoutineCount: 0,
+	legacyDefaultAclCount: 0,
 };
 
 describe("deployment database owner bootstrap", () => {
-	test("quotes identifiers and emits the bounded four-statement transfer", () => {
+	test("quotes identifiers and emits the legacy ownership transfer without SQL membership changes", () => {
 		expect(quoteIdentifier('role"name')).toBe('"role""name"');
-		expect(databaseOwnerBootstrapStatements(safeFacts.currentUser)).toEqual([
-			'GRANT "commcare-nova@commcare-nova.iam" TO "nova-migrate@commcare-nova.iam"',
-			'GRANT "nova-migrate@commcare-nova.iam" TO "nova-deployment-bootstrap"',
+		expect(databaseOwnerBootstrapStatements(safeFacts)).toEqual([
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
-			'REVOKE "nova-migrate@commcare-nova.iam" FROM "nova-deployment-bootstrap"',
+			`REASSIGN OWNED BY "${LEGACY_DATABASE_ROLE}" TO "nova-migrate@commcare-nova.iam"`,
+			`DROP OWNED BY "${LEGACY_DATABASE_ROLE}" RESTRICT`,
+		]);
+		expect(
+			databaseOwnerBootstrapStatements({
+				...safeFacts,
+				legacyRoleExists: false,
+			}),
+		).toEqual([
+			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 		]);
 	});
 
-	test("requires an administrative built-in user and both IAM database roles", () => {
+	test("requires API-prepared role memberships and a bounded legacy dependency set", () => {
 		expect(() => assertDatabaseBootstrapPreconditions(safeFacts)).not.toThrow();
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
@@ -46,21 +73,62 @@ describe("deployment database owner bootstrap", () => {
 				migrationRoleExists: false,
 			}),
 		).toThrow("must exist before bootstrap");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				currentUserCanSetLegacy: false,
+			}),
+		).toThrow("MEMBER and SET access to the legacy and migration roles");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				migrationCanSetRuntime: false,
+			}),
+		).toThrow("migration role must have MEMBER and SET access");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				legacyForeignOrSharedDependencyCount: 1,
+			}),
+		).toThrow("outside nova_cases");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				runtimeCanCreatePublicSchema: true,
+			}),
+		).toThrow("runtime role still has effective CREATE");
 	});
 
-	test("proves ownership and one-way migration-to-runtime membership", () => {
+	test("admits a fresh instance without a legacy role or dependencies", () => {
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				legacyRoleExists: false,
+				currentUserIsLegacyMember: false,
+				currentUserCanSetLegacy: false,
+			}),
+		).not.toThrow();
+	});
+
+	test("proves ownership, one-way membership, and complete legacy cleanup", () => {
 		expect(() => assertDatabaseBootstrapResult(safeFacts)).not.toThrow();
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
-				runtimeCanUseMigration: true,
+				runtimeIsMigrationMember: true,
 			}),
 		).toThrow("membership is unsafe");
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
-				currentUserCanUseMigration: true,
+				legacyDependencyCount: 1,
 			}),
-		).toThrow("retained migration-role membership");
+		).toThrow("legacy role still owns objects or holds privileges");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
+				runtimeCanCreateDatabase: true,
+			}),
+		).toThrow("effective CREATE");
 	});
 });

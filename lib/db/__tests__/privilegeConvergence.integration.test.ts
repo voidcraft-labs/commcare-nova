@@ -6,7 +6,7 @@ import {
 	sql,
 	type Transaction,
 } from "kysely";
-import { Pool } from "pg";
+import { Client, Pool } from "pg";
 import { describe, expect, test } from "vitest";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -16,6 +16,10 @@ import {
 	DATABASE_CONNECTION_OPTIONS,
 } from "@/lib/case-store/postgres/connection";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import {
+	type DatabaseOwnerBootstrapConfig,
+	executeDatabaseOwnerBootstrap,
+} from "@/scripts/infra/databaseOwnerBootstrap";
 import {
 	convergeDatabasePrivileges,
 	type DatabasePrivilegeRoleConfig,
@@ -53,14 +57,74 @@ async function createRoles(
 	await sql`
 		GRANT ${sql.id(config.runtimeRole)} TO ${sql.id(config.migrationRole)}
 	`.execute(db);
+	const identity = await sql<{ name: string }>`
+		SELECT current_user AS name
+	`.execute(db);
+	const bootstrapUser = identity.rows[0]?.name;
+	if (!bootstrapUser) throw new Error("Current role query returned no row.");
 	await sql`
-		ALTER DATABASE ${sql.id(h.databaseName)} OWNER TO ${sql.id(config.migrationRole)}
+		GRANT ${sql.id(config.migrationRole)} TO ${sql.id(bootstrapUser)}
 	`.execute(db);
 	return config;
 }
 
+async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
+	readonly convergence: DatabasePrivilegeRoleConfig;
+	readonly bootstrap: DatabaseOwnerBootstrapConfig;
+	readonly legacyRole: string;
+}> {
+	const suffix = Math.random().toString(36).slice(2, 10);
+	const convergence = {
+		migrationRole: `nova_migrate_legacy_${suffix}`,
+		runtimeRole: `nova_runtime_legacy_${suffix}`,
+	};
+	const legacyRole = `nova_legacy_${suffix}`;
+	for (const role of [
+		convergence.migrationRole,
+		convergence.runtimeRole,
+		legacyRole,
+	]) {
+		await sql`CREATE ROLE ${sql.id(role)} NOLOGIN`.execute(db);
+	}
+	const identity = await sql<{ name: string }>`
+		SELECT current_user AS name
+	`.execute(db);
+	const bootstrapUser = identity.rows[0]?.name;
+	if (!bootstrapUser) throw new Error("Current role query returned no row.");
+	await sql`
+		GRANT ${sql.id(convergence.runtimeRole)}
+		TO ${sql.id(convergence.migrationRole)}
+	`.execute(db);
+	await sql`
+		GRANT ${sql.id(convergence.migrationRole)}, ${sql.id(legacyRole)}
+		TO ${sql.id(bootstrapUser)}
+	`.execute(db);
+	await sql`
+		GRANT ${sql.id(legacyRole)} TO ${sql.id(convergence.runtimeRole)}
+	`.execute(db);
+	await sql`
+		ALTER DATABASE ${sql.id(h.databaseName)} OWNER TO ${sql.id(legacyRole)}
+	`.execute(db);
+	return {
+		convergence,
+		bootstrap: {
+			database: h.databaseName,
+			migrationRole: convergence.migrationRole,
+			runtimeRole: convergence.runtimeRole,
+			legacyRole,
+		},
+		legacyRole,
+	};
+}
+
 async function createMigrationDatabase(
 	config: DatabasePrivilegeRoleConfig,
+): Promise<{ db: Kysely<unknown>; pool: Pool }> {
+	return createRoleDatabase(config.migrationRole);
+}
+
+async function createRoleDatabase(
+	role: string,
 ): Promise<{ db: Kysely<unknown>; pool: Pool }> {
 	const pool = new Pool({
 		connectionString: h.uri,
@@ -72,13 +136,14 @@ async function createMigrationDatabase(
 			pool: pool as unknown as PostgresPool,
 		}),
 	});
-	await sql`SET ROLE ${sql.id(config.migrationRole)}`.execute(db);
+	await sql`SET ROLE ${sql.id(role)}`.execute(db);
 	return { db, pool };
 }
 
 async function dropRoles(
 	db: Kysely<unknown>,
 	config: DatabasePrivilegeRoleConfig,
+	extraRoles: readonly string[] = [],
 ): Promise<void> {
 	const current = await sql<{ name: string }>`
 		SELECT current_user AS name
@@ -88,26 +153,215 @@ async function dropRoles(
 	await sql`
 		ALTER DATABASE ${sql.id(h.databaseName)} OWNER TO ${sql.id(currentRole)}
 	`.execute(db);
-	await sql`
-		REASSIGN OWNED BY ${sql.id(config.migrationRole)},
-			${sql.id(config.runtimeRole)} TO ${sql.id(currentRole)}
+	const requestedRoles = [
+		config.migrationRole,
+		config.runtimeRole,
+		...extraRoles,
+	];
+	const existing = await sql<{ name: string }>`
+		SELECT rolname AS name
+		FROM pg_catalog.pg_roles
+		WHERE rolname IN (${sql.join(requestedRoles)})
 	`.execute(db);
-	for (const role of [config.migrationRole, config.runtimeRole]) {
+	const roles = existing.rows.map((row) => row.name);
+	for (const role of roles) {
+		await sql`
+			REASSIGN OWNED BY ${sql.id(role)} TO ${sql.id(currentRole)}
+		`.execute(db);
 		await sql`DROP OWNED BY ${sql.id(role)}`.execute(db);
 	}
-	await sql`
-		REVOKE ${sql.id(config.runtimeRole)} FROM ${sql.id(config.migrationRole)}
-	`.execute(db);
-	for (const role of [config.migrationRole, config.runtimeRole]) {
+	if (
+		roles.includes(config.runtimeRole) &&
+		roles.includes(config.migrationRole)
+	) {
+		await sql`
+			REVOKE ${sql.id(config.runtimeRole)}
+			FROM ${sql.id(config.migrationRole)}
+		`.execute(db);
+	}
+	for (const role of roles) {
 		await sql`DROP ROLE ${sql.id(role)}`.execute(db);
 	}
 }
 
 describe("database privilege convergence", () => {
+	test("atomically retires legacy ownership before converging the runtime boundary", async () => {
+		const fixture = await createLegacyBootstrapRoles(h.db);
+		const legacy = await createRoleDatabase(fixture.legacyRole);
+		let migration:
+			| { readonly db: Kysely<unknown>; readonly pool: Pool }
+			| undefined;
+		const bootstrapClient = new Client({ connectionString: h.uri });
+		try {
+			await runCaseStoreMigrations(legacy.db);
+			const { runMigrations } = await getMigrations(
+				authMigrateOptions(legacy.pool),
+			);
+			await runMigrations();
+			await runAuthAppMigrations(legacy.db);
+			await sql`
+				GRANT CREATE ON DATABASE ${sql.id(h.databaseName)}
+				TO ${sql.id(fixture.legacyRole)}
+			`.execute(h.db);
+			await sql`
+				GRANT CREATE ON SCHEMA public TO ${sql.id(fixture.legacyRole)}
+			`.execute(h.db);
+			await legacy.db.destroy();
+
+			const legacyOwners = await sql<{ name: string; owner: string }>`
+				SELECT class.relname AS name,
+					pg_catalog.pg_get_userbyid(class.relowner) AS owner
+				FROM pg_catalog.pg_class AS class
+				JOIN pg_catalog.pg_namespace AS namespace
+					ON namespace.oid = class.relnamespace
+				WHERE namespace.nspname = 'public'
+					AND class.relname IN (
+						'case_indices', 'case_type_schemas', 'cases'
+					)
+				ORDER BY class.relname
+			`.execute(h.db);
+			expect(legacyOwners.rows).toEqual([
+				{ name: "case_indices", owner: fixture.legacyRole },
+				{ name: "case_type_schemas", owner: fixture.legacyRole },
+				{ name: "cases", owner: fixture.legacyRole },
+			]);
+
+			migration = await createMigrationDatabase(fixture.convergence);
+			await expect(
+				convergeDatabasePrivileges(migration.db, fixture.convergence),
+			).rejects.toMatchObject({ code: "role_policy_invalid" });
+
+			// Simulate Cloud SQL Admin API removal of runtime -> legacy before
+			// the SQL utility takes locks or changes ownership.
+			await sql`
+				REVOKE ${sql.id(fixture.legacyRole)}
+				FROM ${sql.id(fixture.convergence.runtimeRole)}
+			`.execute(h.db);
+			await bootstrapClient.connect();
+
+			// A failed post-audit must undo ALTER DATABASE, REASSIGN OWNED, and
+			// DROP OWNED together. Giving public to legacy makes the post-audit
+			// fail after all three statements have run.
+			await sql`
+				ALTER SCHEMA public OWNER TO ${sql.id(fixture.legacyRole)}
+			`.execute(h.db);
+			await expect(
+				executeDatabaseOwnerBootstrap(bootstrapClient, fixture.bootstrap),
+			).rejects.toThrow("public schema is not owned by pg_database_owner");
+			const rolledBack = await sql<{
+				database_owner: string;
+				public_owner: string;
+				cases_owner: string;
+			}>`
+				SELECT
+					pg_catalog.pg_get_userbyid(database.datdba)
+						AS database_owner,
+					pg_catalog.pg_get_userbyid(namespace.nspowner)
+						AS public_owner,
+					pg_catalog.pg_get_userbyid(cases.relowner) AS cases_owner
+				FROM pg_catalog.pg_database AS database
+				JOIN pg_catalog.pg_namespace AS namespace
+					ON namespace.nspname = 'public'
+				JOIN pg_catalog.pg_class AS cases
+					ON cases.relnamespace = namespace.oid
+					AND cases.relname = 'cases'
+				WHERE database.datname = pg_catalog.current_database()
+			`.execute(h.db);
+			expect(rolledBack.rows[0]).toEqual({
+				database_owner: fixture.legacyRole,
+				public_owner: fixture.legacyRole,
+				cases_owner: fixture.legacyRole,
+			});
+
+			await sql`
+				ALTER SCHEMA public OWNER TO pg_database_owner
+			`.execute(h.db);
+			const bootstrap = await executeDatabaseOwnerBootstrap(
+				bootstrapClient,
+				fixture.bootstrap,
+			);
+			expect(bootstrap.after).toMatchObject({
+				databaseOwner: fixture.convergence.migrationRole,
+				publicSchemaOwner: "pg_database_owner",
+				legacyDependencyCount: 0,
+				runtimeCanCreateDatabase: false,
+				runtimeCanCreatePublicSchema: false,
+			});
+
+			const identity = await sql<{ name: string }>`
+				SELECT current_user AS name
+			`.execute(h.db);
+			const bootstrapUser = identity.rows[0]?.name;
+			if (!bootstrapUser)
+				throw new Error("Current role query returned no row.");
+			await sql`
+				REVOKE ${sql.id(fixture.legacyRole)} FROM ${sql.id(bootstrapUser)}
+			`.execute(h.db);
+			await sql`DROP ROLE ${sql.id(fixture.legacyRole)}`.execute(h.db);
+
+			await convergeDatabasePrivileges(migration.db, fixture.convergence);
+			await asRole(h.db, fixture.convergence.runtimeRole, async (tx) => {
+				const authority = await sql<{
+					can_create_database: boolean;
+					can_create_public: boolean;
+				}>`
+					SELECT
+						pg_catalog.has_database_privilege(
+							current_user,
+							pg_catalog.current_database(),
+							'CREATE'
+						) AS can_create_database,
+						pg_catalog.has_schema_privilege(
+							current_user, 'public', 'CREATE'
+						) AS can_create_public
+				`.execute(tx);
+				expect(authority.rows[0]).toEqual({
+					can_create_database: false,
+					can_create_public: false,
+				});
+			});
+			await expect(
+				asRole(h.db, fixture.convergence.runtimeRole, async (tx) => {
+					await sql`CREATE SCHEMA forbidden_runtime_schema`.execute(tx);
+				}),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				asRole(h.db, fixture.convergence.runtimeRole, async (tx) => {
+					await sql`
+						CREATE TABLE public.forbidden_runtime_table (id integer)
+					`.execute(tx);
+				}),
+			).rejects.toMatchObject({ code: "42501" });
+		} finally {
+			await bootstrapClient.end().catch(() => undefined);
+			await legacy.db.destroy().catch(() => undefined);
+			await migration?.db.destroy().catch(() => undefined);
+			await dropRoles(h.db, fixture.convergence, [fixture.legacyRole]);
+		}
+	});
+
 	test("converges from the database-owning migration identity to the two-role boundary", async () => {
 		const config = await createRoles(h.db);
-		const migration = await createMigrationDatabase(config);
+		const bootstrapClient = new Client({ connectionString: h.uri });
+		let migration:
+			| { readonly db: Kysely<unknown>; readonly pool: Pool }
+			| undefined;
 		try {
+			await bootstrapClient.connect();
+			const freshBootstrap = await executeDatabaseOwnerBootstrap(
+				bootstrapClient,
+				{
+					database: h.databaseName,
+					migrationRole: config.migrationRole,
+					runtimeRole: config.runtimeRole,
+					legacyRole: `absent_${config.migrationRole}`,
+				},
+			);
+			expect(freshBootstrap.before.legacyRoleExists).toBe(false);
+			expect(freshBootstrap.statements).toEqual([
+				`ALTER DATABASE "${h.databaseName}" OWNER TO "${config.migrationRole}"`,
+			]);
+			migration = await createMigrationDatabase(config);
 			await runCaseStoreMigrations(migration.db);
 			const { runMigrations } = await getMigrations(
 				authMigrateOptions(migration.pool),
@@ -285,7 +539,8 @@ describe("database privilege convergence", () => {
 				ALTER TABLE public.apps DROP COLUMN migration_probe
 			`.execute(migration.db);
 		} finally {
-			await migration.db.destroy();
+			await bootstrapClient.end().catch(() => undefined);
+			await migration?.db.destroy().catch(() => undefined);
 			await dropRoles(h.db, config);
 		}
 	});

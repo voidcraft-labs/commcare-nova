@@ -29,7 +29,13 @@ function role(name: string, patch: Partial<DatabaseRoleFact> = {}) {
 const safeMembership = {
 	currentCanUseMigration: true,
 	migrationCanUseRuntime: true,
+	migrationIsRuntimeMember: true,
+	migrationCanSetRuntime: true,
 	runtimeCanUseMigration: false,
+	runtimeCanCreateDatabase: false,
+	runtimeCanCreatePublicSchema: false,
+	unexpectedMigrationParentRoles: [],
+	unexpectedRuntimeParentRoles: [],
 };
 
 describe("database privilege convergence contract", () => {
@@ -121,6 +127,36 @@ describe("database privilege convergence contract", () => {
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				migrationCanUseRuntime: false,
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				migrationCanSetRuntime: false,
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				runtimeCanCreateDatabase: true,
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				runtimeCanCreatePublicSchema: true,
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				unexpectedRuntimeParentRoles: ["legacy-owner"],
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				unexpectedMigrationParentRoles: ["cluster-admin"],
 			}),
 		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
 	});

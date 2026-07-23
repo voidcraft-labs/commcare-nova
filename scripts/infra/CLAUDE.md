@@ -19,18 +19,25 @@ adds two identities while preserving the existing, already permissioned
 - `commcare-nova` remains the runtime identity. It serves the app and receives
   ordinary application DML, but no fixed-schema ownership or public-schema DDL.
 
-The first database split has one explicit bootstrap prerequisite that Google
-IAM cannot grant: a Cloud SQL database administrator must make
-`nova-migrate@commcare-nova.iam` the owner of `nova_cases` and grant it both
-legacy object-owner authority through the runtime role.
-`bootstrap-database-owner.ts` performs only that bounded four-statement
-transfer, is read-only unless passed `--apply`, requires a temporary built-in
-Cloud SQL administrator, and verifies that the administrator retained no
-migration-role membership. The migration then transfers every fixed object to
-the migration identity and the runtime-owned `cases` table to its isolated
-schema. This is a one-time dogfood maintenance cutover; do not disguise it as
-an automatic zero-downtime transition. Keep the legacy role memberships until
-the first post-deploy ownership audit passes, then remove them separately.
+The first database split has an explicit Cloud SQL Admin API prerequisite:
+assign the runtime role as the migration IAM user's sole custom database role,
+give a temporary built-in administrator MEMBER+SET access to migration and (if
+it still exists) the retired compute role, and remove the runtime user's retired
+role membership before SQL runs. PostgreSQL 18 does not let a newly created
+`cloudsqlsuperuser` grant arbitrary Cloud-SQL-created roles without ADMIN
+OPTION, so do not move those memberships into SQL.
+
+`bootstrap-database-owner.ts` is read-only unless passed `--apply`. In one
+transaction it locks for at most 30 seconds, changes the `nova_cases` owner,
+and, when the retired role exists, uses `REASSIGN OWNED` followed by `DROP
+OWNED ... RESTRICT`. Its catalog audit rejects foreign/shared dependencies and
+proves that the retired role has no remaining ownership, ACL, or default-ACL
+dependency. A fresh instance where the retired role never existed runs only
+the owner transfer. Delete the retired database user and temporary
+administrator through Cloud SQL only after this audit succeeds. The migration
+then converges fixed-object ownership and moves runtime-owned `cases` to its
+isolated schema. This is a one-time dogfood maintenance cutover; do not disguise
+it as an automatic zero-downtime transition.
 
 The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field
