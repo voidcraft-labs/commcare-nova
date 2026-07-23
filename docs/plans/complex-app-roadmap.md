@@ -1,9 +1,8 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
-> Nova `e9a6377a` (PR #301). S01, S02a, S02b, S02c1, and S02c2 are shipped;
-> S02c3 is in final re-review on `agent/s02c3`, S03 is review-approved on
-> `agent/s03-clean`, and S04 is in progress on `agent/s04`.
+> Nova `b0e3f48e` (PR #302). S01 through S02c2 and S03 are shipped; S02c3 is
+> review-ready on `agent/s02c3`, and S04 is in progress on `agent/s04`.
 > This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -736,9 +735,9 @@ runtime capability and stream admission, authoritative reload, and dormant
 holder-generation safety; healthy 100%-traffic revision
 `commcare-nova-00354-dq4` passed app/docs/MCP probes and its production error
 check. S02c2 passed independent whole-branch review on
-`agent/s02c2-simple`; S02c3's six review findings are fixed at `796e5d15` and
-the branch is in final independent re-review. S02 remains `in progress` until
-both units separately pass review, CI, deployment verification, and cleanup.
+`agent/s02c2-simple` and shipped in PR #301 at squash `e9a6377a`. S02c3's
+review findings are fixed and its rebased branch is review-ready. S02 remains
+`in progress` until S02c3 passes CI, merge verification, and cleanup.
 
 #### Identity, context, and extraction
 
