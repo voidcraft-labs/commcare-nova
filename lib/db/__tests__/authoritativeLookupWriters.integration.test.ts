@@ -53,6 +53,7 @@ vi.mock("@/lib/db/projectMembership", () => ({
 const {
 	appendSyntheticBatch,
 	commitAppProjectMove,
+	commitAppProjectMoveInTransaction,
 	commitGuardedBatch,
 	createApp,
 	loadApp,
@@ -759,12 +760,48 @@ describe("lookup introduction versus resource deletion", () => {
 });
 
 describe("dormant Project move", () => {
-	it("requires both structural and stored target sets empty, then clears + flips under writer v0", async () => {
+	it("stays closed at production writer v0 and requires exact empty targets in the seeded v1 core", async () => {
 		const table = await createTable(PROJECT_A, "Move blocker");
 		const targets = tableTargets(table.id);
 		const appId = await createEmptyApp();
+		await h.seedProjectMember(ACTOR, PROJECT_A, "owner");
+		await h.seedProjectMember(ACTOR, PROJECT_B, "owner");
 		await materializeTargets(appId, PROJECT_A, targets);
 		await clearWriterProbe();
+		await h
+			.db()
+			.updateTable("lookup_reference_compatibility")
+			.set({
+				minimum_writer_version: 1,
+				minimum_stream_receiver_version: 1,
+				project_moves_enabled: true,
+			})
+			.where("id", "=", 1)
+			.execute();
+
+		const moveV1 = () =>
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) => {
+					await setTransactionWriterVersion(tx, 1);
+					return commitAppProjectMoveInTransaction(
+						tx,
+						{
+							appId,
+							toProjectId: PROJECT_B,
+							expectedFromProjectId: PROJECT_A,
+							actorUserId: ACTOR,
+							assetIdMap: new Map(),
+							attemptedRealIds: new Set(),
+						},
+						{
+							batchId: crypto.randomUUID(),
+							declaredWriterVersion: 1,
+							streamReceiverVersion: 1,
+						},
+					);
+				});
 
 		await expect(
 			commitAppProjectMove(appId, {
@@ -774,39 +811,28 @@ describe("dormant Project move", () => {
 				assetIdMap: new Map(),
 				attemptedRealIds: new Set(),
 			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		).rejects.toMatchObject({
+			name: "ProjectMoveCompatibilityError",
+			code: "disabled",
+		});
+
+		await expect(moveV1()).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect((await h.readAppRow(appId))?.project_id).toBe(PROJECT_A);
 		expect(await readTargets(appId)).toEqual(targets);
 
 		await materializeTargets(appId, PROJECT_A, EMPTY_LOOKUP_REFERENCE_TARGETS);
 		setExtractionPair(targets, targets);
-		await expect(
-			commitAppProjectMove(appId, {
-				toProjectId: PROJECT_B,
-				expectedFromProjectId: PROJECT_A,
-				actorUserId: ACTOR,
-				assetIdMap: new Map(),
-				attemptedRealIds: new Set(),
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		await expect(moveV1()).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect((await h.readAppRow(appId))?.project_id).toBe(PROJECT_A);
 
 		extractLookupReferenceTargetsMock
 			.mockReset()
 			.mockReturnValue(EMPTY_LOOKUP_REFERENCE_TARGETS);
-		await expect(
-			commitAppProjectMove(appId, {
-				toProjectId: PROJECT_B,
-				expectedFromProjectId: PROJECT_A,
-				actorUserId: ACTOR,
-				assetIdMap: new Map(),
-				attemptedRealIds: new Set(),
-			}),
-		).resolves.toEqual({ kind: "moved" });
+		await expect(moveV1()).resolves.toEqual({ kind: "moved" });
 		expect((await h.readAppRow(appId))?.project_id).toBe(PROJECT_B);
 		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
 		expect(await writerProbeRows(appId)).toEqual([
-			{ operation: "UPDATE", writer_version: "0" },
+			{ operation: "UPDATE", writer_version: "1" },
 		]);
 	});
 });

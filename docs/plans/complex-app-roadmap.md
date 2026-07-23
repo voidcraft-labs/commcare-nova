@@ -1420,12 +1420,16 @@ deployment-security, and tenant-move risk surfaces reviewable:
    the ordinary blocking migration/Cloud Run deploy path, and structural
    verification. Apply the reviewed IAM/Cloud SQL bootstrap before merging the
    pipeline switch. Every floor remains `0` and every activation flag false.
-   **In review on `agent/s02c2-simple`.**
+   **Shipped in PR #301.**
 3. **S02c3 — tenant-safe dormant move:** per-operation case authorization and
    transactional presence, atomic move and run normalization, exact media
-   protocol, and same-Project repair. Its deployment dogfoods S02c2; true moves
-   remain disabled. **Implementation complete on `agent/s02c3`; independent
-   review pending.**
+   protocol, and same-Project repair. True moves remain disabled. **Review-ready
+   on `agent/s02c3`; implementation and independent review are complete.** The
+   dormant v1 core now
+   commits Project flip, case tenancy, blueprint/thread media remaps, presence
+   purge, migration history, reverse references, and notifications atomically;
+   production still declares writer v0 and the static move policy still rejects
+   before media work.
 
 Within those PRs, commit and review in this order:
 

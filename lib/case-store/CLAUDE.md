@@ -99,14 +99,16 @@ no tenant.
 `retenantAppCases({appId, toProjectId})` is the ONE write that crosses
 the tenant boundary on purpose: it rewrites `cases.project_id` for an
 app's rows when Nova reconciles app placement
-(`lib/db/moveAppToProject.ts`). True cross-Project moves are temporarily
-blocked before any storage work while lookup references are not yet
-admission-checked; exact same-Project calls retain this recovery path for an
-older partially completed move. The operation keys on `app_id` alone and moves
-every row not already in the destination, so it reconciles the rows to
-wherever the app doc committed — the move flips the doc FIRST, then runs
-this, so the doc is the source of truth and the cases follow it
-(idempotent + crash-convergent). It is a standalone barrel export, not a
+(`lib/db/moveAppToProject.ts`). True cross-Project moves remain
+production-disabled, but their dormant v1 transaction now performs this update
+on the same physical Postgres transaction as the app Project flip, blueprint and
+thread media remap, presence purge, migration row, and notifications. There is
+no observable flip-first/cases-follow gap. Exact same-Project recovery takes the
+app lock, derives the fresh app Project rather than trusting a caller value, and
+uses the same update as a case-only repair; it writes no migration row and
+purges no presence. The operation keys on `app_id` alone and moves every row not
+already in the destination, so both paths also heal split/null historical rows.
+It is a standalone barrel export, not a
 `CaseStore` method, so the single-tenant invariant of the bound store
 stays intact; only `cases` carries `project_id`, so it is the whole job.
 

@@ -29,6 +29,7 @@
 import type { UIMessage } from "ai";
 import { beforeEach, describe, expect, it } from "vitest";
 import { RunHolderLostError } from "../commitGuard";
+import { deleteMediaAssetForActor } from "../mediaDeletion";
 import { getAppDb } from "../pg";
 import { declareRuntimeReader } from "../runtimeReaderVersion";
 import {
@@ -39,6 +40,7 @@ import {
 	mergeTranscript,
 	upsertThreadTurn as persistOwnedThreadTurn,
 	resolveThreadStream,
+	ThreadAttachmentUnavailableError,
 } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -59,6 +61,46 @@ function userMsg(id: string, text: string): UIMessage {
 
 function assistantMsg(id: string, text: string): UIMessage {
 	return { id, role: "assistant", parts: [{ type: "text", text }] };
+}
+
+function attachmentMsg(id: string, assetId: string): UIMessage {
+	return {
+		...userMsg(id, "Please read this"),
+		metadata: {
+			attachments: [
+				{
+					assetId,
+					kind: "pdf",
+					filename: "requirements.pdf",
+					mimeType: "application/pdf",
+				},
+			],
+		},
+	} as UIMessage;
+}
+
+async function seedReadyDocument(assetId: string): Promise<void> {
+	await h
+		.db()
+		.insertInto("media_assets")
+		.values({
+			id: assetId,
+			project_id: "project-test",
+			owner: "owner-test",
+			content_hash: assetId.padEnd(64, "a").slice(0, 64),
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			size_bytes: 128,
+			dimensions: null,
+			duration_ms: null,
+			kind: "document",
+			gcs_object_key: `projects/project-test/${assetId}.pdf`,
+			original_filename: "requirements.pdf",
+			display_name: "Requirements",
+			status: "ready",
+			extract: null,
+		})
+		.execute();
 }
 
 const T1 = "thread-1";
@@ -246,6 +288,61 @@ describe("mergeTranscript", () => {
 				},
 			},
 		]);
+	});
+});
+
+describe("thread attachment admission", () => {
+	it("locks and indexes new attachments and deletion re-walks old thread history", async () => {
+		const assetId = "thread-document";
+		await seedReadyDocument(assetId);
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: "thread-with-document",
+			runId: "run-document",
+			streamId: "stream-document",
+			threadType: "build",
+			messages: [attachmentMsg("message-document", assetId)],
+		});
+
+		const edge = await h
+			.db()
+			.selectFrom("media_asset_refs")
+			.select(["asset_id", "app_id"])
+			.where("asset_id", "=", assetId)
+			.executeTakeFirst();
+		expect(edge).toEqual({ asset_id: assetId, app_id: APP });
+
+		// Simulate pre-index history while the completeness marker is still null:
+		// authoritative deletion must still inspect the canonical thread carrier.
+		await h
+			.db()
+			.deleteFrom("media_asset_refs")
+			.where("asset_id", "=", assetId)
+			.execute();
+		await expect(
+			deleteMediaAssetForActor({
+				assetId,
+				actorUserId: "owner-test",
+				expectedProjectId: "project-test",
+			}),
+		).resolves.toMatchObject({
+			kind: "referenced",
+			references: [expect.stringContaining("conversation attachment")],
+		});
+	});
+
+	it("rejects a missing attachment without persisting the thread", async () => {
+		await expect(
+			upsertThreadTurn({
+				appId: APP,
+				threadId: "thread-missing-document",
+				runId: "run-missing-document",
+				streamId: "stream-missing-document",
+				threadType: "build",
+				messages: [attachmentMsg("message-missing", "missing-document")],
+			}),
+		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
+		expect(await loadThread(APP, "thread-missing-document")).toBeNull();
 	});
 });
 

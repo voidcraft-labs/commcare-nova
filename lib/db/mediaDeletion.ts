@@ -2,6 +2,7 @@
 
 import type { Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { collectThreadAttachmentAssetIds } from "@/lib/chat/threadAttachments";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	asWalkableDoc,
@@ -134,6 +135,25 @@ async function persistedAppReferencesInTransaction(
 		list.push(entity);
 		entitiesByApp.set(entity.app_id, list);
 	}
+	const threadRows = await tx
+		.selectFrom("threads")
+		.select(["app_id", "messages"])
+		.where("app_id", "in", appIds)
+		.orderBy("app_id")
+		.orderBy("thread_id")
+		.execute();
+	const threadReferenceCountByApp = new Map<string, number>();
+	for (const thread of threadRows) {
+		const count = collectThreadAttachmentAssetIds(
+			Array.isArray(thread.messages) ? thread.messages : [],
+		).filter((assetId) => assetId === args.assetId).length;
+		if (count > 0) {
+			threadReferenceCountByApp.set(
+				thread.app_id,
+				(threadReferenceCountByApp.get(thread.app_id) ?? 0) + count,
+			);
+		}
+	}
 
 	const descriptions: string[] = [];
 	for (const app of apps) {
@@ -155,6 +175,14 @@ async function persistedAppReferencesInTransaction(
 					.map(describeCarrier),
 			),
 		];
+		const threadReferenceCount = threadReferenceCountByApp.get(app.id) ?? 0;
+		if (threadReferenceCount > 0) {
+			carriers.push(
+				threadReferenceCount === 1
+					? "a conversation attachment"
+					: `${threadReferenceCount} conversation attachments`,
+			);
+		}
 		if (
 			carriers.length > 0 &&
 			descriptions.length < REFERENCE_DESCRIPTION_LIMIT

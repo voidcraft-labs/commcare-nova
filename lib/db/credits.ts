@@ -431,13 +431,15 @@ export async function settleAndRelease(
  * terminal writer must not read it as `mine`), RELEASES the lapsed lock, and
  * clears `awaiting_input`, all in one commit. Idempotent via `settled`.
  */
+export type StaleRunReapOutcome = "reaped" | "state_changed";
+
 export async function refundStaleReservation(
 	appId: string,
 	expectedHolder: ExactRunHolderIdentity,
-): Promise<void> {
-	await withAppTx(async (tx) => {
+): Promise<StaleRunReapOutcome> {
+	return await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
-		if (!row) return;
+		if (!row) return "state_changed";
 		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
 		if (
@@ -449,11 +451,11 @@ export async function refundStaleReservation(
 			) ||
 			!lease.reapableStrandedEdit
 		) {
-			return;
+			return "state_changed";
 		}
 		const reservation = rowReservation(row) as AppReservation;
 		const chargedUserId = reservation.userId ?? row.owner;
-		if (!chargedUserId) return;
+		if (!chargedUserId) return "state_changed";
 		await declareRuntimeReader(tx);
 		await refundToMonth(
 			tx,
@@ -475,6 +477,7 @@ export async function refundStaleReservation(
 			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
 			.executeTakeFirst();
 		requireExactHolderWrite("refundStaleReservation", result);
+		return "reaped";
 	});
 }
 
@@ -494,10 +497,10 @@ export async function refundStaleReservation(
 export async function refundStaleGeneration(
 	appId: string,
 	expectedHolder: ExactRunHolderIdentity,
-): Promise<void> {
-	await withAppTx(async (tx) => {
+): Promise<StaleRunReapOutcome> {
+	return await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
-		if (!row) return;
+		if (!row) return "state_changed";
 		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
 		if (
@@ -509,7 +512,7 @@ export async function refundStaleGeneration(
 			) ||
 			!lease.reapableStaleBuild
 		) {
-			return;
+			return "state_changed";
 		}
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
@@ -536,6 +539,7 @@ export async function refundStaleGeneration(
 			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
 			.executeTakeFirst();
 		requireExactHolderWrite("refundStaleGeneration", result);
+		return "reaped";
 	});
 }
 

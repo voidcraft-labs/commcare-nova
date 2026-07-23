@@ -114,10 +114,21 @@ deterministic mutations.
 `appendSyntheticBatch` requires an exact expected sequence and explicit user or
 named-system authority. After locking fresh state it diffs to the requested
 target, proves replay identity, and persists the actual mutations; a true no-op
-writes no row and advances no sequence. The dormant Project move is deliberately
-closed while lookup targets exist: both structural and stored sets must be
-empty, the destination context is evaluated, source edges are cleared before
-the Project flip, and media remaps are deterministic attributed mutations.
+writes no row and advances no sequence. The dormant Project move now implements
+the final transaction but remains production-disabled. Its v1 test seam requires
+the enabled compatibility row, writer/receiver v1, and no incompatible live
+stream; the production wrapper declares the manifest's real writer v0 and fails
+closed. Under the app lock it takes the membership gate, locks the actor and all
+source-owner membership pairs across both Projects, enforces dual `delete` plus
+owner retention, rejects deleted apps, classifies runs only through
+`runLeaseState`, and requires structural/stored lookup targets to match exactly
+and both be empty. The final transaction locks threads and destination assets,
+remaps blueprint and canonical transcript attachment ids, re-tenants all cases,
+purges presence, flips `project_id`, appends one attributed migration batch, and
+emits app/presence notifications atomically. Media byte copies are the only
+non-destructive pre-transaction work. Exact same-Project recovery instead locks
+the app, derives its fresh Project, and repairs only case tenancy: no migration
+row and no presence purge.
 Membership `INSERT`/`UPDATE`/`DELETE` take the matching exclusive transaction
 lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
 `55000` once its `BEFORE TRUNCATE` trigger fires, without ever waiting on the
@@ -330,7 +341,10 @@ never rewrite: a stale tab or a late finalize can add turns, not erase them,
 and an askQuestions continuation lands as ONE merged message. For a shared
 message id, stored `metadata.attachments` is authoritative even when an incoming
 version wins the parts tiebreak; a stale source-Project history therefore cannot
-restore asset ids the move already remapped. Chat admission passes its expected
+restore asset ids the move already remapped. Every newly persisted canonical
+attachment is admitted in that same app/thread transaction: its current Project
+and ready status are rechecked under an asset `FOR SHARE` lock and its reverse
+reference is inserted before the message write. Chat admission passes its expected
 Project to turn/upsert and bail-history writers, which stop if the app moved
 before they acquired the app lock. The finalize
 retires the live marker ONLY while it still names its own run's stream (the

@@ -54,7 +54,7 @@ export type MoveAppErrorCode =
 	| "case_sync_failed"
 	| "internal_error";
 
-/** Result of the temporary S01 `moveApp` boundary. A true move is unavailable;
+/** Result of the staged `moveApp` boundary. A true move is unavailable;
  * the sole success is an idempotent same-Project case-data reconciliation. */
 export type MoveAppResult =
 	| { success: true; kind: "same_project_recovered" }
@@ -153,12 +153,12 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 }
 
 /**
- * Temporary S01 Project-move boundary. Source authorization happens before the
+ * Staged Project-move boundary. Source authorization happens before the
  * policy response, so a caller cannot use the unavailable-operation message to
  * distinguish another tenant's app from a missing id. Every authorized true
  * cross-Project request is then refused without resolving or touching the target
- * Project. An exact same-Project call remains available only as the idempotent
- * recovery path that reconciles case rows after a historical partial move.
+ * Project. An exact same-Project call remains available only as the atomic,
+ * app-locked case-tenancy repair path.
  */
 export async function moveApp(
 	appId: string,
