@@ -411,8 +411,9 @@ export function compileCcz(
 			//     detail's search-action element, which evaluates in this
 			//     entry's context.
 			//   - `form.displayCondition` lowers to `<command relevant>` in
-			//     the module menu. Core resolves that command against this
-			//     matching entry, so its instances are declared here too.
+			//     the module menu. Nova's emitted topology has no same-id
+			//     nested menu to shadow this direct matching entry in Core's
+			//     selection order, so its instances are declared here too.
 			//   - Calc-column expressions land on the module's
 			//     `m{N}_case_short` / `m{N}_case_long` detail blocks the
 			//     entry's `<datum detail-select / detail-confirm>`

@@ -562,11 +562,31 @@ describe("suite oracle — instance resolution (C2-4/C2-5)", () => {
 		);
 	});
 
-	it("requires a menu relevance instance on that exact menu", () => {
+	it("flags menu relevance with no selected-entry or same-id-menu declaration", () => {
 		const xml = suite(
 			`  <menu id="m0" relevant="instance('commcaresession')/session/context/userid = 'u'"><text><locale id="modules.m0"/></text></menu>`,
 		);
 		expect(codes(validateSuite(xml, BASE_LOCALES))).toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("resolves menu relevance from the first command entry on a same-id menu", () => {
+		const xml = suite(
+			`  <entry><command id="child"><text><locale id="forms.m0f0"/></text></command><instance id="lookup" src="jr://fixture/lookup"/></entry>
+  <menu id="m0" relevant="instance('lookup')/lookup/enabled = 'yes'"><text><locale id="modules.m0"/></text><command id="child"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).not.toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("falls back to a direct same-id entry for menu relevance", () => {
+		const xml = suite(
+			`  <entry><command id="m0"><text><locale id="forms.m0f0"/></text></command><instance id="lookup" src="jr://fixture/lookup"/></entry>
+  <menu id="m0" relevant="instance('lookup')/lookup/enabled = 'yes'"><text><locale id="modules.m0"/></text></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).not.toContain(
 			"SUITE_MISSING_INSTANCE",
 		);
 	});
@@ -614,6 +634,30 @@ describe("suite oracle — instance resolution (C2-4/C2-5)", () => {
 			`  <entry><command id="c"><text><locale id="forms.m0f0"/></text></command></entry>
   <menu id="m0"><text><locale id="modules.m0"/></text><command id="c" relevant="instance('lookup')/lookup/enabled = 'yes'"/></menu>
   <menu id="c"><text><locale id="modules.m0"/></text><instance id="lookup" src="jr://fixture/lookup"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).not.toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("uses a same-id nested menu's first command entry before a direct same-id entry", () => {
+		const xml = suite(
+			`  <entry><command id="c"><text><locale id="forms.m0f0"/></text></command><instance id="direct_only" src="jr://fixture/direct"/></entry>
+  <entry><command id="nested"><text><locale id="forms.m0f0"/></text></command><instance id="nested_only" src="jr://fixture/nested"/></entry>
+  <menu id="m0"><text><locale id="modules.m0"/></text><command id="c" relevant="instance('direct_only')/lookup/enabled = 'yes'"/></menu>
+  <menu id="c"><text><locale id="modules.m0"/></text><command id="nested"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("resolves command relevance from a same-id nested menu's first command entry", () => {
+		const xml = suite(
+			`  <entry><command id="c"><text><locale id="forms.m0f0"/></text></command><instance id="direct_only" src="jr://fixture/direct"/></entry>
+  <entry><command id="nested"><text><locale id="forms.m0f0"/></text></command><instance id="nested_only" src="jr://fixture/nested"/></entry>
+  <menu id="m0"><text><locale id="modules.m0"/></text><command id="c" relevant="instance('nested_only')/lookup/enabled = 'yes'"/></menu>
+  <menu id="c"><text><locale id="modules.m0"/></text><command id="nested"/></menu>`,
 		);
 		expect(codes(validateSuite(xml, BASE_LOCALES))).not.toContain(
 			"SUITE_MISSING_INSTANCE",

@@ -1516,10 +1516,14 @@ HQ `form_filter`. Form self properties lower to `#case/<wire-property>` for HQ
 and to the selected `commcaresession/session/data/case_id` casedb anchor in the
 local suite, including `@` on reserved case attributes. The fixed HQ build is
 2.54 because menu-owned secondary `<instance>` children begin there. Module
-condition instances live on that menu. Form-command condition instances live on
-the matching entry, with both `casedb` and `commcaresession` declared when the
-selected-case anchor needs them. The suite oracle checks these exact scopes;
-ambient entry instance allowances are not reused for menu/command relevance.
+condition instances canonically live on that menu. Form-command condition
+instances canonically live on the matching entry, with both `casedb` and
+`commcaresession` declared when the selected-case anchor needs them. The suite
+oracle mirrors Core's exact restricted context: commands from all same-id menus
+are expanded before a direct same-id entry, only the first resulting entry is
+selected, and declarations from all same-id menus are added. Consequently a
+form command does not inherit its containing menu unless that menu's own id
+matches the command id; ambient entry/runtime allowances are not reused.
 
 Core's absent-node behavior is preserved by raw comparisons, with no blanket
 presence guard: an empty node-set string-unpacks to `""`; therefore string
@@ -1543,9 +1547,10 @@ This is an additive document change with no data migration and no runtime flag:
 older docs omit both optional slots. Rolling compatibility depends only on the
 existing document/event preservation contract; no writer activates before S08/
 S10. Focused schema, simplifier, validator, reference-index/rewrite/retirement,
-session-instance, emitter, expander/compiler, exact-scope oracle, and suite-fuzz
-coverage form the S03 gate, followed by typecheck, scoped lint, independent
-review, CI, and the normal deploy follow-through.
+session-instance, emitter, expander/compiler, canonical producer-placement and
+exact Core relevance-scope oracle, and suite-fuzz coverage form the S03 gate,
+followed by typecheck, scoped lint, independent review, CI, and the normal deploy
+follow-through.
 
 ### S04 — case operations: domain and wire
 

@@ -85,7 +85,7 @@ const doc = buildDoc({
 });
 
 describe("compileCcz", () => {
-	it("emits module/form relevance with instances in Core's exact scopes", () => {
+	it("emits module/form relevance with instances in canonical producer scopes", () => {
 		const displayDoc = buildDoc({
 			appName: "Conditional navigation",
 			modules: [

@@ -627,8 +627,9 @@ export function deriveFormLinkStack(
  * instances.
  *
  * `formDisplayCondition` is the form command's menu visibility predicate.
- * Core resolves command relevance against the matching entry, so its session
- * dependencies also belong here. A selected-case read contributes both the
+ * Nova canonically puts its session dependencies on the direct matching entry;
+ * the emitted menu topology has no same-id nested menu that could make Core
+ * select another entry first. A selected-case read contributes both the
  * `casedb` row source and `commcaresession`'s `case_id` anchor.
  *
  * `caseListColumnExpressions` carries each calculated expression

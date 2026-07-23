@@ -24,12 +24,12 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
  * fuzz run — a printed-only statistic would let a coverage hole pass silently.
  *
  * The generator now includes module/form display conditions, so this run proves
- * the POSITIVE exact-scope instance contract: menu relevance gets menu-owned
- * declarations and command relevance gets matching-entry declarations. The
- * negative missing-instance and per-entry intersection cases still require
- * hand-built suites in `suiteOracle.test.ts`; constructive output cannot omit a
- * declaration unless the emitter regresses, which is exactly what the property
- * would then catch.
+ * the POSITIVE canonical-producer contract: module conditions get menu-owned
+ * declarations and form conditions get matching-entry declarations. The exact
+ * Core relevance-scope permutations, negative missing-instance, and per-entry
+ * intersection cases still require hand-built suites in `suiteOracle.test.ts`;
+ * constructive output cannot omit a declaration unless the emitter regresses,
+ * which is exactly what the property would then catch.
  */
 
 import AdmZip from "adm-zip";
