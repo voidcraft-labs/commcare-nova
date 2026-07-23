@@ -32,6 +32,10 @@ import {
 	getCaseStoreDatabase,
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
+import {
+	convergeDatabasePrivileges,
+	readDatabasePrivilegeRoleConfig,
+} from "@/lib/db/privilegeConvergence";
 
 async function main(): Promise<void> {
 	const db = await getCaseStoreDatabase();
@@ -54,6 +58,23 @@ async function main(): Promise<void> {
 	// grant-revocation watermark). Own ledger; same shared handle.
 	await runAuthAppMigrations(db as unknown as Kysely<unknown>);
 	console.log("[migrate] auth-app migrations applied");
+
+	// Migrations create objects before they can be classified. Re-audit and
+	// converge ownership/grants only after every schema owner has finished.
+	// Local dev opts out explicitly via NOVA_DB_LOCAL_URL; production missing
+	// any of the three stage identities fails the migration job closed.
+	const privilegeRoles = readDatabasePrivilegeRoleConfig();
+	if (privilegeRoles === null) {
+		console.log(
+			"[migrate] privilege convergence skipped for explicit local DB",
+		);
+	} else {
+		await convergeDatabasePrivileges(
+			db as unknown as Kysely<unknown>,
+			privilegeRoles,
+		);
+		console.log("[migrate] database privileges converged");
+	}
 }
 
 /** Cap on best-effort teardown; the OS reclaims the socket on exit anyway. */
