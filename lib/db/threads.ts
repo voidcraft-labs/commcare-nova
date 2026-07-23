@@ -34,6 +34,7 @@
 import type { UIMessage } from "ai";
 import { sql } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
+import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
 import { appHeldLive } from "./apps";
 import { RunHolderLostError } from "./commitGuard";
@@ -113,9 +114,9 @@ export function mergeTranscript(
 	const merged: StoredMessage[] = stored.map((msg) => {
 		const update = msg.id ? incomingById.get(msg.id) : undefined;
 		if (!update) return msg;
-		return (update.parts?.length ?? 0) >= (msg.parts?.length ?? 0)
-			? update
-			: msg;
+		const candidate =
+			(update.parts?.length ?? 0) >= (msg.parts?.length ?? 0) ? update : msg;
+		return preserveStoredThreadAttachments(msg, candidate) as StoredMessage;
 	});
 	const storedIds = new Set(stored.map((m) => m.id).filter(Boolean));
 	for (const msg of incoming) {
@@ -150,6 +151,8 @@ export async function upsertThreadTurn(args: {
 	holderNonce?: string;
 	threadType: "build" | "edit";
 	messages: UIMessage[];
+	/** Project captured by chat admission; omitted only by legacy fixtures. */
+	expectedProjectId?: string;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	const result = await withAppTx(async (tx) => {
@@ -158,10 +161,16 @@ export async function upsertThreadTurn(args: {
 		// competing thread writer queues on the thread row here.
 		const app = await tx
 			.selectFrom("apps")
-			.select(LEASE_COLUMNS)
+			.select([...LEASE_COLUMNS, "project_id"])
 			.where("id", "=", args.appId)
 			.forUpdate()
 			.executeTakeFirst();
+		if (
+			args.expectedProjectId !== undefined &&
+			app?.project_id !== args.expectedProjectId
+		) {
+			throw new RunHolderLostError("released");
+		}
 		let holderLost: "superseded" | "released" | null = "released";
 		if (app) {
 			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
@@ -263,16 +272,30 @@ export async function mergeThreadTurnMessages(args: {
 	appId: string;
 	threadId: string;
 	messages: UIMessage[];
-}): Promise<void> {
+	expectedProjectId?: string;
+}): Promise<boolean> {
 	const now = new Date().toISOString();
-	await withAppTx(async (tx) => {
+	return await withAppTx(async (tx) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select("project_id")
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (
+			!app ||
+			(args.expectedProjectId !== undefined &&
+				app.project_id !== args.expectedProjectId)
+		) {
+			return false;
+		}
 		const existing = await tx
 			.selectFrom("threads")
 			.select(["app_id", "messages"])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
-		if (!existing || existing.app_id !== args.appId) return;
+		if (!existing || existing.app_id !== args.appId) return false;
 		const merged = mergeTranscript(
 			(existing.messages ?? []) as StoredMessage[],
 			args.messages,
@@ -283,6 +306,7 @@ export async function mergeThreadTurnMessages(args: {
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
 			.execute();
+		return true;
 	});
 }
 
@@ -313,6 +337,13 @@ export async function appendThreadResponse(args: {
 }): Promise<void> {
 	const now = new Date().toISOString();
 	await withAppTx(async (tx) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select("id")
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (!app) return;
 		const row = await tx
 			.selectFrom("threads")
 			.select(["messages", "active_stream_id", "active_holder_nonce"])

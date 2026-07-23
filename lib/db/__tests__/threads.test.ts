@@ -207,6 +207,46 @@ describe("mergeTranscript", () => {
 		const tieIncoming = m("b", 2);
 		expect(mergeTranscript([m("b", 2)], [tieIncoming])[0]).toBe(tieIncoming);
 	});
+
+	it("keeps stored attachment identity authoritative for a shared message id", () => {
+		const stored = {
+			...m("attached"),
+			metadata: {
+				attachments: [
+					{
+						assetId: "destination-asset",
+						kind: "pdf",
+						filename: "requirements.pdf",
+						mimeType: "application/pdf",
+					},
+				],
+			},
+		};
+		const stale = {
+			...m("attached", 2),
+			metadata: {
+				attachments: [
+					{
+						assetId: "source-asset",
+						kind: "pdf",
+						filename: "requirements.pdf",
+						mimeType: "application/pdf",
+					},
+				],
+				model: "new-model",
+			},
+		};
+
+		expect(mergeTranscript([stored], [stale])).toEqual([
+			{
+				...stale,
+				metadata: {
+					...stale.metadata,
+					attachments: stored.metadata.attachments,
+				},
+			},
+		]);
+	});
 });
 
 describe("upsertThreadTurn", () => {

@@ -323,10 +323,16 @@ chunk log by `assembleResponseMessage`). (A BAILED POST —
 serialize-wait gate/timeout, superseded resume — additionally merges its
 incoming messages via `mergeThreadTurnMessages`, identity/marker untouched,
 so an answered question round survives the refresh the bail recommends.)
-Both writers are row-locked and
-MERGE by message id (`mergeTranscript` — union, richer version wins), never
-rewrite: a stale tab or a late finalize can add turns, not erase them, and
-an askQuestions continuation lands as ONE merged message. The finalize
+Every thread writer locks the app before its deterministic thread-row lock, so
+the dormant Project move is a serial winner rather than a whole-history race.
+Writers MERGE by message id (`mergeTranscript` — union, richer version wins),
+never rewrite: a stale tab or a late finalize can add turns, not erase them,
+and an askQuestions continuation lands as ONE merged message. For a shared
+message id, stored `metadata.attachments` is authoritative even when an incoming
+version wins the parts tiebreak; a stale source-Project history therefore cannot
+restore asset ids the move already remapped. Chat admission passes its expected
+Project to turn/upsert and bail-history writers, which stop if the app moved
+before they acquired the app lock. The finalize
 retires the live marker ONLY while it still names its own run's stream (the
 app releases before finalize completes, so a newer claim may already own a
 fresh marker) — with one retry then a marker-only clear, because a marker
