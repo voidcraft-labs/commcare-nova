@@ -3,8 +3,9 @@
 > **Authoritative living plan.** Last rebaselined 2026-07-23 against deployed
 > Nova `85b2fe3b` (PR #303). S01 through S04 are shipped, including all of S02.
 > S05's domain/wire decisions are pinned below and S05a, its dormant
-> compatibility unit, is ready to implement; S05c's production cutover remains
-> decision-blocked. S22 remains closed on `agent/s22-form-links` pending the
+> compatibility unit, is implementation-complete and under final review in
+> draft PR #311; S05c's production cutover remains decision-blocked. S22
+> remains closed on `agent/s22-form-links` pending the
 > explicit cutover choice recorded in its slice. This file owns execution order,
 > product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -338,8 +339,9 @@ S06 -> S15 users/personas -> S16 organization/location store
 
 S02 through S04 are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
-pinned, so S05a's dormant carrier-compatibility unit is ready. S05b remains
-blocked on S05a; S05c remains blocked on S05b and a fresh owner decision before
+pinned. S05a's dormant carrier-compatibility implementation is under final
+review in draft PR #311. S05b remains blocked until S05a ships; S05c remains
+blocked on S05b and a fresh owner decision before
 any production cutover or nonzero compatibility floor. S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 readiness
 is complete but implementation remains blocked on its owner cutover decision.
@@ -354,7 +356,7 @@ Compiler verification stays serialized across wire slices.
 | S02 | External validation context and exact references | S01 | shipped | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
-| S05a | Dormant lookup carriers and compatibility | S02/S04 | ready | PR-01/03, F5 |
+| S05a | Dormant lookup carriers and compatibility | S02/S04 | in review (PR #311) | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | blocked | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b + owner cutover decision | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
@@ -1703,9 +1705,9 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a in progress (draft PR #311; implementation checkpoint
-`c27217b6`); S05b blocked on S05a; S05c blocked on S05b and a fresh owner
-decision between maintenance and additional rollout machinery.
+**Status:** S05a in final review (draft PR #311; implementation checkpoint
+`9517a221`); S05b blocked on S05a; S05c blocked on S05b and a fresh owner
+decision.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 rolling-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. It does not
@@ -1858,7 +1860,7 @@ compiled-artifact budget.
 
 Implementation remains split into independently reviewed units:
 
-1. **S05a — dormant carriers and compatibility (in progress):** add every carrier and
+1. **S05a — dormant carriers and compatibility (in final review):** add every carrier and
    AST schema/identity, top-level mutation extension,
    hydration/persistence/replay/diff behavior, exhaustive walks/rewrites and
    reference extraction, validation/type checking, explicit downstream
@@ -1880,9 +1882,8 @@ Implementation remains split into independently reviewed units:
 
 #### S05a execution checkpoint — 2026-07-23
 
-Commits `fe0a7027` through `c27217b6` on `agent/s05a-lookup-carriers`
-form a reviewed internal implementation checkpoint, not a contract-complete or
-merge-ready S05a result. They now own:
+Commits `fe0a7027` through `9517a221` on `agent/s05a-lookup-carriers`
+form the implementation-complete S05a review candidate. They own:
 
 - the three dormant domain carriers and their stable table/column identities;
 - required inline select fallbacks plus the rolling-compatible top-level
@@ -1928,21 +1929,29 @@ validation, and diff hygiene; independent integrated review returned no
 Critical, Important, or Minor findings after the real-carrier writer matrix
 closed its only Important coverage gap.
 
-The following work remains in S05a and must land before a PR is called
-merge-ready:
+The final S05a units are now implemented:
 
-1. thread the rows-free lookup type index through validation, implement the
-   select-filter and containing-slot term policies (including earlier-field and
-   repeat ancestry), avoid duplicate structural/type diagnostics, and join
-   option-filter field reads to a validation-only dependency-cycle graph that
-   also covers the existing `default_value` slot without activating preview
-   evaluation;
-2. finish the compatibility matrix with actual raw HTTP SSE set/replace/clear,
-   stream-dispatch replay, and Postgres log writer-to-reader carrier events.
-   Frozen pre-S05 reducer replay, JSON round trips with explicit `null`, JSONB
-   hydration, real-carrier authoritative writer races/removal, and export
-   short-circuiting are now covered. Then run consolidated independent review,
-   CI, and the normal merge/deploy verification.
+- the rows-free lookup type index is threaded through validation; select filters
+  and containing expression slots enforce table, field-order, and repeat-ancestry
+  policy without duplicate structural diagnostics; options-source and default
+  reads join the validation-only dependency graph without changing preview
+  topology; and case-workspace verdicts require explicit lookup context without
+  fetching or activating runtime behavior;
+- raw HTTP SSE set/replace/clear, generation-stream dispatch replay, and the
+  Postgres log writer-to-reader path preserve carrier events and explicit
+  top-level `null`; and
+- the add-field reducer reparses only when the semantic extension is present, so
+  accepted legacy history without a carrier retains its existing replay
+  semantics.
+
+The validation tranche passed 50 files / 624 tests, TypeScript, scoped Biome,
+and independent review with no Critical, Important, or Minor findings. A fresh
+supervisor matrix passed 6 files / 177 tests. The transport tranche passed 3
+files / 46 tests both normally and under the async-leak detector and received a
+clean independent review. The two failures in the earlier draft-checkpoint CI
+were reproduced, fixed in `9517a221`, and their four-file / 87-test regression
+matrix now passes. Consolidated contract review and fresh PR CI remain the final
+merge gates.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
@@ -2237,6 +2246,18 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S05a implementation complete / final review:** Draft PR #311
+  now includes the rows-free lookup type and scope policies, validation-only
+  dependency-cycle integration, explicit lookup-context case-workspace
+  verdicts, and the raw HTTP SSE, generation dispatcher, and Postgres log replay
+  matrix through commit `9517a221`. The validation and transport tranches each
+  completed independent review with no remaining findings. The prior draft CI's
+  two add-field replay regressions were reproduced and fixed without changing
+  carrier behavior; focused verification is green. Consolidated contract review
+  and fresh PR CI are the remaining merge gates. Every carrier commit and export
+  gate remains closed, every database floor and feature flag remains zero/off,
+  and no UI, runtime evaluation, SQL execution, wire emission, or authoring
+  surface is activated.
 - **2026-07-23 — S05a extractor/gate checkpoint reviewed:** Draft PR #311 at
   commit `c27217b6` registers all 17 production carrier extractors, declares
   writer v1 and stream receiver v2 with every database floor and feature flag
