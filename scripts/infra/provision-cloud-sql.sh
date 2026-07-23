@@ -9,8 +9,8 @@
 #     connector's IAM-authenticated path is the only way in), IAM auth, daily
 #     backup, and PITR with 4-day WAL retention (Phase 2)
 #   - The application database (Phase 3)
-#   - Project IAM bindings + Cloud SQL database users for the runtime SA and
-#     the developer principal (Phase 4)
+#   - Project IAM bindings + Cloud SQL database users for the dedicated
+#     migration/runtime SAs and the developer principal (Phase 4)
 #   - Cloud Run wiring (Direct VPC Egress + the env vars `connection.ts`
 #     reads) (Phase 6)
 #
@@ -22,9 +22,9 @@
 # Phase 5 (extension installs + grants) is intentionally NOT in this script.
 # `CREATE EXTENSION pg_trgm / fuzzystrmatch / postgis` requires the
 # `cloudsqlsuperuser` role; only Cloud SQL's built-in `postgres` account
-# carries that role at instance creation, and the runtime SA the migrate Job
-# runs as does not. The Phase 5 stub at the bottom of this script enumerates the
-# four manual steps that run interactively in Cloud SQL Studio.
+# carries that role at instance creation, and Nova's migration SA does not. The
+# Phase 5 stub at the bottom of this script points at the checked-in bounded
+# owner bootstrap after the extensions are installed.
 #
 # Usage: ./scripts/infra/provision-cloud-sql.sh [--dry-run]
 
@@ -50,12 +50,14 @@ readonly RETAINED_BACKUPS_COUNT=7
 readonly RETAINED_TRANSACTION_LOG_DAYS=4
 readonly MAX_CONNECTIONS=25
 
-# IAM identity (full form, used for project IAM bindings).
-readonly RUNTIME_SA_EMAIL="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-# Cloud SQL database username (truncated form — the .gserviceaccount.com suffix
-# is appended internally by Cloud SQL during IAM token exchange and rejected by
-# `gcloud sql users create`).
-readonly RUNTIME_SA_DBUSER="${PROJECT_NUMBER}-compute@developer"
+# Dedicated IAM identities (full form, used for project IAM bindings).
+readonly MIGRATION_SA_EMAIL="nova-migrate@${PROJECT_ID}.iam.gserviceaccount.com"
+readonly RUNTIME_SA_EMAIL="commcare-nova@${PROJECT_ID}.iam.gserviceaccount.com"
+# Cloud SQL database usernames (truncated form — the .gserviceaccount.com
+# suffix is appended internally by Cloud SQL during IAM token exchange and
+# rejected by `gcloud sql users create`).
+readonly MIGRATION_SA_DBUSER="nova-migrate@${PROJECT_ID}.iam"
+readonly RUNTIME_SA_DBUSER="commcare-nova@${PROJECT_ID}.iam"
 readonly DEVELOPER_USER="bperry@dimagi.com"
 
 readonly CLOUD_RUN_SERVICE="commcare-nova"
@@ -195,42 +197,70 @@ fi
 # ---------------------------------------------------------------------------
 echo "=== Phase 4: IAM bindings + database users ==="
 
-# P4-1..P4-4: project-level IAM grants. add-iam-policy-binding is idempotent
+# Ensure both durable database identities exist. The broader build/deploy
+# grants remain owned by `provision-deployment-identities.sh`; creating the
+# accounts here makes a first-ever Cloud SQL provision self-contained.
+if ! gcloud iam service-accounts describe "$MIGRATION_SA_EMAIL" \
+	--project="$PROJECT_ID" >/dev/null 2>&1; then
+	run gcloud iam service-accounts create nova-migrate \
+		--project="$PROJECT_ID" \
+		--display-name="Nova database migrator"
+fi
+if ! gcloud iam service-accounts describe "$RUNTIME_SA_EMAIL" \
+	--project="$PROJECT_ID" >/dev/null 2>&1; then
+	run gcloud iam service-accounts create commcare-nova \
+		--project="$PROJECT_ID" \
+		--display-name="Nova runtime"
+fi
+
+# Project-level IAM grants. add-iam-policy-binding is idempotent
 # (re-applying an existing binding is a no-op + a verbose policy print).
+for account in "$MIGRATION_SA_EMAIL" "$RUNTIME_SA_EMAIL"; do
+	for role in roles/cloudsql.client roles/cloudsql.instanceUser; do
+		run gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+			--member="serviceAccount:${account}" \
+			--role="$role" \
+			--condition=None
+	done
+done
 for role in roles/cloudsql.client roles/cloudsql.instanceUser; do
-	run gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-		--member="serviceAccount:${RUNTIME_SA_EMAIL}" \
-		--role="$role" \
-		--condition=None
 	run gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 		--member="user:${DEVELOPER_USER}" \
 		--role="$role" \
 		--condition=None
 done
 
-# P4-5: runtime SA database user.
-if gcloud sql users list --instance="$INSTANCE_ID" \
-	--format='value(name)' 2>/dev/null \
-	| grep -qx "$RUNTIME_SA_DBUSER"; then
-	echo "Database user '$RUNTIME_SA_DBUSER' already exists; skipping P4-5."
-else
-	run gcloud sql users create "$RUNTIME_SA_DBUSER" \
-		--instance="$INSTANCE_ID" \
-		--type=CLOUD_IAM_SERVICE_ACCOUNT
-fi
+# Dedicated runtime and migration database users. Runtime is created first
+# because migration's sole custom database-role membership is runtime.
+for database_user in "$RUNTIME_SA_DBUSER" "$MIGRATION_SA_DBUSER"; do
+	if gcloud sql users list --instance="$INSTANCE_ID" \
+		--format='value(name)' 2>/dev/null \
+		| grep -qx "$database_user"; then
+		echo "Database user '$database_user' already exists; skipping create."
+	else
+		run gcloud sql users create "$database_user" \
+			--instance="$INSTANCE_ID" \
+			--type=CLOUD_IAM_SERVICE_ACCOUNT
+	fi
+done
+run gcloud sql users assign-roles "$MIGRATION_SA_DBUSER" \
+	--instance="$INSTANCE_ID" \
+	--type=CLOUD_IAM_SERVICE_ACCOUNT \
+	--database-roles="$RUNTIME_SA_DBUSER" \
+	--revoke-existing-roles
 
-# P4-6: developer database user.
+# Developer database user.
 if gcloud sql users list --instance="$INSTANCE_ID" \
 	--format='value(name)' 2>/dev/null \
 	| grep -qx "$DEVELOPER_USER"; then
-	echo "Database user '$DEVELOPER_USER' already exists; skipping P4-6."
+	echo "Database user '$DEVELOPER_USER' already exists; skipping create."
 else
 	run gcloud sql users create "$DEVELOPER_USER" \
 		--instance="$INSTANCE_ID" \
 		--type=CLOUD_IAM_USER
 fi
 
-# P4-7: developer read access. `pg_read_all_data` membership is what lets the
+# Developer read access. `pg_read_all_data` membership is what lets the
 # read-only inspect scripts (scripts/inspect-*.ts --prod) SELECT tables owned
 # by the runtime SA. Control-plane grant — no superuser session needed.
 # Additive (no --revoke-existing-roles); re-running is a harmless re-grant.
@@ -243,45 +273,31 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 # Phase 5 — INTENTIONALLY NOT IN THIS SCRIPT.
 #
 # Extension installs (pg_trgm / fuzzystrmatch / postgis) require the
-# cloudsqlsuperuser role, which only the built-in `postgres` account has at
-# instance creation — and no human knows its password. This work runs through
-# Cloud SQL Studio in the Google Cloud Console:
+# cloudsqlsuperuser role, which only a built-in administrator has. This work
+# runs through Cloud SQL Studio in the Google Cloud Console:
 #
-#   1. Set a temporary postgres password
-#      (gcloud sql users set-password postgres --prompt-for-password).
-#   2. Sign into Studio as postgres; run, against database `nova_cases`:
+#   1. Create the temporary built-in administrator exactly as shown in the
+#      S02c runbook; never rotate or expose the permanent `postgres` password.
+#   2. Sign into Studio as that temporary user; run against `nova_cases`:
 #
 #        CREATE EXTENSION IF NOT EXISTS pg_trgm;
 #        CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
 #        CREATE EXTENSION IF NOT EXISTS postgis;
 #
-#        GRANT USAGE ON SCHEMA public TO "51003905459-compute@developer";
 #        GRANT USAGE ON SCHEMA public TO "bperry@dimagi.com";
 #
-#        -- The per-deploy migrate Job (Kysely's `Migrator`) creates its
-#        -- `kysely_migration` ledger and the case-store tables in `public`.
-#        -- That requires the runtime SA to hold CREATE on `public`; the
-#        -- DATABASE-scope grant below is no longer strictly required (Kysely's
-#        -- ledger lives in `public`, not a separate schema like Atlas's old
-#        -- `atlas_schema_revisions`) but is harmless and left for headroom.
-#        -- Without the public-scope grant the migrate Job fails with
-#        -- `permission denied for schema public`.
-#        GRANT CREATE ON DATABASE nova_cases TO "51003905459-compute@developer";
-#        GRANT CREATE ON SCHEMA public TO "51003905459-compute@developer";
-#        GRANT CREATE ON SCHEMA public TO "bperry@dimagi.com";
-#
-#   3. Sign out, rotate the postgres account back to a fresh-random-unknown
-#      password (no human knows it before, during briefly, or after).
-#   4. Verify each extension is reachable under IAM auth as the developer
+#   3. Run `bootstrap-database-owner.ts` exactly as documented in the S02c
+#      runbook. On a fresh instance it makes `nova-migrate` the database owner;
+#      `pg_database_owner` then gives migration CREATE on `public` without
+#      granting fixed-schema DDL to runtime.
+#   4. Delete the temporary built-in administrator and verify it is absent.
+#   5. Verify each extension is reachable under IAM auth as the developer
 #      user (a smoke query against `pg_extension`).
 #
 # The split exists because PostGIS specifically requires `cloudsqlsuperuser`
-# per Cloud SQL's documented extension allowlist, while the migrate Job's
-# schema migrations can only assume the runtime SA's privilege set. The CREATE
-# grants above are the bridge: the migrate Job runs as the runtime SA but needs
-# DDL rights on `public` (the migration target + the `kysely_migration`
-# ledger). Once granted, every subsequent schema migration runs through the
-# migrate Job under the runtime SA, per deploy.
+# per Cloud SQL's documented extension allowlist. Every subsequent schema
+# migration runs as the dedicated migration database owner; runtime receives
+# application DML and the isolated case-index DDL authority only.
 # ---------------------------------------------------------------------------
 echo "=== Phase 5: SKIPPED (manual — runs interactively in Cloud SQL Studio) ==="
 

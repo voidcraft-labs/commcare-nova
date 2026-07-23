@@ -7,6 +7,10 @@ const provisioning = readFileSync(
 	"scripts/infra/provision-deployment-identities.sh",
 	"utf8",
 );
+const cloudSqlProvisioning = readFileSync(
+	"scripts/infra/provision-cloud-sql.sh",
+	"utf8",
+);
 
 function stepOffset(id: string): number {
 	const offset = cloudBuild.indexOf(`- id: ${id}`);
@@ -64,5 +68,11 @@ describe("durable deployment policy", () => {
 		expect(provisioning).toContain('bind_act_as "$RUNTIME_ACCOUNT"');
 		expect(provisioning).not.toContain('bind_act_as "$BUILD_ACCOUNT"');
 		expect(provisioning).not.toContain("nova-openai-api-key");
+		expect(provisioning).toContain("gcloud sql users assign-roles");
+		expect(provisioning).toContain('--database-roles="$RUNTIME_DB_USER"');
+		expect(provisioning).toContain("--revoke-existing-roles");
+		expect(cloudSqlProvisioning).toContain('MIGRATION_SA_EMAIL="nova-migrate@');
+		expect(cloudSqlProvisioning).toContain('RUNTIME_SA_EMAIL="commcare-nova@');
+		expect(cloudSqlProvisioning).not.toContain("compute@developer");
 	});
 });

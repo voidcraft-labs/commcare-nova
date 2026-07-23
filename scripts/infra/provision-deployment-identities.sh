@@ -17,6 +17,7 @@ MIGRATION_ACCOUNT="nova-migrate@${PROJECT}.iam.gserviceaccount.com"
 RUNTIME_ACCOUNT="commcare-nova@${PROJECT}.iam.gserviceaccount.com"
 BUILD_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com"
 MIGRATION_DB_USER="nova-migrate@${PROJECT}.iam"
+RUNTIME_DB_USER="commcare-nova@${PROJECT}.iam"
 
 APPLY=false
 case "${1:-}" in
@@ -136,6 +137,13 @@ if [[ "$existing_migration_user" != "$MIGRATION_DB_USER" ]]; then
 		--instance="$INSTANCE" \
 		--type=CLOUD_IAM_SERVICE_ACCOUNT
 fi
+run gcloud sql users assign-roles "$MIGRATION_DB_USER" \
+	--project="$PROJECT" \
+	--instance="$INSTANCE" \
+	--type=CLOUD_IAM_SERVICE_ACCOUNT \
+	--database-roles="$RUNTIME_DB_USER" \
+	--revoke-existing-roles \
+	--quiet
 
 run gcloud beta builds triggers update developer-connect "$TRIGGER_ID" \
 	--project="$PROJECT" \
@@ -144,5 +152,6 @@ run gcloud beta builds triggers update developer-connect "$TRIGGER_ID" \
 
 printf '%s\n' \
 	"Database bootstrap remains intentionally separate:" \
-	"  ${MIGRATION_DB_USER} must own database nova_cases and inherit both current object-owner roles before the first split-identity migration." \
+	"  ${MIGRATION_DB_USER} now inherits only ${RUNTIME_DB_USER}." \
+	"  The checked-in bootstrap must transfer and retire the legacy database role before the first split-identity migration." \
 	"  Verify that prerequisite with the checked-in S02c runbook before merging."
