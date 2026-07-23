@@ -1703,7 +1703,7 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a in progress (implementation checkpoint `7d471bcf`); S05b blocked
+**Status:** S05a in progress (implementation checkpoint `a136b121`); S05b blocked
 on S05a; S05c blocked on S05b and a fresh owner decision between maintenance
 and additional rollout machinery.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
@@ -1879,7 +1879,7 @@ Implementation remains split into independently reviewed units:
 
 #### S05a execution checkpoint — 2026-07-23
 
-Commits `fe0a7027` through `7d471bcf` on `agent/s05a-lookup-carriers`
+Commits `fe0a7027` through `a136b121` on `agent/s05a-lookup-carriers`
 form a reviewed internal implementation checkpoint, not a contract-complete or
 merge-ready S05a result. They now own:
 
@@ -1893,17 +1893,25 @@ merge-ready S05a result. They now own:
   embedded in the recursive Predicate and ValueExpression definitions;
 - carrier-blind builder field-add inputs and non-authorable generic expression
   fallbacks, including inline-only duplication of a receiver-preserved select;
-  and
+- a structural, recursively carrier-blind Predicate / ValueExpression family
+  for the rolling mutation envelope and all nine SA/MCP write tools, while a
+  separate canonical mutation schema preserves the full vocabulary for reducer
+  and durable-log replay;
+- carrier-blind `getField`, `getForm`, and `getModule` projections shared by
+  chat and MCP, which omit the smallest unsafe slot or entry without mutating
+  the canonical document or discarding safe siblings; and
 - deliberate rejection or incompatibility results at the existing preview,
   case-store SQL, on-device XPath, CSQL, suite, and instance boundaries,
   including terminal rejection before lookup-row predicates are misread as case
   predicates.
 
-The checkpoint passes TypeScript plus a 21-file, 515-test focused matrix
-covering carrier schemas, mutation compatibility, reference-index totality and
-fuzz, case-type retirement, AST transforms, builder round trips, JSON-schema
-generation, carrier-blind duplication, diagnostic paths, and the direct XForm,
-preview, CSQL, and instance-accumulation rejection boundaries.
+The foundation checkpoint passed its 21-file, 515-test matrix. The boundary
+slice passes a fresh 20-file, 382-test matrix covering canonical replay,
+rolling envelopes, misplaced-carrier rejection, all nine SA/MCP write schemas,
+chat/MCP prompt grammar, raw MCP registration, all three read projections, and
+legacy fallbacks. TypeScript and scoped Biome pass, and independent review
+closed the replay/schema-generation defects it found before returning no
+remaining findings.
 
 The following work remains in S05a and must land before a PR is called
 merge-ready:
@@ -1922,13 +1930,7 @@ merge-ready:
    option-filter field reads to a validation-only dependency-cycle graph that
    also covers the existing `default_value` slot without activating preview
    evaluation;
-4. split canonical replay schemas from carrier-blind authoring and rolling
-   mutation envelopes so dormant table ASTs cannot enter through any legacy
-   mutation discriminator that a pre-S05 receiver would reject;
-5. keep SA and MCP recursive input schemas, generated model vocabulary,
-   read-tool projections, and generic builder controls carrier-blind at every
-   nesting depth, with runtime-rejection and generated-grammar regression tests;
-6. extend the actual frozen pre-S05 reducer, raw-SSE,
+4. extend the actual frozen pre-S05 reducer, raw-SSE,
    JSONB/hydration/log, authoritative-writer race, removal, and export
    short-circuit test matrices using real carriers; then run independent
    review, CI, and the normal merge/deploy verification.
