@@ -1703,9 +1703,9 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a in progress (implementation checkpoint `c27217b6`); S05b blocked
-on S05a; S05c blocked on S05b and a fresh owner decision between maintenance
-and additional rollout machinery.
+**Status:** S05a in progress (draft PR #311; implementation checkpoint
+`c27217b6`); S05b blocked on S05a; S05c blocked on S05b and a fresh owner
+decision between maintenance and additional rollout machinery.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 rolling-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. It does not
@@ -2237,10 +2237,11 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
-- **2026-07-23 — S05a extractor/gate checkpoint reviewed:** Commit `c27217b6`
-  registers all 17 production carrier extractors, declares writer v1 and stream
-  receiver v2 with every database floor and feature flag unchanged, and closes
-  commit plus all export boundaries around dormant carriers. Canonical
+- **2026-07-23 — S05a extractor/gate checkpoint reviewed:** Draft PR #311 at
+  commit `c27217b6` registers all 17 production carrier extractors, declares
+  writer v1 and stream receiver v2 with every database floor and feature flag
+  unchanged, and closes commit plus all export boundaries around dormant
+  carriers. Canonical
   fingerprints distinguish carrier changes from unrelated historical repairs.
   Real JSONB carriers now exercise authoritative edge backfill/removal, both
   deletion race orders, missing/foreign parity, and Project-move closure without
