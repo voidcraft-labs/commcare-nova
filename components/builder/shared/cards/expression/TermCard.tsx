@@ -1,7 +1,7 @@
 // components/builder/shared/cards/expression/TermCard.tsx
 //
 // Term-arm card for the ValueExpression editor — the universal value
-// carrier. Edits any of the six Term variants:
+// carrier. Edits the six authorable Term variants:
 //
 //   - `prop` — case property reference (with optional `via:
 //     RelationPath` walk preserved across edits via the shared
@@ -14,6 +14,8 @@
 //     by the future case-operation editor.
 //   - `literal` — primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
+//   - `table-column` remains a dormant compatibility carrier: a direct
+//     preserved value renders read-only and never enters the source menu.
 //
 // The card edits ONLY Term-shaped values — non-Term ValueExpression
 // arms route through their own dedicated cards (ArithCard / IfCard /
@@ -175,7 +177,43 @@ interface TermCardProps {
  * therefore looks up errors at its own path, not at a deeper
  * sub-segment.
  */
-export function TermCard({
+export function TermCard(props: TermCardProps) {
+	if (props.value.term.kind === "table-column") {
+		return <DormantTableColumnTerm />;
+	}
+	return <EditableTermCard {...props} />;
+}
+
+/**
+ * A direct table-column term is a preserved compatibility carrier, not an
+ * authorable value source. Keep it visible without mounting source menus or
+ * controls that could rewrite the carrier before lookup authoring lands.
+ */
+function DormantTableColumnTerm() {
+	return (
+		<div
+			role="note"
+			aria-label="Saved lookup table value"
+			className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2"
+		>
+			<Icon
+				icon={tablerDatabase}
+				width="14"
+				height="14"
+				aria-hidden="true"
+				className="shrink-0 text-nova-violet-bright"
+			/>
+			<span className="min-w-0">
+				<span className="block text-sm text-nova-text">Lookup table value</span>
+				<span className="block text-[13px] text-nova-text-muted">
+					Read only in this editor
+				</span>
+			</span>
+		</div>
+	);
+}
+
+function EditableTermCard({
 	value,
 	onChange,
 	path,

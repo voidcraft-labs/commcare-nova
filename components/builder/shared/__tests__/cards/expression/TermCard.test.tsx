@@ -7,7 +7,7 @@ import {
 	focusElement,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
 	ancestorPath,
 	dateLiteral,
@@ -17,6 +17,7 @@ import {
 	relationStep,
 	sessionContext,
 	sessionUser,
+	tableColumn,
 	term,
 	timeLiteral,
 	type ValueExpression,
@@ -43,6 +44,8 @@ const PATIENT_WITH_INFORMATION: CaseType = {
 };
 
 const TRANSITION_CASE_TYPES = [HOUSEHOLD, PATIENT_WITH_INFORMATION] as const;
+const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+const LOOKUP_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupColumnId;
 
 const REQUIRED_TERM = {
 	accepts: "any" as const,
@@ -87,6 +90,34 @@ function renderStatefulTerm(value: ValueExpression) {
 	render(<Harness />);
 	return onChange;
 }
+
+describe("TermCard dormant lookup carrier boundary", () => {
+	it("renders a preserved table-column term without exposing authoring controls", () => {
+		const onChange = vi.fn();
+
+		render(
+			<ExpressionCardEditor
+				value={term(tableColumn(LOOKUP_TABLE, LOOKUP_COLUMN))}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		const fallback = screen.getByRole("note", {
+			name: "Saved lookup table value",
+		});
+		expect(fallback.textContent).toContain("Lookup table value");
+		expect(fallback.textContent).toContain("Read only in this editor");
+		expect(screen.queryByRole("button")).toBeNull();
+		expect(screen.queryByRole("textbox")).toBeNull();
+		expect(screen.queryByRole("combobox")).toBeNull();
+
+		fireEvent.click(fallback);
+		fireEvent.keyDown(fallback, { key: "Enter", code: "Enter" });
+		expect(onChange).not.toHaveBeenCalled();
+	});
+});
 
 async function chooseSource(name: string) {
 	fireEvent.click(screen.getByRole("button", { name: /^Value source:/ }));

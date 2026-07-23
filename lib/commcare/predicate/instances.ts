@@ -35,6 +35,7 @@ import {
 	type ValueExpression,
 	walkExpressionNodes,
 	walkExpressionTerms,
+	walkPredicateExpressionNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
 
@@ -71,9 +72,11 @@ export function instanceSourceFor(instanceId: string): string {
  * Collect every CCHQ wire instance id reachable from a Predicate.
  * The returned set is the union of per-Term instance refs; an empty
  * predicate (or one composed entirely of literals) returns the
- * empty set.
+ * empty set. Dormant lookup-table expressions reject before
+ * accumulation, including when their row filter contains no Terms.
  */
 export function collectPredicateInstances(predicate: Predicate): Set<string> {
+	walkPredicateExpressionNodes(predicate, rejectDormantTableLookup);
 	const instances = new Set<string>();
 	walkTerms(predicate, (term) => addTermInstance(term, instances));
 	return instances;
