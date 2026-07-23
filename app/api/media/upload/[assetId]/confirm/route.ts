@@ -24,11 +24,14 @@ import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
 import {
+	canonicalizePendingAssetForActor,
 	deletePendingAssetForActor,
 	findReadyAssetByProjectAndHash,
 	loadAssetById,
 	type MediaAssetRecord,
 	publishPendingAssetForActor,
+	purgeExpiredMediaUploadAliases,
+	resolveReadyUploadAliasForActor,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
 import {
@@ -58,14 +61,29 @@ export async function POST(
 		const { assetId: rawAssetId } = await params;
 		const assetId = asAssetId(rawAssetId);
 
-		// Owner-agnostic load, then authorize by Project membership. A
-		// non-member reads as the same 404 a missing row does, so asset ids
-		// stay non-enumerable.
+		// Owner-agnostic load, then authorize by Project membership. A missing
+		// pending row may still have a durable successful canonicalization:
+		// resolve that exact attempt id under the alias's fresh Project edit
+		// authority before returning not-found. No hash-only inference is used
+		// for a fresh retry.
 		const asset = await loadAssetById(assetId);
-		if (
-			!asset ||
-			!(await userInProject(session.user.id, asset.project_id, "edit"))
-		) {
+		if (!asset) {
+			const canonical = await resolveReadyUploadAliasForActor({
+				attemptAssetId: assetId,
+				actorUserId: session.user.id,
+			});
+			if (canonical) {
+				return NextResponse.json({
+					ok: true,
+					asset: toWireMediaAsset(canonical),
+				});
+			}
+			throw new ApiError(
+				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+				404,
+			);
+		}
+		if (!(await userInProject(session.user.id, asset.project_id, "edit"))) {
 			throw new ApiError(
 				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
 				404,
@@ -180,6 +198,7 @@ export async function POST(
 			asset: MediaAssetRecord;
 			releasedPending: MediaAssetRecord | null;
 		};
+		let uploadAliasCreated = false;
 		try {
 			publication = await withMediaObjectKeyLock(
 				finalGcsObjectKey,
@@ -193,60 +212,67 @@ export async function POST(
 					);
 					if (sibling?.id === assetId) {
 						// A same-id confirm published while this request was validating.
-						// Ready is terminal: return the row protected by this key lock
-						// without rewriting its final bytes or trying to clean the
-						// winner's already-released pending object.
-						return { asset: sibling, releasedPending: null };
-					}
-					if (sibling && sibling.id !== assetId) {
-						// Delete only a FRESHLY-confirmed pending loser. If another request
-						// already made this exact row ready, ready is terminal and wins over
-						// the unrelated sibling discovered above.
-						const released = await deletePendingAssetForActor(
+						// Re-enter the authoritative transition helper so this stale
+						// request freshly proves edit authority and locks the terminal
+						// row. It returns `already_ready` without rewriting bytes.
+						const current = await publishPendingAssetForActor(
 							{
 								assetId,
 								actorUserId: session.user.id,
 								expectedProjectId: asset.project_id,
+								gcsObjectKey: finalGcsObjectKey,
+								mimeType: result.validated.mimeType,
+								extension: result.validated.extension,
+								dimensions: result.validated.dimensions,
+								durationMs: result.validated.durationMs,
 							},
 							lockedDb,
 						);
-						if (released.kind === "not_found") {
-							// Another confirm of this same pending id can win the
-							// sibling dedupe, delete the row, and release its pending
-							// bytes before this request gets here. `not_found` also
-							// covers lost authority, so freshly re-prove edit access
-							// before returning the canonical sibling.
-							const authorizedSibling = await authorizeReadyCandidate(
-								sibling,
-								asset,
-								session.user.id,
-							);
-							if (authorizedSibling) {
-								return {
-									asset: authorizedSibling,
-									releasedPending: null,
-								};
-							}
+						if (current.kind === "not_found") {
 							throw new ApiError(
 								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
 								404,
 							);
 						}
-						if (released.kind === "already_ready") {
+						return { asset: current.asset, releasedPending: null };
+					}
+					if (sibling && sibling.id !== assetId) {
+						// Persist the successful attempt -> canonical result in the SAME
+						// transaction that deletes the pending row. A lost HTTP response
+						// can then replay by the original id without guessing from the hash.
+						const canonicalized = await canonicalizePendingAssetForActor(
+							{
+								attemptAssetId: assetId,
+								canonicalAssetId: sibling.id,
+								actorUserId: session.user.id,
+								expectedProjectId: asset.project_id,
+								expectedContentHash: asset.contentHash,
+							},
+							lockedDb,
+						);
+						if (canonicalized.kind === "not_found") {
+							throw new ApiError(
+								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+								404,
+							);
+						}
+						if (
+							canonicalized.kind === "already_ready" ||
+							canonicalized.kind === "already_canonical"
+						) {
 							return {
-								asset: released.asset,
-								releasedPending:
-									asset.gcsObjectKey === released.asset.gcsObjectKey
-										? null
-										: asset,
+								asset: canonicalized.asset,
+								releasedPending: null,
 							};
 						}
+						uploadAliasCreated = true;
 						return {
-							asset: sibling,
+							asset: canonicalized.asset,
 							releasedPending:
-								asset.gcsObjectKey === sibling.gcsObjectKey
+								canonicalized.releasedPending.gcsObjectKey ===
+								canonicalized.asset.gcsObjectKey
 									? null
-									: released.asset,
+									: canonicalized.releasedPending,
 						};
 					}
 					// From this point the canonical object may exist without ready
@@ -320,6 +346,14 @@ export async function POST(
 				},
 			);
 		}
+		if (uploadAliasCreated) {
+			await purgeExpiredMediaUploadAliases().catch((error: unknown) => {
+				log.warn("[media:confirm] expired upload-alias purge failed", {
+					assetId,
+					error,
+				});
+			});
+		}
 
 		return NextResponse.json({
 			ok: true,
@@ -342,12 +376,11 @@ export async function POST(
 /**
  * Re-read the row after this request loses access to its pending object.
  *
- * A concurrent confirm may publish the same row, or delete it after
- * canonicalizing the upload to an already-ready same-Project/hash sibling,
- * before releasing the pending bytes. A lagging metadata/read operation then
- * observes a storage 404 even though the upload succeeded. Return only the
- * authoritative ready result under a fresh Project edit check; no ready match
- * remains a not-found failure.
+ * A concurrent confirm may publish the same row, or atomically replace it with
+ * a durable attempt -> canonical alias before releasing the pending bytes. A
+ * lagging metadata/read operation then observes a storage 404 even though the
+ * upload succeeded. Resolve only the exact ready row or durable alias under a
+ * fresh Project edit check; never infer a result from a coincidental hash match.
  */
 async function loadConcurrentReadyAsset(
 	attempt: MediaAssetRecord,
@@ -357,11 +390,10 @@ async function loadConcurrentReadyAsset(
 	if (current?.status === "ready") {
 		return authorizeReadyCandidate(current, attempt, actorUserId);
 	}
-	const sibling = await findReadyAssetByProjectAndHash(
-		attempt.project_id,
-		attempt.contentHash,
-	);
-	return authorizeReadyCandidate(sibling, attempt, actorUserId);
+	return resolveReadyUploadAliasForActor({
+		attemptAssetId: attempt.id,
+		actorUserId,
+	});
 }
 
 async function authorizeReadyCandidate(

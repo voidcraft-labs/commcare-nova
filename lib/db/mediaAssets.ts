@@ -3,9 +3,11 @@
  *
  * The asset row lives in `media_assets` (keyed by the asset's UUID); the
  * referencing-apps reverse index lives in the `media_asset_refs` join table
- * (one row per `(asset, app)` candidate edge). `project_id` is the tenant and
- * the only access gate — every read SITE authorizes Project membership on the
- * returned `project_id` before serving bytes or metadata.
+ * (one row per `(asset, app)` candidate edge). A successful browser confirm
+ * that deduplicates to another row leaves a 24-hour `media_upload_aliases`
+ * replay record keyed by the original attempt id. `project_id` is the tenant
+ * and the only access gate — every read SITE authorizes Project membership on
+ * the returned `project_id` before serving bytes or metadata.
  *
  * The record builders `Number(...)` the `bigint` columns (`size_bytes`,
  * `duration_ms`) that pg returns as strings, and parse the `extract` jsonb
@@ -417,6 +419,239 @@ export async function deletePendingAssetForActor(
 			? { kind: "deleted", asset: current }
 			: { kind: "not_found" };
 	});
+}
+
+export type PendingAssetCanonicalizationResult =
+	| {
+			readonly kind: "canonicalized";
+			readonly asset: MediaAssetRecord;
+			readonly releasedPending: MediaAssetRecord;
+	  }
+	| { readonly kind: "already_canonical"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "already_ready"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "not_found" };
+
+/**
+ * Atomically replace one pending upload attempt with a durable pointer to an
+ * already-ready Project/hash sibling.
+ *
+ * The caller holds the canonical content-object lock. Fresh Project edit
+ * authority is proved before asset rows; the attempt and candidate are then
+ * locked in lexical id order. The alias INSERT and pending-row DELETE share one
+ * transaction, so a successful response can always be replayed by the original
+ * attempt id. A same-attempt loser whose row is already gone resolves the
+ * existing alias instead of inferring a sibling from the hash.
+ */
+export async function canonicalizePendingAssetForActor(
+	args: {
+		attemptAssetId: AssetId;
+		canonicalAssetId: AssetId;
+		actorUserId: string;
+		expectedProjectId: string;
+		expectedContentHash: string;
+	},
+	lockedDb: Kysely<AppDatabase>,
+): Promise<PendingAssetCanonicalizationResult> {
+	return lockedDb.transaction().execute(async (tx) => {
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			return { kind: "not_found" };
+		}
+
+		// Avoid locking a caller-supplied canonical row when this is already a
+		// retry whose attempt row vanished. The alias is the only durable
+		// authority in that state.
+		const attemptSnapshot = await tx
+			.selectFrom("media_assets")
+			.select("id")
+			.where("id", "=", args.attemptAssetId)
+			.where("project_id", "=", args.expectedProjectId)
+			.executeTakeFirst();
+		if (attemptSnapshot === undefined) {
+			const replay = await resolveReadyUploadAliasInTransaction(tx, {
+				attemptAssetId: args.attemptAssetId,
+				actorUserId: args.actorUserId,
+			});
+			return replay
+				? { kind: "already_canonical", asset: replay }
+				: { kind: "not_found" };
+		}
+
+		const lockedRows = await tx
+			.selectFrom("media_assets")
+			.selectAll()
+			.where("id", "in", [args.attemptAssetId, args.canonicalAssetId].sort())
+			.orderBy("id")
+			.forUpdate()
+			.execute();
+		const attemptRow = lockedRows.find((row) => row.id === args.attemptAssetId);
+		if (attemptRow === undefined) {
+			const replay = await resolveReadyUploadAliasInTransaction(tx, {
+				attemptAssetId: args.attemptAssetId,
+				actorUserId: args.actorUserId,
+			});
+			return replay
+				? { kind: "already_canonical", asset: replay }
+				: { kind: "not_found" };
+		}
+		const attempt = mediaAssetRecordFromRow(attemptRow);
+		if (
+			attempt.project_id !== args.expectedProjectId ||
+			attempt.contentHash !== args.expectedContentHash
+		) {
+			return { kind: "not_found" };
+		}
+		if (attempt.status === "ready") {
+			return { kind: "already_ready", asset: attempt };
+		}
+		if (attempt.status !== "pending") return { kind: "not_found" };
+
+		const canonicalRow = lockedRows.find(
+			(row) => row.id === args.canonicalAssetId,
+		);
+		if (canonicalRow === undefined) return { kind: "not_found" };
+		const canonical = mediaAssetRecordFromRow(canonicalRow);
+		if (
+			canonical.id === attempt.id ||
+			canonical.status !== "ready" ||
+			canonical.project_id !== args.expectedProjectId ||
+			canonical.contentHash !== args.expectedContentHash
+		) {
+			return { kind: "not_found" };
+		}
+
+		// A UUID collision with an expired attempt tombstone is fantastically
+		// unlikely, but deleting it explicitly keeps the invariant local instead
+		// of allowing a stale primary-key conflict to rewrite a past result.
+		await tx
+			.deleteFrom("media_upload_aliases")
+			.where("attempt_asset_id", "=", args.attemptAssetId)
+			.where("expires_at", "<=", sql<Date>`now()`)
+			.execute();
+		await tx
+			.insertInto("media_upload_aliases")
+			.values({
+				attempt_asset_id: args.attemptAssetId,
+				project_id: args.expectedProjectId,
+				content_hash: args.expectedContentHash,
+				canonical_asset_id: canonical.id,
+			})
+			.onConflict((conflict) => conflict.column("attempt_asset_id").doNothing())
+			.execute();
+		const alias = await tx
+			.selectFrom("media_upload_aliases")
+			.select(["project_id", "content_hash", "canonical_asset_id"])
+			.where("attempt_asset_id", "=", args.attemptAssetId)
+			.where("expires_at", ">", sql<Date>`now()`)
+			.forUpdate()
+			.executeTakeFirst();
+		if (
+			alias === undefined ||
+			alias.project_id !== args.expectedProjectId ||
+			alias.content_hash !== args.expectedContentHash ||
+			alias.canonical_asset_id !== canonical.id
+		) {
+			return { kind: "not_found" };
+		}
+
+		const deleted = await tx
+			.deleteFrom("media_assets")
+			.where("id", "=", args.attemptAssetId)
+			.where("status", "=", "pending")
+			.executeTakeFirst();
+		if (Number(deleted.numDeletedRows) !== 1) {
+			throw new Error(
+				`[canonicalizePendingAssetForActor] locked pending row was not deleted for assetId=${args.attemptAssetId}.`,
+			);
+		}
+		return {
+			kind: "canonicalized",
+			asset: canonical,
+			releasedPending: attempt,
+		};
+	});
+}
+
+/**
+ * Resolve the exact durable successful result for an upload attempt whose
+ * pending row no longer exists. The alias names its Project/hash as well as the
+ * canonical id; resolution rechecks all three against a terminal ready row and
+ * freshly proves Project edit authority before taking the asset share lock.
+ */
+export async function resolveReadyUploadAliasForActor(args: {
+	attemptAssetId: AssetId;
+	actorUserId: string;
+}): Promise<MediaAssetRecord | null> {
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.execute((tx) => resolveReadyUploadAliasInTransaction(tx, args));
+}
+
+async function resolveReadyUploadAliasInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		attemptAssetId: AssetId;
+		actorUserId: string;
+	},
+): Promise<MediaAssetRecord | null> {
+	const scope = await tx
+		.selectFrom("media_upload_aliases")
+		.select(["project_id", "content_hash", "canonical_asset_id"])
+		.where("attempt_asset_id", "=", args.attemptAssetId)
+		.where("expires_at", ">", sql<Date>`now()`)
+		.executeTakeFirst();
+	if (scope === undefined) return null;
+	const role = await projectRoleForInTransaction(
+		tx,
+		args.actorUserId,
+		scope.project_id,
+	);
+	if (role === null || !roleAllowsApp(role, "edit")) return null;
+
+	const row = await tx
+		.selectFrom("media_upload_aliases as alias")
+		.innerJoin("media_assets as asset", "asset.id", "alias.canonical_asset_id")
+		.selectAll("asset")
+		.where("alias.attempt_asset_id", "=", args.attemptAssetId)
+		.where("alias.project_id", "=", scope.project_id)
+		.where("alias.content_hash", "=", scope.content_hash)
+		.where("alias.canonical_asset_id", "=", scope.canonical_asset_id)
+		.where("alias.expires_at", ">", sql<Date>`now()`)
+		.where("asset.project_id", "=", scope.project_id)
+		.where("asset.content_hash", "=", scope.content_hash)
+		.where("asset.status", "=", "ready")
+		.forShare("asset")
+		.executeTakeFirst();
+	return row ? mediaAssetRecordFromRow(row) : null;
+}
+
+/** Opportunistically remove a bounded oldest batch of expired replay rows. */
+export async function purgeExpiredMediaUploadAliases(
+	limit = 256,
+): Promise<number> {
+	if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
+		throw new Error(
+			"[purgeExpiredMediaUploadAliases] limit must be an integer from 1 to 1000.",
+		);
+	}
+	const db = await getAppDb();
+	const expired = db
+		.selectFrom("media_upload_aliases")
+		.select("attempt_asset_id")
+		.where("expires_at", "<=", sql<Date>`now()`)
+		.orderBy("expires_at")
+		.orderBy("attempt_asset_id")
+		.limit(limit);
+	const deleted = await db
+		.deleteFrom("media_upload_aliases")
+		.where("attempt_asset_id", "in", expired)
+		.executeTakeFirst();
+	return Number(deleted.numDeletedRows);
 }
 
 /**
@@ -862,6 +1097,8 @@ export async function findReadyAssetByProjectAndHash(
 		.where("project_id", "=", projectId)
 		.where("content_hash", "=", contentHash)
 		.where("status", "=", "ready")
+		.orderBy("created_at")
+		.orderBy("id")
 		.limit(1)
 		.executeTakeFirst();
 	return row ? mediaAssetRecordFromRow(row) : null;

@@ -80,6 +80,10 @@ describe("database privilege convergence contract", () => {
 			name: "runtime_reader_traffic_epochs",
 			classification: "control",
 		});
+		expect(audited).toContainEqual({
+			name: "media_upload_aliases",
+			classification: "application",
+		});
 		expect(classifyPublicTable("atlas_schema_revisions")).toBe("migration");
 		expect(() =>
 			auditPublicTableInventory([

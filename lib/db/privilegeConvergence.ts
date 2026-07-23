@@ -97,6 +97,7 @@ const APPLICATION_TABLES = [
 	"credit_grants",
 	"media_assets",
 	"media_asset_refs",
+	"media_upload_aliases",
 	"lookup_project_state",
 	"lookup_tables",
 	"lookup_columns",
