@@ -1,9 +1,9 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-23 against deployed
-> Nova `06a6ee4f` (PR #311). S01 through S05a are shipped, including all of
-> S02. S05's domain/wire decisions are pinned below; S05b's local-wire audit
-> closed and its implementation is in progress on `agent/s05b-lookup-wire`;
+> Nova `97d6bb89` (PR #312). S01 through S05b are shipped, including all of
+> S02. S05's domain/wire decisions are pinned below; local CCZ export now
+> emits the preservable lookup wire.
 > S05c remains decision-blocked. S22 remains closed on
 > `agent/s22-form-links` pending the
 > explicit cutover choice recorded in its slice. This file owns execution order,
@@ -337,11 +337,10 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S02 through S05a are shipped. S05's exported-value, select-fallback,
+S02 through S05b are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
-pinned. S05b's readiness audit closed on 2026-07-23 and implementation is in
-progress; S05c remains blocked on S05b
-and a fresh owner decision before
+pinned and the local lookup wire is live in ccz export. S05c is the next
+slice and remains blocked on a fresh owner decision before
 any production cutover or nonzero compatibility floor. S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 readiness
 is complete but implementation remains blocked on its owner cutover decision.
@@ -357,7 +356,7 @@ Compiler verification stays serialized across wire slices.
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
-| S05b | Lookup expression, itemset, and local-fixture wire | S05a | in progress | PR-01/03, F5 |
+| S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b + owner cutover decision | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
@@ -1705,13 +1704,14 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b is in progress on
-`agent/s05b-lookup-wire`; S05c is blocked on S05b and a fresh owner decision.
+**Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b shipped in PR #312 at
+`97d6bb89`; S05c is blocked on a fresh owner decision.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 rolling-compatible mutations, persistence/replay, reference ownership, and
-validation with every carrier commit and export gate still closed. It does not
-add UI, SA/MCP vocabulary, preview/SQL activation, HQ JSON, or HQ upload. Local
-CCZ may emit dormant carriers only after S05b. HQ JSON and upload reject them
+validation with every carrier commit and export gate still closed. S05b adds
+the local wire: ccz export lowers preservable carriers and emits
+suite-embedded fixtures, while UI, SA/MCP vocabulary, preview/SQL activation,
+and carrier commits stay closed. HQ JSON and upload reject the carriers
 until S20 owns resource push/mapping.
 
 S05 introduces the first production UUID-backed lookup carriers: table-backed
@@ -1876,7 +1876,7 @@ Implementation remains split into independently reviewed units:
    one support checkpoint, with every authoritative writer still using its
    shared declaration helper. Every database floor and feature flag remains
    zero/off.
-2. **S05b — local wire (in progress):** add lowering/emission for the
+2. **S05b — local wire (shipped):** add lowering/emission for the
    already-preservable table expressions, predicates, and itemsets; instance
    accumulation; the one-snapshot multi-table reader; deterministic fixture
    serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
@@ -1966,8 +1966,8 @@ the 34-minute changed-test async-leak gate.
 #### S05b readiness closure — 2026-07-23
 
 The S05b local-wire audit re-verified every integration seam against deployed
-`06a6ee4f` and every wire claim against the pinned Dimagi sources, so S05b is
-now `in progress` on `agent/s05b-lookup-wire`.
+`06a6ee4f` and every wire claim against the pinned Dimagi sources, opening
+implementation on `agent/s05b-lookup-wire`.
 
 Re-verified Nova seams: the three-mode export boundary
 (`lib/export/boundaryValidation.ts`) loads rows-free definitions in one
@@ -2039,8 +2039,8 @@ tests and oracles over directly constructed carrier documents.
 
 #### S05b implementation checkpoint — 2026-07-23
 
-The implementation on `agent/s05b-lookup-wire` delivers, per the pinned
-decisions above:
+The implementation on `agent/s05b-lookup-wire`, merged as squash `97d6bb89`
+(PR #312), delivers, per the pinned decisions above:
 
 - `lib/lookup/fixtureSnapshot.ts` plus `getLookupFixtureData`: the one
   read-only REPEATABLE READ definitions-plus-rows reader, integration-tested
@@ -2374,6 +2374,21 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S05b shipped:** PR #312 passed independent adversarial review
+  (five confirmed wire defects fixed and regression-pinned pre-merge) and every
+  CI gate including the changed-test async-leak sweep, whose one failure was
+  root-caused to a pre-existing escaped-act drain in the media picker dialog
+  test and fixed at the source. It shipped at squash `97d6bb89` through
+  successful Cloud Build `0979712a-7f0b-45e8-9e69-72f8bd78660b`, migration
+  execution `commcare-nova-migrate-qp7rf`, and healthy 100%-traffic revision
+  `commcare-nova-00362-bjp`. Main, docs, and MCP metadata probes returned HTTP
+  200 and the new revision had no error logs. Local CCZ export now lowers
+  preservable lookup expressions, predicate terms, and itemsets over
+  suite-embedded fixtures from one REPEATABLE READ snapshot under the exact
+  aggregate budgets; carrier commits, authoring surfaces, preview/SQL
+  execution, HQ JSON/upload, database floors, and feature flags remain closed
+  or zero/off. S05c is the next slice and stays blocked on the owner's
+  cutover decision.
 - **2026-07-23 — S05b readiness closed / implementation owned:** The local-wire
   audit re-verified the export-boundary, emitter-rejection, instance-
   accumulation, and lookup-reader seams against deployed `06a6ee4f`, and the
