@@ -2030,6 +2030,36 @@ keeps `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` untouched, so production behavior is
 unchanged until S05c/S07 open their gates; the wire path is proven by focused
 tests and oracles over directly constructed carrier documents.
 
+#### S05b implementation checkpoint — 2026-07-23
+
+The implementation on `agent/s05b-lookup-wire` delivers, per the pinned
+decisions above:
+
+- `lib/lookup/fixtureSnapshot.ts` plus `getLookupFixtureData`: the one
+  read-only REPEATABLE READ definitions-plus-rows reader, integration-tested
+  for authored `(order_key, id)` ordering, multi-table completeness,
+  missing/foreign parity, and the empty request;
+- `lib/commcare/lookup/`: the per-run identity naming resolver, stored-cell
+  lexicalization, deterministic `<fixture>` serialization with exact byte
+  accounting, the aggregate budget verdicts, and the complete-table
+  select-source row validity;
+- on-device lowering for the three carriers with scoped `current()`
+  re-anchoring and relation-scope clearing; itemset emission with model
+  instance declarations and no inline items; `item-list:` instance
+  accumulation across XForm models, entries, menus, and remote requests;
+- the mode-split export boundary: `ccz` validates and emits one snapshot
+  generation with `environment`-class row/budget findings, while `hq-json`
+  and `hq-upload` keep `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`;
+- suite/XForm oracle extension (`SUITE_FIXTURE_INVALID`,
+  `XFORM_ITEMSET_INVALID`) and validator dry-runs made total through inert
+  naming, with the case-search CSQL, preview, and case-store SQL rejections
+  retained.
+
+The five error codes added for the ccz verdicts are `environment`-class and
+carry `legacyFindingRepairs` judgments. The existing fuzz arbitraries remain
+carrier-free; itemset/fixture totality is carried by the focused emission
+suites and the oracle extensions rather than the generic doc fuzzers.
+
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
 present it against a maintenance cutover with then-current traffic, downtime,

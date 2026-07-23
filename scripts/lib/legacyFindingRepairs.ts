@@ -520,21 +520,6 @@ export const REPAIR_JUDGMENTS: Readonly<
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: owner(
 		"the selected export target does not support lookup carriers yet; deleting or rewriting the preserved carrier would change authored behavior",
 	),
-	LOOKUP_SELECT_SOURCE_VALUE_BLANK: owner(
-		"the fix is a lookup-row data edit or a different value column, both authored decisions outside the document",
-	),
-	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: owner(
-		"the fix is a lookup-row data edit or a different value column, both authored decisions outside the document",
-	),
-	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: owner(
-		"deduplicating rows or choosing a different value column changes authored data",
-	),
-	LOOKUP_SELECT_SOURCE_LABEL_BLANK: owner(
-		"the fix is a lookup-row data edit or a different label column, both authored decisions outside the document",
-	),
-	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: owner(
-		"shrinking or unreferencing lookup tables changes authored data and app behavior",
-	),
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: owner("rewriting a broken expression means guessing intent"),
 	UNKNOWN_FUNCTION: mechanical(
