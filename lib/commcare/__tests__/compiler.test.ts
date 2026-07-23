@@ -21,6 +21,7 @@ import {
 	input,
 	literal,
 	prop,
+	sessionUser,
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
@@ -84,6 +85,63 @@ const doc = buildDoc({
 });
 
 describe("compileCcz", () => {
+	it("emits module/form relevance with instances in Core's exact scopes", () => {
+		const displayDoc = buildDoc({
+			appName: "Conditional navigation",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					displayCondition: eq(sessionUser("role"), literal("supervisor")),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							displayCondition: eq(prop("patient", "status"), literal("open")),
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "status", label: "Status" }],
+				},
+			],
+		});
+		const suiteXml = new AdmZip(
+			compileCcz(expandDoc(displayDoc), displayDoc.appName, displayDoc),
+		).readAsText("suite.xml");
+		const root = parseSuiteXml(suiteXml);
+		const menu = findAllByName(root, "menu").find(
+			(element) => element.attribs.id === "m0",
+		);
+		const command = menu && findFirstByName(menu, "command");
+		const entry = findFirstByName(root, "entry");
+		expect(menu).toBeDefined();
+		expect(entry).toBeDefined();
+		if (!menu || !entry) return;
+		expect(menu?.attribs.relevant).toBe(
+			"instance('commcaresession')/session/user/data/role = 'supervisor'",
+		);
+		expect(command?.attribs.relevant).toBe(
+			"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/@status = 'open'",
+		);
+		expect(findAllByName(menu, "instance")).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					attribs: expect.objectContaining({ id: "commcaresession" }),
+				}),
+			]),
+		);
+		const entryInstanceIds = findAllByName(entry, "instance").map(
+			(instance) => instance.attribs.id,
+		);
+		expect(entryInstanceIds).toEqual(
+			expect.arrayContaining(["casedb", "commcaresession"]),
+		);
+	});
+
 	it("keeps legacy input-authored search consistent across HQ JSON and local CCZ", () => {
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [

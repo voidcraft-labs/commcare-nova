@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asUuid, formSchema, isCaseFirstModule } from "@/lib/domain";
+import { eq, literal, sessionUser } from "@/lib/domain/predicate";
 import { opaqueXPathExpression } from "../xpath";
 
 describe("formSchema — formLinks", () => {
@@ -55,6 +56,32 @@ describe("formSchema — formLinks", () => {
 			],
 		});
 		expect(result.success).toBe(true);
+	});
+});
+
+describe("formSchema — displayCondition", () => {
+	const baseForm = {
+		uuid: asUuid("frm-display"),
+		id: "intake",
+		name: "Intake",
+		type: "survey" as const,
+	};
+
+	it("stores a typed Predicate carrier", () => {
+		const displayCondition = eq(sessionUser("username"), literal("alice"));
+		const parsed = formSchema.safeParse({ ...baseForm, displayCondition });
+		expect(parsed.success).toBe(true);
+		if (parsed.success)
+			expect(parsed.data.displayCondition).toEqual(displayCondition);
+	});
+
+	it("rejects untyped expression text", () => {
+		expect(
+			formSchema.safeParse({
+				...baseForm,
+				displayCondition: "#case/status = 'open'",
+			}).success,
+		).toBe(false);
 	});
 });
 

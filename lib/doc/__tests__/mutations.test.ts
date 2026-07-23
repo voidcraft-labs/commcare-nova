@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { asUuid, type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
+import { eq, literal, sessionUser } from "@/lib/domain/predicate";
 
 // Shared fixtures — stable UUIDs so failures point at specific payloads.
 const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
@@ -34,6 +35,8 @@ const field_: Field = {
 	id: "name",
 	label: "Name",
 };
+
+const displayCondition = eq(sessionUser("role"), literal("supervisor"));
 
 /**
  * Expect `mutation` to round-trip through `mutationSchema` unchanged.
@@ -136,7 +139,11 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { name: "Updated", caseType: "patient" },
+				patch: {
+					name: "Updated",
+					caseType: "patient",
+					displayCondition,
+				},
 			});
 		});
 
@@ -263,7 +270,24 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({
 				kind: "updateForm",
 				uuid: formUuid,
-				patch: { name: "New Name", type: "followup" },
+				patch: {
+					name: "New Name",
+					type: "followup",
+					displayCondition,
+				},
+			});
+		});
+
+		it("clears optional display conditions through explicit null", () => {
+			expectRoundTrip({
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { displayCondition: null },
+			});
+			expectRoundTrip({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: { displayCondition: null },
 			});
 		});
 

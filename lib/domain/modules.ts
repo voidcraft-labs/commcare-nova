@@ -1405,6 +1405,11 @@ export const moduleSchema = z
 		caseType: z.string().optional(),
 		caseListOnly: z.boolean().optional(),
 		purpose: z.string().optional(),
+		/**
+		 * Optional home-menu visibility rule. Module navigation has no current
+		 * case row, so validator context rules admit only global/session terms.
+		 */
+		displayCondition: predicateSchema.optional(),
 		caseListConfig: caseListConfigSchema.optional(),
 		caseSearchConfig: caseSearchConfigSchema.optional(),
 		/** Image shown on the module's home-screen tile. */

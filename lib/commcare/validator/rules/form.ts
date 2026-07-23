@@ -34,6 +34,7 @@ import {
 	xpathPrintContext,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import { formDisplayCondition } from "./displayConditions";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -1204,6 +1205,7 @@ export function runFormRules(
 
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));
+	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid));
 	errors.push(...closeConditionValidation(doc, form, ctx, mod));
 	errors.push(...duplicateFieldIds(doc, ctx));
 	errors.push(...primaryInRepeatErrors);

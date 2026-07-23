@@ -114,6 +114,7 @@ import {
 	DEFAULT_INSTANCE_ROOT,
 	emitTerm,
 	type InstanceRoot,
+	type OnDeviceTermEmissionContext,
 } from "../predicate/termEmitter";
 import { findOnDeviceScalarExpressionIssue } from "./onDeviceCompatibility";
 
@@ -158,6 +159,7 @@ export function emitOnDeviceExpression(
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
 	relationContext: RelationEvaluationScopeContext = {},
 	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
+	termContext: OnDeviceTermEmissionContext = {},
 ): string {
 	const compatibilityIssue = findOnDeviceScalarExpressionIssue(
 		expr,
@@ -197,9 +199,10 @@ export function emitOnDeviceExpression(
 				return emitTerm(
 					relation.via === value.via ? value : { ...value, via: relation.via },
 					root,
+					termContext,
 				);
 			}
-			return emitTerm(value, root);
+			return emitTerm(value, root, termContext);
 		}
 		case "today":
 			// CCHQ value function registered on
@@ -228,11 +231,11 @@ export function emitOnDeviceExpression(
 			// `DateUtils::daysSinceEpoch`) and stringification formats
 			// date-only (`FunctionUtils::toString` →
 			// `DateUtils::formatDate(FORMAT_ISO8601)`).
-			return `date(${emitOnDeviceExpression(expr.value, root, relationContext, anchor)})`;
+			return `date(${emitOnDeviceExpression(expr.value, root, relationContext, anchor, termContext)})`;
 		case "double":
 			// CCHQ value function at the `double` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `double(${emitOnDeviceExpression(expr.value, root, relationContext, anchor)})`;
+			return `double(${emitOnDeviceExpression(expr.value, root, relationContext, anchor, termContext)})`;
 		case "arith":
 			// Paren-wrapping is unconditional so a recursive composition
 			// stays parse-stable without a precedence walker. The cost
@@ -240,21 +243,21 @@ export function emitOnDeviceExpression(
 			// the expression is the top of a value slot; that's a worth-
 			// while trade-off against tracking arithmetic precedence
 			// across the recursive walk.
-			return `(${emitOnDeviceExpression(expr.left, root, relationContext, anchor)} ${ARITH_OPS[expr.op]} ${emitOnDeviceExpression(expr.right, root, relationContext, anchor)})`;
+			return `(${emitOnDeviceExpression(expr.left, root, relationContext, anchor, termContext)} ${ARITH_OPS[expr.op]} ${emitOnDeviceExpression(expr.right, root, relationContext, anchor, termContext)})`;
 		case "concat":
 			// XPath 1.0 standard `concat(...)` is variadic; the schema
 			// guarantees at least one part.
-			return `concat(${expr.parts.map((p) => emitOnDeviceExpression(p, root, relationContext, anchor)).join(", ")})`;
+			return `concat(${expr.parts.map((p) => emitOnDeviceExpression(p, root, relationContext, anchor, termContext)).join(", ")})`;
 		case "coalesce":
 			// CCHQ `coalesce(...)` returns the first non-empty argument;
 			// the schema guarantees at least one value.
-			return `coalesce(${expr.values.map((v) => emitOnDeviceExpression(v, root, relationContext, anchor)).join(", ")})`;
+			return `coalesce(${expr.values.map((v) => emitOnDeviceExpression(v, root, relationContext, anchor, termContext)).join(", ")})`;
 		case "if":
 			// Cross-family recursion: `cond` is a Predicate emitted via
 			// the on-device predicate emitter; `then` / `else` recurse
 			// through this function. CCHQ wire form for the conditional-
 			// dispatch value function.
-			return `if(${emitCaseListFilter(expr.cond, root, relationContext, anchor)}, ${emitOnDeviceExpression(expr.then, root, relationContext, anchor)}, ${emitOnDeviceExpression(expr.else, root, relationContext, anchor)})`;
+			return `if(${emitCaseListFilter(expr.cond, root, relationContext, anchor, termContext)}, ${emitOnDeviceExpression(expr.then, root, relationContext, anchor, termContext)}, ${emitOnDeviceExpression(expr.else, root, relationContext, anchor, termContext)})`;
 		case "switch":
 			// XPath has no native `switch` value function. The expansion
 			// is a right-nested `if(...)` chain whose innermost branch is
@@ -266,19 +269,27 @@ export function emitOnDeviceExpression(
 				root,
 				relationContext,
 				anchor,
+				termContext,
 			);
 		case "format-date":
 			// `format-date(<date>, '<pattern>')`. The pattern routes
 			// through `quoteLiteral` for the per-dialect single-quote
 			// escape (concat-fallback when the pattern contains `'`).
-			return `format-date(${emitOnDeviceExpression(expr.date, root, relationContext, anchor)}, ${quoteLiteral(resolveCommCareDatePattern(expr.pattern), "case-list-filter")})`;
+			return `format-date(${emitOnDeviceExpression(expr.date, root, relationContext, anchor, termContext)}, ${quoteLiteral(resolveCommCareDatePattern(expr.pattern), "case-list-filter")})`;
 		case "count":
 			// Relational aggregation. The on-device wire form mirrors
 			// the predicate emitter's `exists` join shape — same
 			// `instance('<root>')/...` nodeset construction, without
 			// the `> 0` comparator that turns `count` into a presence
 			// test on the predicate side.
-			return emitCount(expr.via, expr.where, root, relationContext, anchor);
+			return emitCount(
+				expr.via,
+				expr.where,
+				root,
+				relationContext,
+				anchor,
+				termContext,
+			);
 		case "date-add":
 			// JavaRosa's function dispatcher has no `date-add` or
 			// `datetime-add` handler. For a date base, Core converts the date to
@@ -296,7 +307,7 @@ export function emitOnDeviceExpression(
 					"emitOnDeviceExpression: date-add with a structurally datetime-typed base cannot use JavaRosa's epoch-day fallback because it would discard the time-of-day. Validation should reject this expression before wire emission.",
 				);
 			}
-			return `date(floor(${emitOnDeviceExpression(expr.date, root, relationContext, anchor)} + ${emitDateAddQuantityInDays(expr, root, relationContext, anchor)}))`;
+			return `date(floor(${emitOnDeviceExpression(expr.date, root, relationContext, anchor, termContext)} + ${emitDateAddQuantityInDays(expr, root, relationContext, anchor, termContext)}))`;
 		case "unwrap-list":
 			// Guarded before dispatch. Keep the arm as an explicit tripwire so a
 			// future refactor cannot silently reintroduce the unknown Core call.
@@ -317,12 +328,14 @@ function emitDateAddQuantityInDays(
 	root: InstanceRoot,
 	relationContext: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	const quantity = emitOnDeviceExpression(
 		expression.quantity,
 		root,
 		relationContext,
 		anchor,
+		termContext,
 	);
 	switch (expression.interval) {
 		case "seconds":
@@ -372,11 +385,24 @@ function expandSwitchAsIfChain(
 	root: InstanceRoot,
 	relationContext: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
-	const onText = emitOnDeviceExpression(on, root, relationContext, anchor);
+	const onText = emitOnDeviceExpression(
+		on,
+		root,
+		relationContext,
+		anchor,
+		termContext,
+	);
 	// Recurse from the right: the innermost `if` carries the last case
 	// and the fallback; each outer layer wraps with the next case.
-	let result = emitOnDeviceExpression(fallback, root, relationContext, anchor);
+	let result = emitOnDeviceExpression(
+		fallback,
+		root,
+		relationContext,
+		anchor,
+		termContext,
+	);
 	for (let i = cases.length - 1; i >= 0; i -= 1) {
 		const c = cases[i];
 		const whenText = emitOnDeviceExpression(
@@ -384,12 +410,14 @@ function expandSwitchAsIfChain(
 			root,
 			relationContext,
 			anchor,
+			termContext,
 		);
 		const thenText = emitOnDeviceExpression(
 			c.then,
 			root,
 			relationContext,
 			anchor,
+			termContext,
 		);
 		result = `if(${onText} = ${whenText}, ${thenText}, ${result})`;
 	}
@@ -423,6 +451,7 @@ function emitCount(
 	root: InstanceRoot,
 	relationContext: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	const relation = canonicalizeRelationPath(via, relationContext);
 	const childContext =
@@ -436,13 +465,19 @@ function emitCount(
 	switch (relation.via.kind) {
 		case "self":
 			if (where === undefined) return "1";
-			return `if(${emitCaseListFilter(where, root, childContext, childAnchor)}, 1, 0)`;
+			return `if(${emitCaseListFilter(where, root, childContext, childAnchor, termContext)}, 1, 0)`;
 		case "ancestor":
 			return `if(${emitImmediateRelationPresence(
 				relation.via,
 				where === undefined
 					? undefined
-					: emitCaseListFilter(where, root, childContext, childAnchor),
+					: emitCaseListFilter(
+							where,
+							root,
+							childContext,
+							childAnchor,
+							termContext,
+						),
 				root,
 			)}, 1, 0)`;
 		case "subcase": {
@@ -463,6 +498,7 @@ function emitCount(
 				root,
 				childContext,
 				childAnchor,
+				termContext,
 			);
 		}
 		case "any-relation": {
@@ -494,6 +530,7 @@ function emitCount(
 									},
 								],
 							}),
+							termContext,
 						),
 				root,
 			)}, 1, 0)`;
@@ -514,6 +551,7 @@ function emitCount(
 				root,
 				childContext,
 				{ kind: "unaddressable" },
+				termContext,
 			);
 			return `(${ancestorCount} + ${subcaseCount})`;
 		}
@@ -540,10 +578,11 @@ function emitDirectedCount(
 	root: InstanceRoot,
 	relationContext: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	const filter =
 		where !== undefined
-			? `[${emitCaseListFilter(where, root, relationContext, anchor)}]`
+			? `[${emitCaseListFilter(where, root, relationContext, anchor, termContext)}]`
 			: "";
 	return `count(${nodeset}${filter})`;
 }

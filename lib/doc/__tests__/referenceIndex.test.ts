@@ -141,6 +141,39 @@ function richDoc(): BlueprintDoc {
 }
 
 describe("buildReferenceIndex — identity-keyed edges", () => {
+	it("indexes module and form display-condition Predicate leaves", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "age", label: "Age", data_type: "int" }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					displayCondition: eq(prop("patient", "age"), literal(18)),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							displayCondition: eq(prop("patient", "age"), literal(18)),
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const slots = slotsFor(doc, casePropertyTargetKey("patient", "age"));
+		expect(slots[moduleUuid]).toEqual({ module_display_condition: true });
+		expect(slots[formUuid]).toEqual({ form_display_condition: true });
+		expect(referencingCarrierUuids(doc, caseTypeTargetKey("patient"))).toEqual(
+			expect.arrayContaining([moduleUuid, formUuid]),
+		);
+	});
+
 	it("keys form-local refs on the target uuid, with prefix coverage for container paths", () => {
 		const doc = richDoc();
 		const grp = uuidByFieldId(doc, "grp");

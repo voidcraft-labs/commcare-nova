@@ -350,6 +350,16 @@ describe("suite oracle — XPath validity (C1-11/12/24)", () => {
 		);
 	});
 
+	it("flags unparseable menu and command relevance", () => {
+		const xml = suite(
+			`  <entry><command id="c"><text><locale id="forms.m0f0"/></text></command></entry>
+  <menu id="m0" relevant="not("><text><locale id="modules.m0"/></text><command id="c" relevant="broken("/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).toContain(
+			"SUITE_INVALID_XPATH",
+		);
+	});
+
 	it("flags a non-path <data nodeset> (C1-14)", () => {
 		const xml = suite(
 			`  <query url="http://x" storage-instance="results" template="case"><data key="k" ref="instance('x')/x" nodeset="1 + 1"/></query>`,
@@ -549,6 +559,64 @@ describe("suite oracle — instance resolution (C2-4/C2-5)", () => {
 		);
 		expect(codes(validateSuite(xml, BASE_LOCALES))).toContain(
 			"SUITE_DUPLICATE_INSTANCE",
+		);
+	});
+
+	it("requires a menu relevance instance on that exact menu", () => {
+		const xml = suite(
+			`  <menu id="m0" relevant="instance('commcaresession')/session/context/userid = 'u'"><text><locale id="modules.m0"/></text></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("accepts a menu relevance instance declared on that menu", () => {
+		const xml = suite(
+			`  <menu id="m0" relevant="instance('commcaresession')/session/context/userid = 'u'"><text><locale id="modules.m0"/></text><instance id="commcaresession" src="jr://instance/session"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).not.toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("flags duplicate instance declarations on one menu", () => {
+		const xml = suite(
+			`  <menu id="m0"><text><locale id="modules.m0"/></text><instance id="x" src="a"/><instance id="x" src="b"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).toContain(
+			"SUITE_DUPLICATE_INSTANCE",
+		);
+	});
+
+	it("does not inherit command-relevance instances from the containing menu", () => {
+		const xml = suite(
+			`  <entry><command id="c"><text><locale id="forms.m0f0"/></text></command></entry>
+  <menu id="m0"><text><locale id="modules.m0"/></text><instance id="lookup" src="jr://fixture/lookup"/><command id="c" relevant="instance('lookup')/lookup/enabled = 'yes'"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("resolves command relevance from the matching entry", () => {
+		const xml = suite(
+			`  <entry><command id="c"><text><locale id="forms.m0f0"/></text></command><instance id="lookup" src="jr://fixture/lookup"/></entry>
+  <menu id="m0"><text><locale id="modules.m0"/></text><command id="c" relevant="instance('lookup')/lookup/enabled = 'yes'"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).not.toContain(
+			"SUITE_MISSING_INSTANCE",
+		);
+	});
+
+	it("resolves command relevance from a same-id nested-menu carrier", () => {
+		const xml = suite(
+			`  <entry><command id="c"><text><locale id="forms.m0f0"/></text></command></entry>
+  <menu id="m0"><text><locale id="modules.m0"/></text><command id="c" relevant="instance('lookup')/lookup/enabled = 'yes'"/></menu>
+  <menu id="c"><text><locale id="modules.m0"/></text><instance id="lookup" src="jr://fixture/lookup"/></menu>`,
+		);
+		expect(codes(validateSuite(xml, BASE_LOCALES))).not.toContain(
+			"SUITE_MISSING_INSTANCE",
 		);
 	});
 

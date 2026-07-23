@@ -492,6 +492,23 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
+	it("rejects window_width because web and Android populate it differently", () => {
+		expect(() =>
+			predicateSchema.parse({
+				kind: "eq",
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "owner_id",
+				}),
+				right: asValueExpr({
+					kind: "session-context",
+					field: "window_width",
+				}),
+			}),
+		).toThrow();
+	});
+
 	it("rejects session-context with a bogus field outside the framework set", () => {
 		// `not_a_metadata_key` is neither in the framework's full seven-
 		// field set nor in v1's four-field narrowing. A regression that

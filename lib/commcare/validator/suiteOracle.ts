@@ -179,6 +179,14 @@ interface EntryScope {
 	readonly declaredInstances: ReadonlySet<string>;
 }
 
+/** A menu plus only the instances declared directly on that menu. Menu
+ * relevance does not inherit the broad runtime-instance vocabulary. */
+interface MenuScope {
+	readonly element: Element;
+	readonly id: string | undefined;
+	readonly declaredInstances: ReadonlySet<string>;
+}
+
 /**
  * The model every invariant reads off, built once per suite by a single DOM
  * walk so the oracle never re-traverses the tree per check.
@@ -197,6 +205,10 @@ interface SuiteModel {
 	readonly commandIds: ReadonlySet<string>;
 	/** The entry-like scopes, each with its declared instance set (C2-4). */
 	readonly entryScopes: readonly EntryScope[];
+	/** Every menu and its exact relevance-evaluation instance scope. */
+	readonly menuScopes: readonly MenuScope[];
+	/** First entry/view definition for each command id, matching Core lookup. */
+	readonly commandInstanceScopes: ReadonlyMap<string, ReadonlySet<string>>;
 	/**
 	 * For each `<detail id>`, the entry scopes that load it (via a `<datum
 	 * detail-select>` / `detail-confirm>` naming the id). A detail's
@@ -764,6 +776,8 @@ function checkXPathSurfaces(
 		{ tag: "action", attr: "relevant", label: "an <action relevant>" },
 		{ tag: "field", attr: "relevant", label: "a <field relevant>" },
 		{ tag: "detail", attr: "relevant", label: "a <detail relevant>" },
+		{ tag: "menu", attr: "relevant", label: "a <menu relevant>" },
+		{ tag: "command", attr: "relevant", label: "a <command relevant>" },
 	];
 	for (const { tag, attr, label } of attrSurfaces) {
 		for (const el of findAll((e) => e.name === tag, model.suite.children)) {
@@ -1134,6 +1148,75 @@ function checkInstanceResolution(
 						),
 					);
 				}
+			}
+		}
+	}
+
+	// Menu and form-command relevance use narrower scopes than ordinary entry
+	// XPath. Core evaluates a menu's relevance against only the instances
+	// declared on that menu. A command gets the first matching entry's
+	// declarations plus declarations on menus whose OWN id equals the command
+	// id (the nested-menu carrier); declarations on the containing menu are not
+	// inherited. Do not union RUNTIME_INSTANCE_IDS here: these parsers build an
+	// explicit relevance context, so an omitted declaration is runtime-fatal
+	// even for a familiar instance id.
+	for (const menu of model.menuScopes) {
+		const seen = new Set<string>();
+		for (const inst of getChildren(menu.element)) {
+			if (!isTag(inst) || inst.name !== "instance") continue;
+			const id = getAttributeValue(inst, "id");
+			if (id === undefined) continue;
+			if (seen.has(id)) {
+				errors.push(
+					validationError(
+						"SUITE_DUPLICATE_INSTANCE",
+						"app",
+						`Menu "${menu.id ?? "(unnamed)"}" declares <instance id="${id}"> twice. CommCare keeps only the last declaration. This is a bug in the suite generator.`,
+						loc,
+					),
+				);
+			} else {
+				seen.add(id);
+			}
+		}
+
+		const menuRelevant = getAttributeValue(menu.element, "relevant");
+		if (menuRelevant !== undefined) {
+			for (const ref of collectInstanceRefs(menuRelevant)) {
+				if (menu.declaredInstances.has(ref)) continue;
+				errors.push(
+					validationError(
+						"SUITE_MISSING_INSTANCE",
+						"app",
+						`Menu "${menu.id ?? "(unnamed)"}" relevance references instance('${ref}') but that menu declares no matching <instance id="${ref}">. CommCare cannot resolve it while building navigation. This is a bug in the suite generator.`,
+						loc,
+					),
+				);
+			}
+		}
+
+		for (const command of getChildren(menu.element)) {
+			if (!isTag(command) || command.name !== "command") continue;
+			const relevant = getAttributeValue(command, "relevant");
+			if (relevant === undefined) continue;
+			const commandId = getAttributeValue(command, "id") ?? "(unnamed)";
+			const resolvable = new Set(
+				model.commandInstanceScopes.get(commandId) ?? [],
+			);
+			for (const candidate of model.menuScopes) {
+				if (candidate.id !== commandId) continue;
+				for (const id of candidate.declaredInstances) resolvable.add(id);
+			}
+			for (const ref of collectInstanceRefs(relevant)) {
+				if (resolvable.has(ref)) continue;
+				errors.push(
+					validationError(
+						"SUITE_MISSING_INSTANCE",
+						"app",
+						`Command "${commandId}" relevance references instance('${ref}') but neither its matching entry nor a same-id menu declares that instance. CommCare cannot resolve it while filtering navigation. This is a bug in the suite generator.`,
+						loc,
+					),
+				);
 			}
 		}
 	}
@@ -1581,6 +1664,7 @@ export function validateSuite(
 	}
 
 	const commandIds = new Set<string>();
+	const commandInstanceScopes = new Map<string, ReadonlySet<string>>();
 	const entryScopes: EntryScope[] = [];
 	for (const entry of findAll(
 		(el) => el.name === "entry" || el.name === "remote-request",
@@ -1605,8 +1689,23 @@ export function validateSuite(
 		doc.children,
 	)) {
 		const id = getAttributeValue(cmd, "id");
-		if (id) commandIds.add(id);
+		if (id) {
+			commandIds.add(id);
+			const parent = cmd.parent;
+			if (!commandInstanceScopes.has(id) && parent !== null && isTag(parent)) {
+				commandInstanceScopes.set(id, collectDeclaredInstances(parent));
+			}
+		}
 	}
+
+	const menuScopes: MenuScope[] = findAll(
+		(el) => el.name === "menu",
+		doc.children,
+	).map((menu) => ({
+		element: menu,
+		id: getAttributeValue(menu, "id"),
+		declaredInstances: collectDeclaredInstances(menu),
+	}));
 
 	// Detail → loading-entry map. A `<datum detail-select>` / `detail-confirm>`
 	// names the detail an entry loads; the detail's instance refs resolve against
@@ -1640,6 +1739,8 @@ export function validateSuite(
 		detailIds,
 		commandIds,
 		entryScopes,
+		menuScopes,
+		commandInstanceScopes,
 		detailReferrers,
 	};
 

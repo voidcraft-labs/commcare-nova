@@ -1,10 +1,9 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
-> Nova `81e5ad8b` (PR #300). S01, S02a, S02b, and S02c1 are shipped;
-> S02c2 is review-approved on `agent/s02c2-simple`, S02c3 is in final re-review
-> on `agent/s02c3`, S03 is review-approved on `agent/s03-clean`, and S04 is in
-> progress on `agent/s04`.
+> Nova `e9a6377a` (PR #301). S01, S02a, S02b, S02c1, and S02c2 are shipped;
+> S02c3 is in final re-review on `agent/s02c3`, S03 is review-approved on
+> `agent/s03-clean`, and S04 is in progress on `agent/s04`.
 > This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -49,7 +48,7 @@ The source snapshots visible during this rebaseline were:
 
 | Repository | Commit | Use |
 |---|---|---|
-| CommCare Nova | `db954a15` | integration baseline |
+| CommCare Nova | `e9bce0051c34bd617360515eb34e00b954a54d03` | S03 integration baseline |
 | CommCare HQ | `0fa01e0e8aea95ed9013d564145ad6cffeb91371` | HQ JSON, app build, APIs, fixtures |
 | CommCare Core | `130df00962a289381a8e0936c3ea5d3f53d96f73` | suite/runtime parsing |
 | Formplayer | `ef9096c6109ce3cca5cc3c5e3ef9f4c6a80b01b7` | Web Apps execution |
@@ -1479,15 +1478,74 @@ scan-before-migrate/rescan tool later; it never repairs data.
 clean `agent/s03-clean` branch; publication, CI, deployment verification, and
 cleanup remain.
 
+`Module.displayCondition?` and `Form.displayCondition?` are typed `Predicate`
+carriers. This slice owns persistence/schema acceptance, reference indexing and
+case-property rewrites/retirement descriptions, validation, HQ JSON, local CCZ
+suite emission, and post-emit oracle coverage. It does not activate a preview,
+builder, SA, or MCP writer: S07 owns execution, S08 owns human authoring, and
+S10 owns SA/MCP/public-doc exposure.
+
 Add typed condition carriers only where evaluation context is defined. Preserve
 the current expression-admission policy: global/module contexts cannot gain row
 property reads merely because a generic type context exists. Reverify exact
 absent-node equality, inequality, and numeric-order semantics; never encode the
 blanket `absent means false` shortcut.
 
-Screen-width authoring remains closed until this slice re-evaluates whether the
-signal is stable enough for Nova's authoring model. If excluded, retain the wire
-evidence and do not expose the term.
+The evaluation-context matrix is closed:
+
+- module conditions run before case selection and admit literals,
+  session/current-user values, and pure expressions over them; case properties,
+  relation presence/counts, and Search answers are invalid;
+- a form condition may read direct self properties of the module's case type only
+  when every form is case-loading (the existing `isCaseFirstModule` contract);
+  forms-first modules have no selected-case read; and
+- related properties, `exists`/`missing`, relation `count`, Search answers, strict
+  `is-null`, CSQL-only fuzzy/phonetic/fuzzy-date matching, `unwrap-list`, and
+  unfaithful on-device date arithmetic are rejected on both carriers. Core's
+  on-device `distance` lowering remains available when its fixed center is valid.
+
+Deeply always-true predicates fold to an absent wire attribute. Deeply
+always-false predicates are a gating `DISPLAY_CONDITION_ALWAYS_FALSE` finding so
+the only route to a module/form cannot be authored away accidentally. No new
+`case-count` expression arm belongs to S03; the existing relation-count AST is
+also unavailable in these navigation contexts.
+
+Wire emission is structural. A module condition becomes `<menu relevant>` and
+HQ `module_filter`; a form condition becomes the menu's `<command relevant>` and
+HQ `form_filter`. Form self properties lower to `#case/<wire-property>` for HQ
+and to the selected `commcaresession/session/data/case_id` casedb anchor in the
+local suite, including `@` on reserved case attributes. The fixed HQ build is
+2.54 because menu-owned secondary `<instance>` children begin there. Module
+condition instances live on that menu. Form-command condition instances live on
+the matching entry, with both `casedb` and `commcaresession` declared when the
+selected-case anchor needs them. The suite oracle checks these exact scopes;
+ambient entry instance allowances are not reused for menu/command relevance.
+
+Core's absent-node behavior is preserved by raw comparisons, with no blanket
+presence guard: an empty node-set string-unpacks to `""`; therefore string
+equality to blank can be true and inequality to a nonempty string can be true.
+When numeric coercion is selected, the empty string becomes NaN: numeric
+equality/order is false and numeric inequality is true. Tests pin equality,
+inequality, and ordered emission without `count`, `boolean`, or string-length
+guards.
+
+Screen width stays closed. At Core
+`130df00962a289381a8e0936c3ea5d3f53d96f73`, metadata writes `window_width`
+only for a non-null supplied value. HQ Web Apps at
+`0fa01e0e8aea95ed9013d564145ad6cffeb91371` supplies
+`String(window.innerWidth)` on navigation, while Android at
+`3dd87e3838d57230b1452bdfd845a9151b8a6861` constructs the session wrapper
+without width. A workflow condition would therefore diverge by target; viewport
+policy remains responsive-rendering behavior, and `SESSION_CONTEXT_FIELDS`
+continues to exclude `window_width`.
+
+This is an additive document change with no data migration and no runtime flag:
+older docs omit both optional slots. Rolling compatibility depends only on the
+existing document/event preservation contract; no writer activates before S08/
+S10. Focused schema, simplifier, validator, reference-index/rewrite/retirement,
+session-instance, emitter, expander/compiler, exact-scope oracle, and suite-fuzz
+coverage form the S03 gate, followed by typecheck, scoped lint, independent
+review, CI, and the normal deploy follow-through.
 
 ### S04 — case operations: domain and wire
 

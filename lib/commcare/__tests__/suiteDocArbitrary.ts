@@ -28,6 +28,11 @@
  *     optional filter, and the `defaultSearch` shape (filter present, zero
  *     inputs) — exercises `<remote-request>` / `<query>` / `<prompt>` /
  *     instance accumulation / `<stack>` rewind.
+ *   - **Optional module/form display conditions** — module conditions use
+ *     session-user data; forms use selected-case properties only when the
+ *     module is case-first and otherwise use session-user data. This exercises
+ *     `<menu relevant>` / `<command relevant>` plus their distinct instance
+ *     scopes without generating a validator-invalid context.
  *   - **Parent→child module pairs** — a child module whose case type declares
  *     the parent module's type as `parent_type`, with a registration form
  *     creating the child case — exercises the cross-module case relationship
@@ -73,6 +78,7 @@ import {
 	input,
 	literal,
 	prop,
+	sessionUser,
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
@@ -419,6 +425,8 @@ interface ModuleGenSpec {
 		readonly hasIcon: boolean;
 		/** Whether the form's command tile carries an audio label. */
 		readonly hasAudioLabel: boolean;
+		/** Whether the form carries a navigation display condition. */
+		readonly hasDisplayCondition: boolean;
 	}>;
 	readonly columns: ColumnGenSpec[];
 	readonly sortCount: number;
@@ -438,6 +446,8 @@ interface ModuleGenSpec {
 	readonly hasIcon: boolean;
 	/** Whether the module's home tile carries an audio label. */
 	readonly hasAudioLabel: boolean;
+	/** Whether the module carries a navigation display condition. */
+	readonly hasDisplayCondition: boolean;
 }
 
 interface DocGenSpec {
@@ -463,6 +473,7 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 			fields: fc.array(fieldSpecArb(2), { minLength: 1, maxLength: 3 }),
 			hasIcon: fc.boolean(),
 			hasAudioLabel: fc.boolean(),
+			hasDisplayCondition: fc.boolean(),
 		}),
 		{ minLength: 1, maxLength: 2 },
 	),
@@ -485,6 +496,7 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 	isChild: fc.boolean(),
 	hasIcon: fc.boolean(),
 	hasAudioLabel: fc.boolean(),
+	hasDisplayCondition: fc.boolean(),
 });
 
 const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc.record({
@@ -608,10 +620,18 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			...(caseSearchConfig !== undefined ? { caseSearchConfig } : {}),
 			...(moduleIcon ? { icon: moduleIcon } : {}),
 			...(moduleAudio ? { audioLabel: moduleAudio } : {}),
+			...(modSpec.hasDisplayCondition
+				? {
+						displayCondition: eq(sessionUser("role"), literal("supervisor")),
+					}
+				: {}),
 		};
 
 		// Forms. Case-bearing forms inject `case_name` (+ a saved property, for
 		// realistic case data) so they satisfy NO_CASE_NAME_FIELD.
+		const caseFirst = modSpec.forms.every(
+			(form) => form.type === "followup" || form.type === "close",
+		);
 		modSpec.forms.forEach((formSpec, fIdx) => {
 			const formUuid = minter.uuid("frm");
 			formOrder[moduleUuid].push(formUuid);
@@ -631,6 +651,13 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				type: formSpec.type,
 				...(formIcon ? { icon: formIcon } : {}),
 				...(formAudio ? { audioLabel: formAudio } : {}),
+				...(formSpec.hasDisplayCondition
+					? {
+							displayCondition: caseFirst
+								? eq(prop(caseTypeName, "status_code"), literal("a"))
+								: eq(sessionUser("role"), literal("supervisor")),
+						}
+					: {}),
 			};
 
 			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };

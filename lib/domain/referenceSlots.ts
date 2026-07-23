@@ -362,6 +362,13 @@ export const FIELD_REFERENCE_SLOTS = [
 export const FORM_REFERENCE_SLOTS = [
 	{
 		entity: "form",
+		slot: "form_display_condition",
+		path: "displayCondition",
+		kind: "predicate-ast",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "close_condition_field",
 		path: "closeCondition.field",
 		// The checked field's stable uuid (a legacy doc may carry an
@@ -420,6 +427,12 @@ export const FORM_REFERENCE_SLOTS = [
 // ── Module slots ──────────────────────────────────────────────────
 
 export const MODULE_REFERENCE_SLOTS = [
+	{
+		entity: "module",
+		slot: "module_display_condition",
+		path: "displayCondition",
+		kind: "predicate-ast",
+	},
 	{
 		entity: "module",
 		slot: "case_type",

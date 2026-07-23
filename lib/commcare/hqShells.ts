@@ -236,7 +236,9 @@ export function applicationShell(
 		langs: ["en"],
 		build_spec: {
 			doc_type: "BuildSpec",
-			version: "2.53.0",
+			// Menu-level display conditions may reference secondary instances.
+			// CCHQ emits those declarations as <menu> children starting at 2.54.
+			version: "2.54.0",
 			build_number: null,
 		},
 		profile: { doc_type: "Profile", features: {}, properties: {} },

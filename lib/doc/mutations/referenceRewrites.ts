@@ -139,6 +139,46 @@ export interface FormSlotRewriteContext {
 	};
 }
 
+/** Defensive rename for module-scoped Search-input names stored in a form
+ * display condition. Such a reference is invalid at the navigation gate, but
+ * imported/legacy documents remain loadable for repair and must not retain a
+ * stale name when the declaration is renamed. */
+export function rewriteFormSearchInputRefs(
+	form: Form,
+	oldName: string,
+	newName: string,
+): number {
+	if (oldName === newName) return 0;
+	let rewritten = 0;
+	for (const slot of FORM_REFERENCE_SLOTS) {
+		switch (slot.slot) {
+			case "form_display_condition":
+				if (form.displayCondition !== undefined) {
+					rewritten += renameSearchInputInPredicate(
+						form.displayCondition,
+						oldName,
+						newName,
+					);
+				}
+				break;
+			case "form_link_condition":
+			case "form_link_datum_xpath":
+			case "assessment_user_score":
+			case "deliver_entity_id":
+			case "deliver_entity_name":
+			case "close_condition_field":
+			case "form_link_target":
+				// XPath/entity-reference families do not carry Predicate input terms.
+				break;
+			default: {
+				const _exhaustive: never = slot;
+				break;
+			}
+		}
+	}
+	return rewritten;
+}
+
 /**
  * Rewrite one form's form-level reference slots in place. Returns the
  * number of slot values changed.
@@ -156,6 +196,14 @@ export function rewriteFormReferenceSlots(
 	let changed = 0;
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "form_display_condition":
+				if (form.displayCondition !== undefined) {
+					changed += renameCasePropertyInPredicate(
+						form.displayCondition,
+						ctx.caseLeafRename.rename,
+					);
+				}
+				break;
 			case "form_link_condition":
 			case "form_link_datum_xpath":
 			case "assessment_user_score":
@@ -228,6 +276,13 @@ export function rewriteModuleCaseRefs(
 	const ownTypeMatches = mod.caseType === rename.caseType;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "module_display_condition": {
+				const condition = mod.displayCondition;
+				if (condition !== undefined) {
+					astRefsRewritten += renameCasePropertyInPredicate(condition, rename);
+				}
+				break;
+			}
 			case "case_type":
 				// Names a case TYPE — untouched by a property rename.
 				break;
@@ -345,6 +400,15 @@ export function rewriteModuleSearchInputRefs(
 			case "search_input_via":
 				// Case-type/property declarations and relation walks do not name a
 				// Search input.
+				break;
+			case "module_display_condition":
+				if (mod.displayCondition !== undefined) {
+					rewritten += renameSearchInputInPredicate(
+						mod.displayCondition,
+						oldName,
+						newName,
+					);
+				}
 				break;
 			case "case_list_column_expression":
 				for (const column of mod.caseListConfig?.columns ?? []) {

@@ -367,6 +367,11 @@ function extractFormEdges(
 ): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "form_display_condition":
+				if (form.displayCondition) {
+					predicateEdges(sink, slot.slot, form.displayCondition);
+				}
+				break;
 			case "form_link_condition":
 			case "form_link_datum_xpath":
 			case "assessment_user_score":
@@ -430,6 +435,11 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 	const search = mod.caseSearchConfig;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "module_display_condition":
+				if (mod.displayCondition) {
+					predicateEdges(sink, slot.slot, mod.displayCondition);
+				}
+				break;
 			case "case_type":
 				// The module's own type. Slot-tagged so consumers that treat
 				// ownership separately from reference (the retirement planner)

@@ -95,6 +95,7 @@ export interface FormSpec {
 	name: string;
 	type: Form["type"];
 	purpose?: string;
+	displayCondition?: Form["displayCondition"];
 	/** Authored with a field ID (the concise spec shape); `buildDoc`
 	 *  resolves it to the field's uuid against the assembled form. */
 	closeCondition?: {
@@ -122,6 +123,7 @@ export interface ModuleSpec {
 	caseType?: string;
 	caseListOnly?: boolean;
 	purpose?: string;
+	displayCondition?: Module["displayCondition"];
 	caseListConfig?: Module["caseListConfig"];
 	caseSearchConfig?: Module["caseSearchConfig"];
 	forms?: FormSpec[];
@@ -193,6 +195,9 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				caseListOnly: modSpec.caseListOnly,
 			}),
 			...(modSpec.purpose !== undefined && { purpose: modSpec.purpose }),
+			...(modSpec.displayCondition !== undefined && {
+				displayCondition: modSpec.displayCondition,
+			}),
 			...(modSpec.caseListConfig !== undefined && {
 				caseListConfig: modSpec.caseListConfig,
 			}),
@@ -212,6 +217,9 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				name: formSpec.name,
 				type: formSpec.type,
 				...(formSpec.purpose !== undefined && { purpose: formSpec.purpose }),
+				...(formSpec.displayCondition !== undefined && {
+					displayCondition: formSpec.displayCondition,
+				}),
 				...(formSpec.closeCondition !== undefined && {
 					closeCondition: formSpec.closeCondition as Form["closeCondition"],
 				}),

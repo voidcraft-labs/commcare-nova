@@ -42,6 +42,10 @@ import { buildMediaBundle } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoProfileProperty } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMenuNode } from "@/lib/commcare/multimedia/navMenuMedia";
 import {
+	collectPredicateInstances,
+	instanceSourceFor,
+} from "@/lib/commcare/predicate";
+import {
 	buildEntryElement,
 	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
@@ -49,6 +53,10 @@ import {
 import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
+import {
+	emitFormDisplayConditionForSuite,
+	emitModuleDisplayCondition,
+} from "@/lib/commcare/suite/displayConditions";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
@@ -63,6 +71,7 @@ import {
 	defaultPostSubmit,
 	effectiveCaseSearchConfig,
 } from "@/lib/domain";
+import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
  *  present the archive bundles the referenced files + media_suite.xml +
@@ -179,6 +188,18 @@ export function compileCcz(
 		const excludedOwnerIds = mod.caseSearchConfig?.excludedOwnerIds;
 		const searchButtonDisplayCondition =
 			caseSearchConfig?.searchButtonDisplayCondition;
+		const effectiveModuleDisplayCondition =
+			effectiveDisplayConditionForEmission(mod.displayCondition);
+		const moduleRelevant = emitModuleDisplayCondition(
+			effectiveModuleDisplayCondition,
+			mod.caseType,
+		);
+		const moduleConditionInstances =
+			effectiveModuleDisplayCondition === undefined
+				? []
+				: [...collectPredicateInstances(effectiveModuleDisplayCondition)].map(
+						(id) => el("instance", { id, src: instanceSourceFor(id) }),
+					);
 
 		appStrings[`modules.m${mIdx}`] = modName;
 
@@ -338,6 +359,10 @@ export function compileCcz(
 			const form = doc.forms[formUuid];
 			const formType = form.type;
 			const postSubmit = form.postSubmit ?? defaultPostSubmit(formType);
+			const formRelevant = emitFormDisplayConditionForSuite(
+				form.displayCondition,
+				mod.caseType,
+			);
 
 			const formName = hqForm.name.en;
 			const xmlns = hqForm.xmlns;
@@ -367,8 +392,8 @@ export function compileCcz(
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
 			// stack from the form's type, its post-submit destination, the
 			// module's case type, any form-level link overrides, the
-			// module's authored case-list filter, and the search-button
-			// display condition.
+			// module's authored case-list filter, the search-button display
+			// condition, and this form's navigation display condition.
 			//
 			// The expander already resolved form-link uuids into indexed
 			// HQ shape, so the compiler forwards `hqForm.form_links`
@@ -385,6 +410,9 @@ export function compileCcz(
 			//     to the `<action relevant>` attribute on the case-list
 			//     detail's search-action element, which evaluates in this
 			//     entry's context.
+			//   - `form.displayCondition` lowers to `<command relevant>` in
+			//     the module menu. Core resolves that command against this
+			//     matching entry, so its instances are declared here too.
 			//   - Calc-column expressions land on the module's
 			//     `m{N}_case_short` / `m{N}_case_long` detail blocks the
 			//     entry's `<datum detail-select / detail-confirm>`
@@ -414,6 +442,7 @@ export function compileCcz(
 				hqForm.actions,
 				excludedOwnerIds,
 				moduleTypeContext(mod, doc),
+				form.displayCondition,
 			);
 
 			// Re-validate after injection — catches orphaned binds or
@@ -473,7 +502,12 @@ export function compileCcz(
 			);
 			Object.assign(appStrings, formNav.strings);
 			suiteEntries.push(buildEntryElement(entryDef, formNav.node));
-			menuCommands.push(el("command", { id: cmdId }));
+			menuCommands.push(
+				el("command", {
+					id: cmdId,
+					...(formRelevant !== undefined && { relevant: formRelevant }),
+				}),
+			);
 		}
 
 		// Case-list-browse command for a `caseListOnly` module. CCHQ emits
@@ -553,7 +587,14 @@ export function compileCcz(
 		Object.assign(appStrings, moduleNav.strings);
 
 		suiteMenus.push(
-			el("menu", { id: `m${mIdx}` }, [moduleNav.node, ...menuCommands]),
+			el(
+				"menu",
+				{
+					id: `m${mIdx}`,
+					...(moduleRelevant !== undefined && { relevant: moduleRelevant }),
+				},
+				[moduleNav.node, ...moduleConditionInstances, ...menuCommands],
+			),
 		);
 	}
 

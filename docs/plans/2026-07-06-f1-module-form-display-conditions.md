@@ -2,6 +2,18 @@
 
 > **Evidence archive — execution superseded 2026-07-21.** This document preserves the 2026-07-06 platform research and rationale. Do not implement it directly. The living execution contract, approved scope, slice status, and current source pins are in `docs/plans/complex-app-roadmap.md`; where they disagree, the living roadmap wins.
 
+> **S03 correction (2026-07-22).** The living implementation deliberately does
+> not add this archive's proposed `case-count` arm and does not expose
+> `window_width`: Web Apps supplies width while Android does not, so it is not a
+> stable cross-target workflow value. Module conditions have no case context;
+> form conditions admit only a direct selected-case self property in case-first
+> modules. Search answers and relation presence/counts are unavailable. This
+> archive's shorthand that absent-node comparisons are simply false is also
+> superseded: Core string-unpacks an empty node-set to `""`, while numeric
+> coercion produces NaN. S03 preserves raw equality, inequality, and ordered
+> comparisons without a blanket presence guard. See the S03 contract in the
+> living roadmap for the authoritative matrix and source pins.
+
 *Planning pass, 2026-07-06. Seeded by `docs/research/feature-map.md` §F1; evidence anchors
 `docs/research/advanced-case-actions.md` (ACA) and `docs/research/commcare-locations.md` (LOC).
 Every platform fact below was re-verified against the local checkouts on 2026-07-06

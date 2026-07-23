@@ -34,6 +34,7 @@ import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfig
 import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
+import { moduleDisplayCondition } from "./displayConditions";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
@@ -197,6 +198,7 @@ export const MODULE_RULES = [
 	invalidCaseTypeFormat,
 	caseTypeTooLong,
 	missingCaseListColumns,
+	moduleDisplayCondition,
 	// Case-list-config rules (sit at module scope; the cross-form
 	// kind-vs-property-type rule lives at app scope in `app.ts`).
 	columnReferences,

@@ -116,6 +116,7 @@ import {
 	emitOnDeviceLiteralValue,
 	emitTerm,
 	type InstanceRoot,
+	type OnDeviceTermEmissionContext,
 } from "./termEmitter";
 
 /**
@@ -172,6 +173,7 @@ export function emitCaseListFilter(
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
 	context: RelationEvaluationScopeContext = {},
 	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
+	termContext: OnDeviceTermEmissionContext = {},
 ): string {
 	return emitPredicate(
 		normalizeRelationEvaluationScopes(predicate, context),
@@ -179,6 +181,7 @@ export function emitCaseListFilter(
 		root,
 		context,
 		anchor,
+		termContext,
 	);
 }
 
@@ -200,6 +203,7 @@ function emitPredicate(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	switch (p.kind) {
 		case "match-all":
@@ -222,7 +226,7 @@ function emitPredicate(
 			// shape. Operands are `ValueExpression`; the on-device
 			// expression emitter handles every arm of the union (term,
 			// arith, conditional, count, etc.).
-			return `${emitOnDeviceExpression(p.left, root, context, anchor)} ${COMPARISON_OPS[p.kind]} ${emitOnDeviceExpression(p.right, root, context, anchor)}`;
+			return `${emitOnDeviceExpression(p.left, root, context, anchor, termContext)} ${COMPARISON_OPS[p.kind]} ${emitOnDeviceExpression(p.right, root, context, anchor, termContext)}`;
 		case "and": {
 			// `and` recurses with `PREC_AND` as parent precedence so any
 			// `or` nested inside an `and` clause wraps itself in parens.
@@ -230,7 +234,9 @@ function emitPredicate(
 			// re-associate to `A or (B and C)` rather than `(A or B) and
 			// C` if grouping were dropped.
 			const inner = p.clauses
-				.map((c) => emitPredicate(c, PREC_AND, root, context, anchor))
+				.map((c) =>
+					emitPredicate(c, PREC_AND, root, context, anchor, termContext),
+				)
 				.join(" and ");
 			return parentPrec > PREC_AND ? `(${inner})` : inner;
 		}
@@ -240,7 +246,9 @@ function emitPredicate(
 			// beneath an `or` — XPath's precedence already resolves them
 			// correctly.
 			const inner = p.clauses
-				.map((c) => emitPredicate(c, PREC_OR, root, context, anchor))
+				.map((c) =>
+					emitPredicate(c, PREC_OR, root, context, anchor, termContext),
+				)
 				.join(" or ");
 			return parentPrec > PREC_OR ? `(${inner})` : inner;
 		}
@@ -249,15 +257,15 @@ function emitPredicate(
 			// the parens around the inner are the function-call argument
 			// list. Pass `parentPrec` of `0` so the inner never adds
 			// redundant grouping.
-			return `not(${emitPredicate(p.clause, 0, root, context, anchor)})`;
+			return `not(${emitPredicate(p.clause, 0, root, context, anchor, termContext)})`;
 		case "in":
-			return emitIn(p, root, context, anchor);
+			return emitIn(p, root, context, anchor, termContext);
 		case "between":
-			return emitBetween(p, root, context, anchor);
+			return emitBetween(p, root, context, anchor, termContext);
 		case "match":
-			return emitMatch(p, root, context, anchor);
+			return emitMatch(p, root, context, anchor, termContext);
 		case "multi-select-contains":
-			return emitMultiSelectContains(p, root);
+			return emitMultiSelectContains(p, root, termContext);
 		case "exists":
 			return emitExistsOrMissing(
 				p.via,
@@ -266,6 +274,7 @@ function emitPredicate(
 				root,
 				context,
 				anchor,
+				termContext,
 			);
 		case "missing":
 			return emitExistsOrMissing(
@@ -275,9 +284,10 @@ function emitPredicate(
 				root,
 				context,
 				anchor,
+				termContext,
 			);
 		case "when-input-present":
-			return emitWhenInputPresent(p, root, context, anchor);
+			return emitWhenInputPresent(p, root, context, anchor, termContext);
 		case "is-blank":
 		case "is-null":
 			// Both the absent-or-empty operator and the strict-absent
@@ -285,9 +295,9 @@ function emitPredicate(
 			// absent / cleared / empty alike, and the equality form is
 			// the closest available CCHQ shape for both. The AST
 			// distinction is preserved at the Postgres runtime.
-			return `${emitOnDeviceExpression(p.left, root, context, anchor)} = ''`;
+			return `${emitOnDeviceExpression(p.left, root, context, anchor, termContext)} = ''`;
 		case "within-distance":
-			return emitOnDeviceWithinDistance(p, root, context, anchor);
+			return emitOnDeviceWithinDistance(p, root, context, anchor, termContext);
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
@@ -310,12 +320,19 @@ function emitOnDeviceWithinDistance(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	// Stored case data follows CommCare's exact space-separated form. Only the
 	// author/search-input center gets Nova's comma + whitespace convenience;
 	// normalizing stored data here would diverge from HQ's case-search indexer.
-	const property = emitTerm(p.property, root);
-	const rawCenter = emitOnDeviceExpression(p.center, root, context, anchor);
+	const property = emitTerm(p.property, root, termContext);
+	const rawCenter = emitOnDeviceExpression(
+		p.center,
+		root,
+		context,
+		anchor,
+		termContext,
+	);
 	const center = normalizeOnDeviceGeopoint(rawCenter);
 	const validShapes = `regex(${property}, '${GEOPOINT_PROPERTY_PATTERN}') and ${validOnDeviceGeopointCenter(rawCenter, center)}`;
 	const validRanges = [
@@ -359,8 +376,15 @@ function emitIn(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
-	const left = emitOnDeviceExpression(p.left, root, context, anchor);
+	const left = emitOnDeviceExpression(
+		p.left,
+		root,
+		context,
+		anchor,
+		termContext,
+	);
 	if (p.values.length === 1) {
 		return `${left} = ${emitOnDeviceLiteralValue(p.values[0].value)}`;
 	}
@@ -387,17 +411,24 @@ function emitBetween(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
-	const left = emitOnDeviceExpression(p.left, root, context, anchor);
+	const left = emitOnDeviceExpression(
+		p.left,
+		root,
+		context,
+		anchor,
+		termContext,
+	);
 	const lowerOp = p.lowerInclusive ? ">=" : ">";
 	const upperOp = p.upperInclusive ? "<=" : "<";
 	const lowerClause =
 		p.lower !== undefined
-			? `${left} ${lowerOp} ${emitOnDeviceExpression(p.lower, root, context, anchor)}`
+			? `${left} ${lowerOp} ${emitOnDeviceExpression(p.lower, root, context, anchor, termContext)}`
 			: undefined;
 	const upperClause =
 		p.upper !== undefined
-			? `${left} ${upperOp} ${emitOnDeviceExpression(p.upper, root, context, anchor)}`
+			? `${left} ${upperOp} ${emitOnDeviceExpression(p.upper, root, context, anchor, termContext)}`
 			: undefined;
 	if (lowerClause !== undefined && upperClause !== undefined) {
 		return `(${lowerClause} and ${upperClause})`;
@@ -441,9 +472,10 @@ function emitMatch(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	const wireFunction = matchModeToWireFunction(p.mode);
-	return `${wireFunction}(${emitTerm(p.property, root)}, ${emitOnDeviceExpression(p.value, root, context, anchor)})`;
+	return `${wireFunction}(${emitTerm(p.property, root, termContext)}, ${emitOnDeviceExpression(p.value, root, context, anchor, termContext)})`;
 }
 
 /**
@@ -482,8 +514,9 @@ function matchModeToWireFunction(
 function emitMultiSelectContains(
 	p: Extract<Predicate, { kind: "multi-select-contains" }>,
 	root: InstanceRoot,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
-	const left = emitTerm(p.property, root);
+	const left = emitTerm(p.property, root, termContext);
 	const calls = p.values.map(
 		(v) => `selected(${left}, ${emitOnDeviceLiteralValue(v.value)})`,
 	);
@@ -555,6 +588,7 @@ function emitExistsOrMissing(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	const relation = canonicalizeRelationPath(via, context);
 	const childContext =
@@ -570,6 +604,7 @@ function emitExistsOrMissing(
 				root,
 				childContext,
 				childAnchor,
+				termContext,
 			);
 		case "ancestor":
 		case "subcase":
@@ -577,7 +612,14 @@ function emitExistsOrMissing(
 			const whereText =
 				where === undefined
 					? undefined
-					: emitPredicate(where, 0, root, childContext, childAnchor);
+					: emitPredicate(
+							where,
+							0,
+							root,
+							childContext,
+							childAnchor,
+							termContext,
+						);
 			const presence = emitImmediateRelationPresence(
 				relation.via,
 				whereText,
@@ -605,11 +647,12 @@ function emitSelfRelationalCollapse(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
 	if (where === undefined) {
 		return kind === "exists" ? "true()" : "false()";
 	}
-	const inner = emitPredicate(where, 0, root, context, anchor);
+	const inner = emitPredicate(where, 0, root, context, anchor, termContext);
 	return kind === "exists" ? inner : `not(${inner})`;
 }
 
@@ -634,8 +677,9 @@ function emitWhenInputPresent(
 	root: InstanceRoot,
 	context: RelationEvaluationScopeContext,
 	anchor: OnDeviceCaseAnchor,
+	termContext: OnDeviceTermEmissionContext,
 ): string {
-	const inputPath = emitTerm(p.input, root);
-	const inner = emitPredicate(p.clause, 0, root, context, anchor);
+	const inputPath = emitTerm(p.input, root, termContext);
+	const inner = emitPredicate(p.clause, 0, root, context, anchor, termContext);
 	return `if(count(${inputPath}), ${inner}, true())`;
 }

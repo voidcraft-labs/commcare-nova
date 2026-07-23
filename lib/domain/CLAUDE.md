@@ -30,6 +30,15 @@ Each field kind is one file under `fields/`, and the union (`fieldSchema`) discr
 
 **Four form types** (`forms.ts`): `registration` creates a case, `followup` updates one, `close` loads + closes (a superset of followup), `survey` touches no case. Use the centralized sets — `CASE_FORM_TYPES`, `CASE_LOADING_FORM_TYPES` (`{followup, close}`) — never ad-hoc string comparisons. `isCaseFirstModule` mirrors `commcare-core`'s `getDataNeededByAllEntries` exactly (a module lands on its case list only when every form is case-loading); `defaultPostSubmit` is the form-type-aware navigation default.
 
+Modules and forms each carry an optional typed `displayCondition: Predicate`.
+The schema records the expression; the CommCare validator owns the narrower
+runtime-context contract. A module is evaluated before case selection and may
+not read case rows or Search answers. A form may read a direct self property of
+the module's case type only when `isCaseFirstModule` proves a selected case;
+forms-first modules may not. Related reads, relation presence/counts, and Search
+answers are invalid on both carriers. S03 provides domain/reference/wire support
+only; preview execution and authoring surfaces activate in their owning slices.
+
 A `Module` (`modules.ts`) carries an optional `caseType`, the `caseListConfig` (a `Column[]` of seven kinds + an optional `filter` predicate + `searchInputs`), and the `caseSearchConfig` (search-screen display + niche filters). These structured configs are the single source of truth every case-list surface reads — validator, wire emitters, SA tools, and the case-list workspace UI. Their AST-typed slots (the filter, calculated-column expressions, search-input predicates/defaults) come from `lib/domain/predicate`. Three slots resolve GLOBALLY — once, before any case is selected — so property and relationship reads are invalid in them: `caseSearchConfig.excludedOwnerIds`, `caseSearchConfig.searchButtonDisplayCondition`, and each `searchInputs[].default`. Literals, session/current-user values, and pure calculations over them are valid (Search answers additionally so for `excludedOwnerIds` only). The shared semantic guards are `expressionReadsCaseData` / `predicateReadsCaseData` in `predicate/walk.ts`, consumed by the validator rules, the SA/MCP boundary schemas, and the builder's global-scope pickers; the schemas remain tolerant so an imported invalid rule can load for repair. Only `searchActionEnabled:false` is owner-only provenance: an origin-compatible `{ excludedOwnerIds, searchButtonDisplayCondition: match-none }` projection is behavior-inert with zero inputs but remains valid authored data, is never normalized into the private bit, and must be preserved when inputs or replay make Search explicit. Sort lives per-column (direction + priority); the comparator TYPE is derived at wire emission from the property's `data_type`, never authored.
 
 ## Expressions, Connect, media live where their boundary is

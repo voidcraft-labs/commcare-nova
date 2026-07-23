@@ -43,6 +43,8 @@ function twoModuleDoc(overrides?: {
 	patientExtraFields?: ReturnType<typeof f>[];
 	patientFilter?: boolean;
 	patientAssignedCasesReference?: boolean;
+	patientModuleDisplayReference?: boolean;
+	patientFormDisplayReference?: boolean;
 }): BlueprintDoc {
 	return buildDoc({
 		appName: "Clinic",
@@ -65,6 +67,9 @@ function twoModuleDoc(overrides?: {
 						filter: eq(prop("visit", "case_name"), literal("x")),
 					}),
 				},
+				...(overrides?.patientModuleDisplayReference && {
+					displayCondition: eq(prop("visit", "case_name"), literal("open")),
+				}),
 				...(overrides?.patientAssignedCasesReference && {
 					caseSearchConfig: {
 						excludedOwnerIds: {
@@ -77,6 +82,9 @@ function twoModuleDoc(overrides?: {
 					{
 						name: "Register patient",
 						type: "registration",
+						...(overrides?.patientFormDisplayReference && {
+							displayCondition: eq(prop("visit", "case_name"), literal("open")),
+						}),
 						fields: [
 							f({
 								kind: "text",
@@ -121,6 +129,25 @@ function moduleUuidByName(doc: BlueprintDoc, name: string): Uuid {
 }
 
 describe("planCaseTypeRetirementOnRemove", () => {
+	it("blocks on module and form display-condition case-type references", () => {
+		const doc = twoModuleDoc({
+			patientModuleDisplayReference: true,
+			patientFormDisplayReference: true,
+		});
+		const plan = planCaseTypeRetirementOnRemove(
+			doc,
+			moduleUuidByName(doc, "Visits"),
+		);
+		expect(plan.kind).toBe("blocked");
+		if (plan.kind !== "blocked") return;
+		expect(plan.references).toContain(
+			'the display condition on module "Patients" reads a "visit" property',
+		);
+		expect(plan.references).toContain(
+			'form "Register patient" (module "Patients") reads a "visit" property in its "form_display_condition" condition',
+		);
+	});
+
 	it("retires the record when the removed module is its last owner and nothing references it", () => {
 		const doc = twoModuleDoc();
 		const plan = planCaseTypeRetirementOnRemove(

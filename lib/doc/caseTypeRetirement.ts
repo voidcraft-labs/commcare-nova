@@ -107,6 +107,8 @@ const SLOT_LABEL: Readonly<Record<string, string>> = {
 	hint: "hint",
 	help: "help text",
 	option_label: "option label",
+	form_display_condition: "display condition",
+	module_display_condition: "display condition",
 	form_link_condition: "follow-on link condition",
 	form_link_datum_xpath: "follow-on link value",
 	assessment_user_score: "Connect score",
@@ -531,6 +533,18 @@ function collectFormSlotReferences(
 	out: RetirementReference[],
 ): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
+		if (slot.slot === "form_display_condition") {
+			if (
+				form.displayCondition &&
+				predicateRefsCaseType(form.displayCondition, caseType)
+			) {
+				out.push({
+					verbose: `${where} reads a "${caseType}" property in its "${slot.slot}" condition`,
+					concise: `${where} uses it in its ${slotLabel(slot.slot)}`,
+				});
+			}
+			continue;
+		}
 		if (slot.kind !== "xpath-ast") continue;
 		for (const entry of readSlotValues(form, slot.path)) {
 			if (!isXPathExpression(entry.value)) continue;
@@ -543,12 +557,11 @@ function collectFormSlotReferences(
 						part.namespace !== "user" &&
 						part.namespace !== "case"),
 			);
-			if (names) {
-				out.push({
-					verbose: `${where} references #${caseType}/… in its "${slot.slot}" expression`,
-					concise: `${where} uses it in its ${slotLabel(slot.slot)}`,
-				});
-			}
+			if (!names) continue;
+			out.push({
+				verbose: `${where} references #${caseType}/… in its "${slot.slot}" expression`,
+				concise: `${where} uses it in its ${slotLabel(slot.slot)}`,
+			});
 		}
 	}
 }
@@ -584,6 +597,18 @@ function collectModuleConfigReferences(
 
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "module_display_condition": {
+				if (
+					mod.displayCondition &&
+					predicateRefsCaseType(mod.displayCondition, caseType)
+				) {
+					out.push({
+						verbose: `the display condition on ${where} reads a "${caseType}" property`,
+						concise: `the display condition on ${where} uses "${caseType}" information`,
+					});
+				}
+				break;
+			}
 			case "case_type":
 				// Ownership, not a reference — `planRetirement`'s other-owner
 				// check already returned `none` when another module manages

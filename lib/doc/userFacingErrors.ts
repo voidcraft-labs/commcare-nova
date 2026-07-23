@@ -140,6 +140,22 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(modName(e))}'s case type name is too long. Try a shorter one.`,
 	MISSING_CASE_LIST_COLUMNS: (e) =>
 		`${q(modName(e))} needs at least one result field so people can tell cases apart. Add a name or another identifying field; if you're replacing the last one, add its replacement first.`,
+	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
+		`${q(modName(e))} is shown before a case is chosen, so its display condition can't use case information. Use current-user information or a fixed value.`,
+	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
+		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,
+	FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
+		`The display condition for ${q(formName(e))} uses case information that isn't available there. Use information from the selected case only when this module chooses a case first, or use current-user information.`,
+	FORM_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
+		`The display condition for ${q(formName(e))} compares values that don't go together. Open it and adjust the comparison.`,
+	DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE: () =>
+		"A display condition reads a search answer before anyone has searched. Remove that reference and use current-user information or a fixed value.",
+	DISPLAY_CONDITION_NOT_ON_DEVICE: () =>
+		"This display condition uses an option that can't run in the app. Open it and choose a simpler comparison or calculation.",
+	DISPLAY_CONDITION_ALWAYS_FALSE: (e) => {
+		const subject = e.scope === "module" ? q(modName(e)) : q(formName(e));
+		return `The display condition for ${subject} can never be true, so no one could open it. Change or remove the condition.`;
+	},
 
 	// ── Case-list config ─────────────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: (e) =>

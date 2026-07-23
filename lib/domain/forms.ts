@@ -1,6 +1,7 @@
 // lib/domain/forms.ts
 import { z } from "zod";
 import { assetIdSchema } from "./multimedia";
+import { predicateSchema } from "./predicate/types";
 import { type Uuid, uuidSchema } from "./uuid";
 import { xpathExpressionSchema } from "./xpath";
 
@@ -224,6 +225,12 @@ export const formSchema = z
 		order: z.string().optional(),
 		type: z.enum(FORM_TYPES),
 		purpose: z.string().optional(),
+		/**
+		 * Optional running-app menu visibility rule. The Predicate AST keeps
+		 * references typed and rename-safe; validator context rules decide which
+		 * terms are meaningful for this form's navigation position.
+		 */
+		displayCondition: predicateSchema.optional(),
 		closeCondition: closeConditionSchema.optional(),
 		connect: connectConfigSchema.nullable().optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),

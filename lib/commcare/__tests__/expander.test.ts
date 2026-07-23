@@ -23,12 +23,69 @@ import {
 	dateLiteral,
 	eq,
 	literal,
+	matchAll,
 	prop,
 	relationStep,
+	sessionUser,
 	term,
 	today,
 	toValueExpression,
 } from "@/lib/domain/predicate";
+
+describe("display-condition HQ projection", () => {
+	it("projects typed module/form conditions and selects the menu-instance build", () => {
+		const displayDoc = buildDoc({
+			appName: "Conditional navigation",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					displayCondition: eq(sessionUser("role"), literal("supervisor")),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							displayCondition: eq(prop("patient", "status"), literal("open")),
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "status", label: "Status" }],
+				},
+			],
+		});
+		const hq = expandDoc(displayDoc);
+		expect(hq.build_spec.version).toBe("2.54.0");
+		expect(hq.modules[0].module_filter).toBe(
+			"instance('commcaresession')/session/user/data/role = 'supervisor'",
+		);
+		expect(hq.modules[0].forms[0].form_filter).toBe("#case/@status = 'open'");
+	});
+
+	it("folds always-true conditions to null in HQ shells", () => {
+		const displayDoc = buildDoc({
+			modules: [
+				{
+					name: "Surveys",
+					displayCondition: matchAll(),
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							displayCondition: matchAll(),
+						},
+					],
+				},
+			],
+		});
+		const hq = expandDoc(displayDoc);
+		expect(hq.modules[0].module_filter).toBeNull();
+		expect(hq.modules[0].forms[0].form_filter).toBeNull();
+	});
+});
 
 // Shared fixtures used across the main expander cases below. Each test
 // outside this block constructs its own fixture inline to keep the

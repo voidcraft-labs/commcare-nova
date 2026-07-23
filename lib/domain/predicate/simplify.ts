@@ -165,6 +165,21 @@ export function effectiveFilterForEmission(
 }
 
 /**
+ * The display-condition counterpart to `effectiveFilterForEmission`.
+ * An absent condition and a deeply simplified always-true condition both mean
+ * "show unconditionally" and therefore emit no `relevant`/filter wire slot.
+ * `match-none` remains observable so validation can reject the unreachable
+ * navigation item before emission.
+ */
+export function effectiveDisplayConditionForEmission(
+	condition: Predicate | undefined,
+): Predicate | undefined {
+	if (condition === undefined) return undefined;
+	const simplified = simplifyForEmission(condition);
+	return isMatchAll(simplified) ? undefined : simplified;
+}
+
+/**
  * Simplify an `and` clause set: recurse into each clause, drop
  * `match-all` identities, short-circuit to `match-none` on the first
  * absorbing clause, and flatten nested `and`s. An empty survivor set

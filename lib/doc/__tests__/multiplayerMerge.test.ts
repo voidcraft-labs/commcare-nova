@@ -2176,6 +2176,46 @@ describe("case-search marker merges", () => {
 });
 
 describe("Search-input rename merges", () => {
+	it("defensively rewrites an invalid imported form display-condition ref", () => {
+		const inputUuid = asUuid("00000000-0000-4000-8000-000000000066");
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [
+			simpleSearchInputDef(inputUuid, "old_name", "Name", "text", "case_name"),
+		];
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					caseListConfig: config,
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							displayCondition: eq(input("old_name"), literal("Ada")),
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const current = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
+		if (current === undefined) throw new Error("missing target input");
+		const renamed = apply(doc, [
+			searchInputUpdateMutation(moduleUuid, current, {
+				...current,
+				name: "new_name",
+			}),
+		]);
+		const formUuid = renamed.formOrder[moduleUuid][0];
+		const condition = renamed.forms[formUuid]?.displayCondition;
+		expect(
+			condition && predicateReferencesSearchInput(condition, "new_name"),
+		).toBe(true);
+		expect(
+			condition && predicateReferencesSearchInput(condition, "old_name"),
+		).toBe(false);
+	});
+
 	function renameDoc(): {
 		doc: BlueprintDoc;
 		moduleUuid: Uuid;

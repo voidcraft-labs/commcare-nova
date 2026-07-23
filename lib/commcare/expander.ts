@@ -37,6 +37,10 @@ import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
+import {
+	emitFormDisplayConditionForHq,
+	emitModuleDisplayCondition,
+} from "@/lib/commcare/suite/displayConditions";
 import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
@@ -259,6 +263,9 @@ export function expandDoc(
 				toHqWorkflow(form.postSubmit ?? defaultPostSubmit(form.type)),
 				hqFormLinks,
 			);
+			formShellObj.form_filter =
+				emitFormDisplayConditionForHq(form.displayCondition, mod.caseType) ??
+				null;
 
 			// Stamp the form's menu-command media (icon + audio label) onto
 			// the shell. CCHQ reads these `media_image` / `media_audio` dicts
@@ -296,6 +303,8 @@ export function expandDoc(
 			forms,
 			caseDetails,
 		);
+		shell.module_filter =
+			emitModuleDisplayCondition(mod.displayCondition, mod.caseType) ?? null;
 
 		// Stamp the module's home-tile media (icon + audio label) and the
 		// case-list link's media onto the shell + its `case_list` block.

@@ -23,12 +23,13 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
  * for each shape, and a final test hard-asserts minimum thresholds after the
  * fuzz run — a printed-only statistic would let a coverage hole pass silently.
  *
- * One check this fuzz run does NOT exercise: the missing-instance / per-entry
- * instance-intersection logic (`SUITE_MISSING_INSTANCE`). Nova's emitted
- * instance vocabulary is closed to the runtime-resolved set, so every declared
- * instance is also a runtime id and the check can't fire on real output — it's
- * a forward-looking regression guard, covered by the hand-built cases in
- * `suiteOracle.test.ts`, not by this generator.
+ * The generator now includes module/form display conditions, so this run proves
+ * the POSITIVE exact-scope instance contract: menu relevance gets menu-owned
+ * declarations and command relevance gets matching-entry declarations. The
+ * negative missing-instance and per-entry intersection cases still require
+ * hand-built suites in `suiteOracle.test.ts`; constructive output cannot omit a
+ * declaration unless the emitter regresses, which is exactly what the property
+ * would then catch.
  */
 
 import AdmZip from "adm-zip";

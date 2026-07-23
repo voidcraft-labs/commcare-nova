@@ -93,6 +93,16 @@ export { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
  */
 export type InstanceRoot = "casedb" | "results";
 
+/**
+ * Optional leaf override for an on-device evaluation surface whose current
+ * case is not the surrounding nodeset row. Form-command relevancy is the one
+ * current caller: its direct self properties must anchor through the selected
+ * session `case_id`. Related reads never use this hook.
+ */
+export interface OnDeviceTermEmissionContext {
+	readonly emitSelfProperty?: (property: PropertyRef) => string;
+}
+
 /** Default instance root — every on-device emission outside a
  *  search-target detail block consumes the casedb roster. */
 export const DEFAULT_INSTANCE_ROOT: InstanceRoot = "casedb";
@@ -233,9 +243,16 @@ export function buildSubcaseJoinNodeset(
 export function emitTerm(
 	term: Term,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+	context: OnDeviceTermEmissionContext = {},
 ): string {
 	switch (term.kind) {
 		case "prop":
+			if (
+				context.emitSelfProperty !== undefined &&
+				(term.via === undefined || term.via.kind === "self")
+			) {
+				return context.emitSelfProperty(term);
+			}
 			return emitOnDevicePropertyRef(term, root);
 		case "input":
 			return `instance('search-input:results')/input/field[@name='${term.name}']`;
