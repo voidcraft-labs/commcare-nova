@@ -64,6 +64,7 @@ describe("durable deployment policy", () => {
 		expect(provisioning).toContain('MIGRATION_ACCOUNT="nova-migrate@');
 		expect(provisioning).not.toContain("nova-rollout");
 		expect(provisioning).toContain("roles/iam.serviceAccountTokenCreator");
+		expect(provisioning).toContain("roles/developerconnect.readTokenAccessor");
 		expect(provisioning).toContain('bind_act_as "$MIGRATION_ACCOUNT"');
 		expect(provisioning).toContain('bind_act_as "$RUNTIME_ACCOUNT"');
 		expect(provisioning).not.toContain('bind_act_as "$BUILD_ACCOUNT"');

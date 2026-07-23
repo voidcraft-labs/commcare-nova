@@ -94,6 +94,7 @@ ensure_service_account "$BUILD_ACCOUNT" "nova-build" "Nova Cloud Build deployer"
 ensure_service_account "$MIGRATION_ACCOUNT" "nova-migrate" "Nova database migrator"
 
 for role in \
+	roles/developerconnect.readTokenAccessor \
 	roles/logging.logWriter \
 	roles/run.admin \
 	roles/serviceusage.serviceUsageConsumer; do
