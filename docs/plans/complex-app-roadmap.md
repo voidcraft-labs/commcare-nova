@@ -1,11 +1,10 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-23 against deployed
-> Nova `85b2fe3b` (PR #303). S01 through S04 are shipped, including all of S02.
-> S05's domain/wire decisions are pinned below and S05a, its dormant
-> compatibility unit, is implementation-complete and under final review in
-> draft PR #311; S05c's production cutover remains decision-blocked. S22
-> remains closed on `agent/s22-form-links` pending the
+> Nova `06a6ee4f` (PR #311). S01 through S05a are shipped, including all of
+> S02. S05's domain/wire decisions are pinned below and S05b's local-wire
+> readiness audit is next; S05c remains decision-blocked. S22 remains closed on
+> `agent/s22-form-links` pending the
 > explicit cutover choice recorded in its slice. This file owns execution order,
 > product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -337,11 +336,10 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S02 through S04 are shipped. S05's exported-value, select-fallback,
+S02 through S05a are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
-pinned. S05a's dormant carrier-compatibility implementation is under final
-review in draft PR #311. S05b remains blocked until S05a ships; S05c remains
-blocked on S05b and a fresh owner decision before
+pinned. S05b's local-wire readiness audit is next; S05c remains blocked on S05b
+and a fresh owner decision before
 any production cutover or nonzero compatibility floor. S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 readiness
 is complete but implementation remains blocked on its owner cutover decision.
@@ -356,8 +354,8 @@ Compiler verification stays serialized across wire slices.
 | S02 | External validation context and exact references | S01 | shipped | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
-| S05a | Dormant lookup carriers and compatibility | S02/S04 | in review (PR #311) | PR-01/03, F5 |
-| S05b | Lookup expression, itemset, and local-fixture wire | S05a | blocked | PR-01/03, F5 |
+| S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
+| S05b | Lookup expression, itemset, and local-fixture wire | S05a | readiness audit | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b + owner cutover decision | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
@@ -1705,9 +1703,8 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a in final review (draft PR #311; implementation checkpoint
-`a94e1fda`); S05b blocked on S05a; S05c blocked on S05b and a fresh owner
-decision.
+**Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b readiness audit is
+next; S05c is blocked on S05b and a fresh owner decision.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 rolling-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. It does not
@@ -1860,7 +1857,7 @@ compiled-artifact budget.
 
 Implementation remains split into independently reviewed units:
 
-1. **S05a — dormant carriers and compatibility (in final review):** add every carrier and
+1. **S05a — dormant carriers and compatibility (shipped):** add every carrier and
    AST schema/identity, top-level mutation extension,
    hydration/persistence/replay/diff behavior, exhaustive walks/rewrites and
    reference extraction, validation/type checking, explicit downstream
@@ -1870,7 +1867,7 @@ Implementation remains split into independently reviewed units:
    one support checkpoint, with every authoritative writer still using its
    shared declaration helper. Every database floor and feature flag remains
    zero/off.
-2. **S05b — local wire (blocked on S05a):** add lowering/emission for the
+2. **S05b — local wire (readiness audit):** add lowering/emission for the
    already-preservable table expressions, predicates, and itemsets; instance
    accumulation; the one-snapshot multi-table reader; deterministic fixture
    serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
@@ -1883,7 +1880,7 @@ Implementation remains split into independently reviewed units:
 #### S05a execution checkpoint — 2026-07-23
 
 Commits `fe0a7027` through `a94e1fda` on `agent/s05a-lookup-carriers`
-form the implementation-complete S05a review candidate. They own:
+form the reviewed S05a implementation merged as squash `06a6ee4f`. They own:
 
 - the three dormant domain carriers and their stable table/column identities;
 - required inline select fallbacks plus the rolling-compatible top-level
@@ -1953,8 +1950,9 @@ were reproduced, fixed in `9517a221`, and their four-file / 87-test regression
 matrix now passes. The consolidated contract audit then found one terminal
 predicate-instance boundary gap and two minor diagnostic/rendering robustness
 issues; `a94e1fda` closes all three, its 6-file / 109-test matrix and 3-file /
-34-test async-leak matrix pass, and independent follow-up review is clean. Fresh
-PR CI is the final merge gate.
+34-test async-leak matrix pass, and independent follow-up review is clean. Final
+PR CI passed, including the full suite, production build, Playwright smoke, and
+the 34-minute changed-test async-leak gate.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
@@ -2249,6 +2247,16 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S05a shipped / S05b readiness audit owned:** PR #311 passed
+  consolidated contract review and every final CI gate, then shipped at squash
+  `06a6ee4f` through successful Cloud Build
+  `31b7c051-a060-454e-a1f5-61beab10bf68`, migration execution
+  `commcare-nova-migrate-pvffs`, and healthy 100%-traffic revision
+  `commcare-nova-00361-wrv`. Main, docs, and MCP metadata probes returned HTTP
+  200 and the new revision had no error logs. S05b's local-wire readiness audit
+  now owns `agent/s05b-lookup-wire`; S05a's carrier commit gates, runtime
+  execution, authoring surfaces, HQ JSON/upload, database floors, and feature
+  flags remain closed or zero/off exactly as designed.
 - **2026-07-23 — S05a implementation complete / final review:** Draft PR #311
   now includes the rows-free lookup type and scope policies, validation-only
   dependency-cycle integration, explicit lookup-context case-workspace
