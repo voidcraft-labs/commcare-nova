@@ -59,5 +59,7 @@ describe("durable deployment policy", () => {
 		expect(provisioning).toContain('BUILD_ACCOUNT="nova-build@');
 		expect(provisioning).toContain('MIGRATION_ACCOUNT="nova-migrate@');
 		expect(provisioning).not.toContain("nova-rollout");
+		expect(provisioning).toContain("roles/iam.serviceAccountTokenCreator");
+		expect(provisioning).toContain('bind_act_as "$BUILD_ACCOUNT"');
 	});
 });

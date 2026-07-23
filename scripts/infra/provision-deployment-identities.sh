@@ -6,6 +6,7 @@
 set -euo pipefail
 
 PROJECT="commcare-nova"
+PROJECT_NUMBER="51003905459"
 REGION="us-central1"
 TRIGGER_ID="8d269c82-7de7-4b9f-a435-30b173f597b2"
 INSTANCE="nova-cases"
@@ -14,6 +15,7 @@ REPOSITORY="cloud-run-source-deploy"
 BUILD_ACCOUNT="nova-build@${PROJECT}.iam.gserviceaccount.com"
 MIGRATION_ACCOUNT="nova-migrate@${PROJECT}.iam.gserviceaccount.com"
 RUNTIME_ACCOUNT="commcare-nova@${PROJECT}.iam.gserviceaccount.com"
+BUILD_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com"
 MIGRATION_DB_USER="nova-migrate@${PROJECT}.iam"
 
 APPLY=false
@@ -114,6 +116,13 @@ done
 
 bind_act_as "$MIGRATION_ACCOUNT"
 bind_act_as "$RUNTIME_ACCOUNT"
+bind_act_as "$BUILD_ACCOUNT"
+run gcloud iam service-accounts add-iam-policy-binding "$BUILD_ACCOUNT" \
+	--project="$PROJECT" \
+	--member="serviceAccount:${BUILD_SERVICE_AGENT}" \
+	--role=roles/iam.serviceAccountTokenCreator \
+	--condition=None \
+	--quiet
 
 bind_project_role "$MIGRATION_ACCOUNT" roles/cloudsql.client
 bind_project_role "$MIGRATION_ACCOUNT" roles/cloudsql.instanceUser
