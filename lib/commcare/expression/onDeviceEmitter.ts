@@ -200,9 +200,15 @@ export function emitOnDeviceExpression(
 					relation.via === value.via ? value : { ...value, via: relation.via },
 					root,
 					termContext,
+					anchor.kind === "root" ? "root" : "related",
 				);
 			}
-			return emitTerm(value, root, termContext);
+			return emitTerm(
+				value,
+				root,
+				termContext,
+				anchor.kind === "root" ? "root" : "related",
+			);
 		}
 		case "today":
 			// CCHQ value function registered on
@@ -214,6 +220,19 @@ export function emitOnDeviceExpression(
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
 			// (the `now` entry); also a JavaRosa zero-arg dispatch.
 			return "now()";
+		case "id-of": {
+			const xpath = termContext.operationIds?.get(expr.opUuid);
+			if (xpath === undefined) {
+				throw new Error(
+					`emitOnDeviceExpression: operation '${expr.opUuid}' has no case-id XPath binding in this expression context.`,
+				);
+			}
+			return xpath;
+		}
+		case "acting-user":
+			return "/data/meta/userID";
+		case "unowned":
+			return "'-'";
 		case "date-coerce":
 		case "datetime-coerce":
 			// Both coercions → wire `date(<value>)`. This dialect's
@@ -479,9 +498,13 @@ function emitCount(
 							termContext,
 						),
 				root,
+				anchor.kind === "root" ? termContext.rootCaseId : undefined,
 			)}, 1, 0)`;
 		case "subcase": {
-			const anchorCaseId = onDeviceAnchorCaseId(anchor, root);
+			const anchorCaseId =
+				anchor.kind === "root" && termContext.rootCaseId !== undefined
+					? termContext.rootCaseId
+					: onDeviceAnchorCaseId(anchor, root);
 			if (anchorCaseId === undefined) {
 				throw new Error(
 					"emitOnDeviceExpression: a child-case count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",
@@ -533,8 +556,12 @@ function emitCount(
 							termContext,
 						),
 				root,
+				anchor.kind === "root" ? termContext.rootCaseId : undefined,
 			)}, 1, 0)`;
-			const anchorCaseId = onDeviceAnchorCaseId(anchor, root);
+			const anchorCaseId =
+				anchor.kind === "root" && termContext.rootCaseId !== undefined
+					? termContext.rootCaseId
+					: onDeviceAnchorCaseId(anchor, root);
 			if (anchorCaseId === undefined) {
 				throw new Error(
 					"emitOnDeviceExpression: an any-relation count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",

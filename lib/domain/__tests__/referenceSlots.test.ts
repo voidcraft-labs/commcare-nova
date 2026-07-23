@@ -615,7 +615,14 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 				allFieldRegistryPaths,
 				NON_REFERENCE_FIELD_PATH_SET,
 			),
-		).toEqual(["id", "options[].order", "options[].value", "order"]);
+		).toEqual([
+			"id",
+			"options[].order",
+			"options[].uuid",
+			"options[].value",
+			"order",
+			"uuid",
+		]);
 	});
 
 	it("form list is pinned", () => {
@@ -627,6 +634,10 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			),
 		).toEqual([
 			"audioLabel",
+			"caseOperations[].id",
+			"caseOperations[].links[].identifier",
+			"caseOperations[].order",
+			"caseOperations[].uuid",
 			"closeCondition.answer",
 			"connect.assessment.id",
 			"connect.deliver_unit.id",
@@ -643,6 +654,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"name",
 			"order",
 			"purpose",
+			"uuid",
 		]);
 	});
 
@@ -665,10 +677,12 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"caseListConfig.columns[].order",
 			"caseListConfig.columns[].pattern",
 			"caseListConfig.columns[].text",
+			"caseListConfig.columns[].uuid",
 			"caseListConfig.icon",
 			"caseListConfig.searchInputs[].label",
 			"caseListConfig.searchInputs[].name",
 			"caseListConfig.searchInputs[].order",
+			"caseListConfig.searchInputs[].uuid",
 			"caseSearchConfig.searchButtonLabel",
 			"caseSearchConfig.searchScreenSubtitle",
 			"caseSearchConfig.searchScreenTitle",
@@ -677,6 +691,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"name",
 			"order",
 			"purpose",
+			"uuid",
 		]);
 	});
 });

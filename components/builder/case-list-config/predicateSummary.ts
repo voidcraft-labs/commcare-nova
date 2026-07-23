@@ -359,6 +359,8 @@ function operand(
 					return humanizeName(t.field);
 				case "session-context":
 					return humanizeName(t.field);
+				case "field":
+					return "a form answer";
 			}
 			break;
 		}
@@ -366,6 +368,12 @@ function operand(
 			return "today";
 		case "now":
 			return "now";
+		case "id-of":
+			return "a newly created case";
+		case "acting-user":
+			return "the person using the app";
+		case "unowned":
+			return "no owner";
 	}
 	return "a calculated value";
 }

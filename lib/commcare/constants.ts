@@ -134,5 +134,8 @@ export const XFORM_PATH_REGEX = /^\/data\/[a-zA-Z0-9_/]+$/;
 /** Maximum length for case type names (CommCare Core CaseXmlParser constraint). */
 export const MAX_CASE_TYPE_LENGTH = 255;
 
+/** Maximum length of a case-index identifier (HQ database column constraint). */
+export const MAX_CASE_INDEX_IDENTIFIER_LENGTH = 255;
+
 /** Maximum length for case property names (CommCare Core CaseXmlParser constraint). */
 export const MAX_CASE_PROPERTY_LENGTH = 255;

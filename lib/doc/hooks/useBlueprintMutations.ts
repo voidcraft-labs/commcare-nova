@@ -890,11 +890,13 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						mintOptions: () => keyedOptions([...DEFAULT_SELECT_OPTIONS]) ?? [],
 					});
 					if (!plan.ok) {
+						const message =
+							plan.blocker.carrier === "case-operation"
+								? `This field's case property is also written by case operation “${plan.blocker.id}”. Update or remove that operation before changing the property's data type.`
+								: `This field's case property is also captured by a ${fieldRegistry[plan.blocker.kind].label} field in another form, which can't become a ${fieldRegistry[toKind].label}. Convert that field to Text first, then convert this one.`;
 						return {
 							ok: false,
-							messages: [
-								`This field's case property is also captured by a ${fieldRegistry[plan.blocker.kind].label} field in another form, which can't become a ${fieldRegistry[toKind].label}. Convert that field to Text first, then convert this one.`,
-							],
+							messages: [message],
 						};
 					}
 					batch.push(...plan.mutations);

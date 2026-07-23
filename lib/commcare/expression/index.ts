@@ -14,13 +14,13 @@
 //     dialect, usable in any on-device value slot — calculated
 //     columns, sort keys, late-flag arguments, ID-mapping sources,
 //     search-input defaults, the conditional-clause branches inside
-//     a predicate's `if` / `switch`. The emitter is total: every arm
-//     of `ValueExpression` produces a wire string with no structural
-//     rejection.
+//     a predicate's `if` / `switch`. Every arm emits in its admitted
+//     context; submission-local `field` / `id-of` leaves require the
+//     operation emitter to supply identity bindings.
 //   - `emitCsqlExpressionSegments(expr)` produces the CSQL dialect
 //     value emission as a `CsqlSegment[]`. The emitter handles the
 //     eight arms in CCHQ's CSQL value-function whitelist; the
-//     remaining seven arms lift in the predicate-side hoist pass
+//     remaining ten arms lift in the predicate-side hoist pass
 //     before this emitter ever sees them, and reaching one of those
 //     arms here throws defensively. The segment-list IR — not a
 //     stringified concat-wrap — is the contract because the wire-

@@ -44,6 +44,7 @@ export {
 	RELATION_PATH_LEAF_ALIAS,
 } from "./compileRelationPath";
 export type {
+	FormFieldBindingValue,
 	TermBindings,
 	TermBindingValue,
 	TermCompileContext,

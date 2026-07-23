@@ -102,6 +102,12 @@ export function expressionFocusTitle(value: ValueExpression): string {
 	switch (value.kind) {
 		case "term":
 			return "Value";
+		case "id-of":
+			return "Created case ID";
+		case "acting-user":
+			return "Person using the app";
+		case "unowned":
+			return "No owner";
 		case "today":
 			return "Today's date";
 		case "now":
@@ -137,6 +143,12 @@ export function expressionFocusDescription(value: ValueExpression): string {
 	switch (value.kind) {
 		case "term":
 			return "A case value, search answer, or entered value";
+		case "id-of":
+			return "Uses the case created by an earlier operation";
+		case "acting-user":
+			return "Assigns the case to the person using the app";
+		case "unowned":
+			return "Leaves the case without an owner";
 		case "today":
 			return "Uses the date when the app runs";
 		case "now":

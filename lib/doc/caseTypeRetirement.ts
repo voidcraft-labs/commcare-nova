@@ -65,7 +65,11 @@ import {
 	type RelationPath,
 	type Term,
 	type ValueExpression,
+	walkExpressionNodes,
+	walkExpressionPredicateNodes,
 	walkExpressionTerms,
+	walkPredicateExpressionNodes,
+	walkPredicateNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
@@ -532,6 +536,83 @@ function collectFormSlotReferences(
 	where: string,
 	out: RetirementReference[],
 ): void {
+	for (const operation of form.caseOperations ?? []) {
+		const operationLabel = `case operation "${operation.id || operation.uuid}"`;
+		if (operation.caseType === caseType) {
+			out.push(sameRef(`${operationLabel} in ${where} targets "${caseType}"`));
+		}
+		if (operation.retype === caseType) {
+			out.push(
+				sameRef(`${operationLabel} in ${where} retypes to "${caseType}"`),
+			);
+		}
+		if (
+			operation.target.kind === "expression" &&
+			expressionRefsCaseType(operation.target.expr, caseType)
+		) {
+			out.push(
+				sameRef(`${operationLabel} in ${where} resolves a "${caseType}" case`),
+			);
+		}
+		if (
+			operation.condition &&
+			predicateRefsCaseType(operation.condition, caseType)
+		) {
+			out.push(
+				sameRef(
+					`${operationLabel} in ${where} has a condition using "${caseType}"`,
+				),
+			);
+		}
+		for (const [label, expression] of [
+			["name", operation.name],
+			["owner", operation.owner],
+			["rename", operation.rename],
+		] as const) {
+			if (expression && expressionRefsCaseType(expression, caseType)) {
+				out.push(
+					sameRef(
+						`${operationLabel} in ${where} derives its ${label} from "${caseType}"`,
+					),
+				);
+			}
+		}
+		for (const write of operation.writes ?? []) {
+			if (expressionRefsCaseType(write.value, caseType)) {
+				out.push(
+					sameRef(
+						`${operationLabel} in ${where} derives "${write.property}" from "${caseType}"`,
+					),
+				);
+			}
+			if (write.condition && predicateRefsCaseType(write.condition, caseType)) {
+				out.push(
+					sameRef(
+						`${operationLabel} in ${where} conditionally writes "${write.property}" using "${caseType}"`,
+					),
+				);
+			}
+		}
+		for (const link of operation.links ?? []) {
+			if (link.targetType === caseType) {
+				out.push(
+					sameRef(
+						`${operationLabel} in ${where} links to "${caseType}" as "${link.identifier}"`,
+					),
+				);
+			}
+			if (
+				link.target?.kind === "expression" &&
+				expressionRefsCaseType(link.target.expr, caseType)
+			) {
+				out.push(
+					sameRef(
+						`${operationLabel} in ${where} resolves link "${link.identifier}" from "${caseType}"`,
+					),
+				);
+			}
+		}
+	}
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		if (slot.slot === "form_display_condition") {
 			if (
@@ -744,6 +825,19 @@ function predicateRefsCaseType(
 	walkTerms(predicate, (term) => {
 		if (termRefsCaseType(term, caseType)) found = true;
 	});
+	walkPredicateNodes(predicate, (node) => {
+		if (
+			(node.kind === "exists" || node.kind === "missing") &&
+			viaNamesCaseType(node.via, caseType)
+		) {
+			found = true;
+		}
+	});
+	walkPredicateExpressionNodes(predicate, (node) => {
+		if (node.kind === "count" && viaNamesCaseType(node.via, caseType)) {
+			found = true;
+		}
+	});
 	return found;
 }
 
@@ -754,6 +848,19 @@ function expressionRefsCaseType(
 	let found = false;
 	walkExpressionTerms(expression, (term) => {
 		if (termRefsCaseType(term, caseType)) found = true;
+	});
+	walkExpressionNodes(expression, (node) => {
+		if (node.kind === "count" && viaNamesCaseType(node.via, caseType)) {
+			found = true;
+		}
+	});
+	walkExpressionPredicateNodes(expression, (node) => {
+		if (
+			(node.kind === "exists" || node.kind === "missing") &&
+			viaNamesCaseType(node.via, caseType)
+		) {
+			found = true;
+		}
 	});
 	return found;
 }

@@ -977,6 +977,9 @@ function nativePropertyRefs(expression: ValueExpression): PropertyRef[] {
 			];
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "arith":
 		case "concat":
 		case "coalesce":
@@ -1118,6 +1121,9 @@ function liftFirstViaInCsqlValueExpression(
 		}
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return { lifted: false, expression: expr };
 		case "date-coerce":
 		case "datetime-coerce":

@@ -16,6 +16,29 @@ integration boundaries, and acceptance criteria.
 - Case-operation binds and blocks preserve the living operation contract, including
   pre-submission snapshot evaluation and an explicitly pinned relationship to Nova's
   existing primary-case and subcase actions.
+- **S04 outcome:** source emission uses one reserved root container plus containers in the
+  exact repeat templates; representable execution order is root then repeat post-order, and
+  advanced operations precede Nova's ordinary primary-case action. Same-repeat field and
+  `id-of` paths use `current()` so nested relation predicates remain iteration-correlated.
+  Because ordinary primary writes and subcase parent indexes execute after advanced
+  blocks, S04's rolling proof requires their session target to retain the module type;
+  an ordinary close-only action remains type-agnostic.
+  Generated ids use the Vellum setvalue path while authored keys remain live calculate binds
+  over S04's frozen `nova-case-v1:<UUIDv5(app,form,operation,type)>:<exact-key>` contract;
+  zero-length and over-205-code-unit keys calculate blank and fail atomically rather than
+  becoming raw global ids. Duplicate repeated keys may merge, but a later possibly-aliasing
+  non-create under the same repeated execution ancestor is rejected so Core's
+  iteration-major order cannot diverge from HQ's per-case create sort. Keyed identities are type-stable; a trailing guard rejects a
+  `nova-case-v1:` retype even when the id arrived through session/expression data. Typed runtime targets resolve through the immutable
+  `casedb` snapshot even after a semantic retype; dynamic links add a trailing failure guard
+  that no-op-targets the operation case, and conditional create/retype dependencies inherit
+  relevance transitively. Target/link expressions cannot contain `id-of` under any wrapper;
+  the `op` target is the sole fresh-create identity path. Operation writes use directional
+  storage assignment, with direct multi-select-array writes admitted but scalar concat/
+  coercion wrappers rejected. Retype emission is limited to exact-schema `wirePortable`
+  plans so CommCare's case_type-only update cannot diverge from Nova conversion/parking.
+  Create/update/close/index order, every non-create idempotent type guard, and authored-ID create-first
+  ordering are pinned to the current Vellum/Core facts recorded in `lib/commcare/CLAUDE.md`.
 - Boundary validation is generic rather than media-owned and fails closed on missing,
   foreign-Project, inconsistent, or over-budget lookup resources.
 - Before hosted lookup-table push exists, the guard matrix is complete across every public
@@ -101,11 +124,25 @@ Export stays total: the checker (PR-01) is the gate; no emit-time errors.
   `<update>` — client `updateCase` maps them to setName/setTypeId, server
   `casexml/.../parser.py::CaseActionBase.V2_PROPERTY_MAPPING` to name/type (verified
   agreement; `category`/`state` DIVERGE and stay unconstructible per PR-01).
+- Create name, rename, and effective owner binds normalize only Java-regex XML boundary
+  whitespace with `replace(value, '^\s+|\s+$', '')`; internal whitespace remains exact.
+  One trailing no-op guard per affected operation requires every normalized value to be
+  nonblank and at most 255 UTF-16 code units. A blank guard id fails the complete atomic
+  case submission, matching Nova's nonempty `case_name` policy and explicit `unowned`
+  sentinel while preventing Core/HQ/Postgres normalization drift. TypeScript/XPath
+  parity vectors pin this against `caseOperationText.ts`; S06 must call the same helper.
 - Id mechanics (the Vellum split, `Vellum/src/saveToCase.js::getBindList/getSetValues`):
   creates OUTSIDE repeats seed `@case_id` via `<setvalue event="xforms-ready">`; creates
-  under `forEach` use a bind-calculate over the per-instance path. `target.idFrom` points
-  the setvalue/bind at the authored field's path instead of a `uuid()` literal; `id-of(op)`
-  expressions compile to the op's `…/case/@case_id` path (readable on both runtimes).
+  under `forEach` use a bind-calculate over the per-instance path. `target.idFrom` feeds the
+  authored field path into the versioned Nova namespace calculation instead of exposing it
+  as the raw `@case_id`; `id-of(op)` expressions compile to the resulting op
+  `…/case/@case_id` path (readable on both runtimes). Duplicate keys in one repeated create
+  and retries of that exact definition intentionally merge; app/form/operation/type
+  namespace separation prevents unrelated and unseen-HQ collisions.
+- Retype ordering cannot assume different ASTs mean different cases. S04 rejects a later
+  differently-typed target/link that may alias a transitioned concrete id unless identity
+  is statically equal or provably distinct, and restricts repeated retype to an exact
+  same-repeat generated create. S06 repeats the proof after resolving actual ids.
 - Fixtures to pin: `~/code/Vellum/tests/static/saveToCase/*.xml` (canonical block+bind
   shapes) and the ACA memo's m2-f0 production form as the integration reference.
 
@@ -176,7 +213,10 @@ Export stays total: the checker (PR-01) is the gate; no emit-time errors.
    meta userID bind when a CREATE op's `owner` is absent — update ops emit `owner_id` ONLY
    when `owner` is explicitly set (it means ownership transfer; an absent owner on update
    emits nothing, or every edit would silently reassign the case to the submitter);
-   instance accumulation for op expressions.
+   instance accumulation for op expressions. Case types are identifier-safe and at most
+   255 characters; link identifiers are XML-safe, unique per operation, and at most 255
+   characters (the HQ case-index column). Validation rejects every source-only/converting
+   retype before this renderer because the wire has no property cast/parking action.
 3. **Itemset emission** (`xform/builder.ts::buildLeafControl` select branch):
    `options_source` → `<itemset>` per the contract (filter predicate compiled into the
    nodeset; label/value as fixture-relative column refs; model `<instance>` declaration);

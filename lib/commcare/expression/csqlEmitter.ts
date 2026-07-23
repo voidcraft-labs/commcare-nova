@@ -9,15 +9,16 @@
 // Emission policy: emit the eight `ValueExpression` arms that ARE in
 // CCHQ's CSQL value-function whitelist
 // (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
-// The remaining seven arms (`arith`, `concat`, `coalesce`, `if`,
-// `switch`, `count`, `format-date`) inline as on-device XPath
+// The remaining ten arms (`arith`, `concat`, `coalesce`, `if`,
+// `switch`, `count`, `format-date`, `id-of`, `acting-user`, `unowned`)
+// inline as on-device XPath
 // fragments. At predicate-operand boundaries that happens in
 // `lib/commcare/predicate/csqlEmitter.ts::inlineAsRuntimeOperand`;
 // when one is nested below a native value function, this file's
 // `emitCsqlFunctionArgumentSegments` evaluates it on-device and safely
 // quotes the resolved scalar inside the surrounding native call.
 //
-// If the bypass path ever surfaced one of the seven non-whitelist
+// If the bypass path ever surfaced one of the ten non-whitelist
 // arms, the emitter throws a defensive error rather than emit
 // broken CSQL. The local `_exhaustive: never` default catches new
 // ValueExpression kinds at compile time.
@@ -188,7 +189,10 @@ export function emitCsqlExpressionSegments(
 		case "switch":
 		case "count":
 		case "format-date":
-			// These seven arms are absent from CSQL's value-function
+		case "id-of":
+		case "acting-user":
+		case "unowned":
+			// These arms are absent from CSQL's value-function
 			// whitelist. Callers must route them through either the
 			// predicate-side inline-runtime path or this file's native-call
 			// argument helper. A direct call cannot supply the surrounding
@@ -263,6 +267,9 @@ export function isNativeCsqlValueExpression(expr: ValueExpression): boolean {
 		case "switch":
 		case "count":
 		case "format-date":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return false;
 		default: {
 			const _exhaustive: never = expr;

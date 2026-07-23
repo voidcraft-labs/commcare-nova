@@ -273,6 +273,7 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"audioLabel",
 	"name",
 	"order",
+	"caseOperations",
 ]);
 
 // ── Field media diff ─────────────────────────────────────────────────
@@ -527,6 +528,9 @@ export function diffDocsToMutations(
 				patch: patch as Partial<Form>,
 			});
 		}
+		updates.push(
+			...diffCaseOperations(prev.forms[uuid], next.forms[uuid], uuid),
+		);
 		if (menuMediaChanged(p, n)) {
 			media.push({
 				kind: "setFormMedia",
@@ -684,6 +688,83 @@ export function diffDocsToMutations(
 	structural.push(...diffCatalog(fromCatalog, next.caseTypes));
 
 	return structural;
+}
+
+function diffCaseOperations(
+	prev: Form,
+	next: Form,
+	formUuid: Uuid,
+): Mutation[] {
+	const before = new Map(
+		(prev.caseOperations ?? []).map((operation) => [operation.uuid, operation]),
+	);
+	const after = new Map(
+		(next.caseOperations ?? []).map((operation) => [operation.uuid, operation]),
+	);
+	const mutations: Mutation[] = [];
+	for (const [uuid] of before) {
+		if (after.has(uuid)) continue;
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: { operation: "remove", uuid },
+		});
+	}
+	for (const [uuid, operation] of after) {
+		const prior = before.get(uuid);
+		if (prior === undefined) {
+			mutations.push({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationChange: {
+					operation: "add",
+					value: cloneEntity(operation),
+				},
+			});
+			continue;
+		}
+		const priorWithoutOrder = { ...prior, order: undefined };
+		const operationWithoutOrder = { ...operation, order: undefined };
+		if (!deepEqual(priorWithoutOrder, operationWithoutOrder)) {
+			mutations.push({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationChange: {
+					operation: "update",
+					uuid,
+					value: cloneEntity(operation),
+				},
+			});
+		} else if (prior.order !== operation.order) {
+			mutations.push(
+				operation.order === undefined
+					? {
+							kind: "updateForm",
+							uuid: formUuid,
+							patch: {},
+							caseOperationChange: {
+								operation: "update",
+								uuid,
+								value: cloneEntity(operation),
+							},
+						}
+					: {
+							kind: "updateForm",
+							uuid: formUuid,
+							patch: {},
+							caseOperationChange: {
+								operation: "move",
+								uuid,
+								order: operation.order,
+							},
+						},
+			);
+		}
+	}
+	return mutations;
 }
 
 // ── Field-patch helpers ──────────────────────────────────────────────

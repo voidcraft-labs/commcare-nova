@@ -37,6 +37,7 @@ import type {
 	CompilePredicateThunk,
 	Database,
 	ExpressionCompileContext,
+	FormFieldBindingValue,
 	ParkedCaseValuesTable,
 	PredicateCompileContext,
 	RelationPathCompileContext,
@@ -75,6 +76,7 @@ type _BarrelTypeSurface = {
 	relationPathLeafRow: RelationPathLeafRow;
 	termBindings: TermBindings;
 	termBindingValue: TermBindingValue;
+	formFieldBindingValue: FormFieldBindingValue;
 	termCompileContext: TermCompileContext;
 };
 // Touch the alias once so the unused-variable lint stays quiet

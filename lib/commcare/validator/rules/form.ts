@@ -34,6 +34,7 @@ import {
 	xpathPrintContext,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import { validateCaseOperations } from "./caseOperations";
 import { formDisplayCondition } from "./displayConditions";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -1224,6 +1225,7 @@ export function runFormRules(
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
 	errors.push(...childCaseNoNameField(ctx, caseConfig));
+	errors.push(...validateCaseOperations(doc, formUuid, moduleUuid));
 
 	return errors;
 }

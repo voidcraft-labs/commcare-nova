@@ -29,8 +29,11 @@ import tablerCopy from "@iconify-icons/tabler/copy";
 import tablerForklift from "@iconify-icons/tabler/forklift";
 import tablerGitMerge from "@iconify-icons/tabler/git-merge";
 import tablerHash from "@iconify-icons/tabler/hash";
+import tablerLink from "@iconify-icons/tabler/link";
 import tablerListSearch from "@iconify-icons/tabler/list-search";
 import tablerSwitch from "@iconify-icons/tabler/switch";
+import tablerUser from "@iconify-icons/tabler/user";
+import tablerUserOff from "@iconify-icons/tabler/user-off";
 import tablerVariable from "@iconify-icons/tabler/variable";
 import type { ComponentType } from "react";
 import type { CaseProperty, CaseType } from "@/lib/domain";
@@ -70,7 +73,14 @@ import {
 	FormatDateCard,
 	formatDateDefault,
 } from "./cards/expression/FormatDateCard";
+import { IdOfCard, idOfDefault } from "./cards/expression/IdOfCard";
 import { IfCard, ifDefault } from "./cards/expression/IfCard";
+import {
+	ActingUserCard,
+	actingUserDefault,
+	UnownedCard,
+	unownedDefault,
+} from "./cards/expression/OwnerValueCards";
 import { SwitchCard, switchDefault } from "./cards/expression/SwitchCard";
 import { TermCard, termDefault } from "./cards/expression/TermCard";
 import {
@@ -287,6 +297,36 @@ export const expressionCardSchemas: {
 		component: TermCard,
 		defaultValue: termDefault,
 		applicable: applicableAlways,
+	},
+	"id-of": {
+		kind: "id-of",
+		authoring: "roundTripOnly",
+		label: "Created case ID",
+		icon: tablerLink,
+		description: "Use the case created by an earlier operation",
+		component: IdOfCard,
+		defaultValue: idOfDefault,
+		applicable: applicableAlways,
+	},
+	"acting-user": {
+		kind: "acting-user",
+		authoring: "roundTripOnly",
+		label: "Person using the app",
+		icon: tablerUser,
+		description: "Assign the case to the person using the app",
+		component: ActingUserCard,
+		defaultValue: actingUserDefault,
+		applicable: applicableForText,
+	},
+	unowned: {
+		kind: "unowned",
+		authoring: "roundTripOnly",
+		label: "No owner",
+		icon: tablerUserOff,
+		description: "Leave the case without an owner",
+		component: UnownedCard,
+		defaultValue: unownedDefault,
+		applicable: applicableForText,
 	},
 
 	// ── Date / time constants ────────────────────────────────────────

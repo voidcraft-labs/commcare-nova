@@ -57,6 +57,9 @@ export function inferStructuralTemporalType(
 		case "count":
 		case "double":
 		case "format-date":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "unwrap-list":
 			return undefined;
 		default: {

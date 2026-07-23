@@ -117,9 +117,10 @@ jobs:
     # time, so `test:leaks` runs a 30s test timeout (vs the default 5s) — on a
     # large PR the changed-vs-base set is big enough that heavy tests would
     # otherwise cross 5s under parallel load and spuriously fail (a timed-out
-    # test also leaks its in-flight promise into the next test). 30 job-minutes
-    # keeps headroom for that slower-but-honest completion.
-    timeout-minutes: 30
+    # test also leaks its in-flight promise into the next test). 45 job-minutes
+    # keeps headroom for that slower-but-honest completion, including broad
+    # changed-test graphs that have reached roughly 30 minutes in CI.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:

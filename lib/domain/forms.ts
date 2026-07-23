@@ -1,7 +1,12 @@
 // lib/domain/forms.ts
 import { z } from "zod";
 import { assetIdSchema } from "./multimedia";
-import { predicateSchema } from "./predicate/types";
+import {
+	type Predicate,
+	predicateSchema,
+	type ValueExpression,
+	valueExpressionSchema,
+} from "./predicate/types";
 import { type Uuid, uuidSchema } from "./uuid";
 import { xpathExpressionSchema } from "./xpath";
 
@@ -147,6 +152,115 @@ const formLinkSchema = z
 	.strict();
 export type FormLink = z.infer<typeof formLinkSchema>;
 
+/**
+ * A typed case identity used by a form submission operation.
+ *
+ * The four arms deliberately model author intent rather than CommCare's
+ * free-form case-id calculate. A create owns a `new` target (optionally keyed
+ * by a form field through Nova's stable namespaced-id derivation); later
+ * operations may name an earlier create, the loaded
+ * session case, or a runtime expression. The validator owns the contextual
+ * rules (earlier-create order, repeat correlation, session type, and text
+ * expression result) because those require the containing form/module/doc.
+ */
+const newCaseTargetSchema = z
+	.object({
+		kind: z.literal("new"),
+		idFrom: uuidSchema.optional(),
+	})
+	.strict();
+
+const operationCaseTargetSchema = z
+	.object({ kind: z.literal("op"), opUuid: uuidSchema })
+	.strict();
+
+const sessionCaseTargetSchema = z
+	.object({ kind: z.literal("session") })
+	.strict();
+
+const expressionCaseTargetSchema = z
+	.object({ kind: z.literal("expression"), expr: valueExpressionSchema })
+	.strict();
+
+export const caseTargetSchema = z.discriminatedUnion("kind", [
+	newCaseTargetSchema,
+	operationCaseTargetSchema,
+	sessionCaseTargetSchema,
+	expressionCaseTargetSchema,
+]);
+export type CaseTarget = z.infer<typeof caseTargetSchema>;
+
+export const CASE_OPERATION_ACTIONS = ["create", "update", "close"] as const;
+export type CaseOperationAction = (typeof CASE_OPERATION_ACTIONS)[number];
+
+const caseOperationWriteSchema = z
+	.object({
+		property: z.string(),
+		value: valueExpressionSchema,
+		condition: predicateSchema.optional(),
+	})
+	.strict();
+export type CaseOperationWrite = {
+	property: string;
+	value: ValueExpression;
+	condition?: Predicate;
+};
+
+const caseOperationLinkSchema = z
+	.object({
+		identifier: z.string(),
+		targetType: z.string(),
+		target: caseTargetSchema.nullable(),
+		relationship: z.enum(["child", "extension"]),
+	})
+	.strict();
+export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
+
+/**
+ * One declared case effect of a form submission.
+ *
+ * `uuid` is reference identity; `id` is the author-facing/wire slug; `order`
+ * is the fractional execution key. Array position is membership only. Facet
+ * legality intentionally stays out of the shape schema so legacy documents
+ * remain parseable and the rule engine can return precise, repairable
+ * findings instead of a generic Zod failure.
+ */
+export const caseOperationSchema = z
+	.object({
+		uuid: uuidSchema,
+		id: z.string(),
+		order: z.string().optional(),
+		action: z.enum(CASE_OPERATION_ACTIONS),
+		caseType: z.string(),
+		target: caseTargetSchema,
+		condition: predicateSchema.optional(),
+		forEach: z.object({ repeat: uuidSchema }).strict().optional(),
+		name: valueExpressionSchema.optional(),
+		owner: valueExpressionSchema.optional(),
+		rename: valueExpressionSchema.optional(),
+		retype: z.string().optional(),
+		writes: z.array(caseOperationWriteSchema).optional(),
+		links: z.array(caseOperationLinkSchema).optional(),
+	})
+	.strict();
+export type CaseOperation = z.infer<typeof caseOperationSchema>;
+
+/** Canonical operation sequence: fractional order, then immutable identity. */
+export function orderedCaseOperations(form: {
+	readonly caseOperations?: readonly CaseOperation[];
+}): CaseOperation[] {
+	return [...(form.caseOperations ?? [])].sort((left, right) => {
+		if (left.order !== undefined && right.order !== undefined) {
+			if (left.order < right.order) return -1;
+			if (left.order > right.order) return 1;
+			return left.uuid.localeCompare(right.uuid);
+		}
+		if (left.order !== undefined) return -1;
+		if (right.order !== undefined) return 1;
+		return left.uuid.localeCompare(right.uuid);
+	});
+}
+
 // Connect config. Each sub-config's `id` stays `z.string().optional()` on
 // purpose: it's a transient in-progress state (a block can exist briefly
 // before its id is filled) and the doc-store type tolerates that. The real
@@ -235,6 +349,8 @@ export const formSchema = z
 		connect: connectConfigSchema.nullable().optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 		formLinks: z.array(formLinkSchema).optional(),
+		/** Ordered, typed case effects. Dormant until the S07 runtime activation. */
+		caseOperations: z.array(caseOperationSchema).optional(),
 		/**
 		 * Image shown on the form's menu tile — the per-form
 		 * affordance within a module's menu.

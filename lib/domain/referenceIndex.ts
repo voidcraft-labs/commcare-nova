@@ -61,6 +61,11 @@ export interface ReferenceCarrierEntry {
 	/** Fields only: the `<caseType>/<property>` pair this field
 	 *  declares via `case_property_on` + id, mirrored into `decl`. */
 	decl?: string;
+	/** Form case operations may write several `(caseType, property)`
+	 *  pairs. Each pair is mirrored into `decl`, with the form as the
+	 *  declaration carrier, so operation-authored properties participate
+	 *  in the same peer and unwritten-property queries as field writers. */
+	decls?: string[];
 	/** Set when this carrier's PROSE embeds form-local hashtag text
 	 *  (`#form/…` in a label/hint/help) — the form uuid whose `local`
 	 *  bucket lists it. Carriers in a form's `local` bucket re-extract
@@ -89,8 +94,9 @@ export interface ReferenceIndex {
 	/** carrier uuid → its mirror entry (reverse map for un-indexing +
 	 *  the "edges of owner" lookup). */
 	out: Record<string, ReferenceCarrierEntry>;
-	/** `<caseType>/<property>` → declaring field uuids (each field's
-	 *  `case_property_on` contribution). The case-property peer lookup. */
+	/** `<caseType>/<property>` → declaring carrier uuids (field writers
+	 *  and forms with case-operation writers). The case-property peer
+	 *  lookup. */
 	decl: Record<string, Record<string, true>>;
 	/** form uuid → carriers holding form-local reference text. */
 	local: Record<string, Record<string, true>>;

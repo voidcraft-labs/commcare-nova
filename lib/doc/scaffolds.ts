@@ -20,6 +20,7 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseOperation,
 	type Field,
 	type Form,
 	type FormType,
@@ -185,6 +186,48 @@ export function declareCaseTypeMutations(
 	const existing = doc.caseTypes ?? [];
 	if (existing.some((ct) => ct.name === caseType)) return [];
 	return [{ kind: "declareCaseType", caseType }];
+}
+
+/**
+ * Catalog prerequisites for a case-operation add/update. The operation is a
+ * first-class writer, so its destination type and every written property land
+ * through the same granular, concurrency-safe catalog mutations as fields.
+ */
+export function caseOperationCatalogMutations(
+	doc: BlueprintDoc,
+	operation: CaseOperation,
+): Mutation[] {
+	const declared = new Map(
+		(doc.caseTypes ?? []).map((caseType) => [
+			caseType.name,
+			new Set(caseType.properties.map((property) => property.name)),
+		]),
+	);
+	const mutations: Mutation[] = [];
+	const ensureType = (caseType: string) => {
+		if (declared.has(caseType)) return;
+		declared.set(caseType, new Set());
+		mutations.push({ kind: "declareCaseType", caseType });
+	};
+	ensureType(operation.caseType);
+	if (operation.retype !== undefined) ensureType(operation.retype);
+	for (const link of operation.links ?? []) ensureType(link.targetType);
+
+	const destination = operation.retype ?? operation.caseType;
+	const properties = declared.get(destination) as Set<string>;
+	for (const write of operation.writes ?? []) {
+		if (properties.has(write.property)) continue;
+		properties.add(write.property);
+		mutations.push({
+			kind: "addCaseProperty",
+			caseType: destination,
+			property: {
+				name: write.property,
+				label: humanizeId(write.property),
+			},
+		});
+	}
+	return mutations;
 }
 
 /**

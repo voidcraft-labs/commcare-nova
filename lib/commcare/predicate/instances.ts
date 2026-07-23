@@ -104,6 +104,7 @@ function addTermInstance(term: Term, instances: Set<string>): void {
 			instances.add("commcaresession");
 			return;
 		case "literal":
+		case "field":
 			return;
 		default: {
 			const _exhaustive: never = term;

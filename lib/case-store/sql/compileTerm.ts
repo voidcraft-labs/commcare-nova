@@ -62,7 +62,7 @@ import {
 // ---------------------------------------------------------------
 
 /**
- * The pg-driver-bindable scalar shapes runtime bindings admit.
+ * The pg-driver-bindable scalar shapes ordinary runtime bindings admit.
  * `Date` is included because session surfaces sometimes materialize
  * `appversion` / `deviceid`-style values as native `Date` objects.
  * Objects / arrays are NOT admitted — the wire target is a single
@@ -71,7 +71,18 @@ import {
 export type TermBindingValue = string | number | boolean | Date | null;
 
 /**
- * Runtime bindings for the three non-property `Term` arms. Split
+ * A live form answer. Multi-select is the one structured form value: Nova
+ * carries it as a JSON string array while CommCare's XForm node carries the
+ * equivalent space-token wire string. Keeping this widening on `formFields`
+ * (rather than every session/input binding) preserves the scalar contract of
+ * those namespaces.
+ */
+export type FormFieldBindingValue = TermBindingValue | readonly string[];
+
+type RuntimeBindingValue = TermBindingValue | FormFieldBindingValue;
+
+/**
+ * Runtime bindings for the four non-property, non-literal `Term` arms. Split
  * by AST arm (not collapsed into one keyed map) because a
  * `sessionUser` ref must not silently resolve from the search-input
  * map — the wire targets resolve those fields from different
@@ -105,6 +116,15 @@ export interface TermBindings {
 	 * `deviceid` / `appversion` per `SESSION_CONTEXT_FIELDS`).
 	 */
 	sessionContext?: ReadonlyMap<string, TermBindingValue>;
+
+	/** Form-local values keyed by stable field UUID (submission contexts only). */
+	formFields?: ReadonlyMap<string, FormFieldBindingValue>;
+
+	/** Case ids created earlier in the same submission, keyed by operation UUID. */
+	operationIds?: ReadonlyMap<string, TermBindingValue>;
+
+	/** Resolved identity submitting this atomic form envelope. */
+	actingUserId?: TermBindingValue;
 
 	/**
 	 * The viewer's IANA timezone (`Intl.DateTimeFormat().resolvedOptions()
@@ -194,6 +214,12 @@ export function compileTerm(
 				ctx.bindings.sessionContext,
 				`session context field '${term.field}'`,
 			);
+		case "field":
+			return compileBoundRef(
+				term.uuid,
+				ctx.bindings.formFields,
+				`form field '${term.uuid}'`,
+			);
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(
@@ -207,6 +233,7 @@ export function compileTerm(
 						"input",
 						"session-user",
 						"session-context",
+						"field",
 					],
 				}),
 			);
@@ -633,11 +660,11 @@ function lookupDataType(
  * Missing bindings throw rather than fall back to `NULL` —
  * silently emitting `NULL` would flip the predicate's truth value.
  */
-function compileBoundRef(
+export function compileBoundRef(
 	key: string,
-	bindings: ReadonlyMap<string, TermBindingValue> | undefined,
+	bindings: ReadonlyMap<string, RuntimeBindingValue> | undefined,
 	descriptor: string,
-	missingFallback?: TermBindingValue,
+	missingFallback?: RuntimeBindingValue,
 ): AliasableExpression<unknown> {
 	if (bindings === undefined || !bindings.has(key)) {
 		if (missingFallback !== undefined) return eb.val(missingFallback);
@@ -661,7 +688,27 @@ function compileBoundRef(
 			].join("\n"),
 		);
 	}
-	return eb.val(bindings.get(key));
+	const value = bindings.get(key);
+	if (Array.isArray(value)) {
+		// node-postgres binds a JavaScript array as a Postgres array. Case data
+		// stores multi-select as a JSONB array, so serialize and cast explicitly;
+		// relying on an implicit text[] -> jsonb cast fails at execution time.
+		return eb.cast(eb.val(JSON.stringify(value)), "jsonb");
+	}
+	return eb.val(value);
+}
+
+/** Resolve one required runtime binding that is singular rather than keyed. */
+export function compileBoundValue(
+	value: TermBindingValue | undefined,
+	descriptor: string,
+): AliasableExpression<unknown> {
+	if (value === undefined) {
+		throw new Error(
+			`\`compileExpression\` — missing binding for ${descriptor}. Thread the server-resolved value through \`ctx.bindings\` before compiling this operation expression.`,
+		);
+	}
+	return eb.val(value);
 }
 
 // Type-erased local views because Kysely's typed builder can't

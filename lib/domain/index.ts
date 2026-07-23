@@ -5,7 +5,10 @@
 
 export * from "./blueprint";
 export * from "./builtinIcons";
+export * from "./caseOperationIdentity";
+export * from "./caseOperationText";
 export * from "./casePropertyTypes";
+export * from "./caseRetype";
 export * from "./caseTypes";
 export * from "./columnApplicability";
 export * from "./commCareDatePattern";

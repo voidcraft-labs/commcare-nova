@@ -432,6 +432,9 @@ function visitExpression(
 			return;
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-add":
 			visitExpression(expr.date, joinPath(path, "date"), gated, mode, out);

@@ -42,7 +42,8 @@ export type CsqlRepresentabilityReason =
 	| "csql-string-not-quotable"
 	| "calendar-date-add-needs-whole-number"
 	| "subcase-count-needs-nonnegative-whole-number"
-	| "multiple-property-scopes";
+	| "multiple-property-scopes"
+	| "form-context-value-not-csql";
 
 type RuntimeValueDialect = "csql" | "on-device";
 
@@ -205,6 +206,9 @@ function normalizeExpression(expression: ValueExpression): ValueExpression {
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return expression;
 		case "date-add":
 			return {
@@ -285,6 +289,9 @@ function normalizeExpression(expression: ValueExpression): ValueExpression {
 						"term",
 						"today",
 						"now",
+						"id-of",
+						"acting-user",
+						"unowned",
 						"date-add",
 						"date-coerce",
 						"datetime-coerce",
@@ -613,12 +620,31 @@ function checkRuntimeValue(
 					message:
 						"This search compares two case properties. Choose one property and compare it with a fixed value, a search answer, or a user detail instead.",
 				});
+			} else if (expression.term.kind === "field") {
+				issues.push({
+					reason: "form-context-value-not-csql",
+					path,
+					message:
+						"A form-field value is available during form submission, not while the remote case-search query runs.",
+				});
 			} else if (dialect === "csql" && expression.term.kind === "literal") {
 				checkCsqlLiteral(expression.term.value, path, issues);
 			}
 			return;
 		case "today":
 		case "now":
+			return;
+		case "id-of":
+		case "acting-user":
+		case "unowned":
+			issues.push({
+				reason: "form-context-value-not-csql",
+				path,
+				message:
+					expression.kind === "id-of"
+						? "A case-operation id is available during form submission, not while the remote case-search query runs."
+						: "An operation owner identity is available during form submission, not while the remote case-search query runs.",
+			});
 			return;
 		case "date-add":
 			if (
@@ -763,6 +789,9 @@ function checkRuntimeValue(
 						"term",
 						"today",
 						"now",
+						"id-of",
+						"acting-user",
+						"unowned",
 						"date-add",
 						"date-coerce",
 						"datetime-coerce",
@@ -859,6 +888,9 @@ function staticallyKnownOnDeviceString(
 		}
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "date-add":
 		case "date-coerce":
 		case "datetime-coerce":
@@ -941,6 +973,9 @@ function hasReachableStaticallyUnquotableOutput(
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "date-add":
 		case "date-coerce":
 		case "datetime-coerce":
@@ -996,6 +1031,9 @@ function isGuaranteedNonemptyString(expression: ValueExpression): boolean {
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "date-add":
 		case "date-coerce":
 		case "datetime-coerce":
@@ -1231,6 +1269,9 @@ function isGuaranteedTemporalValue(expression: ValueExpression): boolean {
 		case "arith":
 		case "concat":
 		case "count":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "unwrap-list":
 		case "format-date":
 			return false;
@@ -1430,6 +1471,9 @@ function collectPropertyScopesFromExpression(
 			return;
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-add":
 			collectPropertyScopesFromExpression(expression.date, out);

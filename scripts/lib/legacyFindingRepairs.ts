@@ -391,6 +391,70 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_PROPERTY_TOO_LONG: mechanical(
 		`truncate to the ${MAX_CASE_PROPERTY_LENGTH}-character cap — identifier surgery, deduplicated against siblings`,
 	),
+	// ── Dormant case-operation rules ────────────────────────────────
+	CASE_OPERATIONS_NOT_ACTIVE: owner(
+		"activation requires the atomic preview/runtime executor; deleting the authored operation program would change behavior",
+	),
+	CASE_OPERATION_DUPLICATE_UUID: owner(
+		"operation UUIDs are reference identity, and an ambiguous duplicate cannot be safely reminted and rewritten mechanically",
+	),
+	CASE_OPERATION_INVALID_ID: owner(
+		"the operation id is an authored wire identifier; sanitizing it can collide or change references, so the owner must choose the replacement",
+	),
+	CASE_OPERATION_DUPLICATE_ID: owner(
+		"which operation keeps the authored wire id is an authoring decision",
+	),
+	CASE_OPERATION_INVALID_FACETS: owner(
+		"choosing which contradictory operation facets to keep changes the submitted case effects",
+	),
+	CASE_OPERATION_UNKNOWN_CASE_TYPE: owner(
+		"choosing a declared case type or declaring a new one changes the operation's data target",
+	),
+	CASE_OPERATION_INVALID_CASE_TYPE: owner(
+		"renaming the operation's case type changes its data target and cross-operation type contract",
+	),
+	CASE_OPERATION_RESERVED_CASE_TYPE: owner(
+		"replacing a reserved case type changes the operation's data target",
+	),
+	CASE_OPERATION_UNKNOWN_PROPERTY: owner(
+		"choosing or declaring a replacement property changes where the operation stores its value",
+	),
+	CASE_OPERATION_RESERVED_PROPERTY: owner(
+		"renaming a reserved property changes where the operation stores its value",
+	),
+	CASE_OPERATION_EXPRESSION_TYPE: owner(
+		"rewriting an operation expression changes the value, condition, owner, or name it computes",
+	),
+	CASE_OPERATION_TARGET_INVALID: owner(
+		"choosing a different case target changes which case the operation mutates",
+	),
+	CASE_OPERATION_TARGET_TYPE_MISMATCH: owner(
+		"resolving the target-type mismatch requires changing either the case target or the operation's declared type",
+	),
+	CASE_OPERATION_REFERENCE_ORDER: owner(
+		"reordering operations or redirecting a forward reference changes effect dependencies",
+	),
+	CASE_OPERATION_EXECUTION_ORDER: owner(
+		"reordering case effects changes submission behavior",
+	),
+	CASE_OPERATION_REPEAT_INVALID: owner(
+		"choosing a valid repeat or removing iteration changes operation multiplicity",
+	),
+	CASE_OPERATION_REPEAT_CORRELATION: owner(
+		"changing the repeat ancestry or referenced create changes which repeated case each effect addresses",
+	),
+	CASE_OPERATION_AMBIGUOUS_REFERENCE: owner(
+		"resolving a singular operation's one-to-many create reference or repeated-field read requires choosing iteration/correlation or changing operation multiplicity",
+	),
+	CASE_OPERATION_SESSION_UNAVAILABLE: owner(
+		"the form has no selected session case; choosing another target or rewriting case-property and relationship reads changes which case data the operation uses",
+	),
+	CASE_OPERATION_LINK_INVALID: owner(
+		"repairing a link requires choosing its identifier, relationship, type, or target — all submitted case behavior",
+	),
+	CASE_OPERATION_RETYPE_UNSAFE: owner(
+		"making a retype safe requires a data-migration or operation-write decision that cannot be inferred from the document",
+	),
 	CASE_PROPERTY_ON_UNKNOWN_TYPE: owner(
 		"a field writes to a case type the catalog doesn't declare; auto-declaring it could resurrect a deliberately-retired type and clearing the field's target drops authored intent — the owner picks (a legacy snapshot can't reach this: the pre-P2 auto-mint left the type in the catalog)",
 	),

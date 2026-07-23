@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { asUuid } from "@/lib/doc/types";
 import {
+	actingUser,
 	ancestorPath,
 	count,
 	eq,
+	formField,
 	gt,
+	idOf,
 	input,
 	isNull,
 	literal,
@@ -16,6 +20,7 @@ import {
 	relationStep,
 	selfPath,
 	sessionUser,
+	unowned,
 } from "@/lib/domain/predicate";
 import {
 	formDisplayCondition,
@@ -80,6 +85,28 @@ function validateForm(
 	);
 }
 
+const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
+	string,
+	Predicate,
+])[] = [
+	[
+		"form field",
+		eq(
+			formField(asUuid("11111111-1111-4111-8111-111111111111")),
+			literal("value"),
+		),
+	],
+	[
+		"operation id",
+		eq(
+			idOf(asUuid("22222222-2222-4222-8222-222222222222")),
+			literal("case-id"),
+		),
+	],
+	["acting user", eq(actingUser(), literal("user-id"))],
+	["unowned owner", eq(unowned(), literal("-"))],
+];
+
 describe("module display-condition validation", () => {
 	it("allows user/session values and rejects case reads", () => {
 		expect(
@@ -99,6 +126,20 @@ describe("module display-condition validation", () => {
 		);
 		expect(validateModule(matchAll())).toEqual([]);
 	});
+});
+
+describe("case-operation-only display-condition values", () => {
+	it.each(CASE_OPERATION_ONLY_CONDITIONS)(
+		"rejects %s values on both modules and forms",
+		(_label, condition) => {
+			expect(validateModule(condition)).toContain(
+				"MODULE_DISPLAY_CONDITION_TYPE_ERROR",
+			);
+			expect(validateForm(condition)).toContain(
+				"FORM_DISPLAY_CONDITION_TYPE_ERROR",
+			);
+		},
+	);
 });
 
 describe("form display-condition validation", () => {

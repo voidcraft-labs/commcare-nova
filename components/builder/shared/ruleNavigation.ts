@@ -391,6 +391,9 @@ function locateExpression(
 
 	switch (value.kind) {
 		case "term":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "today":
 		case "now":
 			return undefined;
@@ -758,6 +761,9 @@ function replaceExpression(
 
 	switch (value.kind) {
 		case "term":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 		case "today":
 		case "now":
 			break;

@@ -21,6 +21,38 @@ slices and the current Postgres architecture.
 - Case-operation conditions, targets, and values are evaluated from one pre-submission
   snapshot before any effects are applied. Repeat correlation, operation ordering, target
   type checks, and retype behavior must be settled by the applicable slice before activation.
+- **S04 outcome:** operations use the rolling-compatible
+  `updateForm.caseOperationChange` extension rather than new top-level mutation
+  discriminators; multiple operations may intentionally target the same known case and run
+  in declared order. An authored create key may come from a singular field for a singular
+  create or from the exact repeat iteration of a repeated create; singular/cross-repeat
+  reuse is rejected. The key is not a raw CommCare id: S04's frozen shared helper derives
+  `nova-case-v1:<UUIDv5(app,form,operation,type)>:<exact-key>`, rejects empty/over-205
+  keys, and performs no normalization. Retries and duplicate values for one definition
+  intentionally merge; separate operations remain separate even when they reuse a field.
+  A repeated authored-key create cannot feed or potentially alias a later non-create under
+  the same repeated execution ancestor, because Core's iteration-major order and HQ's
+  per-case create sort would disagree; provably distinct targets and independent root
+  sibling repeats remain legal.
+  A keyed identity is type-stable. The order proof also rejects differently-typed runtime
+  aliases after a create/retype and permits repeated retype only for an exact correlated
+  generated-UUID create. That proof includes the final ordinary form actions: primary
+  property writes and child-case parent links require the session case to retain the
+  module type, while a write-free close action is type-agnostic. The proof retains
+  transition history, so a conditional restore cannot hide the non-restored branch.
+  The resulting identity remains an opaque CommCare string; S06 owns the full UUID
+  storage/FK/parser/ordering/path migration and audit before activation. Conditional create/retype facts
+  guard every later identity/type consumer. `acting-user` and `unowned` are explicit
+  owner-value leaves. Persisted values use directional storage compatibility across every
+  branch, not symmetric predicate comparison: multi-select arrays cannot flow through
+  scalar concat/coercion, null is not an implicit clear, and `concat` is the explicit
+  boolean-to-text boundary. `caseOperationText.ts` is the one evaluated-value contract
+  for create name, rename, and effective owner: remove Java-regex XML boundary
+  whitespace, preserve internal whitespace, require nonblank, and cap the normalized
+  result at 255 UTF-16 code units. S04's wire and S06's executor both consume it.
+  Retype planning distinguishes storage-atomic `safe` from
+  device-parity `wirePortable`; authored operations admit only exact-schema retypes with
+  no conversion or parking because CommCare changes `case_type` without reshaping values.
 - New AST arms and mutation kinds remain carrier-gated and rolling-deploy compatible until
   every validator, emitter, preview consumer, and persistence boundary is ready.
 
@@ -114,9 +146,9 @@ CaseOperation = {
                   target: CaseTarget | null, relationship: "child" | "extension" }>,
 }
 CaseTarget =
-  | { kind: "new", idFrom?: Uuid }  // create only. idFrom = a form-local, non-repeat field
-                                    //   whose value seeds @case_id (the saveToCase case_id
-                                    //   mechanism); absent ⇒ generated uuid.
+  | { kind: "new", idFrom?: Uuid }  // create only. idFrom = a form-local string key;
+                                    //   S04 namespaces app/form/op/type + exact value.
+                                    //   absent ⇒ generated uuid.
   | { kind: "op", opUuid: Uuid }    // an EARLIER (by sorted sequence) create op's case
   | { kind: "session" }             // case-first modules only, module's own type
   | { kind: "expression", expr: ValueExpression }
@@ -173,10 +205,13 @@ compiler is the authority, this list is the map.)
   the PR-02 registry snapshot's column `data_type`; on-device prints the relative child
   element path (`name` relative to the row node — matching the fixture body); SQL compiles
   to the row's JSONB value accessor. Without this arm those predicates would be unwritable.
-- `id-of` (ValueExpression): `{ opUuid }` — the case id of an earlier create op. **Legal
-  only in op expression slots** (owner/name/writes/links/condition of LATER ops). Field
-  expressions never carry it: to reference a created id from fields, author an `idFrom`
-  field — the id then lives in the form and ordinary field refs reach it.
+- `id-of` (ValueExpression): `{ opUuid }` — the concrete case id of an earlier create op.
+  **Legal only in non-target op expression slots** (owner/name/writes/condition of LATER
+  ops). A target or link-target expression rejects `id-of` anywhere in its tree; use the
+  first-class `{ kind: "op", opUuid }` target so a fresh case is not incorrectly filtered
+  through the immutable pre-submission casedb.
+  An `idFrom` field contains only the raw key, not this namespaced concrete identity, so
+  ordinary field references are never an alias for `id-of`.
 - `field` (Term): `{ uuid }` — a form field's live value. Legal ONLY in form-scoped
   predicate contexts (`options_source.filter`, op expressions); on-device: the field's
   path; Postgres: a bound parameter supplied at query time.
@@ -220,7 +255,9 @@ compiler is the authority, this list is the map.)
 
 - `opExpressionContext(doc, form)`: form context — `field` refs, `id-of` (earlier ops),
   case refs per the form's reachable types, session terms, `table-lookup`, owner
-  vocabulary; write values type-check against the destination property.
+  vocabulary; write values type-check directionally against every authoritative
+  destination-property storage type and every branch. Target/link expressions further
+  exclude `id-of` at any depth.
 - `tableScope(tableDef)`: `column` refs against the snapshot's columns; plus `field`
   (options filter only), session terms, literals.
 
@@ -268,11 +305,17 @@ All gating codes get `VALIDITY_CLASS_BY_CODE` rows + `legacyFindingRepairs` judg
   `external_id`/`category`/`state`); reserved case types (`commcare-user`,
   `commcare-case-claim`, `user-owner-mapping-case` — claim unlocks in wave 2); `target:
   session` requires case-first + module type; `target: op` earlier-create-of-same-type;
-  `retype` declared; ≤1 op per statically-known (caseType, target); `idFrom` form-local,
-  non-repeat; **a create op with `forEach` may not carry `idFrom`** (a non-repeat field
-  yields the SAME id every iteration, and create-of-existing merges — N intended cases
-  would silently collapse into one on both runtimes; per-iteration ids are always the
-  PR-03 bind-calculate `uuid()`); op `id` slug rules.
+  `retype` declared; `idFrom` form-local and singular with a singular create or located in
+  the exact `forEach` repeat. The same key repeated in one operation intentionally merges;
+  app/form/operation/type namespacing keeps peer operations distinct. Retype of a keyed
+  identity is forbidden; a different AST that may alias an earlier transitioned id is
+  rejected when its declared type differs, and repeated retype needs a correlated fresh
+  generated create. `idFrom` is scalar text/single-select/hidden-string only; multi-select
+  has no collision-free cross-runtime key serialization. Operation/retype/link target case
+  types use the identifier grammar and Core's 255-character cap; link identifiers use XML
+  grammar, per-operation uniqueness, and HQ's 255-character index-column cap. A retype
+  that would convert or park JSON values remains rejected even when destination-required
+  writes are present, because the device wire does neither. Op `id` slug rules.
 - Tables: `TABLE_REFERENCE_UNKNOWN` (§4); `options_source` column/type checks. **Gating
   boundary with PR-03 (total-emitter invariant):** this PR does NOT green-light
   table-bearing wire, and the gate is **new code, not existing behavior** — the existing

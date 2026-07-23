@@ -170,11 +170,17 @@ Three stages, single-semantics rule enforced by construction:
   **Resolution happens SERVER-SIDE inside the submission transaction**
   (`submitFormAction`): session-user/session-context terms fold from the persona BEFORE
   dispatch (literals in the descriptor); field refs and `id-of` resolve from the submitted
-  instance + the transaction's op-id allocations; `table-lookup` inside op expressions
+  instance + the transaction's op-id allocations. Multi-select form fields bind as Nova
+  string arrays and the SQL term compiler serializes/casts them explicitly to JSONB; the
+  scalar binding namespaces do not widen. `table-lookup` inside op expressions
   compiles inline via `compileExpression` within the same transaction (Postgres-resident
   data never round-trips to the client); `target` resolves there too (`new` → fresh uuid or
-  the `idFrom` value; `op` → the earlier op's allocated id; `session` → the loaded case id;
+  S04's shared `deriveAuthoredCaseId(app, form, operation, type, idFromKey)` result, with
+  empty/over-205 keys rejected before any write; `op` → the earlier op's allocated id;
+  `session` → the loaded case id;
   `expression` → evaluated in-transaction); `links` targets likewise (null = remove).
+  Target/link expressions never contain `id-of`; a fresh create is addressed only through
+  the typed `op` target and therefore never queried through the pre-submission snapshot.
 - **One transaction per submission**: a new store method
   `applySubmission(appId, effects[])` wraps EVERYTHING — primary case action, children,
   ops, link CRUD, closes — in a single Kysely transaction. The existing
@@ -182,27 +188,42 @@ Three stages, single-semantics rule enforced by construction:
   non-atomicity**; `schemaHealingCaseStore` retry semantics move to the transaction
   boundary (a retry re-runs the whole submission, which is now safe because nothing
   partial persisted).
+- Before writing, expand every repeated operation into the exact physical order and run
+  S04's `validateResolvedCaseOperationTypeSequence` over the server-authorized snapshot
+  descriptors. It keys rolling state by concrete opaque id, so session/expression/field
+  aliases and duplicate repeat values cannot bypass a prior retype; links validate before
+  the containing effect for both rolling type and self-link identity. Per-target authorization alone is insufficient. A
+  `nova-case-v1:` identity is type-stable and any attempted result-type change fails the
+  whole envelope, matching the XForm guard.
 - Effect application order = PR-01's canonical sequence, `sort-by-(order, uuid)` over the
   op collection (never array position — `moveCaseOperation` re-keys only `order`); per op:
-  create → `insert` (merge-on-existing when `idFrom` collides, mirroring
-  `acceptCreateOverwrites`) → writes (JSONB merge) → rename (`case_name` column) / retype
-  (`case_type` column) → close (`closed_on` last) → links.
+  create → `insert` (a derived-id retry/duplicate key for the same app/form/operation/type
+  intentionally merges; unrelated operations are namespace-separated) → writes (JSONB
+  merge) → rename (`case_name` column) / retype
+  (`case_type` column) → close (`closed_on` last) → links. The initially activatable retype
+  subset is S04's `wirePortable` plan only: exact retained JSON property types, no cast and
+  no parking. The richer pure plan remains future work until one wire representation can
+  make device and Nova projection agree; scalar row metadata such as `case_name` is never
+  part of the JSON conversion/parking plan.
 - **Link CRUD + real relationships**: store gains identifier-keyed index operations
   (upsert link, remove link on null target — the empty-target-removes rule); edge writes
   take `relationship` from the op/catalog instead of the current hardcoded `"child"`
   (`lib/case-store/postgres/store.ts` writes `relationship: "child"` on every
   `case_indices` edge today — fix for op links AND the existing subcase path, which
   ignores the catalog's `extension` declaration).
-- `id-of` resolution: the transaction records each create op's allocated id in submission
-  scope; `id-of(op)` in LATER OP EXPRESSIONS reads it (per PR-01, `id-of` is legal only in
-  op expression slots — field expressions reference the created id through the authored
-  `idFrom` field's own value instead).
+- `id-of` resolution: the transaction records each create op's allocated/derived concrete id in submission
+  scope; `id-of(op)` in later non-target op expressions reads it (per PR-01, an `idFrom`
+  field is only the raw key and is not an identity alias). Target/link identity uses the
+  first-class `op` target instead.
 - **Owner stamping — CREATE ops only** (mirroring PR-03's emission rule and PR-01's facet
   matrix): a create's `owner` result; absent → the persona's `id` when a persona is
   active, else the acting Nova user (today's `requireActorUserId()` behavior, which is
   insert-only). An UPDATE op writes `owner_id` only when `owner` is explicitly set
   (ownership transfer) — an absent owner on update touches nothing, exactly as the wire
   emits nothing (else every edit would silently reassign the case to the submitter).
+  Before DML, create name, rename, and every effective owner (including that default)
+  pass through S04's `prepareCaseOperationTextValue`; persist only its boundary-normalized
+  value and abort the whole envelope on blank/over-255, matching the XForm guard.
   `owner_id` remains a non-tenant axis — no read filters change in this PR.
 
 ### 4. Table-backed choices (`lib/preview` + PR-02's rows store)
@@ -235,7 +256,7 @@ Three stages, single-semantics rule enforced by construction:
 - Evaluator: fold matrix (every admitted arm × persona states, absent-key and absent-width
   semantics), residue batching (one action per render), single-semantics proof (no TS
   evaluation of any data-dependent comparison — assert the residue compiler receives them).
-- Ops: application matrix vs the canonical-order contract (create-merge on idFrom
+- Ops: application matrix vs the canonical-order contract (derived-id retry/duplicate-key
   collision, empty-link removal, close-with-writes ordering, forEach × repeat instances,
   id-of chains); **transaction rollback test** (a mid-submission failure persists
   nothing — including the previously-non-atomic followup/close shapes); relationship

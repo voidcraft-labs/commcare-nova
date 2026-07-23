@@ -552,6 +552,9 @@ function walkValueExpression(
 			return;
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-add":
 			walkValueExpression(expr.date, visitor, [...path, "date"]);

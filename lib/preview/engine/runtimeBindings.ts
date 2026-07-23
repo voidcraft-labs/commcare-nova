@@ -748,6 +748,9 @@ function substituteInputInExpression(
 			return substituteInputInTerm(expr.term, targetName, value);
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return expr;
 		case "date-add":
 			return {
@@ -959,6 +962,7 @@ function substituteInputInTerm(
 		case "prop":
 		case "session-user":
 		case "session-context":
+		case "field":
 		case "literal":
 			return { kind: "term", term: node };
 		default: {

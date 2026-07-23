@@ -283,17 +283,12 @@ export function newUuid(): Uuid {
 
 // ── Uuid input schema ───────────────────────────────────────────────
 //
-// `uuidSchema` (in `lib/domain/uuid.ts`) brands the parsed string as a
-// `Uuid` via `.transform(...)`. That transform makes the schema
-// unrepresentable in JSON Schema — `z.toJSONSchema(uuidSchema)` throws,
-// which means the SA tool surface (which lowers every input schema to
-// JSON Schema for the provider tool-input compiler) can't accept `uuidSchema`
-// directly as a top-level field.
-//
-// `uuidInputSchema` is the wire-shape version: a plain
-// `z.string().min(1)` that lowers cleanly to JSON Schema. Tool bodies
-// brand the parsed value with `asUuid(...)` before handing it to the
-// blueprintHelpers atomic builders.
+// Tool-addressing UUIDs deliberately stay plain strings at this wire boundary.
+// Tool bodies brand the parsed value with `asUuid(...)` before handing it to
+// the blueprintHelpers atomic builders. Keeping the provider input type
+// unbranded also makes that boundary's string-in / branded-domain transition
+// explicit even though the shared domain `uuidSchema` is itself now
+// transform-free and JSON-Schema-safe.
 //
 // Used by every atomic-op tool that addresses an existing column /
 // search input by uuid (`updateCaseListColumn`, `removeCaseListColumn`,

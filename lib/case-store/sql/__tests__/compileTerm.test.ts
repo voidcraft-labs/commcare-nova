@@ -13,7 +13,7 @@
 // The contract this test guards:
 //
 //   1. Each `Term` discriminator arm (`prop`, `input`,
-//      `session-user`, `session-context`, `literal`) emits the
+//      `session-user`, `session-context`, `field`, `literal`) emits the
 //      structurally correct Kysely expression — typed JSONB read
 //      for property references, parameter-bound runtime bindings
 //      for the three runtime-binding arms, and parameter-bound
@@ -34,7 +34,7 @@
 //      expression; the wider compiler — predicate or expression —
 //      drives the join).
 //   5. Runtime bindings for `input` / `session-user` /
-//      `session-context` resolve from the `bindings` map and
+//      `session-context` / form `field` resolve from the `bindings` map and
 //      throw a clear error when a referenced binding is missing.
 //   6. Tenant scope (`appId` / `ownerId`) is exposed on the context
 //      surface but not consumed by the term compiler itself —
@@ -57,11 +57,13 @@ import {
 	PostgresQueryCompiler,
 } from "kysely";
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	dateLiteral,
 	datetimeLiteral,
+	formField,
 	input,
 	literal,
 	prop,
@@ -548,6 +550,28 @@ describe("compileTerm — session-context", () => {
 	it("throws when the userid is absent from the bindings map", () => {
 		expect(() => compileTerm(sessionContext("userid"), makeCtx())).toThrow(
 			/userid/i,
+		);
+	});
+});
+
+describe("compileTerm — form field", () => {
+	const fieldUuid = asUuid("11111111-1111-4111-8111-111111111111");
+
+	it("resolves a submission answer from the formFields binding map", () => {
+		const compiled = compileTerm_(
+			compileTerm(
+				formField(fieldUuid),
+				makeCtx({
+					bindings: { formFields: new Map([[fieldUuid, "answer"]]) },
+				}),
+			),
+		);
+		expect(compiled.parameters).toContain("answer");
+	});
+
+	it("throws rather than treating a missing form answer as null", () => {
+		expect(() => compileTerm(formField(fieldUuid), makeCtx())).toThrow(
+			/form field.*11111111/i,
 		);
 	});
 });

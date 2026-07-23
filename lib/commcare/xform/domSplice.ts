@@ -1,6 +1,7 @@
 /**
- * Shared DOM-splice mechanics for the two build-time XForm post-processors:
- * `caseBlocks.ts::addCaseBlocks` and `metaBlock.ts::addMetaBlock`.
+ * Shared DOM-splice mechanics for the source XForm builder and the two
+ * build-time post-processors: `builder.ts`, `caseBlocks.ts::addCaseBlocks`,
+ * and `metaBlock.ts::addMetaBlock`.
  *
  * Both mirror one CCHQ server-side build step (`xform.py::add_case_and_meta`):
  * they take the clean XForm the expander emits, re-parse it, splice in the wire
@@ -8,8 +9,10 @@
  * OpenRosa `<meta>` block — and re-serialize. The HQ-upload source (the expander
  * output) carries NEITHER, because CCHQ regenerates both when it renders the app;
  * these post-processors run only on the local `.ccz` path, where there is no CCHQ
- * build step to do it. So the shared splicing contract lives here, in one place
- * both callers consume, rather than duplicated across the two.
+ * build step to do it. The source builder also uses the same pointer-safe
+ * append/prepend helpers when it places authored case-operation groups. The
+ * shared splicing contract therefore lives here rather than being duplicated
+ * across emitter and post-processors.
  *
  * The single invariant every helper upholds: every structural edit keeps the
  * `children` array AND the `prev`/`next` linked-list pointers in lockstep.
@@ -119,6 +122,21 @@ export function findModelElement(
 export function appendChildren(parent: Element, children: Element[]): void {
 	for (const child of children) child.parent = parent;
 	parent.children.push(...children);
+	relinkSiblings(parent.children);
+}
+
+/**
+ * Prepend each child element to the parent, preserving the supplied order and
+ * re-seating sibling pointers once after the splice.
+ *
+ * Case-operation emission uses this for the singular operation group at
+ * `/data`: JavaRosa processes submitted case blocks in document order, so the
+ * singular scope must precede every operation group nested in a repeat. Repeat
+ * groups still append to their exact template after its authored fields.
+ */
+export function prependChildren(parent: Element, children: Element[]): void {
+	for (const child of children) child.parent = parent;
+	parent.children.unshift(...children);
 	relinkSiblings(parent.children);
 }
 

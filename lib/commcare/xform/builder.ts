@@ -57,6 +57,10 @@ import {
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
+import {
+	attachCaseOperationData,
+	buildCaseOperations,
+} from "@/lib/commcare/xform/caseOps";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -599,6 +603,22 @@ export function buildXForm(
 		},
 		dataElements,
 	);
+
+	// Advanced case operations are authored source, shared by HQ upload and
+	// local CCZ compilation. Their data containers splice under `/data` or the
+	// exact referenced repeat template; their model binds/setvalues join the
+	// normal accumulation before instances are materialized.
+	const caseOperations = buildCaseOperations(
+		doc,
+		formUuid,
+		opts.moduleCaseType,
+	);
+	if (caseOperations !== null) {
+		attachCaseOperationData(dataEl, caseOperations.dataChildren);
+		binds.push(...caseOperations.binds);
+		setvalues.push(...caseOperations.setvalues);
+		for (const id of caseOperations.instances) instances.require(id);
+	}
 
 	const modelChildren: ChildNode[] = [
 		el("instance", {}, [dataEl]),

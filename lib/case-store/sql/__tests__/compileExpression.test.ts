@@ -36,8 +36,10 @@ import {
 	sql,
 } from "kysely";
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import type { CaseType } from "@/lib/domain";
 import {
+	actingUser,
 	ancestorPath,
 	arith,
 	coalesce,
@@ -49,7 +51,9 @@ import {
 	double,
 	eq,
 	formatDate,
+	formField,
 	gt,
+	idOf,
 	ifExpr,
 	literal,
 	now,
@@ -60,6 +64,7 @@ import {
 	switchExpr,
 	term,
 	today,
+	unowned,
 	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import type { ArithOp, DateAddInterval } from "@/lib/domain/predicate/types";
@@ -192,6 +197,23 @@ describe("compileExpression — term arm", () => {
 		);
 		expect(compiled.parameters).toContain("Alice");
 	});
+
+	it("binds a multi-select form answer as JSONB rather than a Postgres array", () => {
+		const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
+		const compiled = compileExpression_(
+			compileExpression(
+				term(formField(fieldUuid)),
+				makeCtx({
+					bindings: {
+						formFields: new Map([[fieldUuid, ["urgent", "review"]]]),
+					},
+				}),
+			),
+		);
+
+		expect(compiled.sql).toContain("as jsonb)");
+		expect(compiled.parameters).toContain('["urgent","review"]');
+	});
 });
 
 // ---------------------------------------------------------------
@@ -220,6 +242,53 @@ describe("compileExpression — today / now constants", () => {
 	it("emits NOW() for `now`", () => {
 		const compiled = compileExpression_(compileExpression(now(), makeCtx()));
 		expect(compiled.sql.toLowerCase()).toContain("now()");
+	});
+});
+
+describe("compileExpression — case-operation owner values", () => {
+	it("binds the server-resolved acting user identity", () => {
+		const compiled = compileExpression_(
+			compileExpression(
+				actingUser(),
+				makeCtx({ bindings: { actingUserId: "user-123" } }),
+			),
+		);
+		expect(compiled.parameters).toContain("user-123");
+	});
+
+	it("fails closed when the acting user identity was not resolved", () => {
+		expect(() => compileExpression(actingUser(), makeCtx())).toThrow(
+			/missing binding for the acting user id/i,
+		);
+	});
+
+	it("binds CommCare's explicit unowned sentinel", () => {
+		const compiled = compileExpression_(
+			compileExpression(unowned(), makeCtx()),
+		);
+		expect(compiled.parameters).toContain("-");
+	});
+});
+
+describe("compileExpression — case-operation id", () => {
+	const operationUuid = asUuid("11111111-1111-4111-8111-111111111111");
+
+	it("resolves an earlier create id from the operationIds binding map", () => {
+		const compiled = compileExpression_(
+			compileExpression(
+				idOf(operationUuid),
+				makeCtx({
+					bindings: { operationIds: new Map([[operationUuid, "case-1"]]) },
+				}),
+			),
+		);
+		expect(compiled.parameters).toContain("case-1");
+	});
+
+	it("throws rather than treating an unavailable create id as null", () => {
+		expect(() => compileExpression(idOf(operationUuid), makeCtx())).toThrow(
+			/case-operation id.*11111111/i,
+		);
 	});
 });
 
