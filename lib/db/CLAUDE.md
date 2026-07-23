@@ -54,8 +54,9 @@ scan script's fold check is the tripwire.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
-(delivered on commit, after the rows are visible); presence writes poke
-`nova_presence`; chat chunk-log appends poke `nova_chat_stream`; lookup writers
+(delivered on commit, after the rows are visible); presence reauthorizes against
+the app row + exact membership and writes/sweeps/deletes + pokes
+`nova_presence` in that same transaction; chat chunk-log appends poke `nova_chat_stream`; lookup writers
 poke `nova_lookup_stream` with an exact decimal Project revision. Payloads are
 pokes only — the relay (`app/api/apps/[id]/stream`) and the chat-resume
 endpoint SELECT durable state from their cursor/scope, so a missed notification

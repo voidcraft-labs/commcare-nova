@@ -12,10 +12,10 @@
 //     from the Project tenant filter); `compileRelationPath` adds the
 //     JOIN-side `project_id` filter on every joined `cases` row.
 //     The two halves make cross-Project reads structurally impossible.
-//     The caller MUST resolve the Project + verify the actor's
-//     membership (`resolveAppScope`) before binding it — the bound
-//     Project is the trust boundary the client-supplied `appId` no
-//     longer is.
+//     The caller resolves Project + membership before binding for reads. Every
+//     actor write additionally re-proves fresh edit access and exact Project
+//     placement inside its own case transaction; the up-front result is never
+//     write authority.
 //   - `withSchemaContext()` — the tenant-FREE store for schema-only
 //     callers (the cross-store saga, the chat-completion materialize,
 //     the point-of-use heal). It can run `applySchemaChange` /
@@ -33,6 +33,7 @@
 // directly with an isolated per-test `Kysely<Database>` instance from
 // `lib/case-store/sql/__tests__/perTestDatabase.ts`.
 
+import { authorizeCaseMutationInTransaction } from "@/lib/db/caseMutationAuthorization";
 import { getCaseStoreDatabase } from "./postgres/connection";
 import { PostgresCaseStore } from "./postgres/store";
 import { HeuristicCaseGenerator } from "./sample/heuristic";
@@ -55,6 +56,7 @@ export async function withProjectContext(
 		actorUserId,
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
+		authorizeMutation: authorizeCaseMutationInTransaction,
 	});
 }
 

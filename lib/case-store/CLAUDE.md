@@ -69,6 +69,17 @@ automatically. The compiler stack (`./sql/`) handles the JOIN-side
 outer-scan filter on every method. The two halves combine to make
 cross-Project reads structurally impossible.
 
+The request gate is only a read optimization, never a write authority. Every
+actor mutation reauthorizes inside its own case transaction in this lock order:
+`apps FOR SHARE` → shared membership gate + exact membership row → relationship
+advisory lock → all involved `case_type_schemas` rows in sorted order → case
+rows. The transaction rejects a store whose bound Project no longer matches
+the freshly locked app. `update` first discovers immutable `case_type`, then
+takes the schema lock and re-reads the row `FOR UPDATE`; registration locks all
+primary/child schemas before its first insert. Restore, dismiss, replace,
+close, populate, and reset use the same fence. Parked-value replace updates the
+case and archives the review entry in one transaction.
+
 `owner_id` is the **CommCare case-owner** — a SEPARATE axis written
 on every insert (the acting user today), reserved for future
 location-/group-based access carving. It is never a tenant filter and

@@ -10,43 +10,24 @@
  *     removes only its own session.
  *   - Each POST opportunistically sweeps the app's expired rows (bounds the
  *     table; the roster read already filters expired rows).
- *   - Both verbs gate on `resolveAppScope` (a denial 404s, IDOR-safe); a
- *     malformed body / non-UUID sessionId 400s.
+ *   - Both verbs reauthorize in the same transaction as the row mutation and
+ *     notification (a denial 404s, IDOR-safe); malformed input 400s.
  *
- * `requireSession` / `resolveAppScope` are mocked; the `presence` writes hit the
- * per-test Postgres directly (the `presence` table has no FK to `apps`, so no
- * app row is seeded). Runs on the per-test-database harness booted by the
- * case-store testcontainer `globalSetup`.
+ * Only `requireSession` is mocked. Apps, memberships, presence writes, and the
+ * shared membership gate all hit the per-test Postgres directly.
  */
 
 import type { Kysely } from "kysely";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
-import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import {
-	createPerTestAppDb,
-	type PerTestAppDb,
-} from "@/lib/db/__tests__/perTestAppDb";
-import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import type { AppDatabase } from "@/lib/db/pg";
 
-const { requireSessionMock, resolveAppScopeMock } = vi.hoisted(() => ({
+const { requireSessionMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
-	resolveAppScopeMock: vi.fn(),
 }));
-
-class MockAppAccessError extends Error {
-	readonly name = "AppAccessError";
-	constructor(readonly reason?: string) {
-		super(reason);
-	}
-}
 
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
-}));
-vi.mock("@/lib/db/appAccess", () => ({
-	resolveAppScope: resolveAppScopeMock,
-	AppAccessError: MockAppAccessError,
 }));
 
 const { POST, DELETE } = await import("../route");
@@ -58,19 +39,19 @@ const SESS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const USER = "user-1";
 const PROJECT = "project-1";
 
-const dbHandle = setupPerTestDatabase({
-	databaseNamePrefix: "presence_route_",
-});
+const h = setupAppStateTestDb("presence_route_");
 
 let appDb: Kysely<AppDatabase>;
-let harness: PerTestAppDb;
 
 function sessionFor(userId: string) {
 	return { user: { id: userId } } as never;
 }
 
-function freshAppId(): string {
-	return `presence-${crypto.randomUUID()}`;
+async function freshAppId(): Promise<string> {
+	const appId = `presence-${crypto.randomUUID()}`;
+	await h.seedApp({ id: appId, owner: USER, project_id: PROJECT });
+	await h.seedProjectMember(USER, PROJECT, "editor");
+	return appId;
 }
 
 function postReq(appId: string, body: unknown): Request {
@@ -126,29 +107,14 @@ async function readPresence(appId: string, userId: string, sessionId: string) {
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
-	harness = createPerTestAppDb(dbHandle.uri);
-	appDb = harness.appDb;
-	__setAppDbForTests(appDb);
-
+	appDb = h.db();
 	requireSessionMock.mockReset();
-	resolveAppScopeMock.mockReset();
 	requireSessionMock.mockResolvedValue(sessionFor(USER));
-	resolveAppScopeMock.mockResolvedValue({
-		projectId: PROJECT,
-		role: "editor",
-		actorUserId: USER,
-	});
-});
-
-afterEach(async () => {
-	__setAppDbForTests(null);
-	await harness.destroy();
 });
 
 describe("/presence route (Postgres)", () => {
 	it("POST upserts a row keyed (app_id,user_id,session_id) with a server-stamped userId", async () => {
-		const appId = freshAppId();
+		const appId = await freshAppId();
 		const status = await call(
 			POST,
 			postReq(appId, {
@@ -173,7 +139,7 @@ describe("/presence route (Postgres)", () => {
 	});
 
 	it("POST stamps avatar + email from the SESSION, never the body (a client can't wear someone else's identity)", async () => {
-		const appId = freshAppId();
+		const appId = await freshAppId();
 		requireSessionMock.mockResolvedValue({
 			user: {
 				id: USER,
@@ -201,7 +167,7 @@ describe("/presence route (Postgres)", () => {
 	});
 
 	it("re-POST of the same session upserts in place (no duplicate row)", async () => {
-		const appId = freshAppId();
+		const appId = await freshAppId();
 		const base = { name: "Ada", color: "#abcdef", location: { kind: "home" } };
 		await call(POST, postReq(appId, { ...base, sessionId: SESS_A }), appId);
 		await call(
@@ -220,7 +186,7 @@ describe("/presence route (Postgres)", () => {
 	});
 
 	it("keeps two tabs' sessions distinct; DELETE removes only the named session", async () => {
-		const appId = freshAppId();
+		const appId = await freshAppId();
 		const base = { name: "Ada", color: "#abcdef", location: { kind: "home" } };
 		await call(POST, postReq(appId, { ...base, sessionId: SESS_A }), appId);
 		await call(POST, postReq(appId, { ...base, sessionId: SESS_B }), appId);
@@ -232,7 +198,7 @@ describe("/presence route (Postgres)", () => {
 	});
 
 	it("sweeps the app's expired rows on a POST (bounds the table)", async () => {
-		const appId = freshAppId();
+		const appId = await freshAppId();
 		// A dead session whose TTL already lapsed.
 		await appDb
 			.insertInto("presence")
@@ -272,8 +238,13 @@ describe("/presence route (Postgres)", () => {
 	});
 
 	it("POST 404s when scope resolution denies (IDOR-safe)", async () => {
-		const appId = freshAppId();
-		resolveAppScopeMock.mockRejectedValue(new MockAppAccessError("not_member"));
+		const appId = await freshAppId();
+		await h
+			.pool()
+			.query(
+				'DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2',
+				[USER, PROJECT],
+			);
 
 		const status = await call(
 			POST,
@@ -289,7 +260,7 @@ describe("/presence route (Postgres)", () => {
 	});
 
 	it("POST 400s on a malformed body (unknown key / bad location)", async () => {
-		const appId = freshAppId();
+		const appId = await freshAppId();
 		const status = await call(
 			POST,
 			postReq(appId, {
@@ -304,7 +275,7 @@ describe("/presence route (Postgres)", () => {
 	});
 
 	it("POST 400s a non-UUID sessionId (the per-tab key is shape-pinned)", async () => {
-		const appId = freshAppId();
+		const appId = await freshAppId();
 		const status = await call(
 			POST,
 			postReq(appId, {

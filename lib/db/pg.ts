@@ -594,11 +594,13 @@ export async function notifyLookupProject(
 	);
 }
 
-/** Poke the presence channel (plain connection — presence writes aren't transactional). */
-export async function notifyPresence(appId: string): Promise<void> {
-	const db = await getAppDb();
+/** Poke presence subscribers from INSIDE the presence mutation transaction. */
+export async function notifyPresence(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
 	await sql`SELECT pg_notify(${PRESENCE_CHANNEL}, ${JSON.stringify({ appId })})`.execute(
-		db,
+		tx,
 	);
 }
 
