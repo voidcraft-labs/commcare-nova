@@ -1703,7 +1703,7 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a in progress (foundation checkpoint `fe0a7027`); S05b blocked
+**Status:** S05a in progress (foundation checkpoint `7f5737d9`); S05b blocked
 on S05a; S05c blocked on S05b and a fresh owner decision between maintenance
 and additional rollout machinery.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
@@ -1879,8 +1879,9 @@ Implementation remains split into independently reviewed units:
 
 #### S05a execution checkpoint — 2026-07-23
 
-Commit `fe0a7027` on `agent/s05a-lookup-carriers` is a verified internal
-foundation, not a merge-ready S05a result. It now owns:
+Commits `fe0a7027` through `7f5737d9` on `agent/s05a-lookup-carriers`
+are a verified internal foundation, not a merge-ready S05a result. They now
+own:
 
 - the three dormant domain carriers and their stable table/column identities;
 - required inline select fallbacks plus the rolling-compatible top-level
@@ -1888,14 +1889,19 @@ foundation, not a merge-ready S05a result. It now owns:
 - carrier-aware predicate walks, simplification, relation normalization,
   reference-slot traversal, type resolution, nested-lookup rejection, and the
   `is-null` versus `is-blank` table-column distinction;
+- JSON-Schema-representable UUIDv7 normalization for the lookup identities now
+  embedded in the recursive Predicate and ValueExpression definitions;
 - carrier-blind builder field-add inputs and non-authorable generic expression
-  fallbacks; and
+  fallbacks, including inline-only duplication of a receiver-preserved select;
+  and
 - deliberate rejection or incompatibility results at the existing preview,
   case-store SQL, on-device XPath, CSQL, suite, and instance boundaries.
 
-The checkpoint passes TypeScript plus a 12-file, 310-test focused matrix
-covering carrier schemas, mutation compatibility, reference-index totality and
-fuzz, case-type retirement, AST transforms, and builder round trips.
+The checkpoint passes TypeScript plus a 12-file, 310-test core matrix covering
+carrier schemas, mutation compatibility, reference-index totality and fuzz,
+case-type retirement, AST transforms, and builder round trips. Follow-up
+targeted suites cover JSON-schema generation, carrier-blind duplication,
+diagnostic paths, and the direct XForm and preview rejection boundaries.
 
 The following work remains in S05a and must land before a PR is called
 merge-ready:
@@ -1905,12 +1911,18 @@ merge-ready:
    receiver to v2 (database floors and feature flags stay zero/off);
 2. add explicit dormant commit and mode-aware export findings so structurally
    valid carriers remain uncommittable and all three export modes remain closed;
+   the commit-finding identity must include a canonical carrier fingerprint so
+   set/replace/filter edits cannot hide behind an already-present carrier while
+   unrelated edits beside historical carriers still pass;
 3. thread the rows-free lookup type index through validation, implement the
    select-filter and containing-slot term policies (including earlier-field and
    repeat ancestry), avoid duplicate structural/type diagnostics, and join
-   option-filter field reads to the validation dependency-cycle graph;
-4. keep SA and MCP schemas, generated model vocabulary, read-tool projections,
-   and generic builder controls carrier-blind, with boundary regression tests;
+   option-filter field reads to a validation-only dependency-cycle graph that
+   also covers the existing `default_value` slot without activating preview
+   evaluation;
+4. keep SA and MCP recursive input schemas, generated model vocabulary,
+   read-tool projections, and generic builder controls carrier-blind at every
+   nesting depth, with runtime-rejection and generated-grammar regression tests;
 5. extend the frozen-receiver, raw-SSE, JSONB/hydration/log, authoritative-writer
    race, removal, and export short-circuit test matrices using real carriers;
    then run independent review, CI, and the normal merge/deploy verification.
