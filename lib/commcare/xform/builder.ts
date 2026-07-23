@@ -54,12 +54,24 @@ import {
 	type FormHashtagContext,
 	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
+import {
+	LOOKUP_FIXTURE_ID_PREFIX,
+	type LookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
+import {
+	collectPredicateInstances,
+	emitCaseListFilter,
+	instanceSourceFor,
+} from "@/lib/commcare/predicate";
 import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
 import {
 	attachCaseOperationData,
+	bindLookupFilterFieldPaths,
 	buildCaseOperations,
+	collectFieldLocations,
+	type FieldLocation,
 } from "@/lib/commcare/xform/caseOps";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
@@ -73,6 +85,8 @@ import type {
 	SelectOption,
 	Uuid,
 } from "@/lib/domain";
+import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
+import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 
 /**
  * Bare-hashtag matcher for label / hint prose. The pattern is shared with the
@@ -197,6 +211,8 @@ const INSTANCE_SOURCES: Record<InstanceId, string> = {
 
 class InstanceTracker {
 	private ids = new Set<InstanceId>();
+	/** Lookup-fixture declarations, id → `jr://fixture/...` src. */
+	private fixtures = new Map<string, string>();
 
 	/**
 	 * `caseTypeNames` is the form's reachable case-type namespaces (the keys of
@@ -211,6 +227,11 @@ class InstanceTracker {
 	require(id: InstanceId): void {
 		this.ids.add(id);
 		if (id === "casedb") this.ids.add("commcaresession");
+	}
+
+	/** Declare a lookup-fixture instance (`item-list:<tag>`). Idempotent. */
+	requireFixture(id: string, src: string): void {
+		this.fixtures.set(id, src);
 	}
 
 	/** Scan a pre-expansion XPath expression for instance references. */
@@ -244,11 +265,17 @@ class InstanceTracker {
 		return false;
 	}
 
-	/** The `<instance>` elements for every accumulated id, in canonical order. */
+	/** The `<instance>` elements for every accumulated id, in canonical order:
+	 *  casedb, commcaresession, then lookup fixtures sorted by id. */
 	toElements(): Element[] {
-		return (["casedb", "commcaresession"] as const)
-			.filter((id) => this.ids.has(id))
-			.map((id) => el("instance", { src: INSTANCE_SOURCES[id], id }));
+		return [
+			...(["casedb", "commcaresession"] as const)
+				.filter((id) => this.ids.has(id))
+				.map((id) => el("instance", { src: INSTANCE_SOURCES[id], id })),
+			...[...this.fixtures]
+				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+				.map(([id, src]) => el("instance", { src, id })),
+		];
 	}
 }
 
@@ -417,6 +444,14 @@ export interface BuildXFormOptions {
 	 * media references — structurally valid, just media-free.
 	 */
 	assets?: AssetManifest;
+	/**
+	 * Lookup wire vocabulary for this emission run, derived from the exact
+	 * validated definitions snapshot. Present only on the local-CCZ path —
+	 * the sole path allowed to lower lookup carriers. When `undefined`, a
+	 * carrier reaching an emitter throws, because every non-CCZ surface
+	 * rejects carriers before emission.
+	 */
+	lookupNaming?: LookupWireNaming;
 }
 
 /**
@@ -447,6 +482,7 @@ export function buildXForm(
 	const caseTypeNames: ReadonlySet<string> = new Set(caseTypeDepths.keys());
 
 	const instances = new InstanceTracker(caseTypeNames);
+	const lookupSelects = deriveLookupSelectKit(doc, formUuid, opts.lookupNaming);
 	const dataElements: Element[] = [];
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
@@ -575,6 +611,7 @@ export function buildXForm(
 			expand,
 			shorthand,
 			opts.assets,
+			lookupSelects,
 		);
 	}
 
@@ -612,12 +649,16 @@ export function buildXForm(
 		doc,
 		formUuid,
 		opts.moduleCaseType,
+		opts.lookupNaming,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
 		binds.push(...caseOperations.binds);
 		setvalues.push(...caseOperations.setvalues);
 		for (const id of caseOperations.instances) instances.require(id);
+		for (const [id, src] of caseOperations.fixtureInstances) {
+			instances.requireFixture(id, src);
+		}
 	}
 
 	const modelChildren: ChildNode[] = [
@@ -804,14 +845,17 @@ function buildFieldParts(
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
+	lookupSelects: LookupSelectEmissionKit | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
-	if (
+	const lookupSource =
 		(field.kind === "single_select" || field.kind === "multi_select") &&
 		field.optionsSource !== undefined
-	) {
+			? field.optionsSource
+			: undefined;
+	if (lookupSource !== undefined && lookupSelects === undefined) {
 		throw new Error(
-			"buildXForm: lookup-backed select options are dormant until itemset emission lands; validation should reject them before XForm emission.",
+			"buildXForm: a lookup-backed select reached XForm emission with no lookup wire naming. The local-CCZ compile boundary supplies naming; every other surface should reject lookup carriers before emission.",
 		);
 	}
 	const nodePath = parentPath.child(field.id);
@@ -997,7 +1041,11 @@ function buildFieldParts(
 	// value-uniqueness check). So the collision lived purely in the itext
 	// layer; an index key makes the id unique by construction. The `<item>`
 	// emission below uses the identical scheme so no `<label ref>` dangles.
-	const options = readOptions(field);
+	// A lookup-backed select emits one <itemset> instead of inline <item>s,
+	// so its authored inline fallback registers no option itext (an entry
+	// with no referencing <item> would be dead weight; the fallback stays
+	// authored-only until an older receiver renders it).
+	const options = lookupSource !== undefined ? undefined : readOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
 			// Force-register every option's `-label` entry: each `<item>`
@@ -1038,6 +1086,7 @@ function buildFieldParts(
 			expand,
 			shorthand,
 			assets,
+			lookupSelects,
 		);
 		return;
 	}
@@ -1046,8 +1095,110 @@ function buildFieldParts(
 	// itext id, plus an optional `<hint>` and `<help>` (each emitted when its
 	// text or media slot is present). The control element + any kind-specific
 	// attributes are decided by `buildLeafControl`.
+	const itemset =
+		lookupSource !== undefined && lookupSelects !== undefined
+			? buildLookupItemset(lookupSource, lookupSelects, nodePath, instances)
+			: undefined;
 	bodyElements.push(
-		buildLeafControl(field, nodePath, itextKey, hasHint, hasHelp),
+		buildLeafControl(field, nodePath, itextKey, hasHint, hasHelp, itemset),
+	);
+}
+
+/**
+ * Everything the itemset path needs from one emission run: the validated
+ * lookup naming plus the form-wide field-path bindings for filter
+ * references. Built once per form in `buildXForm`, only on the local-CCZ
+ * path.
+ */
+interface LookupSelectEmissionKit {
+	readonly naming: LookupWireNaming;
+	readonly filterFieldPaths: (
+		questionPath: FormPath,
+	) => ReadonlyMap<Uuid, string>;
+}
+
+/** The kit exists exactly when naming does; the field-location walk is
+ *  deferred and cached so carrier-free forms never pay for it. */
+function deriveLookupSelectKit(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	naming: LookupWireNaming | undefined,
+): LookupSelectEmissionKit | undefined {
+	if (naming === undefined) return undefined;
+	let fieldLocations: ReadonlyMap<Uuid, FieldLocation> | undefined;
+	return {
+		naming,
+		filterFieldPaths: (questionPath) => {
+			fieldLocations ??= collectFieldLocations(doc, formUuid);
+			return bindLookupFilterFieldPaths(fieldLocations, questionPath);
+		},
+	};
+}
+
+/**
+ * Build the `<itemset>` for a lookup-backed select and register its
+ * instance requirements.
+ *
+ * The nodeset iterates the embedded fixture's rows; `<label ref>` and
+ * `<value ref>` name the label/value columns' current wire names as
+ * row-relative steps. The filter predicate evaluates with the fixture row
+ * as context and `current()` bound to the question node, so form answers
+ * correlate through the shared field-path bindings; no case context exists
+ * on the search screen, so the case anchor is unaddressable and any case
+ * read (already validator-rejected) throws rather than emitting garbage.
+ */
+function buildLookupItemset(
+	source: LookupOptionsSource,
+	lookupSelects: LookupSelectEmissionKit,
+	nodePath: FormPath,
+	instances: InstanceTracker,
+): Element {
+	const table = lookupSelects.naming.tableFor(source.tableId);
+	instances.requireFixture(
+		table.instanceId,
+		instanceSourceFor(table.instanceId),
+	);
+	let filterText = "";
+	if (source.filter !== undefined) {
+		const filter = simplifyForEmission(source.filter);
+		if (!isMatchAll(filter)) {
+			filterText = `[${emitCaseListFilter(
+				filter,
+				"casedb",
+				{},
+				{ kind: "unaddressable" },
+				{
+					formFields: lookupSelects.filterFieldPaths(nodePath),
+					lookup: {
+						naming: lookupSelects.naming,
+						rowScope: {
+							tableId: source.tableId,
+							caseAnchor: { kind: "unaddressable" },
+						},
+					},
+				},
+			)}]`;
+			for (const id of collectPredicateInstances(
+				filter,
+				lookupSelects.naming,
+			)) {
+				if (id === "casedb" || id === "commcaresession") {
+					instances.require(id);
+				} else if (id.startsWith(LOOKUP_FIXTURE_ID_PREFIX)) {
+					instances.requireFixture(id, instanceSourceFor(id));
+				}
+			}
+		}
+	}
+	return el(
+		"itemset",
+		{
+			nodeset: `instance('${table.instanceId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
+		},
+		[
+			el("label", { ref: table.wireNameFor(source.labelColumnId) }),
+			el("value", { ref: table.wireNameFor(source.valueColumnId) }),
+		],
 	);
 }
 
@@ -1068,6 +1219,7 @@ function buildLeafControl(
 	itextKey: string,
 	hasHint: boolean,
 	hasHelp: boolean,
+	itemset?: Element,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
 	// hint and help references (in XForm body order: label → hint → help). A
@@ -1082,10 +1234,16 @@ function buildLeafControl(
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
-		// Each `<item>`'s `<label ref>` references the same per-INDEX itext id
-		// registered by the caller (`-opt${index}-label`), so duplicate option
-		// values never collide. The `<value>` emits `opt.value` verbatim — the
-		// serializer escapes it; JavaRosa permits duplicate `<value>`s.
+		// A lookup-backed select carries exactly one <itemset> and zero inline
+		// <item>s (JavaRosa rejects a select mixing both); its inline fallback
+		// options stay authored-only. Otherwise each `<item>`'s `<label ref>`
+		// references the same per-INDEX itext id registered by the caller
+		// (`-opt${index}-label`), so duplicate option values never collide. The
+		// `<value>` emits `opt.value` verbatim — the serializer escapes it;
+		// JavaRosa permits duplicate `<value>`s.
+		if (itemset !== undefined) {
+			return el(tag, { ref }, [...head, itemset]);
+		}
 		const options = readOptions(field) ?? [];
 		const items = options.map((opt, index) =>
 			el("item", {}, [
@@ -1171,6 +1329,7 @@ function buildContainer(
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
+	lookupSelects: LookupSelectEmissionKit | undefined,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -1217,6 +1376,7 @@ function buildContainer(
 			expand,
 			shorthand,
 			assets,
+			lookupSelects,
 		);
 	}
 

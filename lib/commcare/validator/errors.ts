@@ -154,6 +154,8 @@ export type ValidationErrorCode =
 	| "XFORM_NON_PATH_CONTROL_REF"
 	| "XFORM_SELECT_NO_ITEMS"
 	| "XFORM_SELECT_ITEMS_AND_ITEMSET"
+	| "XFORM_ITEMSET_INVALID"
+	| "SUITE_FIXTURE_INVALID"
 	| "XFORM_ITEM_INCOMPLETE"
 	| "XFORM_SETVALUE_NO_TARGET"
 	| "XFORM_INVALID_SETVALUE"
@@ -297,6 +299,15 @@ export type ValidationErrorCode =
 	// export boundary.
 	| "LOOKUP_CARRIER_COMMIT_NOT_ACTIVE"
 	| "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
+	// Row-dependent lookup findings, produced only by the ccz export
+	// boundary: rows live outside the document, so these are functions of
+	// current Project data, not of any commit.
+	| "LOOKUP_SELECT_SOURCE_VALUE_BLANK"
+	| "LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE"
+	| "LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE"
+	| "LOOKUP_SELECT_SOURCE_LABEL_BLANK"
+	// Aggregate embedded-fixture budget across every referenced table.
+	| "LOOKUP_FIXTURE_EXPORT_TOO_LARGE"
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
 	// memory at once, so the total count + bytes are bounded before any

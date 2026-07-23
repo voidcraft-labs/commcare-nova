@@ -78,6 +78,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
@@ -169,6 +170,7 @@ export function buildShortDetail(args: {
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
 	readonly assets?: AssetManifest;
+	readonly lookupNaming?: LookupWireNaming;
 }): { readonly element: Element; readonly strings: Record<string, string> } {
 	const { module: mod, moduleIndex, doc } = args;
 	const target: DetailTarget = args.target ?? "case";
@@ -197,6 +199,7 @@ export function buildShortDetail(args: {
 				searchAction,
 				moduleIndex,
 				relationContext,
+				args.lookupNaming,
 			),
 			strings: {},
 		};
@@ -208,13 +211,14 @@ export function buildShortDetail(args: {
 			?.properties ?? [];
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
-		sortByUuid: buildSortDirectives(mod, doc),
+		sortByUuid: buildSortDirectives(mod, doc, args.lookupNaming),
 		detailKind: "short",
 		target,
 		caseProperties,
 		caseTypes: relationContext.caseTypes,
 		currentCaseType: mod.caseType,
 		...(args.assets && { assets: args.assets }),
+		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
 	};
 
 	const fields: Element[] = [];
@@ -252,6 +256,7 @@ export function buildShortDetail(args: {
 			searchAction,
 			moduleIndex,
 			relationContext,
+			args.lookupNaming,
 		),
 		strings,
 	};
@@ -293,6 +298,7 @@ function buildDetailShell(
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
 		readonly currentCaseType?: string;
 	},
+	lookupNaming?: LookupWireNaming,
 ): Element {
 	const titleEl = el("title", {}, [
 		el("text", {}, [el("locale", { id: "cchq.case" })]),
@@ -300,7 +306,12 @@ function buildDetailShell(
 	const children: Element[] = [titleEl, ...fields];
 	if (searchAction !== undefined) {
 		children.push(
-			buildSearchActionBlock(searchAction, moduleIndex, relationContext),
+			buildSearchActionBlock(
+				searchAction,
+				moduleIndex,
+				relationContext,
+				lookupNaming,
+			),
 		);
 	}
 	return el("detail", { id: detailId }, children);
@@ -341,6 +352,7 @@ function buildSearchActionBlock(
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
 		readonly currentCaseType?: string;
 	},
+	lookupNaming?: LookupWireNaming,
 ): Element {
 	const moduleId = `m${moduleIndex}`;
 	const autoLaunchExpr = searchAction.autoLaunch
@@ -364,6 +376,8 @@ function buildSearchActionBlock(
 			simplifyForEmission(searchAction.displayCondition),
 			undefined,
 			relationContext,
+			undefined,
+			lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
 		);
 	}
 

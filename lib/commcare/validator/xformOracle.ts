@@ -451,8 +451,49 @@ function checkControls(
 			const items = directChildElementsNamed(ctrl, "item");
 			const itemsets = directChildElementsNamed(ctrl, "itemset");
 
+			// Itemset structural contract (parseItemset): `nodeset` must be
+			// present and parse as a path (predicates allowed in the nodeset
+			// only), `<label ref>` and `<value ref>` are required, and the
+			// value ref is a predicate-free path. Lookup-backed selects are
+			// the one Nova producer of this shape.
+			for (const itemset of itemsets) {
+				const nodeset = itemset.attribs.nodeset;
+				const problems: string[] = [];
+				if (nodeset === undefined || nodeset === "") {
+					problems.push("is missing its nodeset attribute");
+				} else if (!isPathExpression(nodeset)) {
+					problems.push(
+						`has a nodeset that is not a path expression ("${nodeset}")`,
+					);
+				}
+				const labelRef = directChildElementsNamed(itemset, "label")[0]?.attribs
+					.ref;
+				const valueRef = directChildElementsNamed(itemset, "value")[0]?.attribs
+					.ref;
+				if (labelRef === undefined || labelRef === "") {
+					problems.push("is missing its <label ref>");
+				}
+				if (valueRef === undefined || valueRef === "") {
+					problems.push("is missing its <value ref>");
+				} else if (!isPathExpression(valueRef) || valueRef.includes("[")) {
+					problems.push(
+						`has a <value ref> that is not a predicate-free path ("${valueRef}")`,
+					);
+				}
+				for (const problem of problems) {
+					errors.push(
+						validationError(
+							"XFORM_ITEMSET_INVALID",
+							"form",
+							`"${formName}" has a <${ctrl.name}> whose <itemset> ${problem}. JavaRosa rejects this at parse. This is a bug in the form generator.`,
+							loc,
+						),
+					);
+				}
+			}
+
 			// #8: a select may not carry both inline items and an itemset
-			// (parseControl). Nova never emits itemset, so this is defensive.
+			// (parseControl).
 			if (items.length > 0 && itemsets.length > 0) {
 				errors.push(
 					validationError(

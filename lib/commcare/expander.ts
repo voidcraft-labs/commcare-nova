@@ -32,6 +32,7 @@ import {
 	moduleShell,
 } from "@/lib/commcare";
 import { genHexId, genShortId } from "@/lib/commcare/ids";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
@@ -148,6 +149,12 @@ function translateFormLinks(
  */
 export interface ExpandOptions {
 	assets?: AssetManifest;
+	/**
+	 * Lookup wire naming from the validated definitions snapshot. Present
+	 * only on the local-CCZ path — HQ JSON rejects lookup carriers at the
+	 * export boundary before expansion, so its expansion never needs it.
+	 */
+	lookupNaming?: LookupWireNaming;
 }
 
 export function expandDoc(
@@ -235,6 +242,7 @@ export function expandDoc(
 				...(mod.caseType && { moduleCaseType: mod.caseType }),
 				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
+				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 			});
 
 			// Resolve form-link uuids to the 0-based indices HQ expects.
@@ -264,8 +272,11 @@ export function expandDoc(
 				hqFormLinks,
 			);
 			formShellObj.form_filter =
-				emitFormDisplayConditionForHq(form.displayCondition, mod.caseType) ??
-				null;
+				emitFormDisplayConditionForHq(
+					form.displayCondition,
+					mod.caseType,
+					opts.lookupNaming,
+				) ?? null;
 
 			// Stamp the form's menu-command media (icon + audio label) onto
 			// the shell. CCHQ reads these `media_image` / `media_audio` dicts
@@ -293,7 +304,12 @@ export function expandDoc(
 		// lands — survey-only modules and modules with no case type
 		// fall back to the empty-detail pair; their `search_config`
 		// stays at the shell defaults regardless of authored content.
-		const projection = projectCaseListForHq(mod, doc, assets);
+		const projection = projectCaseListForHq(
+			mod,
+			doc,
+			assets,
+			opts.lookupNaming,
+		);
 		const caseDetails = hasCases ? projection.caseDetails : detailPair([]);
 
 		const shell = moduleShell(
@@ -304,7 +320,11 @@ export function expandDoc(
 			caseDetails,
 		);
 		shell.module_filter =
-			emitModuleDisplayCondition(mod.displayCondition, mod.caseType) ?? null;
+			emitModuleDisplayCondition(
+				mod.displayCondition,
+				mod.caseType,
+				opts.lookupNaming,
+			) ?? null;
 
 		// Stamp the module's home-tile media (icon + audio label) and the
 		// case-list link's media onto the shell + its `case_list` block.

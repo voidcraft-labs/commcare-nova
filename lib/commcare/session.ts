@@ -46,6 +46,7 @@ import {
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { validateCaseType } from "./identifierValidation";
+import type { LookupWireNaming } from "./lookup/naming";
 import {
 	collectExpressionInstances,
 	collectPredicateInstances,
@@ -200,11 +201,17 @@ function caseLoadingNodeset(
 	caseListFilter: Predicate | undefined,
 	excludedOwnerIds: ValueExpression | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): string {
-	const filterFragment = emitNodesetFilter(caseListFilter, relationContext);
+	const filterFragment = emitNodesetFilter(
+		caseListFilter,
+		relationContext,
+		lookupNaming,
+	);
 	const ownerFragment = emitExcludedOwnerNodesetFilter(
 		excludedOwnerIds,
 		relationContext,
+		lookupNaming,
 	);
 	return `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}${ownerFragment}`;
 }
@@ -248,6 +255,7 @@ function accumulateCaseLoadingInstances(
 	caseListColumnExpressions: readonly ValueExpression[] | undefined,
 	instances: EntryInstance[],
 	seen: Set<string>,
+	lookupNaming?: LookupWireNaming,
 ): void {
 	// Predicate-derived instances. Every predicate whose XPath fragment
 	// lives inside an `<entry>`-scoped slot contributes its instance set
@@ -265,7 +273,7 @@ function accumulateCaseLoadingInstances(
 	if (caseListFilter !== undefined) {
 		const unanswered =
 			substituteUnansweredSearchInputsInPredicate(caseListFilter);
-		for (const id of collectPredicateInstances(unanswered)) {
+		for (const id of collectPredicateInstances(unanswered, lookupNaming)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });
@@ -279,7 +287,7 @@ function accumulateCaseLoadingInstances(
 	if (excludedOwnerIds !== undefined) {
 		const unanswered =
 			substituteUnansweredSearchInputsInExpression(excludedOwnerIds);
-		for (const id of collectExpressionInstances(unanswered)) {
+		for (const id of collectExpressionInstances(unanswered, lookupNaming)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });
@@ -287,7 +295,10 @@ function accumulateCaseLoadingInstances(
 	}
 
 	if (searchButtonDisplayCondition !== undefined) {
-		for (const id of collectPredicateInstances(searchButtonDisplayCondition)) {
+		for (const id of collectPredicateInstances(
+			searchButtonDisplayCondition,
+			lookupNaming,
+		)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });
@@ -303,7 +314,7 @@ function accumulateCaseLoadingInstances(
 	const effectiveFormCondition =
 		effectiveDisplayConditionForEmission(formDisplayCondition);
 	if (effectiveFormCondition !== undefined) {
-		const ids = collectPredicateInstances(effectiveFormCondition);
+		const ids = collectPredicateInstances(effectiveFormCondition, lookupNaming);
 		if (predicateReadsCaseData(effectiveFormCondition)) {
 			ids.add("casedb");
 			ids.add("commcaresession");
@@ -322,7 +333,7 @@ function accumulateCaseLoadingInstances(
 	// post-process would add on a regenerated suite.
 	if (caseListColumnExpressions !== undefined) {
 		for (const expression of caseListColumnExpressions) {
-			for (const id of collectExpressionInstances(expression)) {
+			for (const id of collectExpressionInstances(expression, lookupNaming)) {
 				if (seen.has(id)) continue;
 				seen.add(id);
 				instances.push({ id, src: instanceSourceFor(id) });
@@ -376,6 +387,7 @@ export function deriveSessionDatums(
 	actions?: FormActions,
 	excludedOwnerIds?: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): SessionDatum[] {
 	const datums: SessionDatum[] = [];
 
@@ -390,6 +402,7 @@ export function deriveSessionDatums(
 				caseListFilter,
 				excludedOwnerIds,
 				relationContext,
+				lookupNaming,
 			),
 			value: "./@case_id",
 			detailSelect: `m${moduleIndex}_case_short`,
@@ -658,6 +671,7 @@ export function deriveEntryDefinition(
 	excludedOwnerIds?: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
 	formDisplayCondition?: Predicate,
+	lookupNaming?: LookupWireNaming,
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -670,6 +684,7 @@ export function deriveEntryDefinition(
 		actions,
 		excludedOwnerIds,
 		relationContext,
+		lookupNaming,
 	);
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
@@ -701,6 +716,7 @@ export function deriveEntryDefinition(
 		caseListColumnExpressions,
 		instances,
 		seen,
+		lookupNaming,
 	);
 
 	// Determine stack operations. Three cases:
@@ -786,6 +802,7 @@ export function deriveCaseListEntryDefinition(
 	hasDetailScreen = true,
 	excludedOwnerIds?: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): EntryDefinition {
 	// The browse datum: loads a case from the list into both the list
 	// (detail-select) and detail (detail-confirm) screens. Shares the
@@ -800,6 +817,7 @@ export function deriveCaseListEntryDefinition(
 			caseListFilter,
 			excludedOwnerIds,
 			relationContext,
+			lookupNaming,
 		),
 		value: "./@case_id",
 		detailSelect: `m${moduleIndex}_case_short`,
@@ -825,6 +843,7 @@ export function deriveCaseListEntryDefinition(
 		caseListColumnExpressions,
 		instances,
 		seen,
+		lookupNaming,
 	);
 
 	return {

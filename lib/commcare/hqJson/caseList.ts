@@ -39,6 +39,7 @@
 //     stay consistent with the suite-XML side via the shared
 //     `PROMPT_ATTRIBUTE_MAPPINGS` table.
 
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	byDetailColumnOrder,
 	byListColumnOrder,
@@ -142,6 +143,7 @@ function projectColumnToDetail(
 	assets?: AssetManifest,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): WireDetailColumn {
 	const headerRecord = { en: column.header };
 
@@ -150,6 +152,8 @@ function projectColumnToDetail(
 			column.expression,
 			undefined,
 			typeContext ?? {},
+			undefined,
+			lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
 		);
 		return {
 			...detailColumn(calcXpath, headerRecord),
@@ -262,12 +266,14 @@ function projectColumnForShortDetail(
 	assets?: AssetManifest,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): WireDetailColumn {
 	const projected = projectColumnToDetail(
 		column,
 		assets,
 		caseProperties,
 		typeContext,
+		lookupNaming,
 	);
 	const visible = column.visibleInList ?? true;
 	if (visible) return projected;
@@ -325,8 +331,9 @@ function projectSortElements(
 	doc: BlueprintDoc,
 	sourceColumns: readonly Column[],
 	wireColumns: readonly WireDetailColumn[],
+	lookupNaming?: LookupWireNaming,
 ): SortElement[] {
-	const directives = buildSortDirectives(mod, doc);
+	const directives = buildSortDirectives(mod, doc, lookupNaming);
 	if (directives.size === 0) return [];
 
 	// uuid → position in the short columns array. CCHQ's
@@ -423,6 +430,7 @@ function projectCaseListFilter(
 	filter: CaseListConfig["filter"],
 	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): string | null {
 	// This slot lands in CCHQ's ordinary case-loading datum nodeset
 	// (`EntriesHelper.get_filter_xpath`), which evaluates before any
@@ -447,10 +455,19 @@ function projectCaseListFilter(
 	const authoredFilter =
 		effective === undefined
 			? undefined
-			: emitCaseListFilter(effective, undefined, typeContext ?? {});
+			: emitCaseListFilter(
+					effective,
+					undefined,
+					typeContext ?? {},
+					undefined,
+					lookupNaming === undefined
+						? {}
+						: { lookup: { naming: lookupNaming } },
+				);
 	const ownerFilter = emitExcludedOwnerFilterExpression(
 		excludedOwnerIds,
 		typeContext ?? {},
+		lookupNaming,
 	);
 
 	if (authoredFilter === undefined) return ownerFilter ?? null;
@@ -499,6 +516,7 @@ function projectSearchInput(
 	input: SearchInputDef,
 	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): CaseSearchProperty {
 	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
 	const property: CaseSearchProperty = {
@@ -519,6 +537,8 @@ function projectSearchInput(
 			input.default,
 			undefined,
 			typeContext ?? {},
+			undefined,
+			lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
 		);
 	}
 	// Mirrors the suite-XML `<prompt exclude="true()">` decision; one
@@ -552,6 +572,7 @@ function projectSearchProperties(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 	runtimeValidations: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): CaseSearchProperty[] {
 	const out: CaseSearchProperty[] = [];
 	// DISPLAY order (`sort-by-(order, uuid)`) — the search prompts render in
@@ -562,6 +583,7 @@ function projectSearchProperties(
 				input,
 				runtimeValidations.get(input.name),
 				typeContext,
+				lookupNaming,
 			),
 		);
 	}
@@ -661,6 +683,7 @@ function buildSearchConfigDocument(
 	caseListConfig: CaseListConfig | undefined,
 	_caseType: string | undefined,
 	typeContext?: TypeContext,
+	lookupNaming?: LookupWireNaming,
 ): WireCaseSearchConfig {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
@@ -695,6 +718,8 @@ function buildSearchConfigDocument(
 				simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
 				undefined,
 				typeContext ?? {},
+				undefined,
+				lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
 			);
 		}
 		if (caseSearchConfig.excludedOwnerIds !== undefined) {
@@ -702,6 +727,7 @@ function buildSearchConfigDocument(
 				emitNormalizedExcludedOwnerIdsExpression(
 					caseSearchConfig.excludedOwnerIds,
 					typeContext ?? {},
+					lookupNaming,
 				);
 		}
 	}
@@ -721,6 +747,7 @@ function buildSearchConfigDocument(
 			caseListConfig.searchInputs,
 			buildRuntimeCsqlPromptValidations(xpathQueryEmission),
 			typeContext,
+			lookupNaming,
 		);
 		config.default_properties = projectDefaultProperties(xpathQueryEmission);
 		if (
@@ -788,6 +815,7 @@ export function projectCaseListForHq(
 	mod: Module,
 	doc: BlueprintDoc,
 	assets?: AssetManifest,
+	lookupNaming?: LookupWireNaming,
 ): CaseListHqProjection {
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
@@ -806,21 +834,29 @@ export function projectCaseListForHq(
 		.sort(byDetailColumnOrder);
 
 	const shortColumns = shortSourceColumns.map((c) =>
-		projectColumnForShortDetail(c, assets, caseProperties, typeContext),
+		projectColumnForShortDetail(
+			c,
+			assets,
+			caseProperties,
+			typeContext,
+			lookupNaming,
+		),
 	);
 	const longColumns = longSourceColumns.map((c) =>
-		projectColumnToDetail(c, assets, caseProperties, typeContext),
+		projectColumnToDetail(c, assets, caseProperties, typeContext, lookupNaming),
 	);
 	const sortElements = projectSortElements(
 		mod,
 		doc,
 		shortSourceColumns,
 		shortColumns,
+		lookupNaming,
 	);
 	const filter = projectCaseListFilter(
 		caseListConfig?.filter,
 		mod.caseSearchConfig?.excludedOwnerIds,
 		typeContext,
+		lookupNaming,
 	);
 
 	// `detailPair` from `hqShells` seeds the `(short, long)` pair
@@ -840,6 +876,7 @@ export function projectCaseListForHq(
 		caseListConfig,
 		mod.caseType,
 		typeContext,
+		lookupNaming,
 	);
 
 	return { caseDetails: pair, searchConfig };

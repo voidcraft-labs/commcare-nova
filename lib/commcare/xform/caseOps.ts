@@ -17,13 +17,21 @@ import { el } from "@/lib/commcare/elementBuilders";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
 import { descendInto } from "@/lib/commcare/formActions";
 import {
+	LOOKUP_FIXTURE_ID_PREFIX,
+	type LookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
+import {
 	collectExpressionInstances,
 	collectPredicateInstances,
 	emitCaseListFilter,
+	instanceSourceFor,
 } from "@/lib/commcare/predicate";
 import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
 import { quoteLiteral } from "@/lib/commcare/predicate/stringQuoting";
-import type { OnDeviceExpressionBindings } from "@/lib/commcare/predicate/termEmitter";
+import type {
+	OnDeviceExpressionBindings,
+	OnDeviceTermEmissionContext,
+} from "@/lib/commcare/predicate/termEmitter";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -87,7 +95,7 @@ export function caseOperationTextValueGuard(valueExpression: string): string {
 
 type RequiredInstance = "casedb" | "commcaresession";
 
-interface FieldLocation {
+export interface FieldLocation {
 	readonly path: FormPath;
 	readonly repeat: Uuid | undefined;
 }
@@ -110,6 +118,8 @@ export interface CaseOperationsEmission {
 	readonly binds: readonly Element[];
 	readonly setvalues: readonly Element[];
 	readonly instances: ReadonlySet<RequiredInstance>;
+	/** Lookup-fixture declarations the operation expressions need, id → src. */
+	readonly fixtureInstances: ReadonlyMap<string, string>;
 }
 
 /** Build every operation block for one form. Pure: returned DOM nodes are
@@ -119,6 +129,7 @@ export function buildCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	moduleCaseType: string | undefined,
+	lookupNaming?: LookupWireNaming,
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const operations = orderedCaseOperations(form);
@@ -157,6 +168,7 @@ export function buildCaseOperations(
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
 	const instances = new Set<RequiredInstance>();
+	const fixtureInstances = new Map<string, string>();
 	const priorCreates = new Map<Uuid, OperationLocation>();
 	const operationByUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
@@ -178,17 +190,25 @@ export function buildCaseOperations(
 		const caseIdPath = casePath.attr("case_id");
 		const operationBindings = (
 			targetPath: FormPath,
-		): OnDeviceExpressionBindings => ({
+		): OnDeviceTermEmissionContext => ({
 			formFields: bindFieldPaths(fields, repeat, targetPath),
 			operationIds: bindOperationPaths(priorCreates, repeat, targetPath),
 			rootCaseId: SESSION_CASE_ID,
 			caseProperty: formCasePropertyResolver(moduleCaseType),
+			...(lookupNaming !== undefined && {
+				lookup: { naming: lookupNaming },
+			}),
 		});
 		const emitExpression = (
 			expression: ValueExpression,
 			targetPath: FormPath,
 		): string => {
-			accumulateExpressionInstances(expression, instances);
+			accumulateExpressionInstances(
+				expression,
+				instances,
+				fixtureInstances,
+				lookupNaming,
+			);
 			if (instances.has("casedb")) instances.add("commcaresession");
 			return emitOnDeviceExpression(
 				expression,
@@ -202,7 +222,12 @@ export function buildCaseOperations(
 			predicate: Predicate,
 			targetPath: FormPath,
 		): string => {
-			accumulatePredicateInstances(predicate, instances);
+			accumulatePredicateInstances(
+				predicate,
+				instances,
+				fixtureInstances,
+				lookupNaming,
+			);
 			if (instances.has("casedb")) instances.add("commcaresession");
 			return emitCaseListFilter(
 				predicate,
@@ -717,6 +742,7 @@ export function buildCaseOperations(
 		binds,
 		setvalues,
 		instances,
+		fixtureInstances,
 	};
 }
 
@@ -758,7 +784,7 @@ export function attachCaseOperationData(
 	}
 }
 
-function collectFieldLocations(
+export function collectFieldLocations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): ReadonlyMap<Uuid, FieldLocation> {
@@ -877,6 +903,30 @@ function originalContextPath(from: FormPath, to: FormPath): string {
 	return `current()/${relativeXPath(from, to)}`;
 }
 
+/**
+ * uuid → XPath bindings for a lookup itemset filter evaluated at
+ * `questionPath`. `current()` is the question node contextualized to its
+ * repeat iteration (`ItemSetUtils.populateDynamicChoices` builds the
+ * evaluation context from the question ref), so any repeat-borne answer —
+ * the question's own repeat or an enclosing one — correlates through
+ * `current()` relative steps, while root singular answers print absolute
+ * paths. Validation already restricts references to value-bearing earlier
+ * fields in the current or an enclosing repeat.
+ */
+export function bindLookupFilterFieldPaths(
+	fields: ReadonlyMap<Uuid, FieldLocation>,
+	questionPath: FormPath,
+): ReadonlyMap<Uuid, string> {
+	return new Map(
+		[...fields].map(([uuid, field]) => [
+			uuid,
+			field.repeat !== undefined
+				? originalContextPath(questionPath, field.path)
+				: field.path.toXPath(),
+		]),
+	);
+}
+
 function relativeXPath(from: FormPath, to: FormPath): string {
 	const fromSegments = from.segments();
 	const toSegments = to.segments();
@@ -974,21 +1024,35 @@ function subcasesOf(
 function accumulateExpressionInstances(
 	expression: ValueExpression,
 	instances: Set<RequiredInstance>,
+	fixtureInstances: Map<string, string>,
+	lookupNaming: LookupWireNaming | undefined,
 ): void {
-	for (const instance of collectExpressionInstances(expression)) {
-		if (instance === "casedb" || instance === "commcaresession") {
-			instances.add(instance);
-		}
+	for (const instance of collectExpressionInstances(expression, lookupNaming)) {
+		addAccumulatedInstance(instance, instances, fixtureInstances);
 	}
 }
 
 function accumulatePredicateInstances(
 	predicate: Predicate,
 	instances: Set<RequiredInstance>,
+	fixtureInstances: Map<string, string>,
+	lookupNaming: LookupWireNaming | undefined,
 ): void {
-	for (const instance of collectPredicateInstances(predicate)) {
-		if (instance === "casedb" || instance === "commcaresession") {
-			instances.add(instance);
-		}
+	for (const instance of collectPredicateInstances(predicate, lookupNaming)) {
+		addAccumulatedInstance(instance, instances, fixtureInstances);
+	}
+}
+
+function addAccumulatedInstance(
+	instance: string,
+	instances: Set<RequiredInstance>,
+	fixtureInstances: Map<string, string>,
+): void {
+	if (instance === "casedb" || instance === "commcaresession") {
+		instances.add(instance);
+		return;
+	}
+	if (instance.startsWith(LOOKUP_FIXTURE_ID_PREFIX)) {
+		fixtureInstances.set(instance, instanceSourceFor(instance));
 	}
 }

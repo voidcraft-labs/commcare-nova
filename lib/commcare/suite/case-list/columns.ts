@@ -119,7 +119,10 @@ import {
 	requireAssetRef,
 } from "../../multimedia/assetWirePath";
 import { quoteLiteral } from "../../predicate/stringQuoting";
-import type { InstanceRoot } from "../../predicate/termEmitter";
+import type {
+	InstanceRoot,
+	OnDeviceTermEmissionContext,
+} from "../../predicate/termEmitter";
 import { escapeRegex } from "../../xml";
 import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
 import type {
@@ -191,6 +194,15 @@ function instanceRootFor(target: DetailTarget): InstanceRoot {
  * lowered. Passing only the graph is insufficient for an authored unqualified
  * relation: the canonicalizer needs the surrounding module case type to know
  * which uniquely typed edge the identifier names. */
+/** Term-emission context carrying the run's lookup naming, when present. */
+function lookupTermContext(
+	ctx: CaseListEmitContext,
+): OnDeviceTermEmissionContext {
+	return ctx.lookupNaming === undefined
+		? {}
+		: { lookup: { naming: ctx.lookupNaming } };
+}
+
 function relationContextFor(ctx: CaseListEmitContext) {
 	return {
 		...(ctx.caseTypes === undefined ? {} : { caseTypes: ctx.caseTypes }),
@@ -802,6 +814,8 @@ function retargetSortDirective(
 			column.expression,
 			instanceRootFor(ctx.target),
 			relationContextFor(ctx),
+			undefined,
+			lookupTermContext(ctx),
 		),
 	};
 }
@@ -900,6 +914,8 @@ function buildCalculatedField(args: {
 		column.expression,
 		instanceRootFor(ctx.target),
 		relationContextFor(ctx),
+		undefined,
+		lookupTermContext(ctx),
 	);
 	const headerLocaleId = detailCalculatedHeaderLocaleId(
 		ctx.target,

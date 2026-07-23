@@ -37,6 +37,7 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import type { HqApplication } from "@/lib/commcare";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMediaBundle } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoProfileProperty } from "@/lib/commcare/multimedia/logoEntry";
@@ -82,6 +83,13 @@ import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 export interface CompileOptions {
 	assets?: AssetManifest;
 	/**
+	 * Prepared lookup wire from the export boundary: identity naming plus
+	 * the budget-checked fixture blocks built from the one validated
+	 * snapshot. Present only when the doc references lookup tables on the
+	 * local-CCZ path.
+	 */
+	lookup?: PreparedLookupWire;
+	/**
 	 * The blueprint's `mutation_seq` at compile time, stamped into the
 	 * profile.ccpr `cc-content-version` so each archive names the exact
 	 * document version it was built from. Absent = the default `"1"` (tests +
@@ -114,6 +122,7 @@ export function compileCcz(
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
 	const assets = opts.assets;
+	const lookupNaming = opts.lookup?.naming;
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
@@ -193,13 +202,17 @@ export function compileCcz(
 		const moduleRelevant = emitModuleDisplayCondition(
 			effectiveModuleDisplayCondition,
 			mod.caseType,
+			lookupNaming,
 		);
 		const moduleConditionInstances =
 			effectiveModuleDisplayCondition === undefined
 				? []
-				: [...collectPredicateInstances(effectiveModuleDisplayCondition)].map(
-						(id) => el("instance", { id, src: instanceSourceFor(id) }),
-					);
+				: [
+						...collectPredicateInstances(
+							effectiveModuleDisplayCondition,
+							lookupNaming,
+						),
+					].map((id) => el("instance", { id, src: instanceSourceFor(id) }));
 
 		appStrings[`modules.m${mIdx}`] = modName;
 
@@ -279,6 +292,7 @@ export function compileCcz(
 						module: { ...mod, caseSearchConfig },
 						moduleIndex: mIdx,
 						typeContext: moduleTypeContext(mod, doc),
+						lookupNaming,
 					})
 				: undefined;
 			if (remoteRequestEmission !== undefined) {
@@ -291,6 +305,7 @@ export function compileCcz(
 				moduleIndex: mIdx,
 				doc,
 				...(assets && { assets }),
+				...(lookupNaming && { lookupNaming }),
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
@@ -308,6 +323,7 @@ export function compileCcz(
 				moduleIndex: mIdx,
 				doc,
 				...(assets && { assets }),
+				...(lookupNaming && { lookupNaming }),
 			});
 			suiteDetails.push(longEmission.element);
 			Object.assign(appStrings, longEmission.strings);
@@ -328,6 +344,7 @@ export function compileCcz(
 					doc,
 					target: "search",
 					...(assets && { assets }),
+					...(lookupNaming && { lookupNaming }),
 				});
 				suiteDetails.push(searchShort.element);
 				Object.assign(appStrings, searchShort.strings);
@@ -338,6 +355,7 @@ export function compileCcz(
 					doc,
 					target: "search",
 					...(assets && { assets }),
+					...(lookupNaming && { lookupNaming }),
 				});
 				suiteDetails.push(searchLong.element);
 				Object.assign(appStrings, searchLong.strings);
@@ -362,6 +380,7 @@ export function compileCcz(
 			const formRelevant = emitFormDisplayConditionForSuite(
 				form.displayCondition,
 				mod.caseType,
+				lookupNaming,
 			);
 
 			const formName = hqForm.name.en;
@@ -444,6 +463,7 @@ export function compileCcz(
 				excludedOwnerIds,
 				moduleTypeContext(mod, doc),
 				form.displayCondition,
+				lookupNaming,
 			);
 
 			// Re-validate after injection — catches orphaned binds or
@@ -569,6 +589,7 @@ export function compileCcz(
 				),
 				excludedOwnerIds,
 				moduleTypeContext(mod, doc),
+				lookupNaming,
 			);
 			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
 			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));
@@ -626,6 +647,15 @@ export function compileCcz(
 	// remote-request that fetches them, then the form entries that
 	// edit them." The conditional remote-requests block collapses to
 	// an empty spread when no module carries an authored search surface.
+	// Suite-embedded lookup fixtures land after `<menu>` blocks, matching
+	// HQ's section order (its `FixtureContributor` runs after the module
+	// entry/menu loop). `SuiteParser` dispatches on the element name at any
+	// position; the placement is a pinned canonical choice, not a parse
+	// requirement. The elements are the exact blocks the boundary's budget
+	// measured.
+	const suiteFixtures = (opts.lookup?.fixtures.fixtures ?? []).map(
+		(fixture) => fixture.element,
+	);
 	const suiteRoot = el("suite", { version: "1" }, [
 		...suiteResources,
 		...localeResources,
@@ -633,6 +663,7 @@ export function compileCcz(
 		...suiteRemoteRequests,
 		...suiteEntries,
 		...suiteMenus,
+		...suiteFixtures,
 	]);
 	// `dom-serializer` does not emit XML declarations — the leading
 	// `<?xml version="1.0"?>` literal is the only template string in the

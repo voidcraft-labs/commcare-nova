@@ -53,6 +53,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
@@ -398,6 +399,7 @@ function propertySortXpath(
 export function buildSortDirectives(
 	mod: Module,
 	doc: BlueprintDoc,
+	lookupNaming?: LookupWireNaming,
 ): ReadonlyMap<Uuid, ResolvedSortDirective> {
 	const config = mod.caseListConfig;
 	if (!config) return new Map();
@@ -452,6 +454,8 @@ export function buildSortDirectives(
 				column.expression,
 				undefined,
 				emissionTypeContext,
+				undefined,
+				lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
 			);
 			out.set(column.uuid, {
 				kind: "calculated",

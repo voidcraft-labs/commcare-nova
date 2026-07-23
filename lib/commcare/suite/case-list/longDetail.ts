@@ -58,6 +58,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { byDetailColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
@@ -119,6 +120,7 @@ export function buildLongDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	readonly assets?: AssetManifest;
+	readonly lookupNaming?: LookupWireNaming;
 }): { readonly element: Element; readonly strings: Record<string, string> } {
 	const { module: mod, moduleIndex } = args;
 	const target: DetailTarget = args.target ?? "case";
@@ -146,6 +148,7 @@ export function buildLongDetail(args: {
 		caseTypes: effectiveCaseTypes(args.doc),
 		currentCaseType: mod.caseType,
 		...(args.assets && { assets: args.assets }),
+		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
 	};
 
 	const fields: Element[] = [];

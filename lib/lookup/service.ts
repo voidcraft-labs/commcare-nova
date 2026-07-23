@@ -25,6 +25,7 @@ import {
 } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
+import { readLookupFixtureDataInTransaction } from "./fixtureSnapshot";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
@@ -50,6 +51,7 @@ import type {
 	LookupCreatedColumnReceipt,
 	LookupCreatedRowReceipt,
 	LookupDefinitionsSnapshot,
+	LookupFixtureDataSnapshot,
 	LookupManifest,
 	LookupMutationReceipt,
 	LookupRevision,
@@ -370,6 +372,7 @@ export async function getLookupManifest(
 }
 
 export { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
+export { readLookupFixtureDataInTransaction } from "./fixtureSnapshot";
 
 /** Exact requested definitions from one read-only repeatable-read snapshot. */
 export async function getLookupDefinitions(
@@ -384,6 +387,27 @@ export async function getLookupDefinitions(
 		.setAccessMode("read only")
 		.execute((tx) =>
 			readLookupDefinitionsInTransaction(tx, scope.projectId, tableIds),
+		);
+}
+
+/**
+ * Exact requested definitions plus complete ordered rows from one read-only
+ * repeatable-read snapshot. The compile boundary is the intended caller: it
+ * must validate and emit against a single generation, so it must not loop
+ * `getLookupTable`, whose per-call snapshots could mix generations.
+ */
+export async function getLookupFixtureData(
+	scope: LookupScope,
+	tableIds: readonly LookupTableId[],
+): Promise<LookupFixtureDataSnapshot> {
+	assertScope(scope);
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.setAccessMode("read only")
+		.execute((tx) =>
+			readLookupFixtureDataInTransaction(tx, scope.projectId, tableIds),
 		);
 }
 

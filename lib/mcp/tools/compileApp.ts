@@ -127,7 +127,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * expander's media references and — for a media-bearing app —
 				 * the byte bundle. A media-free app resolves to an empty
 				 * manifest at no byte cost. */
-				const { doc: preparedDoc, assets, compiledAtSeq } = boundary.prepared;
+				const {
+					doc: preparedDoc,
+					assets,
+					compiledAtSeq,
+					lookupWire,
+				} = boundary.prepared;
 				const hasMedia = assets.size > 0;
 
 				/* Exhaustive switch on the `format` enum: a future third
@@ -189,13 +194,17 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * content is UTF-8 only, so base64 is the safest
 						 * lossless escape, and the `encoding` field inside the
 						 * wrapper tells the caller to decode it. */
-						const hqJson = expandDoc(preparedDoc, { assets });
+						const hqJson = expandDoc(preparedDoc, {
+							assets,
+							...(lookupWire && { lookupNaming: lookupWire.naming }),
+						});
 						/* Stamp the blueprint's `mutation_seq` into the profile's
 						 * `cc-content-version` so the archive names the exact
 						 * document version it was built from. */
 						const cczBuf = compileCcz(hqJson, app.app_name, preparedDoc, {
 							assets,
 							compiledAtSeq,
+							...(lookupWire && { lookup: lookupWire }),
 						});
 						return {
 							content: [

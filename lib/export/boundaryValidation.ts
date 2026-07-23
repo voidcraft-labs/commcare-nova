@@ -17,6 +17,14 @@
 import "server-only";
 
 import {
+	buildLookupFixtures,
+	type CompiledLookupFixtureSet,
+	lookupFixtureBudgetExcess,
+	type PreparedLookupWire,
+} from "@/lib/commcare/lookup/fixtures";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
+import {
 	type ValidationError,
 	validationError,
 } from "@/lib/commcare/validator/errors";
@@ -34,8 +42,14 @@ import {
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { MAX_MEDIA_EXPORT_ASSETS } from "@/lib/domain/multimedia";
-import { getLookupDefinitions } from "@/lib/lookup/service";
-import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
+import {
+	getLookupDefinitions,
+	getLookupFixtureData,
+} from "@/lib/lookup/service";
+import type {
+	LookupDefinitionsSnapshot,
+	LookupFixtureDataSnapshot,
+} from "@/lib/lookup/types";
 import {
 	builtinAssetRows,
 	partitionAssetRefs,
@@ -75,6 +89,13 @@ export interface PreparedExportBoundary {
 	readonly lookupTargets: LookupReferenceTargetSet;
 	readonly lookupSnapshot: LookupDefinitionsSnapshot;
 	readonly lookupContext: AvailableLookupValidationContext;
+	/**
+	 * Identity naming plus budget-checked fixture blocks, built from the same
+	 * snapshot generation the validator saw. Present exactly on `ccz` — the
+	 * one mode that embeds lookup data — and absent when the doc references
+	 * no table.
+	 */
+	readonly lookupWire?: PreparedLookupWire;
 }
 
 export type PrepareExportBoundaryResult =
@@ -105,6 +126,7 @@ async function collectViolationsWithRegistry(
 	lookupContext: LookupValidationContext,
 	lookupReferenceExtractors: LookupReferenceExtractorRegistry,
 	mode?: ExportMode,
+	lookupRows?: LookupRowVerdictInput,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
@@ -121,9 +143,7 @@ async function collectViolationsWithRegistry(
 				`This app references too many attachments to export — ${exportableRefCount} (the limit is ${MAX_MEDIA_EXPORT_ASSETS}). Remove some attachments, then export again.`,
 				{},
 			),
-			...(mode === undefined
-				? []
-				: dormantLookupCarrierExportFindings(doc, mode)),
+			...lookupExportFindings(doc, mode, lookupRows),
 		];
 	}
 
@@ -137,13 +157,84 @@ async function collectViolationsWithRegistry(
 		lookupContext,
 		lookupReferenceExtractors,
 	);
-	const dormantCarrierErrors =
-		mode === undefined ? [] : dormantLookupCarrierExportFindings(doc, mode);
 	const budgetError = exportBudgetError(rows);
 	return [
 		...errors,
-		...dormantCarrierErrors,
+		...lookupExportFindings(doc, mode, lookupRows),
 		...(budgetError === null ? [] : [budgetError]),
+	];
+}
+
+/** Row snapshot plus the pre-built fixture set for the ccz row verdicts. */
+interface LookupRowVerdictInput {
+	readonly fixtureData: LookupFixtureDataSnapshot;
+	readonly fixtures: CompiledLookupFixtureSet;
+}
+
+/**
+ * The mode's complete lookup verdict. `ccz` embeds lookup data, so it swaps
+ * the dormant-carrier rejection for the row-dependent checks a definitions
+ * snapshot cannot prove: select-source option validity over complete tables
+ * and the aggregate embedded-fixture budget. `hq-json` and `hq-upload` keep
+ * rejecting every carrier until S20 pushes and maps the resources.
+ */
+function lookupExportFindings(
+	doc: BlueprintDoc,
+	mode: ExportMode | undefined,
+	lookupRows: LookupRowVerdictInput | undefined,
+): ValidationError[] {
+	if (mode === undefined) return [];
+	if (mode !== "ccz") return dormantLookupCarrierExportFindings(doc, mode);
+	if (lookupRows === undefined) return [];
+	return [
+		...lookupSelectSourceRowFindings(doc, lookupRows.fixtureData),
+		...lookupFixtureBudgetFindings(lookupRows.fixtures),
+	];
+}
+
+const BUDGET_AXIS_LABELS = {
+	rows: "rows",
+	cells: "cells",
+	bytes: "bytes of fixture data",
+} as const;
+
+function lookupFixtureBudgetFindings(
+	fixtures: CompiledLookupFixtureSet,
+): ValidationError[] {
+	const excess = lookupFixtureBudgetExcess(fixtures);
+	if (excess === null) return [];
+	const axisSummaries = excess.map(
+		(axis) =>
+			`${axis.actual.toLocaleString("en-US")} ${BUDGET_AXIS_LABELS[axis.axis]} (the limit is ${axis.allowed.toLocaleString("en-US")})`,
+	);
+	const largestTags = [
+		...new Set(
+			excess.flatMap((axis) => axis.largestTables.map((table) => table.tag)),
+		),
+	];
+	return [
+		validationError(
+			"LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
+			"app",
+			`This app references more lookup data than a downloadable app can bundle — ${axisSummaries.join(
+				" and ",
+			)}. The largest tables are ${largestTags.join(
+				", ",
+			)}; shrink or split them, or remove some lookup references, then export again.`,
+			{},
+			Object.fromEntries(
+				excess.flatMap((axis) => [
+					[`${axis.axis}Actual`, String(axis.actual)],
+					[`${axis.axis}Allowed`, String(axis.allowed)],
+					[
+						`${axis.axis}LargestTables`,
+						axis.largestTables
+							.map((table) => `${table.tag}:${table.amount}`)
+							.join(","),
+					],
+				]),
+			),
+		),
 	];
 }
 
@@ -182,27 +273,47 @@ async function prepareWithRegistry(
 	registry: LookupReferenceExtractorRegistry,
 ): Promise<PrepareExportBoundaryResult> {
 	const lookupTargets = extractLookupReferenceTargets(input.doc, registry);
+	const scope = {
+		projectId: input.access.projectId,
+		actorId: input.access.actorUserId,
+		role: input.access.role,
+	};
 
 	/* Always read, including `[]`. Besides definitions, the read captures the
-	 * Project revision that identifies this exact rows-free snapshot. The
-	 * service uses one read-only REPEATABLE READ transaction. Any operational
+	 * Project revision that identifies this exact snapshot. The service uses
+	 * one read-only REPEATABLE READ transaction. On `ccz` — the one mode that
+	 * embeds lookup data — the same snapshot also carries every referenced
+	 * table's complete ordered rows, so validation, the row-dependent
+	 * verdicts, and emission all consume one generation. Any operational
 	 * failure intentionally throws through this function; it is not a document
 	 * finding and must stop the export rather than masquerade as unavailable
 	 * context. */
-	const lookupSnapshot = await getLookupDefinitions(
-		{
-			projectId: input.access.projectId,
-			actorId: input.access.actorUserId,
-			role: input.access.role,
-		},
-		lookupTargets.tableIds,
-	);
+	const fixtureData =
+		input.mode === "ccz"
+			? await getLookupFixtureData(scope, lookupTargets.tableIds)
+			: undefined;
+	const lookupSnapshot: LookupDefinitionsSnapshot =
+		fixtureData ?? (await getLookupDefinitions(scope, lookupTargets.tableIds));
 	if (lookupSnapshot.projectId !== input.access.projectId) {
 		throw new Error(
 			"Lookup definition reader returned a snapshot for the wrong Project.",
 		);
 	}
 	const lookupContext = availableLookupContext(lookupSnapshot);
+
+	/* Fixture blocks are built before the verdict so the aggregate budget
+	 * measures the exact serialized bytes the compiler would embed; the
+	 * elements are reused on success rather than rebuilt. */
+	const lookupWire =
+		fixtureData === undefined || lookupTargets.tableIds.length === 0
+			? undefined
+			: (() => {
+					const naming = lookupWireNaming(fixtureData.definitions);
+					return {
+						naming,
+						fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
+					};
+				})();
 
 	/* This subordinate loader evaluates the complete document gate with both
 	 * the exact lookup context and the Project-filtered media rows. It returns
@@ -213,6 +324,9 @@ async function prepareWithRegistry(
 		lookupContext,
 		registry,
 		input.mode,
+		fixtureData === undefined || lookupWire === undefined
+			? undefined
+			: { fixtureData, fixtures: lookupWire.fixtures },
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
@@ -235,6 +349,7 @@ async function prepareWithRegistry(
 			lookupTargets,
 			lookupSnapshot,
 			lookupContext,
+			...(lookupWire !== undefined && { lookupWire }),
 		},
 	};
 }
@@ -246,9 +361,11 @@ const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
 };
 
 /**
- * All explicit export targets stay closed while carriers are support-only.
- * The selected Nova export intent is part of both the finding details and
- * identity so the boundary never silently collapses three distinct decisions.
+ * The HQ export targets stay closed while lookup resources cannot be pushed
+ * or mapped; `ccz` embeds its fixtures locally and no longer takes this
+ * finding. The selected Nova export intent is part of both the finding
+ * details and identity so the boundary never silently collapses three
+ * distinct decisions.
  */
 function dormantLookupCarrierExportFindings(
 	doc: BlueprintDoc,

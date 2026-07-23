@@ -42,6 +42,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
 	SearchInputDef,
 	SearchInputType,
@@ -183,6 +184,7 @@ export function buildSearchPrompts(
 		RuntimeCsqlPromptValidation
 	> = new Map(),
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
@@ -209,6 +211,7 @@ export function buildSearchPrompts(
 				validationLocaleId,
 				runtimeValidation?.test,
 				relationContext,
+				lookupNaming,
 			),
 		);
 	}
@@ -319,6 +322,7 @@ function buildPromptElement(
 	validationLocaleId: string | undefined,
 	validationTest: string | undefined,
 	relationContext: RelationEvaluationScopeContext,
+	lookupNaming?: LookupWireNaming,
 ): Element {
 	const children = [
 		el("display", {}, [el("text", {}, [el("locale", { id: localeId })])]),
@@ -332,7 +336,12 @@ function buildPromptElement(
 	}
 	return el(
 		"prompt",
-		composePromptAttributes(input, suppressAutoMatch, relationContext),
+		composePromptAttributes(
+			input,
+			suppressAutoMatch,
+			relationContext,
+			lookupNaming,
+		),
 		children,
 	);
 }
@@ -361,6 +370,7 @@ function composePromptAttributes(
 	input: SearchInputDef,
 	suppressAutoMatch: boolean,
 	relationContext: RelationEvaluationScopeContext,
+	lookupNaming?: LookupWireNaming,
 ): Record<string, string> {
 	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
 
@@ -379,7 +389,11 @@ function composePromptAttributes(
 	// daterange answer. Validation asks legacy authors to remove it; omission
 	// here is the final defense against turning one date into an exact query.
 	if (input.type !== "date-range" && input.default !== undefined) {
-		attribs.default = compileDefaultExpression(input.default, relationContext);
+		attribs.default = compileDefaultExpression(
+			input.default,
+			relationContext,
+			lookupNaming,
+		);
 	}
 
 	// `exclude="true()"` is the structural mitigation for the
@@ -403,6 +417,13 @@ function composePromptAttributes(
 function compileDefaultExpression(
 	expression: ValueExpression,
 	relationContext: RelationEvaluationScopeContext,
+	lookupNaming?: LookupWireNaming,
 ): string {
-	return emitOnDeviceExpression(expression, undefined, relationContext);
+	return emitOnDeviceExpression(
+		expression,
+		undefined,
+		relationContext,
+		undefined,
+		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+	);
 }

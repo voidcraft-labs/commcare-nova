@@ -545,6 +545,16 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"Lookup-powered choices and calculations aren't editable yet. Keep the current lookup setup unchanged, or remove it.",
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: () =>
 		"Lookup-powered choices and calculations aren't ready to export yet. Remove the lookup-powered setting before exporting.",
+	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another value column.`,
+	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} contain spaces or line breaks there. Saved values can't contain whitespace — tidy those rows or choose another value column.`,
+	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: (e) =>
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "tableName", "the lookup table")} repeats the same value in several rows. Make the values unique or choose another value column.`,
+	LOOKUP_SELECT_SOURCE_LABEL_BLANK: (e) =>
+		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its labels, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another label column.`,
+	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
+		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>

@@ -253,6 +253,8 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	XFORM_NON_PATH_CONTROL_REF: "oracle",
 	XFORM_SELECT_NO_ITEMS: "oracle",
 	XFORM_SELECT_ITEMS_AND_ITEMSET: "oracle",
+	XFORM_ITEMSET_INVALID: "oracle",
+	SUITE_FIXTURE_INVALID: "oracle",
 	XFORM_ITEM_INCOMPLETE: "oracle",
 	XFORM_SETVALUE_NO_TARGET: "oracle",
 	XFORM_INVALID_SETVALUE: "oracle",
@@ -355,6 +357,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
 	LOOKUP_CARRIER_COMMIT_NOT_ACTIVE: "soundness",
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: "soundness",
+	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
+	 * functions of external Project data, so they never gate a commit. */
+	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",
+	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: "environment",
+	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",
+	LOOKUP_SELECT_SOURCE_LABEL_BLANK: "environment",
+	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: "environment",
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: "soundness",
 	UNKNOWN_FUNCTION: "soundness",

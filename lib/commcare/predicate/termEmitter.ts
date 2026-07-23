@@ -31,6 +31,7 @@
 // emitter so a reader scanning either dialect sees the rationale
 // next to the code.
 
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type {
 	PropertyRef,
 	RelationStep,
@@ -41,7 +42,9 @@ import type {
 } from "@/lib/domain/predicate/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
+import type { LookupWireNaming } from "../lookup/naming";
 import type { CsqlSegment } from "./csqlSegment";
+import type { OnDeviceCaseAnchor } from "./relationPresenceEmitter";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
 
 /**
@@ -114,6 +117,27 @@ export interface OnDeviceExpressionBindings {
 export type InstanceRoot = "casedb" | "results";
 
 /**
+ * Lookup wire vocabulary available to one emission run, plus the innermost
+ * fixture-row scope while a `table-lookup` `where` (or an itemset filter) is
+ * being lowered.
+ *
+ * `rowScope.caseAnchor` captures the case anchor at the `table-lookup` node:
+ * while the fixture row is the predicate context, a bare self case-property
+ * leaf would read the fixture row, so it re-anchors through `current()` (root
+ * anchor) or the ancestor join chain instead. Core preserves `current()` from
+ * the first predicate, so both forms stay correct at any nesting depth. The
+ * scope clears when emission descends into a relation `where`, where the
+ * candidate case is the predicate context again.
+ */
+export interface OnDeviceLookupEmissionContext {
+	readonly naming: LookupWireNaming;
+	readonly rowScope?: {
+		readonly tableId: LookupTableId;
+		readonly caseAnchor: OnDeviceCaseAnchor;
+	};
+}
+
+/**
  * Optional leaf override for an on-device evaluation surface whose current
  * case is not the surrounding nodeset row. Form-command relevancy is the one
  * current caller: its direct self properties must anchor through the selected
@@ -122,6 +146,15 @@ export type InstanceRoot = "casedb" | "results";
 export interface OnDeviceTermEmissionContext
 	extends OnDeviceExpressionBindings {
 	readonly emitSelfProperty?: (property: PropertyRef) => string;
+	readonly lookup?: OnDeviceLookupEmissionContext;
+}
+
+/** Drop the fixture-row scope when emission leaves the fixture predicate. */
+export function clearLookupRowScope(
+	context: OnDeviceTermEmissionContext,
+): OnDeviceTermEmissionContext {
+	if (context.lookup?.rowScope === undefined) return context;
+	return { ...context, lookup: { naming: context.lookup.naming } };
 }
 
 /** Default instance root — every on-device emission outside a
@@ -275,10 +308,35 @@ export function emitTerm(
 			) {
 				return context.emitSelfProperty(term);
 			}
-			return (
-				context.caseProperty?.(term, root, casePropertyScope) ??
-				emitOnDevicePropertyRef(term, root)
-			);
+			const anchored = context.caseProperty?.(term, root, casePropertyScope);
+			if (anchored !== undefined) return anchored;
+			const rowScope = context.lookup?.rowScope;
+			if (
+				rowScope !== undefined &&
+				(term.via === undefined || term.via.kind === "self")
+			) {
+				/* The fixture row is the predicate context, so the ordinary bare
+				 * self leaf would read the fixture row. Re-anchor on the case the
+				 * containing slot evaluates. */
+				const leaf = emitCasePropertyWirePath(term.property);
+				switch (rowScope.caseAnchor.kind) {
+					case "root":
+						return `current()/${leaf}`;
+					case "ancestor":
+						return `${buildAncestorJoinNodeset(rowScope.caseAnchor.via, root)}/${leaf}`;
+					case "unaddressable":
+						throw new Error(
+							`emitTerm: case property '${term.property}' is read inside a lookup-row filter within a scope whose case cannot be addressed from current(). Validation should reject this shape before emission.`,
+						);
+					default: {
+						const _exhaustive: never = rowScope.caseAnchor;
+						throw new Error(
+							`emitTerm: unhandled case anchor ${String(_exhaustive)}`,
+						);
+					}
+				}
+			}
+			return emitOnDevicePropertyRef(term, root);
 		}
 		case "input":
 			return `instance('search-input:results')/input/field[@name='${term.name}']`;
@@ -303,10 +361,22 @@ export function emitTerm(
 		}
 		case "literal":
 			return emitOnDeviceLiteralValue(term.value);
-		case "table-column":
-			throw new Error(
-				"emitTerm: lookup-table column terms are dormant until fixture emission lands; validation should reject them before on-device XPath emission.",
-			);
+		case "table-column": {
+			const lookup = context.lookup;
+			if (lookup?.rowScope === undefined) {
+				throw new Error(
+					"emitTerm: a lookup-table column term is only meaningful while a fixture row is the predicate context. Validation should reject a table-column term outside an explicit table scope before emission.",
+				);
+			}
+			if (lookup.rowScope.tableId !== term.tableId) {
+				throw new Error(
+					`emitTerm: lookup column term reads table '${term.tableId}' inside the fixture-row scope of table '${lookup.rowScope.tableId}'. Validation should reject cross-table column terms before emission.`,
+				);
+			}
+			/* Row-relative read: the fixture row is the predicate context, so
+			 * the column's current wire name is a bare child-element step. */
+			return lookup.naming.tableFor(term.tableId).wireNameFor(term.columnId);
+		}
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(`emitTerm: unhandled term kind ${String(_exhaustive)}`);

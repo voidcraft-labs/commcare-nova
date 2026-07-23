@@ -21,19 +21,26 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const { doc, assets, compiledAtSeq } = await prepareCompileRequest(req, {
-			boundaryErrorVerb: "compile",
-			mode: "ccz",
-		});
+		const { doc, assets, compiledAtSeq, lookupWire } =
+			await prepareCompileRequest(req, {
+				boundaryErrorVerb: "compile",
+				mode: "ccz",
+			});
 
 		// Compile is always media-ON — the archive bundles whatever the manifest
 		// resolved (an empty manifest simply emits no media artifacts). The
 		// blueprint's `mutation_seq` stamps the profile's `cc-content-version` so
-		// the archive names the exact document version it was built from.
-		const hqJson = expandDoc(doc, { assets });
+		// the archive names the exact document version it was built from. The
+		// prepared lookup wire carries the identity naming and budget-checked
+		// fixture blocks from the boundary's validated snapshot.
+		const hqJson = expandDoc(doc, {
+			assets,
+			...(lookupWire && { lookupNaming: lookupWire.naming }),
+		});
 		const buffer = compileCcz(hqJson, doc.appName, doc, {
 			assets,
 			compiledAtSeq,
+			...(lookupWire && { lookup: lookupWire }),
 		});
 
 		// Stream the freshly-built archive straight back to the caller. The
