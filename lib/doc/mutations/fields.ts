@@ -653,6 +653,16 @@ export function applyFieldMutation(
 
 			// Install all cloned entities into the draft.
 			for (const [uuid, f] of Object.entries(clonedF)) {
+				// Duplication is a generic builder gesture and stays
+				// carrier-blind until S09. A receiver-preserved lookup-backed
+				// select duplicates as its complete inline fallback rather than
+				// silently minting a second dormant carrier.
+				if (
+					(f.kind === "single_select" || f.kind === "multi_select") &&
+					f.optionsSource !== undefined
+				) {
+					delete f.optionsSource;
+				}
 				draft.fields[uuid as Uuid] = f;
 			}
 			for (const [parentUuid, order] of Object.entries(clonedO)) {

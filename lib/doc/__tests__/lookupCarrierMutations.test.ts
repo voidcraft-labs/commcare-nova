@@ -256,6 +256,23 @@ describe("dormant lookup options carriers", () => {
 		).toBe(false);
 	});
 
+	it("duplicates a receiver-preserved select as an inline-only fallback", () => {
+		const result = replay(baseDoc(selectField(SOURCE_A)), [
+			{ kind: "duplicateField", uuid: FIELD },
+		]);
+		const duplicateUuid = result.fieldOrder[FORM]?.[1];
+		expect(duplicateUuid).toBeDefined();
+		if (duplicateUuid === undefined) {
+			throw new Error("fixture: expected duplicate field identity");
+		}
+		const duplicate = result.fields[duplicateUuid];
+		expect(duplicate?.kind).toBe("single_select");
+		expect(duplicate && "optionsSource" in duplicate).toBe(false);
+		expect(
+			duplicate && "options" in duplicate ? duplicate.options : undefined,
+		).toEqual(selectField().options);
+	});
+
 	it.each([
 		["add", emptyDoc(), baseDoc(selectField(SOURCE_A))],
 		["set", baseDoc(), baseDoc(selectField(SOURCE_A))],
