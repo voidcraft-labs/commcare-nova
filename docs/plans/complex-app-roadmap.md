@@ -336,10 +336,10 @@ S06 -> S15 users/personas -> S16 organization/location store
 
 S02 and S03 are shipped. S04's domain/wire files do not depend on the dormant
 tenant-move protocol, and its review branch is rebased onto the latest deployed
-`main`. S11-S14 and S15-S21 may overlap only when their worktrees do not share
-subsystem ownership. S22 may
-begin after S03 and S04, but compiler verification remains serialized with other
-wire slices.
+`main`. S05's S02 dependency is satisfied, but its ledger status remains
+unchanged pending a separate readiness decision. S11-S14 and S15-S21 may overlap
+only when their worktrees do not share subsystem ownership. S22 may begin after
+S03 and S04, but compiler verification remains serialized with other wire slices.
 
 ## Slice ledger
 
@@ -1592,11 +1592,12 @@ ambiguous singular references, cross-repeat references, target-type mismatch,
 foreign-tenant ids, unsafe retypes, and removing/reordering an operation under a
 dependent reference.
 
-Implementation is owned in `agent/s04` from `b0e3f48e`. The domain now carries
-stable operation UUIDs, authored create ids, typed new/operation/session/
-expression targets, explicit repeat correlation, typed writes and links, and
-the round-trip-only `field` / `id-of` identity leaves plus explicit
-`acting-user` / `unowned` owner values. Operation writers join
+The review stack is owned in `agent/s04` on production baseline `97591f10`; its
+original implementation began from `b0e3f48e`. The domain now carries stable
+operation UUIDs, authored create ids, typed new/operation/session/expression
+targets, explicit repeat correlation, typed writes and links, and the
+round-trip-only `field` / `id-of` identity leaves plus explicit `acting-user` /
+`unowned` owner values. Operation writers join
 the effective/materializable property derivation and its writer-agreement proof;
 the pure retype plan names retained, converted, parked, missing-required, review,
 storage-atomic safe, and device-parity wire-portable outcomes. Scalar row metadata
