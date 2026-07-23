@@ -48,7 +48,7 @@ The source snapshots visible during this rebaseline were:
 
 | Repository | Commit | Use |
 |---|---|---|
-| CommCare Nova | `e9bce0051c34bd617360515eb34e00b954a54d03` | S03 integration baseline |
+| CommCare Nova | `e9a6377a56ebc3c102acfb88747585a61ee0b069` | S03 integration baseline |
 | CommCare HQ | `0fa01e0e8aea95ed9013d564145ad6cffeb91371` | HQ JSON, app build, APIs, fixtures |
 | CommCare Core | `130df00962a289381a8e0936c3ea5d3f53d96f73` | suite/runtime parsing |
 | Formplayer | `ef9096c6109ce3cca5cc3c5e3ef9f4c6a80b01b7` | Web Apps execution |
