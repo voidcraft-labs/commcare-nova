@@ -285,8 +285,9 @@ Its status read is one repeatable-read snapshot. Traffic reconciliation and
 runtime-epoch preparation invoke their control-plane snapshot callback only
 after taking the fixed deployment-cutover gate; that callback must perform a
 fresh read when invoked and must never return a pre-captured/cached split. Their
-in-transaction variants exist so S02c2 can use the SAME dedicated backend
-already holding the session gate across Cloud Run traffic mutation.
+in-transaction variants exist only for a future explicitly approved activation
+mechanism that already holds the session gate on the same dedicated backend.
+S02c2 does not mutate traffic, prepare an epoch, or raise a floor.
 Reconciliation may preserve/start the
 registry interval and delete invalid runtime epochs, but never auto-creates an
 epoch. Runtime floor raise locks cutover → compatibility `FOR UPDATE` → plain

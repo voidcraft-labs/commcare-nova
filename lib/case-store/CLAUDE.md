@@ -567,9 +567,9 @@ already-concrete v1 generation.
 Nonce enforcement defaults false and may move only false→true. Its CHECK
 requires `minimum_runtime_reader_version >= 1`. Runtime lifecycle transactions
 lock the app row before compatibility `FOR SHARE`; the cutover keeps its fixed
-gate → compatibility-row → unlocked-census order. S02c2 must drain request
-epochs, v0 holders, and old receiver leases before raising the runtime floor
-and irreversibly enabling exact nonce authority.
+gate → compatibility-row → unlocked-census order. No S02c unit raises the
+runtime floor or enables exact nonce authority. Any future explicitly approved
+activation must first drain request epochs, v0 holders, and old receiver leases.
 
 Compatibility and epoch `INSERT`/`UPDATE`/`DELETE` take the fixed deployment-
 cutover advisory lock from `BEFORE STATEMENT` triggers, before tuple locks. The

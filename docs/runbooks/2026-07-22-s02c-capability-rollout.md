@@ -250,14 +250,14 @@ print or persist its generated password:
 ```bash
 set -euo pipefail
 NOVA_BOOTSTRAP_PASSWORD="$(openssl rand -base64 48)"
-cleanup_bootstrap_user() {
+cleanup_bootstrap_user_best_effort() {
   gcloud sql users delete nova-deployment-bootstrap \
     --project=commcare-nova \
     --instance=nova-cases \
     --quiet >/dev/null 2>&1 || true
   unset NOVA_BOOTSTRAP_PASSWORD
 }
-trap cleanup_bootstrap_user EXIT
+trap cleanup_bootstrap_user_best_effort EXIT
 gcloud sql users create nova-deployment-bootstrap \
   --project=commcare-nova \
   --instance=nova-cases \
@@ -266,7 +266,20 @@ gcloud sql users create nova-deployment-bootstrap \
 NOVA_DB_BOOTSTRAP_USER=nova-deployment-bootstrap \
 NOVA_DB_BOOTSTRAP_PASSWORD="$NOVA_BOOTSTRAP_PASSWORD" \
   npx tsx scripts/infra/bootstrap-database-owner.ts --apply
-cleanup_bootstrap_user
+
+# The success path is strict: do not hide or outlive a failed deletion.
+gcloud sql users delete nova-deployment-bootstrap \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --quiet
+if gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)' | grep -qx nova-deployment-bootstrap; then
+  echo 'temporary bootstrap administrator still exists' >&2
+  exit 1
+fi
+unset NOVA_BOOTSTRAP_PASSWORD
 trap - EXIT
 ```
 
