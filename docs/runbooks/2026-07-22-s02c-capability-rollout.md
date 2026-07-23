@@ -199,9 +199,13 @@ Host path through the public load balancer without exposing a rollout-only
 application route.
 
 Migration, runtime, and build use distinct IAM/database identities. Migration
-owns fixed objects; runtime does not own auth/control tables. Runtime owns only
-`cases` in the isolated `nova_case_runtime` schema because the live schema path
-performs concurrent index DDL. It receives no CREATE privilege in `public`.
+owns the database, `public`, and fixed/auth/control objects; runtime receives
+application DML and read-only compatibility state, with no separate rollout
+database role. Runtime owns only `nova_case_runtime.cases` because the live
+schema path performs concurrent index DDL, and its schema `CREATE` privilege is
+confined there. The initial table move requires the documented one-time
+maintenance cutover; this path intentionally adds no bridge or database cutover
+journal.
 
 ## Build and deploy behavior
 
@@ -230,6 +234,48 @@ migration Job as `nova-migrate`, then deploys that same image as the existing
 timeout. The first split-identity deploy is an explicit dogfood maintenance
 cutover because ownership convergence moves `cases` out of `public`; it is not
 presented as zero-downtime machinery.
+
+Before merging the pipeline switch, first run the GCP identity plan and apply
+it after review:
+
+```bash
+./scripts/infra/provision-deployment-identities.sh
+./scripts/infra/provision-deployment-identities.sh --apply
+```
+
+Then create one temporary built-in Cloud SQL administrator, use the bounded
+bootstrap utility, and delete the administrator immediately afterward. Never
+print or persist its generated password:
+
+```bash
+set -euo pipefail
+NOVA_BOOTSTRAP_PASSWORD="$(openssl rand -base64 48)"
+cleanup_bootstrap_user() {
+  gcloud sql users delete nova-deployment-bootstrap \
+    --project=commcare-nova \
+    --instance=nova-cases \
+    --quiet >/dev/null 2>&1 || true
+  unset NOVA_BOOTSTRAP_PASSWORD
+}
+trap cleanup_bootstrap_user EXIT
+gcloud sql users create nova-deployment-bootstrap \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --type=BUILT_IN \
+  --password="$NOVA_BOOTSTRAP_PASSWORD"
+NOVA_DB_BOOTSTRAP_USER=nova-deployment-bootstrap \
+NOVA_DB_BOOTSTRAP_PASSWORD="$NOVA_BOOTSTRAP_PASSWORD" \
+  npx tsx scripts/infra/bootstrap-database-owner.ts --apply
+cleanup_bootstrap_user
+trap - EXIT
+```
+
+If the bootstrap command fails, delete the temporary administrator before doing
+anything else; its SQL is idempotent and can be rerun with a new temporary
+administrator after the cause is fixed. The first migration/deploy may briefly
+interrupt case endpoints while `cases` moves schemas. Fix forward if the new
+revision fails; no old revision is falsely advertised as a database-compatible
+rollback after ownership convergence.
 
 ## Safe verification
 

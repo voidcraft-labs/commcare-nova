@@ -20,11 +20,15 @@ adds two identities while preserving the existing, already permissioned
 The first database split has one explicit bootstrap prerequisite that Google
 IAM cannot grant: a Cloud SQL database administrator must make
 `nova-migrate@commcare-nova.iam` the owner of `nova_cases` and grant it both
-legacy object-owner roles. The migration then transfers every fixed object to
-that identity and the runtime-owned `cases` table to its isolated schema. This
-is a one-time dogfood maintenance cutover; do not disguise it as an automatic
-zero-downtime transition. Keep the legacy role memberships until the first
-post-deploy ownership audit passes, then remove them separately.
+legacy object-owner authority through the runtime role.
+`bootstrap-database-owner.ts` performs only that bounded four-statement
+transfer, is read-only unless passed `--apply`, requires a temporary built-in
+Cloud SQL administrator, and verifies that the administrator retained no
+migration-role membership. The migration then transfers every fixed object to
+the migration identity and the runtime-owned `cases` table to its isolated
+schema. This is a one-time dogfood maintenance cutover; do not disguise it as
+an automatic zero-downtime transition. Keep the legacy role memberships until
+the first post-deploy ownership audit passes, then remove them separately.
 
 The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field
