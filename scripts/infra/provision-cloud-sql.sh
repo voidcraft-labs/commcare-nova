@@ -243,6 +243,13 @@ for database_user in "$RUNTIME_SA_DBUSER" "$MIGRATION_SA_DBUSER"; do
 			--type=CLOUD_IAM_SERVICE_ACCOUNT
 	fi
 done
+# Replace runtime's custom database-role memberships with the empty set. This
+# is a no-op on a fresh instance and removes any legacy owner role when the
+# script converges an older instance.
+run gcloud sql users assign-roles "$RUNTIME_SA_DBUSER" \
+	--instance="$INSTANCE_ID" \
+	--type=CLOUD_IAM_SERVICE_ACCOUNT \
+	--revoke-existing-roles
 run gcloud sql users assign-roles "$MIGRATION_SA_DBUSER" \
 	--instance="$INSTANCE_ID" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \

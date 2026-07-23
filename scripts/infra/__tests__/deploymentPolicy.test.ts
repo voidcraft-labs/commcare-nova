@@ -69,10 +69,12 @@ describe("durable deployment policy", () => {
 		expect(provisioning).not.toContain('bind_act_as "$BUILD_ACCOUNT"');
 		expect(provisioning).not.toContain("nova-openai-api-key");
 		expect(provisioning).toContain("gcloud sql users assign-roles");
+		expect(provisioning).toContain('assign-roles "$RUNTIME_DB_USER"');
 		expect(provisioning).toContain('--database-roles="$RUNTIME_DB_USER"');
 		expect(provisioning).toContain("--revoke-existing-roles");
 		expect(cloudSqlProvisioning).toContain('MIGRATION_SA_EMAIL="nova-migrate@');
 		expect(cloudSqlProvisioning).toContain('RUNTIME_SA_EMAIL="commcare-nova@');
+		expect(cloudSqlProvisioning).toContain('assign-roles "$RUNTIME_SA_DBUSER"');
 		expect(cloudSqlProvisioning).not.toContain("compute@developer");
 	});
 });
