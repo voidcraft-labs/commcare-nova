@@ -1,9 +1,8 @@
 // lib/case-store/sql/compileExpression.ts
 //
 // Compile a `ValueExpression` to a Kysely expression. Covers all
-// 15 arms of the union (term / today / now / cast arms / arith /
-// concat / coalesce / if / switch / count / format-date / date-add
-// / unwrap-list defensive throw). Term emission delegates to
+// every arm of the union (ordinary values plus the operation-local
+// `id-of`, `acting-user`, and `unowned` leaves). Term emission delegates to
 // `./compileTerm`; relation-path subqueries delegate to
 // `./compileRelationPath`.
 //
@@ -76,7 +75,12 @@ import {
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain/standardCaseProperties";
 import { compileRelationPath } from "./compileRelationPath";
-import { compileTerm, type TermCompileContext } from "./compileTerm";
+import {
+	compileBoundRef,
+	compileBoundValue,
+	compileTerm,
+	type TermCompileContext,
+} from "./compileTerm";
 import type { Database } from "./database";
 import { NAIVE_TEMPORAL_TEXT_PATTERN } from "./dataTypeTokens";
 
@@ -139,6 +143,16 @@ export function compileExpression(
 			return compileToday();
 		case "now":
 			return compileNow();
+		case "id-of":
+			return compileBoundRef(
+				expr.opUuid,
+				ctx.bindings.operationIds,
+				`case-operation id '${expr.opUuid}'`,
+			);
+		case "acting-user":
+			return compileBoundValue(ctx.bindings.actingUserId, "the acting user id");
+		case "unowned":
+			return compileTerm({ kind: "literal", value: "-" }, ctx);
 		case "date-add":
 			return compileDateAdd(expr.date, expr.interval, expr.quantity, ctx);
 		case "date-coerce":
@@ -184,6 +198,9 @@ export function compileExpression(
 						"term",
 						"today",
 						"now",
+						"id-of",
+						"acting-user",
+						"unowned",
 						"date-add",
 						"date-coerce",
 						"datetime-coerce",

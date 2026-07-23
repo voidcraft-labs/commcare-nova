@@ -60,7 +60,7 @@
 // that's the same failure mode every other illegal-but-typeable
 // payload produces, so leaving it at the schema is consistent.
 
-import type { CasePropertyDataType } from "@/lib/domain";
+import type { CasePropertyDataType, Uuid } from "@/lib/domain";
 import {
 	reduceAnd as reduceAndImpl,
 	reduceNot as reduceNotImpl,
@@ -72,6 +72,7 @@ import type {
 	DateAddInterval,
 	DistanceUnit,
 	FormatDatePreset,
+	FormFieldRef,
 	Literal,
 	MatchMode,
 	Predicate,
@@ -111,6 +112,7 @@ const TERM_KINDS: ReadonlySet<string> = new Set([
 	"input",
 	"session-user",
 	"session-context",
+	"field",
 	"literal",
 ]);
 
@@ -250,6 +252,11 @@ export function sessionUser(field: string): SessionUserRef {
  */
 export function sessionContext(field: SessionContextField): SessionContextRef {
 	return { kind: "session-context", field };
+}
+
+/** Reference a value in the containing form by stable field identity. */
+export function formField(uuid: Uuid): FormFieldRef {
+	return { kind: "field", uuid };
 }
 
 /**
@@ -1135,6 +1142,26 @@ export function today(): Extract<ValueExpression, { kind: "today" }> {
  */
 export function now(): Extract<ValueExpression, { kind: "now" }> {
 	return { kind: "now" };
+}
+
+/** Reference the case id produced by an earlier create operation. */
+export function idOf(
+	opUuid: Uuid,
+): Extract<ValueExpression, { kind: "id-of" }> {
+	return { kind: "id-of", opUuid };
+}
+
+/** Identity of the resolved user/persona submitting this form. */
+export function actingUser(): Extract<
+	ValueExpression,
+	{ kind: "acting-user" }
+> {
+	return { kind: "acting-user" };
+}
+
+/** CommCare's explicit no-owner value (`-`). */
+export function unowned(): Extract<ValueExpression, { kind: "unowned" }> {
+	return { kind: "unowned" };
 }
 
 /**

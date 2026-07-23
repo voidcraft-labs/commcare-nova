@@ -8,8 +8,8 @@
 // the AST: `today`, `now`, `date-coerce` (→ `date`),
 // `datetime-coerce` (→ `datetime`), `double`, `date-add`,
 // `unwrap-list`, `term` — emit cleanly into the segment-list IR. The
-// other seven arms (`arith`, `concat`, `coalesce`, `if`, `switch`,
-// `count`, `format-date`) lift in the predicate emitter's hoist
+// other arms (`arith`, `concat`, `coalesce`, `if`, `switch`,
+// `count`, `format-date`, `id-of`, `acting-user`, `unowned`) lift in the predicate emitter's hoist
 // pass before reaching this emitter. The emitter throws a defensive
 // error on any of those arms rather than emit broken CSQL — the
 // throw guards the bypass path where a non-hoisted AST reaches this
@@ -23,7 +23,9 @@
 // `concat(...)` argument).
 
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import {
+	actingUser,
 	arith,
 	coalesce,
 	concat,
@@ -35,6 +37,7 @@ import {
 	datetimeLiteral,
 	double,
 	formatDate,
+	idOf,
 	ifExpr,
 	input,
 	literal,
@@ -48,6 +51,7 @@ import {
 	switchExpr,
 	term,
 	today,
+	unowned,
 	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
@@ -446,6 +450,18 @@ describe("emitCsqlExpressionSegments — non-whitelist arms throw", () => {
 
 	it("throws on format-date", () => {
 		const expr = formatDate(term(prop("p", "dob")), "iso");
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
+	});
+
+	it("throws on a submission-local case-operation id", () => {
+		const expr = idOf(asUuid("11111111-1111-4111-8111-111111111111"));
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
+	});
+
+	it.each([
+		["acting user", actingUser()],
+		["unowned", unowned()],
+	])("throws on the form-local %s owner value", (_label, expr) => {
 		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 });

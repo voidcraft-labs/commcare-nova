@@ -1,8 +1,8 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
-> Nova `b0e3f48e` (PR #302). S01 through S02c2 and S03 are shipped; S02c3 is
-> review-ready on `agent/s02c3`, and S04 is in progress on `agent/s04`.
+> Nova `97591f10` (PR #304). S01 through S03 are shipped, including all of S02;
+> S04 is review-ready on `agent/s04`.
 > This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -47,7 +47,7 @@ The source snapshots visible during this rebaseline were:
 
 | Repository | Commit | Use |
 |---|---|---|
-| CommCare Nova | `b0e3f48e7314bcb378572c78d406860ead1c84df` | Current deployed integration baseline |
+| CommCare Nova | `97591f10abc814576be32bdead557be7de2ea935` | Current deployed integration baseline |
 | CommCare HQ | `0fa01e0e8aea95ed9013d564145ad6cffeb91371` | HQ JSON, app build, APIs, fixtures |
 | CommCare Core | `130df00962a289381a8e0936c3ea5d3f53d96f73` | suite/runtime parsing |
 | Formplayer | `ef9096c6109ce3cca5cc3c5e3ef9f4c6a80b01b7` | Web Apps execution |
@@ -334,11 +334,10 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S03 is shipped. S04 source work may overlap S02c3 because its domain/wire files
-do not depend on the dormant tenant-move protocol; it still rebases onto the
-latest deployed `main` before merge.
-S05 waits for all of S02. S11-S14 and S15-S21 may overlap only after S02 is
-shipped and only when their worktrees do not share subsystem ownership. S22 may
+S02 and S03 are shipped. S04's domain/wire files do not depend on the dormant
+tenant-move protocol, and its review branch is rebased onto the latest deployed
+`main`. S11-S14 and S15-S21 may overlap only when their worktrees do not share
+subsystem ownership. S22 may
 begin after S03 and S04, but compiler verification remains serialized with other
 wire slices.
 
@@ -348,9 +347,9 @@ wire slices.
 |---|---|---|---|---|
 | S00 | Roadmap rebaseline | — | shipped | execution index + all PR plans |
 | S01 | Lookup persistence and realtime | S00 | shipped | PR-02, F5 |
-| S02 | External validation context and exact references | S01 | in progress | PR-01/02, F5 |
+| S02 | External validation context and exact references | S01 | shipped | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
-| S04 | Case operations: domain and wire | S02c1 | in progress | PR-01/03, F4 |
+| S04 | Case operations: domain and wire | S02c1 | review | PR-01/03, F4 |
 | S05 | Lookup carriers, expressions, and wire foundations | S02 | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03-S05 | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
@@ -734,10 +733,14 @@ shipped in PR #300 at squash `81e5ad8b`, including authorization serialization,
 runtime capability and stream admission, authoritative reload, and dormant
 holder-generation safety; healthy 100%-traffic revision
 `commcare-nova-00354-dq4` passed app/docs/MCP probes and its production error
-check. S02c2 passed independent whole-branch review on
-`agent/s02c2-simple` and shipped in PR #301 at squash `e9a6377a`. S02c3's
-review findings are fixed and its rebased branch is review-ready. S02 remains
-`in progress` until S02c3 passes CI, merge verification, and cleanup.
+check. S02c2 shipped in PR #301 at squash `e9a6377a`: Cloud Build
+`030b9622-1aaf-43b2-8137-7ef4a4615f74` completed its blocking migration
+execution and deployed healthy 100%-traffic revision
+`commcare-nova-00356-q6p`. S02c3 shipped in PR #304 at squash `97591f10`
+through Cloud Build `c0b35218-5c0f-4d68-ab7e-0932d000aa13`, successful
+migration execution `commcare-nova-migrate-b6whk`, and healthy 100%-traffic
+revision `commcare-nova-00358-clk`. Production app/docs/MCP probes and the
+revision error-log check passed. S02 is shipped.
 
 #### Identity, context, and extraction
 
@@ -1412,7 +1415,7 @@ S02 ships in three sequential review units from merged `main`:
    exception, exact-set replacement across every existing app writer, explicit
    writer-version `0` declaration, schema-governance internals, export-boundary
    generalization, and the zero-carrier edge audit. **Shipped in PR #299.**
-3. **S02c — move and transport safety (in progress):** exact
+3. **S02c — move and transport safety (shipped):** exact
    membership serialization, capability manifest, stream leases, and
    runtime-holder versioning,
    authoritative reload and mutable editability, per-operation case/presence
@@ -1421,7 +1424,7 @@ S02 ships in three sequential review units from merged `main`:
    database-identity hardening. Production floors remain `0` and flags remain
    false.
 
-S02c ships as three sequential PRs from each newly deployed `main`, with small
+S02c shipped as three sequential PRs from each newly deployed `main`, with small
 independently reviewed commits inside each PR. This keeps the transport,
 deployment-security, and tenant-move risk surfaces reviewable:
 
@@ -1439,9 +1442,8 @@ deployment-security, and tenant-move risk surfaces reviewable:
    **Shipped in PR #301.**
 3. **S02c3 — tenant-safe dormant move:** per-operation case authorization and
    transactional presence, atomic move and run normalization, exact media
-   protocol, and same-Project repair. True moves remain disabled. **Review-ready
-   on `agent/s02c3`; implementation and independent review are complete.** The
-   dormant v1 core now
+   protocol, and same-Project repair. True moves remain disabled. **Shipped in
+   PR #304.** The dormant v1 core
    commits Project flip, case tenancy, blueprint/thread media remaps, presence
    purge, migration history, reverse references, and notifications atomically;
    production still declares writer v0 and the static move policy still rejects
@@ -1495,7 +1497,10 @@ scan-before-migrate/rescan tool later; it never repairs data.
 
 ### S03 — display conditions: domain and wire
 
-**Status:** shipped in PR #302 at squash `b0e3f48e`.
+**Status:** shipped in PR #302 at squash `b0e3f48e`. Cloud Build
+`de11f8c4-e82f-4a34-bbd7-ce8b0515a73c` completed migration execution
+`commcare-nova-migrate-mc6jj` and deployed healthy 100%-traffic revision
+`commcare-nova-00357-6lr`.
 
 `Module.displayCondition?` and `Form.displayCondition?` are typed `Predicate`
 carriers. This slice owns persistence/schema acceptance, reference indexing and
@@ -1573,17 +1578,118 @@ follow-through.
 
 ### S04 — case operations: domain and wire
 
-**Status:** in progress on `agent/s04` from the current deployed baseline.
+**Status:** review-ready on `agent/s04`, rebased onto the deployed PR #304
+baseline.
 
 Define operation UUIDs, authored create ids, typed targets, links, repeat
 correlation, remove/retype semantics, ordering, property-writer participation,
 and activation gates. Integrate effective property typing, data review,
 conversion/parking, case schema materialization, and reserved case types.
 
-Pin wire order and empty-update guards against current HQ/Core fixtures. Reject
+Pin wire order and non-create existence/order guards against current HQ/Core
+fixtures. Reject
 ambiguous singular references, cross-repeat references, target-type mismatch,
 foreign-tenant ids, unsafe retypes, and removing/reordering an operation under a
 dependent reference.
+
+Implementation is owned in `agent/s04` from `b0e3f48e`. The domain now carries
+stable operation UUIDs, authored create ids, typed new/operation/session/
+expression targets, explicit repeat correlation, typed writes and links, and
+the round-trip-only `field` / `id-of` identity leaves plus explicit
+`acting-user` / `unowned` owner values. Operation writers join
+the effective/materializable property derivation and its writer-agreement proof;
+the pure retype plan names retained, converted, parked, missing-required, review,
+storage-atomic safe, and device-parity wire-portable outcomes. Scalar row metadata
+(`case_name` and the other standard columns) never enters the JSON conversion/parking
+plan. Reserved case types/properties and every contextual facet are commit-gated with
+named findings. Operation/retype/link case types apply Core's identifier grammar and
+255-character cap; link identifiers apply XML grammar, per-operation uniqueness, and
+HQ's 255-character index-column cap.
+
+The mutation/reference unit uses the rolling-compatible
+`updateForm.caseOperationChange` extension for add/update/remove/move, preserves
+cleared order through diff/replay, and blocks removal or dependency-inverting
+moves. Physical wire order is now an explicit contract: the singular operations
+container is first, repeat containers live in their exact templates, and scopes
+therefore execute root then repeat post-order; validation and move planning both
+reject a fractional order that crosses backward over that sequence. Multiple
+operations on the same known target remain legal and execute in declared order;
+the superseded archived duplicate-target ban is not part of Nova's model. An
+authored deterministic-key create must precede every non-create effect because a retry may
+already exist and HQ create-sorts colliding blocks while Core follows document
+order; generated UUID creates stay fresh. `idFrom` is not a raw global case id:
+the shared frozen derivation is
+`nova-case-v1:<UUIDv5(app,form,operation,type)>:<exact-key>`. The JSON namespace
+tuple and fixed UUID namespace are test-vector pinned; display-id renames and
+reorders do not change identity. Empty keys and keys over 205 Java/JS UTF-16
+code units fail on both the XForm and future Preview paths, while whitespace,
+case, and Unicode remain exact with no normalization. This app/form/operation/
+type namespace prevents an unseen HQ case from being accidentally merged or
+retyped; retries and duplicate repeat keys for the same definition intentionally
+merge, and two operations may safely use one key field. A later non-create that
+may target the merged case is rejected when its scope shares a repeated
+execution ancestor with that create: Core's iteration-major order and HQ's
+per-case create sort would otherwise disagree. Provably distinct targets and
+independent root sibling repeats remain legal. Keyed identities are
+type-stable: a known authored-create retype is rejected statically and a
+data-dependent `nova-case-v1:` target is rejected by an atomic XForm guard.
+The key source is scalar text/single-select/hidden-string only; multi-select is a
+Nova array but a CommCare space-token string and has no safe implicit key encoding.
+Conditional create and retype facts carry their predicate guards
+transitively to later identity/type consumers, and remove/move planning uses the
+same analysis.
+
+Source-level XForm emission is shared by HQ upload and local compilation, with
+canonical create/update/close/index child order, idempotent same-type updates
+that both guard index-only misses and give pure-close/index blocks a real HQ
+update sort key (HQ parses an empty update as absent beside another action), final-value
+calculate binds for authored create ids, exact repeated `id-of` correlation
+(including `current()` anchoring through nested relation predicates), transitive
+conditional create/retype guards, and type-filtered runtime targets. Exact
+expression identities keep their original snapshot lookup type after a semantic
+retype; dynamic-link guard blocks validate by no-op-targeting the operation case,
+not by modifying the linked case; absent, wrong-type, and self-link targets all
+fail the atomic submission. Deterministic authored-key identity no longer relies
+on the incomplete restored casedb to prove global absence. Different expression/
+session/op ASTs can still resolve to one concrete id, so the order proof tracks
+every type-changing identity and rejects a later differently-typed target/link
+unless the pair is statically equal or provably distinct. Repeated retype is
+legal only over the exact correlated generated-UUID create; an authored key or
+runtime target can repeat one id across iterations. Move/remove planning consumes
+the same violations. The proof continues through the ordinary `FormActions`
+that execute last: a primary property update and every subcase parent link still
+require the loaded session case to have the module type, so an exact or
+potentially-aliasing advanced retype away from that type is rejected. A
+write-free close action remains type-agnostic. Transition history is retained
+for this proof: a later conditional restoration cannot erase the earlier branch
+where its condition is false. Pre-submission
+session-case reads are anchored in `casedb`. Advanced effects
+precede the existing ordinary primary-case `FormActions` block. Wire tests pin
+current Vellum/Core fixtures and the XForm oracle. Runtime target
+validation accepts only client identity and separately reauthorizes server-owned
+Project/type facts. Target and link-target expressions reject `id-of` at any depth;
+the typed `op` target is the sole path to a fresh create, which cannot be found in
+the pre-submission casedb. Persisted values use directional storage assignment over
+every branch: exact types, int-to-decimal, and text/single-select string interchange
+are admitted; decimal-to-int, null-as-clear, scalar-to-multi-select, and multi-select
+through scalar concat/coercion are rejected. `concat` is the explicit portable
+boolean-to-text boundary. Name, rename, and effective owner results use one shared
+`caseOperationText.ts` preparation contract: Java-regex XML boundary whitespace is
+removed, internal whitespace is preserved, the normalized value must be nonblank,
+and the Core/HQ fixed-column limit is 255 UTF-16 code units. The XForm calculates the
+normalized value and a trailing atomic no-op guard rejects blank/overlong results;
+obvious invalid literals are rejected statically. S06 must call the same helper before
+any DML, including default-owner stamping, rather than relying on the looser current
+Postgres columns. Authored retypes additionally require `wirePortable`: no
+source-only parking and no conversion, because CommCare changes only `case_type` and
+would otherwise retain a different lexical/property projection from Nova. The richer
+pure plan remains available for a future shared wire representation. The pure storage
+seam and wire are complete, but
+`CASE_OPERATIONS_NOT_ACTIVE` intentionally keeps operation-bearing candidates
+uncommittable: S06 must execute one atomic submission envelope (including the exact-
+schema retype subset) and complete the opaque-case-id migration/audit enumerated
+in its slice before authored ids can reach storage; S07 must add preview execution before S08 opens builder,
+SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
@@ -1669,6 +1775,47 @@ personas; it does not create a session-only pseudo-persona. Extend the CaseStore
 contract with one tenant-bound atomic submission envelope combining ordinary
 form actions and advanced operations. No real row may be stamped with a named
 persona until that persona has stable persisted identity.
+
+S06 also owns the complete opaque-case-id activation migration, not only a SQL
+column alteration. Preserve PR #301's production schema boundary:
+`nova_case_runtime.cases` is the sole runtime-owned table, while
+`public.case_indices`, `public.case_type_schemas`, and
+`public.parked_case_values` remain migration-owned. The scan and migration must
+schema-qualify every object rather than depending on the connection search path.
+Ship a read-only scan, then widen `cases.case_id`, `parent_case_id`,
+`case_indices.{case_id,ancestor_id}`, and `parked_case_values.case_id` plus every
+FK/index/default to `text`, retaining `uuidv7()::text` only as Nova's
+generated-id default. Remove every UUID array/value cast and every UUID-only
+runtime parser, including `readCaseData` in `caseDataBindingHelpers.ts`. The
+atomic executor must call S04's shared
+`deriveAuthoredCaseId` helper and reject its empty/over-205 key outcomes before
+writing, with the pinned TypeScript/XPath vectors as parity tests. Every evaluated
+create-name, rename, and effective owner must pass through
+`prepareCaseOperationTextValue`; store only the returned normalized value and abort
+on `blank`/`too-long`, including for an acting-user/persona default owner. After
+expanding repeats into physical order it must call
+`validateResolvedCaseOperationTypeSequence` over the separately authorized
+snapshot descriptors before any write: the fold keys by concrete opaque id,
+checks every link's concrete identity and rolling type before each effect,
+rejects a runtime-expression self-link, catches runtime aliases/duplicate
+repeat values, and enforces keyed-identity type stability. Per-target descriptor checks
+alone are not an adequate rolling retype proof. Replace the current UUIDv7 lexical insertion-order
+assumption used by default/tie-break case ordering with an explicit durable
+ordering fact; authored ids are not time-sortable. Audit every URL and raw path
+segment boundary for encode/decode symmetry rather than interpolating opaque ids.
+Acceptance must cover non-UUID ids (including URL-significant characters) across
+create/read/update/close, relation walks, paging/tie-breaks, parking/review/
+restore, retenancy moves, and the atomic operation envelope, followed by a clean
+production rescan before the S04 activation gate can open.
+
+The first activation may execute only S04's `wirePortable` retype subset (exact
+retained JSON property types, no cast and no parking). Do not interpret the richer
+storage `safe` plan as device parity: CommCare's case XML changes `case_type` but
+does not remove source-only properties or cast shared values. Conversion/parking
+retypes remain dormant until a later slice defines and tests one shared wire
+representation across device and Nova. Multi-select form answers bind to the SQL
+expression compiler as string arrays and must be serialized/cast explicitly to
+JSONB inside the atomic executor.
 
 ### S07 — preview execution and carrier activation
 
@@ -1847,10 +1994,36 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
-- **2026-07-22 — S03 shipped / S02c3 review-ready:** PR #302 shipped module and
-  form display conditions at squash `b0e3f48e`. S02c3 is rebased on that
-  deployed baseline and remains review-ready, not shipped; true Project moves
-  remain disabled.
+- **2026-07-22 — S02c3 shipped / S04 review-ready:** PR #304 shipped the
+  tenant-safe dormant move and exact media protocol at squash `97591f10`
+  through successful Cloud Build `c0b35218-5c0f-4d68-ab7e-0932d000aa13`,
+  migration execution `commcare-nova-migrate-b6whk`, and healthy 100%-traffic
+  revision `commcare-nova-00358-clk`. True Project moves remain disabled. S04
+  is rebased on that production baseline and remains review-ready.
+- **2026-07-22 — S02c2 and S03 shipped:** Deployment hardening shipped in PR
+  #301 at `e9a6377a` through successful Cloud Build
+  `030b9622-1aaf-43b2-8137-7ef4a4615f74`, migration execution
+  `commcare-nova-migrate-6ckw5`, and healthy 100%-traffic revision
+  `commcare-nova-00356-q6p`. Display-condition domain and wire support then
+  shipped in PR #302 at `b0e3f48e` through successful Cloud Build
+  `de11f8c4-e82f-4a34-bbd7-ce8b0515a73c`, migration execution
+  `commcare-nova-migrate-mc6jj`, and healthy 100%-traffic revision
+  `commcare-nova-00357-6lr`.
+- **2026-07-22 — S04 domain/wire implementation reviewed:** A dedicated
+  `agent/s04` worktree now owns the dormant case-operation unit: typed identity,
+  targets, links, repeat correlation and AST leaves; rolling-compatible
+  mutations and exact references; operation-aware property derivation and the
+  atomic retype plan; tenant-authoritative runtime target validation; and
+  source-level cx2 emission with canonical child/document order, typed dynamic
+  targets, conditional transition guards, and current
+  Core/Vellum oracle coverage. Review-driven hardening now also pins directional
+  storage assignment and multi-select JSONB bindings, nested `id-of` target rejection,
+  255-character case-type/index constraints, scalar-metadata-safe retype planning,
+  fixed-column name/owner normalization and atomic bounds guards, and the
+  exact-schema-only `wirePortable` retype gate. The operation commit gate and all public
+  authoring surfaces remain closed pending S06/S07 execution. Independent code review
+  approved the corrected unit and the focused 17-file verification lane passed, so the
+  slice is review-ready.
 - **2026-07-22 — S02b shipped / S02c owned:** Integrated the required lookup
   context/finding identity through every validation boundary; exact edge
   replacement, same-transaction Project reauthorization, apply-once candidate

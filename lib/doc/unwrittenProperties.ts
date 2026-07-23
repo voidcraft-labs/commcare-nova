@@ -4,7 +4,7 @@
  *
  * A case property the app READS (a visibility or validation
  * expression, a case-list column or filter, a search input, a prose
- * mention…) while no form in the app WRITES it gets its values from
+ * mention…) while no field or case operation in the app WRITES it gets its values from
  * outside the app: another app on the same case type, an integration,
  * or staged sample data. That is a normal, often deliberate state — a
  * viewer app over externally-managed cases is exactly this for every
@@ -26,9 +26,9 @@
  *
  * A DECLARED catalog property appears iff something references it from
  * any registry slot (`referencingSlotsOf` — every read edge in the
- * reference index) and no field writes it (`declarersOf` — the same
- * `(case_property_on, id)` derivation `effectiveCaseTypes` types
- * properties from). CommCare standard properties (`case_name`,
+ * reference index) and no field or case operation writes it
+ * (`declarersOf` — the same writer derivation `effectiveCaseTypes`
+ * types properties from). CommCare standard properties (`case_name`,
  * `date_opened`, …) and `case_id` are excluded — the runtime writes
  * those on every case.
  *
@@ -40,7 +40,8 @@
  * Writer EXISTENCE is the whole check. Whether the writers can reach a
  * particular value some expression compares against is a different
  * (value-level) question this derivation never claims to answer — the
- * copy says "no form writes it", nothing stronger.
+ * copy says "no form writes it", nothing stronger (case operations are
+ * form-owned writers too).
  *
  * Derived and memoized per doc reference like `effectiveCaseTypes` —
  * the store replaces the doc reference on every mutation, so staleness

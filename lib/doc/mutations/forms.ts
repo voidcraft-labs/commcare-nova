@@ -121,6 +121,48 @@ export function applyFormMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
+			const change = mut.caseOperationChange;
+			if (change === undefined) return;
+			const operations = form.caseOperations ?? [];
+			switch (change.operation) {
+				case "add":
+					if (
+						!operations.some(
+							(operation) => operation.uuid === change.value.uuid,
+						)
+					) {
+						operations.push(change.value);
+						form.caseOperations = operations;
+					}
+					return;
+				case "update": {
+					const index = operations.findIndex(
+						(operation) => operation.uuid === change.uuid,
+					);
+					if (index === -1) return;
+					operations[index] = change.value;
+					form.caseOperations = operations;
+					return;
+				}
+				case "remove": {
+					const index = operations.findIndex(
+						(operation) => operation.uuid === change.uuid,
+					);
+					if (index !== -1) operations.splice(index, 1);
+					if (operations.length === 0) delete form.caseOperations;
+					else form.caseOperations = operations;
+					return;
+				}
+				case "move": {
+					const operation = operations.find(
+						(candidate) => candidate.uuid === change.uuid,
+					);
+					if (operation === undefined) return;
+					operation.order = change.order;
+					form.caseOperations = operations;
+					return;
+				}
+			}
 			return;
 		}
 		case "setFormMedia": {

@@ -15,6 +15,7 @@ import { z } from "zod";
 import {
 	assetIdSchema,
 	CONNECT_TYPES,
+	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
 	caseTypeSchema,
@@ -111,7 +112,37 @@ function clearablePartialPatch<
 }
 
 const moduleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
-const formUpdatePatchSchema = clearablePartialPatch(formSchema);
+const formUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
+	caseOperations: true,
+});
+const caseOperationChangeSchema = z.discriminatedUnion("operation", [
+	z
+		.object({ operation: z.literal("add"), value: caseOperationSchema })
+		.strict(),
+	z
+		.object({
+			operation: z.literal("update"),
+			uuid: uuidSchema,
+			value: caseOperationSchema,
+		})
+		.strict()
+		.superRefine((change, ctx) => {
+			if (change.uuid === change.value.uuid) return;
+			ctx.addIssue({
+				code: "custom",
+				path: ["value", "uuid"],
+				message: "A case-operation replacement must preserve UUID identity.",
+			});
+		}),
+	z.object({ operation: z.literal("remove"), uuid: uuidSchema }).strict(),
+	z
+		.object({
+			operation: z.literal("move"),
+			uuid: uuidSchema,
+			order: z.string(),
+		})
+		.strict(),
+]);
 const caseSearchConfigPatchSchema = z
 	.object({
 		excludedOwnerIds: caseSearchConfigSchema.shape.excludedOwnerIds.nullable(),
@@ -615,6 +646,10 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
 		// an empty, document-omitted map). See `updateFieldArms`.
 		patch: formUpdatePatchSchema.default(() => ({})),
+		// Semantic extension on the long-lived updateForm discriminator. Old
+		// receivers strip this unknown key and safely replay the empty patch;
+		// new receivers apply one identity-keyed operation edit.
+		caseOperationChange: caseOperationChangeSchema.optional(),
 	}),
 	// Field
 	z.object({

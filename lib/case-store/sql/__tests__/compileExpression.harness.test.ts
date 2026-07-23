@@ -40,6 +40,7 @@
 
 import { sql } from "kysely";
 import { describe } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -54,6 +55,7 @@ import {
 	datetimeLiteral,
 	double,
 	formatDate,
+	formField,
 	ifExpr,
 	input,
 	literal,
@@ -128,6 +130,28 @@ function makeCtx(
 		...overrides,
 	};
 }
+
+describe("compileExpression — round-trip — form bindings", () => {
+	test("preserves a multi-select answer as a JSONB array for operation writes", async ({
+		db,
+	}) => {
+		const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
+		const expr = compileExpression(
+			term(formField(fieldUuid)),
+			makeCtx(db, {
+				bindings: {
+					formFields: new Map([[fieldUuid, ["urgent", "review"]]]),
+				},
+			}),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<unknown>`${expr}`.as("answer"))
+			.execute();
+
+		expect(rows).toEqual([{ answer: ["urgent", "review"] }]);
+	});
+});
 
 // ---------------------------------------------------------------
 // `today` / `now` constants

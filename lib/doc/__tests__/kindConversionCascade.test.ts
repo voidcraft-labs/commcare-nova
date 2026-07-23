@@ -14,7 +14,10 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { backfillOrderKeys } from "@/lib/doc/order/backfill";
-import type { BlueprintDoc, FieldKind } from "@/lib/domain";
+import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
+import { asUuid } from "@/lib/doc/types";
+import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
+import { today } from "@/lib/domain/predicate";
 import { planKindConversion } from "../kindConversionCascade";
 
 /** Two forms writing the same `visit_on` date property (declared), so a
@@ -197,6 +200,37 @@ describe("planKindConversion — generalized escort", () => {
 		expect("options" in redeclare.property).toBe(false);
 		// The space-join reshape is total — no consent verdict.
 		expect(result.dataLossRisk).toBeUndefined();
+	});
+
+	it("blocks a type flip when a case operation also writes the property", () => {
+		const doc = temporalDoc();
+		const formUuid = Object.keys(doc.forms)[0] as import("@/lib/domain").Uuid;
+		(doc.forms[formUuid] as Form).caseOperations = [
+			{
+				uuid: asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+				id: "record_visit_date",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				writes: [{ property: "visit_on", value: today() }],
+			},
+		];
+		doc.refIndex = buildReferenceIndex(doc);
+
+		const result = planKindConversion({
+			doc,
+			field: fieldIn(doc, "visit_on"),
+			toKind: "datetime",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			blocker: {
+				carrier: "case-operation",
+				uuid: asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+				id: "record_visit_date",
+			},
+		});
 	});
 });
 

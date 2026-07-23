@@ -29,6 +29,9 @@
  *     bounce off the gate with a disagreement message that misreads a
  *     healthy property as broken. The expressible fix is to convert
  *     that peer to text first, then convert the property.
+ *   - A case-operation writer also blocks a data-type flip. Its value is an
+ *     authored expression, not a field kind the cascade can mechanically
+ *     convert; the author must revise/remove the operation explicitly.
  *   - A flip whose per-row cast can fail (`castCanFail` — time↔date,
  *     time→datetime, anything→int, …) additionally carries a
  *     `dataLossRisk` verdict on the plan. The plan itself never
@@ -102,17 +105,23 @@ export interface KindConversionPlan {
 	};
 }
 
-/** A same-type peer writer whose kind can't convert to the target —
- *  the batch would bounce off the agreement gate with a message that
- *  misreads a healthy property as broken, so the plan refuses up front
- *  with the peer named. */
+/** A writer the field-only cascade cannot carry to the target: either a
+ * same-type field whose kind cannot convert, or a case-operation expression
+ * that must be revised explicitly. */
 export interface KindConversionBlocked {
 	readonly ok: false;
-	readonly blocker: {
-		readonly uuid: Uuid;
-		readonly id: string;
-		readonly kind: FieldKind;
-	};
+	readonly blocker:
+		| {
+				readonly carrier: "field";
+				readonly uuid: Uuid;
+				readonly id: string;
+				readonly kind: FieldKind;
+		  }
+		| {
+				readonly carrier: "case-operation";
+				readonly uuid: Uuid;
+				readonly id: string;
+		  };
 }
 
 export type KindConversionPlanResult =
@@ -163,10 +172,21 @@ export function planKindConversion(args: {
 
 	// Peer writers of the same (caseType, property) — via the reference
 	// index, never a doc walk. The addressed field itself is excluded.
-	const declarers = declarersOf(doc, caseType, field.id)
-		.filter((uuid) => uuid !== field.uuid)
+	const declarerUuids = declarersOf(doc, caseType, field.id).filter(
+		(uuid) => uuid !== field.uuid,
+	);
+	const declarers = declarerUuids
 		.map((uuid) => doc.fields[uuid as Uuid])
 		.filter((f): f is Field => f !== undefined);
+	const operationBlocker = declarerUuids
+		.map((uuid) => doc.forms[uuid as Uuid])
+		.filter((form) => form !== undefined)
+		.flatMap((form) => form.caseOperations ?? [])
+		.find(
+			(operation) =>
+				(operation.retype ?? operation.caseType) === caseType &&
+				(operation.writes ?? []).some((write) => write.property === field.id),
+		);
 
 	const mutations: Mutation[] = [addressedConvert];
 	const peers: KindConversionPeer[] = [];
@@ -176,6 +196,20 @@ export function planKindConversion(args: {
 		fromType !== undefined && toType !== undefined && toType !== fromType;
 
 	if (isTypeFlip) {
+		// Operation expressions are first-class writers, but unlike fields they
+		// have no mechanical "convert kind" mutation. A valid doc's operation
+		// writer agrees with the source type today, so the field flip must stop
+		// and ask the author to revise/remove that expression explicitly.
+		if (operationBlocker !== undefined) {
+			return {
+				ok: false,
+				blocker: {
+					carrier: "case-operation",
+					uuid: operationBlocker.uuid,
+					id: operationBlocker.id,
+				},
+			};
+		}
 		// Carry every peer writer of the property's CURRENT type across —
 		// selection is by derived data type, not kind identity, so a
 		// barcode/secret writer on a text property counts (it agrees
@@ -186,7 +220,12 @@ export function planKindConversion(args: {
 			if (!getConvertibleTypes(peer.kind).includes(toKind)) {
 				return {
 					ok: false,
-					blocker: { uuid: peer.uuid, id: peer.id, kind: peer.kind },
+					blocker: {
+						carrier: "field",
+						uuid: peer.uuid,
+						id: peer.id,
+						kind: peer.kind,
+					},
 				};
 			}
 			mutations.push(convertMutation(peer));

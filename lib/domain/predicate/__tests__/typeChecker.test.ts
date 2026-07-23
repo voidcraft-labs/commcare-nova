@@ -69,6 +69,7 @@ import {
 	type CheckError,
 	checkExpression,
 	checkPredicate,
+	checkValueAssignmentExpression,
 	checkValueExpression,
 } from "../typeChecker";
 import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
@@ -2353,6 +2354,140 @@ describe("checkValueExpression — top-level entry", () => {
 			expect(
 				result.errors.some((e) => /Unknown property/.test(e.message)),
 			).toBe(true);
+		}
+	});
+});
+
+describe("checkValueAssignmentExpression — directional storage compatibility", () => {
+	it("distinguishes storage assignment from symmetric comparison compatibility", () => {
+		expect(
+			checkValueAssignmentExpression(term(literal("vip")), ctx, [
+				"multi_select",
+			]).ok,
+		).toBe(false);
+		expect(
+			checkValueAssignmentExpression(term(literal(1.5)), ctx, ["int"]).ok,
+		).toBe(false);
+		expect(
+			checkValueAssignmentExpression(term(literal(1)), ctx, ["decimal"]).ok,
+		).toBe(true);
+		expect(
+			checkValueAssignmentExpression(term(prop("patient", "status")), ctx, [
+				"text",
+			]).ok,
+		).toBe(true);
+		expect(
+			checkValueAssignmentExpression(term(prop("patient", "tags")), ctx, [
+				"text",
+			]).ok,
+		).toBe(false);
+	});
+
+	it("checks every reachable branch representation", () => {
+		expect(
+			checkValueAssignmentExpression(
+				ifExpr(matchAll(), term(literal(1)), term(literal(1.5))),
+				ctx,
+				["int"],
+			).ok,
+		).toBe(false);
+		expect(
+			checkValueAssignmentExpression(
+				ifExpr(matchAll(), term(prop("patient", "tags")), term(literal("vip"))),
+				ctx,
+				["multi_select"],
+			).ok,
+		).toBe(false);
+	});
+
+	it("rejects implicit null clears and primitive booleans", () => {
+		for (const expression of [
+			term(literal(null)),
+			ifExpr(matchAll(), term(literal("yes")), term(literal(null))),
+			term(literal(true)),
+		]) {
+			expect(checkValueAssignmentExpression(expression, ctx, ["text"]).ok).toBe(
+				false,
+			);
+		}
+		expect(
+			checkValueAssignmentExpression(concat(term(literal(true))), ctx, ["text"])
+				.ok,
+		).toBe(true);
+		expect(
+			checkValueAssignmentExpression(concat(term(literal(null))), ctx, ["text"])
+				.ok,
+		).toBe(true);
+	});
+
+	it("does not let scalar wrappers hide multi-select arrays or booleans", () => {
+		const wrappedMulti = checkValueAssignmentExpression(
+			concat(term(prop("patient", "tags"))),
+			ctx,
+			["text"],
+		);
+		expect(wrappedMulti.ok).toBe(false);
+		if (!wrappedMulti.ok) {
+			expect(
+				wrappedMulti.errors.map((error) => error.message).join(" "),
+			).toContain("multi-select value cannot flow through scalar");
+		}
+		for (const expression of [
+			double(term(literal(true))),
+			dateCoerce(term(literal(true))),
+			datetimeCoerce(term(literal(true))),
+		]) {
+			const result = checkValueAssignmentExpression(expression, ctx, [
+				expression.kind === "double"
+					? "decimal"
+					: expression.kind === "date-coerce"
+						? "date"
+						: "datetime",
+			]);
+			expect(result.ok).toBe(false);
+			if (!result.ok) {
+				expect(result.errors.map((error) => error.message).join(" ")).toContain(
+					"boolean primitive",
+				);
+			}
+		}
+
+		const nullBeforeConcat = checkValueAssignmentExpression(
+			concat(double(term(literal(null)))),
+			ctx,
+			["text"],
+		);
+		expect(nullBeforeConcat.ok).toBe(false);
+		if (!nullBeforeConcat.ok) {
+			expect(
+				nullBeforeConcat.errors.map((error) => error.message).join(" "),
+			).toContain("Null is not a portable assignment value");
+		}
+
+		const branchBeforeConcat = checkValueAssignmentExpression(
+			concat(
+				ifExpr(matchAll(), term(literal(true)), term(literal("fallback"))),
+			),
+			ctx,
+			["text"],
+		);
+		expect(branchBeforeConcat.ok).toBe(false);
+		if (!branchBeforeConcat.ok) {
+			expect(
+				branchBeforeConcat.errors.map((error) => error.message).join(" "),
+			).toContain("boolean primitive");
+		}
+
+		const emptyDate = checkValueAssignmentExpression(
+			term({ kind: "literal", value: "", data_type: "date" }),
+			ctx,
+			["date"],
+		);
+		expect(emptyDate.ok).toBe(false);
+		if (!emptyDate.ok) {
+			expect(
+				emptyDate.errors.map((error) => error.message).join(" "),
+			).toContain("empty typed temporal literal");
 		}
 	});
 });

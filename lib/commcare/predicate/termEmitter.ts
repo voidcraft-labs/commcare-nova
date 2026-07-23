@@ -39,6 +39,7 @@ import type {
 	SessionUserRef,
 	Term,
 } from "@/lib/domain/predicate/types";
+import type { Uuid } from "@/lib/domain/uuid";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
 import type { CsqlSegment } from "./csqlSegment";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
@@ -64,6 +65,25 @@ import { formatNumeric, quoteLiteral } from "./stringQuoting";
  * underlying case storage shape.
  */
 export { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
+
+/** Form-submission-only XPath bindings for identity-backed expression leaves. */
+export interface OnDeviceExpressionBindings {
+	readonly formFields?: ReadonlyMap<Uuid, string>;
+	readonly operationIds?: ReadonlyMap<Uuid, string>;
+	/** Case-id expression that replaces `current()/@case_id` at a form
+	 *  expression's root. Related-case predicate scopes intentionally ignore
+	 *  it because their body is evaluated candidate-relative. */
+	readonly rootCaseId?: string;
+	/** Optional form-surface anchor for case-property reads. Case-list and
+	 *  search predicates evaluate with a case as `current()`, so their normal
+	 *  property emission is relative. Form submission expressions do not;
+	 *  they supply a resolver that anchors reads on the loaded case snapshot. */
+	readonly caseProperty?: (
+		property: PropertyRef,
+		root: InstanceRoot,
+		scope: "root" | "related",
+	) => string | undefined;
+}
 
 // ============================================================
 // Relation-walk anchor builders
@@ -99,7 +119,8 @@ export type InstanceRoot = "casedb" | "results";
  * current caller: its direct self properties must anchor through the selected
  * session `case_id`. Related reads never use this hook.
  */
-export interface OnDeviceTermEmissionContext {
+export interface OnDeviceTermEmissionContext
+	extends OnDeviceExpressionBindings {
 	readonly emitSelfProperty?: (property: PropertyRef) => string;
 }
 
@@ -244,16 +265,21 @@ export function emitTerm(
 	term: Term,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
 	context: OnDeviceTermEmissionContext = {},
+	casePropertyScope: "root" | "related" = "root",
 ): string {
 	switch (term.kind) {
-		case "prop":
+		case "prop": {
 			if (
 				context.emitSelfProperty !== undefined &&
 				(term.via === undefined || term.via.kind === "self")
 			) {
 				return context.emitSelfProperty(term);
 			}
-			return emitOnDevicePropertyRef(term, root);
+			return (
+				context.caseProperty?.(term, root, casePropertyScope) ??
+				emitOnDevicePropertyRef(term, root)
+			);
+		}
 		case "input":
 			return `instance('search-input:results')/input/field[@name='${term.name}']`;
 		case "session-user":
@@ -266,6 +292,15 @@ export function emitTerm(
 			// members validated at the schema layer; direct
 			// interpolation is safe.
 			return `instance('commcaresession')/session/context/${term.field}`;
+		case "field": {
+			const xpath = context.formFields?.get(term.uuid);
+			if (xpath === undefined) {
+				throw new Error(
+					`emitTerm: form field '${term.uuid}' has no XPath binding in this expression context.`,
+				);
+			}
+			return xpath;
+		}
 		case "literal":
 			return emitOnDeviceLiteralValue(term.value);
 		default: {
@@ -427,6 +462,10 @@ export function emitTermSegment(t: Term): TermEmission {
 			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
 		case "session-context":
 			return { kind: "runtime", xpath: emitSessionContextXPath(t) };
+		case "field":
+			throw new Error(
+				"emitTermSegment: form-field terms are form-submission values and cannot be emitted into server-side CSQL.",
+			);
 		case "literal":
 			return emitCsqlLiteralSegment(t.value);
 		default: {

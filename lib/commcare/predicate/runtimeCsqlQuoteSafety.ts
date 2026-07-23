@@ -159,6 +159,9 @@ function collectServerOperandRuntimeStringInputs(
 			return;
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-coerce":
 		case "datetime-coerce":
@@ -233,6 +236,9 @@ function collectOnDeviceOutputTaint(
 		case "arith":
 		case "count":
 		case "format-date":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		default: {
 			const _exhaustive: never = expression;

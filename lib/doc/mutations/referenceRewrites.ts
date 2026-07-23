@@ -161,6 +161,30 @@ export function rewriteFormSearchInputRefs(
 					);
 				}
 				break;
+			case "case_operation_target_expression":
+			case "case_operation_name":
+			case "case_operation_owner":
+			case "case_operation_rename":
+			case "case_operation_write_value":
+			case "case_operation_link_target_expression":
+				for (const entry of readSlotValues(form, slot.path)) {
+					rewritten += renameSearchInputInExpression(
+						entry.value as Parameters<typeof renameSearchInputInExpression>[0],
+						oldName,
+						newName,
+					);
+				}
+				break;
+			case "case_operation_condition":
+			case "case_operation_write_condition":
+				for (const entry of readSlotValues(form, slot.path)) {
+					rewritten += renameSearchInputInPredicate(
+						entry.value as Parameters<typeof renameSearchInputInPredicate>[0],
+						oldName,
+						newName,
+					);
+				}
+				break;
 			case "form_link_condition":
 			case "form_link_datum_xpath":
 			case "assessment_user_score":
@@ -168,7 +192,17 @@ export function rewriteFormSearchInputRefs(
 			case "deliver_entity_name":
 			case "close_condition_field":
 			case "form_link_target":
-				// XPath/entity-reference families do not carry Predicate input terms.
+			case "case_operation_case_type":
+			case "case_operation_retype":
+			case "case_operation_target_op":
+			case "case_operation_target_id_from":
+			case "case_operation_repeat":
+			case "case_operation_write_property":
+			case "case_operation_link_target_type":
+			case "case_operation_link_target_op":
+			case "case_operation_link_target_id_from":
+				// XPath/entity/property reference families do not carry Predicate
+				// input terms.
 				break;
 			default: {
 				const _exhaustive: never = slot;
@@ -223,8 +257,53 @@ export function rewriteFormReferenceSlots(
 				}
 				break;
 			}
+			case "case_operation_target_expression":
+			case "case_operation_name":
+			case "case_operation_owner":
+			case "case_operation_rename":
+			case "case_operation_write_value":
+			case "case_operation_link_target_expression":
+				for (const entry of readSlotValues(form, slot.path)) {
+					changed += renameCasePropertyInExpression(
+						entry.value as Parameters<typeof renameCasePropertyInExpression>[0],
+						ctx.caseLeafRename.rename,
+					);
+				}
+				break;
+			case "case_operation_condition":
+			case "case_operation_write_condition":
+				for (const entry of readSlotValues(form, slot.path)) {
+					changed += renameCasePropertyInPredicate(
+						entry.value as Parameters<typeof renameCasePropertyInPredicate>[0],
+						ctx.caseLeafRename.rename,
+					);
+				}
+				break;
+			case "case_operation_write_property":
+				for (const operation of form.caseOperations ?? []) {
+					if (
+						(operation.retype ?? operation.caseType) !==
+						ctx.caseLeafRename.rename.caseType
+					) {
+						continue;
+					}
+					for (const write of operation.writes ?? []) {
+						if (write.property !== ctx.caseLeafRename.rename.oldName) continue;
+						write.property = ctx.caseLeafRename.rename.newName;
+						changed++;
+					}
+				}
+				break;
 			case "close_condition_field":
 			case "form_link_target":
+			case "case_operation_case_type":
+			case "case_operation_retype":
+			case "case_operation_target_op":
+			case "case_operation_target_id_from":
+			case "case_operation_repeat":
+			case "case_operation_link_target_type":
+			case "case_operation_link_target_op":
+			case "case_operation_link_target_id_from":
 				// entity-uuid — stable identity, unaffected by renames/moves.
 				break;
 			default: {

@@ -186,6 +186,9 @@ function walkRuntimeValue(
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-add": {
 			if (
@@ -261,6 +264,9 @@ function isNativeCsqlExpression(expression: ValueExpression): boolean {
 		case "switch":
 		case "count":
 		case "format-date":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return false;
 		default: {
 			const _exhaustive: never = expression;

@@ -425,6 +425,48 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which isn't a valid name. Use letters, numbers, underscores, or hyphens, starting with a letter.`,
 	CASE_PROPERTY_TOO_LONG: (e) =>
 		`${q(formName(e))} saves to a name that's way too long. Give it a shorter one.`,
+	CASE_OPERATIONS_NOT_ACTIVE: () =>
+		"Case operations are still being connected to the running app. Remove them for now.",
+	CASE_OPERATION_DUPLICATE_UUID: () =>
+		"Two case operations have the same identity. Remove one and add it again.",
+	CASE_OPERATION_INVALID_ID: () =>
+		"A case operation has an ID that won't work. Start with a letter or underscore and use only letters, numbers, or underscores.",
+	CASE_OPERATION_DUPLICATE_ID: () =>
+		"Two case operations use the same ID. Rename one of them.",
+	CASE_OPERATION_INVALID_FACETS: () =>
+		"A case operation includes a setting that doesn't fit what it does. Review its action and settings.",
+	CASE_OPERATION_UNKNOWN_CASE_TYPE: () =>
+		"A case operation uses a case type that isn't in this app. Choose an available case type.",
+	CASE_OPERATION_INVALID_CASE_TYPE: () =>
+		"A case operation uses a case type name that CommCare can't store. Choose a shorter name made from letters, numbers, underscores, or hyphens.",
+	CASE_OPERATION_RESERVED_CASE_TYPE: () =>
+		"That case type is managed by the platform and can't be changed here. Choose one of your app's case types.",
+	CASE_OPERATION_UNKNOWN_PROPERTY: () =>
+		"A case operation writes case information that isn't set up on that case type. Add it or choose another property.",
+	CASE_OPERATION_RESERVED_PROPERTY: () =>
+		"A case operation writes to a reserved name. Use the operation's matching setting or another property.",
+	CASE_OPERATION_EXPRESSION_TYPE: () =>
+		"A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation.",
+	CASE_OPERATION_TARGET_INVALID: () =>
+		"A case operation can't resolve the case it should work on. Choose a valid target.",
+	CASE_OPERATION_TARGET_TYPE_MISMATCH: () =>
+		"A case operation points to the wrong kind of case. Choose a target with the same case type.",
+	CASE_OPERATION_REFERENCE_ORDER: () =>
+		"A case operation refers to a case that isn't created yet. Move the create operation before this one.",
+	CASE_OPERATION_EXECUTION_ORDER: () =>
+		"These case operations use an order the running form can't preserve. Put authored-ID creates before updates and closes, and keep each repeating section's operations together in form order.",
+	CASE_OPERATION_REPEAT_INVALID: () =>
+		"A case operation points to a repeating section that isn't available. Choose a repeat in this form.",
+	CASE_OPERATION_REPEAT_CORRELATION: () =>
+		"These case operations don't run over the same repeating section. Use the same repeat so each row stays paired.",
+	CASE_OPERATION_AMBIGUOUS_REFERENCE: () =>
+		"This case operation refers to several created cases as though there were one. Run it over the same repeat.",
+	CASE_OPERATION_SESSION_UNAVAILABLE: () =>
+		"This form doesn't open with one selected case, so a case operation can't use the current case. Choose another target.",
+	CASE_OPERATION_LINK_INVALID: () =>
+		"A case link in this operation isn't valid. Review its name and target.",
+	CASE_OPERATION_RETYPE_UNSAFE: () =>
+		"Changing this case's type would leave required information missing. Add those values or choose another case type.",
 	CASE_HASHTAG_ON_CREATE_FORM: (e) =>
 		`${q(formName(e))} creates a new case but reads from one that doesn't exist yet (${det(e, "hashtag", "a case reference")}). Point it at a form question instead.`,
 	PRIMARY_CASE_FIELD_IN_REPEAT: (e) => {

@@ -70,12 +70,19 @@ export function emitImmediateRelationPresence(
 	via: DirectedRelation,
 	where: string | undefined,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+	originCaseId?: string,
 ): string {
 	switch (via.kind) {
 		case "ancestor":
-			return emitAncestorPresence(via.via, where, root);
+			return emitAncestorPresence(via.via, where, root, originCaseId);
 		case "subcase":
-			return emitSubcasePresence(via.identifier, via.ofCaseType, where, root);
+			return emitSubcasePresence(
+				via.identifier,
+				via.ofCaseType,
+				where,
+				root,
+				originCaseId,
+			);
 		case "any-relation": {
 			const ancestor = emitAncestorPresence(
 				[
@@ -86,12 +93,14 @@ export function emitImmediateRelationPresence(
 				],
 				where,
 				root,
+				originCaseId,
 			);
 			const subcase = emitSubcasePresence(
 				via.identifier,
 				via.ofCaseType,
 				where,
 				root,
+				originCaseId,
 			);
 			return `(${ancestor} or ${subcase})`;
 		}
@@ -108,6 +117,7 @@ function emitAncestorPresence(
 	steps: readonly RelationStep[],
 	where: string | undefined,
 	root: InstanceRoot,
+	originCaseId: string | undefined,
 ): string {
 	let destinationFilter = where ?? "true()";
 	for (let index = steps.length - 1; index >= 0; index -= 1) {
@@ -117,7 +127,10 @@ function emitAncestorPresence(
 			destinationFilter,
 			root,
 		);
-		const immediateIndex = `index/${step.identifier}`;
+		const immediateIndex =
+			index === 0 && originCaseId !== undefined
+				? `${caseById(originCaseId, root)}/index/${step.identifier}`
+				: `index/${step.identifier}`;
 		destinationFilter = `count(${immediateIndex}) > 0 and selected(join(' ', ${candidates}/@case_id), ${immediateIndex})`;
 	}
 	return destinationFilter;
@@ -128,9 +141,15 @@ function emitSubcasePresence(
 	ofCaseType: string | undefined,
 	where: string | undefined,
 	root: InstanceRoot,
+	originCaseId: string | undefined,
 ): string {
 	const candidates = candidateCases(ofCaseType, where ?? "true()", root);
-	return `count(@case_id) > 0 and selected(join(' ', ${candidates}/index/${identifier}), @case_id)`;
+	const caseId = originCaseId ?? "@case_id";
+	return `count(${caseId}) > 0 and selected(join(' ', ${candidates}/index/${identifier}), ${caseId})`;
+}
+
+function caseById(caseId: string, root: InstanceRoot): string {
+	return `instance('${root}')/${root}/case[@case_id=${caseId}]`;
 }
 
 function candidateCases(

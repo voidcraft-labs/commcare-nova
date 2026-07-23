@@ -89,6 +89,9 @@ function findMultiValuedScalarPropertyRead(
 		}
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return undefined;
 		case "date-coerce":
 		case "datetime-coerce":

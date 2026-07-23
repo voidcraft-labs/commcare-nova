@@ -1139,6 +1139,8 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 				: true;
 		case "prop":
 			return value.term.property.length > 0 || value.term.via !== undefined;
+		case "field":
+			return true;
 		case "input":
 			return value.term.name.length > 0;
 		case "session-context":

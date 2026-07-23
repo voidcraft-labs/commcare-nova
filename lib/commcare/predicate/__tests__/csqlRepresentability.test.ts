@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/doc/types";
 import {
+	actingUser,
 	ancestorPath,
 	and,
 	arith,
@@ -14,7 +16,9 @@ import {
 	eq,
 	exists,
 	formatDate,
+	formField,
 	gt,
+	idOf,
 	ifExpr,
 	input,
 	isBlank,
@@ -39,6 +43,7 @@ import {
 	switchExpr,
 	term,
 	today,
+	unowned,
 	unwrapList,
 	whenInput,
 	within,
@@ -52,6 +57,22 @@ const PATIENT = "patient";
 const field = (name: string) => prop(PATIENT, name);
 
 describe("checkCsqlRepresentability", () => {
+	it("rejects form-submission identity leaves from remote case search", () => {
+		const uuid = asUuid("11111111-1111-4111-8111-111111111111");
+		for (const value of [
+			term(formField(uuid)),
+			idOf(uuid),
+			actingUser(),
+			unowned(),
+		]) {
+			expect(checkCsqlRepresentability(eq(field("name"), value))).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ reason: "form-context-value-not-csql" }),
+				]),
+			);
+		}
+	});
+
 	it.each([
 		["literal term", term(literal("x"))],
 		["search input term", term(input("query"))],

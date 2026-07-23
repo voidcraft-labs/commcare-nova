@@ -241,6 +241,9 @@ function simplifyExpression(expr: ValueExpression): ValueExpression {
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return expr;
 		case "date-add":
 			return {

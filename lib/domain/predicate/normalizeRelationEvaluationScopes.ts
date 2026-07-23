@@ -326,6 +326,9 @@ function normalizeExpressionBoundaryScopes(
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return expression;
 		case "date-add": {
 			const date = normalizeExpressionBoundaryScopes(expression.date, context);
@@ -557,6 +560,9 @@ function inspectExpression(
 			return;
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-add":
 			inspectExpression(expression.date, inspection, context);
@@ -935,6 +941,9 @@ function rebaseExpression(
 				: expression;
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return expression;
 		case "date-add":
 			return {

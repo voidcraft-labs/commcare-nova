@@ -256,6 +256,9 @@ function walkPredicateCarriersInExpression(
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-add":
 			walkPredicateCarriersInExpression(expression.date, visit);
@@ -428,6 +431,9 @@ function firstNestedMultiCaseCountInExpression(
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return undefined;
 		case "date-add":
 			return (

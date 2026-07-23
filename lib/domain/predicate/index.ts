@@ -14,8 +14,8 @@
 //
 //   - **AST type definitions** (`./types`) — `predicateSchema` /
 //     `valueExpressionSchema` discriminated unions, `Term` (the leaf
-//     family covering property reads, search-input refs, session-user
-//     refs, session-context refs, and literals), `RelationPath` (self
+//     family covering property reads, form-field refs, search-input refs,
+//     session-user refs, session-context refs, and literals), `RelationPath` (self
 //     / ancestor / subcase / any-relation), every per-arm operand
 //     constant (`COMPARISON_KINDS` / `MATCH_MODES` /
 //     `MULTI_SELECT_QUANTIFIERS` / `DISTANCE_UNITS` / `ARITH_OPS` /
@@ -28,10 +28,11 @@
 //     `lte` / `and` / `or` / `not` / `match` / `multiSelectAny` /
 //     `multiSelectAll` / `within` / `between` / `isIn` / `isNull` /
 //     `isBlank` / `exists` / `missing` / `whenInput` / `matchAll` /
-//     `matchNone` / `term` / `today` / `now` / `dateAdd` /
+//     `matchNone` / `term` / `today` / `now` / `idOf` / `actingUser` /
+//     `unowned` / `dateAdd` /
 //     `dateCoerce` / `datetimeCoerce` / `double` / `arith` / `concat`
 //     / `coalesce` / `ifExpr` / `switchExpr` / `switchCase` / `count`
-//     / `unwrapList` / `formatDate` / `prop` / `input` / `sessionUser`
+//     / `unwrapList` / `formatDate` / `prop` / `formField` / `input` / `sessionUser`
 //     / `sessionContext` / `literal` / `dateLiteral` /
 //     `datetimeLiteral` / `timeLiteral` / `relationStep` / `selfPath`
 //     / `ancestorPath` / `subcasePath` / `anyRelationPath`). Builders

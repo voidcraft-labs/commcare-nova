@@ -1,7 +1,7 @@
 // components/builder/shared/cards/expression/TermCard.tsx
 //
 // Term-arm card for the ValueExpression editor — the universal value
-// carrier. Edits any of the five Term variants:
+// carrier. Edits any of the six Term variants:
 //
 //   - `prop` — case property reference (with optional `via:
 //     RelationPath` walk preserved across edits via the shared
@@ -10,6 +10,8 @@
 //   - `session-context` — closed-namespace session field (`userid` /
 //     `username` / `deviceid` / `appversion`).
 //   - `session-user` — open-namespace user-data field (free-text).
+//   - `field` — stable form-field identity, preserved here but authored only
+//     by the future case-operation editor.
 //   - `literal` — primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
 //
@@ -69,6 +71,7 @@ import {
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import {
+	asUuid,
 	type CaseProperty,
 	type CasePropertyDataType,
 	canonicalCasePropertyName,
@@ -79,6 +82,7 @@ import {
 	acceptsType,
 	dateLiteral,
 	datetimeLiteral,
+	formField,
 	input,
 	type Literal,
 	literal,
@@ -123,6 +127,7 @@ export function termDefault(
 type TermMode =
 	| "literal"
 	| "property"
+	| "field"
 	| "input"
 	| "session-context"
 	| "session-user";
@@ -595,6 +600,8 @@ function termMode(term: Term): TermMode {
 			return "literal";
 		case "prop":
 			return "property";
+		case "field":
+			return "field";
 		case "input":
 			return "input";
 		case "session-context":
@@ -619,6 +626,8 @@ export function termHasMeaningfulContent(value: Term): boolean {
 			return literalHasMeaningfulContent(value);
 		case "prop":
 			return value.property.length > 0 || value.via !== undefined;
+		case "field":
+			return true;
 		case "input":
 			return (value.name ?? "").length > 0;
 		case "session-context":
@@ -639,6 +648,8 @@ function termModeLabel(
 			return sourceContext === "subject"
 				? "Case information"
 				: "Other case information";
+		case "field":
+			return "A form answer";
 		case "input":
 			return "A search answer";
 		case "session-context":
@@ -674,6 +685,12 @@ function describeTermModeReplacement(
 						description:
 							"This replaces the selected case information and its connection. You can undo this change.",
 					};
+		case "field":
+			return {
+				title,
+				description:
+					"This replaces the selected form answer. You can undo this change.",
+			};
 		case "input":
 			return {
 				title,
@@ -764,6 +781,10 @@ function computeModeAdmission(
 		property: hasAcceptedProperty
 			? { admitted: true }
 			: { admitted: false, reason },
+		field: {
+			admitted: false,
+			reason: "Form answers are selected when configuring case operations",
+		},
 		input: hasAcceptedInput ? { admitted: true } : { admitted: false, reason },
 		"session-context": textAdmitted
 			? { admitted: true }
@@ -826,6 +847,11 @@ function buildTermDefault(
 				canonicalCasePropertyName(property?.name ?? ""),
 			);
 		}
+		case "field":
+			// Form-field references are authored only by the case-operation editor.
+			// This unreachable seed exists so the generic round-trip editor remains
+			// exhaustive without inventing a user-authored reference.
+			return formField(asUuid("00000000-0000-4000-8000-000000000000"));
 		case "input": {
 			const matching = ctx.knownInputs.find((i) =>
 				constraint.accepts === "any"
@@ -890,6 +916,13 @@ function ModeMenu({
 				icon: tablerDatabase,
 			},
 		];
+		if (mode === "field") {
+			base.push({
+				mode: "field",
+				label: termModeLabel("field", sourceContext),
+				icon: tablerVariable,
+			});
+		}
 		if (mode === "input" || ctx.knownInputs.length > 0) {
 			base.push({
 				mode: "input",
@@ -1076,6 +1109,15 @@ function TermBodyInput({
 					}
 					filter={propertyFilter}
 					invalid={invalid}
+				/>
+			);
+		case "field":
+			return (
+				<Input
+					value={term.uuid}
+					readOnly
+					aria-label="Referenced form field"
+					aria-invalid={invalid || undefined}
 				/>
 			);
 		case "input":

@@ -135,6 +135,9 @@ function walkServerOperand(
 		case "term":
 		case "today":
 		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return;
 		case "date-coerce":
 		case "datetime-coerce":

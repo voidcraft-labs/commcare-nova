@@ -394,20 +394,26 @@ export const editFieldTool = {
 					...(mintOptions && { mintOptions }),
 				});
 				if (!plan.ok) {
-					const blockerFormUuid = findContainingForm(
-						workingDoc,
-						plan.blocker.uuid,
-					);
-					const blockerForm =
-						(blockerFormUuid
-							? workingDoc.forms[blockerFormUuid]?.name
-							: undefined) ?? "another form";
+					const blockerMessage =
+						plan.blocker.carrier === "case-operation"
+							? `case operation "${plan.blocker.id}" also writes it, and operation expressions cannot be converted mechanically. Update or remove that operation first.`
+							: (() => {
+									const blockerFormUuid = findContainingForm(
+										workingDoc,
+										plan.blocker.uuid,
+									);
+									const blockerForm =
+										(blockerFormUuid
+											? workingDoc.forms[blockerFormUuid]?.name
+											: undefined) ?? "another form";
+									return `the same case property is also captured by a ${plan.blocker.kind} field in "${blockerForm}", and a ${plan.blocker.kind} field can't convert to ${newKind}. Convert that field to text first (editField with kind="text"), then convert this property.`;
+								})();
 					return {
 						kind: "mutate" as const,
 						mutations: [],
 						newDoc: doc,
 						result: {
-							error: `Converting "${currentId}" to ${newKind} is blocked: the same case property is also captured by a ${plan.blocker.kind} field in "${blockerForm}", and a ${plan.blocker.kind} field can't convert to ${newKind}. Convert that field to text first (editField with kind="text"), then convert this property.`,
+							error: `Converting "${currentId}" to ${newKind} is blocked: ${blockerMessage}`,
 						},
 					};
 				}

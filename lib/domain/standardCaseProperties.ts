@@ -184,3 +184,17 @@ export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<StandardCaseListProperty
 			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 		) as StandardCaseListProperty[],
 	);
+
+/**
+ * Standard case values backed by first-class case-row columns rather than the
+ * authored JSON property document. These values survive a case-type change as
+ * row metadata and must never enter a JSON-property conversion/parking plan.
+ * `case_id` and `case_type` are not display-list conveniences, so they sit
+ * outside `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`, but share the same scalar
+ * storage contract.
+ */
+export const CASE_SCALAR_PROPERTY_NAMES: ReadonlySet<string> = new Set([
+	"case_id",
+	"case_type",
+	...STANDARD_CASE_LIST_PROPERTIES,
+]);

@@ -13,6 +13,21 @@
 // for callers that hold a `BlueprintDoc` and need to convert it
 // to the schema-map shape the case-store methods accept.
 
+export type {
+	CaseOperationTargetDescriptor,
+	CaseOperationTargetRequest,
+	CaseOperationTargetVerdict,
+	ResolvedCaseOperationTypeSequenceVerdict,
+	ResolvedCaseOperationTypeStep,
+	ResolvedCaseOperationTypeTarget,
+} from "./caseOperationTargets";
+export {
+	caseOperationTargetDescriptorSchema,
+	caseOperationTargetRequestSchema,
+	validateCaseOperationTargetDescriptor,
+	validateResolvedCaseOperationTypeSequence,
+} from "./caseOperationTargets";
+
 // Typed user-domain errors.
 export type { CasePropertyFailure } from "./errors";
 export {
@@ -27,7 +42,11 @@ export { withProjectContext, withSchemaContext } from "./projectContext";
 // Cross-tenant case re-tenant — the case-store half of moving an app between
 // Projects. The db-injectable `*On` twin stays package-private (harness only).
 export { retenantAppCases } from "./retenant";
-export type { TermBindings, TermBindingValue } from "./sql/compileTerm";
+export type {
+	FormFieldBindingValue,
+	TermBindings,
+	TermBindingValue,
+} from "./sql/compileTerm";
 // JSONB value types — consumed by callers reading `CaseRow.properties`.
 export type {
 	JsonObject,

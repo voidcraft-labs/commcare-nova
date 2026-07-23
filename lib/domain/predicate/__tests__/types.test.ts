@@ -1923,8 +1923,9 @@ describe("inlined identifier patterns match lib/commcare/constants source-of-tru
 // `predicateSchema` — every value slot in the system (calculated
 // columns, search-input defaults, sort calculations, conditional
 // operands inside a Predicate's comparison) composes through this
-// union. The 14 arms are: `term` (the Term lifter), `today`, `now`,
-// `date-add`, `date-coerce`, `datetime-coerce`, `double`, `arith`,
+// union. The 18 arms are: `term` (the Term lifter), `today`, `now`,
+// `id-of`, `acting-user`, `unowned`, `date-add`, `date-coerce`,
+// `datetime-coerce`, `double`, `arith`,
 // `concat`, `coalesce`, `if`, `switch`, `count`, `unwrap-list`,
 // `format-date`. The block below pins each arm with a parse round-
 // trip; the recursive arms (`if` / `switch` / `count`) double as
@@ -1958,6 +1959,21 @@ describe("valueExpression schema — leaf arms", () => {
 	it("parses today() and now() (zero-payload constants)", () => {
 		expect(valueExpressionSchema.parse({ kind: "today" }).kind).toBe("today");
 		expect(valueExpressionSchema.parse({ kind: "now" }).kind).toBe("now");
+	});
+
+	it("parses operation-local identity and owner constants", () => {
+		expect(
+			valueExpressionSchema.parse({
+				kind: "id-of",
+				opUuid: "11111111-1111-4111-8111-111111111111",
+			}).kind,
+		).toBe("id-of");
+		expect(valueExpressionSchema.parse({ kind: "acting-user" }).kind).toBe(
+			"acting-user",
+		);
+		expect(valueExpressionSchema.parse({ kind: "unowned" }).kind).toBe(
+			"unowned",
+		);
 	});
 
 	it("rejects a term arm with no inner term", () => {

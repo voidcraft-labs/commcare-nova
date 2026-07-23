@@ -267,7 +267,11 @@ export function scopeOfMutations(
 				break;
 			case "updateForm": {
 				const form = prevDoc.forms[mut.uuid];
-				if (form === undefined || patchTouches(mut.patch, "type", form.type)) {
+				if (
+					mut.caseOperationChange !== undefined ||
+					form === undefined ||
+					patchTouches(mut.patch, "type", form.type)
+				) {
 					// A form-type flip changes which of its fields' writes are
 					// real (a survey's `case_property_on` is inert) — writer
 					// effects reach case lists app-wide.

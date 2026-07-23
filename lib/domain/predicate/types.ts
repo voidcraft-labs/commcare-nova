@@ -66,6 +66,7 @@ import { z } from "zod";
 // import back into `blueprint.ts` and break module-load order.
 import { casePropertyDataTypeSchema } from "../casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
+import { uuidSchema } from "../uuid";
 import {
 	DISTANCE_UNITS,
 	type DistanceUnit,
@@ -574,6 +575,15 @@ export const sessionContextSchema = z
 	.strict();
 export type SessionContextRef = z.infer<typeof sessionContextSchema>;
 
+/** A form-local field value, addressed by stable identity. */
+export const formFieldRefSchema = z
+	.object({
+		kind: z.literal("field"),
+		uuid: uuidSchema,
+	})
+	.strict();
+export type FormFieldRef = z.infer<typeof formFieldRefSchema>;
+
 /**
  * A primitive constant. Numbers, booleans, and `null` are first-class
  * (rather than serialized to strings) so the type checker can validate
@@ -608,6 +618,7 @@ export const termSchema = z.discriminatedUnion("kind", [
 	searchInputRefSchema,
 	sessionUserSchema,
 	sessionContextSchema,
+	formFieldRefSchema,
 	literalSchema,
 ]);
 export type Term = z.infer<typeof termSchema>;
@@ -625,13 +636,17 @@ export type Term = z.infer<typeof termSchema>;
 // independently of the type checker (which adds the
 // type-compatibility layer).
 //
-// **The 14 arms:**
+// **The 18 arms:**
 //
 //   - `term` — structural lifter for any `Term`. Lets a property /
 //     input / session ref / literal flow through any value slot.
 //   - `today` / `now` — discriminator-only date / datetime constants.
 //     `today` resolves to the project-timezone ISO date; `now` resolves
 //     to the UTC ISO datetime.
+//   - `id-of` — the case id produced by an earlier create operation in the
+//     same atomic submission envelope.
+//   - `acting-user` / `unowned` — explicit case-owner values: the
+//     server-resolved submitting identity or CommCare's no-owner sentinel.
 //   - `date-add` — `date + (interval × quantity)` arithmetic. Wire
 //     emission diverges per dialect: CSQL emits a native named value
 //     function; on-device slots admit date-typed fixed-duration arithmetic
@@ -790,6 +805,19 @@ const valueExpressionTermSchema = z
 
 const todaySchema = z.object({ kind: z.literal("today") }).strict();
 const nowSchema = z.object({ kind: z.literal("now") }).strict();
+
+/** The case id produced by an earlier create operation in this submission. */
+export const idOfSchema = z
+	.object({ kind: z.literal("id-of"), opUuid: uuidSchema })
+	.strict();
+
+/** The resolved identity submitting the form (the acting preview persona). */
+export const actingUserSchema = z
+	.object({ kind: z.literal("acting-user") })
+	.strict();
+
+/** CommCare's explicit no-owner sentinel. */
+export const unownedSchema = z.object({ kind: z.literal("unowned") }).strict();
 
 const dateAddSchema = z
 	.object({
@@ -1921,6 +1949,9 @@ export type ValueExpression =
 	| { kind: "term"; term: Term }
 	| { kind: "today" }
 	| { kind: "now" }
+	| { kind: "id-of"; opUuid: z.infer<typeof uuidSchema> }
+	| { kind: "acting-user" }
+	| { kind: "unowned" }
 	| {
 			kind: "date-add";
 			date: ValueExpression;
@@ -1973,6 +2004,9 @@ export const valueExpressionSchema: z.ZodType<ValueExpression> =
 		valueExpressionTermSchema,
 		todaySchema,
 		nowSchema,
+		idOfSchema,
+		actingUserSchema,
+		unownedSchema,
 		dateAddSchema,
 		dateCoerceSchema,
 		datetimeCoerceSchema,
@@ -2118,6 +2152,9 @@ type _ValueExpressionTermArm = Omit<
 >;
 type _TodayArm = Extract<ValueExpression, { kind: "today" }>;
 type _NowArm = Extract<ValueExpression, { kind: "now" }>;
+type _IdOfArm = Extract<ValueExpression, { kind: "id-of" }>;
+type _ActingUserArm = Extract<ValueExpression, { kind: "acting-user" }>;
+type _UnownedArm = Extract<ValueExpression, { kind: "unowned" }>;
 type _DateAddArm = Omit<
 	Extract<ValueExpression, { kind: "date-add" }>,
 	"date" | "quantity"
@@ -2164,6 +2201,9 @@ type _ValueExpressionTermInferred = Omit<
 >;
 type _TodayInferred = z.infer<typeof todaySchema>;
 type _NowInferred = z.infer<typeof nowSchema>;
+type _IdOfInferred = z.infer<typeof idOfSchema>;
+type _ActingUserInferred = z.infer<typeof actingUserSchema>;
+type _UnownedInferred = z.infer<typeof unownedSchema>;
 type _DateAddInferred = Omit<
 	z.infer<typeof dateAddSchema>,
 	"date" | "quantity"
@@ -2218,6 +2258,9 @@ const _driftGuard: {
 	>;
 	today: _TypesEqual<_TodayArm, _TodayInferred>;
 	now: _TypesEqual<_NowArm, _NowInferred>;
+	idOf: _TypesEqual<_IdOfArm, _IdOfInferred>;
+	actingUser: _TypesEqual<_ActingUserArm, _ActingUserInferred>;
+	unowned: _TypesEqual<_UnownedArm, _UnownedInferred>;
 	dateAdd: _TypesEqual<_DateAddArm, _DateAddInferred>;
 	dateCoerce: _TypesEqual<_DateCoerceArm, _DateCoerceInferred>;
 	datetimeCoerce: _TypesEqual<_DatetimeCoerceArm, _DatetimeCoerceInferred>;
@@ -2246,6 +2289,9 @@ const _driftGuard: {
 	valueExpressionTerm: true,
 	today: true,
 	now: true,
+	idOf: true,
+	actingUser: true,
+	unowned: true,
 	dateAdd: true,
 	dateCoerce: true,
 	datetimeCoerce: true,
@@ -2282,7 +2328,11 @@ z.globalRegistry.add(propertyRefSchema, { id: "PropertyRef" });
 z.globalRegistry.add(searchInputRefSchema, { id: "SearchInputRef" });
 z.globalRegistry.add(sessionUserSchema, { id: "SessionUser" });
 z.globalRegistry.add(sessionContextSchema, { id: "SessionContext" });
+z.globalRegistry.add(formFieldRefSchema, { id: "FormFieldRef" });
 z.globalRegistry.add(literalSchema, { id: "Literal" });
 z.globalRegistry.add(termSchema, { id: "Term" });
+z.globalRegistry.add(idOfSchema, { id: "IdOf" });
+z.globalRegistry.add(actingUserSchema, { id: "ActingUser" });
+z.globalRegistry.add(unownedSchema, { id: "Unowned" });
 z.globalRegistry.add(predicateSchema, { id: "Predicate" });
 z.globalRegistry.add(valueExpressionSchema, { id: "ValueExpression" });

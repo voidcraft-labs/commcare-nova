@@ -627,6 +627,9 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			),
 		).toEqual([
 			"audioLabel",
+			"caseOperations[].id",
+			"caseOperations[].links[].identifier",
+			"caseOperations[].order",
 			"closeCondition.answer",
 			"connect.assessment.id",
 			"connect.deliver_unit.id",

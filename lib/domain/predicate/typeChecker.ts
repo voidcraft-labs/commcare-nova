@@ -51,8 +51,12 @@
 // here, with paths threading the operator name and (for the multi-
 // clause arms) the array index.
 
-import type { CasePropertyDataType, CaseType } from "@/lib/domain";
-import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
+import type { CaseType } from "@/lib/domain/blueprint";
+import {
+	type CasePropertyDataType,
+	casePropertyDataTypes,
+} from "@/lib/domain/casePropertyTypes";
+import type { Uuid } from "@/lib/domain/uuid";
 import { unhandledKindMessage } from "./errors";
 import type {
 	ArithOp,
@@ -128,6 +132,12 @@ export type TypeContext = {
 	caseTypes: CaseType[];
 	knownInputs: SearchInputDecl[];
 	currentCaseType?: string;
+	/** Form-local values admitted only by form-scoped expression surfaces. */
+	formFields?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
+	/** Create-operation ids admitted only after their producer is in scope. */
+	operationIds?: ReadonlySet<Uuid>;
+	/** Submission-local owner sentinels admitted only by case-operation slots. */
+	caseOperationValues?: boolean;
 };
 
 /**
@@ -180,6 +190,9 @@ export type CheckPath = (string | number)[];
 export type CheckErrorCode =
 	| "unknown-property"
 	| "unknown-search-input"
+	| "unknown-form-field"
+	| "unknown-operation-id"
+	| "operation-context-value"
 	| "unknown-case-type"
 	| "property-scope"
 	| "incompatible-values"
@@ -1714,6 +1727,17 @@ export function resolveTermType(
 			// structural anchor — the dispatch is one switch, not a
 			// per-call lookup.
 			return "text";
+		case "field": {
+			if (ctx.formFields === undefined || !ctx.formFields.has(term.uuid)) {
+				errors.push({
+					path,
+					code: "unknown-form-field",
+					message: `Form field '${term.uuid}' is not available in this expression context.`,
+				});
+				return undefined;
+			}
+			return ctx.formFields.get(term.uuid) ?? "text";
+		}
 		case "literal":
 			return literalType(term);
 		default: {
@@ -1737,6 +1761,7 @@ export function resolveTermType(
 						"input",
 						"session-user",
 						"session-context",
+						"field",
 					],
 				}),
 			);
@@ -1840,6 +1865,32 @@ export function checkExpression(
 
 		case "now":
 			return "datetime";
+
+		case "id-of":
+			if (
+				ctx.operationIds === undefined ||
+				!ctx.operationIds.has(expr.opUuid)
+			) {
+				errors.push({
+					path,
+					code: "unknown-operation-id",
+					message: `Create operation '${expr.opUuid}' is not available before this expression.`,
+				});
+				return undefined;
+			}
+			return "text";
+
+		case "acting-user":
+		case "unowned":
+			if (ctx.caseOperationValues !== true) {
+				errors.push({
+					path,
+					code: "operation-context-value",
+					message: `The '${expr.kind}' value is available only inside a case operation.`,
+				});
+				return undefined;
+			}
+			return "text";
 
 		case "date-add": {
 			// Resolve both operands first so per-side errors surface
@@ -2222,6 +2273,9 @@ export function checkExpression(
 						"term",
 						"today",
 						"now",
+						"id-of",
+						"acting-user",
+						"unowned",
 						"date-add",
 						"date-coerce",
 						"datetime-coerce",
@@ -2293,6 +2347,403 @@ export function checkValueExpression(
 		});
 	}
 	return errors.length === 0 ? { ok: true } : { ok: false, errors };
+}
+
+/**
+ * Directional compatibility for values that will be persisted, as distinct
+ * from `typesCompatible`'s intentionally symmetric comparison relation.
+ *
+ * Exact semantic types are safe. An integer is a total subset of decimal, and
+ * text/single-select share Nova's unconstrained JSON string representation.
+ * Every other widening is rejected: notably decimal -> int can contain a
+ * fraction, while text and multi-select are string versus string-array in the
+ * case store even though XPath compares both through text-shaped syntax.
+ * Null and sequence are internal expression sentinels, never storage values.
+ */
+export function isValueStorageAssignable(
+	valueType: ResolvedType,
+	destinationType: CasePropertyDataType,
+): boolean {
+	if (valueType === ANY_TYPE || valueType === SEQUENCE_TYPE) return false;
+	if (valueType === destinationType) return true;
+	if (valueType === "int" && destinationType === "decimal") return true;
+	return (
+		(valueType === "text" || valueType === "single_select") &&
+		(destinationType === "text" || destinationType === "single_select")
+	);
+}
+
+/**
+ * Validate an expression used as a persisted/mutation value.
+ *
+ * Branching expressions are checked per possible output rather than trusting
+ * `checkExpression`'s one aggregate comparison type: `if(int, decimal)` may
+ * return a fraction even if the first branch made the aggregate read `int`,
+ * and `if(text, multi_select)` spans two different JSON representations.
+ * Every possible output must fit every authoritative destination opinion.
+ *
+ * Literal null is deliberately not an implicit clear operation. Device XPath
+ * lowers it to blank text while the Postgres expression target yields SQL
+ * NULL, so operation authoring must use a write condition to skip a write
+ * until Nova grows one explicit cross-target clear carrier. The representation
+ * audit also follows primitive values through coercing/computing wrappers:
+ * booleans are portable only when `concat` is the operation that stringifies
+ * them, and a multi-select array may not escape through any scalar text/coerce
+ * wrapper because CommCare's token string and Nova's JSON array do not share a
+ * lossless implicit serialization.
+ */
+export function checkValueAssignmentExpression(
+	expression: ValueExpression,
+	ctx: TypeContext,
+	destinationTypes: readonly CasePropertyDataType[],
+): CheckResult {
+	const errors: CheckError[] = [];
+	checkExpression(expression, ctx, errors, []);
+	const destinations = [...new Set(destinationTypes)];
+
+	const nullPath = assignmentNullLiteralPath(expression, []);
+	if (nullPath !== undefined) {
+		errors.push({
+			path: nullPath,
+			code: "expected-value",
+			message:
+				"Null is not a portable assignment value: device wire lowers it to blank text while Nova storage evaluates SQL NULL. Use a write condition to skip the write; an explicit clear operation is not available yet.",
+		});
+	}
+	assignmentRepresentationErrors(expression, [], "storage", ctx, errors);
+
+	visitAssignmentOutputs(expression, [], (output, path) => {
+		const localErrors: CheckError[] = [];
+		const outputType = checkExpression(output, ctx, localErrors, path);
+		if (outputType === undefined || outputType === ANY_TYPE) return;
+
+		if (outputType === SEQUENCE_TYPE && destinations.length === 0) {
+			errors.push({
+				path,
+				code: "expected-value",
+				message:
+					"A sequence expression cannot be used as a persisted operation value.",
+			});
+			return;
+		}
+
+		for (const destination of destinations) {
+			if (isValueStorageAssignable(outputType, destination)) continue;
+			errors.push({
+				path,
+				code: "expected-value",
+				message: `Value branch resolves to '${describe(outputType)}', which cannot be stored as '${destination}'. Assignment compatibility follows storage representation, not comparison compatibility.`,
+			});
+		}
+	});
+
+	return errors.length === 0 ? { ok: true } : { ok: false, errors };
+}
+
+type AssignmentRepresentationContext =
+	| "storage"
+	| "text-normalization"
+	| "scalar-coercion";
+
+/**
+ * Audit source runtime representations, not just the expression's declared
+ * result type. The ordinary checker correctly says `concat(multi_select)` is
+ * text and `double(boolean)` is decimal, but those result labels hide a
+ * cross-runtime failure before the result exists: Postgres sees JSONB/boolean
+ * while the device sees CommCare's token/text representation.
+ *
+ * Branch selectors and predicates do not flow into the assigned result. `concat`
+ * is the one explicit text normalization boundary, but it normalizes only each
+ * IMMEDIATE part after that part has evaluated. A direct primitive boolean part
+ * is therefore safe; a boolean inside `if`/`coalesce`/a coercion is not, because
+ * Postgres must first unify or compute the inner expression. Multi-select remains
+ * forbidden beneath every scalar normalization because JSON array text and the
+ * device's space-token value are observably different.
+ */
+function assignmentRepresentationErrors(
+	expression: ValueExpression,
+	path: CheckPath,
+	consumer: AssignmentRepresentationContext,
+	ctx: TypeContext,
+	errors: CheckError[],
+): void {
+	const descend = (
+		value: ValueExpression,
+		segment: readonly (string | number)[],
+		nextConsumer = consumer,
+	): void => {
+		assignmentRepresentationErrors(
+			value,
+			[...path, ...segment],
+			nextConsumer,
+			ctx,
+			errors,
+		);
+	};
+
+	switch (expression.kind) {
+		case "term": {
+			if (
+				expression.term.kind === "literal" &&
+				expression.term.value === "" &&
+				(expression.term.data_type === "date" ||
+					expression.term.data_type === "time" ||
+					expression.term.data_type === "datetime")
+			) {
+				errors.push({
+					path,
+					code: "expected-value",
+					message:
+						"An empty typed temporal literal is not a portable assignment value: Nova's SQL compiler turns it into NULL while the device keeps blank text. Use a write condition to skip the write.",
+				});
+			}
+			if (
+				expression.term.kind === "literal" &&
+				typeof expression.term.value === "boolean" &&
+				consumer !== "text-normalization"
+			) {
+				errors.push({
+					path,
+					code: "expected-value",
+					message:
+						"A boolean primitive is not a portable stored or coerced value: device XPath stringifies it while Nova storage preserves a boolean. Use concat(...) as the explicit text-producing boundary.",
+				});
+			}
+			if (consumer !== "storage") {
+				const localErrors: CheckError[] = [];
+				const resolved = resolveTermType(
+					expression.term,
+					ctx,
+					localErrors,
+					path,
+				);
+				if (resolved === "multi_select") {
+					errors.push({
+						path,
+						code: "expected-value",
+						message:
+							"A multi-select value cannot flow through scalar text or coercion operators: CommCare exposes a space-token string while Nova stores a JSON array. Use a future explicit join/normalization operation instead.",
+					});
+				}
+			}
+			return;
+		}
+		case "today":
+		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
+		case "count":
+			return;
+		case "concat":
+			for (let index = 0; index < expression.parts.length; index += 1) {
+				descend(
+					expression.parts[index],
+					["parts", index],
+					"text-normalization",
+				);
+			}
+			return;
+		case "date-coerce":
+		case "datetime-coerce":
+		case "double":
+		case "unwrap-list":
+			descend(expression.value, ["value"], "scalar-coercion");
+			return;
+		case "format-date":
+			descend(expression.date, ["date"], "scalar-coercion");
+			return;
+		case "date-add":
+			descend(expression.date, ["date"], "scalar-coercion");
+			descend(expression.quantity, ["quantity"], "scalar-coercion");
+			return;
+		case "arith":
+			descend(expression.left, ["left"], "scalar-coercion");
+			descend(expression.right, ["right"], "scalar-coercion");
+			return;
+		case "coalesce": {
+			const branchConsumer =
+				consumer === "text-normalization" ? "scalar-coercion" : consumer;
+			for (let index = 0; index < expression.values.length; index += 1) {
+				descend(expression.values[index], ["values", index], branchConsumer);
+			}
+			return;
+		}
+		case "if": {
+			const branchConsumer =
+				consumer === "text-normalization" ? "scalar-coercion" : consumer;
+			descend(expression.then, ["if", "then"], branchConsumer);
+			descend(expression.else, ["if", "else"], branchConsumer);
+			return;
+		}
+		case "switch": {
+			const branchConsumer =
+				consumer === "text-normalization" ? "scalar-coercion" : consumer;
+			for (let index = 0; index < expression.cases.length; index += 1) {
+				descend(
+					expression.cases[index].then,
+					["switch", "cases", index, "then"],
+					branchConsumer,
+				);
+			}
+			descend(expression.fallback, ["switch", "fallback"], branchConsumer);
+			return;
+		}
+		default: {
+			const _exhaustive: never = expression;
+			void _exhaustive;
+			return;
+		}
+	}
+}
+
+/** Visit the independently reachable values of branch-like expressions. A
+ * coercing/computing wrapper is one output because it establishes its own
+ * result representation; only direct `if`/`switch`/`coalesce` outputs fan out. */
+function visitAssignmentOutputs(
+	expression: ValueExpression,
+	path: CheckPath,
+	visit: (output: ValueExpression, path: CheckPath) => void,
+): void {
+	switch (expression.kind) {
+		case "if":
+			visitAssignmentOutputs(expression.then, [...path, "if", "then"], visit);
+			visitAssignmentOutputs(expression.else, [...path, "if", "else"], visit);
+			return;
+		case "switch":
+			for (let index = 0; index < expression.cases.length; index += 1) {
+				visitAssignmentOutputs(
+					expression.cases[index].then,
+					[...path, "switch", "cases", index, "then"],
+					visit,
+				);
+			}
+			visitAssignmentOutputs(
+				expression.fallback,
+				[...path, "switch", "fallback"],
+				visit,
+			);
+			return;
+		case "coalesce":
+			for (let index = 0; index < expression.values.length; index += 1) {
+				visitAssignmentOutputs(
+					expression.values[index],
+					[...path, "values", index],
+					visit,
+				);
+			}
+			return;
+		default:
+			visit(expression, path);
+	}
+}
+
+/** First literal-null input that can flow into the assigned result. Predicate
+ * conditions and switch discriminators only choose a value, so their null
+ * comparisons are not assignment values. `concat` explicitly casts each
+ * IMMEDIATE part to text in both targets, so a direct null part is the one
+ * intentional normalization escape; a null nested beneath a computation must
+ * execute before concat and remains nonportable. */
+function assignmentNullLiteralPath(
+	expression: ValueExpression,
+	path: CheckPath,
+): CheckPath | undefined {
+	const first = (
+		values: readonly ValueExpression[],
+		segment: string,
+	): CheckPath | undefined => {
+		for (let index = 0; index < values.length; index += 1) {
+			const found = assignmentNullLiteralPath(values[index], [
+				...path,
+				segment,
+				index,
+			]);
+			if (found !== undefined) return found;
+		}
+		return undefined;
+	};
+
+	switch (expression.kind) {
+		case "term":
+			return expression.term.kind === "literal" &&
+				expression.term.value === null
+				? path
+				: undefined;
+		case "today":
+		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
+		case "count":
+			return undefined;
+		case "concat":
+			for (let index = 0; index < expression.parts.length; index += 1) {
+				const part = expression.parts[index];
+				if (
+					part.kind === "term" &&
+					part.term.kind === "literal" &&
+					part.term.value === null
+				) {
+					continue;
+				}
+				const found = assignmentNullLiteralPath(part, [
+					...path,
+					"parts",
+					index,
+				]);
+				if (found !== undefined) return found;
+			}
+			return undefined;
+		case "date-add":
+			return (
+				assignmentNullLiteralPath(expression.date, [...path, "date"]) ??
+				assignmentNullLiteralPath(expression.quantity, [...path, "quantity"])
+			);
+		case "date-coerce":
+		case "datetime-coerce":
+		case "double":
+		case "unwrap-list":
+			return assignmentNullLiteralPath(expression.value, [...path, "value"]);
+		case "arith":
+			return (
+				assignmentNullLiteralPath(expression.left, [...path, "left"]) ??
+				assignmentNullLiteralPath(expression.right, [...path, "right"])
+			);
+		case "coalesce":
+			return first(expression.values, "values");
+		case "if":
+			return (
+				assignmentNullLiteralPath(expression.then, [...path, "if", "then"]) ??
+				assignmentNullLiteralPath(expression.else, [...path, "if", "else"])
+			);
+		case "switch": {
+			let branch: CheckPath | undefined;
+			for (let index = 0; index < expression.cases.length; index += 1) {
+				branch = assignmentNullLiteralPath(expression.cases[index].then, [
+					...path,
+					"switch",
+					"cases",
+					index,
+					"then",
+				]);
+				if (branch !== undefined) break;
+			}
+			return (
+				branch ??
+				assignmentNullLiteralPath(expression.fallback, [
+					...path,
+					"switch",
+					"fallback",
+				])
+			);
+		}
+		case "format-date":
+			return assignmentNullLiteralPath(expression.date, [...path, "date"]);
+		default: {
+			const _exhaustive: never = expression;
+			return _exhaustive;
+		}
+	}
 }
 
 // ---------- ValueExpression rule helpers ----------
@@ -2618,6 +3069,9 @@ export function valueExpressionKindResultClass(
 			return "numeric";
 		case "concat":
 		case "format-date":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
 			return "text";
 		case "today":
 			return "date";
@@ -2658,6 +3112,9 @@ export function valueExpressionKindResultClass(
 						"double",
 						"concat",
 						"format-date",
+						"id-of",
+						"acting-user",
+						"unowned",
 						"today",
 						"now",
 						"date-add",

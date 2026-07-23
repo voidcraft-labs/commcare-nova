@@ -66,6 +66,10 @@ function nextActionForPath(path: CheckPath): string {
 const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"unknown-property": () => "Choose available case information",
 	"unknown-search-input": () => "Choose an available Search field",
+	"unknown-form-field": () => "Choose an available form answer",
+	"unknown-operation-id": () => "Choose an earlier case operation",
+	"operation-context-value": () =>
+		"Choose a value available in this part of the app",
 	"unknown-case-type": () =>
 		"Choose information from an available kind of case",
 	"property-scope": () => "Choose information from the related case shown here",

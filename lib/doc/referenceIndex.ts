@@ -97,7 +97,11 @@ import {
 	relationDestinationCaseType,
 	type Term,
 	type ValueExpression,
+	walkExpressionNodes,
+	walkExpressionPredicateNodes,
 	walkExpressionTerms,
+	walkPredicateExpressionNodes,
+	walkPredicateNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
 import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
@@ -216,6 +220,9 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 	if (entry.decl !== undefined) {
 		removeFromBucket(index.decl, entry.decl, carrier);
 	}
+	for (const declaration of entry.decls ?? []) {
+		removeFromBucket(index.decl, declaration, carrier);
+	}
 	if (entry.local !== undefined) {
 		removeFromBucket(index.local, entry.local, carrier);
 	}
@@ -242,6 +249,34 @@ function registerFieldDeclarations(
 	const key = casePropertyDeclKey(caseType, field.id);
 	entry.decl = key;
 	addToBucket(index.decl, key, carrier);
+}
+
+/** Register every property written by a form's case operations. The
+ * destination is the operation's post-retype type, matching effective
+ * property materialization and the mutation validator. */
+function registerFormDeclarations(
+	index: ReferenceIndex,
+	doc: BlueprintDoc,
+	carrier: string,
+): void {
+	const form = doc.forms[carrier];
+	if (!form) return;
+	const declarations = new Set<string>();
+	for (const operation of form.caseOperations ?? []) {
+		const caseType = operation.retype ?? operation.caseType;
+		if (caseType.length === 0) continue;
+		for (const write of operation.writes ?? []) {
+			if (write.property.length === 0) continue;
+			declarations.add(casePropertyDeclKey(caseType, write.property));
+		}
+	}
+	if (declarations.size === 0) return;
+	const entry = index.out[carrier] ?? { edges: {} };
+	index.out[carrier] = entry;
+	entry.decls = [...declarations];
+	for (const declaration of declarations) {
+		addToBucket(index.decl, declaration, carrier);
+	}
 }
 
 // ── Edge sink ───────────────────────────────────────────────────────
@@ -384,6 +419,51 @@ function extractFormEdges(
 				for (const value of readSlotValues(form, slot.path)) {
 					if (isXPathExpression(value.value)) {
 						extractAstRefs(sink, ctx, value.value, slot.slot);
+					}
+				}
+				break;
+			case "case_operation_case_type":
+			case "case_operation_retype":
+			case "case_operation_link_target_type":
+				for (const value of readSlotStrings(form, slot.path)) {
+					if (value.text.length > 0) {
+						sink.edge(caseTypeTargetKey(value.text), slot.slot);
+					}
+				}
+				break;
+			case "case_operation_target_op":
+			case "case_operation_target_id_from":
+			case "case_operation_repeat":
+			case "case_operation_link_target_op":
+			case "case_operation_link_target_id_from":
+				for (const value of readSlotStrings(form, slot.path)) {
+					if (value.text.length > 0) {
+						sink.edge(entityTargetKey(value.text), slot.slot);
+					}
+				}
+				break;
+			case "case_operation_target_expression":
+			case "case_operation_name":
+			case "case_operation_owner":
+			case "case_operation_rename":
+			case "case_operation_write_value":
+			case "case_operation_link_target_expression":
+				for (const value of readSlotValues(form, slot.path)) {
+					expressionEdges(sink, slot.slot, value.value as ValueExpression);
+				}
+				break;
+			case "case_operation_condition":
+			case "case_operation_write_condition":
+				for (const value of readSlotValues(form, slot.path)) {
+					predicateEdges(sink, slot.slot, value.value as Predicate);
+				}
+				break;
+			case "case_operation_write_property":
+				for (const value of readSlotStrings(form, slot.path)) {
+					const operation = form.caseOperations?.[value.indices[0] ?? -1];
+					const caseType = operation?.retype ?? operation?.caseType;
+					if (caseType && value.text.length > 0) {
+						sink.edge(casePropertyTargetKey(caseType, value.text), slot.slot);
 					}
 				}
 				break;
@@ -544,6 +624,10 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
  * rewriter, which deliberately leaves such refs alone.
  */
 function termEdges(sink: EdgeSink, slot: string, term: Term): void {
+	if (term.kind === "field") {
+		sink.edge(entityTargetKey(term.uuid), slot);
+		return;
+	}
 	if (term.kind !== "prop") return;
 	if (typeof term.caseType === "string" && term.caseType.length > 0) {
 		sink.edge(caseTypeTargetKey(term.caseType), slot);
@@ -588,6 +672,19 @@ function predicateEdges(
 ): void {
 	try {
 		walkTerms(predicate, (term) => termEdges(sink, slot, term));
+		walkPredicateNodes(predicate, (node) => {
+			if (node.kind === "exists" || node.kind === "missing") {
+				relationHintEdges(sink, slot, node.via);
+			}
+		});
+		walkPredicateExpressionNodes(predicate, (expression) => {
+			if (expression.kind === "id-of") {
+				sink.edge(entityTargetKey(expression.opUuid), slot);
+			}
+			if (expression.kind === "count") {
+				relationHintEdges(sink, slot, expression.via);
+			}
+		});
 	} catch (err) {
 		console.warn(
 			`referenceIndex: couldn't walk the "${slot}" predicate for references — the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
@@ -603,6 +700,17 @@ function expressionEdges(
 ): void {
 	try {
 		walkExpressionTerms(expression, (term) => termEdges(sink, slot, term));
+		walkExpressionNodes(expression, (node) => {
+			if (node.kind === "id-of") {
+				sink.edge(entityTargetKey(node.opUuid), slot);
+			}
+			if (node.kind === "count") relationHintEdges(sink, slot, node.via);
+		});
+		walkExpressionPredicateNodes(expression, (node) => {
+			if (node.kind === "exists" || node.kind === "missing") {
+				relationHintEdges(sink, slot, node.via);
+			}
+		});
 	} catch (err) {
 		console.warn(
 			`referenceIndex: couldn't walk the "${slot}" expression for references — the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
@@ -783,6 +891,9 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 	for (const carrier of Object.keys(doc.fields)) {
 		registerFieldDeclarations(index, doc, carrier);
 	}
+	for (const carrier of Object.keys(doc.forms)) {
+		registerFormDeclarations(index, doc, carrier);
+	}
 	for (const carrier of carriers) {
 		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});
 	}
@@ -836,9 +947,9 @@ export function referencingSlotsOf(
 	return result;
 }
 
-/** Field uuids declaring the `(caseType, property)` pair — the
- *  case-property peer lookup ("who declares X / is this the last
- *  declarer?"). */
+/** Carrier uuids declaring the `(caseType, property)` pair — fields and
+ *  forms with operation writers. Consumers that need field peers must narrow
+ *  through `doc.fields`; existence checks intentionally count both kinds. */
 export function declarersOf(
 	doc: BlueprintDoc,
 	caseType: string,
@@ -1123,6 +1234,7 @@ export function applyReferenceIndexMaintenance(
 	for (const carrier of carriers) unindexCarrier(index, carrier);
 	for (const carrier of carriers) {
 		registerFieldDeclarations(index, doc, carrier);
+		registerFormDeclarations(index, doc, carrier);
 	}
 	for (const carrier of carriers) {
 		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});

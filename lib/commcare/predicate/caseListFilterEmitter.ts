@@ -265,7 +265,7 @@ function emitPredicate(
 		case "match":
 			return emitMatch(p, root, context, anchor, termContext);
 		case "multi-select-contains":
-			return emitMultiSelectContains(p, root, termContext);
+			return emitMultiSelectContains(p, root, anchor, termContext);
 		case "exists":
 			return emitExistsOrMissing(
 				p.via,
@@ -325,7 +325,12 @@ function emitOnDeviceWithinDistance(
 	// Stored case data follows CommCare's exact space-separated form. Only the
 	// author/search-input center gets Nova's comma + whitespace convenience;
 	// normalizing stored data here would diverge from HQ's case-search indexer.
-	const property = emitTerm(p.property, root, termContext);
+	const property = emitTerm(
+		p.property,
+		root,
+		termContext,
+		anchor.kind === "root" ? "root" : "related",
+	);
 	const rawCenter = emitOnDeviceExpression(
 		p.center,
 		root,
@@ -475,7 +480,7 @@ function emitMatch(
 	termContext: OnDeviceTermEmissionContext,
 ): string {
 	const wireFunction = matchModeToWireFunction(p.mode);
-	return `${wireFunction}(${emitTerm(p.property, root, termContext)}, ${emitOnDeviceExpression(p.value, root, context, anchor, termContext)})`;
+	return `${wireFunction}(${emitTerm(p.property, root, termContext, anchor.kind === "root" ? "root" : "related")}, ${emitOnDeviceExpression(p.value, root, context, anchor, termContext)})`;
 }
 
 /**
@@ -514,9 +519,15 @@ function matchModeToWireFunction(
 function emitMultiSelectContains(
 	p: Extract<Predicate, { kind: "multi-select-contains" }>,
 	root: InstanceRoot,
+	anchor: OnDeviceCaseAnchor,
 	termContext: OnDeviceTermEmissionContext,
 ): string {
-	const left = emitTerm(p.property, root, termContext);
+	const left = emitTerm(
+		p.property,
+		root,
+		termContext,
+		anchor.kind === "root" ? "root" : "related",
+	);
 	const calls = p.values.map(
 		(v) => `selected(${left}, ${emitOnDeviceLiteralValue(v.value)})`,
 	);
@@ -624,6 +635,7 @@ function emitExistsOrMissing(
 				relation.via,
 				whereText,
 				root,
+				anchor.kind === "root" ? termContext.rootCaseId : undefined,
 			);
 			return kind === "exists" ? presence : `not(${presence})`;
 		}
@@ -679,7 +691,12 @@ function emitWhenInputPresent(
 	anchor: OnDeviceCaseAnchor,
 	termContext: OnDeviceTermEmissionContext,
 ): string {
-	const inputPath = emitTerm(p.input, root, termContext);
+	const inputPath = emitTerm(
+		p.input,
+		root,
+		termContext,
+		anchor.kind === "root" ? "root" : "related",
+	);
 	const inner = emitPredicate(p.clause, 0, root, context, anchor, termContext);
 	return `if(count(${inputPath}), ${inner}, true())`;
 }

@@ -167,6 +167,8 @@ function termSourceLabel(value: Extract<ValueExpression, { kind: "term" }>) {
 			return "app information";
 		case "session-user":
 			return "user information";
+		case "field":
+			return "form answer";
 		case "literal":
 			return "value";
 	}
