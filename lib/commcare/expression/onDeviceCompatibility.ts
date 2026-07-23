@@ -38,6 +38,10 @@ export type OnDeviceScalarExpressionIssue =
 			readonly expression: Extract<ValueExpression, { kind: "unwrap-list" }>;
 	  }
 	| {
+			readonly reason: "table-lookup";
+			readonly expression: Extract<ValueExpression, { kind: "table-lookup" }>;
+	  }
+	| {
 			readonly reason: "multi-valued-relation-read";
 			readonly property: PropertyRef;
 	  };
@@ -47,12 +51,21 @@ export function findOnDeviceScalarExpressionIssue(
 	expression: ValueExpression,
 	context: RelationEvaluationScopeContext = {},
 ): OnDeviceScalarExpressionIssue | undefined {
+	let tableLookup:
+		| Extract<ValueExpression, { kind: "table-lookup" }>
+		| undefined;
 	let unwrapList: Extract<ValueExpression, { kind: "unwrap-list" }> | undefined;
 	walkExpressionNodes(expression, (node) => {
+		if (tableLookup === undefined && node.kind === "table-lookup") {
+			tableLookup = node;
+		}
 		if (unwrapList === undefined && node.kind === "unwrap-list") {
 			unwrapList = node;
 		}
 	});
+	if (tableLookup !== undefined) {
+		return { reason: "table-lookup", expression: tableLookup };
+	}
 	if (unwrapList !== undefined) {
 		return { reason: "unwrap-list", expression: unwrapList };
 	}
@@ -141,6 +154,11 @@ function findMultiValuedScalarPropertyRead(
 		}
 		case "count":
 			// `via` is aggregated explicitly; `where` is a normalized Predicate.
+			return undefined;
+		case "table-lookup":
+			// Reported by the explicit dormant-carrier compatibility issue above.
+			// Its `where` predicate is a separate lookup-row evaluation scope, not
+			// a scalar case-property read at this expression root.
 			return undefined;
 		default: {
 			const _exhaustive: never = expression;

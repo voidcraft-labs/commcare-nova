@@ -556,6 +556,9 @@ function walkValueExpression(
 		case "acting-user":
 		case "unowned":
 			return;
+		case "table-lookup":
+			walkPredicate(expr.where, visitor, [...path, "table-lookup", "where"]);
+			return;
 		case "date-add":
 			walkValueExpression(expr.date, visitor, [...path, "date"]);
 			walkValueExpression(expr.quantity, visitor, [...path, "quantity"]);

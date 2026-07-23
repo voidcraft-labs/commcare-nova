@@ -1,5 +1,5 @@
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
-import { walkPredicateNodes } from "@/lib/domain/predicate/walk";
+import { walkPredicateNodes, walkTerms } from "@/lib/domain/predicate/walk";
 
 // Geopoint text normalization shared by on-device distance evaluation and the
 // runtime CSQL query builder. Stored case properties and search centers both
@@ -136,6 +136,14 @@ export function collectGeopointCenterInputNames(
 				visit(value.fallback);
 				return;
 			case "count":
+				return;
+			case "table-lookup":
+				// The lookup result, not the filter input bytes, becomes the
+				// geopoint. Still collect input refs from the row-selection
+				// predicate because changing one can select a different result.
+				walkTerms(value.where, (term) => {
+					if (term.kind === "input") names.add(term.name);
+				});
 				return;
 			default: {
 				const _exhaustive: never = value;

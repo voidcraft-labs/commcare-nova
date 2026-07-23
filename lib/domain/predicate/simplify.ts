@@ -245,6 +245,8 @@ function simplifyExpression(expr: ValueExpression): ValueExpression {
 		case "acting-user":
 		case "unowned":
 			return expr;
+		case "table-lookup":
+			return { ...expr, where: simplifyForEmission(expr.where) };
 		case "date-add":
 			return {
 				...expr,

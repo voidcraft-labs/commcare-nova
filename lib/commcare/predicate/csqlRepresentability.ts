@@ -43,7 +43,8 @@ export type CsqlRepresentabilityReason =
 	| "calendar-date-add-needs-whole-number"
 	| "subcase-count-needs-nonnegative-whole-number"
 	| "multiple-property-scopes"
-	| "form-context-value-not-csql";
+	| "form-context-value-not-csql"
+	| "lookup-table-not-active";
 
 type RuntimeValueDialect = "csql" | "on-device";
 
@@ -273,6 +274,11 @@ function normalizeExpression(expression: ValueExpression): ValueExpression {
 					? { where: normalizeCsqlPredicate(expression.where) }
 					: {}),
 			};
+		case "table-lookup":
+			return {
+				...expression,
+				where: normalizeCsqlPredicate(expression.where),
+			};
 		case "format-date":
 			return {
 				...expression,
@@ -304,6 +310,7 @@ function normalizeExpression(expression: ValueExpression): ValueExpression {
 						"count",
 						"unwrap-list",
 						"format-date",
+						"table-lookup",
 					],
 				}),
 			);
@@ -778,6 +785,19 @@ function checkRuntimeValue(
 				"on-device",
 			);
 			return;
+		case "table-lookup":
+			issues.push({
+				reason: "lookup-table-not-active",
+				path,
+				message:
+					"Lookup-table expressions are not active in case search yet. Remove this lookup until lookup fixture emission is available.",
+			});
+			checkQueryPredicate(
+				expression.where,
+				[...path, "table-lookup", "where"],
+				issues,
+			);
+			return;
 		default: {
 			const _exhaustive: never = expression;
 			throw new Error(
@@ -899,6 +919,7 @@ function staticallyKnownOnDeviceString(
 		case "count":
 		case "unwrap-list":
 		case "format-date":
+		case "table-lookup":
 			return undefined;
 		default: {
 			const _exhaustive: never = expression;
@@ -983,6 +1004,7 @@ function hasReachableStaticallyUnquotableOutput(
 		case "arith":
 		case "count":
 		case "unwrap-list":
+		case "table-lookup":
 			return false;
 		default: {
 			const _exhaustive: never = expression;
@@ -1041,6 +1063,7 @@ function isGuaranteedNonemptyString(expression: ValueExpression): boolean {
 		case "arith":
 		case "count":
 		case "unwrap-list":
+		case "table-lookup":
 			return false;
 		default: {
 			const _exhaustive: never = expression;
@@ -1274,6 +1297,7 @@ function isGuaranteedTemporalValue(expression: ValueExpression): boolean {
 		case "unowned":
 		case "unwrap-list":
 		case "format-date":
+		case "table-lookup":
 			return false;
 		default: {
 			const _exhaustive: never = expression;
@@ -1515,6 +1539,9 @@ function collectPropertyScopesFromExpression(
 			if (expression.where !== undefined) {
 				collectPropertyScopesFromPredicate(expression.where, out);
 			}
+			return;
+		case "table-lookup":
+			collectPropertyScopesFromPredicate(expression.where, out);
 			return;
 		case "format-date":
 			collectPropertyScopesFromExpression(expression.date, out);

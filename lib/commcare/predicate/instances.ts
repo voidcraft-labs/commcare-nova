@@ -106,6 +106,10 @@ function addTermInstance(term: Term, instances: Set<string>): void {
 		case "literal":
 		case "field":
 			return;
+		case "table-column":
+			throw new Error(
+				"collectAstInstances: lookup-table column terms are dormant until fixture emission lands; validation should reject them before suite instance collection.",
+			);
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(

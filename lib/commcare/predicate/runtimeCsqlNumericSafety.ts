@@ -236,6 +236,11 @@ function walkRuntimeValue(
 			return;
 		case "count":
 			return;
+		case "table-lookup":
+			// Lookup values are not admitted to CSQL yet. The dormant-carrier
+			// validator owns that incompatibility; no runtime numeric prompt
+			// constraint can make the expression executable.
+			return;
 		case "format-date":
 			walkRuntimeValue(expression.date, "on-device", out);
 			return;
@@ -267,6 +272,7 @@ function isNativeCsqlExpression(expression: ValueExpression): boolean {
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "table-lookup":
 			return false;
 		default: {
 			const _exhaustive: never = expression;

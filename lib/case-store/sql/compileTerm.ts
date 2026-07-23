@@ -220,6 +220,10 @@ export function compileTerm(
 				ctx.bindings.formFields,
 				`form field '${term.uuid}'`,
 			);
+		case "table-column":
+			throw new Error(
+				"compileTerm: lookup-table column terms are dormant until lookup execution lands; validation should reject them before case-store SQL compilation.",
+			);
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(
@@ -234,6 +238,7 @@ export function compileTerm(
 						"session-user",
 						"session-context",
 						"field",
+						"table-column",
 					],
 				}),
 			);

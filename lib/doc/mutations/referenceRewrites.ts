@@ -104,6 +104,20 @@ export function rewriteFieldReferenceSlots(
 				// Names a case TYPE (`case_property_on`) — field renames and
 				// case-property renames never change a type name.
 				break;
+			case "lookup-carrier": {
+				const leafRename = ops.caseLeafRename;
+				if (
+					leafRename !== undefined &&
+					(field.kind === "single_select" || field.kind === "multi_select") &&
+					field.optionsSource?.filter !== undefined
+				) {
+					changed += renameCasePropertyInPredicate(
+						field.optionsSource.filter,
+						leafRename.rename,
+					);
+				}
+				break;
+			}
 			case "predicate-ast":
 			case "entity-uuid":
 			case "case-property-ref":

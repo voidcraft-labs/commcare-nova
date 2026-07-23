@@ -66,6 +66,12 @@ import { z } from "zod";
 // import back into `blueprint.ts` and break module-load order.
 import { casePropertyDataTypeSchema } from "../casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
+import {
+	type LookupColumnId,
+	type LookupTableId,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "../lookupIds";
 import { uuidSchema } from "../uuid";
 import {
 	DISTANCE_UNITS,
@@ -585,6 +591,22 @@ export const formFieldRefSchema = z
 export type FormFieldRef = z.infer<typeof formFieldRefSchema>;
 
 /**
+ * A column value on the lookup row currently in scope.
+ *
+ * The table qualifier travels beside every column identity, preventing a
+ * structurally valid node from being reparented into a different table's
+ * filter. The type checker admits it only in that exact table scope.
+ */
+export const tableColumnTermSchema = z
+	.object({
+		kind: z.literal("table-column"),
+		tableId: lookupTableIdSchema,
+		columnId: lookupColumnIdSchema,
+	})
+	.strict();
+export type TableColumnTerm = z.infer<typeof tableColumnTermSchema>;
+
+/**
  * A primitive constant. Numbers, booleans, and `null` are first-class
  * (rather than serialized to strings) so the type checker can validate
  * compatibility with the referenced property's data type without
@@ -619,6 +641,7 @@ export const termSchema = z.discriminatedUnion("kind", [
 	sessionUserSchema,
 	sessionContextSchema,
 	formFieldRefSchema,
+	tableColumnTermSchema,
 	literalSchema,
 ]);
 export type Term = z.infer<typeof termSchema>;
@@ -818,6 +841,20 @@ export const actingUserSchema = z
 
 /** CommCare's explicit no-owner sentinel. */
 export const unownedSchema = z.object({ kind: z.literal("unowned") }).strict();
+
+/**
+ * Resolve one column from the first canonically ordered row matching `where`.
+ * S05a stores and validates this identity-bearing shape; target lowering is
+ * deliberately unavailable until S05b.
+ */
+export const tableLookupExpressionSchema = z
+	.object({
+		kind: z.literal("table-lookup"),
+		tableId: lookupTableIdSchema,
+		resultColumnId: lookupColumnIdSchema,
+		where: z.lazy(() => predicateSchema),
+	})
+	.strict();
 
 const dateAddSchema = z
 	.object({
@@ -1953,6 +1990,12 @@ export type ValueExpression =
 	| { kind: "acting-user" }
 	| { kind: "unowned" }
 	| {
+			kind: "table-lookup";
+			tableId: LookupTableId;
+			resultColumnId: LookupColumnId;
+			where: Predicate;
+	  }
+	| {
 			kind: "date-add";
 			date: ValueExpression;
 			interval: DateAddInterval;
@@ -2007,6 +2050,7 @@ export const valueExpressionSchema: z.ZodType<ValueExpression> =
 		idOfSchema,
 		actingUserSchema,
 		unownedSchema,
+		tableLookupExpressionSchema,
 		dateAddSchema,
 		dateCoerceSchema,
 		datetimeCoerceSchema,
@@ -2155,6 +2199,10 @@ type _NowArm = Extract<ValueExpression, { kind: "now" }>;
 type _IdOfArm = Extract<ValueExpression, { kind: "id-of" }>;
 type _ActingUserArm = Extract<ValueExpression, { kind: "acting-user" }>;
 type _UnownedArm = Extract<ValueExpression, { kind: "unowned" }>;
+type _TableLookupArm = Omit<
+	Extract<ValueExpression, { kind: "table-lookup" }>,
+	"where"
+>;
 type _DateAddArm = Omit<
 	Extract<ValueExpression, { kind: "date-add" }>,
 	"date" | "quantity"
@@ -2204,6 +2252,10 @@ type _NowInferred = z.infer<typeof nowSchema>;
 type _IdOfInferred = z.infer<typeof idOfSchema>;
 type _ActingUserInferred = z.infer<typeof actingUserSchema>;
 type _UnownedInferred = z.infer<typeof unownedSchema>;
+type _TableLookupInferred = Omit<
+	z.infer<typeof tableLookupExpressionSchema>,
+	"where"
+>;
 type _DateAddInferred = Omit<
 	z.infer<typeof dateAddSchema>,
 	"date" | "quantity"
@@ -2261,6 +2313,7 @@ const _driftGuard: {
 	idOf: _TypesEqual<_IdOfArm, _IdOfInferred>;
 	actingUser: _TypesEqual<_ActingUserArm, _ActingUserInferred>;
 	unowned: _TypesEqual<_UnownedArm, _UnownedInferred>;
+	tableLookup: _TypesEqual<_TableLookupArm, _TableLookupInferred>;
 	dateAdd: _TypesEqual<_DateAddArm, _DateAddInferred>;
 	dateCoerce: _TypesEqual<_DateCoerceArm, _DateCoerceInferred>;
 	datetimeCoerce: _TypesEqual<_DatetimeCoerceArm, _DatetimeCoerceInferred>;
@@ -2292,6 +2345,7 @@ const _driftGuard: {
 	idOf: true,
 	actingUser: true,
 	unowned: true,
+	tableLookup: true,
 	dateAdd: true,
 	dateCoerce: true,
 	datetimeCoerce: true,
@@ -2329,10 +2383,14 @@ z.globalRegistry.add(searchInputRefSchema, { id: "SearchInputRef" });
 z.globalRegistry.add(sessionUserSchema, { id: "SessionUser" });
 z.globalRegistry.add(sessionContextSchema, { id: "SessionContext" });
 z.globalRegistry.add(formFieldRefSchema, { id: "FormFieldRef" });
+z.globalRegistry.add(tableColumnTermSchema, { id: "TableColumnTerm" });
 z.globalRegistry.add(literalSchema, { id: "Literal" });
 z.globalRegistry.add(termSchema, { id: "Term" });
 z.globalRegistry.add(idOfSchema, { id: "IdOf" });
 z.globalRegistry.add(actingUserSchema, { id: "ActingUser" });
 z.globalRegistry.add(unownedSchema, { id: "Unowned" });
+z.globalRegistry.add(tableLookupExpressionSchema, {
+	id: "TableLookupExpression",
+});
 z.globalRegistry.add(predicateSchema, { id: "Predicate" });
 z.globalRegistry.add(valueExpressionSchema, { id: "ValueExpression" });

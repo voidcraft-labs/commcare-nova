@@ -86,6 +86,7 @@ import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
 	type AssetId,
 	asUuid,
+	type CarrierBlindField,
 	type CaseProperty,
 	type CaseType,
 	type CommitOutcome,
@@ -215,7 +216,10 @@ export interface BlueprintMutations {
 	 */
 	addField: <K extends FieldKind>(
 		parentUuid: Uuid,
-		field: { kind: K } & Omit<Extract<Field, { kind: K }>, "uuid" | "kind"> & {
+		field: { kind: K } & Omit<
+			Extract<CarrierBlindField, { kind: K }>,
+			"uuid" | "kind"
+		> & {
 				uuid?: string;
 			},
 		opts?: {

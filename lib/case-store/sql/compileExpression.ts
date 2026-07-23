@@ -187,6 +187,10 @@ export function compileExpression(
 			);
 		case "format-date":
 			return compileFormatDate(expr.date, expr.pattern, ctx);
+		case "table-lookup":
+			throw new Error(
+				"compileExpression: lookup-table expressions are dormant until lookup execution lands; validation should reject them before case-store SQL compilation.",
+			);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
@@ -213,6 +217,7 @@ export function compileExpression(
 						"count",
 						"unwrap-list",
 						"format-date",
+						"table-lookup",
 					],
 				}),
 			);

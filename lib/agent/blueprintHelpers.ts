@@ -65,6 +65,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	AssetId,
 	BlueprintDoc,
+	CarrierBlindField,
 	Column,
 	ConnectConfig,
 	Field,
@@ -1003,13 +1004,14 @@ export function updateFormMutations(
 // ── Mutation builders — fields ──────────────────────────────────────────
 
 /** Build an `addField` mutation. The caller supplies a full `Field`
- *  entity (with uuid); helpers that mint fields from SA wire format live
- *  elsewhere — this helper stays type-tight against the domain shape. */
+ *  carrier-blind entity (with uuid); helpers that mint fields from SA wire
+ *  format live elsewhere. Dormant carrier extensions travel only through the
+ *  compatibility-aware mutation planners, never through this authoring helper. */
 export function addFieldMutations(
 	doc: BlueprintDoc,
 	input: {
 		parentUuid: Uuid;
-		field: Field;
+		field: CarrierBlindField;
 		index?: number;
 	},
 ): Mutation[] {
@@ -1024,7 +1026,7 @@ export function addFieldMutations(
 		{
 			kind: "addField",
 			parentUuid: input.parentUuid,
-			field: input.field,
+			field: structuredClone(input.field),
 			...(input.index !== undefined && { index: input.index }),
 		},
 	];

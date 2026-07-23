@@ -60,7 +60,12 @@
 // that's the same failure mode every other illegal-but-typeable
 // payload produces, so leaving it at the schema is consistent.
 
-import type { CasePropertyDataType, Uuid } from "@/lib/domain";
+import type {
+	CasePropertyDataType,
+	LookupColumnId,
+	LookupTableId,
+	Uuid,
+} from "@/lib/domain";
 import {
 	reduceAnd as reduceAndImpl,
 	reduceNot as reduceNotImpl,
@@ -84,6 +89,7 @@ import type {
 	SessionContextRef,
 	SessionUserRef,
 	SwitchCase,
+	TableColumnTerm,
 	Term,
 	ValueExpression,
 } from "./types";
@@ -113,6 +119,7 @@ const TERM_KINDS: ReadonlySet<string> = new Set([
 	"session-user",
 	"session-context",
 	"field",
+	"table-column",
 	"literal",
 ]);
 
@@ -257,6 +264,14 @@ export function sessionContext(field: SessionContextField): SessionContextRef {
 /** Reference a value in the containing form by stable field identity. */
 export function formField(uuid: Uuid): FormFieldRef {
 	return { kind: "field", uuid };
+}
+
+/** Reference one column on the lookup row currently in table scope. */
+export function tableColumn(
+	tableId: LookupTableId,
+	columnId: LookupColumnId,
+): TableColumnTerm {
+	return { kind: "table-column", tableId, columnId };
 }
 
 /**
@@ -1162,6 +1177,15 @@ export function actingUser(): Extract<
 /** CommCare's explicit no-owner value (`-`). */
 export function unowned(): Extract<ValueExpression, { kind: "unowned" }> {
 	return { kind: "unowned" };
+}
+
+/** Resolve the first canonically ordered lookup row matching `where`. */
+export function tableLookup(
+	tableId: LookupTableId,
+	resultColumnId: LookupColumnId,
+	where: Predicate,
+): Extract<ValueExpression, { kind: "table-lookup" }> {
+	return { kind: "table-lookup", tableId, resultColumnId, where };
 }
 
 /**

@@ -56,6 +56,7 @@ import {
 	type CasePropertyDataType,
 	casePropertyDataTypes,
 } from "@/lib/domain/casePropertyTypes";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { Uuid } from "@/lib/domain/uuid";
 import { unhandledKindMessage } from "./errors";
 import type {
@@ -138,6 +139,16 @@ export type TypeContext = {
 	operationIds?: ReadonlySet<Uuid>;
 	/** Submission-local owner sentinels admitted only by case-operation slots. */
 	caseOperationValues?: boolean;
+	/** Rows-free lookup definition types available to table-lookup nodes. */
+	lookupTables?: ReadonlyMap<
+		LookupTableId,
+		ReadonlyMap<LookupColumnId, CasePropertyDataType>
+	>;
+	/** The one lookup row whose columns a nested predicate may address. */
+	tableScope?: {
+		readonly tableId: LookupTableId;
+		readonly columns: ReadonlyMap<LookupColumnId, CasePropertyDataType>;
+	};
 };
 
 /**
@@ -191,6 +202,9 @@ export type CheckErrorCode =
 	| "unknown-property"
 	| "unknown-search-input"
 	| "unknown-form-field"
+	| "unknown-lookup-table"
+	| "unknown-lookup-column"
+	| "lookup-table-scope"
 	| "unknown-operation-id"
 	| "operation-context-value"
 	| "unknown-case-type"
@@ -988,6 +1002,19 @@ function checkAbsenceOperator(
 		});
 		return;
 	}
+	if (
+		p.kind === "is-null" &&
+		p.left.kind === "term" &&
+		p.left.term.kind === "table-column"
+	) {
+		errors.push({
+			path: [...path, "left"],
+			code: "runtime-value",
+			message:
+				"Operator 'is-null' cannot distinguish an absent lookup-table cell from the fixture boundary. Use 'is-blank' for absent-or-empty lookup values.",
+		});
+		return;
+	}
 	checkExpression(p.left, ctx, errors, [...path, "left"]);
 }
 
@@ -1738,6 +1765,30 @@ export function resolveTermType(
 			}
 			return ctx.formFields.get(term.uuid) ?? "text";
 		}
+		case "table-column": {
+			const scope = ctx.tableScope;
+			if (scope === undefined || scope.tableId !== term.tableId) {
+				errors.push({
+					path,
+					code: "lookup-table-scope",
+					message:
+						scope === undefined
+							? "A lookup column is available only inside its table's filter."
+							: `Lookup column '${term.columnId}' belongs to table '${term.tableId}', not the active table '${scope.tableId}'.`,
+				});
+				return undefined;
+			}
+			const type = scope.columns.get(term.columnId);
+			if (type === undefined) {
+				errors.push({
+					path,
+					code: "unknown-lookup-column",
+					message: `Lookup column '${term.columnId}' is not available on table '${term.tableId}'.`,
+				});
+				return undefined;
+			}
+			return type;
+		}
 		case "literal":
 			return literalType(term);
 		default: {
@@ -1891,6 +1942,44 @@ export function checkExpression(
 				return undefined;
 			}
 			return "text";
+
+		case "table-lookup": {
+			if (ctx.tableScope !== undefined) {
+				errors.push({
+					path,
+					code: "lookup-table-scope",
+					message: "A lookup-table filter cannot contain another table lookup.",
+				});
+				return undefined;
+			}
+			const columns = ctx.lookupTables?.get(expr.tableId);
+			if (columns === undefined) {
+				errors.push({
+					path,
+					code: "unknown-lookup-table",
+					message: `Lookup table '${expr.tableId}' is not available in this expression context.`,
+				});
+				return undefined;
+			}
+			const resultType = columns.get(expr.resultColumnId);
+			if (resultType === undefined) {
+				errors.push({
+					path: [...path, "resultColumnId"],
+					code: "unknown-lookup-column",
+					message: `Lookup result column '${expr.resultColumnId}' is not available on table '${expr.tableId}'.`,
+				});
+			}
+			walk(
+				expr.where,
+				{
+					...ctx,
+					tableScope: { tableId: expr.tableId, columns },
+				},
+				errors,
+				[...path, "where"],
+			);
+			return resultType;
+		}
 
 		case "date-add": {
 			// Resolve both operands first so per-side errors surface
@@ -2533,6 +2622,7 @@ function assignmentRepresentationErrors(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "table-lookup":
 		case "count":
 			return;
 		case "concat":
@@ -2674,6 +2764,7 @@ function assignmentNullLiteralPath(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "table-lookup":
 		case "count":
 			return undefined;
 		case "concat":
@@ -3098,6 +3189,7 @@ export function valueExpressionKindResultClass(
 		case "if":
 		case "switch":
 		case "coalesce":
+		case "table-lookup":
 			return "depends";
 		default: {
 			const _exhaustive: never = kind;

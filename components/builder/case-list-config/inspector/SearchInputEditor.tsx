@@ -1147,6 +1147,10 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 			return true;
 		case "session-user":
 			return value.term.field.length > 0;
+		case "table-column":
+			throw new Error(
+				"Lookup table columns are dormant and cannot reach the search-input editor.",
+			);
 	}
 }
 

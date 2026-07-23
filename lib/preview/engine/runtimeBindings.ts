@@ -913,6 +913,10 @@ function substituteInputInExpression(
 				),
 				pattern: expr.pattern,
 			};
+		case "table-lookup":
+			throw new Error(
+				"substituteInputInExpression: lookup-table expressions are dormant until preview lookup execution lands; validation should reject them before runtime binding.",
+			);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
@@ -965,6 +969,10 @@ function substituteInputInTerm(
 		case "field":
 		case "literal":
 			return { kind: "term", term: node };
+		case "table-column":
+			throw new Error(
+				"substituteInputInTerm: lookup-table column terms are dormant until preview lookup execution lands; validation should reject them before runtime binding.",
+			);
 		default: {
 			const _exhaustive: never = node;
 			throw new Error(

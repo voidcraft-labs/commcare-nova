@@ -15,6 +15,8 @@ import { z } from "zod";
 import {
 	assetIdSchema,
 	CONNECT_TYPES,
+	carrierBlindFieldPatchSchemaByKind,
+	carrierBlindFieldSchema,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
@@ -22,9 +24,8 @@ import {
 	columnSchema,
 	columnSortSchema,
 	fieldKinds,
-	fieldPatchSchemaByKind,
-	fieldSchema,
 	formSchema,
+	lookupOptionsSourceSchema,
 	mediaSchema,
 	moduleSchema,
 	searchInputDefSchema,
@@ -179,39 +180,58 @@ type UpdateFieldArm = {
 		kind: z.ZodLiteral<"updateField">;
 		uuid: typeof uuidSchema;
 		targetKind: z.ZodLiteral<K>;
-		patch: z.ZodDefault<(typeof fieldPatchSchemaByKind)[K]>;
+		patch: z.ZodDefault<(typeof carrierBlindFieldPatchSchemaByKind)[K]>;
+		optionsSource: z.ZodOptional<
+			z.ZodNullable<typeof lookupOptionsSourceSchema>
+		>;
 	}>;
 }[(typeof fieldKinds)[number]];
 
 const updateFieldArms = fieldKinds.map(
 	(targetKind) =>
-		z.object({
-			kind: z.literal("updateField"),
-			uuid: uuidSchema,
-			targetKind: z.literal(targetKind),
-			// `patch` defaults to `{}` when it is absent on read. A field
-			// clear travels as an explicit `null` value (which survives JSON
-			// serialization), so a normal clear-only edit produces a NON-empty
-			// patch and never needs this default. The default exists for a
-			// patch that is genuinely empty on the wire: a degenerate
-			// no-property update, or a legacy event written before clears
-			// carried `null` — back then a clear lowered to an all-`undefined`
-			// patch, and JSON serialization drops `undefined`-valued keys, so
-			// the persisted patch was an empty map. Defaulting to
-			// `{}` lets such an event parse and replay as a no-op (the reducer
-			// applies no keys) instead of the strict arm throwing and taking
-			// down the whole event scan — the log is supplemental, so one
-			// degenerate event must never block reading the rest. The blueprint
-			// snapshot stays authoritative for the field's actual state.
-			//
-			// Cast needed because under the generic `targetKind` the schema is a
-			// union of every kind's patch schema, which isn't directly
-			// `.default()`-callable; the outer `as UpdateFieldArm` restores the
-			// precise per-kind type.
-			patch: (fieldPatchSchemaByKind[targetKind] as z.ZodTypeAny).default(
-				() => ({}),
-			),
-		}) as UpdateFieldArm,
+		z
+			.object({
+				kind: z.literal("updateField"),
+				uuid: uuidSchema,
+				targetKind: z.literal(targetKind),
+				// `patch` defaults to `{}` when it is absent on read. A field
+				// clear travels as an explicit `null` value (which survives JSON
+				// serialization), so a normal clear-only edit produces a NON-empty
+				// patch and never needs this default. The default exists for a
+				// patch that is genuinely empty on the wire: a degenerate
+				// no-property update, or a legacy event written before clears
+				// carried `null` — back then a clear lowered to an all-`undefined`
+				// patch, and JSON serialization drops `undefined`-valued keys, so
+				// the persisted patch was an empty map. Defaulting to
+				// `{}` lets such an event parse and replay as a no-op (the reducer
+				// applies no keys) instead of the strict arm throwing and taking
+				// down the whole event scan — the log is supplemental, so one
+				// degenerate event must never block reading the rest. The blueprint
+				// snapshot stays authoritative for the field's actual state.
+				//
+				// Cast needed because under the generic `targetKind` the schema is a
+				// union of every kind's patch schema, which isn't directly
+				// `.default()`-callable; the outer `as UpdateFieldArm` restores the
+				// precise per-kind type.
+				patch: (
+					carrierBlindFieldPatchSchemaByKind[targetKind] as z.ZodTypeAny
+				).default(() => ({})),
+				optionsSource: lookupOptionsSourceSchema.nullable().optional(),
+			})
+			.superRefine((mutation, ctx) => {
+				if (
+					mutation.optionsSource !== undefined &&
+					targetKind !== "single_select" &&
+					targetKind !== "multi_select"
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["optionsSource"],
+						message:
+							"Only single-select and multi-select fields can use lookup-backed options.",
+					});
+				}
+			}) as unknown as UpdateFieldArm,
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
 
 export const mutationSchema = z.discriminatedUnion("kind", [
@@ -652,12 +672,31 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		caseOperationChange: caseOperationChangeSchema.optional(),
 	}),
 	// Field
-	z.object({
-		kind: z.literal("addField"),
-		parentUuid: uuidSchema,
-		field: fieldSchema,
-		index: z.number().int().nonnegative().optional(),
-	}),
+	z
+		.object({
+			kind: z.literal("addField"),
+			parentUuid: uuidSchema,
+			// The nested field is the pre-S05 receiver fallback and therefore
+			// remains strict and carrier-blind. Current source intent travels in
+			// the optional top-level extension below.
+			field: carrierBlindFieldSchema,
+			index: z.number().int().nonnegative().optional(),
+			optionsSource: lookupOptionsSourceSchema.optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			if (
+				mutation.optionsSource !== undefined &&
+				mutation.field.kind !== "single_select" &&
+				mutation.field.kind !== "multi_select"
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["optionsSource"],
+					message:
+						"Only single-select and multi-select fields can use lookup-backed options.",
+				});
+			}
+		}),
 	z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
 	// `order` is the gesture-computed fractional key (written verbatim);
 	// `toIndex` is kept optional for legacy replay only. A same-parent reorder

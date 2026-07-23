@@ -183,6 +183,7 @@ function collectServerOperandRuntimeStringInputs(
 		case "if":
 		case "switch":
 		case "format-date":
+		case "table-lookup":
 			throw new Error(
 				`collectRuntimeCsqlStringInputNames: non-native expression '${expression.kind}' reached the native CSQL branch`,
 			);
@@ -239,6 +240,10 @@ function collectOnDeviceOutputTaint(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "table-lookup":
+			// Lookup-result bytes do not originate in a search input. The
+			// dormant-carrier compatibility rule rejects this expression before
+			// CSQL emission.
 			return;
 		default: {
 			const _exhaustive: never = expression;

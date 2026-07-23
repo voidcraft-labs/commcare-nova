@@ -170,6 +170,11 @@ export function emitOnDeviceExpression(
 			"emitOnDeviceExpression: unwrap-list is a server-side case-search function and is not registered by CommCare Core's on-device XPath evaluator. Validation should reject it before wire emission.",
 		);
 	}
+	if (compatibilityIssue?.reason === "table-lookup") {
+		throw new Error(
+			"emitOnDeviceExpression: lookup-table expressions are dormant until fixture emission lands; validation should reject them before on-device XPath emission.",
+		);
+	}
 	if (compatibilityIssue?.reason === "multi-valued-relation-read") {
 		const { property } = compatibilityIssue;
 		throw new Error(
@@ -332,6 +337,10 @@ export function emitOnDeviceExpression(
 			// future refactor cannot silently reintroduce the unknown Core call.
 			throw new Error(
 				"emitOnDeviceExpression: unwrap-list cannot run in CommCare Core's on-device XPath evaluator",
+			);
+		case "table-lookup":
+			throw new Error(
+				"emitOnDeviceExpression: lookup-table expressions are dormant until fixture emission lands; validation should reject them before on-device XPath emission.",
 			);
 		default: {
 			const _exhaustive: never = expr;

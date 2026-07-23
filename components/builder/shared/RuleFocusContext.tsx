@@ -136,6 +136,8 @@ export function expressionFocusTitle(value: ValueExpression): string {
 			return "Saved selections";
 		case "format-date":
 			return "Formatted date";
+		case "table-lookup":
+			return "Unavailable value";
 	}
 }
 
@@ -179,6 +181,8 @@ export function expressionFocusDescription(value: ValueExpression): string {
 			return "Reads several saved selections from one value";
 		case "format-date":
 			return "Writes a date in the chosen style";
+		case "table-lookup":
+			return "This saved value cannot be opened in the editor yet";
 	}
 }
 

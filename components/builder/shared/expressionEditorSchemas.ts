@@ -35,8 +35,13 @@ import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
 import tablerUserOff from "@iconify-icons/tabler/user-off";
 import tablerVariable from "@iconify-icons/tabler/variable";
-import type { ComponentType } from "react";
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import { type ComponentType, createElement } from "react";
+import type {
+	CaseProperty,
+	CaseType,
+	LookupColumnId,
+	LookupTableId,
+} from "@/lib/domain";
 import {
 	isDateTyped,
 	NUMERIC_DATA_TYPES,
@@ -48,6 +53,7 @@ import type {
 	SlotConstraint,
 	ValueExpression,
 } from "@/lib/domain/predicate";
+import { and } from "@/lib/domain/predicate";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
 import { CoalesceCard, coalesceDefault } from "./cards/expression/CoalesceCard";
 import { ConcatCard, concatDefault } from "./cards/expression/ConcatCard";
@@ -124,8 +130,9 @@ export interface ExpressionEditContext {
 export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 	readonly kind: K;
 	/** Whether people can create this kind in Nova. `roundTripOnly`
-	 *  kinds remain fully editable when imported, but never appear as a
-	 *  replacement target. This is intentionally separate from
+	 *  kinds never appear as a replacement target; most remain editable
+	 *  when imported, while dormant carriers render an inert compatibility
+	 *  fallback until their owning slice opens. This is intentionally separate from
 	 *  `applicable`: applicability answers whether a result type fits a
 	 *  slot, while authorability is a product-level vocabulary boundary. */
 	readonly authoring: "authorable" | "roundTripOnly";
@@ -273,6 +280,35 @@ function applicableForText(
  */
 function applicableAlways(): boolean {
 	return true;
+}
+
+const DORMANT_LOOKUP_TABLE_ID =
+	"00000000-0000-7000-8000-000000000000" as LookupTableId;
+const DORMANT_LOOKUP_COLUMN_ID =
+	"00000000-0000-7000-8000-000000000001" as LookupColumnId;
+
+function dormantTableLookupDefault(): Extract<
+	ValueExpression,
+	{ kind: "table-lookup" }
+> {
+	return {
+		kind: "table-lookup",
+		tableId: DORMANT_LOOKUP_TABLE_ID,
+		resultColumnId: DORMANT_LOOKUP_COLUMN_ID,
+		where: and(),
+	};
+}
+
+function DormantTableLookupCard() {
+	return createElement(
+		"div",
+		{
+			className:
+				"rounded-lg border border-nova-border px-3 py-2 text-sm text-nova-text-muted",
+			role: "note",
+		},
+		"This saved value cannot be edited yet.",
+	);
 }
 
 // ── Registry ────────────────────────────────────────────────────────────
@@ -476,6 +512,18 @@ export const expressionCardSchemas: {
 			}
 			return hasCountableRelation(ctx);
 		},
+	},
+
+	// ── Dormant compatibility carrier ────────────────────────────────
+	"table-lookup": {
+		kind: "table-lookup",
+		authoring: "roundTripOnly",
+		label: "Unavailable saved value",
+		icon: tablerListSearch,
+		description: "A saved value this editor cannot open yet",
+		component: DormantTableLookupCard,
+		defaultValue: dormantTableLookupDefault,
+		applicable: () => false,
 	},
 
 	// ── Sequence (round-trip-only) ───────────────────────────────────

@@ -608,7 +608,15 @@ function termMode(term: Term): TermMode {
 			return "session-context";
 		case "session-user":
 			return "session-user";
+		case "table-column":
+			throw dormantTableColumnAuthoringError();
 	}
+}
+
+function dormantTableColumnAuthoringError(): Error {
+	return new Error(
+		"Lookup table columns are dormant and cannot reach the generic term editor.",
+	);
 }
 
 function termsMatch(left: Term, right: Term): boolean {
@@ -634,6 +642,8 @@ export function termHasMeaningfulContent(value: Term): boolean {
 			return true;
 		case "session-user":
 			return value.field.length > 0;
+		case "table-column":
+			throw dormantTableColumnAuthoringError();
 	}
 }
 
@@ -709,6 +719,8 @@ function describeTermModeReplacement(
 				description:
 					"This replaces the saved user information field. You can undo this change.",
 			};
+		case "table-column":
+			throw dormantTableColumnAuthoringError();
 	}
 }
 
@@ -1145,6 +1157,8 @@ function TermBodyInput({
 					invalid={invalid}
 				/>
 			);
+		case "table-column":
+			throw dormantTableColumnAuthoringError();
 	}
 }
 

@@ -479,6 +479,10 @@ function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 			visitExpression(expr.date, gated);
 			visitExpression(expr.quantity, gated);
 			return;
+		case "table-lookup":
+			throw new Error(
+				"composeXPathQueryEmission: lookup-table expressions are dormant until fixture emission lands; validation should reject them before suite query emission.",
+			);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(

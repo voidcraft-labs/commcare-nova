@@ -200,6 +200,10 @@ export function emitCsqlExpressionSegments(
 			throw new Error(
 				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via emitOnDeviceExpression. Look at the operand dispatch in emitOperandSegments; a new ValueExpression kind needs to route through inlineAsRuntimeOperand.`,
 			);
+		case "table-lookup":
+			throw new Error(
+				"csqlExpressionEmitter: lookup-table expressions are dormant until fixture emission lands; validation should reject them before CSQL emission.",
+			);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
@@ -270,6 +274,7 @@ export function isNativeCsqlValueExpression(expr: ValueExpression): boolean {
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "table-lookup":
 			return false;
 		default: {
 			const _exhaustive: never = expr;

@@ -330,6 +330,13 @@ function normalizeExpressionBoundaryScopes(
 		case "acting-user":
 		case "unowned":
 			return expression;
+		case "table-lookup": {
+			const where = normalizeRelationEvaluationScopes(
+				expression.where,
+				context,
+			);
+			return where === expression.where ? expression : { ...expression, where };
+		}
 		case "date-add": {
 			const date = normalizeExpressionBoundaryScopes(expression.date, context);
 			const quantity = normalizeExpressionBoundaryScopes(
@@ -563,6 +570,9 @@ function inspectExpression(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+			return;
+		case "table-lookup":
+			inspectPredicate(expression.where, inspection, false, context);
 			return;
 		case "date-add":
 			inspectExpression(expression.date, inspection, context);
@@ -945,6 +955,11 @@ function rebaseExpression(
 		case "acting-user":
 		case "unowned":
 			return expression;
+		case "table-lookup":
+			return {
+				...expression,
+				where: rebasePredicate(expression.where, scopeKey, context),
+			};
 		case "date-add":
 			return {
 				...expression,

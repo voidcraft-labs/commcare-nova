@@ -60,6 +60,7 @@ export function inferStructuralTemporalType(
 		case "id-of":
 		case "acting-user":
 		case "unowned":
+		case "table-lookup":
 		case "unwrap-list":
 			return undefined;
 		default: {

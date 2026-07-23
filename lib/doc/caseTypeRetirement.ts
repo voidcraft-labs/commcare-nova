@@ -515,6 +515,18 @@ function collectFieldReferences(
 				}
 				break;
 			}
+			case "lookup-carrier":
+				if (
+					(field.kind === "single_select" || field.kind === "multi_select") &&
+					field.optionsSource?.filter !== undefined &&
+					predicateRefsCaseType(field.optionsSource.filter, caseType)
+				) {
+					out.push({
+						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its lookup-options filter`,
+						concise: `field "${field.id}" in ${where} uses it in its options filter`,
+					});
+				}
+				break;
 			case "predicate-ast":
 			case "entity-uuid":
 			case "case-property-ref":
