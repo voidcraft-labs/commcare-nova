@@ -1,6 +1,8 @@
 # Cloud Build (main-push trigger): build the app image, push it, run pending
 # case-store migrations once via the migrate Job, then deploy a new Cloud Run
-# revision.
+# revision. Cloud Run waits for the startup probe before moving traffic; Nova
+# deliberately uses that ordinary deployment path instead of maintaining a
+# custom cutover control plane during dogfood.
 #
 # Migrations run as a dedicated Cloud Run Job here — NOT on every container
 # boot — so a cold start is just Node coming up (no Cloud SQL connect +
@@ -12,14 +14,16 @@ steps:
   # Validate the one checked-in runtime-capability manifest and render the
   # shell-safe image declarations consumed below. The workspace persists across
   # Cloud Build steps, so no version or timeout literal is duplicated in YAML.
-  # S02c2 will consume the same renderer for revision labels and guarded
-  # no-traffic cutover; this step changes no traffic behavior by itself.
+  # The unique Cloud Build UUID is baked beside the declarations so `/warmup`
+  # can reject a malformed or runtime-overridden image identity.
   - id: runtime-capabilities
     name: node:24.18.0-alpine
     entrypoint: node
     args:
       - scripts/rollout/render-build-config.mjs
       - --check
+      - --build-id
+      - $BUILD_ID
       - --output
       - /workspace/rollout.env
 
@@ -70,12 +74,13 @@ steps:
         set -euo pipefail
         source /workspace/rollout.env
         docker build \
-          -t "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA" \
+          -t "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID" \
           --build-arg SENTRY_AUTH_TOKEN="$$SENTRY_AUTH_TOKEN" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID="ac18fb2d87e44a1eb5a19883" \
           --build-arg NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$$NEXT_SERVER_ACTIONS_ENCRYPTION_KEY" \
           --build-arg NEXT_DEPLOYMENT_ID="$BUILD_ID" \
+          --build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID" \
           --build-arg NOVA_WRITER_VERSION="$$NOVA_WRITER_VERSION" \
           --build-arg NOVA_STREAM_RECEIVER_VERSION="$$NOVA_STREAM_RECEIVER_VERSION" \
           --build-arg NOVA_RUNTIME_READER_VERSION="$$NOVA_RUNTIME_READER_VERSION" \
@@ -92,7 +97,7 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA"
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID"
 
   # Apply pending case-store migrations against live Cloud SQL, once. `jobs
   # deploy` is create-or-update (idempotent) so the Job's config lives here in
@@ -112,11 +117,11 @@ steps:
       - |
         set -euo pipefail
         gcloud run jobs deploy commcare-nova-migrate \
-          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
           --region=us-central1 \
-          --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
+          --service-account=nova-migrate@commcare-nova.iam.gserviceaccount.com \
           --network=default --subnet=default --vpc-egress=private-ranges-only \
-          --set-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
+          --set-env-vars=NOVA_DB_USER=nova-migrate@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MIGRATION_DB_USER=nova-migrate@commcare-nova.iam,NOVA_RUNTIME_DB_USER=commcare-nova@commcare-nova.iam \
           --command=node \
           --args=migrate.cjs \
           --max-retries=1 \
@@ -162,17 +167,58 @@ steps:
   # fails the revision loudly at deploy, so paste the key BEFORE merging.
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: gcloud
+    entrypoint: bash
     args:
-      - run
-      - deploy
-      - commcare-nova
-      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA
-      - --region=us-central1
-      - --min-instances=1
-      - --no-cpu-throttling
-      - --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest
-      - --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/rollout.env
+        gcloud run deploy commcare-nova \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
+          --region=us-central1 \
+          --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
+          --network=default --subnet=default --vpc-egress=private-ranges-only \
+          --update-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
+          --no-default-url --ingress=internal-and-cloud-load-balancing \
+          --min-instances=1 --max-instances=5 \
+          --timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s" \
+          --no-cpu-throttling \
+          --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest \
+          --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
+
+  # Exercise the three public host contracts after Cloud Run has completed its
+  # standard traffic move. The MCP surface is healthy only when an
+  # unauthenticated initialize request receives the OAuth discovery challenge,
+  # not a generic 401 from the wrong host or proxy layer.
+  - id: verify
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        for url in https://commcare.app/ https://docs.commcare.app/; do
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            "$${url}" >/dev/null
+        done
+        status=000
+        for attempt in $$(seq 1 12); do
+          status="$$(curl --silent --show-error \
+            --dump-header /workspace/mcp-headers \
+            --output /workspace/mcp-body \
+            --write-out '%{http_code}' \
+            --header 'content-type: application/json' \
+            --data '{"jsonrpc":"2.0","id":"cloud-build","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"nova-cloud-build","version":"1"}}}' \
+            https://mcp.commcare.app/mcp || true)"
+          if test "$${status}" = 401; then break; fi
+          sleep 5
+        done
+        test "$${status}" = 401
+        awk 'BEGIN { found=0 } {
+          line=tolower($$0)
+          if (line ~ /^www-authenticate:/ && line ~ /bearer / && line ~ /resource_metadata=/) found=1
+        } END { exit(found ? 0 : 1) }' /workspace/mcp-headers
 
 options:
   logging: CLOUD_LOGGING_ONLY

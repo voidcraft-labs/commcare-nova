@@ -15,6 +15,10 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   next start` — the gate exercises the deployed artifact, and `next dev`'s server→browser
   log forwarding can't trip the error guard. Costs ~2 min of build; don't "speed it up"
   by reverting to dev.
+- **Production Host hardening stays active in smoke.** The managed server receives
+  `NOVA_ALLOW_LOCALHOST_HOSTS=1`; `proxy.ts` honors it only for loopback Host spellings,
+  so the production artifact remains reachable at `localhost:3000` without making an
+  arbitrary external Host trusted. Cloud Run must never receive this variable.
 - **The `test` fixture is a strict error guard.** Every page test fails on a browser
   `console.error` / `pageerror` / same-origin 5xx (`e2e/lib/fixtures.ts`, no benign-error
   allowlist). To provoke an error on purpose, scope a local handler in that test.

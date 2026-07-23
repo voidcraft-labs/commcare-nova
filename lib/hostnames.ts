@@ -5,9 +5,10 @@
  * a per-host path allowlist so the MCP subdomain only serves MCP routes
  * and the docs subdomain only serves docs. Everything off-allowlist 404s.
  *
- * Unknown hostnames (e.g. Cloud Run's internal `*-uc.a.run.app` host used
- * by health checks) default to main-app behavior — we don't want to 404
- * platform pings.
+ * Unknown hostnames are denied in production except for the exact startup
+ * probe path. Development keeps its localhost affordances in `proxy.ts`.
+ * Keeping the probe path here gives proxy policy and its structural tests one
+ * spelling without widening any public hostname's allowlist.
  */
 
 export const HOSTNAMES = {
@@ -17,6 +18,9 @@ export const HOSTNAMES = {
 } as const;
 
 export type Hostname = (typeof HOSTNAMES)[keyof typeof HOSTNAMES];
+
+/** Exact path Cloud Run's instance-local startup probe may request. */
+export const STARTUP_PROBE_PATH = "/warmup";
 
 /**
  * Origin + URL constants OAuth and MCP URL construction reference:

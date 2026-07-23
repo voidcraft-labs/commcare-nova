@@ -10,6 +10,10 @@ node_modules
 # the bundled migrate entrypoint: the builder stage runs `npx esbuild` over it
 # to inline it into a self-contained `.cjs`, so that file (and its `lib/`
 # imports) must reach the build context. Keep this negation in lockstep with the
-# Dockerfile's esbuild step.
+# Dockerfile's esbuild step. The database bootstrap helper is also imported by
+# the checked-in privilege-convergence integration test, which production
+# type-checking sees even though the bootstrap CLI itself is not image runtime
+# code.
 scripts
 !scripts/migrate.ts
+!scripts/infra/databaseOwnerBootstrap.ts

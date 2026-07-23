@@ -107,9 +107,11 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Runtime capability declarations are rendered from the checked-in manifest by
-# Cloud Build. Baking them into the image gives health/cutover tooling a stable
-# declaration even before S02c2 adds revision labels; a local build that omits
-# the args declares nothing and is therefore interpreted as capability v0.
+# Cloud Build. Baking them and the unique Cloud Build identity into the image
+# gives startup health one immutable deployed-image declaration. A local build
+# that omits the args fails startup health instead of masquerading as a
+# deployable revision.
+ARG NOVA_BUILD_ID
 ARG NOVA_WRITER_VERSION
 ARG NOVA_STREAM_RECEIVER_VERSION
 ARG NOVA_RUNTIME_READER_VERSION
@@ -120,7 +122,11 @@ ARG NOVA_STREAM_LEASE_TTL_SECONDS
 ARG NOVA_EDIT_RUN_LEASE_SECONDS
 ARG NOVA_BUILD_STALENESS_SECONDS
 ARG NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH
-ENV NOVA_WRITER_VERSION="${NOVA_WRITER_VERSION}" \
+# Preserve a second, file-backed copy so startup health can detect a Cloud Run
+# env override instead of accepting a mutable NOVA_BUILD_ID at face value.
+RUN printf '%s' "${NOVA_BUILD_ID}" > /app/.nova-build-id
+ENV NOVA_BUILD_ID="${NOVA_BUILD_ID}" \
+    NOVA_WRITER_VERSION="${NOVA_WRITER_VERSION}" \
     NOVA_STREAM_RECEIVER_VERSION="${NOVA_STREAM_RECEIVER_VERSION}" \
     NOVA_RUNTIME_READER_VERSION="${NOVA_RUNTIME_READER_VERSION}" \
     NOVA_STREAM_REGISTRY_VERSION="${NOVA_STREAM_REGISTRY_VERSION}" \

@@ -1,11 +1,10 @@
 # S02c runtime-capability rollout
 
-**Status:** S02c1 foundation plus runtime-holder callsite hardening. This
-document records the checked-in contract and its safe verification commands.
-It is not yet a manual traffic-
-cutover procedure; S02c2 must add and exercise the guarded no-traffic deploy,
-cutover, exact rollback, and drain controller before any operator raises a
-floor or enables a feature flag.
+**Status:** S02c1 shipped in PR #300 and is live as
+`commcare-nova-00354-dq4`; S02c2 deployment hardening is in progress on
+`agent/s02c2-simple`. This document records the checked-in contract and its safe
+verification commands. Nova uses the ordinary Cloud Build → blocking migration
+Job → Cloud Run deployment path; this slice adds no custom traffic controller.
 
 ## Source of truth
 
@@ -175,21 +174,47 @@ state.
 ## S02c2 activation boundary
 
 This commit stores and transports nonce generations but does not activate exact
-nonce authority. S02c2 must first serve 100% runtime-reader-v1 code, then drain
-the request epoch, every v0/null-nonce run holder, and every below-floor stream
-receiver lease. Under the deployment cutover gate it may then raise
-`minimum_runtime_reader_version` to 1 and irreversibly set
-`run_holder_nonce_enforced = true`. Rollback remains available only before that
-final switch; after activation an old tab without the exact nonce is required
-to refresh.
+nonce authority. S02c2 changes no floor and every activation flag remains
+false. The serving identity cannot update compatibility control state, and
+S02c2 exposes no floor-raise or nonce-activation command. Any explicitly
+reviewed total-consumer activation must
+first serve compatible code at 100% traffic, drain the request epoch, every
+v0/null-nonce run holder, and every below-floor stream receiver lease. Only that
+later unit may raise the runtime-reader floor and irreversibly set
+`run_holder_nonce_enforced = true`; after activation an old tab without the
+exact nonce is required to refresh.
 
-## Build behavior in S02c1
+## S02c2 deployment decisions
+
+The default `run.app` URL remains disabled. `/warmup` is strengthened to fail
+closed when the baked capability environment, build identity, or bounded
+database check is wrong. Cloud Run waits for that startup probe before its
+ordinary deploy moves traffic. Nova does not provision a candidate-only load
+balancer, traffic controller, or durable cutover journal.
+
+Production unknown hosts are not a general internal trust zone. Apart from the
+platform's exact `/warmup` request, they return 404 before `/api/*` handling;
+localhost-only conveniences remain development-only. This closes the forged
+Host path through the public load balancer without exposing a rollout-only
+application route.
+
+Migration, runtime, and build use distinct IAM/database identities. Migration
+owns the database, `public`, and fixed/auth/control objects; runtime receives
+application DML and read-only compatibility state, with no separate rollout
+database role. Runtime owns only `nova_case_runtime.cases` because the live
+schema path performs concurrent index DDL, and its schema `CREATE` privilege is
+confined there. The initial table move requires the documented one-time
+maintenance cutover; this path intentionally adds no bridge or database cutover
+journal.
+
+## Build and deploy behavior
 
 Before Docker runs, Cloud Build executes:
 
 ```bash
 node scripts/rollout/render-build-config.mjs \
   --check \
+  --build-id "$BUILD_ID" \
   --output /workspace/rollout.env
 ```
 
@@ -203,13 +228,236 @@ the declarations into the runner image. Its structural check also proves:
 - the database writer version and both legacy run-liveness constants derive
   from the manifest instead of duplicate literals.
 
-The current deploy step still sends traffic by the pre-S02c pipeline and does
-not apply capability labels. Do not infer rollout safety from the image
-environment alone. S02c2 will reserve the revision labels `nova_writer`,
-`nova_stream_receiver`, `nova_runtime_reader`, `nova_stream_registry`,
-`nova_manifest`, and `nova_build`, verify them against the canonical manifest,
-pin the service timeout from the generated value, and gate traffic under the
-deployment-cutover lock.
+Cloud Build tags each image with its always-present unique build UUID, runs the
+migration Job as `nova-migrate`, then deploys that same image as the existing
+`commcare-nova` runtime identity. The generated request cap pins Cloud Run's
+timeout. The first split-identity deploy is an explicit dogfood maintenance
+cutover because ownership convergence moves `cases` out of `public`; it is not
+presented as zero-downtime machinery.
+
+The read-only GCP identity plan may run before the maintenance window:
+
+```bash
+./scripts/infra/provision-deployment-identities.sh
+```
+
+### One-time maintenance execution
+
+Open maintenance before the provisioning apply. That command replaces
+runtime's custom database-role memberships with the empty set; production's old
+runtime currently depends on its inherited legacy ownership, so case endpoints
+can fail from this command until the new revision is Ready. Reserve a 20-minute
+dogfood window for the normally 12–16 minute identity/bootstrap/build/deploy
+sequence, tell dogfood users not to start or edit apps, and keep the window open
+through public verification.
+
+This cutover contains no traffic-drain switch. Do not improvise an IAM or
+load-balancer deny rule: the public service sits behind the existing load
+balancer, and changing invocation policy without separately verified topology
+can block both users and Cloud Build's public probes.
+
+Apply the reviewed identity plan, which also makes runtime migration's sole
+custom parent role:
+
+```bash
+./scripts/infra/provision-deployment-identities.sh --apply
+```
+
+Then create one temporary built-in Cloud SQL administrator, assign its bounded
+memberships through the Cloud SQL Admin API, run the ownership bootstrap, and
+retire both temporary database principals. Never print or persist the generated
+password:
+
+```bash
+set -euo pipefail
+NOVA_BOOTSTRAP_PASSWORD="$(openssl rand -base64 48)"
+cleanup_bootstrap_user_best_effort() {
+  if ! gcloud sql users delete nova-deployment-bootstrap \
+    --project=commcare-nova \
+    --instance=nova-cases \
+    --quiet; then
+    echo 'temporary administrator remains; rotate its password and retry the same bootstrap user' >&2
+  fi
+  unset NOVA_BOOTSTRAP_PASSWORD
+}
+trap cleanup_bootstrap_user_best_effort EXIT
+gcloud sql users create nova-deployment-bootstrap \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --type=BUILT_IN \
+  --password="$NOVA_BOOTSTRAP_PASSWORD"
+NOVA_SQL_USERS="$(gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)')"
+BOOTSTRAP_DATABASE_ROLES='nova-migrate@commcare-nova.iam'
+if grep -qx '51003905459-compute@developer' <<<"$NOVA_SQL_USERS"; then
+  BOOTSTRAP_DATABASE_ROLES="51003905459-compute@developer,${BOOTSTRAP_DATABASE_ROLES}"
+fi
+gcloud sql users assign-roles nova-deployment-bootstrap \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --type=BUILT_IN \
+  --database-roles="$BOOTSTRAP_DATABASE_ROLES"
+unset BOOTSTRAP_DATABASE_ROLES
+
+# First prove the preconditions and inspect the exact transactional SQL.
+NOVA_DB_BOOTSTRAP_USER=nova-deployment-bootstrap \
+NOVA_DB_BOOTSTRAP_PASSWORD="$NOVA_BOOTSTRAP_PASSWORD" \
+  npx tsx scripts/infra/bootstrap-database-owner.ts
+NOVA_DB_BOOTSTRAP_USER=nova-deployment-bootstrap \
+NOVA_DB_BOOTSTRAP_PASSWORD="$NOVA_BOOTSTRAP_PASSWORD" \
+  npx tsx scripts/infra/bootstrap-database-owner.ts --apply
+
+# The SQL audit has cleared every legacy dependency. Remove that database user
+# now; do not delete the Compute Engine service account itself.
+NOVA_SQL_USERS="$(gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)')"
+if grep -qx '51003905459-compute@developer' <<<"$NOVA_SQL_USERS"; then
+  gcloud sql users delete '51003905459-compute@developer' \
+    --project=commcare-nova \
+    --instance=nova-cases \
+    --quiet
+fi
+NOVA_SQL_USERS="$(gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)')"
+if grep -qx '51003905459-compute@developer' <<<"$NOVA_SQL_USERS"; then
+  echo 'legacy Compute-default database user still exists' >&2
+  exit 1
+fi
+
+# The success path is strict: do not hide or outlive a failed deletion of the
+# temporary administrator.
+gcloud sql users delete nova-deployment-bootstrap \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --quiet
+NOVA_SQL_USERS="$(gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)')"
+if grep -qx nova-deployment-bootstrap <<<"$NOVA_SQL_USERS"; then
+  echo 'temporary bootstrap administrator still exists' >&2
+  exit 1
+fi
+unset NOVA_BOOTSTRAP_PASSWORD NOVA_SQL_USERS
+trap - EXIT
+```
+
+The ownership statements and post-audit run in one transaction, so a SQL or
+lock failure rolls back the whole transfer. In the current production cutover,
+the extensions predate this temporary administrator, so the EXIT cleanup should
+delete it after a failed bootstrap; verify that deletion before retrying with a
+new administrator. On a fresh instance, the same temporary administrator first
+creates the extensions and still owns them after a rolled-back bootstrap. Its
+cleanup deletion will correctly fail: do not create a second administrator.
+Rotate the existing user's password with `gcloud sql users set-password`,
+reassign its bounded roles if necessary, and retry the transfer with that same
+user; delete it only after a successful post-audit. If ownership commits but
+the legacy Cloud SQL deletion fails, leave maintenance open, fix that deletion,
+and continue—the role is already privilege-free. Case-endpoint availability is
+not expected to recover until the split-identity migration and deployment
+finish. Fix forward if the new revision fails; no old revision is falsely
+advertised as a database-compatible rollback after ownership convergence.
+
+Before merging, require both provisioning commands and the bootstrap above to
+exit zero, and require `gcloud sql users list` to contain neither the legacy nor
+temporary user. The bootstrap's final `after` JSON must show:
+
+- `databaseOwner` = `nova-migrate@commcare-nova.iam`;
+- `publicSchemaOwner` = `pg_database_owner` (the database owner is its current
+  implicit member);
+- `migrationIsRuntimeMember` and `migrationCanSetRuntime` = `true`;
+- every `runtimeIs*Member`, `runtimeCanSet*`, and `runtimeCanCreate*` field =
+  `false`; and
+- every legacy and current-user dependency, ownership, and default-ACL count =
+  `0`.
+
+Record the current revision, merge during the announced window, then identify
+and stream the regional trigger build:
+
+```bash
+gcloud run services describe commcare-nova \
+  --project=commcare-nova \
+  --region=us-central1 \
+  --format='value(status.latestReadyRevisionName,status.traffic)'
+
+gcloud builds list \
+  --project=commcare-nova \
+  --region=us-central1 \
+  --sort-by='~createTime' \
+  --limit=5
+gcloud builds log BUILD_ID \
+  --project=commcare-nova \
+  --region=us-central1 \
+  --stream
+```
+
+After the already completed identity/bootstrap steps, the expected build order
+is image push → successful `commcare-nova-migrate` execution → Ready new
+revision and standard traffic move → successful public main/docs/MCP probes.
+Case requests may fail throughout that interval: the old revision first loses
+its inherited legacy authority, then does not know the second search-path schema
+after migration commits.
+
+After Cloud Build succeeds, run this read-only catalog check in Cloud SQL
+Studio and require the shown shape before ending maintenance:
+
+```sql
+SELECT namespace.nspname AS schema_name,
+       class.relname AS relation_name,
+       pg_catalog.pg_get_userbyid(class.relowner) AS owner
+FROM pg_catalog.pg_class AS class
+JOIN pg_catalog.pg_namespace AS namespace
+  ON namespace.oid = class.relnamespace
+WHERE class.relname IN ('cases', 'apps', 'auth_member',
+                        'kysely_migration')
+ORDER BY schema_name, relation_name;
+
+SELECT
+  pg_catalog.has_schema_privilege(
+    'commcare-nova@commcare-nova.iam', 'public', 'CREATE'
+  ) AS runtime_can_create_public,
+  pg_catalog.has_schema_privilege(
+    'commcare-nova@commcare-nova.iam',
+    'nova_case_runtime',
+    'CREATE'
+  ) AS runtime_can_create_case_schema;
+
+SELECT
+  pg_catalog.to_regrole('51003905459-compute@developer') IS NULL
+    AS legacy_role_absent;
+```
+
+`cases` must be the sole table in `nova_case_runtime` and owned by runtime;
+`apps`, `auth_member`, and `kysely_migration` must remain in `public` and be
+owned by migration. The schema booleans must be `false, true`, and
+`legacy_role_absent` must be true. Finally, require HTTP 200 from
+`https://commcare.app/` and `https://docs.commcare.app/`, plus the OAuth
+discovery 401 from the MCP probe already encoded in `cloudbuild.yaml`.
+
+Failure handling is deliberately small:
+
+- If the migration Job fails, its convergence transaction rolls back, including
+  the schema move. Fix the cause and rerun the same commit's regional trigger.
+- If migration succeeds but deploy or verification fails, maintenance remains
+  open and the old revision is not a valid rollback. Fix forward by rerunning
+  the same SHA (or landing a corrective SHA):
+
+  ```bash
+  gcloud builds triggers run 8d269c82-7de7-4b9f-a435-30b173f597b2 \
+    --project=commcare-nova \
+    --region=us-central1 \
+    --sha=MERGED_COMMIT_SHA
+  ```
+
+  Privilege convergence is idempotent after `cases` has moved. Do not manually
+  move it back or restore runtime `CREATE` on `public`; that would recreate the
+  owner-everything boundary this cutover removes.
 
 ## Safe verification
 

@@ -34,6 +34,8 @@ import {
 	type CaseStoreEnvConfig,
 	type ConnectorClientOptions,
 	closeCaseStoreDatabase,
+	DATABASE_CONNECTION_OPTIONS,
+	DATABASE_SEARCH_PATH,
 	type Database,
 	enforceConnectionBudget,
 	getCaseStoreDatabase,
@@ -220,6 +222,12 @@ describe("buildPoolConfig", () => {
 		const config = buildPoolConfig(stubClientOpts, env);
 		expect(config.user).toBe(env.NOVA_DB_USER);
 		expect(config.database).toBe(env.NOVA_DB_NAME);
+	});
+
+	it("resolves fixed public objects before the isolated runtime case schema", () => {
+		const config = buildPoolConfig(stubClientOpts, env);
+		expect(DATABASE_SEARCH_PATH).toBe("public,nova_case_runtime");
+		expect(config.options).toBe(DATABASE_CONNECTION_OPTIONS);
 	});
 
 	it("does not set a password (IAM authentication is passwordless)", () => {

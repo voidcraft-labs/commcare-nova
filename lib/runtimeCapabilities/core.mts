@@ -66,6 +66,12 @@ export const RUNTIME_CAPABILITY_ENV_KEYS = Object.freeze({
 	manifestHash: "NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH",
 } as const);
 
+/** Per-Cloud-Build identity baked into the runner image. */
+export const RUNTIME_BUILD_ID_ENV_KEY = "NOVA_BUILD_ID";
+
+/** Immutable runner-image copy used to reject runtime env overrides. */
+export const RUNTIME_BUILD_ID_FILE_PATH = "/app/.nova-build-id";
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
 		return false;
@@ -359,6 +365,24 @@ function requireLabelValue(value: string, name: string): string {
 	return value;
 }
 
+/**
+ * Cloud Build supplies one lowercase UUID as `$BUILD_ID`. Keep that identity
+ * exact rather than accepting an arbitrary label-safe alias: the same value is
+ * baked into the image, attached to its Cloud Run revision, and compared by
+ * the rollout controller.
+ */
+export function requireRuntimeBuildId(value: unknown): string {
+	if (
+		typeof value !== "string" ||
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+			value,
+		)
+	) {
+		throw new Error("buildId must be one lowercase UUID");
+	}
+	return value;
+}
+
 export function runtimeCapabilityRevisionLabelsFromHash(
 	manifest: RuntimeCapabilityManifest,
 	manifestHash: string,
@@ -383,7 +407,7 @@ export function runtimeCapabilityRevisionLabelsFromHash(
 		),
 		[RUNTIME_CAPABILITY_LABEL_KEYS.manifestHash]: manifestLabelHash,
 		[RUNTIME_CAPABILITY_LABEL_KEYS.buildId]: requireLabelValue(
-			buildId,
+			requireRuntimeBuildId(buildId),
 			"buildId",
 		),
 	});

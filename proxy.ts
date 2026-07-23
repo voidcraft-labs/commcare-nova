@@ -13,7 +13,9 @@
  *      with `Cache-Control: no-store` so the security boundary cannot be
  *      cached. The MCP subdomain rewrites `/mcp` → `/api/mcp` so the
  *      externally visible URL stays clean while the file-system route
- *      lives at the Next conventional path.
+ *      lives at the Next conventional path. Production requests with an
+ *      unknown Host 404 before route handling except exact GET/HEAD `/warmup`
+ *      startup probes; development localhost remains unclassified and usable.
  *
  *   2. **API + well-known short-circuit.** `/api/*` paths skip CSP + auth
  *      entirely on every host that reaches this stage — those concerns
@@ -41,6 +43,7 @@ import {
 	isPathAllowedExactOnHost,
 	isPathAllowedOnHost,
 	normalizeHost,
+	STARTUP_PROBE_PATH,
 } from "@/lib/hostnames";
 
 /**
@@ -129,6 +132,22 @@ function deriveProxyHeaders(request: NextRequest): Headers {
 		requestHeaders.set(TRUSTED_CLIENT_IP_HEADER, trustedIp);
 	}
 	return requestHeaders;
+}
+
+/** The production-build smoke harness serves on loopback while preserving
+ * `NODE_ENV=production`. Its explicit process flag may relax Host routing only
+ * for loopback spellings; an external request cannot turn an arbitrary Host
+ * into a trusted local one. Cloud Run never receives this flag. */
+function isExplicitLocalHarnessHost(host: string): boolean {
+	if (process.env.NOVA_ALLOW_LOCALHOST_HOSTS !== "1") return false;
+	const match = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::([0-9]{1,5}))?$/.exec(
+		host,
+	);
+	if (!match) return false;
+	const port = match[1];
+	if (port === undefined) return true;
+	const numericPort = Number(port);
+	return numericPort >= 1 && numericPort <= 65_535;
 }
 
 /**
@@ -273,6 +292,7 @@ export function proxy(request: NextRequest): NextResponse {
 	 * every Next-normalized URL class. */
 	const rawPathname = new URL(request.url).pathname;
 	const isDev = process.env.NODE_ENV === "development";
+	const isLocalExecution = isDev || isExplicitLocalHarnessHost(host);
 
 	/* ── 1. Hostname routing ─────────────────────────────────────────── */
 
@@ -360,22 +380,35 @@ export function proxy(request: NextRequest): NextResponse {
 		/* Fall through to the short-circuit + page handling below. */
 	}
 
-	/* Unknown classification (Cloud Run health checks on `*-uc.a.run.app`,
-	 * dev `localhost:3000`, preview deployments, an empty/missing Host
-	 * header) skips the allowlist gate but still flows through the API
-	 * short-circuit and page handling. We do not want platform-level
-	 * requests to 404, but we also do not want them to bypass auth.
-	 *
-	 * Dev affordances: let `/docs` render without a local docs subdomain, and
-	 * expose the interactive generation-progress visual harness. Both remain
-	 * authenticated/host-gated outside development; the dev-only route-group
-	 * layout also returns 404 for the harness in production builds. */
-	if (isDev && (pathname === "/docs" || pathname.startsWith("/docs/"))) {
+	/* Unknown hosts are a production security boundary too. The external load
+	 * balancer can receive an arbitrary HTTP Host value even when TLS terminated
+	 * successfully, so allowing an unknown host to reach the generic API branch
+	 * below would bypass every public-host allowlist. Cloud Run's instance-local
+	 * startup probe is the sole exception: an exact GET/HEAD `/warmup` request.
+	 * Return it here so no other page/API exception can accidentally widen the
+	 * platform-host surface. */
+	if (classified === null && !isLocalExecution) {
+		if (
+			rawPathname === STARTUP_PROBE_PATH &&
+			(request.method === "GET" || request.method === "HEAD")
+		) {
+			return attachCsp(requestHeaders, { type: "next" }, isDev);
+		}
+		return notFound();
+	}
+
+	/* Development affordances on unclassified localhost hosts: let `/docs`
+	 * render without a local docs subdomain, and expose the interactive
+	 * generation-progress visual harness. */
+	if (
+		isLocalExecution &&
+		(pathname === "/docs" || pathname.startsWith("/docs/"))
+	) {
 		/* Same HTML shape as the production docs response, so attach CSP
 		 * here too — keeps dev preview faithful to prod headers. */
 		return attachCsp(requestHeaders, { type: "next" }, isDev);
 	}
-	if (isDev && pathname === "/progress-test") {
+	if (isLocalExecution && pathname === "/progress-test") {
 		return attachCsp(requestHeaders, { type: "next" }, isDev);
 	}
 
@@ -398,13 +431,11 @@ export function proxy(request: NextRequest): NextResponse {
 
 	/* Cloud Run's startup probe targets `/warmup` so a new instance loads
 	 * the heavy page-module graph BEFORE it is marked ready for traffic.
-	 * The probe arrives with the instance's own Host header — never a
-	 * custom domain — so it lands in the unknown-host fall-through with
-	 * no session cookie. It must bypass the auth redirect below: probes
-	 * count a 307 as success, which would mark the instance ready without
-	 * warming anything. This is not a public surface — on the custom
-	 * domains the hostname allowlist 404s `/warmup` before this runs. */
-	if (pathname === "/warmup") {
+	 * Production probes already returned through the exact unknown-host gate
+	 * above. This development-only fall-through keeps localhost able to exercise
+	 * the page without an auth cookie. Public custom hosts returned from their
+	 * own allowlist branches before reaching here. */
+	if (pathname === STARTUP_PROBE_PATH) {
 		return attachCsp(requestHeaders, { type: "next" }, isDev);
 	}
 

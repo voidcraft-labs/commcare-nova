@@ -406,11 +406,11 @@ export async function reconcileReceivingRevisionCapabilitiesInTransaction(
 }
 
 /**
- * Pool-backed reconciliation seam. The control-plane callback is invoked only
+ * Pool-backed reconciliation seam. The capability callback is invoked only
  * after the transaction owns the cutover gate, and MUST perform its read then
- * rather than return cached data. S02c2's controller instead calls the in-
- * transaction form on the SAME dedicated backend that already holds the
- * session gate.
+ * rather than return cached data. A future explicitly approved activation
+ * mechanism that already holds the session gate on a dedicated backend must
+ * use the in-transaction form instead.
  */
 export async function reconcileReceivingRevisionCapabilities(
 	readReceivingRevisions: ReadReceivingRevisionCapabilities,

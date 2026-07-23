@@ -28,9 +28,9 @@ import { config, proxy } from "../proxy";
  * the Host header — not the URL host — exactly the way Next will deliver
  * it in production behind Cloud Run's load balancer.
  */
-function req(host: string, path: string): NextRequest {
+function req(host: string, path: string, method = "GET"): NextRequest {
 	const url = new URL(`http://example.test${path}`);
-	return new NextRequest(url, { headers: { host } });
+	return new NextRequest(url, { headers: { host }, method });
 }
 
 /**
@@ -428,37 +428,77 @@ describe("proxy: Google Maps CSP relaxation", () => {
 	});
 });
 
-describe("proxy: unknown hosts (Cloud Run health checks, dev localhost, missing Host)", () => {
-	it("passes /api/* through without auth redirect", () => {
-		/* Unknown classification skips the allowlist entirely but still
-		 * runs through the API short-circuit. The previous round of
-		 * tests asserted "not 404"; we additionally assert no auth
-		 * redirect, since redirecting Cloud Run's health probe to / would
-		 * mark the instance unhealthy. */
-		const res = proxy(req("nova-abc-uc.a.run.app", "/api/chat"));
-		expectBypassPassthrough(res);
-		expect(res.status).not.toBe(307);
+describe("proxy: production unknown-host boundary", () => {
+	it.each([
+		["nova-abc-uc.a.run.app", "/api/chat"],
+		["forged.example", "/api/auth/session"],
+		["nova-abc-uc.a.run.app", "/build"],
+		["", "/api/chat"],
+		["", "/build"],
+	])("404s unknown host %j on %s before API/auth handling", (host, path) => {
+		expectNotFound(proxy(req(host, path)));
 	});
 
-	it("treats an empty Host header as unknown and runs page handling", () => {
-		/* `normalizeHost("")` → `""`, `classifyHost("")` → `null`. The
-		 * request falls through hostname routing into page handling;
-		 * /build is not on the short-circuit, has no session cookie, so
-		 * it must land at the auth redirect — proving page-route
-		 * treatment, not a 404. */
-		const res = proxy(req("", "/build"));
-		expectAuthRedirect(res);
+	it.each(["GET", "HEAD"])(
+		"admits only %s /warmup for the platform startup probe",
+		(method) => {
+			const res = proxy(req("nova-abc-uc.a.run.app", "/warmup", method));
+			expectPassthrough(res);
+			expect(res.status).not.toBe(307);
+			expect(res.headers.get("content-security-policy")).not.toBeNull();
+		},
+	);
+
+	it.each(["POST", "PUT", "PATCH", "DELETE"])(
+		"404s %s /warmup on an unknown host",
+		(method) => {
+			expectNotFound(proxy(req("nova-abc-uc.a.run.app", "/warmup", method)));
+		},
+	);
+
+	it("requires the exact /warmup path", () => {
+		expectNotFound(proxy(req("nova-abc-uc.a.run.app", "/warmup/")));
+		expectNotFound(proxy(req("nova-abc-uc.a.run.app", "/warmup/status")));
+	});
+});
+
+describe("proxy: production-build local smoke boundary", () => {
+	beforeEach(() => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("NOVA_ALLOW_LOCALHOST_HOSTS", "1");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
 	});
 
-	it("renders /warmup for the startup probe — no auth redirect, CSP attached", () => {
-		/* The startup probe carries the instance's own Host and no session
-		 * cookie. A 307 here would count as probe success WITHOUT loading
-		 * the page graph — the whole point of the probe — so /warmup must
-		 * skip the auth redirect and take the normal page path. */
-		const res = proxy(req("nova-abc-uc.a.run.app", "/warmup"));
-		expectPassthrough(res);
-		expect(res.status).not.toBe(307);
-		expect(res.headers.get("content-security-policy")).not.toBeNull();
+	it.each(["localhost:3000", "127.0.0.1:3000", "[::1]:3000"])(
+		"admits the managed smoke server on %s",
+		(host) => {
+			const res = proxy(req(host, "/"));
+			expectPassthrough(res);
+			expect(res.status).not.toBe(307);
+			expect(res.headers.get("content-security-policy")).not.toBeNull();
+		},
+	);
+
+	it("keeps local smoke APIs reachable", () => {
+		expectBypassPassthrough(proxy(req("localhost:3000", "/api/chat")));
+	});
+
+	it("does not let the smoke flag trust a non-loopback Host", () => {
+		expectNotFound(proxy(req("forged.example", "/api/chat")));
+	});
+
+	it.each([
+		"localhost:3000.attacker",
+		"localhost:@forged.example",
+		"localhost:0",
+		"localhost:65536",
+		"127.0.0.1.attacker",
+		"[::1]:not-a-port",
+		"[::1]evil",
+	])("rejects malformed loopback authority %s", (host) => {
+		expectNotFound(proxy(req(host, "/api/chat")));
 	});
 });
 
@@ -519,6 +559,10 @@ describe("proxy: dev-mode internal-page bypasses on unknown hosts", () => {
 		expect(res.status).not.toBe(307);
 		expect(res.headers.get("content-security-policy")).not.toBeNull();
 	});
+
+	it("keeps ordinary localhost APIs usable", () => {
+		expectBypassPassthrough(proxy(req("localhost:3000", "/api/chat")));
+	});
 });
 
 describe("proxy: dev-mode internal-page bypasses do NOT fire in production", () => {
@@ -529,20 +573,16 @@ describe("proxy: dev-mode internal-page bypasses do NOT fire in production", () 
 		vi.unstubAllEnvs();
 	});
 
-	it("redirects unauthenticated /docs to / on an unknown host in prod", () => {
-		/* Belt-and-suspenders for the security boundary: even on an unknown
-		 * host (e.g. Cloud Run's internal `*-uc.a.run.app` probe address),
-		 * unauthenticated `/docs` MUST land at the auth redirect in prod —
-		 * not pass through. If this test breaks because the bypass fired,
-		 * the dev-only condition has regressed and is now leaking into
-		 * production. */
-		const res = proxy(req("nova-abc-uc.a.run.app", "/docs"));
-		expectAuthRedirect(res);
+	it("404s /docs on an unknown host in production", () => {
+		expectNotFound(proxy(req("nova-abc-uc.a.run.app", "/docs")));
 	});
 
-	it("does not bypass auth for the progress preview in production", () => {
-		const res = proxy(req("nova-abc-uc.a.run.app", "/progress-test"));
-		expectAuthRedirect(res);
+	it("404s the progress preview on an unknown host in production", () => {
+		expectNotFound(proxy(req("nova-abc-uc.a.run.app", "/progress-test")));
+	});
+
+	it("404s localhost without the explicit managed-smoke flag", () => {
+		expectNotFound(proxy(req("localhost:3000", "/")));
 	});
 });
 
