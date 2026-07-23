@@ -154,7 +154,7 @@ describe("database privilege convergence", () => {
 					ON namespace.oid = class.relnamespace
 				WHERE namespace.nspname IN ('public', ${CASE_RUNTIME_SCHEMA})
 					AND class.relname IN ('cases', 'apps', 'auth_member',
-						'deployment_rollouts')
+						'kysely_migration')
 			`.execute(h.db);
 			expect(
 				Object.fromEntries(
@@ -170,7 +170,7 @@ describe("database privilege convergence", () => {
 					owner: config.runtimeRole,
 					schema: CASE_RUNTIME_SCHEMA,
 				},
-				deployment_rollouts: {
+				kysely_migration: {
 					owner: config.migrationRole,
 					schema: "public",
 				},
@@ -251,7 +251,7 @@ describe("database privilege convergence", () => {
 			await expect(
 				asRole(h.db, config.runtimeRole, async (tx) => {
 					await sql`
-						SELECT id FROM public.deployment_rollouts LIMIT 1
+						SELECT name FROM public.kysely_migration LIMIT 1
 					`.execute(tx);
 				}),
 			).rejects.toMatchObject({ code: "42501" });

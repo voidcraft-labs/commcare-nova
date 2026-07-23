@@ -71,7 +71,7 @@ describe("database privilege convergence contract", () => {
 			classification: "application",
 		});
 		expect(audited).toContainEqual({
-			name: "deployment_rollouts",
+			name: "runtime_reader_traffic_epochs",
 			classification: "control",
 		});
 		expect(classifyPublicTable("atlas_schema_revisions")).toBe("migration");

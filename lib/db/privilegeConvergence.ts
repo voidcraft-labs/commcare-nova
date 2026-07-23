@@ -82,7 +82,6 @@ export type PublicTableClass = "application" | "control" | "migration";
 const APPLICATION_TABLES = [
 	"case_indices",
 	"case_type_schemas",
-	"cases_quarantine",
 	"parked_case_values",
 	"apps",
 	"blueprint_entities",
@@ -117,8 +116,6 @@ export const RUNTIME_CASE_TABLES = ["cases"] as const;
 const CONTROL_TABLES = [
 	"lookup_reference_compatibility",
 	"runtime_reader_traffic_epochs",
-	"deployment_rollouts",
-	"deployment_rollout_transitions",
 ] as const;
 
 const MIGRATION_TABLES = [

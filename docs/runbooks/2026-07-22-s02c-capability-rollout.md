@@ -335,7 +335,7 @@ FROM pg_catalog.pg_class AS class
 JOIN pg_catalog.pg_namespace AS namespace
   ON namespace.oid = class.relnamespace
 WHERE class.relname IN ('cases', 'apps', 'auth_member',
-                        'deployment_rollouts')
+                        'kysely_migration')
 ORDER BY schema_name, relation_name;
 
 SELECT
@@ -350,7 +350,7 @@ SELECT
 ```
 
 `cases` must be the sole table in `nova_case_runtime` and owned by runtime;
-`apps`, `auth_member`, and `deployment_rollouts` must remain in `public` and be
+`apps`, `auth_member`, and `kysely_migration` must remain in `public` and be
 owned by migration. The two booleans must be `false, true`. Finally, require
 HTTP 200 from `https://commcare.app/` and `https://docs.commcare.app/`, plus the
 OAuth discovery 401 from the MCP probe already encoded in `cloudbuild.yaml`.
