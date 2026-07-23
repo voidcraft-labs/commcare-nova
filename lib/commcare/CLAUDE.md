@@ -182,16 +182,69 @@ reject. Ordinary operation terms remain exact-repeat-only because their current
 wire bindings cannot safely address an enclosing repeat from a nested
 operation.
 
-S05a's support-only carrier policy is deliberately split from those structural
-rules. `evaluateCommit` adds delta-based `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE`
+The carrier commit policy is deliberately split from those structural rules.
+`evaluateCommit` adds delta-based `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE`
 findings whose identity is stable owner + authored slot + canonical whole-slot
 fingerprint: an unchanged historical carrier survives unrelated or inline-
 fallback edits, but add/replace and nested filter/operator/literal changes are
 new findings. The finding stays outside the ordinary runner so the absolute
-export boundary can return its one mode-aware carrier verdict instead of a
-duplicate commit-policy error.
+export boundary can return its own carrier verdict instead of a duplicate
+commit-policy error. On exports the verdict is mode-split: `hq-json` and
+`hq-upload` reject every carrier with `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE` until
+S20 pushes and maps the resources, while `ccz` emits (below) and takes only
+the row-dependent `environment`-class findings.
 
-Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions even for an empty target set, passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media resources. Emitters consume that returned generation and never perform a second definition read; operational lookup failures stop before expansion, compilation, or HQ import.
+Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions even for an empty target set (plus complete ordered rows in one snapshot on `ccz`), passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media and lookup resources. Emitters consume that returned generation and never perform a second lookup read; operational lookup failures stop before expansion, compilation, or HQ import.
+
+### Lookup wire — local CCZ only
+
+`lib/commcare/lookup/` owns the carrier wire. `naming.ts` derives the one
+identity resolver per emission run from the validated definitions
+(tableId → current `tag`, columnId → current `wireName`; fixture id
+`item-list:<tag>`, src `jr://fixture/item-list:<tag>`); every emitter resolves
+through it and a missing naming is a deliberate throw — only the ccz path
+supplies one, so a carrier reaching any other surface fails loudly.
+`fixtures.ts` builds the suite-embedded global `<fixture id="item-list:<tag>">`
+blocks — one `<{tag}_list>` body, one `<{tag}>` per row in authored
+`(order_key, row UUID)` order, EVERY defined column as a child element in
+authored column order with an empty element for missing and stored-empty cells
+alike, matching HQ's `ItemListsProvider` body so the same XPaths work
+whichever path later delivers the data. `SuiteParser`/`FixtureXmlParser`
+(no `user_id` → global storage, overwrite on app upgrade) are the wire
+authority: HQ never emits suite-embedded item-list fixtures. `compileCcz`
+splices the blocks after `<menu>` elements, mirroring HQ's section order.
+`cellText.ts` lexicalizes stored cells (text/temporal pass through; int/decimal
+are the canonical JS number spelling); the aggregate 10,000-row /
+100,000-cell / 16 MiB-exact-byte budgets and the row-dependent select-source
+validity live at the export boundary, measured on the exact serialized blocks
+the compiler embeds.
+
+Lowering: a `table-lookup` becomes
+`instance('item-list:<tag>')/<tag>_list/<tag>[<where>][1]/<column>` — the
+explicit first-match positional predicate over authored row order; no match is
+an empty node-set (ordinary absent-node semantics), never manufactured empty
+text. Inside a `where` the fixture row is the predicate context: same-table
+`table-column` terms print row-relative wire names, and a bare self
+case-property re-anchors through the captured case anchor (`current()/<leaf>`
+at root scope, the ancestor join chain otherwise) because Core preserves
+`current()` from the first predicate. The row scope clears when emission
+descends into a relation `where` (`clearLookupRowScope`), where the candidate
+case is the context again. A lookup-backed select emits one `<itemset>` (label
+then value column refs, filter predicate on the nodeset) with zero inline
+`<item>`s and no option itext; its filter's form answers print absolute paths
+at root and `current()`-relative paths for repeat-borne fields
+(`bindLookupFilterFieldPaths` — `ItemSetUtils.populateDynamicChoices` binds
+`current()` to the question node contextualized to its iteration). Instance
+accumulation contributes `item-list:<tag>` everywhere a carrier is reachable —
+XForm models (`InstanceTracker.requireFixture`), entries, menus, and remote
+requests — through the same `collectPredicateInstances` /
+`collectExpressionInstances` seams, now naming-parameterized. The suite oracle
+cross-checks embedded fixtures (`SUITE_FIXTURE_INVALID`: id required/unique,
+single body element, no `user_id`, every declared `jr://fixture/` src
+delivered) and the XForm oracle checks itemset shape
+(`XFORM_ITEMSET_INVALID`). Validator dry-runs use `inertLookupWireNaming` so
+portability checks stay total without real definitions. Preview, case-store
+SQL, CSQL, and the case-search `_xpath_query` path keep rejecting carriers.
 
 `compileForPlatform.ts` is the pure decision tree from authored content + `PlatformContext` to a three-flag `WireShape`. Author intent is unambiguous on every input — Android always emits list-first / inline-results; web with an effective Search action, an effective filter, and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; web fallback is list-first. The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. The HQ JSON projection supplies a match-all default property for the explicit zero-input/manual shape because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 
@@ -251,7 +304,7 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 - Shadow modules, parent-select cycles
 - Case tile configuration, smart links, case list field actions
 - Sort field format regex, multimedia, multi-language
-- Itemset nodeset/label/copy/value relationships
+- Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
 
 Validation stubs that activate when features land:
