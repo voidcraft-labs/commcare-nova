@@ -1706,7 +1706,7 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
 **Status:** S05a in final review (draft PR #311; implementation checkpoint
-`9517a221`); S05b blocked on S05a; S05c blocked on S05b and a fresh owner
+`a94e1fda`); S05b blocked on S05a; S05c blocked on S05b and a fresh owner
 decision.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 rolling-compatible mutations, persistence/replay, reference ownership, and
@@ -1882,7 +1882,7 @@ Implementation remains split into independently reviewed units:
 
 #### S05a execution checkpoint — 2026-07-23
 
-Commits `fe0a7027` through `9517a221` on `agent/s05a-lookup-carriers`
+Commits `fe0a7027` through `a94e1fda` on `agent/s05a-lookup-carriers`
 form the implementation-complete S05a review candidate. They own:
 
 - the three dormant domain carriers and their stable table/column identities;
@@ -1950,8 +1950,11 @@ supervisor matrix passed 6 files / 177 tests. The transport tranche passed 3
 files / 46 tests both normally and under the async-leak detector and received a
 clean independent review. The two failures in the earlier draft-checkpoint CI
 were reproduced, fixed in `9517a221`, and their four-file / 87-test regression
-matrix now passes. Consolidated contract review and fresh PR CI remain the final
-merge gates.
+matrix now passes. The consolidated contract audit then found one terminal
+predicate-instance boundary gap and two minor diagnostic/rendering robustness
+issues; `a94e1fda` closes all three, its 6-file / 109-test matrix and 3-file /
+34-test async-leak matrix pass, and independent follow-up review is clean. Fresh
+PR CI is the final merge gate.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
@@ -2250,14 +2253,16 @@ grows; keep every HQ JSON/compiler projection identical.
   now includes the rows-free lookup type and scope policies, validation-only
   dependency-cycle integration, explicit lookup-context case-workspace
   verdicts, and the raw HTTP SSE, generation dispatcher, and Postgres log replay
-  matrix through commit `9517a221`. The validation and transport tranches each
+  matrix through commit `a94e1fda`. The validation and transport tranches each
   completed independent review with no remaining findings. The prior draft CI's
   two add-field replay regressions were reproduced and fixed without changing
-  carrier behavior; focused verification is green. Consolidated contract review
-  and fresh PR CI are the remaining merge gates. Every carrier commit and export
-  gate remains closed, every database floor and feature flag remains zero/off,
-  and no UI, runtime evaluation, SQL execution, wire emission, or authoring
-  surface is activated.
+  carrier behavior. Consolidated audit then found and closed a predicate-rooted
+  instance-accumulation bypass, inaccurate dormant-lookup diagnostic copy, and
+  a malformed-input editor crash; focused normal and async-leak verification plus
+  independent follow-up review are green. Fresh PR CI is the remaining merge
+  gate. Every carrier commit and export gate remains closed, every database
+  floor and feature flag remains zero/off, and no UI, runtime evaluation, SQL
+  execution, wire emission, or authoring surface is activated.
 - **2026-07-23 — S05a extractor/gate checkpoint reviewed:** Draft PR #311 at
   commit `c27217b6` registers all 17 production carrier extractors, declares
   writer v1 and stream receiver v2 with every database floor and feature flag
