@@ -47,7 +47,7 @@ The source snapshots visible during this rebaseline were:
 
 | Repository | Commit | Use |
 |---|---|---|
-| CommCare Nova | `e9a6377a56ebc3c102acfb88747585a61ee0b069` | S03 integration baseline |
+| CommCare Nova | `b0e3f48e7314bcb378572c78d406860ead1c84df` | Current deployed integration baseline |
 | CommCare HQ | `0fa01e0e8aea95ed9013d564145ad6cffeb91371` | HQ JSON, app build, APIs, fixtures |
 | CommCare Core | `130df00962a289381a8e0936c3ea5d3f53d96f73` | suite/runtime parsing |
 | Formplayer | `ef9096c6109ce3cca5cc3c5e3ef9f4c6a80b01b7` | Web Apps execution |
@@ -334,9 +334,9 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S03 and S04 source work may overlap S02c2/S02c3 after S02c1 because their
-domain/wire files do not depend on deployment hardening or the dormant tenant
-move protocol; each still rebases onto the latest deployed `main` before merge.
+S03 is shipped. S04 source work may overlap S02c3 because its domain/wire files
+do not depend on the dormant tenant-move protocol; it still rebases onto the
+latest deployed `main` before merge.
 S05 waits for all of S02. S11-S14 and S15-S21 may overlap only after S02 is
 shipped and only when their worktrees do not share subsystem ownership. S22 may
 begin after S03 and S04, but compiler verification remains serialized with other
@@ -349,7 +349,7 @@ wire slices.
 | S00 | Roadmap rebaseline | — | shipped | execution index + all PR plans |
 | S01 | Lookup persistence and realtime | S00 | shipped | PR-02, F5 |
 | S02 | External validation context and exact references | S01 | in progress | PR-01/02, F5 |
-| S03 | Display conditions: domain and wire | S02c1 | review | PR-01/03, F1 |
+| S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02c1 | in progress | PR-01/03, F4 |
 | S05 | Lookup carriers, expressions, and wire foundations | S02 | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03-S05 | blocked | PR-04, F1/F4 |
@@ -1495,9 +1495,7 @@ scan-before-migrate/rescan tool later; it never repairs data.
 
 ### S03 — display conditions: domain and wire
 
-**Status:** implementation and review fixes are independently approved on the
-clean `agent/s03-clean` branch; publication, CI, deployment verification, and
-cleanup remain.
+**Status:** shipped in PR #302 at squash `b0e3f48e`.
 
 `Module.displayCondition?` and `Form.displayCondition?` are typed `Predicate`
 carriers. This slice owns persistence/schema acceptance, reference indexing and
@@ -1575,7 +1573,7 @@ follow-through.
 
 ### S04 — case operations: domain and wire
 
-**Status:** in progress on `agent/s04` from the S02c1 deployed baseline.
+**Status:** in progress on `agent/s04` from the current deployed baseline.
 
 Define operation UUIDs, authored create ids, typed targets, links, repeat
 correlation, remove/retype semantics, ordering, property-writer participation,
@@ -1849,6 +1847,10 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-22 — S03 shipped / S02c3 review-ready:** PR #302 shipped module and
+  form display conditions at squash `b0e3f48e`. S02c3 is rebased on that
+  deployed baseline and remains review-ready, not shipped; true Project moves
+  remain disabled.
 - **2026-07-22 — S02b shipped / S02c owned:** Integrated the required lookup
   context/finding identity through every validation boundary; exact edge
   replacement, same-transaction Project reauthorization, apply-once candidate
