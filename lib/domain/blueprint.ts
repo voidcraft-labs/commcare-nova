@@ -80,10 +80,10 @@ export const CONNECT_TYPES = ["learn", "deliver"] as const;
 export type ConnectType = (typeof CONNECT_TYPES)[number];
 
 // z.record() in Zod 4 requires an explicit key schema as the first argument.
-// We use z.string() rather than uuidSchema here because uuidSchema is a
-// ZodEffects (transform), which is not a valid record-key schema. At runtime
-// all keys are UUIDs; the branded Uuid type is enforced via the TypeScript
-// overlay on BlueprintDoc below.
+// `uuidSchema` is a transform-free structural string with a compile-time Zod
+// brand. Record keys deliberately remain plain strings because JavaScript
+// object keys lose value-level brands; ordered UUID values use `uuidSchema`
+// below and retain the `Uuid` type.
 export const blueprintDocSchema = z
 	.object({
 		appId: z.string(),

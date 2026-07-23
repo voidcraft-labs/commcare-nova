@@ -12,6 +12,7 @@
 //      the schema rejects ill-formed input rather than silently coercing.
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
 	CASE_PROPERTY_REGEX,
 	CASE_TYPE_REGEX,
@@ -23,6 +24,8 @@ import {
 	CASE_TYPE_PATTERN,
 	DATE_ADD_INTERVALS,
 	FORMAT_DATE_PRESETS,
+	formFieldRefSchema,
+	idOfSchema,
 	MATCH_MODES,
 	predicateSchema,
 	relationPathSchema,
@@ -51,6 +54,22 @@ describe("term schema", () => {
 
 	it("rejects an unknown term kind", () => {
 		expect(() => termSchema.parse({ kind: "bogus" })).toThrow();
+	});
+});
+
+describe("operation-local UUID leaves — provider schema compatibility", () => {
+	it.each([
+		["form field reference", formFieldRefSchema],
+		["created-operation reference", idOfSchema],
+	])("%s lowers to JSON Schema", (_name, schema) => {
+		expect(() => z.toJSONSchema(schema)).not.toThrow();
+	});
+
+	it("retains non-empty UUID validation", () => {
+		expect(() =>
+			formFieldRefSchema.parse({ kind: "field", uuid: "" }),
+		).toThrow();
+		expect(() => idOfSchema.parse({ kind: "id-of", opUuid: "" })).toThrow();
 	});
 });
 
