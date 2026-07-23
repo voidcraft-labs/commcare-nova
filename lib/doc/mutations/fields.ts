@@ -172,20 +172,25 @@ export function applyFieldMutation(
 				draft.forms[mut.parentUuid] !== undefined ||
 				draft.fields[mut.parentUuid] !== undefined;
 			if (!parentExists) return;
-			const parsedField = fieldSchema.safeParse({
-				...mut.field,
-				...(mut.optionsSource !== undefined && {
+			// Preserve the long-lived reducer path byte-for-byte when there is no
+			// semantic extension. Accepted history can bypass the current mutation
+			// schema, so re-parsing every legacy field here would turn previously
+			// applicable events into silent no-ops.
+			let field = mut.field;
+			if (mut.optionsSource !== undefined) {
+				const parsedField = fieldSchema.safeParse({
+					...mut.field,
 					optionsSource: mut.optionsSource,
-				}),
-			});
-			if (!parsedField.success) {
-				console.warn(
-					`addField: the lookup-source extension for ${mut.field.uuid} didn't fit the field's schema and was skipped.`,
-					{ issues: parsedField.error.issues },
-				);
-				return;
+				});
+				if (!parsedField.success) {
+					console.warn(
+						`addField: the lookup-source extension for ${mut.field.uuid} didn't fit the field's schema and was skipped.`,
+						{ issues: parsedField.error.issues },
+					);
+					return;
+				}
+				field = parsedField.data;
 			}
-			const field = parsedField.data;
 			const order = draft.fieldOrder[mut.parentUuid] ?? [];
 			const index = mut.index ?? order.length;
 			const clamped = Math.max(0, Math.min(index, order.length));
