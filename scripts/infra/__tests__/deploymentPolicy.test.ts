@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 const cloudBuild = readFileSync("cloudbuild.yaml", "utf8");
 const dockerfile = readFileSync("Dockerfile", "utf8");
+const dockerignore = readFileSync(".dockerignore", "utf8");
 const provisioning = readFileSync(
 	"scripts/infra/provision-deployment-identities.sh",
 	"utf8",
@@ -31,6 +32,7 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).not.toContain("nova-rollout");
 		expect(cloudBuild).not.toContain("update-traffic");
 		expect(dockerfile).not.toContain("rollout.cjs");
+		expect(dockerignore).toContain("!scripts/infra/databaseOwnerBootstrap.ts");
 		expect(cloudBuild).toContain("https://commcare.app/");
 		expect(cloudBuild).toContain("https://docs.commcare.app/");
 		expect(cloudBuild).toContain("https://mcp.commcare.app/mcp");
