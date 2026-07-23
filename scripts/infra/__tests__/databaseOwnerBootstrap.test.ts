@@ -33,6 +33,12 @@ const safeFacts: DatabaseBootstrapFacts = {
 	runtimeCanCreatePublicSchema: false,
 	legacyCanCreateDatabase: false,
 	legacyCanCreatePublicSchema: false,
+	currentUserDependencyCount: 0,
+	currentUserForeignOrSharedDependencyCount: 0,
+	currentUserOwnedSchemaCount: 0,
+	currentUserOwnedRelationCount: 0,
+	currentUserOwnedRoutineCount: 0,
+	currentUserDefaultAclCount: 0,
 	legacyDependencyCount: 0,
 	legacyForeignOrSharedDependencyCount: 0,
 	legacyOwnedSchemaCount: 0,
@@ -48,6 +54,8 @@ describe("deployment database owner bootstrap", () => {
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 			`REASSIGN OWNED BY "${LEGACY_DATABASE_ROLE}" TO "nova-migrate@commcare-nova.iam"`,
 			`DROP OWNED BY "${LEGACY_DATABASE_ROLE}" RESTRICT`,
+			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
+			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
 		]);
 		expect(
 			databaseOwnerBootstrapStatements({
@@ -56,6 +64,8 @@ describe("deployment database owner bootstrap", () => {
 			}),
 		).toEqual([
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
+			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
+			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
 		]);
 	});
 
@@ -94,6 +104,12 @@ describe("deployment database owner bootstrap", () => {
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
+				currentUserForeignOrSharedDependencyCount: 1,
+			}),
+		).toThrow("temporary administrator has dependencies outside nova_cases");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
 				runtimeCanCreatePublicSchema: true,
 			}),
 		).toThrow("runtime role still has effective CREATE");
@@ -124,6 +140,12 @@ describe("deployment database owner bootstrap", () => {
 				legacyDependencyCount: 1,
 			}),
 		).toThrow("legacy role still owns objects or holds privileges");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
+				currentUserDependencyCount: 1,
+			}),
+		).toThrow("temporary administrator still owns objects");
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,

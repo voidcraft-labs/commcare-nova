@@ -45,6 +45,12 @@ export interface DatabaseBootstrapFacts {
 	readonly runtimeCanCreatePublicSchema: boolean;
 	readonly legacyCanCreateDatabase: boolean;
 	readonly legacyCanCreatePublicSchema: boolean;
+	readonly currentUserDependencyCount: number;
+	readonly currentUserForeignOrSharedDependencyCount: number;
+	readonly currentUserOwnedSchemaCount: number;
+	readonly currentUserOwnedRelationCount: number;
+	readonly currentUserOwnedRoutineCount: number;
+	readonly currentUserDefaultAclCount: number;
 	readonly legacyDependencyCount: number;
 	readonly legacyForeignOrSharedDependencyCount: number;
 	readonly legacyOwnedSchemaCount: number;
@@ -78,6 +84,12 @@ interface DatabaseBootstrapFactRow extends QueryResultRow {
 	readonly runtime_can_create_public_schema: boolean;
 	readonly legacy_can_create_database: boolean;
 	readonly legacy_can_create_public_schema: boolean;
+	readonly current_user_dependency_count: number;
+	readonly current_user_foreign_or_shared_dependency_count: number;
+	readonly current_user_owned_schema_count: number;
+	readonly current_user_owned_relation_count: number;
+	readonly current_user_owned_routine_count: number;
+	readonly current_user_default_acl_count: number;
 	readonly legacy_dependency_count: number;
 	readonly legacy_foreign_or_shared_dependency_count: number;
 	readonly legacy_owned_schema_count: number;
@@ -110,10 +122,11 @@ export function quoteIdentifier(identifier: string): string {
 /** Role memberships are a Cloud SQL Admin API prerequisite on PostgreSQL 18.
  * This plan deliberately contains ownership/ACL SQL only. */
 export function databaseOwnerBootstrapStatements(
-	facts: Pick<DatabaseBootstrapFacts, "legacyRoleExists">,
+	facts: Pick<DatabaseBootstrapFacts, "currentUser" | "legacyRoleExists">,
 	config: DatabaseOwnerBootstrapConfig = DATABASE_OWNER_BOOTSTRAP_CONFIG,
 ): readonly string[] {
 	const migration = quoteIdentifier(config.migrationRole);
+	const bootstrap = quoteIdentifier(facts.currentUser);
 	const statements = [
 		`ALTER DATABASE ${quoteIdentifier(config.database)} OWNER TO ${migration}`,
 	];
@@ -124,6 +137,10 @@ export function databaseOwnerBootstrapStatements(
 			`DROP OWNED BY ${legacy} RESTRICT`,
 		);
 	}
+	statements.push(
+		`REASSIGN OWNED BY ${bootstrap} TO ${migration}`,
+		`DROP OWNED BY ${bootstrap} RESTRICT`,
+	);
 	return Object.freeze(statements);
 }
 
@@ -162,6 +179,15 @@ export function assertDatabaseBootstrapPreconditions(
 		);
 	}
 	if (
+		facts.currentUser === config.migrationRole ||
+		facts.currentUser === config.runtimeRole ||
+		facts.currentUser === config.legacyRole
+	) {
+		throw new Error(
+			"Database bootstrap requires a distinct temporary administrator.",
+		);
+	}
+	if (
 		!facts.currentUserIsMigrationMember ||
 		!facts.currentUserCanSetMigration ||
 		(facts.legacyRoleExists &&
@@ -190,6 +216,11 @@ export function assertDatabaseBootstrapPreconditions(
 	if (facts.legacyForeignOrSharedDependencyCount > 0) {
 		throw new Error(
 			`The legacy role has dependencies outside ${config.database} that this bootstrap cannot safely transfer.`,
+		);
+	}
+	if (facts.currentUserForeignOrSharedDependencyCount > 0) {
+		throw new Error(
+			`The temporary administrator has dependencies outside ${config.database} that this bootstrap cannot safely transfer.`,
 		);
 	}
 	if (
@@ -227,6 +258,17 @@ export function assertDatabaseBootstrapResult(
 		throw new Error("Migration/runtime database membership is unsafe.");
 	}
 	assertNoEffectiveRuntimeCreate(facts, config);
+	if (
+		facts.currentUserDependencyCount > 0 ||
+		facts.currentUserOwnedSchemaCount > 0 ||
+		facts.currentUserOwnedRelationCount > 0 ||
+		facts.currentUserOwnedRoutineCount > 0 ||
+		facts.currentUserDefaultAclCount > 0
+	) {
+		throw new Error(
+			`The temporary administrator still owns objects or holds privileges in ${config.database}.`,
+		);
+	}
 	if (
 		facts.legacyCanCreateDatabase ||
 		facts.legacyCanCreatePublicSchema ||
@@ -351,6 +393,47 @@ export async function readDatabaseBootstrapFacts(
 				SELECT count(*)::integer
 				FROM pg_catalog.pg_shdepend AS dependency
 				WHERE dependency.refclassid = 'pg_catalog.pg_authid'::regclass
+					AND dependency.refobjid = login_role.oid
+			) AS current_user_dependency_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_shdepend AS dependency
+				WHERE dependency.refclassid = 'pg_catalog.pg_authid'::regclass
+					AND dependency.refobjid = login_role.oid
+					AND NOT (
+						dependency.dbid = database_row.oid
+						OR (
+							dependency.dbid = 0
+							AND dependency.classid =
+								'pg_catalog.pg_database'::regclass
+							AND dependency.objid = database_row.oid
+						)
+					)
+			) AS current_user_foreign_or_shared_dependency_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_namespace AS owned_namespace
+				WHERE owned_namespace.nspowner = login_role.oid
+			) AS current_user_owned_schema_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_class AS owned_relation
+				WHERE owned_relation.relowner = login_role.oid
+			) AS current_user_owned_relation_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_proc AS owned_routine
+				WHERE owned_routine.proowner = login_role.oid
+			) AS current_user_owned_routine_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_default_acl AS default_acl
+				WHERE default_acl.defaclrole = login_role.oid
+			) AS current_user_default_acl_count,
+			(
+				SELECT count(*)::integer
+				FROM pg_catalog.pg_shdepend AS dependency
+				WHERE dependency.refclassid = 'pg_catalog.pg_authid'::regclass
 					AND dependency.refobjid = role_oids.legacy_oid
 			) AS legacy_dependency_count,
 			(
@@ -423,6 +506,13 @@ export async function readDatabaseBootstrapFacts(
 		runtimeCanCreatePublicSchema: row.runtime_can_create_public_schema,
 		legacyCanCreateDatabase: row.legacy_can_create_database,
 		legacyCanCreatePublicSchema: row.legacy_can_create_public_schema,
+		currentUserDependencyCount: row.current_user_dependency_count,
+		currentUserForeignOrSharedDependencyCount:
+			row.current_user_foreign_or_shared_dependency_count,
+		currentUserOwnedSchemaCount: row.current_user_owned_schema_count,
+		currentUserOwnedRelationCount: row.current_user_owned_relation_count,
+		currentUserOwnedRoutineCount: row.current_user_owned_routine_count,
+		currentUserDefaultAclCount: row.current_user_default_acl_count,
 		legacyDependencyCount: row.legacy_dependency_count,
 		legacyForeignOrSharedDependencyCount:
 			row.legacy_foreign_or_shared_dependency_count,

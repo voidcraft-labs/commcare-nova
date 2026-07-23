@@ -29,15 +29,17 @@ OPTION, so do not move those memberships into SQL.
 
 `bootstrap-database-owner.ts` is read-only unless passed `--apply`. In one
 transaction it locks for at most 30 seconds, changes the `nova_cases` owner,
-and, when the retired role exists, uses `REASSIGN OWNED` followed by `DROP
-OWNED ... RESTRICT`. Its catalog audit rejects foreign/shared dependencies and
-proves that the retired role has no remaining ownership, ACL, or default-ACL
-dependency. A fresh instance where the retired role never existed runs only
-the owner transfer. Delete the retired database user and temporary
-administrator through Cloud SQL only after this audit succeeds. The migration
-then converges fixed-object ownership and moves runtime-owned `cases` to its
-isolated schema. This is a one-time dogfood maintenance cutover; do not disguise
-it as an automatic zero-downtime transition.
+uses `REASSIGN OWNED` followed by `DROP OWNED ... RESTRICT` for both the
+temporary administrator and, when present, the retired role. The temporary
+administrator transfer is required on a fresh instance because it installs the
+extensions before bootstrap and therefore owns their catalog objects. The
+catalog audit rejects foreign/shared dependencies and proves both principals
+have no remaining ownership, ACL, or default-ACL dependency. Delete the retired
+database user and temporary administrator through Cloud SQL only after this
+audit succeeds. The migration then converges fixed-object ownership and moves
+runtime-owned `cases` to its isolated schema. This is a one-time dogfood
+maintenance cutover; do not disguise it as an automatic zero-downtime
+transition.
 
 The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field

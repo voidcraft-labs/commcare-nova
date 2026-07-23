@@ -235,17 +235,35 @@ timeout. The first split-identity deploy is an explicit dogfood maintenance
 cutover because ownership convergence moves `cases` out of `public`; it is not
 presented as zero-downtime machinery.
 
-Before merging the pipeline switch, first run the GCP identity plan and apply
-it after review:
+The read-only GCP identity plan may run before the maintenance window:
 
 ```bash
 ./scripts/infra/provision-deployment-identities.sh
+```
+
+### One-time maintenance execution
+
+Open maintenance before the provisioning apply. That command replaces
+runtime's custom database-role memberships with the empty set; production's old
+runtime currently depends on its inherited legacy ownership, so case endpoints
+can fail from this command until the new revision is Ready. Reserve a 20-minute
+dogfood window for the normally 12–16 minute identity/bootstrap/build/deploy
+sequence, tell dogfood users not to start or edit apps, and keep the window open
+through public verification.
+
+This cutover contains no traffic-drain switch. Do not improvise an IAM or
+load-balancer deny rule: the public service sits behind the existing load
+balancer, and changing invocation policy without separately verified topology
+can block both users and Cloud Build's public probes.
+
+Apply the reviewed identity plan, which also makes runtime migration's sole
+custom parent role:
+
+```bash
 ./scripts/infra/provision-deployment-identities.sh --apply
 ```
 
-The provisioning apply replaces runtime's custom database-role memberships
-with the empty set and makes runtime migration's sole custom parent role. Then
-create one temporary built-in Cloud SQL administrator, assign its two bounded
+Then create one temporary built-in Cloud SQL administrator, assign its bounded
 memberships through the Cloud SQL Admin API, run the ownership bootstrap, and
 retire both temporary database principals. Never print or persist the generated
 password:
@@ -266,11 +284,12 @@ gcloud sql users create nova-deployment-bootstrap \
   --instance=nova-cases \
   --type=BUILT_IN \
   --password="$NOVA_BOOTSTRAP_PASSWORD"
-BOOTSTRAP_DATABASE_ROLES='nova-migrate@commcare-nova.iam'
-if gcloud sql users list \
+NOVA_SQL_USERS="$(gcloud sql users list \
   --project=commcare-nova \
   --instance=nova-cases \
-  --format='value(name)' | grep -qx '51003905459-compute@developer'; then
+  --format='value(name)')"
+BOOTSTRAP_DATABASE_ROLES='nova-migrate@commcare-nova.iam'
+if grep -qx '51003905459-compute@developer' <<<"$NOVA_SQL_USERS"; then
   BOOTSTRAP_DATABASE_ROLES="51003905459-compute@developer,${BOOTSTRAP_DATABASE_ROLES}"
 fi
 gcloud sql users assign-roles nova-deployment-bootstrap \
@@ -290,19 +309,21 @@ NOVA_DB_BOOTSTRAP_PASSWORD="$NOVA_BOOTSTRAP_PASSWORD" \
 
 # The SQL audit has cleared every legacy dependency. Remove that database user
 # now; do not delete the Compute Engine service account itself.
-if gcloud sql users list \
+NOVA_SQL_USERS="$(gcloud sql users list \
   --project=commcare-nova \
   --instance=nova-cases \
-  --format='value(name)' | grep -qx '51003905459-compute@developer'; then
+  --format='value(name)')"
+if grep -qx '51003905459-compute@developer' <<<"$NOVA_SQL_USERS"; then
   gcloud sql users delete '51003905459-compute@developer' \
     --project=commcare-nova \
     --instance=nova-cases \
     --quiet
 fi
-if gcloud sql users list \
+NOVA_SQL_USERS="$(gcloud sql users list \
   --project=commcare-nova \
   --instance=nova-cases \
-  --format='value(name)' | grep -qx '51003905459-compute@developer'; then
+  --format='value(name)')"
+if grep -qx '51003905459-compute@developer' <<<"$NOVA_SQL_USERS"; then
   echo 'legacy Compute-default database user still exists' >&2
   exit 1
 fi
@@ -313,14 +334,15 @@ gcloud sql users delete nova-deployment-bootstrap \
   --project=commcare-nova \
   --instance=nova-cases \
   --quiet
-if gcloud sql users list \
+NOVA_SQL_USERS="$(gcloud sql users list \
   --project=commcare-nova \
   --instance=nova-cases \
-  --format='value(name)' | grep -qx nova-deployment-bootstrap; then
+  --format='value(name)')"
+if grep -qx nova-deployment-bootstrap <<<"$NOVA_SQL_USERS"; then
   echo 'temporary bootstrap administrator still exists' >&2
   exit 1
 fi
-unset NOVA_BOOTSTRAP_PASSWORD
+unset NOVA_BOOTSTRAP_PASSWORD NOVA_SQL_USERS
 trap - EXIT
 ```
 
@@ -329,20 +351,10 @@ anything else. The ownership statements and post-audit run in one transaction,
 so a SQL or lock failure rolls back the whole transfer; rerun with a new
 temporary administrator after fixing the cause. If ownership commits but the
 legacy Cloud SQL deletion fails, leave maintenance open, fix that deletion, and
-continue—the role is already privilege-free. The first migration/deploy may
-interrupt case endpoints while `cases` moves schemas. Fix forward if the new
-revision fails; no old revision is falsely advertised as a database-compatible
-rollback after ownership convergence.
-
-### One-time maintenance execution
-
-This dogfood cutover accepts a short case-endpoint outage; it does not contain a
-traffic-drain switch. Do not improvise an IAM or load-balancer deny rule: the
-public service sits behind the existing load balancer, and changing invocation
-policy without separately verified topology can block both users and Cloud
-Build's public probes. Schedule the merge, tell dogfood users not to start or
-edit apps during the window, and keep the window open until the triggered build
-and its public verification complete.
+continue—the role is already privilege-free. Case-endpoint availability is not
+expected to recover until the split-identity migration and deployment finish.
+Fix forward if the new revision fails; no old revision is falsely advertised as
+a database-compatible rollback after ownership convergence.
 
 Before merging, require both provisioning commands and the bootstrap above to
 exit zero, and require `gcloud sql users list` to contain neither the legacy nor
@@ -354,7 +366,8 @@ temporary user. The bootstrap's final `after` JSON must show:
 - `migrationIsRuntimeMember` and `migrationCanSetRuntime` = `true`;
 - every `runtimeIs*Member`, `runtimeCanSet*`, and `runtimeCanCreate*` field =
   `false`; and
-- every legacy dependency, ownership, and default-ACL count = `0`.
+- every legacy and current-user dependency, ownership, and default-ACL count =
+  `0`.
 
 Record the current revision, merge during the announced window, then identify
 and stream the regional trigger build:
@@ -376,11 +389,12 @@ gcloud builds log BUILD_ID \
   --stream
 ```
 
-The expected order is image push → successful `commcare-nova-migrate`
-execution → Ready new revision and standard traffic move → successful public
-main/docs/MCP probes. Between migration commit and the new revision taking
-traffic, the old revision does not know the second search-path schema; case
-requests may fail during precisely that accepted interval.
+After the already completed identity/bootstrap steps, the expected build order
+is image push → successful `commcare-nova-migrate` execution → Ready new
+revision and standard traffic move → successful public main/docs/MCP probes.
+Case requests may fail throughout that interval: the old revision first loses
+its inherited legacy authority, then does not know the second search-path schema
+after migration commits.
 
 After Cloud Build succeeds, run this read-only catalog check in Cloud SQL
 Studio and require the shown shape before ending maintenance:
