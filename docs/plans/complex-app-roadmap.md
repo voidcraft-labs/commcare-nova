@@ -1,8 +1,9 @@
 # Complex app roadmap
 
-> **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
-> Nova `97591f10` (PR #304). S01 through S03 are shipped, including all of S02;
-> S04 is review-ready on `agent/s04`.
+> **Authoritative living plan.** Last rebaselined 2026-07-23 against deployed
+> Nova `85b2fe3b` (PR #303). S01 through S04 are shipped, including all of S02.
+> S22's form-link readiness work is active on `agent/s22-form-links`; S05
+> remains blocked on the readiness decisions recorded below.
 > This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -47,7 +48,7 @@ The source snapshots visible during this rebaseline were:
 
 | Repository | Commit | Use |
 |---|---|---|
-| CommCare Nova | `97591f10abc814576be32bdead557be7de2ea935` | Current deployed integration baseline |
+| CommCare Nova | `85b2fe3b8267e5be866969ebe42b7a1a364ce2b1` | Current deployed integration baseline |
 | CommCare HQ | `0fa01e0e8aea95ed9013d564145ad6cffeb91371` | HQ JSON, app build, APIs, fixtures |
 | CommCare Core | `130df00962a289381a8e0936c3ea5d3f53d96f73` | suite/runtime parsing |
 | Formplayer | `ef9096c6109ce3cca5cc3c5e3ef9f4c6a80b01b7` | Web Apps execution |
@@ -313,7 +314,7 @@ when it changes what authors see or do.
 S00 -> S01 -> S02
 
 S02c1 -> {S03 display conditions, S04 case operations}
-S02 -> S05 table expressions
+{S02, S04} -> S05 table expressions
 {S03, S04, S05} -> S06 atomic submission/resolved preview identity -> S07 preview
 {S03, S04, S07} -> S08 conditions/operations authoring
 {S05, S07} -> S09 Project data authoring
@@ -334,12 +335,12 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S02 and S03 are shipped. S04's domain/wire files do not depend on the dormant
-tenant-move protocol, and its review branch is rebased onto the latest deployed
-`main`. S05's S02 dependency is satisfied, but its ledger status remains
-unchanged pending a separate readiness decision. S11-S14 and S15-S21 may overlap
-only when their worktrees do not share subsystem ownership. S22 may begin after
-S03 and S04, but compiler verification remains serialized with other wire slices.
+S02 through S04 are shipped. S05's infrastructure dependencies are satisfied,
+but its ledger status remains blocked until the exported-value, select-fallback,
+filter-scope, and aggregate-fixture decisions enumerated in its slice are
+pinned. S11-S14 and S15-S21 may overlap only when their worktrees do not share
+subsystem ownership. S22 readiness work has begun with its form-link correctness
+unit; compiler verification remains serialized with other wire slices.
 
 ## Slice ledger
 
@@ -349,8 +350,8 @@ S03 and S04, but compiler verification remains serialized with other wire slices
 | S01 | Lookup persistence and realtime | S00 | shipped | PR-02, F5 |
 | S02 | External validation context and exact references | S01 | shipped | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
-| S04 | Case operations: domain and wire | S02c1 | review | PR-01/03, F4 |
-| S05 | Lookup carriers, expressions, and wire foundations | S02 | blocked | PR-01/03, F5 |
+| S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
+| S05 | Lookup carriers, expressions, and wire foundations | S02/S04 | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03-S05 | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
@@ -1578,8 +1579,11 @@ follow-through.
 
 ### S04 — case operations: domain and wire
 
-**Status:** review-ready on `agent/s04`, rebased onto the deployed PR #304
-baseline.
+**Status:** shipped in PR #303 at squash `85b2fe3b`. Cloud Build
+`cefd6e18-49ac-4809-a600-fbfbe7c10708` ran migration execution
+`commcare-nova-migrate-bp46g` successfully and deployed healthy 100%-traffic
+revision `commcare-nova-00359-8d7`. Main/docs probes, the MCP authorization
+boundary, and revision error logs all passed.
 
 Define operation UUIDs, authored create ids, typed targets, links, repeat
 correlation, remove/retype semantics, ordering, property-writer participation,
@@ -1592,8 +1596,8 @@ ambiguous singular references, cross-repeat references, target-type mismatch,
 foreign-tenant ids, unsafe retypes, and removing/reordering an operation under a
 dependent reference.
 
-The review stack is owned in `agent/s04` on production baseline `97591f10`; its
-original implementation began from `b0e3f48e`. The domain now carries stable
+The shipped implementation began from `b0e3f48e`, was rebased onto production
+baseline `97591f10`, and landed at `85b2fe3b`. The domain now carries stable
 operation UUIDs, authored create ids, typed new/operation/session/expression
 targets, explicit repeat correlation, typed writes and links, and the
 round-trip-only `field` / `id-of` identity leaves plus explicit `acting-user` /
@@ -1694,6 +1698,14 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
+**Status:** blocked pending the numeric aggregate fixture row/UTF-8-byte budget;
+the origin-compatible inline select fallback; missing-versus-present-empty and
+scalar fixture semantics; blank/duplicate option policy; and the exact
+answer-dependent filter, repeat-scope, and dependency-cycle behavior. No S05
+implementation branch should open until these are pinned here. The export
+boundary itself is already decided: local CCZ may emit dormant carriers in S05;
+HQ JSON and upload reject them until S20 owns resource push/mapping.
+
 S05 introduces the first production UUID-backed lookup carriers: table-backed
 select sources with value/label column ids, table-lookup expressions with a
 result-column id, and table-column predicate terms. Column ids always travel with
@@ -1728,7 +1740,7 @@ instance; HQ JSON and upload remain blocked across all web/MCP paths until S20
 pushes and maps the resources. The shared Project-resource boundary owns this
 matrix.
 
-Define wire/expression behavior for S01's already-frozen stored blank/missing/null
+Define wire/expression behavior for S01's already-frozen stored blank/missing
 cells and scalar types, plus duplicate or blank option values, no-match reads,
 answer-dependent filters, repeat scope, dependency cycles, and definition-plus-row
 snapshot consistency. S05 may reject an unrepresentable use at validation/export,
@@ -1962,11 +1974,26 @@ public docs, and the cross-facility owner/restore dogfood scenario.
 
 ### S22 — exclusive form links and sections
 
+**Status:** blocked; `agent/s22-form-links` owns readiness rebaselining only.
+Implementation remains closed until the migration and rolling behavior for the
+required durable link UUID/order model are pinned. The first review unit
+then stays limited to exclusive link projection and validation across both local
+suite and production HQ JSON emission. Sections, preview behavior, and UI remain
+a separate unit.
+
 First fix the existing `first matching link wins` wire bug and reject links after
-an unconditional branch. Then add form sections with fractional order and staged
-mutation compatibility. Define relevance skipping, Next/Back validation,
-earliest-invalid Submit routing, mutation re-anchoring, preview persistence, and
-accessibility before UI implementation.
+an unconditional branch. A terminal unconditional link is the exhaustive `else`:
+its emitted guard is the negation of every prior condition, it suppresses the
+`postSubmit` fallback, and the form is valid without a separate `postSubmit`
+target. An expression that prints to empty XPath is unconditional. One shared
+projector owns these guards for local suite emission and the HQ JSON expander;
+tests cover both paths. Links must gain durable UUID/order identity under the
+roadmap's closed identity contract; any legacy-array-order bridge is transitional
+compatibility for existing documents, never the resulting identity model. Then
+add form sections with fractional order and staged mutation
+compatibility. Define relevance skipping, Next/Back validation, earliest-invalid
+Submit routing, mutation re-anchoring, preview persistence, and accessibility
+before UI implementation.
 
 ### S23 — nested menus and linked-form reuse
 
@@ -1995,6 +2022,17 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S04 shipped / S22 form-link readiness started:** PR #303
+  shipped dormant case-operation domain and wire support at squash `85b2fe3b`
+  through successful Cloud Build `cefd6e18-49ac-4809-a600-fbfbe7c10708`,
+  migration execution `commcare-nova-migrate-bp46g`, and healthy 100%-traffic
+  revision `commcare-nova-00359-8d7`. Production probes and revision error logs
+  passed. S22's form-link readiness rebaseline now owns
+  `agent/s22-form-links`; implementation remains blocked pending the migration
+  and rolling contract for durable link UUID/order identity. S05 remains blocked
+  on its recorded exported-value, fallback, filter-scope, and aggregate-budget
+  decisions and now explicitly depends on S04's shared predicate/expression
+  baseline.
 - **2026-07-22 — S02c3 shipped / S04 review-ready:** PR #304 shipped the
   tenant-safe dormant move and exact media protocol at squash `97591f10`
   through successful Cloud Build `c0b35218-5c0f-4d68-ab7e-0932d000aa13`,
