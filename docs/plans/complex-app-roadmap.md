@@ -2,8 +2,9 @@
 
 > **Authoritative living plan.** Last rebaselined 2026-07-23 against deployed
 > Nova `06a6ee4f` (PR #311). S01 through S05a are shipped, including all of
-> S02. S05's domain/wire decisions are pinned below and S05b's local-wire
-> readiness audit is next; S05c remains decision-blocked. S22 remains closed on
+> S02. S05's domain/wire decisions are pinned below; S05b's local-wire audit
+> closed and its implementation is in progress on `agent/s05b-lookup-wire`;
+> S05c remains decision-blocked. S22 remains closed on
 > `agent/s22-form-links` pending the
 > explicit cutover choice recorded in its slice. This file owns execution order,
 > product decisions, slice status, and
@@ -338,7 +339,8 @@ S06 -> S15 users/personas -> S16 organization/location store
 
 S02 through S05a are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
-pinned. S05b's local-wire readiness audit is next; S05c remains blocked on S05b
+pinned. S05b's readiness audit closed on 2026-07-23 and implementation is in
+progress; S05c remains blocked on S05b
 and a fresh owner decision before
 any production cutover or nonzero compatibility floor. S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 readiness
@@ -355,7 +357,7 @@ Compiler verification stays serialized across wire slices.
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
-| S05b | Lookup expression, itemset, and local-fixture wire | S05a | readiness audit | PR-01/03, F5 |
+| S05b | Lookup expression, itemset, and local-fixture wire | S05a | in progress | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b + owner cutover decision | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
@@ -1703,8 +1705,8 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b readiness audit is
-next; S05c is blocked on S05b and a fresh owner decision.
+**Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b is in progress on
+`agent/s05b-lookup-wire`; S05c is blocked on S05b and a fresh owner decision.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 rolling-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. It does not
@@ -1867,7 +1869,7 @@ Implementation remains split into independently reviewed units:
    one support checkpoint, with every authoritative writer still using its
    shared declaration helper. Every database floor and feature flag remains
    zero/off.
-2. **S05b — local wire (readiness audit):** add lowering/emission for the
+2. **S05b — local wire (in progress):** add lowering/emission for the
    already-preservable table expressions, predicates, and itemsets; instance
    accumulation; the one-snapshot multi-table reader; deterministic fixture
    serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
@@ -1953,6 +1955,80 @@ issues; `a94e1fda` closes all three, its 6-file / 109-test matrix and 3-file /
 34-test async-leak matrix pass, and independent follow-up review is clean. Final
 PR CI passed, including the full suite, production build, Playwright smoke, and
 the 34-minute changed-test async-leak gate.
+
+#### S05b readiness closure — 2026-07-23
+
+The S05b local-wire audit re-verified every integration seam against deployed
+`06a6ee4f` and every wire claim against the pinned Dimagi sources, so S05b is
+now `in progress` on `agent/s05b-lookup-wire`.
+
+Re-verified Nova seams: the three-mode export boundary
+(`lib/export/boundaryValidation.ts`) loads rows-free definitions in one
+REPEATABLE READ snapshot and already forbids a second post-validation lookup
+read; `PreparedExportBoundary.lookupSnapshot` reaches no emitter yet; every
+dormant-carrier rejection site is explicit (`xform/builder.ts` optionsSource
+throw, `expression/onDeviceEmitter.ts` and `predicate/termEmitter.ts` arms,
+`predicate/instances.ts` accumulation guards, mode-bearing
+`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`); no reader returns multi-table rows in one
+snapshot (`getLookupDefinitions` is rows-free, `getLookupTable` single-table);
+and no fixture, itemset, or `jr://fixture/` emission exists anywhere.
+
+Re-verified wire facts (CommCare Core `130df009…`, HQ `0fa01e0e…`):
+`SuiteParser` installs suite-embedded `<fixture>` blocks at any position via
+`FixtureXmlParser` — `id` required, absent `user_id` stores as global, exactly
+one body element, overwrite on app upgrade; HQ's `ItemListsProvider` pins the
+body shape (`item-list:<tag>` id, `<{tag}_list>` wrapper, `<{tag}>` rows,
+every defined field as a child element in definition order with an empty
+element for a missing value) and `generic_fixture_instances` pins
+`jr://fixture/item-list:<tag>`; `XFormParser.parseItemset` requires `nodeset`
+plus `<label ref>` and `<value ref>` and rejects literal items beside an
+itemset; `ItemSetUtils.populateDynamicChoices` resolves the nodeset instance
+by declared id (missing → runtime XPathException) and evaluates the predicate
+with `current()` bound to the question node contextualized to the current
+repeat iteration.
+
+Pinned S05b wire decisions:
+
+- fixture blocks are inline suite.xml children placed after `<menu>` elements,
+  matching HQ's section order; no `user_id`, no item attributes, no row `@id`,
+  no indexed-fixture `<schema>`;
+- rows emit in `(order_key, row UUID)` order and columns in
+  `(order_key, column UUID)` order; every defined column emits a child element
+  whose text is the S05-pinned lexicalization, with one empty element for
+  missing and stored-empty cells alike;
+- an itemset emits `nodeset="instance('item-list:<tag>')/<tag>_list/<tag>[filter]"`
+  with predicate-free `<value ref>`/`<label ref>` naming the value/label column
+  wire names; no itext and no inline `<item>` children;
+- a table lookup lowers to
+  `instance('item-list:<tag>')/<tag>_list/<tag>[where][1]/<column>`; the
+  filterless form keeps only `[1]`;
+- inside a fixture predicate, same-table columns print row-relative wire
+  names; root form answers print absolute paths; repeat-correlated answers
+  print through `current()`; case/session terms keep their containing-slot
+  anchoring, which stays correct because Core preserves `current()` from the
+  first predicate;
+- instance id `item-list:<tag>` pairs with src `jr://fixture/item-list:<tag>`
+  on XForm models, entries, and remote requests through the existing
+  accumulation seams, with tag/wire-name resolution derived from the exact
+  validated definitions snapshot;
+- conversion covers on-device slots only: itemsets, module/form display
+  conditions, case-list filters and calculated columns, and case-operation
+  expressions. CSQL and case-search surfaces keep their existing rejections,
+  and preview, case-store SQL, HQ JSON, and HQ upload stay rejected;
+- the ccz boundary swaps to one new REPEATABLE READ definitions-plus-rows
+  reader in `lib/lookup` so validation and emission share one generation;
+  row-dependent select-source validity (duplicate lexicalized values,
+  missing/blank labels, whitespace-bearing values) and the 10,000-row /
+  100,000-cell / 16 MiB exact-byte budgets reject at that boundary as
+  non-commit-gating findings before any emission;
+- the suite, XForm, and binding-resolution oracles extend to accept and
+  cross-check embedded fixtures, itemsets, and `item-list:` instance
+  declarations.
+
+S05b ships no migration, raises no floor, changes no mutation vocabulary, and
+keeps `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` untouched, so production behavior is
+unchanged until S05c/S07 open their gates; the wire path is proven by focused
+tests and oracles over directly constructed carrier documents.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
@@ -2247,6 +2323,19 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S05b readiness closed / implementation owned:** The local-wire
+  audit re-verified the export-boundary, emitter-rejection, instance-
+  accumulation, and lookup-reader seams against deployed `06a6ee4f`, and the
+  fixture/itemset/instance wire contract against the pinned CommCare Core and
+  HQ sources (`SuiteParser`/`FixtureXmlParser`, `ItemListsProvider`,
+  `XFormParser.parseItemset`, `ItemSetUtils.populateDynamicChoices`). The S05b
+  readiness-closure section now pins the suite-embedded global fixture shape,
+  itemset and first-match lowering, scoped `current()` printing, the
+  one-snapshot definitions-plus-rows reader, boundary-time row-validity and
+  aggregate-budget findings, and the on-device-only conversion matrix.
+  Implementation is in progress on `agent/s05b-lookup-wire` with every commit
+  gate, HQ path, preview/SQL boundary, database floor, and feature flag
+  unchanged.
 - **2026-07-23 — S05a shipped / S05b readiness audit owned:** PR #311 passed
   consolidated contract review and every final CI gate, then shipped at squash
   `06a6ee4f` through successful Cloud Build
