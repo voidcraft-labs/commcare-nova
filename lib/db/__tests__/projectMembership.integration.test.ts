@@ -185,12 +185,13 @@ describe("Project membership advisory gate", () => {
 		// The shared app fixture ensures its owner is a Project owner. This case
 		// specifically exercises the lower, still-edit-capable editor projection.
 		await h.seedProjectMember(USER, PROJECT, "editor");
-		await h
-			.db()
-			.updateTable("apps")
-			.set({ mutation_seq: 7 })
-			.where("id", "=", appId)
-			.execute();
+		await h.withDeclaredWriter((tx) =>
+			tx
+				.updateTable("apps")
+				.set({ mutation_seq: 7 })
+				.where("id", "=", appId)
+				.execute(),
+		);
 
 		const editor = await resolveAuthorizedAppSnapshot(appId, USER, "view");
 		expect(editor).toMatchObject({
@@ -237,6 +238,7 @@ describe("Project membership advisory gate", () => {
 		let committed = false;
 		try {
 			await writer.query("BEGIN");
+			await writer.query("SET LOCAL nova.writer_version = '1'");
 			await writer.query(
 				`UPDATE apps
 				 SET app_name = 'After app', mutation_seq = 9
@@ -286,6 +288,11 @@ describe("Project membership advisory gate", () => {
 			| Promise<{ ok: true } | { ok: false; error: unknown }>
 			| undefined;
 		try {
+			// The autocommit write below changes mutation_seq, which the raised
+			// writer floor guards; declare v1 for this client's session.
+			await writer.query(
+				"SELECT set_config('nova.writer_version', '1', false)",
+			);
 			const writerPid = await backendPid(writer);
 			await h
 				.db()

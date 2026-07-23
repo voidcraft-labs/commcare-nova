@@ -163,6 +163,24 @@ describe("runtime capability manifest", () => {
 		});
 	});
 
+	it("reads a host environment whose prototype is not Object.prototype", () => {
+		// `process.env` is an exotic host object on current Node; a plain-record
+		// prototype test would silently zero the deployed declaration and make
+		// every serving revision receiver v0 — below the production floor.
+		const hostLike = Object.assign(Object.create({}), {
+			NOVA_WRITER_VERSION: "1",
+			NOVA_STREAM_RECEIVER_VERSION: "2",
+			NOVA_RUNTIME_READER_VERSION: "1",
+			NOVA_STREAM_REGISTRY_VERSION: "1",
+		});
+		expect(parseRuntimeCapabilityEnvironment(hostLike)).toEqual({
+			writerVersion: 1,
+			streamReceiverVersion: 2,
+			runtimeReaderVersion: 1,
+			streamRegistryVersion: 1,
+		});
+	});
+
 	it("renders immutable image declarations and capability revision labels", () => {
 		const environment = runtimeCapabilityEnvironment(manifest);
 		expect(environment).toEqual({

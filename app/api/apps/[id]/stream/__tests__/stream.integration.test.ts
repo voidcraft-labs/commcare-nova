@@ -67,6 +67,7 @@ import {
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
 import { RETENTION_COUNT } from "@/lib/db/constants";
+import { declareLookupReferenceWriter } from "@/lib/db/lookupReferenceWriter";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
@@ -128,7 +129,7 @@ const originalStreamEnv = {
 	registry: process.env.NOVA_STREAM_REGISTRY_VERSION,
 };
 process.env.NOVA_STREAM_CADENCE_MS = "150";
-process.env.NOVA_STREAM_RECEIVER_VERSION = "1";
+process.env.NOVA_STREAM_RECEIVER_VERSION = "2";
 process.env.NOVA_STREAM_REGISTRY_VERSION = "1";
 
 const { GET } = await import("../route");
@@ -206,11 +207,14 @@ async function seedApp(head: number): Promise<string> {
 	const appId = await createApp(USER, PROJECT, "run-seed", {
 		status: "complete",
 	});
-	await appDb
-		.updateTable("apps")
-		.set({ mutation_seq: head, project_id: null })
-		.where("id", "=", appId)
-		.execute();
+	await appDb.transaction().execute(async (tx) => {
+		await declareLookupReferenceWriter(tx);
+		await tx
+			.updateTable("apps")
+			.set({ mutation_seq: head, project_id: null })
+			.where("id", "=", appId)
+			.execute();
+	});
 	return appId;
 }
 
@@ -225,20 +229,23 @@ async function writeEntry(
 	} = {},
 ): Promise<void> {
 	const kind = opts.kind ?? "autosave";
-	await appDb
-		.insertInto("accepted_mutations")
-		.values({
-			app_id: appId,
-			seq,
-			batch_id: crypto.randomUUID(),
-			run_id: opts.runId ?? null,
-			actor_id: USER,
-			kind,
-			mutations: JSON.stringify(
-				opts.mutations ?? [{ kind: "setAppName", name: `v${seq}` }],
-			),
-		})
-		.execute();
+	await appDb.transaction().execute(async (tx) => {
+		await declareLookupReferenceWriter(tx);
+		await tx
+			.insertInto("accepted_mutations")
+			.values({
+				app_id: appId,
+				seq,
+				batch_id: crypto.randomUUID(),
+				run_id: opts.runId ?? null,
+				actor_id: USER,
+				kind,
+				mutations: JSON.stringify(
+					opts.mutations ?? [{ kind: "setAppName", name: `v${seq}` }],
+				),
+			})
+			.execute();
+	});
 }
 
 function lookupSourceMutation(
@@ -406,7 +413,7 @@ async function collectUntil(
 	if (opts.since !== undefined)
 		url.searchParams.set("since", String(opts.since));
 	if (opts.receiverVersion !== null) {
-		url.searchParams.set("receiverVersion", opts.receiverVersion ?? "1");
+		url.searchParams.set("receiverVersion", opts.receiverVersion ?? "2");
 	}
 	const req = new Request(url, { headers, signal: controller.signal });
 
@@ -1341,12 +1348,12 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
-			receiverVersion: "1",
+			receiverVersion: "2",
 			timeoutMs: 800,
 			async onOpen() {
 				await appDb
 					.updateTable("lookup_reference_compatibility")
-					.set({ minimum_stream_receiver_version: 2 })
+					.set({ minimum_stream_receiver_version: 3 })
 					.where("id", "=", 1)
 					.executeTakeFirstOrThrow();
 			},
@@ -1362,11 +1369,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 	it("authenticates before the floor verdict and returns the IDOR-safe 404", async () => {
 		const appId = await seedApp(0);
-		await appDb
-			.updateTable("lookup_reference_compatibility")
-			.set({ minimum_stream_receiver_version: 1 })
-			.where("id", "=", 1)
-			.executeTakeFirstOrThrow();
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		resolveAppScopeInTransactionMock.mockRejectedValue(
 			new MockAppAccessError("not_member"),
@@ -1388,11 +1390,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 	it("emits only a seq-less upgrade revocation below the receiver floor", async () => {
 		const appId = await seedApp(0);
-		await appDb
-			.updateTable("lookup_reference_compatibility")
-			.set({ minimum_stream_receiver_version: 1 })
-			.where("id", "=", 1)
-			.executeTakeFirstOrThrow();
 		let durableReadAttempts = 0;
 		__setStreamReadTestHooksForTests({
 			beforeMutationRead() {
@@ -1447,7 +1444,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 		const res = await GET(
 			new Request(
-				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=1`,
+				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=2`,
 			),
 			{ params: Promise.resolve({ id: appId }) },
 		);
@@ -1481,9 +1478,12 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
 		const res = await GET(
-			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
-				signal: controller.signal,
-			}),
+			new Request(
+				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=2`,
+				{
+					signal: controller.signal,
+				},
+			),
 			{ params: Promise.resolve({ id: appId }) },
 		);
 		const reader = res.body?.getReader();
@@ -1529,9 +1529,12 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
 		const res = await GET(
-			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
-				signal: controller.signal,
-			}),
+			new Request(
+				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=2`,
+				{
+					signal: controller.signal,
+				},
+			),
 			{ params: Promise.resolve({ id: appId }) },
 		);
 		const reader = res.body?.getReader();
@@ -1540,7 +1543,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		await vi.waitFor(() => expect(mutationAttempts).toBe(1));
 		const registered = await streamLeaseRows(appId);
 		expect(registered).toHaveLength(1);
-		expect(registered[0]?.receiver_version).toBe(0);
+		expect(registered[0]?.receiver_version).toBe(2);
 		await reader.cancel();
 		expect(controller.signal.aborted).toBe(false);
 		const attemptsAtCancel = { mutationAttempts, lookupAttempts };

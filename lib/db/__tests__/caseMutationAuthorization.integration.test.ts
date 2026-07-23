@@ -68,12 +68,13 @@ describe("case mutation authorization", () => {
 		const appId = await seedAuthorizedApp();
 		const caseId = await insertPatient(appId);
 		await h.seedProjectMember(USER, OTHER_PROJECT, "editor");
-		await h
-			.db()
-			.updateTable("apps")
-			.set({ project_id: OTHER_PROJECT })
-			.where("id", "=", appId)
-			.execute();
+		await h.withDeclaredWriter((tx) =>
+			tx
+				.updateTable("apps")
+				.set({ project_id: OTHER_PROJECT })
+				.where("id", "=", appId)
+				.execute(),
+		);
 
 		await expect(store().close({ appId, caseId })).rejects.toMatchObject({
 			name: "AppAccessError",

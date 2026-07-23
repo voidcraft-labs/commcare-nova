@@ -2183,6 +2183,42 @@ admission with mid-stream lease survival, and the carrier commit gate still
 closed at the final floors; standard deploy probes complete the list. No
 Playwright journey — nothing user-reachable changes.
 
+#### S05c implementation checkpoint — 2026-07-23
+
+The implementation on `agent/s05c-lookup-cutover` delivers, per the closure:
+
+- `lib/case-store/migrations/20260723120000_lookup_reference_floors.ts`: the
+  deploy-blocking monotonic raise to writer 1 / stream-receiver 2 and the
+  `continuous_registry_traffic_since` drop, replay-idempotent for the
+  ledger-erase replay;
+- `lib/db/rolloutCompatibility.ts` stripped of the stranded initial-cutoff
+  choreography — the registry-epoch branch with its two error codes, the
+  registry-interval half of revision reconciliation, and the
+  `streamRegistryVersion` field on receiving-revision capabilities — while
+  the runtime-epoch machinery stays for S07;
+- `lib/db/apps.ts::repairLookupReferenceEdges`, the app-locked server-only
+  edge-repair writer (no entity, history, or sequence writes), plus the
+  paired one-off `scripts/migrate-lookup-reference-edges.ts` (dry-run by
+  default, scan-identical collection, converges to a clean rescan or fails);
+- the durable scan's stale header corrected and the `lib/db`,
+  `lib/case-store`, and `lib/lookup` docs moved to the final-floor state;
+- the test fleet moved to the deployed floors: direct fixture writes declare
+  writer v1 (a shared `withDeclaredWriter` harness helper), stream suites
+  admit at receiver 2 and race the 2-to-3 cutoff, migration suites pin the
+  migrated `(1, 2, 0)` baseline with every flag false, and the repair writer
+  gains repaired/unchanged/fail-closed coverage.
+
+The closure's verification list caught one production-critical defect beyond
+the plan: `parseRuntimeCapabilityEnvironment` rejected `process.env` as a
+non-plain record on the deployed Node (its prototype is neither
+`Object.prototype` nor `null` there), silently parsing the deployed
+declaration as capability v0. The serving stream-receiver version was
+therefore 0 in production, and raising the floor to 2 without the fix would
+have revoked every stream admission permanently — the old revision could
+never admit at the new floor regardless of the browser. The parser now
+normalizes any non-array object, and a regression test pins the host-object
+shape.
+
 S05's closed-gate verification uses real carriers to replace edges
 transactionally and repeat both production race orders. It adds carrier schema/
 context matrices, reference-index fuzz, history replay, every

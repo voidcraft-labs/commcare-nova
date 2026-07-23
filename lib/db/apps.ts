@@ -1696,6 +1696,59 @@ async function assertMoveLookupClosureEmpty(
 	}
 }
 
+export type RepairLookupReferenceEdgesResult =
+	| { kind: "repaired" }
+	| { kind: "unchanged" };
+
+/**
+ * Rederive one app's complete structural lookup target set from its committed
+ * blueprint and replace the stored edge sets with it. Edges are derived state:
+ * this writes no entity row, appends no history row, and advances no sequence,
+ * so live streams and open runs are untouched. It is a server-only maintenance
+ * writer with no route/action/MCP exposure — the paired migrate script drives
+ * it over the read-only edge scan's mismatch list, and the database writer
+ * guard independently requires its version declaration.
+ */
+export async function repairLookupReferenceEdges(
+	appId: string,
+): Promise<RepairLookupReferenceEdgesResult> {
+	return withAppTx(async (tx) => {
+		await declareLookupReferenceWriter(tx);
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new Error("[repairLookupReferenceEdges] app row is unavailable");
+		}
+		const entities = await loadEntities(tx, appId);
+		const persisted = assembleBlueprint(
+			appId,
+			{
+				app_name: fresh.app_name,
+				connect_type: fresh.connect_type,
+				case_types: fresh.case_types,
+				logo: fresh.logo,
+			},
+			entities,
+		);
+		const doc = hydratePersistedBlueprint(persisted);
+		const structural = extractLookupReferenceTargets(doc);
+		const stored = await readStoredLookupReferenceTargets(tx, appId);
+		if (deepEqual(structural, stored)) return { kind: "unchanged" };
+		if (fresh.project_id !== null) {
+			await lockLookupTablesForReferenceWrite(
+				tx,
+				fresh.project_id,
+				structural.tableIds,
+			);
+		}
+		await replaceLookupReferenceEdges(tx, {
+			appId,
+			projectId: fresh.project_id,
+			targets: structural,
+		});
+		return { kind: "repaired" };
+	});
+}
+
 /** Production-capability wrapper; database floors and flags still own admission. */
 export async function prepareAppProjectMove(
 	args: ProjectMoveCoreArgs,

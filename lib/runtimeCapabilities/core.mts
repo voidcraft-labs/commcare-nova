@@ -309,7 +309,16 @@ export function parseRevisionCapabilityLabels(
 export function parseRuntimeCapabilityEnvironment(
 	input: unknown,
 ): RuntimeCapabilityVersions {
-	return declarationsFromKeys(input, RUNTIME_CAPABILITY_ENV_KEYS);
+	// `process.env` is a host object whose prototype is neither
+	// `Object.prototype` nor `null` on current Node, so the plain-record test
+	// would silently read every deployed declaration as capability v0. Any
+	// non-array object is a readable environment; each value still parses
+	// through the strict version grammar.
+	const record =
+		input !== null && typeof input === "object" && !Array.isArray(input)
+			? { ...(input as Record<string, unknown>) }
+			: {};
+	return declarationsFromKeys(record, RUNTIME_CAPABILITY_ENV_KEYS);
 }
 
 function requireManifestHash(manifestHash: string): string {

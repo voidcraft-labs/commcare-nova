@@ -11,61 +11,41 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("rollout_compat_");
 
-const receiving =
-	(runtimeReaderVersion: number, streamRegistryVersion: number) => async () => [
-		{
-			revision: `reader-${runtimeReaderVersion}-registry-${streamRegistryVersion}`,
-			runtimeReaderVersion,
-			streamRegistryVersion,
-		},
-	];
+const receiving = (runtimeReaderVersion: number) => async () => [
+	{
+		revision: `reader-${runtimeReaderVersion}`,
+		runtimeReaderVersion,
+	},
+];
 
 describe("rollout compatibility service", () => {
-	test("preserves registry time, invalidates runtime epochs, and never auto-resurrects them", async () => {
-		const first = await reconcileReceivingRevisionCapabilities(receiving(2, 1));
-		expect(first.compatibility.continuousRegistryTrafficSince).toBeInstanceOf(
-			Date,
-		);
-		const forcedRegistryStart = await sql<{ since: Date }>`
-			UPDATE lookup_reference_compatibility
-			SET continuous_registry_traffic_since =
-				clock_timestamp() - interval '2 hours'
-			WHERE id = 1
-			RETURNING continuous_registry_traffic_since AS since
-		`.execute(h.db());
-		const registryStarted = forcedRegistryStart.rows[0]?.since;
-		if (!registryStarted) throw new Error("forced registry timestamp missing");
+	test("migrations seed the final maintenance floors with every flag off", async () => {
+		const status = await readRolloutCompatibilityStatus();
+		expect(status.compatibility).toMatchObject({
+			minimumWriterVersion: 1,
+			minimumStreamReceiverVersion: 2,
+			minimumRuntimeReaderVersion: 0,
+			runHolderNonceEnforced: false,
+			carrierCommitsEnabled: false,
+			destructiveSchemaActionsEnabled: false,
+			projectMovesEnabled: false,
+		});
+	});
 
-		const targetOne = await prepareRuntimeReaderTrafficEpoch(
-			1,
-			receiving(2, 1),
-		);
-		await prepareRuntimeReaderTrafficEpoch(2, receiving(2, 1));
+	test("invalidates runtime epochs above the receiving minimum and never auto-resurrects them", async () => {
+		const targetOne = await prepareRuntimeReaderTrafficEpoch(1, receiving(2));
+		await prepareRuntimeReaderTrafficEpoch(2, receiving(2));
 		const compatible = await reconcileReceivingRevisionCapabilities(
-			receiving(1, 1),
+			receiving(1),
 		);
-		expect(
-			compatible.compatibility.continuousRegistryTrafficSince?.getTime(),
-		).toBe(registryStarted.getTime());
 		expect(compatible.runtimeTrafficEpochs).toEqual([targetOne]);
 
 		const incompatible = await reconcileReceivingRevisionCapabilities(
-			receiving(0, 0),
+			receiving(0),
 		);
-		expect(
-			incompatible.compatibility.continuousRegistryTrafficSince,
-		).toBeNull();
 		expect(incompatible.runtimeTrafficEpochs).toEqual([]);
 
-		const restored = await reconcileReceivingRevisionCapabilities(
-			receiving(2, 1),
-		);
-		expect(
-			restored.compatibility.continuousRegistryTrafficSince,
-		).toBeInstanceOf(Date);
-		expect(
-			restored.compatibility.continuousRegistryTrafficSince?.getTime(),
-		).toBeGreaterThan(registryStarted.getTime());
+		const restored = await reconcileReceivingRevisionCapabilities(receiving(2));
 		expect(restored.runtimeTrafficEpochs).toEqual([]);
 		expect(restored.compatibility).toMatchObject({
 			carrierCommitsEnabled: false,
@@ -76,11 +56,11 @@ describe("rollout compatibility service", () => {
 
 	test("requires compatible traffic to prepare and preserves an idempotent epoch", async () => {
 		await expect(
-			prepareRuntimeReaderTrafficEpoch(2, receiving(1, 1)),
+			prepareRuntimeReaderTrafficEpoch(2, receiving(1)),
 		).rejects.toMatchObject({ code: "receiving_revision_incompatible" });
 
-		const prepared = await prepareRuntimeReaderTrafficEpoch(2, receiving(2, 1));
-		const repeated = await prepareRuntimeReaderTrafficEpoch(2, receiving(3, 1));
+		const prepared = await prepareRuntimeReaderTrafficEpoch(2, receiving(2));
+		const repeated = await prepareRuntimeReaderTrafficEpoch(2, receiving(3));
 		expect(repeated.continuousTrafficSince.getTime()).toBe(
 			prepared.continuousTrafficSince.getTime(),
 		);
@@ -133,20 +113,17 @@ describe("rollout compatibility service", () => {
 		});
 	});
 
-	test("requires the full registry interval for the initial receiver cutoff", async () => {
+	test("stream receiver floor raises monotonically with no epoch prerequisite", async () => {
 		await expect(raiseMinimumStreamReceiverVersion(1)).rejects.toMatchObject({
-			code: "registry_epoch_missing",
+			code: "floor_cannot_decrease",
 		});
 
-		await sql`
-			UPDATE lookup_reference_compatibility
-			SET continuous_registry_traffic_since =
-				clock_timestamp() - interval '2 hours'
-			WHERE id = 1
-		`.execute(h.db());
-		const raised = await raiseMinimumStreamReceiverVersion(1);
+		const unchanged = await raiseMinimumStreamReceiverVersion(2);
+		expect(unchanged.minimumStreamReceiverVersion).toBe(2);
+
+		const raised = await raiseMinimumStreamReceiverVersion(3);
 		expect(raised).toMatchObject({
-			minimumStreamReceiverVersion: 1,
+			minimumStreamReceiverVersion: 3,
 			carrierCommitsEnabled: false,
 			destructiveSchemaActionsEnabled: false,
 			projectMovesEnabled: false,

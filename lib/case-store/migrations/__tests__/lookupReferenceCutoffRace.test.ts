@@ -58,35 +58,37 @@ describe("lookup-reference writer cutoff", () => {
 			const floorPid = await backendPid(floor);
 
 			// Writer first: its statement-level guard holds the compatibility row
-			// FOR SHARE until commit, so the floor raise waits and the v0 write lands.
+			// FOR SHARE until commit, so the floor raise waits and the write at the
+			// deployed floor lands before the higher cutoff commits.
 			await writer.query("BEGIN");
+			await writer.query("SET LOCAL nova.writer_version = '1'");
 			await writer.query(
 				`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
-				 VALUES ('writer-first-v0', 'actor', 'project-a', 'Writer first', 'writer first')`,
+				 VALUES ('writer-first-v1', 'actor', 'project-a', 'Writer first', 'writer first')`,
 			);
 			await floor.query("BEGIN");
-			const raiseToOne = floor.query(
+			const raiseToTwo = floor.query(
 				`UPDATE lookup_reference_compatibility
-				 SET minimum_writer_version = 1 WHERE id = 1`,
+				 SET minimum_writer_version = 2 WHERE id = 1`,
 			);
 			await waitUntilBlockedBy(writer, floorPid, writerPid);
 			await writer.query("COMMIT");
-			await raiseToOne;
+			await raiseToTwo;
 			await floor.query("COMMIT");
 
-			// Floor first: v1 waits on the row update, wakes against floor 2, and
+			// Floor first: v2 waits on the row update, wakes against floor 3, and
 			// fails with the non-retryable compatibility SQLSTATE.
 			await floor.query("BEGIN");
 			await floor.query(
 				`UPDATE lookup_reference_compatibility
-				 SET minimum_writer_version = 2 WHERE id = 1`,
+				 SET minimum_writer_version = 3 WHERE id = 1`,
 			);
 			await writer.query("BEGIN");
-			await writer.query("SET LOCAL nova.writer_version = '1'");
+			await writer.query("SET LOCAL nova.writer_version = '2'");
 			const staleWrite = writer
 				.query(
 					`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
-					 VALUES ('floor-first-v1', 'actor', 'project-a', 'Floor first', 'floor first')`,
+					 VALUES ('floor-first-v2', 'actor', 'project-a', 'Floor first', 'floor first')`,
 				)
 				.then(
 					() => ({ ok: true as const, error: undefined }),
@@ -107,9 +109,9 @@ describe("lookup-reference writer cutoff", () => {
 				floor: number;
 			}>(
 				`SELECT
-					(SELECT count(*)::text FROM apps WHERE id = 'writer-first-v0')
+					(SELECT count(*)::text FROM apps WHERE id = 'writer-first-v1')
 						AS writer_first,
-					(SELECT count(*)::text FROM apps WHERE id = 'floor-first-v1')
+					(SELECT count(*)::text FROM apps WHERE id = 'floor-first-v2')
 						AS floor_first,
 					minimum_writer_version AS floor
 				 FROM lookup_reference_compatibility WHERE id = 1`,
@@ -117,7 +119,7 @@ describe("lookup-reference writer cutoff", () => {
 			expect(committed.rows[0]).toEqual({
 				writer_first: "1",
 				floor_first: "0",
-				floor: 2,
+				floor: 3,
 			});
 
 			// Independent floor raisers still serialize on the singleton row. The
@@ -162,7 +164,7 @@ describe("lookup-reference writer cutoff", () => {
 		// `setupPerTestDatabase`'s pool is max=1, so every transaction below
 		// demonstrably reuses one physical backend. Exercise the exact helper later
 		// writers call, then prove both COMMIT and ROLLBACK restore the empty custom
-		// setting placeholder and an unset new transaction fails at floor 2.
+		// setting placeholder and an unset new transaction fails at floor 3.
 		const db = h.db as Kysely<AppDatabase>;
 		const beforeDeclaration = await db.transaction().execute(async (tx) => {
 			const result = await sql<{ pid: number; setting: string | null }>`
@@ -181,10 +183,10 @@ describe("lookup-reference writer cutoff", () => {
 				pid: number;
 			}>`SELECT pg_backend_pid() AS pid`.execute(tx);
 			expect(identity.rows[0]?.pid).toBe(physicalPid);
-			await setTransactionWriterVersion(tx, 2);
+			await setTransactionWriterVersion(tx, 3);
 			await sql`
 				INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
-				VALUES ('helper-commit-v2', 'actor', 'project-a', 'Helper', 'helper')
+				VALUES ('helper-commit-v3', 'actor', 'project-a', 'Helper', 'helper')
 			`.execute(tx);
 		});
 
@@ -200,7 +202,7 @@ describe("lookup-reference writer cutoff", () => {
 
 		await expect(
 			db.transaction().execute(async (tx) => {
-				await setTransactionWriterVersion(tx, 2);
+				await setTransactionWriterVersion(tx, 3);
 				throw new Error("intentional writer-version rollback");
 			}),
 		).rejects.toThrow("intentional writer-version rollback");

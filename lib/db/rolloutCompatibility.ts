@@ -1,10 +1,7 @@
 import "server-only";
 
 import { sql, type Transaction } from "kysely";
-import {
-	RUNTIME_CAPABILITIES,
-	STREAM_LEASE_TTL_SECONDS,
-} from "@/lib/runtimeCapabilities";
+import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 import { lockDeploymentCutoverGate } from "./deploymentCutoverGate";
 import { LEASE_COLUMNS, leaseView } from "./leaseView";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
@@ -15,20 +12,17 @@ import {
 	runtimeHolderState,
 } from "./runtimeReaderHolders";
 
-const STREAM_REGISTRY_VERSION_WITH_LEASES = 1;
 const RUNTIME_FLOOR_EPOCH_SECONDS = RUNTIME_CAPABILITIES.cloudRunRequestSeconds;
 
 export interface ReceivingRevisionCapability {
 	readonly revision: string;
 	readonly runtimeReaderVersion: number;
-	readonly streamRegistryVersion: number;
 }
 
 export interface LookupReferenceCompatibilityState {
 	readonly minimumWriterVersion: number;
 	readonly minimumStreamReceiverVersion: number;
 	readonly minimumRuntimeReaderVersion: number;
-	readonly continuousRegistryTrafficSince: Date | null;
 	readonly runHolderNonceEnforced: boolean;
 	readonly carrierCommitsEnabled: boolean;
 	readonly destructiveSchemaActionsEnabled: boolean;
@@ -90,9 +84,7 @@ export type RolloutCompatibilityErrorCode =
 	| "floor_cannot_decrease"
 	| "runtime_epoch_missing"
 	| "runtime_epoch_too_young"
-	| "runtime_holders_not_drained"
-	| "registry_epoch_missing"
-	| "registry_epoch_too_young";
+	| "runtime_holders_not_drained";
 
 export class RolloutCompatibilityError extends Error {
 	readonly code: RolloutCompatibilityErrorCode;
@@ -138,10 +130,6 @@ function assertReceivingRevisions(
 			revision.runtimeReaderVersion,
 			`${revision.revision} runtime reader version`,
 		);
-		assertVersion(
-			revision.streamRegistryVersion,
-			`${revision.revision} stream registry version`,
-		);
 	}
 }
 
@@ -149,7 +137,6 @@ type CompatibilityRow = {
 	readonly minimum_writer_version: number;
 	readonly minimum_stream_receiver_version: number;
 	readonly minimum_runtime_reader_version: number;
-	readonly continuous_registry_traffic_since: Date | null;
 	readonly run_holder_nonce_enforced: boolean;
 	readonly carrier_commits_enabled: boolean;
 	readonly destructive_schema_actions_enabled: boolean;
@@ -164,7 +151,6 @@ function compatibilityState(
 		minimumWriterVersion: row.minimum_writer_version,
 		minimumStreamReceiverVersion: row.minimum_stream_receiver_version,
 		minimumRuntimeReaderVersion: row.minimum_runtime_reader_version,
-		continuousRegistryTrafficSince: row.continuous_registry_traffic_since,
 		runHolderNonceEnforced: row.run_holder_nonce_enforced,
 		carrierCommitsEnabled: row.carrier_commits_enabled,
 		destructiveSchemaActionsEnabled: row.destructive_schema_actions_enabled,
@@ -183,7 +169,6 @@ async function readCompatibilityRow(
 			"minimum_writer_version",
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
-			"continuous_registry_traffic_since",
 			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
@@ -347,10 +332,9 @@ export interface ReconciledTrafficState {
 }
 
 /**
- * Reconcile durable epochs to the exact set of traffic-receiving revisions.
- * Registry-compatible traffic preserves/starts its interval; any incompatible
- * traffic clears it. Runtime epochs are deletion-only here and never
- * auto-resurrect after compatibility returns.
+ * Reconcile durable runtime epochs to the exact set of traffic-receiving
+ * revisions. Epochs are deletion-only here and never auto-resurrect after
+ * compatibility returns.
  */
 export async function reconcileReceivingRevisionCapabilitiesInTransaction(
 	tx: Transaction<AppDatabase>,
@@ -359,41 +343,13 @@ export async function reconcileReceivingRevisionCapabilitiesInTransaction(
 	await lockDeploymentCutoverGate(tx);
 	const revisions = await readReceivingRevisions();
 	assertReceivingRevisions(revisions);
-	const allRegistryCapable = revisions.every(
-		(revision) =>
-			revision.streamRegistryVersion >= STREAM_REGISTRY_VERSION_WITH_LEASES,
-	);
 	const minimumRuntimeReaderVersion = Math.min(
 		...revisions.map((revision) => revision.runtimeReaderVersion),
 	);
 
-	const current = await readCompatibilityRow(tx, "update");
-	if (
-		allRegistryCapable &&
-		current.continuous_registry_traffic_since === null
-	) {
-		await tx
-			.updateTable("lookup_reference_compatibility")
-			.set({
-				continuous_registry_traffic_since: sql<Date>`clock_timestamp()`,
-				updated_at: sql<Date>`clock_timestamp()`,
-			})
-			.where("id", "=", 1)
-			.executeTakeFirstOrThrow();
-	} else if (
-		!allRegistryCapable &&
-		current.continuous_registry_traffic_since !== null
-	) {
-		await tx
-			.updateTable("lookup_reference_compatibility")
-			.set({
-				continuous_registry_traffic_since: null,
-				updated_at: sql<Date>`clock_timestamp()`,
-			})
-			.where("id", "=", 1)
-			.executeTakeFirstOrThrow();
-	}
-
+	// The FOR UPDATE row read serializes epoch deletion against a concurrent
+	// runtime-floor raise, which reads its epoch only after locking this row.
+	await readCompatibilityRow(tx, "update");
 	await tx
 		.deleteFrom("runtime_reader_traffic_epochs")
 		.where("target_version", ">", minimumRuntimeReaderVersion)
@@ -552,7 +508,6 @@ export async function raiseMinimumRuntimeReaderVersionInTransaction(
 			"minimum_writer_version",
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
-			"continuous_registry_traffic_since",
 			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
@@ -571,7 +526,11 @@ export async function raiseMinimumRuntimeReaderVersion(
 	);
 }
 
-/** Raise the receiver admission floor; the first cutoff requires registry TTL. */
+/**
+ * Raise the receiver admission floor. Raising it never evicts an admitted
+ * lease — cadence reauthorization deliberately does not re-read the floor —
+ * so the cutoff applies to registrations only.
+ */
 export async function raiseMinimumStreamReceiverVersionInTransaction(
 	tx: Transaction<AppDatabase>,
 	targetVersion: number,
@@ -582,31 +541,6 @@ export async function raiseMinimumStreamReceiverVersionInTransaction(
 	assertFloorCanAdvance(current.minimum_stream_receiver_version, targetVersion);
 	if (targetVersion === current.minimum_stream_receiver_version) {
 		return compatibilityState(current);
-	}
-
-	if (current.minimum_stream_receiver_version === 0 && targetVersion > 0) {
-		const since = current.continuous_registry_traffic_since;
-		if (since === null) {
-			throw new RolloutCompatibilityError(
-				"registry_epoch_missing",
-				"The initial stream cutoff requires uninterrupted registry traffic.",
-			);
-		}
-		const observedAt = await databaseNow(tx);
-		if (
-			observedAt.getTime() - since.getTime() <
-			STREAM_LEASE_TTL_SECONDS * 1_000
-		) {
-			throw new RolloutCompatibilityError(
-				"registry_epoch_too_young",
-				"Registry-capable traffic has not covered the stream lease TTL.",
-				{
-					continuousRegistryTrafficSince: since,
-					observedAt,
-					requiredSeconds: STREAM_LEASE_TTL_SECONDS,
-				},
-			);
-		}
 	}
 
 	const updated = await tx
@@ -620,7 +554,6 @@ export async function raiseMinimumStreamReceiverVersionInTransaction(
 			"minimum_writer_version",
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
-			"continuous_registry_traffic_since",
 			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
@@ -665,7 +598,6 @@ export async function disableLookupReferenceActivationFlagInTransaction(
 			"minimum_writer_version",
 			"minimum_stream_receiver_version",
 			"minimum_runtime_reader_version",
-			"continuous_registry_traffic_since",
 			"run_holder_nonce_enforced",
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",

@@ -115,7 +115,11 @@ deterministic mutations.
 `appendSyntheticBatch` requires an exact expected sequence and explicit user or
 named-system authority. After locking fresh state it diffs to the requested
 target, proves replay identity, and persists the actual mutations; a true no-op
-writes no row and advances no sequence. The dormant Project move now implements
+writes no row and advances no sequence. `repairLookupReferenceEdges` is the
+app-locked maintenance sibling for derived edge state only: it rederives the
+structural target set from the committed blueprint and replaces the stored
+edge sets, writing no entity, history, or sequence. It is server-only and
+script-driven, with no route, action, or MCP exposure. The dormant Project move now implements
 the final transaction but remains production-disabled by its database flag. Its
 test seam requires the enabled compatibility row, compatible writer/receiver
 versions, and no incompatible live stream; the production wrapper declares the
@@ -161,7 +165,7 @@ compensates the already-durable reports.
 
 `lookup_stream_capability_leases` carries an
 app-scoped, database-minted connection UUID plus a required receiver version and
-expiry; it is rollout state, not lookup data or blueprint state.
+expiry; it is compatibility state, not lookup data or blueprint state.
 `streamReceiverCapabilities.ts` is the pure server admission boundary: it
 requires exactly one strict browser `receiverVersion`, clamps compiled support
 to the strictly parsed deployed environment, requires stream registry v1 on
@@ -199,9 +203,12 @@ as a pooled session setting. `lookupReferenceWriter.ts` is the one transaction
 declaration seam. All authoritative call sites use
 `declareLookupReferenceWriter(tx)`, whose current value derives from
 `config/runtime-capabilities.json` through the validated runtime accessor; it never
-owns a second numeric literal. S05a's production carrier extractor raised the
-manifest's single `writerVersion` field to 1; database floors and feature flags
-remain separate and unchanged.
+owns a second numeric literal. The database floors hold
+`minimum_writer_version = 1` and `minimum_stream_receiver_version = 2` (the
+`lookup_reference_floors` migration), matching the manifest's writer/receiver
+declarations; the runtime-reader floor stays 0 and every feature flag remains
+false. Direct DML against a guarded table — tests and hand-run SQL included —
+must declare writer v1 or fail closed with SQLSTATE `55000`.
 
 Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
 holder identity: edit is `(edit, lock_run_id, run_holder_nonce)`; build is
@@ -301,12 +308,11 @@ after taking the fixed deployment-cutover gate; that callback must perform a
 fresh read when invoked and must never return a pre-captured/cached split. Their
 in-transaction variants exist only for a future explicitly approved activation
 mechanism that already holds the session gate on the same dedicated backend.
-S02c2 does not mutate traffic, prepare an epoch, or raise a floor.
-Reconciliation may preserve/start the
-registry interval and delete invalid runtime epochs, but never auto-creates an
-epoch. Runtime floor raise locks cutover → compatibility `FOR UPDATE` → plain
-MVCC holder census (never app rows); the initial stream floor requires a full
-manifest-derived stream TTL of continuous registry traffic. S02c1 exposes only
+Reconciliation deletes invalid runtime epochs but never auto-creates one.
+Runtime floor raise locks cutover → compatibility `FOR UPDATE` → plain
+MVCC holder census (never app rows); the stream-receiver floor raise is a plain
+monotonic write under the same gate and never evicts an admitted lease. The
+service exposes only
 explicit emergency flag disablement—no flag-enable bypass. Stream registration
 must compose `apps FOR SHARE` → membership gate/read →
 `readStreamReceiverCompatibilityForShare(tx)` → floor verdict → lease insert in
