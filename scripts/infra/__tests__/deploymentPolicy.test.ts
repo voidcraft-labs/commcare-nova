@@ -22,10 +22,14 @@ describe("durable deployment policy", () => {
 		expect(stepOffset("build")).toBeLessThan(stepOffset("push"));
 		expect(stepOffset("push")).toBeLessThan(stepOffset("migrate"));
 		expect(stepOffset("migrate")).toBeLessThan(stepOffset("deploy"));
+		expect(stepOffset("deploy")).toBeLessThan(stepOffset("verify"));
 		expect(cloudBuild).not.toContain("--no-traffic");
 		expect(cloudBuild).not.toContain("nova-rollout");
 		expect(cloudBuild).not.toContain("update-traffic");
 		expect(dockerfile).not.toContain("rollout.cjs");
+		expect(cloudBuild).toContain("https://commcare.app/");
+		expect(cloudBuild).toContain("https://docs.commcare.app/");
+		expect(cloudBuild).toContain("https://mcp.commcare.app/mcp");
 	});
 
 	test("pins one unique image and the runtime platform limits", () => {
@@ -34,6 +38,9 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
 		expect(cloudBuild).toContain(
 			'--timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s"',
+		);
+		expect(cloudBuild).toContain(
+			"--no-default-url --ingress=internal-and-cloud-load-balancing",
 		);
 		expect(cloudBuild).toContain("--min-instances=1 --max-instances=5");
 	});

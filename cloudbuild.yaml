@@ -179,11 +179,46 @@ steps:
           --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
           --network=default --subnet=default --vpc-egress=private-ranges-only \
           --update-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
+          --no-default-url --ingress=internal-and-cloud-load-balancing \
           --min-instances=1 --max-instances=5 \
           --timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s" \
           --no-cpu-throttling \
           --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest \
           --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
+
+  # Exercise the three public host contracts after Cloud Run has completed its
+  # standard traffic move. The MCP surface is healthy only when an
+  # unauthenticated initialize request receives the OAuth discovery challenge,
+  # not a generic 401 from the wrong host or proxy layer.
+  - id: verify
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        for url in https://commcare.app/ https://docs.commcare.app/; do
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            "$${url}" >/dev/null
+        done
+        status=000
+        for attempt in $$(seq 1 12); do
+          status="$$(curl --silent --show-error \
+            --dump-header /workspace/mcp-headers \
+            --output /workspace/mcp-body \
+            --write-out '%{http_code}' \
+            --header 'content-type: application/json' \
+            --data '{"jsonrpc":"2.0","id":"cloud-build","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"nova-cloud-build","version":"1"}}}' \
+            https://mcp.commcare.app/mcp || true)"
+          if test "$${status}" = 401; then break; fi
+          sleep 5
+        done
+        test "$${status}" = 401
+        awk 'BEGIN { found=0 } {
+          line=tolower($$0)
+          if (line ~ /^www-authenticate:/ && line ~ /bearer / && line ~ /resource_metadata=/) found=1
+        } END { exit(found ? 0 : 1) }' /workspace/mcp-headers
 
 options:
   logging: CLOUD_LOGGING_ONLY
