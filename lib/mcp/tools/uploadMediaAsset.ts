@@ -291,13 +291,23 @@ async function recoverFailedMcpPublication(args: {
 		 * Re-read the serialized Project/hash result before treating the object as
 		 * unpublished. If it is our preallocated id, the insert committed; if a
 		 * waiter published after our rollback, that row is the canonical dedup
-		 * result. */
+		 * result. Identical bytes can validate under different extensions, so a
+		 * ready hash winner does not necessarily claim this attempt's exact key. */
 		const ready = await findReadyAssetByProjectAndHash(
 			args.projectId,
 			args.contentHash,
 			lockedDb,
 		);
 		if (ready !== null) {
+			if (ready.gcsObjectKey !== args.gcsObjectKey) {
+				const attemptedKeyIsClaimed = await hasAssetForGcsObjectKey(
+					args.gcsObjectKey,
+					lockedDb,
+				);
+				if (!attemptedKeyIsClaimed) {
+					await deleteStoredAsset(args.gcsObjectKey);
+				}
+			}
 			return { assetId: ready.id };
 		}
 		const published = await hasAssetForGcsObjectKey(

@@ -197,7 +197,12 @@ describe("uploadMediaAsset", () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
 		let attemptAssetId: string | undefined;
 		findReadyAssetByProjectAndHash.mockImplementation(async () =>
-			attemptAssetId === undefined ? null : { id: attemptAssetId },
+			attemptAssetId === undefined
+				? null
+				: {
+						id: attemptAssetId,
+						gcsObjectKey: "projects/project-1/deadbeef.png",
+					},
 		);
 		insertReadyAsset.mockImplementation(async (args) => {
 			attemptAssetId = args.assetId;
@@ -224,7 +229,10 @@ describe("uploadMediaAsset", () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
 		findReadyAssetByProjectAndHash
 			.mockResolvedValueOnce(null)
-			.mockResolvedValueOnce({ id: "winner-id" });
+			.mockResolvedValueOnce({
+				id: "winner-id",
+				gcsObjectKey: "projects/project-1/deadbeef.png",
+			});
 		insertReadyAsset.mockRejectedValue(new Error("insert rolled back"));
 
 		const { server, capture } = makeFakeServer();
@@ -240,6 +248,38 @@ describe("uploadMediaAsset", () => {
 			deduplicated: true,
 		});
 		expect(deleteStoredAsset).not.toHaveBeenCalled();
+	});
+
+	it("cleans its exact key before returning a cross-extension hash winner", async () => {
+		validateMediaBytes.mockResolvedValue(validatedImage);
+		findReadyAssetByProjectAndHash
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({
+				id: "jpg-winner-id",
+				gcsObjectKey: "projects/project-1/deadbeef.jpg",
+			});
+		hasAssetForGcsObjectKey.mockResolvedValue(false);
+		insertReadyAsset.mockRejectedValue(new Error("insert rolled back"));
+
+		const { server, capture } = makeFakeServer();
+		registerUploadMediaAsset(server, toolCtx);
+		const out = await capture()({
+			filename: "logo.png",
+			mime_type: "image/png",
+			data_base64: "aGVsbG8=",
+		});
+
+		expect(parsePayload(out)).toMatchObject({
+			asset_id: "jpg-winner-id",
+			deduplicated: true,
+		});
+		expect(hasAssetForGcsObjectKey).toHaveBeenCalledWith(
+			"projects/project-1/deadbeef.png",
+			expect.anything(),
+		);
+		expect(deleteStoredAsset).toHaveBeenCalledWith(
+			"projects/project-1/deadbeef.png",
+		);
 	});
 
 	it("adopts the ready metadata left by a crash before the prior response", async () => {
