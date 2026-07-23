@@ -7,7 +7,7 @@ JS evaluator, no parity tests.
 
 ## Public surface — barrel
 
-External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId)` — the tenant-bound reads/writes store; `withSchemaContext()` — the tenant-free, app-scoped schema-ops store), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
+External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId)` — the tenant-bound reads/writes store; `withSchemaContext()` — the actor-free, app-scoped schema-ops store with a dynamic current-Project fence), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
 
 **The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included (the compiler's casts stay in lockstep with the type checker), implicit standard entries excluded (their values live in scalar columns, never the JSONB document — a map entry would compile a standard-name reference to a silently-NULL JSONB read, and on the schema-write side would put `format` constraints + a GIN index per text-typed standard name on every case type). Standard-name references resolve instead through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the name→column map mirroring CCHQ's own field-alias table (`commcare-hq/.../app_manager/detail_screen.py`: `name`→`case_name`, `date_opened`/`date-opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`/`external-id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-null`/`is-blank` arms (timestamp columns collapse `is-blank` to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays. The alias shadows any same-named JSONB key, exactly as the device shadows it.
 
@@ -86,14 +86,15 @@ location-/group-based access carving. It is never a tenant filter and
 never to be repurposed/dropped. The two axes are orthogonal:
 `project_id` (tenant / sharing) × `owner_id` (case ownership).
 
-**Schema changes are the deliberate exception — app-scoped,
-tenant-free.** `applySchemaChange` / `dropSchema` (the
+**Schema row work is the deliberate app-scoped exception.** `applySchemaChange` / `dropSchema` (the
 `SchemaCaseStore` slice, built by `withSchemaContext()`) migrate
 EVERY member's rows of an app's case type, so their per-row
 migrations filter `(app_id, case_type)` ONLY — no `project_id` /
-`owner_id`. The schema-write callers (the cross-store saga, the
-chat-completion materialize, the point-of-use heal) therefore bind
-no tenant.
+`owner_id`. The store binds no actor or construction-time Project, but every
+standalone schema mutation starts with `apps FOR SHARE`, rejects a missing or
+deleted app, and holds the app's current Project placement stable through its
+schema/data transaction. The migration-bearing blueprint saga already owns the
+same outer app/auth fence and calls Phase A directly on that transaction.
 
 **Re-tenanting is the second, narrower exception — `retenant.ts`.**
 `retenantAppCases({appId, toProjectId})` is the ONE write that crosses

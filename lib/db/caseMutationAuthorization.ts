@@ -36,3 +36,29 @@ export async function authorizeCaseMutationInTransaction(
 		throw new AppAccessError("not_found");
 	}
 }
+
+/**
+ * Fence an actor-free, app-scoped schema write against Project moves.
+ *
+ * Schema maintenance has no requesting user or tenant filter, but it still
+ * belongs to one live app. Taking `apps FOR SHARE` as the first operation in
+ * the schema transaction makes that app's current Project placement stable
+ * until the schema/data phase commits. A concurrent Project move takes the
+ * conflicting app-row lock, so the two operations have an unambiguous winner.
+ */
+export async function authorizeSystemSchemaMutationInTransaction(
+	caseTx: Transaction<CaseDatabase>,
+	args: { readonly appId: string },
+): Promise<{ readonly projectId: string }> {
+	const appTx = caseTx as unknown as Transaction<AppDatabase>;
+	const app = await appTx
+		.selectFrom("apps")
+		.select(["project_id", "deleted_at"])
+		.where("id", "=", args.appId)
+		.forShare()
+		.executeTakeFirst();
+	if (!app?.project_id || app.deleted_at !== null) {
+		throw new AppAccessError("not_found");
+	}
+	return { projectId: app.project_id };
+}

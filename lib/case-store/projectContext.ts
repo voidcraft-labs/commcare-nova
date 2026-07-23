@@ -16,12 +16,13 @@
 //     actor write additionally re-proves fresh edit access and exact Project
 //     placement inside its own case transaction; the up-front result is never
 //     write authority.
-//   - `withSchemaContext()` — the tenant-FREE store for schema-only
+//   - `withSchemaContext()` — the actor-free store for schema-only
 //     callers (the cross-store saga, the chat-completion materialize,
 //     the point-of-use heal). It can run `applySchemaChange` /
 //     `dropSchema` (app-scoped — they cover every member's rows of the
-//     app's case type) but exposes no tenant-bound method, so a
-//     schema-only caller cannot reach a read/write without a Project.
+//     app's case type). Each schema write locks the app `FOR SHARE` and
+//     observes its current Project in the write transaction, but the store
+//     exposes no tenant-bound case-data method.
 //
 // Both route the `getCaseStoreDatabase()` singleton into
 // `PostgresCaseStore` so a change to the connection-routing strategy
@@ -33,7 +34,10 @@
 // directly with an isolated per-test `Kysely<Database>` instance from
 // `lib/case-store/sql/__tests__/perTestDatabase.ts`.
 
-import { authorizeCaseMutationInTransaction } from "@/lib/db/caseMutationAuthorization";
+import {
+	authorizeCaseMutationInTransaction,
+	authorizeSystemSchemaMutationInTransaction,
+} from "@/lib/db/caseMutationAuthorization";
 import { getCaseStoreDatabase } from "./postgres/connection";
 import { PostgresCaseStore } from "./postgres/store";
 import { HeuristicCaseGenerator } from "./sample/heuristic";
@@ -57,15 +61,18 @@ export async function withProjectContext(
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeMutation: authorizeCaseMutationInTransaction,
+		authorizeSchemaMutation: async (tx, args) => {
+			await authorizeSystemSchemaMutationInTransaction(tx, args);
+		},
 	});
 }
 
 /**
- * Construct a tenant-FREE `SchemaCaseStore` for app-scoped schema
- * operations (`applySchemaChange` / `dropSchema`). Binds no Project or
- * actor — schema changes apply to every member's rows of the app's
- * case type, so they need neither. The narrow return type prevents a
- * schema-only caller from reaching a tenant-bound read/write.
+ * Construct an actor-free `SchemaCaseStore` for app-scoped schema
+ * operations (`applySchemaChange` / `dropSchema`). The instance binds no
+ * Project, but each write dynamically locks the live app and observes its
+ * current Project before touching schema/case rows. The narrow return type
+ * prevents a schema-only caller from reaching tenant-bound case data.
  */
 export async function withSchemaContext(): Promise<TransactionalSchemaCaseStore> {
 	const db = await getCaseStoreDatabase();
@@ -74,5 +81,8 @@ export async function withSchemaContext(): Promise<TransactionalSchemaCaseStore>
 		actorUserId: null,
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
+		authorizeSchemaMutation: async (tx, args) => {
+			await authorizeSystemSchemaMutationInTransaction(tx, args);
+		},
 	});
 }

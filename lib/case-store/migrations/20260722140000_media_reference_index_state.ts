@@ -10,7 +10,7 @@ import { sql } from "kysely";
 
 export async function up(db: import("kysely").Kysely<unknown>): Promise<void> {
 	await sql`
-		CREATE TABLE media_reference_index_state (
+		CREATE TABLE IF NOT EXISTS media_reference_index_state (
 			singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
 			audited_complete_at timestamptz NULL
 		)
@@ -18,6 +18,7 @@ export async function up(db: import("kysely").Kysely<unknown>): Promise<void> {
 	await sql`
 		INSERT INTO media_reference_index_state (singleton, audited_complete_at)
 		VALUES (true, NULL)
+		ON CONFLICT (singleton) DO NOTHING
 	`.execute(db);
 }
 

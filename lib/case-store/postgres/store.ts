@@ -14,10 +14,11 @@
 //     `project_id` filter on every joined `cases` row inside relation
 //     walks lives at the compiler stack (`compileRelationPath`).
 //     Cross-Project reads are structurally impossible. The per-row
-//     SCHEMA migrations are the deliberate exception — they are
-//     app-scoped (`(app_id, case_type)`, no tenant filter) so a schema
-//     change migrates every member's rows, and run on a tenant-free
-//     `withSchemaContext` store.
+//     SCHEMA migrations are the deliberate exception — their case-row work is
+//     app-scoped (`(app_id, case_type)`, no tenant filter) so a schema change
+//     migrates every member's rows. Their actor-free store nevertheless starts
+//     every write with `apps FOR SHARE`, binding it to one current Project-move
+//     winner for the transaction.
 //   - **API-trust-boundary validation.** Writes validate the
 //     candidate `properties` payload against the case-type's JSON
 //     Schema (the row in `case_type_schemas`) via `ajv` BEFORE the
@@ -121,8 +122,9 @@ import { ajvErrorToCaseFailure } from "./validationFailure";
  * or a stub.
  *
  * `projectId` / `actorUserId` are `null` for a schema-only store
- * (`withSchemaContext`): `applySchemaChange` / `dropSchema` are
- * app-scoped and bind no tenant. Every tenant-bound read/write reads
+ * (`withSchemaContext`): schema operations are actor-free and app-scoped,
+ * while their injected authorization fence locks the live app and observes
+ * its current Project inside each write transaction. Every tenant-bound read/write reads
  * them through `requireProjectId()` / `requireActorUserId()`, which
  * throw if reached on a schema-only store — unreachable in practice
  * because `withSchemaContext` returns the narrow `SchemaCaseStore`
@@ -146,6 +148,15 @@ export interface PostgresCaseStoreArgs {
 			readonly projectId: string;
 			readonly actorUserId: string;
 		},
+	) => Promise<void>;
+	/**
+	 * Production-only app-placement fence for actor-free schema mutations. It
+	 * runs first in the schema/data transaction and holds `apps FOR SHARE` so a
+	 * Project move cannot straddle the write. Direct storage tests may omit it.
+	 */
+	authorizeSchemaMutation?: (
+		tx: Transaction<Database>,
+		args: { readonly appId: string },
 	) => Promise<void>;
 }
 
@@ -199,6 +210,9 @@ export class PostgresCaseStore implements CaseStore {
 	private readonly authorizeMutationCallback:
 		| NonNullable<PostgresCaseStoreArgs["authorizeMutation"]>
 		| undefined;
+	private readonly authorizeSchemaMutationCallback:
+		| NonNullable<PostgresCaseStoreArgs["authorizeSchemaMutation"]>
+		| undefined;
 
 	constructor(args: PostgresCaseStoreArgs) {
 		this.projectId = args.projectId;
@@ -208,6 +222,15 @@ export class PostgresCaseStore implements CaseStore {
 		this.validatorCache = new Map();
 		this.sampleGenerator = args.sampleGenerator;
 		this.authorizeMutationCallback = args.authorizeMutation;
+		this.authorizeSchemaMutationCallback = args.authorizeSchemaMutation;
+	}
+
+	/** Hold the live app's placement stable for one actor-free schema write. */
+	private async authorizeSchemaMutation(
+		trx: Transaction<Database>,
+		appId: string,
+	): Promise<void> {
+		await this.authorizeSchemaMutationCallback?.(trx, { appId });
 	}
 
 	/**
@@ -1221,9 +1244,10 @@ export class PostgresCaseStore implements CaseStore {
 	async applySchemaChange(
 		args: ApplySchemaChangeArgs,
 	): Promise<MigrationReport> {
-		const phaseA = await this.db
-			.transaction()
-			.execute((tx) => this.applySchemaChangePhaseA(tx, args));
+		const phaseA = await this.db.transaction().execute(async (tx) => {
+			await this.authorizeSchemaMutation(tx, args.appId);
+			return this.applySchemaChangePhaseA(tx, args);
+		});
 		await phaseA.completeAfterCommit();
 		return phaseA.report;
 	}
@@ -1577,17 +1601,16 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	async dropSchema(args: { appId: string; caseType: string }): Promise<void> {
-		// Phase A: DELETE the `case_type_schemas` row. A single
-		// statement is atomic on its own — no transaction needed
-		// for one DELETE — but the structural shape mirrors
-		// `applySchemaChange`'s Phase A so the file's two-phase
-		// pattern stays uniform. Idempotent on every absence path:
-		// DELETE matching zero rows is a no-op.
-		await this.db
-			.deleteFrom("case_type_schemas")
-			.where("app_id", "=", args.appId)
-			.where("case_type", "=", args.caseType)
-			.execute();
+		// Phase A: lock the live app placement, then DELETE the schema row in
+		// that same transaction. Idempotent when the schema row is absent.
+		await this.db.transaction().execute(async (trx) => {
+			await this.authorizeSchemaMutation(trx, args.appId);
+			await trx
+				.deleteFrom("case_type_schemas")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", args.caseType)
+				.execute();
+		});
 
 		// Phase B: drop every per-property expression index for THIS
 		// app's case type. The "desired set" for a dropped case type is
@@ -2610,6 +2633,7 @@ export class PostgresCaseStore implements CaseStore {
 	}): Promise<{ restored: number; kept: number }> {
 		if (args.ids.length === 0) return { restored: 0, kept: 0 };
 		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeSchemaMutation(trx, args.appId);
 			const entries = await trx
 				.selectFrom("parked_case_values as p")
 				.selectAll("p")

@@ -191,6 +191,55 @@ describe("copyAssetsIntoProject", () => {
 		);
 	});
 
+	it("preserves an equal-version destination extract and its matching object", async () => {
+		const source = asset("document-source", {
+			contentHash: "f".repeat(64),
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "source-model",
+				truncated: false,
+				charCount: 20,
+				extractedAt: 200,
+				title: "Source title",
+			},
+		});
+		const existing = asset("existing-destination", {
+			project_id: TO,
+			contentHash: source.contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "destination-model",
+				truncated: false,
+				charCount: 30,
+				extractedAt: 300,
+				title: "Destination title",
+			},
+		});
+		loadAssetsByIds.mockResolvedValue([source]);
+		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
+
+		const result = await copyAssetsIntoProject({
+			requiredAssetIds: [source.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+
+		expect(result.get(source.id)).toBe(existing.id);
+		expect(copyAssetObject).not.toHaveBeenCalled();
+		expect(installCopiedReadyExtract).not.toHaveBeenCalled();
+		expect(createReadyAsset).not.toHaveBeenCalled();
+	});
+
 	it("does not block when a historical-only attachment is deleted during pre-copy", async () => {
 		const historical = asset("historical-race");
 		loadAssetsByIds

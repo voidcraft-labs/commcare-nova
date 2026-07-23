@@ -21,6 +21,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import {
 	carriersForAsset,
 	cleanupReleasedAssetStorage,
+	cleanupUnpublishedAssetObject,
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
@@ -29,6 +30,7 @@ const {
 	listApps,
 	loadApp,
 	deleteAssetRow,
+	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
 	deleteGcsObject,
 	walkAssetRefs,
@@ -39,6 +41,7 @@ const {
 	),
 	loadApp: vi.fn(),
 	deleteAssetRow: vi.fn(() => Promise.resolve()),
+	hasAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	hasOtherAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	deleteGcsObject: vi.fn(() => Promise.resolve()),
 	walkAssetRefs: vi.fn(() => []),
@@ -51,6 +54,7 @@ const {
 vi.mock("@/lib/db/apps", () => ({ listApps, loadApp }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	deleteAsset: deleteAssetRow,
+	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
 }));
 vi.mock("@/lib/storage/media", () => ({ deleteAsset: deleteGcsObject }));
@@ -100,6 +104,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	listApps.mockResolvedValue({ apps: [] });
 	loadApp.mockResolvedValue(null);
+	hasAssetForGcsObjectKey.mockResolvedValue(false);
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
 	walkAssetRefs.mockReturnValue([]);
 });
@@ -320,6 +325,30 @@ function installKeyMutex(): void {
 }
 
 describe("canonical object-key cleanup/publication winner orders", () => {
+	it("deletes a copied final object when no metadata publication names it", async () => {
+		const key = "projects/project-1/unpublished.pdf";
+
+		await cleanupUnpublishedAssetObject(key);
+
+		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
+			key,
+			expect.any(Function),
+		);
+		expect(hasAssetForGcsObjectKey).toHaveBeenCalledWith(
+			key,
+			expect.anything(),
+		);
+		expect(deleteGcsObject).toHaveBeenCalledWith(key);
+	});
+
+	it("retains a copied final object when a retry published while cleanup waited", async () => {
+		hasAssetForGcsObjectKey.mockResolvedValue(true);
+
+		await cleanupUnpublishedAssetObject("projects/project-1/published.pdf");
+
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
 	it("lets cleanup finish first, then a waiting publisher restores bytes before ready metadata", async () => {
 		installKeyMutex();
 		let objectExists = true;

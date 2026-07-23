@@ -14,6 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
 	type AssetId,
 	type AssetKind,
@@ -29,6 +30,7 @@ import {
 	type MediaAssetsTable,
 	withAppTx,
 } from "./pg";
+import { projectRoleForInTransaction } from "./projectMembership";
 import {
 	type MediaAssetDoc,
 	type MediaAssetExtract,
@@ -267,6 +269,132 @@ export async function confirmAssetReady(
 	}
 }
 
+export type PendingAssetPublicationResult =
+	| { readonly kind: "published"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "already_ready"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "not_found" };
+
+/**
+ * Freshly authorize and atomically publish one browser upload.
+ *
+ * The caller holds the canonical final-object key lock and has already copied
+ * validated bytes. Membership is re-proved before the asset row lock, matching
+ * deletion's membership -> asset order. A stale duplicate confirm that wakes
+ * after another request published returns the authoritative ready row; it never
+ * rewrites or deletes terminal state.
+ */
+export async function publishPendingAssetForActor(
+	args: {
+		assetId: AssetId;
+		actorUserId: string;
+		expectedProjectId: string;
+		gcsObjectKey: string;
+		mimeType: AssetMimeType;
+		extension: string;
+		dimensions?: { width: number; height: number };
+		durationMs?: number;
+	},
+	lockedDb: Kysely<AppDatabase>,
+): Promise<PendingAssetPublicationResult> {
+	return lockedDb.transaction().execute(async (tx) => {
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			return { kind: "not_found" };
+		}
+		const row = await tx
+			.selectFrom("media_assets")
+			.selectAll()
+			.where("id", "=", args.assetId)
+			.where("project_id", "=", args.expectedProjectId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) return { kind: "not_found" };
+		const current = mediaAssetRecordFromRow(row);
+		if (current.status === "ready") {
+			return { kind: "already_ready", asset: current };
+		}
+		if (current.status !== "pending") {
+			return { kind: "not_found" };
+		}
+		const published = await tx
+			.updateTable("media_assets")
+			.set({
+				status: "ready",
+				gcs_object_key: args.gcsObjectKey,
+				mime_type: args.mimeType,
+				extension: args.extension,
+				...(args.dimensions && {
+					dimensions: JSON.stringify(args.dimensions),
+				}),
+				...(args.durationMs !== undefined && {
+					duration_ms: args.durationMs,
+				}),
+			})
+			.where("id", "=", args.assetId)
+			.where("status", "=", "pending")
+			.returningAll()
+			.executeTakeFirst();
+		if (published === undefined) return { kind: "not_found" };
+		return { kind: "published", asset: mediaAssetRecordFromRow(published) };
+	});
+}
+
+export type PendingAssetDeleteResult =
+	| { readonly kind: "deleted"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "already_ready"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "not_found" };
+
+/**
+ * Delete only a still-pending browser attempt under fresh Project authority.
+ * A stale validation failure that loses to publication observes `ready` and
+ * returns it idempotently instead of deleting terminal metadata.
+ */
+export async function deletePendingAssetForActor(
+	args: {
+		assetId: AssetId;
+		actorUserId: string;
+		expectedProjectId: string;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<PendingAssetDeleteResult> {
+	const db = lockedDb ?? (await getAppDb());
+	return db.transaction().execute(async (tx) => {
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			return { kind: "not_found" };
+		}
+		const row = await tx
+			.selectFrom("media_assets")
+			.selectAll()
+			.where("id", "=", args.assetId)
+			.where("project_id", "=", args.expectedProjectId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) return { kind: "not_found" };
+		const current = mediaAssetRecordFromRow(row);
+		if (current.status === "ready") {
+			return { kind: "already_ready", asset: current };
+		}
+		if (current.status !== "pending") return { kind: "not_found" };
+		const deleted = await tx
+			.deleteFrom("media_assets")
+			.where("id", "=", args.assetId)
+			.where("status", "=", "pending")
+			.executeTakeFirst();
+		return Number(deleted.numDeletedRows) === 1
+			? { kind: "deleted", asset: current }
+			: { kind: "not_found" };
+	});
+}
+
 /**
  * Create a `ready` asset row in one shot — the cross-Project move's
  * copy-into-destination path (`lib/media/moveMedia.ts`). The bytes are already
@@ -490,6 +618,26 @@ export async function hasOtherAssetForGcsObjectKey(
 		.select("id")
 		.where("gcs_object_key", "=", gcsObjectKey)
 		.where("id", "!=", excludeAssetId)
+		.limit(1)
+		.executeTakeFirst();
+	return row !== undefined;
+}
+
+/**
+ * True when any committed asset row currently names a GCS object key.
+ * Lost-publication cleanup uses this under the canonical key lock and must NOT
+ * exclude the attempted asset id: a retry of that same upload may have won and
+ * published the row while cleanup waited to reacquire the lock.
+ */
+export async function hasAssetForGcsObjectKey(
+	gcsObjectKey: string,
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<boolean> {
+	const db = lockedDb ?? (await getAppDb());
+	const row = await db
+		.selectFrom("media_assets")
+		.select("id")
+		.where("gcs_object_key", "=", gcsObjectKey)
 		.limit(1)
 		.executeTakeFirst();
 	return row !== undefined;

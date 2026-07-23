@@ -3,9 +3,10 @@
  *
  * App writers lock newly introduced asset rows `FOR SHARE` and insert the
  * reverse edge in their app transaction. Deletion locks the asset `FOR UPDATE`
- * and re-walks persisted blueprints without taking app locks. These tests hold
+ * and re-walks persisted carriers without taking app locks. These tests hold
  * each winner immediately before commit so the loser must wake and re-evaluate
- * current state rather than accepting a stale preflight.
+ * current state rather than accepting a stale preflight. The carrier-relocation
+ * regression also pins roots + normalized entities to one statement snapshot.
  */
 
 import { Client } from "pg";
@@ -18,6 +19,8 @@ import { createPerTestAppDb } from "./perTestAppDb";
 
 const { commitGuardedBatch, loadApp } = await import("../apps");
 const { BlueprintCommitRejectedError } = await import("../commitGuard");
+const { deletePendingAssetForActor, publishPendingAssetForActor } =
+	await import("../mediaAssets");
 const { deleteMediaAssetForActor, deleteMediaAssetMetadataInTransaction } =
 	await import("../mediaDeletion");
 
@@ -44,6 +47,31 @@ async function seedReadyAsset(id = crypto.randomUUID()): Promise<string> {
 			original_filename: "logo.png",
 			display_name: "Logo",
 			status: "ready",
+			extract: null,
+		})
+		.execute();
+	return id;
+}
+
+async function seedPendingAsset(id = crypto.randomUUID()): Promise<string> {
+	await h
+		.db()
+		.insertInto("media_assets")
+		.values({
+			id,
+			project_id: PROJECT,
+			owner: ACTOR,
+			content_hash: id.replaceAll("-", "").padEnd(64, "b").slice(0, 64),
+			mime_type: "image/png",
+			extension: ".png",
+			size_bytes: 100,
+			dimensions: null,
+			duration_ms: null,
+			kind: "image",
+			gcs_object_key: `pending/${PROJECT}/${id}.png`,
+			original_filename: "logo.png",
+			display_name: "Logo",
+			status: "pending",
 			extract: null,
 		})
 		.execute();
@@ -86,6 +114,81 @@ async function waitForBlockedLocks(
 }
 
 describe("transactional media deletion", () => {
+	it("a stale rejection waiting behind publication observes ready as terminal", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const assetId = await seedPendingAsset();
+		const finalKey = `projects/${PROJECT}/${assetId}.png`;
+		const gateKey = 8_273_639;
+		const gate = new Client({ connectionString: h.uri() });
+		const publisherDb = createPerTestAppDb(h.uri());
+		await gate.connect();
+		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+		await gate.query(`
+			CREATE FUNCTION test_pause_pending_publication() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			BEGIN
+				PERFORM pg_advisory_xact_lock(${gateKey});
+				RETURN NEW;
+			END
+			$$;
+			CREATE TRIGGER test_pause_pending_publication_trigger
+				AFTER UPDATE OF status ON media_assets
+				FOR EACH ROW
+				WHEN (OLD.status = 'pending' AND NEW.status = 'ready')
+				EXECUTE FUNCTION test_pause_pending_publication();
+		`);
+
+		const publication = publishPendingAssetForActor(
+			{
+				assetId: asAssetId(assetId),
+				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+				gcsObjectKey: finalKey,
+				mimeType: "image/png",
+				extension: ".png",
+				dimensions: { width: 16, height: 16 },
+			},
+			publisherDb.appDb,
+		);
+		let gateHeld = true;
+		let rejection: Promise<unknown> | undefined;
+		try {
+			await waitForBlockedLocks(gate, 1);
+			rejection = deletePendingAssetForActor({
+				assetId: asAssetId(assetId),
+				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+			});
+			await waitForBlockedLocks(gate, 2);
+			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
+			gateHeld = false;
+
+			await expect(publication).resolves.toMatchObject({ kind: "published" });
+			await expect(rejection).resolves.toMatchObject({ kind: "already_ready" });
+		} finally {
+			if (gateHeld) {
+				await gate
+					.query("SELECT pg_advisory_unlock($1)", [gateKey])
+					.catch(() => {});
+			}
+			await Promise.allSettled([
+				publication,
+				...(rejection ? [rejection] : []),
+			]);
+			await gate.end().catch(() => {});
+			await publisherDb.destroy();
+		}
+
+		expect(
+			await h
+				.db()
+				.selectFrom("media_assets")
+				.select(["status", "gcs_object_key"])
+				.where("id", "=", assetId)
+				.executeTakeFirst(),
+		).toEqual({ status: "ready", gcs_object_key: finalKey });
+	}, 15_000);
+
 	it("full-scans persisted carriers while the reverse-index marker is incomplete", async () => {
 		const { appId } = await seedApp();
 		const assetId = await seedReadyAsset();
@@ -115,6 +218,102 @@ describe("transactional media deletion", () => {
 				.executeTakeFirst(),
 		).toEqual({ id: assetId });
 	});
+
+	it("cannot miss an asset atomically relocated from a normalized entity to the app root", async () => {
+		const assetId = await seedReadyAsset();
+		const doc = buildDoc({
+			appName: "Carrier relocation",
+			modules: [{ uuid: "module-1", name: "Households", forms: [] }],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		if (moduleUuid === undefined) throw new Error("module fixture missing");
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) throw new Error("module fixture missing");
+		module.icon = asAssetId(assetId);
+		const appId = await h.seedAppWithBlueprint(doc, {
+			owner: ACTOR,
+			projectId: PROJECT,
+		});
+
+		const gateKey = 8_273_641;
+		const gate = new Client({ connectionString: h.uri() });
+		const contender = createPerTestAppDb(h.uri());
+		await gate.connect();
+		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+		await gate.query(`
+			CREATE FUNCTION test_pause_carrier_relocation() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			BEGIN
+				LOCK TABLE blueprint_entities IN ACCESS EXCLUSIVE MODE;
+				PERFORM pg_advisory_xact_lock(${gateKey});
+				RETURN NEW;
+			END
+			$$;
+			CREATE TRIGGER test_pause_carrier_relocation_trigger
+				BEFORE INSERT ON accepted_mutations
+				FOR EACH ROW EXECUTE FUNCTION test_pause_carrier_relocation();
+		`);
+
+		const relocation = commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: [
+				{
+					kind: "setModuleMedia",
+					uuid: moduleUuid,
+					icon: null,
+					audioLabel: null,
+				},
+				{ kind: "setAppLogo", logo: asAssetId(assetId) },
+			],
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+		let gateHeld = true;
+		let deletion: Promise<unknown> | undefined;
+		try {
+			// The writer has changed BOTH carriers and holds an exclusive relation
+			// lock before commit. A legacy split scan can read the old root, then
+			// wake after commit and read the new entity — missing both. The coherent
+			// query blocks as one statement and sees one side of the relocation.
+			await waitForBlockedLocks(gate, 1);
+			deletion = contender.appDb.transaction().execute((tx) =>
+				deleteMediaAssetMetadataInTransaction(tx, {
+					assetId,
+					actorUserId: ACTOR,
+					expectedProjectId: PROJECT,
+				}),
+			);
+			await waitForBlockedLocks(gate, 2);
+			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
+			gateHeld = false;
+
+			await expect(relocation).resolves.toMatchObject({ seq: 1 });
+			await expect(deletion).resolves.toMatchObject({ kind: "referenced" });
+		} finally {
+			if (gateHeld) {
+				await gate
+					.query("SELECT pg_advisory_unlock($1)", [gateKey])
+					.catch(() => {});
+			}
+			await Promise.allSettled([relocation, ...(deletion ? [deletion] : [])]);
+			await gate.end().catch(() => {});
+			await contender.destroy();
+		}
+
+		const persisted = await loadApp(appId);
+		expect(persisted?.blueprint.logo).toBe(assetId);
+		expect(persisted?.blueprint.modules[moduleUuid]?.icon).toBeUndefined();
+		expect(
+			await h
+				.db()
+				.selectFrom("media_assets")
+				.select("id")
+				.where("id", "=", assetId)
+				.executeTakeFirst(),
+		).toEqual({ id: assetId });
+	}, 15_000);
 
 	it("attach winner commits its carrier and exact edge before delete re-walks", async () => {
 		const { appId } = await seedApp();

@@ -7,8 +7,8 @@
  *   1. loads the `pending` row (rejects if the caller isn't a Project member, or it's missing)
  *   2. downloads the bytes from the pending GCS object once
  *   3. runs the validation pipeline against the stored bytes
- *   4. on failure: deletes the pending GCS object AND the Postgres row,
- *      returns 400 with the rejection message
+ *   4. on failure: freshly locks the row; deletes only if it is still pending,
+ *      otherwise returns the concurrently-published ready asset idempotently
  *   5. on success: promotes the bytes to the content-hash final key,
  *      writes validated metadata, flips status to `ready`
  *
@@ -24,11 +24,11 @@ import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
 import {
-	confirmAssetReady,
-	deleteAsset as deleteAssetRow,
+	deletePendingAssetForActor,
 	findReadyAssetByProjectAndHash,
 	loadAssetById,
 	type MediaAssetRecord,
+	publishPendingAssetForActor,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
 import {
@@ -37,7 +37,10 @@ import {
 	gcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import { cleanupReleasedAssetStorage } from "@/lib/media/assetDeletion";
+import {
+	cleanupReleasedAssetStorage,
+	cleanupUnpublishedAssetObject,
+} from "@/lib/media/assetDeletion";
 import { validateMediaBytes } from "@/lib/media/validate";
 import {
 	copyAssetObject,
@@ -91,7 +94,13 @@ export async function POST(
 		}
 		const cap = ASSET_SIZE_CAPS_BYTES[asset.kind];
 		if (storedSize > cap) {
-			await deleteRejectedUpload(asset);
+			const ready = await deleteRejectedUpload(asset, session.user.id);
+			if (ready) {
+				return NextResponse.json({
+					ok: true,
+					asset: toWireMediaAsset(ready),
+				});
+			}
 			const capMb = (cap / 1024 / 1024).toFixed(0);
 			const actualMb = (storedSize / 1024 / 1024).toFixed(2);
 			throw new ApiError(
@@ -119,7 +128,13 @@ export async function POST(
 			// Drop this attempt's bytes + row so the upload pathway
 			// returns to a clean state. The object delete is guarded
 			// against legacy/shared rows before touching GCS.
-			await deleteRejectedUpload(asset);
+			const ready = await deleteRejectedUpload(asset, session.user.id);
+			if (ready) {
+				return NextResponse.json({
+					ok: true,
+					asset: toWireMediaAsset(ready),
+				});
+			}
 			throw new ApiError(result.message, 400);
 		}
 
@@ -134,62 +149,116 @@ export async function POST(
 			result.validated.contentHash,
 			result.validated.extension,
 		);
-		const publication = await withMediaObjectKeyLock(
-			finalGcsObjectKey,
-			async (lockedDb) => {
-				// Re-check dedup while holding the same key lock every publisher and
-				// last-reference cleanup uses. Exactly one simultaneous confirm wins.
-				const sibling = await findReadyAssetByProjectAndHash(
-					asset.project_id,
-					asset.contentHash,
-					lockedDb,
-				);
-				if (sibling && sibling.id !== assetId) {
-					// Commit the losing pending-row deletion while the winning ready
-					// metadata is protected by the canonical key lock. Its old object is
-					// cleaned only after this lock is released below, avoiding recursive
-					// acquisition when a legacy pending row already used the final key.
-					await deleteAssetRow(asset.id, lockedDb);
-					return { kind: "deduped" as const, sibling };
-				}
-				if (asset.gcsObjectKey !== finalGcsObjectKey) {
-					await copyAssetObject(asset.gcsObjectKey, finalGcsObjectKey);
-				}
-				await confirmAssetReady(
-					{
-						assetId,
-						gcsObjectKey: finalGcsObjectKey,
-						mimeType: result.validated.mimeType,
-						extension: result.validated.extension,
-						dimensions: result.validated.dimensions,
-						durationMs: result.validated.durationMs,
+		let finalObjectMayNeedCleanup = false;
+		let publication: {
+			asset: MediaAssetRecord;
+			releasedPending: MediaAssetRecord | null;
+		};
+		try {
+			publication = await withMediaObjectKeyLock(
+				finalGcsObjectKey,
+				async (lockedDb) => {
+					// Re-check dedup while holding the same key lock every publisher and
+					// last-reference cleanup uses. Exactly one simultaneous confirm wins.
+					const sibling = await findReadyAssetByProjectAndHash(
+						asset.project_id,
+						asset.contentHash,
+						lockedDb,
+					);
+					if (sibling && sibling.id !== assetId) {
+						// Delete only a FRESHLY-confirmed pending loser. If another request
+						// already made this exact row ready, ready is terminal and wins over
+						// the unrelated sibling discovered above.
+						const released = await deletePendingAssetForActor(
+							{
+								assetId,
+								actorUserId: session.user.id,
+								expectedProjectId: asset.project_id,
+							},
+							lockedDb,
+						);
+						if (released.kind === "not_found") {
+							throw new ApiError(
+								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+								404,
+							);
+						}
+						if (released.kind === "already_ready") {
+							return {
+								asset: released.asset,
+								releasedPending:
+									asset.gcsObjectKey === released.asset.gcsObjectKey
+										? null
+										: asset,
+							};
+						}
+						return {
+							asset: sibling,
+							releasedPending:
+								asset.gcsObjectKey === sibling.gcsObjectKey
+									? null
+									: released.asset,
+						};
+					}
+					// From this point the canonical object may exist without ready
+					// metadata if the fresh publication transaction loses. Cleanup runs
+					// only after this key lock is released and rechecks ALL rows for the key.
+					finalObjectMayNeedCleanup = true;
+					if (asset.gcsObjectKey !== finalGcsObjectKey) {
+						await copyAssetObject(asset.gcsObjectKey, finalGcsObjectKey);
+					}
+					const published = await publishPendingAssetForActor(
+						{
+							assetId,
+							actorUserId: session.user.id,
+							expectedProjectId: asset.project_id,
+							gcsObjectKey: finalGcsObjectKey,
+							mimeType: result.validated.mimeType,
+							extension: result.validated.extension,
+							dimensions: result.validated.dimensions,
+							durationMs: result.validated.durationMs,
+						},
+						lockedDb,
+					);
+					if (published.kind === "not_found") {
+						throw new ApiError(
+							"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+							404,
+						);
+					}
+					return {
+						asset: published.asset,
+						releasedPending:
+							asset.gcsObjectKey === published.asset.gcsObjectKey
+								? null
+								: asset,
+					};
+				},
+			);
+			finalObjectMayNeedCleanup = false;
+		} catch (error) {
+			if (finalObjectMayNeedCleanup) {
+				await cleanupUnpublishedAssetObject(finalGcsObjectKey).catch(
+					(cleanupError: unknown) => {
+						log.error(
+							"[media:confirm] lost-publication cleanup failed",
+							cleanupError,
+							{ assetId, gcsObjectKey: finalGcsObjectKey },
+						);
 					},
-					lockedDb,
 				);
-				return { kind: "published" as const };
-			},
-		);
-		if (publication.kind === "deduped") {
-			await cleanupReleasedAssetStorage(asset).catch((err: unknown) => {
-				log.error("[media:confirm] deduped-object cleanup failed", err, {
-					assetId,
-					gcsObjectKey: asset.gcsObjectKey,
-				});
-			});
-			return NextResponse.json({
-				ok: true,
-				asset: toWireMediaAsset(publication.sibling),
-			});
+			}
+			throw error;
 		}
-		const pendingObjectToDelete =
-			asset.gcsObjectKey === finalGcsObjectKey ? null : asset.gcsObjectKey;
-		if (pendingObjectToDelete) {
-			await cleanupReleasedAssetStorage(asset).catch((err: unknown) => {
-				log.error("[media:confirm] pending-object cleanup failed", err, {
-					assetId,
-					gcsObjectKey: pendingObjectToDelete,
-				});
-			});
+		if (publication.releasedPending) {
+			await cleanupReleasedAssetStorage(publication.releasedPending).catch(
+				(err: unknown) => {
+					log.error("[media:confirm] pending-object cleanup failed", err, {
+						assetId,
+						gcsObjectKey: publication.releasedPending?.gcsObjectKey,
+					});
+				},
+			);
 		}
 
 		return NextResponse.json({
@@ -198,15 +267,7 @@ export async function POST(
 			// length mismatch). `mimeType`/`extension` carry the validated
 			// values (which may refine the pending row's guess for a
 			// document) so the response matches what was stored.
-			asset: toWireMediaAsset({
-				...asset,
-				status: "ready",
-				gcsObjectKey: finalGcsObjectKey,
-				mimeType: result.validated.mimeType,
-				extension: result.validated.extension,
-				dimensions: result.validated.dimensions,
-				durationMs: result.validated.durationMs,
-			}),
+			asset: toWireMediaAsset(publication.asset),
 		});
 	} catch (err) {
 		if (!(err instanceof ApiError)) {
@@ -226,12 +287,27 @@ export async function POST(
  * points at the same key, remove only this Postgres row and leave bytes
  * intact for the sibling.
  */
-async function deleteRejectedUpload(asset: MediaAssetRecord): Promise<void> {
-	await deleteAssetRow(asset.id);
-	await cleanupReleasedAssetStorage(asset).catch((err: unknown) => {
+async function deleteRejectedUpload(
+	asset: MediaAssetRecord,
+	actorUserId: string,
+): Promise<MediaAssetRecord | null> {
+	const result = await deletePendingAssetForActor({
+		assetId: asset.id,
+		actorUserId,
+		expectedProjectId: asset.project_id,
+	});
+	if (result.kind === "not_found") {
+		throw new ApiError(
+			"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+			404,
+		);
+	}
+	if (result.kind === "already_ready") return result.asset;
+	await cleanupReleasedAssetStorage(result.asset).catch((err: unknown) => {
 		log.error("[media:confirm] rejected-object cleanup failed", err, {
 			assetId: asset.id,
-			gcsObjectKey: asset.gcsObjectKey,
+			gcsObjectKey: result.asset.gcsObjectKey,
 		});
 	});
+	return null;
 }

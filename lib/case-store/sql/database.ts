@@ -22,8 +22,9 @@
 //
 // No row-level security, no per-tenant schema, no per-tenant database.
 // The application funnels reads/writes through a `CaseStore` bound to
-// the request's Project id (`withProjectContext`); schema-change
-// operations are app-scoped and bind no tenant (`withSchemaContext`).
+// the request's Project id (`withProjectContext`); schema-change row work is
+// app-scoped, while `withSchemaContext` dynamically locks the app and observes
+// its current Project for every write transaction.
 //
 // ## JSONB column types do NOT narrow per case type
 //

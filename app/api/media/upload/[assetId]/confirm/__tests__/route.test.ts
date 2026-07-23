@@ -12,18 +12,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
 import {
-	confirmAssetReady,
-	deleteAsset as deleteAssetRow,
+	deletePendingAssetForActor,
 	findReadyAssetByProjectAndHash,
-	hasOtherAssetForGcsObjectKey,
 	loadAssetById,
 	type MediaAssetRecord,
+	publishPendingAssetForActor,
 } from "@/lib/db/mediaAssets";
 import { asAssetId } from "@/lib/domain/multimedia";
+import {
+	cleanupReleasedAssetStorage,
+	cleanupUnpublishedAssetObject,
+} from "@/lib/media/assetDeletion";
 import { validateMediaBytes } from "@/lib/media/validate";
 import {
 	copyAssetObject,
-	deleteAsset as deleteGcsObject,
 	downloadAssetBytes,
 	getStoredObjectSize,
 } from "@/lib/storage/media";
@@ -34,13 +36,13 @@ const HASH = "b".repeat(64);
 const {
 	requireSessionMock,
 	userInProjectMock,
-	confirmAssetReadyMock,
-	deleteAssetRowMock,
+	deletePendingAssetForActorMock,
 	findReadyAssetByProjectAndHashMock,
-	hasOtherAssetForGcsObjectKeyMock,
 	loadAssetByIdMock,
+	publishPendingAssetForActorMock,
+	cleanupReleasedAssetStorageMock,
+	cleanupUnpublishedAssetObjectMock,
 	copyAssetObjectMock,
-	deleteGcsObjectMock,
 	downloadAssetBytesMock,
 	getStoredObjectSizeMock,
 	validateMediaBytesMock,
@@ -48,13 +50,13 @@ const {
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	userInProjectMock: vi.fn(),
-	confirmAssetReadyMock: vi.fn(() => Promise.resolve()),
-	deleteAssetRowMock: vi.fn(() => Promise.resolve()),
+	deletePendingAssetForActorMock: vi.fn(),
 	findReadyAssetByProjectAndHashMock: vi.fn(),
-	hasOtherAssetForGcsObjectKeyMock: vi.fn(),
 	loadAssetByIdMock: vi.fn(),
+	publishPendingAssetForActorMock: vi.fn(),
+	cleanupReleasedAssetStorageMock: vi.fn(() => Promise.resolve()),
+	cleanupUnpublishedAssetObjectMock: vi.fn(() => Promise.resolve()),
 	copyAssetObjectMock: vi.fn(() => Promise.resolve()),
-	deleteGcsObjectMock: vi.fn(() => Promise.resolve()),
 	downloadAssetBytesMock: vi.fn(),
 	getStoredObjectSizeMock: vi.fn(),
 	validateMediaBytesMock: vi.fn(),
@@ -70,11 +72,10 @@ vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/db/mediaAssets")>();
 	return {
 		...actual,
-		confirmAssetReady: confirmAssetReadyMock,
-		deleteAsset: deleteAssetRowMock,
+		deletePendingAssetForActor: deletePendingAssetForActorMock,
 		findReadyAssetByProjectAndHash: findReadyAssetByProjectAndHashMock,
-		hasOtherAssetForGcsObjectKey: hasOtherAssetForGcsObjectKeyMock,
 		loadAssetById: loadAssetByIdMock,
+		publishPendingAssetForActor: publishPendingAssetForActorMock,
 		toWireMediaAsset: vi.fn((asset: MediaAssetRecord) => ({
 			id: asset.id,
 			status: asset.status,
@@ -84,9 +85,12 @@ vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 });
 vi.mock("@/lib/storage/media", () => ({
 	copyAssetObject: copyAssetObjectMock,
-	deleteAsset: deleteGcsObjectMock,
 	downloadAssetBytes: downloadAssetBytesMock,
 	getStoredObjectSize: getStoredObjectSizeMock,
+}));
+vi.mock("@/lib/media/assetDeletion", () => ({
+	cleanupReleasedAssetStorage: cleanupReleasedAssetStorageMock,
+	cleanupUnpublishedAssetObject: cleanupUnpublishedAssetObjectMock,
 }));
 vi.mock("@/lib/media/validate", () => ({
 	validateMediaBytes: validateMediaBytesMock,
@@ -131,7 +135,17 @@ beforeEach(() => {
 	vi.mocked(getStoredObjectSize).mockResolvedValue(10);
 	vi.mocked(downloadAssetBytes).mockResolvedValue(Buffer.from("bytes"));
 	vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(null);
-	vi.mocked(hasOtherAssetForGcsObjectKey).mockResolvedValue(false);
+	vi.mocked(deletePendingAssetForActor).mockResolvedValue({
+		kind: "deleted",
+		asset: pendingAsset(),
+	});
+	vi.mocked(publishPendingAssetForActor).mockResolvedValue({
+		kind: "published",
+		asset: pendingAsset({
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		}),
+	});
 	vi.mocked(validateMediaBytes).mockResolvedValue({
 		ok: true,
 		validated: {
@@ -155,9 +169,11 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 			"pending/project-1/asset-1.png",
 			`projects/project-1/${HASH}.png`,
 		);
-		expect(confirmAssetReady).toHaveBeenCalledWith(
+		expect(publishPendingAssetForActor).toHaveBeenCalledWith(
 			{
 				assetId: "asset-1",
+				actorUserId: "user-1",
+				expectedProjectId: "project-1",
 				gcsObjectKey: `projects/project-1/${HASH}.png`,
 				// The confirm step writes the validator's authoritative
 				// mimeType/extension (refines a document's create-time guess;
@@ -169,8 +185,11 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 			},
 			expect.anything(),
 		);
-		expect(deleteGcsObject).toHaveBeenCalledWith(
-			"pending/project-1/asset-1.png",
+		expect(cleanupReleasedAssetStorage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "asset-1",
+				gcsObjectKey: "pending/project-1/asset-1.png",
+			}),
 		);
 		expect(body.asset.gcsObjectKey).toBe(`projects/project-1/${HASH}.png`);
 		expect(withMediaObjectKeyLockMock).toHaveBeenNthCalledWith(
@@ -178,18 +197,12 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 			`projects/project-1/${HASH}.png`,
 			expect.any(Function),
 		);
-		expect(withMediaObjectKeyLockMock).toHaveBeenNthCalledWith(
-			2,
-			"pending/project-1/asset-1.png",
-			expect.any(Function),
-		);
 	});
 
-	it("does not delete a validation-failed object when another row shares it", async () => {
+	it("deletes only a freshly-locked pending row after validation fails", async () => {
 		vi.mocked(loadAssetById).mockResolvedValue(
 			pendingAsset({ gcsObjectKey: `projects/project-1/${HASH}.png` }),
 		);
-		vi.mocked(hasOtherAssetForGcsObjectKey).mockResolvedValue(true);
 		vi.mocked(validateMediaBytes).mockResolvedValue({
 			ok: false,
 			reason: "hash-claim-mismatch",
@@ -200,8 +213,36 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		await res.json();
 
 		expect(res.status).toBe(400);
-		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1");
-		expect(deleteGcsObject).not.toHaveBeenCalled();
+		expect(deletePendingAssetForActor).toHaveBeenCalledWith({
+			assetId: "asset-1",
+			actorUserId: "user-1",
+			expectedProjectId: "project-1",
+		});
+		expect(cleanupReleasedAssetStorage).toHaveBeenCalledOnce();
+	});
+
+	it("returns ready when a stale validation rejection loses to publication", async () => {
+		const ready = pendingAsset({
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		});
+		vi.mocked(validateMediaBytes).mockResolvedValue({
+			ok: false,
+			reason: "hash-claim-mismatch",
+			message: "The uploaded file did not match the declared hash.",
+		});
+		vi.mocked(deletePendingAssetForActor).mockResolvedValue({
+			kind: "already_ready",
+			asset: ready,
+		});
+
+		const res = await callConfirm();
+		const body = (await res.json()) as { asset: { status: string } };
+
+		expect(res.status).toBe(200);
+		expect(body.asset.status).toBe("ready");
+		expect(cleanupReleasedAssetStorage).not.toHaveBeenCalled();
+		expect(publishPendingAssetForActor).not.toHaveBeenCalled();
 	});
 
 	it("collapses a confirm race under the final-key lock and cleans only the losing pending object", async () => {
@@ -211,17 +252,47 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(sibling);
+		vi.mocked(deletePendingAssetForActor).mockResolvedValue({
+			kind: "deleted",
+			asset: pendingAsset(),
+		});
 
 		const res = await callConfirm();
 		const body = (await res.json()) as { asset: { id: string } };
 
 		expect(res.status).toBe(200);
 		expect(body.asset.id).toBe("asset-winner");
-		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1", expect.anything());
-		expect(copyAssetObject).not.toHaveBeenCalled();
-		expect(confirmAssetReady).not.toHaveBeenCalled();
-		expect(deleteGcsObject).toHaveBeenCalledWith(
-			"pending/project-1/asset-1.png",
+		expect(deletePendingAssetForActor).toHaveBeenCalledWith(
+			{
+				assetId: "asset-1",
+				actorUserId: "user-1",
+				expectedProjectId: "project-1",
+			},
+			expect.anything(),
 		);
+		expect(copyAssetObject).not.toHaveBeenCalled();
+		expect(publishPendingAssetForActor).not.toHaveBeenCalled();
+		expect(cleanupReleasedAssetStorage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "asset-1",
+				gcsObjectKey: "pending/project-1/asset-1.png",
+			}),
+		);
+	});
+
+	it("cleans the copied final object when fresh publication loses", async () => {
+		vi.mocked(publishPendingAssetForActor).mockResolvedValue({
+			kind: "not_found",
+		});
+
+		const res = await callConfirm();
+		await res.json();
+
+		expect(res.status).toBe(404);
+		expect(copyAssetObject).toHaveBeenCalledOnce();
+		expect(cleanupUnpublishedAssetObject).toHaveBeenCalledWith(
+			`projects/project-1/${HASH}.png`,
+		);
+		expect(cleanupReleasedAssetStorage).not.toHaveBeenCalled();
 	});
 });

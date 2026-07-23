@@ -1,13 +1,19 @@
 /** Dormant S02c3 Project-move protocol against one shared Postgres database. */
 
 import type { UIMessage } from "ai";
+import type { Kysely } from "kysely";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
+import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
+import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
+import type { Database } from "@/lib/case-store/sql/database";
+import type { CaseType } from "@/lib/domain";
 import {
 	commitAppProjectMoveInTransaction,
 	prepareAppProjectMoveInTransaction,
 	repairAppCaseTenancy,
 } from "../apps";
+import { authorizeSystemSchemaMutationInTransaction } from "../caseMutationAuthorization";
 import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
@@ -16,6 +22,7 @@ import { setTransactionWriterVersion } from "../pg";
 import { ProjectMoveCompatibilityError } from "../projectMoveAdmission";
 import { mergeThreadTurnMessages } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
+import { createPerTestAppDb } from "./perTestAppDb";
 
 const h = setupAppStateTestDb("project_move_");
 const ACTOR = "move-owner";
@@ -184,7 +191,160 @@ async function seedCase(
 	);
 }
 
+function makeSystemSchemaStore(
+	observedProjects: string[],
+	db: Kysely<Database> = h.db() as unknown as Kysely<Database>,
+): PostgresCaseStore {
+	return new PostgresCaseStore({
+		projectId: null,
+		actorUserId: null,
+		db,
+		sampleGenerator: new HeuristicCaseGenerator(),
+		authorizeSchemaMutation: async (tx, args) => {
+			const scope = await authorizeSystemSchemaMutationInTransaction(tx, args);
+			observedProjects.push(scope.projectId);
+		},
+	});
+}
+
+function applyHouseholdSchema(store: PostgresCaseStore, appId: string) {
+	const caseType: CaseType = { name: "household", properties: [] };
+	return store.applySchemaChange({
+		appId,
+		caseType: caseType.name,
+		caseTypeSchemas: new Map([[caseType.name, caseType]]),
+	});
+}
+
+async function waitForBlockedLocks(
+	observer: Client,
+	minimum: number,
+): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	while (Date.now() < deadline) {
+		const result = await observer.query<{ count: string }>(`
+			SELECT count(*)::text AS count
+			FROM pg_locks AS locks
+			JOIN pg_stat_activity AS activity ON activity.pid = locks.pid
+			WHERE activity.datname = current_database()
+			  AND NOT locks.granted
+		`);
+		if (Number(result.rows[0]?.count ?? 0) >= minimum) return;
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	throw new Error(`Timed out waiting for ${minimum} blocked database lock(s).`);
+}
+
 describe("dormant atomic Project move", () => {
+	it("schema-first holds the app placement through Phase A before a Project move", async () => {
+		const appId = await h.seedApp({
+			id: "app-schema-first-move",
+			owner: ACTOR,
+			project_id: SOURCE,
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		await enableMoves();
+		const observedProjects: string[] = [];
+		const schemaDb = createPerTestAppDb(h.uri());
+		const store = makeSystemSchemaStore(
+			observedProjects,
+			schemaDb.appDb as unknown as Kysely<Database>,
+		);
+		const gateKey = 9_081_201;
+		const gate = new Client({ connectionString: h.uri() });
+		await gate.connect();
+		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+		await gate.query(`
+			CREATE FUNCTION test_pause_schema_first() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			BEGIN
+				PERFORM pg_advisory_xact_lock(${gateKey});
+				RETURN NEW;
+			END
+			$$;
+			CREATE TRIGGER test_pause_schema_first_trigger
+				BEFORE INSERT OR UPDATE ON case_type_schemas
+				FOR EACH ROW EXECUTE FUNCTION test_pause_schema_first();
+		`);
+
+		const schema = applyHouseholdSchema(store, appId);
+		let gateHeld = true;
+		let move: Promise<unknown> | undefined;
+		try {
+			await waitForBlockedLocks(gate, 1);
+			move = commitMove(appId);
+			// The schema transaction waits on the advisory test gate while holding
+			// `apps FOR SHARE`; the move must queue behind that app-row fence.
+			await waitForBlockedLocks(gate, 2);
+			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
+			gateHeld = false;
+			await expect(schema).resolves.toMatchObject({ migrated: 0 });
+			await expect(move).resolves.toEqual({ kind: "moved" });
+		} finally {
+			if (gateHeld) {
+				await gate
+					.query("SELECT pg_advisory_unlock($1)", [gateKey])
+					.catch(() => {});
+			}
+			await Promise.allSettled([schema, ...(move ? [move] : [])]);
+			await gate.end().catch(() => {});
+			await schemaDb.destroy();
+		}
+
+		expect(observedProjects).toEqual([SOURCE]);
+		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
+	}, 15_000);
+
+	it("move-first makes a waiting system schema write bind the destination Project", async () => {
+		const appId = await h.seedApp({
+			id: "app-move-first-schema",
+			owner: ACTOR,
+			project_id: SOURCE,
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		await enableMoves();
+		const observedProjects: string[] = [];
+		const schemaDb = createPerTestAppDb(h.uri());
+		const store = makeSystemSchemaStore(
+			observedProjects,
+			schemaDb.appDb as unknown as Kysely<Database>,
+		);
+		let markMoveInside!: () => void;
+		const moveInside = new Promise<void>((resolve) => {
+			markMoveInside = resolve;
+		});
+		let allowMoveCommit!: () => void;
+		const moveCommitAllowed = new Promise<void>((resolve) => {
+			allowMoveCommit = resolve;
+		});
+		const observer = new Client({ connectionString: h.uri() });
+		await observer.connect();
+
+		const move = commitMove(appId, {
+			insideTransaction: async () => {
+				markMoveInside();
+				await moveCommitAllowed;
+			},
+		});
+		let schema: Promise<unknown> | undefined;
+		try {
+			await moveInside;
+			schema = applyHouseholdSchema(store, appId);
+			await waitForBlockedLocks(observer, 1);
+			allowMoveCommit();
+			await expect(move).resolves.toEqual({ kind: "moved" });
+			await expect(schema).resolves.toMatchObject({ migrated: 0 });
+		} finally {
+			allowMoveCommit();
+			await Promise.allSettled([move, ...(schema ? [schema] : [])]);
+			await observer.end().catch(() => {});
+			await schemaDb.destroy();
+		}
+
+		expect(observedProjects).toEqual([DESTINATION]);
+		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
+	}, 15_000);
+
 	it("moves the complete tenant closure atomically and preserves transcript metadata", async () => {
 		const appId = await h.seedApp({
 			id: "app-atomic-move",

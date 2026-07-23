@@ -257,7 +257,7 @@ async function copyReadyExtractToExisting(
 	if (sourceExtract?.status !== "ready") return;
 	if (
 		destination.extract?.status === "ready" &&
-		destination.extract.version > sourceExtract.version
+		destination.extract.version >= sourceExtract.version
 	) {
 		return;
 	}

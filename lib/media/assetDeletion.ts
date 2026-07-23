@@ -20,6 +20,7 @@
 import { loadApp } from "@/lib/db/apps";
 import {
 	deleteAsset as deleteAssetRow,
+	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
@@ -205,5 +206,28 @@ export async function cleanupReleasedAssetStorage(
 				if (key) await deleteGcsObject(key);
 			}
 		}
+	});
+}
+
+/**
+ * Remove a final object copied by a publication attempt whose metadata commit
+ * lost. Reacquire the canonical key lock after the failed publisher released
+ * it, then retain bytes if ANY row names the key — including the same asset id,
+ * because a retry may have successfully published while this cleanup waited.
+ */
+export async function cleanupUnpublishedAssetObject(
+	gcsObjectKey: string,
+): Promise<void> {
+	await withMediaObjectKeyLock(gcsObjectKey, async (lockedDb) => {
+		const published = await hasAssetForGcsObjectKey(
+			gcsObjectKey,
+			lockedDb,
+		).catch((err: unknown) => {
+			log.error("[asset-publication] published-object check failed", err, {
+				gcsObjectKey,
+			});
+			return true;
+		});
+		if (!published) await deleteGcsObject(gcsObjectKey);
 	});
 }

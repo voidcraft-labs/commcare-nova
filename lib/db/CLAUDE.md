@@ -553,6 +553,9 @@ admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
 `mediaDeletion.ts` takes the shared membership gate, freshly proves Project
 `edit`, locks the asset `FOR UPDATE`, then re-walks live persisted carriers
 without taking app locks and deletes metadata only when the result is empty.
+Each app root, its normalized blueprint entities, and thread messages come from
+one correlated SQL statement snapshot, so an atomic carrier relocation cannot
+fall between separate READ COMMITTED reads.
 Until `media_reference_index_state.audited_complete_at` is stamped by an audited
 backfill, it scans every live app in the asset Project; afterward the exact index
 may narrow candidates. This lock conflicts with the introduced-ref share lock,

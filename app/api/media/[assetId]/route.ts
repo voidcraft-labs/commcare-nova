@@ -119,9 +119,9 @@ export async function GET(
  * intact), then returns 204. The deletion mechanics are shared with the SA's
  * `remove_media_asset` tool via `lib/media/assetDeletion`.
  *
- * Chat-attachment references live in thread history, not in an app doc, so they
- * are intentionally NOT a blocker: a deleted attachment degrades to a "couldn't
- * be loaded" placeholder on re-resolve rather than wedging the delete.
+ * Conversation attachments are persisted carriers too. The authoritative
+ * deletion transaction scans thread history alongside the blueprint and
+ * refuses deletion while any live app still names the asset.
  */
 export async function DELETE(
 	req: NextRequest,
