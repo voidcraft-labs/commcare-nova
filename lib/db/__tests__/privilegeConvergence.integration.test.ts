@@ -459,7 +459,7 @@ describe("database privilege convergence", () => {
 					ON namespace.oid = class.relnamespace
 				WHERE namespace.nspname IN ('public', ${CASE_RUNTIME_SCHEMA})
 					AND class.relname IN ('cases', 'apps', 'auth_member',
-						'kysely_migration')
+						'kysely_migration', 'media_reference_index_state')
 			`.execute(h.db);
 			expect(
 				Object.fromEntries(
@@ -479,6 +479,10 @@ describe("database privilege convergence", () => {
 					owner: config.migrationRole,
 					schema: "public",
 				},
+				media_reference_index_state: {
+					owner: config.migrationRole,
+					schema: "public",
+				},
 			});
 
 			await asRole(h.db, config.runtimeRole, async (tx) => {
@@ -487,6 +491,10 @@ describe("database privilege convergence", () => {
 					can_insert_auth: boolean;
 					can_update_auth: boolean;
 					can_delete_auth: boolean;
+					can_select_media_reference_index_state: boolean;
+					can_insert_media_reference_index_state: boolean;
+					can_update_media_reference_index_state: boolean;
+					can_delete_media_reference_index_state: boolean;
 					can_create_public: boolean;
 					can_create_case_schema: boolean;
 				}>`
@@ -503,6 +511,26 @@ describe("database privilege convergence", () => {
 						pg_catalog.has_table_privilege(
 							current_user, 'public.auth_user', 'DELETE'
 						) AS can_delete_auth,
+						pg_catalog.has_table_privilege(
+							current_user,
+							'public.media_reference_index_state',
+							'SELECT'
+						) AS can_select_media_reference_index_state,
+						pg_catalog.has_table_privilege(
+							current_user,
+							'public.media_reference_index_state',
+							'INSERT'
+						) AS can_insert_media_reference_index_state,
+						pg_catalog.has_table_privilege(
+							current_user,
+							'public.media_reference_index_state',
+							'UPDATE'
+						) AS can_update_media_reference_index_state,
+						pg_catalog.has_table_privilege(
+							current_user,
+							'public.media_reference_index_state',
+							'DELETE'
+						) AS can_delete_media_reference_index_state,
 						pg_catalog.has_schema_privilege(
 							current_user, 'public', 'CREATE'
 						) AS can_create_public,
@@ -515,6 +543,10 @@ describe("database privilege convergence", () => {
 					can_insert_auth: true,
 					can_update_auth: true,
 					can_delete_auth: true,
+					can_select_media_reference_index_state: true,
+					can_insert_media_reference_index_state: false,
+					can_update_media_reference_index_state: false,
+					can_delete_media_reference_index_state: false,
 					can_create_public: false,
 					can_create_case_schema: true,
 				});
@@ -527,6 +559,10 @@ describe("database privilege convergence", () => {
 				`.execute(tx);
 				await sql`
 					SELECT id FROM public.lookup_reference_compatibility
+				`.execute(tx);
+				await sql`
+					SELECT audited_complete_at
+					FROM public.media_reference_index_state
 				`.execute(tx);
 			});
 
