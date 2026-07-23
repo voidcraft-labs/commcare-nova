@@ -243,9 +243,12 @@ it after review:
 ./scripts/infra/provision-deployment-identities.sh --apply
 ```
 
-Then create one temporary built-in Cloud SQL administrator, use the bounded
-bootstrap utility, and delete the administrator immediately afterward. Never
-print or persist its generated password:
+The provisioning apply replaces runtime's custom database-role memberships
+with the empty set and makes runtime migration's sole custom parent role. Then
+create one temporary built-in Cloud SQL administrator, assign its two bounded
+memberships through the Cloud SQL Admin API, run the ownership bootstrap, and
+retire both temporary database principals. Never print or persist the generated
+password:
 
 ```bash
 set -euo pipefail
@@ -263,11 +266,49 @@ gcloud sql users create nova-deployment-bootstrap \
   --instance=nova-cases \
   --type=BUILT_IN \
   --password="$NOVA_BOOTSTRAP_PASSWORD"
+BOOTSTRAP_DATABASE_ROLES='nova-migrate@commcare-nova.iam'
+if gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)' | grep -qx '51003905459-compute@developer'; then
+  BOOTSTRAP_DATABASE_ROLES="51003905459-compute@developer,${BOOTSTRAP_DATABASE_ROLES}"
+fi
+gcloud sql users assign-roles nova-deployment-bootstrap \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --type=BUILT_IN \
+  --database-roles="$BOOTSTRAP_DATABASE_ROLES"
+unset BOOTSTRAP_DATABASE_ROLES
+
+# First prove the preconditions and inspect the exact transactional SQL.
+NOVA_DB_BOOTSTRAP_USER=nova-deployment-bootstrap \
+NOVA_DB_BOOTSTRAP_PASSWORD="$NOVA_BOOTSTRAP_PASSWORD" \
+  npx tsx scripts/infra/bootstrap-database-owner.ts
 NOVA_DB_BOOTSTRAP_USER=nova-deployment-bootstrap \
 NOVA_DB_BOOTSTRAP_PASSWORD="$NOVA_BOOTSTRAP_PASSWORD" \
   npx tsx scripts/infra/bootstrap-database-owner.ts --apply
 
-# The success path is strict: do not hide or outlive a failed deletion.
+# The SQL audit has cleared every legacy dependency. Remove that database user
+# now; do not delete the Compute Engine service account itself.
+if gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)' | grep -qx '51003905459-compute@developer'; then
+  gcloud sql users delete '51003905459-compute@developer' \
+    --project=commcare-nova \
+    --instance=nova-cases \
+    --quiet
+fi
+if gcloud sql users list \
+  --project=commcare-nova \
+  --instance=nova-cases \
+  --format='value(name)' | grep -qx '51003905459-compute@developer'; then
+  echo 'legacy Compute-default database user still exists' >&2
+  exit 1
+fi
+
+# The success path is strict: do not hide or outlive a failed deletion of the
+# temporary administrator.
 gcloud sql users delete nova-deployment-bootstrap \
   --project=commcare-nova \
   --instance=nova-cases \
@@ -284,8 +325,11 @@ trap - EXIT
 ```
 
 If the bootstrap command fails, delete the temporary administrator before doing
-anything else; its SQL is idempotent and can be rerun with a new temporary
-administrator after the cause is fixed. The first migration/deploy may briefly
+anything else. The ownership statements and post-audit run in one transaction,
+so a SQL or lock failure rolls back the whole transfer; rerun with a new
+temporary administrator after fixing the cause. If ownership commits but the
+legacy Cloud SQL deletion fails, leave maintenance open, fix that deletion, and
+continue—the role is already privilege-free. The first migration/deploy may
 interrupt case endpoints while `cases` moves schemas. Fix forward if the new
 revision fails; no old revision is falsely advertised as a database-compatible
 rollback after ownership convergence.
@@ -301,15 +345,16 @@ edit apps during the window, and keep the window open until the triggered build
 and its public verification complete.
 
 Before merging, require both provisioning commands and the bootstrap above to
-exit zero. The bootstrap's final JSON must show:
+exit zero, and require `gcloud sql users list` to contain neither the legacy nor
+temporary user. The bootstrap's final `after` JSON must show:
 
 - `databaseOwner` = `nova-migrate@commcare-nova.iam`;
 - `publicSchemaOwner` = `pg_database_owner` (the database owner is its current
   implicit member);
-- `migrationCanUseRuntime` = `true`;
-- `runtimeCanUseMigration` = `false`; and
-- `currentUserCanUseMigration` = `false` after the temporary administrator's
-  grant is removed.
+- `migrationIsRuntimeMember` and `migrationCanSetRuntime` = `true`;
+- every `runtimeIs*Member`, `runtimeCanSet*`, and `runtimeCanCreate*` field =
+  `false`; and
+- every legacy dependency, ownership, and default-ACL count = `0`.
 
 Record the current revision, merge during the announced window, then identify
 and stream the regional trigger build:
@@ -360,13 +405,18 @@ SELECT
     'nova_case_runtime',
     'CREATE'
   ) AS runtime_can_create_case_schema;
+
+SELECT
+  pg_catalog.to_regrole('51003905459-compute@developer') IS NULL
+    AS legacy_role_absent;
 ```
 
 `cases` must be the sole table in `nova_case_runtime` and owned by runtime;
 `apps`, `auth_member`, and `kysely_migration` must remain in `public` and be
-owned by migration. The two booleans must be `false, true`. Finally, require
-HTTP 200 from `https://commcare.app/` and `https://docs.commcare.app/`, plus the
-OAuth discovery 401 from the MCP probe already encoded in `cloudbuild.yaml`.
+owned by migration. The schema booleans must be `false, true`, and
+`legacy_role_absent` must be true. Finally, require HTTP 200 from
+`https://commcare.app/` and `https://docs.commcare.app/`, plus the OAuth
+discovery 401 from the MCP probe already encoded in `cloudbuild.yaml`.
 
 Failure handling is deliberately small:
 
