@@ -4,7 +4,9 @@
 > Nova `97d6bb89` (PR #312). S01 through S05b are shipped, including all of
 > S02. S05's domain/wire decisions are pinned below; local CCZ export now
 > emits the preservable lookup wire.
-> S05c and S22 await their readiness audits. This file owns execution order,
+> S05c's readiness closed 2026-07-23; implementation opens on
+> `agent/s05c-lookup-cutover`. S22 awaits its readiness rebaseline. This file
+> owns execution order,
 > product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
@@ -27,6 +29,14 @@ changing a slice to `ready`, the supervisor must:
 4. name its migration, multiplayer, and authorization behavior;
 5. state user-visible acceptance and proportionate verification; and
 6. record any dependency or scope change here.
+
+Every audit is drafted blind from current `main` and current platform source;
+the legacy plans stay closed until that draft exists. They are then harvested
+through claim extraction only — discrete, source-anchored claims (a platform
+fact, a constraint, an edge case, a test idea), never prose designs — and a
+claim that contradicts the blind draft is settled by primary evidence, not by
+which document is newer. The adjudicated result is the recorded readiness
+closure.
 
 Status vocabulary:
 
@@ -342,8 +352,9 @@ S06 -> S15 users/personas -> S16 organization/location store
 
 S02 through S05b are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
-pinned and the local lookup wire is live in ccz export. S05c is the next
-slice and needs only its readiness audit. S11-S14 and S15-S21 may
+pinned and the local lookup wire is live in ccz export. S05c's readiness
+closed 2026-07-23; implementation opens on `agent/s05c-lookup-cutover`.
+S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 needs a
 readiness rebaseline before delegation.
 Compiler verification stays serialized across wire slices.
@@ -359,7 +370,7 @@ Compiler verification stays serialized across wire slices.
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
-| S05c | Lookup carrier cutover and edge preparation | S05b | planned | PR-01/03, F5 |
+| S05c | Lookup carrier cutover and edge preparation | S05b | in progress | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
@@ -1706,7 +1717,8 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
 **Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b shipped in PR #312 at
-`97d6bb89`; S05c awaits its readiness audit.
+`97d6bb89`; S05c's readiness closed 2026-07-23 and `agent/s05c-lookup-cutover`
+owns implementation.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 history-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. S05b adds
@@ -1881,7 +1893,7 @@ Implementation remains split into independently reviewed units:
    accumulation; the one-snapshot multi-table reader; deterministic fixture
    serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
    JSON/upload and authoring remain closed.
-3. **S05c — carrier cutover and edge preparation (planned):** ship the final
+3. **S05c — carrier cutover and edge preparation (in progress):** ship the final
    edge state in one release — the read-only structural-versus-stored scan, the
    explicit edge migration under each app lock with a clean rescan, and the
    final floor and activation values — and leave carrier commits
@@ -2082,13 +2094,94 @@ form surfaces; and the new `lookup-row-escaped-column` arm of
 unrepresentable shape, a comparison whose relation rewrite would carry a
 table-column term out of its fixture-row scope.
 
-S05c ships the final edge state in one release: the read-only
-structural-versus-stored scan, the explicit edge migration under each app lock
-with a clean rescan, and `minimum_writer_version` at 1 with S05 as the
-edge-maintenance writer floor, not the runtime reader floor. Carrier commits,
-destructive schema actions, and true moves remain runtime-disabled for S07. Its
-readiness audit names the exact mechanics and deletes any machinery the direct
-release leaves without a purpose.
+#### S05c readiness closure — 2026-07-23
+
+Drafted blind against merged `main` (`97d6bb89`), then adjudicated against
+claim extraction from PR-01/PR-02/PR-03 and the F5 memo. No extracted claim
+contradicts the blind draft; the edge-store claims — stored-versus-structural
+reconciliation before the edges are trusted, old writers silently decaying the
+edge store, scans racing concurrent edits — are already embodied below.
+
+The audit narrows the slice: extractor registration and the writer-constant
+bump already shipped in S05a.
+`lib/doc/lookupReferences.ts::PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS` is the
+frozen production registry, `config/runtime-capabilities.json` already
+declares writer 1 / stream-receiver 2, and every authoritative writer in
+`lib/db/apps.ts` calls `declareLookupReferenceWriter`. S05c's remaining work
+is exactly: the production scan, a dedicated edge-repair writer plus its
+one-off migrate script, the two floor raises, and deletion of the cutover
+choreography the direct release strands. S05c introduces no wire emission and
+changes none — `lib/commcare` is untouched and no CCHQ re-verification
+applies.
+
+Mechanics, resolved:
+
+- **Floors.** One new deploy-blocking Kysely migration raises the
+  compatibility singleton to `minimum_writer_version = 1` and
+  `minimum_stream_receiver_version = 2` through monotonic `GREATEST` updates;
+  `minimum_runtime_reader_version` stays 0 and every activation flag stays
+  false. The migration Job runs between image push and revision cutover, and
+  the only serving code already declares the new versions, so the
+  raise-never-precedes-declaring-code rule holds structurally with no
+  operator step. `lib/db/rolloutCompatibility.ts` is deliberately not the
+  vehicle: its initial-cutoff branch demands a
+  `continuous_registry_traffic_since` stamp nothing in production ever wrote,
+  and the pre-registry streams it guards against cannot exist — every
+  revision since S02c1 registers leases and the 3,600-second request cap
+  bounds any stream's life.
+- **Edge repair.** A new app-locked server-only `lib/db` writer
+  (`repairLookupReferenceEdges`): app row `FOR UPDATE` →
+  `declareLookupReferenceWriter` → assemble and hydrate the committed doc →
+  `extractLookupReferenceTargets` → `lockLookupTablesForReferenceWrite` →
+  `replaceLookupReferenceEdges`. No entity write, no history row, no sequence
+  advance — edges are derived state. `appendSyntheticBatch` cannot carry this
+  repair: its zero-mutation arm returns before edge replacement runs.
+- **Scan and script.** `scripts/scan-lookup-reference-edges.ts` is reused
+  verbatim as scan and rescan (its stale S02b-era header updates); the paired
+  one-off `scripts/migrate-lookup-reference-edges.ts` drives the repair
+  writer over exactly the scan's mismatch list and is removed after the clean
+  rescan. Expected mismatch population is zero — 401/401 apps scanned clean
+  at S02b and no carrier has ever committed — so the migration exists to
+  prove that and to be the repair tool if the scan disproves it. Run order:
+  production scan → merge (blocking migration raises floors, revision
+  deploys) → migrate over any reported mismatches → clean rescan.
+- **Multiplayer.** The writer-floor raise is invisible to live sessions:
+  every deployed writer declares v1. The receiver floor is an admission
+  cutoff only — admitted leases survive, and a reconnecting pre-#311 bundle
+  receives the terminal seq-less `revoked` frame with
+  `client-upgrade-required` and the one-shot hard-refresh path. Open runs are
+  untouched because the runtime-reader floor stays 0. A transaction with an
+  unset or 0 writer version on any guarded table fails closed with SQLSTATE
+  55000, which also fences a service rollback to a pre-#311 image — the
+  intended one-way property.
+- **Authorization.** The floor raise executes as the migration identity in
+  the ordinary blocking Job. The scan reads production through gcloud IAM;
+  the migrate script uses the established ephemeral impersonated-SA recipe;
+  the repair writer has no route, action, or MCP exposure, and the database
+  guard independently requires its v1 declaration.
+- **Deletions.** The direct release strands the initial-cutoff choreography,
+  removed in this slice: the `minimum_stream_receiver_version === 0` branch
+  of `raiseMinimumStreamReceiverVersionInTransaction` with its
+  `registry_epoch_missing`/`registry_epoch_too_young` codes, the
+  registry-interval half of
+  `reconcileReceivingRevisionCapabilitiesInTransaction` (the runtime-epoch
+  half stays for S07), and the `continuous_registry_traffic_since` column
+  plus its projections, dropped in the same forward migration. Kept
+  deliberately: the runtime-reader epoch/census/raise machinery (S07
+  consumes it), `disableLookupReferenceActivationFlag` (S07's emergency
+  path), the top-level `optionsSource` mutation extension (permanent durable
+  history format), and the lease admission machinery.
+
+A user observes nothing new: carrier commits, destructive schema actions, and
+true moves stay disabled for S07, and no UI, SA, or MCP vocabulary changes.
+Verification: the pre-merge scan and post-migrate rescan both exit 0 and are
+recorded in the execution checkpoint; the production singleton reads
+`(1, 2, 0, false, false, false, false)`; integration tests pin the
+undeclared-writer SQLSTATE 55000 failure on each guarded table at the raised
+floor, migration replay idempotence, receiver-1 rejection versus receiver-2
+admission with mid-stream lease survival, and the carrier commit gate still
+closed at the final floors; standard deploy probes complete the list. No
+Playwright journey — nothing user-reachable changes.
 
 S05's closed-gate verification uses real carriers to replace edges
 transactionally and repeat both production race orders. It adds carrier schema/
@@ -2348,6 +2441,17 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S05c readiness closed / implementation owned:** The audit ran
+  under the now-recorded blind-then-archaeology discipline: the closure was
+  drafted from current `main` alone, legacy PR-01/PR-02/PR-03 and F5 were
+  harvested as source-anchored claims in a separate context, and adjudication
+  found no contradiction. The audit narrowed the slice — extractor
+  registration and the writer-constant bump already shipped in S05a — leaving
+  the production scan, the app-locked edge-repair writer and one-off migrate
+  script, the two monotonic floor raises in one deploy-blocking migration,
+  and deletion of the stranded initial-cutoff choreography including the
+  `continuous_registry_traffic_since` column. `agent/s05c-lookup-cutover`
+  owns implementation.
 - **2026-07-23 — S05b shipped:** PR #312 passed independent adversarial review
   (five confirmed wire defects fixed and regression-pinned pre-merge) and every
   CI gate including the changed-test async-leak sweep, whose one failure was
