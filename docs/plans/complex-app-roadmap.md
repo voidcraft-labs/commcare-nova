@@ -370,7 +370,7 @@ Compiler verification stays serialized across wire slices.
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
-| S05c | Lookup carrier cutover and edge preparation | S05b | in progress | PR-01/03, F5 |
+| S05c | Lookup carrier cutover and edge preparation | S05b | review | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
@@ -2218,6 +2218,16 @@ have revoked every stream admission permanently — the old revision could
 never admit at the new floor regardless of the browser. The parser now
 normalizes any non-array object, and a regression test pins the host-object
 shape.
+
+Independent adversarial review (four dimension finders, every finding
+verified twice by independent verifiers) raised three findings; two were
+refuted and one was confirmed unanimously and fixed pre-merge: the migration
+originally raised the floors before dropping the column, and an old-revision
+writer-guard `FOR SHARE` read wedged between the two statements formed a
+tuple-then-table lock cycle whose deadlock victim could be the
+deploy-blocking Job. The column drop now precedes the raise, so guard reads
+queue behind the ALTER's table lock. The pre-merge read-only production scan
+passed: 404/404 persisted apps compared clean.
 
 S05's closed-gate verification uses real carriers to replace edges
 transactionally and repeat both production race orders. It adds carrier schema/

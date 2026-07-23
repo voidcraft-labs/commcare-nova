@@ -11,10 +11,23 @@
 // nonzero that state is unreachable, so the column drops in the same change.
 // The GREATEST spellings keep the raise replay-idempotent for the ledger-erase
 // replay tests; the compatibility row guard enforces monotonicity regardless.
+//
+// The DROP COLUMN must run BEFORE the floor UPDATE. The still-serving old
+// revision's writer-guard triggers read the singleton FOR SHARE; updating the
+// tuple first and then requesting the ALTER's ACCESS EXCLUSIVE lock lets a
+// guard read wedge between the two statements — its ROW SHARE table lock
+// blocks the ALTER while it waits on the updated tuple, a deadlock the
+// detector may resolve by killing this deploy-blocking Job. Taking ACCESS
+// EXCLUSIVE first queues every guard read behind the table lock instead.
 
 import { type Kysely, sql } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
+	await sql`
+		ALTER TABLE public.lookup_reference_compatibility
+			DROP COLUMN IF EXISTS continuous_registry_traffic_since
+	`.execute(db);
+
 	await sql`
 		UPDATE public.lookup_reference_compatibility
 		SET
@@ -23,11 +36,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				GREATEST(minimum_stream_receiver_version, 2),
 			updated_at = clock_timestamp()
 		WHERE id = 1
-	`.execute(db);
-
-	await sql`
-		ALTER TABLE public.lookup_reference_compatibility
-			DROP COLUMN IF EXISTS continuous_registry_traffic_since
 	`.execute(db);
 }
 
