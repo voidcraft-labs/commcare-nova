@@ -12,7 +12,11 @@ import {
 	caseListModuleMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type LookupOptionsSource,
+} from "@/lib/domain";
 import {
 	assembleBlueprint,
 	blueprintScalars,
@@ -38,7 +42,12 @@ function emptyDoc(appId: string): BlueprintDoc {
 
 function roundTrip(doc: BlueprintDoc) {
 	const persistable = toPersistableDoc(doc);
-	const rows = decomposeBlueprint(persistable);
+	const rows = decomposeBlueprint(persistable).map((row) => ({
+		...row,
+		// PostgreSQL jsonb owns entity-row storage. Exercise the same plain-JSON
+		// boundary rather than handing assembleBlueprint the original references.
+		data: JSON.parse(JSON.stringify(row.data)),
+	}));
 	return assembleBlueprint(doc.appId, blueprintScalars(persistable), rows);
 }
 
@@ -61,6 +70,76 @@ describe("blueprint entity-row round trip", () => {
 		const doc = emptyDoc("rt-app-2");
 		applyMutations(doc, surveyModuleMutations(doc).mutations);
 		const assembled = roundTrip(doc);
+		expect(assembled).toEqual(toPersistableDoc(doc));
+	});
+
+	it("preserves a dormant lookup-backed select through entity-row hydration", () => {
+		const moduleUuid = asUuid("10000000-0000-4000-8000-000000000001");
+		const formUuid = asUuid("20000000-0000-4000-8000-000000000001");
+		const fieldUuid = asUuid("30000000-0000-4000-8000-000000000001");
+		const tableId = "018f3e8a-7b2c-7def-8abc-1234567890ab";
+		const valueColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ad";
+		const labelColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ae";
+		const optionsSource = {
+			kind: "lookup-table",
+			tableId,
+			valueColumnId,
+			labelColumnId,
+			filter: {
+				kind: "eq",
+				left: {
+					kind: "term",
+					term: { kind: "table-column", tableId, columnId: valueColumnId },
+				},
+				right: {
+					kind: "table-lookup",
+					tableId,
+					resultColumnId: labelColumnId,
+					where: { kind: "match-all" },
+				},
+			},
+		} as LookupOptionsSource;
+		const doc: BlueprintDoc = {
+			...emptyDoc("rt-app-lookup"),
+			modules: {
+				[moduleUuid]: {
+					uuid: moduleUuid,
+					id: "visits",
+					name: "Visits",
+					order: "a0",
+				},
+			},
+			forms: {
+				[formUuid]: {
+					uuid: formUuid,
+					id: "visit",
+					name: "Visit",
+					type: "survey",
+					order: "a0",
+				},
+			},
+			fields: {
+				[fieldUuid]: {
+					uuid: fieldUuid,
+					id: "status",
+					kind: "single_select",
+					label: "Status",
+					order: "a0",
+					options: [
+						{ value: "active", label: "Active" },
+						{ value: "closed", label: "Closed" },
+					],
+					optionsSource,
+				},
+			},
+			moduleOrder: [moduleUuid],
+			formOrder: { [moduleUuid]: [formUuid] },
+			fieldOrder: { [formUuid]: [fieldUuid] },
+			fieldParent: { [fieldUuid]: formUuid },
+		};
+
+		const assembled = roundTrip(doc);
+		expect(assembled.fields[fieldUuid]).toMatchObject({ optionsSource });
 		expect(assembled).toEqual(toPersistableDoc(doc));
 	});
 

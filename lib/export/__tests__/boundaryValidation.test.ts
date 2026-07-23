@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
+import type { LookupOptionsSource, Uuid } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { getLookupDefinitions } from "@/lib/lookup/service";
 import { resolveMediaManifest } from "@/lib/media/manifest";
@@ -70,6 +72,83 @@ const EMPTY_SNAPSHOT = {
 	projectRevision: "7",
 	definitions: EMPTY_DEFINITIONS,
 } as const;
+
+const CARRIER_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+const CARRIER_VALUE_COLUMN =
+	"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+const CARRIER_LABEL_COLUMN =
+	"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+const CARRIER_SOURCE: LookupOptionsSource = {
+	kind: "lookup-table",
+	tableId: CARRIER_TABLE,
+	valueColumnId: CARRIER_VALUE_COLUMN,
+	labelColumnId: CARRIER_LABEL_COLUMN,
+};
+const CARRIER_SNAPSHOT = {
+	projectId: ACCESS.projectId,
+	projectRevision: "8",
+	definitions: [
+		{
+			id: CARRIER_TABLE,
+			name: "Statuses",
+			tag: "statuses",
+			definitionRevision: "6",
+			columns: [
+				{
+					id: CARRIER_VALUE_COLUMN,
+					wireName: "value",
+					label: "Value",
+					dataType: "text",
+				},
+				{
+					id: CARRIER_LABEL_COLUMN,
+					wireName: "label",
+					label: "Label",
+					dataType: "text",
+				},
+			],
+		},
+	],
+} as const;
+
+function lookupCarrierDoc() {
+	return buildDoc({
+		appName: "Lookup survey",
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "single_select",
+								id: "status",
+								label: "Status",
+								options: [
+									{
+										uuid: "40000000-0000-4000-8000-000000000000" as Uuid,
+										order: "a0",
+										value: "active",
+										label: "Active",
+									},
+									{
+										uuid: "50000000-0000-4000-8000-000000000000" as Uuid,
+										order: "a1",
+										value: "closed",
+										label: "Closed",
+									},
+								],
+								optionsSource: CARRIER_SOURCE,
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
 
 beforeEach(() => {
 	vi.mocked(getLookupDefinitions).mockReset();
@@ -225,4 +304,31 @@ describe("prepareExportBoundary", () => {
 		);
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
+
+	it.each(["ccz", "hq-json", "hq-upload"] as const)(
+		"keeps dormant lookup carriers closed for %s exports with a mode-aware finding",
+		async (mode) => {
+			vi.mocked(getLookupDefinitions).mockResolvedValue(
+				CARRIER_SNAPSHOT as never,
+			);
+
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: lookupCarrierDoc(),
+				compiledAtSeq: 15,
+			});
+
+			expect(result.ok).toBe(false);
+			if (result.ok) throw new Error("expected dormant export rejection");
+			const finding = result.violations.find(
+				(candidate) => candidate.code === "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
+			);
+			expect(finding?.details).toMatchObject({
+				exportMode: mode,
+				carrierSlot: "lookup_options_source",
+			});
+			expect(resolveMediaManifest).not.toHaveBeenCalled();
+		},
+	);
 });

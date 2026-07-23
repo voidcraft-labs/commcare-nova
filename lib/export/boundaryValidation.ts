@@ -23,6 +23,7 @@ import {
 import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import type { ProjectAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
+import { collectDormantLookupCarriers } from "@/lib/doc/dormantLookupCarriers";
 import {
 	extractLookupReferenceTargets,
 	type LookupReferenceExtractorRegistry,
@@ -103,6 +104,7 @@ async function collectViolationsWithRegistry(
 	projectId: string,
 	lookupContext: LookupValidationContext,
 	lookupReferenceExtractors: LookupReferenceExtractorRegistry,
+	mode?: ExportMode,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
@@ -119,6 +121,9 @@ async function collectViolationsWithRegistry(
 				`This app references too many attachments to export — ${exportableRefCount} (the limit is ${MAX_MEDIA_EXPORT_ASSETS}). Remove some attachments, then export again.`,
 				{},
 			),
+			...(mode === undefined
+				? []
+				: dormantLookupCarrierExportFindings(doc, mode)),
 		];
 	}
 
@@ -132,8 +137,14 @@ async function collectViolationsWithRegistry(
 		lookupContext,
 		lookupReferenceExtractors,
 	);
+	const dormantCarrierErrors =
+		mode === undefined ? [] : dormantLookupCarrierExportFindings(doc, mode);
 	const budgetError = exportBudgetError(rows);
-	return budgetError ? [...errors, budgetError] : errors;
+	return [
+		...errors,
+		...dormantCarrierErrors,
+		...(budgetError === null ? [] : [budgetError]),
+	];
 }
 
 /**
@@ -201,6 +212,7 @@ async function prepareWithRegistry(
 		input.access.projectId,
 		lookupContext,
 		registry,
+		input.mode,
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
@@ -225,6 +237,39 @@ async function prepareWithRegistry(
 			lookupContext,
 		},
 	};
+}
+
+const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
+	ccz: "a downloadable app",
+	"hq-json": "an HQ import file",
+	"hq-upload": "a direct HQ upload",
+};
+
+/**
+ * All explicit export targets stay closed while carriers are support-only.
+ * The selected Nova export intent is part of both the finding details and
+ * identity so the boundary never silently collapses three distinct decisions.
+ */
+function dormantLookupCarrierExportFindings(
+	doc: BlueprintDoc,
+	mode: ExportMode,
+): ValidationError[] {
+	return collectDormantLookupCarriers(doc).map((carrier) =>
+		validationError(
+			"LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
+			carrier.location.scope,
+			`Lookup-powered choices and calculations cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. Remove the lookup-powered setting before exporting.`,
+			carrier.location,
+			{
+				exportMode: mode,
+				carrierOwnerUuid: carrier.ownerUuid,
+				carrierOwnerKind: carrier.ownerKind,
+				carrierSlot: carrier.slot,
+				carrierSubpath: carrier.subpath,
+				carrierFingerprint: carrier.fingerprint,
+			},
+		),
+	);
 }
 
 /** Prepare one authoritative export using the immutable production registry. */

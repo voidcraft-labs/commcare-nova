@@ -533,6 +533,10 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
+	LOOKUP_CARRIER_COMMIT_NOT_ACTIVE: () =>
+		"Lookup-powered choices and calculations aren't editable yet. Keep the current lookup setup unchanged, or remove it.",
+	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: () =>
+		"Lookup-powered choices and calculations aren't ready to export yet. Remove the lookup-powered setting before exporting.",
 
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>

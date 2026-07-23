@@ -1696,7 +1696,7 @@ async function assertMoveLookupClosureEmpty(
 	}
 }
 
-/** Production-capability wrapper; dormant while the manifest remains writer v0. */
+/** Production-capability wrapper; database floors and flags still own admission. */
 export async function prepareAppProjectMove(
 	args: ProjectMoveCoreArgs,
 ): Promise<PrepareProjectMoveResult> {
@@ -1790,7 +1790,7 @@ export async function repairAppCaseTenancy(
 	});
 }
 
-/** Production-capability wrapper; dormant while the manifest remains writer v0. */
+/** Production-capability wrapper; database floors and flags still own admission. */
 export async function commitAppProjectMove(
 	appId: string,
 	args: Omit<ProjectMoveCommitArgs, "appId">,

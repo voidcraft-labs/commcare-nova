@@ -94,7 +94,8 @@ share one opaque error.
 
 `apps.ts` is the authoritative protocol. Every `createApp`,
 `commitGuardedBatch`, `appendSyntheticBatch`, and dormant
-`commitAppProjectMove` transaction declares lookup writer v0. Creation prepares
+`commitAppProjectMove` transaction declares lookup writer v1 from the shared
+runtime manifest. Creation prepares
 the template exactly once outside the retryable transaction, then takes the
 shared Project-membership advisory gate, authorizes, inserts the root,
 locks/reads lookup definitions, evaluates, checks template
@@ -115,10 +116,10 @@ deterministic mutations.
 named-system authority. After locking fresh state it diffs to the requested
 target, proves replay identity, and persists the actual mutations; a true no-op
 writes no row and advances no sequence. The dormant Project move now implements
-the final transaction but remains production-disabled. Its v1 test seam requires
-the enabled compatibility row, writer/receiver v1, and no incompatible live
-stream; the production wrapper declares the manifest's real writer v0 and fails
-closed. Under the app lock it takes the membership gate, locks the actor and all
+the final transaction but remains production-disabled by its database flag. Its
+test seam requires the enabled compatibility row, compatible writer/receiver
+versions, and no incompatible live stream; the production wrapper declares the
+manifest's writer v1 and receiver v2. Under the app lock it takes the membership gate, locks the actor and all
 source-owner membership pairs across both Projects, enforces dual `delete` plus
 owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
@@ -198,8 +199,9 @@ as a pooled session setting. `lookupReferenceWriter.ts` is the one transaction
 declaration seam. All authoritative call sites use
 `declareLookupReferenceWriter(tx)`, whose current value derives from
 `config/runtime-capabilities.json` through the validated runtime accessor; it never
-owns a second numeric literal. S05 changes the manifest's single
-`writerVersion` field from 0 to 1 when its first production carrier lands.
+owns a second numeric literal. S05a's production carrier extractor raised the
+manifest's single `writerVersion` field to 1; database floors and feature flags
+remain separate and unchanged.
 
 Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
 holder identity: edit is `(edit, lock_run_id, run_holder_nonce)`; build is

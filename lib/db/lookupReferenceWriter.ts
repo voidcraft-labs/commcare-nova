@@ -9,10 +9,9 @@ import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
  * `apps.ts` is part of their dependency graph. Its only callable API still
  * requires a server-owned Postgres transaction.
  *
- * S02 has no production lookup-reference carriers, so its writers remain
- * version 0. S05 activates the first carriers by changing the manifest's ONE
- * `writerVersion` field to 1 after every writer has adopted the shared
- * declaration helper below.
+ * S05a's production carrier extractor raises the manifest's ONE
+ * `writerVersion` field to 1. Database floors and feature flags remain
+ * independent controls; this declaration does not mutate either.
  */
 export const CURRENT_LOOKUP_REFERENCE_WRITER_VERSION =
 	RUNTIME_CAPABILITIES.writerVersion;

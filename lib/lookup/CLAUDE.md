@@ -58,8 +58,8 @@ non-identity edits require `edit`; reads require `view`.
 Project/table/column/app UUID identity, never names, wire names, carrier paths,
 or caller-provided edge deltas. A column edge is constrained to an existing
 table edge. Authoritative app commits replace each app's complete freshly
-extracted edge sets in their own transaction; the production extractor registry
-is empty until the first carrier slice.
+extracted edge sets in their own transaction; S05a's immutable production
+registry covers every dormant lookup carrier.
 
 `schemaGovernance.ts` is a package-private, server-only seam with no action,
 route, MCP tool, or public barrel export. It reuses `writerTransaction.ts`, the
@@ -72,12 +72,11 @@ UPDATE` -> compatibility singleton `FOR SHARE` -> exact table/column edges. It
 never takes an app lock. Blocker results contain the sorted exact app-id set
 only; a fresh carrier-path re-walk belongs to confirmation UX.
 
-The production wrapper declares the shared writer version, which remains v0.
-Schema-action activation requires writer floor v1, so the wrapper rolls back
-without a data write whether the flag is false or a floor-1 flag races it. The
-transaction core exists for seeded integration coverage under an explicit v1
-transaction declaration and enabled compatibility row; it is not an activation
-surface.
+The production wrapper declares shared writer v1 from the runtime manifest.
+The destructive-action database flag remains false, so production stays
+write-free unless that separate compatibility control is explicitly changed;
+the transaction core remains the seeded integration seam for exact race
+coverage.
 
 Inside that closed seam, an unreferenced table deletion uses the existing
 row/column cascades, retains Project state, and advances/notifies once. Column

@@ -21,3 +21,10 @@ and media `assets`. Never perform a second definition read: the returned
 definitions are the exact generation that passed validation. The synthetic
 registry entry point exists only for seeded S02 tests; production callers use
 the immutable shared registry.
+
+S05a preserves lookup carriers internally but does not emit them. The boundary
+therefore adds an explicit mode-bearing `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`
+finding for every authored carrier slot in all three modes, after the exact
+rows-free definition snapshot is loaded and before any resource bytes or wire
+emitter run. Do not rely on the delta-based commit finding here: an export is
+zero-tolerance and needs its own selected-target verdict.

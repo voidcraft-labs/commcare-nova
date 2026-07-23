@@ -502,6 +502,12 @@ export const REPAIR_JUDGMENTS: Readonly<
 	LOOKUP_COLUMN_TYPE_MISMATCH: owner(
 		"choosing a compatible column or changing the carrier's expected type changes authored behavior",
 	),
+	LOOKUP_CARRIER_COMMIT_NOT_ACTIVE: owner(
+		"activation requires the lookup runtime evaluator; deleting or rewriting the preserved carrier would change authored behavior",
+	),
+	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: owner(
+		"the selected export target does not support lookup carriers yet; deleting or rewriting the preserved carrier would change authored behavior",
+	),
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: owner("rewriting a broken expression means guessing intent"),
 	UNKNOWN_FUNCTION: mechanical(

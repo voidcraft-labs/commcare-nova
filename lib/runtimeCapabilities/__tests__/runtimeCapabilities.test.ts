@@ -34,11 +34,11 @@ const manifestHash = RUNTIME_CAPABILITY_MANIFEST_HASH;
 const buildId = "99ae1f72-048b-4515-8652-1f3caa669b99";
 
 describe("runtime capability manifest", () => {
-	it("pins the S02c1 versions and keeps transport time separate from run liveness", () => {
+	it("pins S05a lookup support and keeps transport time separate from run liveness", () => {
 		expect(manifest).toEqual({
 			schemaVersion: 1,
-			writerVersion: 0,
-			streamReceiverVersion: 1,
+			writerVersion: 1,
+			streamReceiverVersion: 2,
 			runtimeReaderVersion: 1,
 			streamRegistryVersion: 1,
 			cloudRunRequestSeconds: 3_600,
@@ -100,10 +100,10 @@ describe("runtime capability manifest", () => {
 	it("canonicalizes in schema order and hashes exact canonical bytes", () => {
 		const canonical = canonicalRuntimeCapabilityManifest(manifest);
 		expect(canonical).toBe(
-			'{"schemaVersion":1,"writerVersion":0,"streamReceiverVersion":1,"runtimeReaderVersion":1,"streamRegistryVersion":1,"cloudRunRequestSeconds":3600,"streamLeaseGraceSeconds":300,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
+			'{"schemaVersion":1,"writerVersion":1,"streamReceiverVersion":2,"runtimeReaderVersion":1,"streamRegistryVersion":1,"cloudRunRequestSeconds":3600,"streamLeaseGraceSeconds":300,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
 		);
 		expect(manifestHash).toBe(
-			"c151a1240c6508fe027f6cc04b36dba43122067bdf957798d8681a30483e7719",
+			"9984bcb5a56862741c80375670d94301f3706dbbbc1b2482935207401ea6a8a0",
 		);
 		expect(hashRuntimeCapabilityManifest(manifest)).toBe(manifestHash);
 	});
@@ -166,8 +166,8 @@ describe("runtime capability manifest", () => {
 	it("renders immutable image declarations and capability revision labels", () => {
 		const environment = runtimeCapabilityEnvironment(manifest);
 		expect(environment).toEqual({
-			NOVA_WRITER_VERSION: "0",
-			NOVA_STREAM_RECEIVER_VERSION: "1",
+			NOVA_WRITER_VERSION: "1",
+			NOVA_STREAM_RECEIVER_VERSION: "2",
 			NOVA_RUNTIME_READER_VERSION: "1",
 			NOVA_STREAM_REGISTRY_VERSION: "1",
 			NOVA_CLOUD_RUN_REQUEST_SECONDS: "3600",
@@ -176,15 +176,15 @@ describe("runtime capability manifest", () => {
 			NOVA_EDIT_RUN_LEASE_SECONDS: "900",
 			NOVA_BUILD_STALENESS_SECONDS: "600",
 			NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH:
-				"c151a1240c6508fe027f6cc04b36dba43122067bdf957798d8681a30483e7719",
+				"9984bcb5a56862741c80375670d94301f3706dbbbc1b2482935207401ea6a8a0",
 		});
 		expect(Object.isFrozen(environment)).toBe(true);
 		expect(runtimeCapabilityRevisionLabels(manifest, buildId)).toEqual({
-			nova_writer: "0",
-			nova_stream_receiver: "1",
+			nova_writer: "1",
+			nova_stream_receiver: "2",
 			nova_runtime_reader: "1",
 			nova_stream_registry: "1",
-			nova_manifest: "c151a1240c6508fe",
+			nova_manifest: "9984bcb5a5686274",
 			nova_build: buildId,
 		});
 		expect(() =>
