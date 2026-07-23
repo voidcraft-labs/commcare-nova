@@ -12,6 +12,8 @@ adds two identities while preserving the existing, already permissioned
 
 - `nova-build` builds, pushes, updates the migration Job, and deploys the
   service. It may act as migration/runtime but does not connect to Postgres.
+  It can read only the three build-time secrets used by `cloudbuild.yaml`; the
+  runtime-only OpenAI credential remains inaccessible to the build identity.
 - `nova-migrate` connects as the migration database owner and runs all three
   Kysely migration phases plus post-migration privilege convergence.
 - `commcare-nova` remains the runtime identity. It serves the app and receives

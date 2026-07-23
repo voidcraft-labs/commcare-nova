@@ -109,14 +109,12 @@ run gcloud artifacts repositories add-iam-policy-binding "$REPOSITORY" \
 for secret in \
 	nova-sentry \
 	nova-google_maps_api_key \
-	nova-server-actions-key \
-	nova-openai-api-key; do
+	nova-server-actions-key; do
 	bind_secret_access "$BUILD_ACCOUNT" "$secret"
 done
 
 bind_act_as "$MIGRATION_ACCOUNT"
 bind_act_as "$RUNTIME_ACCOUNT"
-bind_act_as "$BUILD_ACCOUNT"
 run gcloud iam service-accounts add-iam-policy-binding "$BUILD_ACCOUNT" \
 	--project="$PROJECT" \
 	--member="serviceAccount:${BUILD_SERVICE_AGENT}" \
