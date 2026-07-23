@@ -462,6 +462,34 @@ describe("proxy: production unknown-host boundary", () => {
 	});
 });
 
+describe("proxy: production-build local smoke boundary", () => {
+	beforeEach(() => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("NOVA_ALLOW_LOCALHOST_HOSTS", "1");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it.each(["localhost:3000", "127.0.0.1:3000", "[::1]:3000"])(
+		"admits the managed smoke server on %s",
+		(host) => {
+			const res = proxy(req(host, "/"));
+			expectPassthrough(res);
+			expect(res.status).not.toBe(307);
+			expect(res.headers.get("content-security-policy")).not.toBeNull();
+		},
+	);
+
+	it("keeps local smoke APIs reachable", () => {
+		expectBypassPassthrough(proxy(req("localhost:3000", "/api/chat")));
+	});
+
+	it("does not let the smoke flag trust a non-loopback Host", () => {
+		expectNotFound(proxy(req("forged.example", "/api/chat")));
+	});
+});
+
 describe("proxy: /warmup stays probe-only on the custom domains", () => {
 	it.each(["commcare.app", "mcp.commcare.app"])(
 		"404s /warmup on %s (hostname allowlist)",
@@ -539,6 +567,10 @@ describe("proxy: dev-mode internal-page bypasses do NOT fire in production", () 
 
 	it("404s the progress preview on an unknown host in production", () => {
 		expectNotFound(proxy(req("nova-abc-uc.a.run.app", "/progress-test")));
+	});
+
+	it("404s localhost without the explicit managed-smoke flag", () => {
+		expectNotFound(proxy(req("localhost:3000", "/")));
 	});
 });
 

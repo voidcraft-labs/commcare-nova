@@ -83,6 +83,10 @@ function smokeWebServerEnv(): Record<string, string> {
 		const value = process.env[key];
 		if (value) env[key] = value;
 	}
+	// The managed server intentionally runs a production build on loopback.
+	// Proxy accepts this flag only together with a loopback Host; Cloud Run never
+	// receives it, so forged public Host headers stay fail-closed.
+	env.NOVA_ALLOW_LOCALHOST_HOSTS = "1";
 	return env;
 }
 

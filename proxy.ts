@@ -134,6 +134,22 @@ function deriveProxyHeaders(request: NextRequest): Headers {
 	return requestHeaders;
 }
 
+/** The production-build smoke harness serves on loopback while preserving
+ * `NODE_ENV=production`. Its explicit process flag may relax Host routing only
+ * for loopback spellings; an external request cannot turn an arbitrary Host
+ * into a trusted local one. Cloud Run never receives this flag. */
+function isExplicitLocalHarnessHost(host: string): boolean {
+	if (process.env.NOVA_ALLOW_LOCALHOST_HOSTS !== "1") return false;
+	return (
+		host === "localhost" ||
+		host.startsWith("localhost:") ||
+		host === "127.0.0.1" ||
+		host.startsWith("127.0.0.1:") ||
+		host === "[::1]" ||
+		host.startsWith("[::1]:")
+	);
+}
+
 /**
  * Build a 404 with `Cache-Control: no-store`. Off-allowlist requests share
  * this response so the hostname security boundary cannot be cached by an
@@ -276,6 +292,7 @@ export function proxy(request: NextRequest): NextResponse {
 	 * every Next-normalized URL class. */
 	const rawPathname = new URL(request.url).pathname;
 	const isDev = process.env.NODE_ENV === "development";
+	const isLocalExecution = isDev || isExplicitLocalHarnessHost(host);
 
 	/* ── 1. Hostname routing ─────────────────────────────────────────── */
 
@@ -370,7 +387,7 @@ export function proxy(request: NextRequest): NextResponse {
 	 * startup probe is the sole exception: an exact GET/HEAD `/warmup` request.
 	 * Return it here so no other page/API exception can accidentally widen the
 	 * platform-host surface. */
-	if (classified === null && !isDev) {
+	if (classified === null && !isLocalExecution) {
 		if (
 			rawPathname === STARTUP_PROBE_PATH &&
 			(request.method === "GET" || request.method === "HEAD")
@@ -383,12 +400,15 @@ export function proxy(request: NextRequest): NextResponse {
 	/* Development affordances on unclassified localhost hosts: let `/docs`
 	 * render without a local docs subdomain, and expose the interactive
 	 * generation-progress visual harness. */
-	if (isDev && (pathname === "/docs" || pathname.startsWith("/docs/"))) {
+	if (
+		isLocalExecution &&
+		(pathname === "/docs" || pathname.startsWith("/docs/"))
+	) {
 		/* Same HTML shape as the production docs response, so attach CSP
 		 * here too — keeps dev preview faithful to prod headers. */
 		return attachCsp(requestHeaders, { type: "next" }, isDev);
 	}
-	if (isDev && pathname === "/progress-test") {
+	if (isLocalExecution && pathname === "/progress-test") {
 		return attachCsp(requestHeaders, { type: "next" }, isDev);
 	}
 
