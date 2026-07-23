@@ -98,8 +98,13 @@ describe("lookup carrier type checking", () => {
 		);
 		expect(missing.ok).toBe(false);
 		if (!missing.ok) {
-			expect(missing.errors.map((error) => error.code)).toContain(
-				"unknown-lookup-column",
+			expect(missing.errors).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "unknown-lookup-column",
+						path: ["table-lookup", "resultColumnId"],
+					}),
+				]),
 			);
 		}
 
@@ -161,8 +166,13 @@ describe("lookup carrier type checking", () => {
 
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			expect(result.errors.map((error) => error.code)).toContain(
-				"lookup-table-scope",
+			expect(result.errors).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "lookup-table-scope",
+						path: ["table-lookup", "where", "right", "table-lookup"],
+					}),
+				]),
 			);
 		}
 	});

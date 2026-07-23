@@ -1944,9 +1944,10 @@ export function checkExpression(
 			return "text";
 
 		case "table-lookup": {
+			const lookupPath = [...path, "table-lookup"];
 			if (ctx.tableScope !== undefined) {
 				errors.push({
-					path,
+					path: lookupPath,
 					code: "lookup-table-scope",
 					message: "A lookup-table filter cannot contain another table lookup.",
 				});
@@ -1955,7 +1956,7 @@ export function checkExpression(
 			const columns = ctx.lookupTables?.get(expr.tableId);
 			if (columns === undefined) {
 				errors.push({
-					path,
+					path: [...lookupPath, "tableId"],
 					code: "unknown-lookup-table",
 					message: `Lookup table '${expr.tableId}' is not available in this expression context.`,
 				});
@@ -1964,7 +1965,7 @@ export function checkExpression(
 			const resultType = columns.get(expr.resultColumnId);
 			if (resultType === undefined) {
 				errors.push({
-					path: [...path, "resultColumnId"],
+					path: [...lookupPath, "resultColumnId"],
 					code: "unknown-lookup-column",
 					message: `Lookup result column '${expr.resultColumnId}' is not available on table '${expr.tableId}'.`,
 				});
@@ -1976,7 +1977,7 @@ export function checkExpression(
 					tableScope: { tableId: expr.tableId, columns },
 				},
 				errors,
-				[...path, "where"],
+				[...lookupPath, "where"],
 			);
 			return resultType;
 		}
