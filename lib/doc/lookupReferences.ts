@@ -14,6 +14,7 @@
  */
 
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import type {
@@ -294,6 +295,40 @@ function fieldLocation(
 		fieldId: field.id,
 		field: "optionsSource",
 	};
+}
+
+/** One persisted lookup-backed select with its extraction-time provenance. */
+export interface LookupOptionsSourceCarrier {
+	readonly fieldUuid: Uuid;
+	readonly fieldId: string;
+	readonly source: LookupOptionsSource;
+	readonly location: LookupReferenceValidationLocation;
+}
+
+/**
+ * Enumerate every persisted lookup-backed select in extraction order —
+ * complete normalized maps, so a detached carrier cannot hide. The compile
+ * boundary's row-dependent option validity consumes this list against the
+ * same fixture snapshot the emitters use.
+ */
+export function collectLookupOptionsSourceCarriers(
+	doc: BlueprintDoc,
+): readonly LookupOptionsSourceCarrier[] {
+	const carriers: LookupOptionsSourceCarrier[] = [];
+	const parents = parentByField(doc);
+	for (const field of sortedFields(doc)) {
+		if (field.kind !== "single_select" && field.kind !== "multi_select") {
+			continue;
+		}
+		if (field.optionsSource === undefined) continue;
+		carriers.push({
+			fieldUuid: field.uuid,
+			fieldId: field.id,
+			source: field.optionsSource,
+			location: fieldLocation(doc, field, parents),
+		});
+	}
+	return carriers;
 }
 
 function extractLookupOptionsSources(

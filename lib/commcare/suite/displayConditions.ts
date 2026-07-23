@@ -1,6 +1,7 @@
 /** Typed navigation display-condition emission for suite.xml and HQ JSON. */
 
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
 import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
@@ -13,12 +14,19 @@ const SELECTED_CASE =
 export function emitModuleDisplayCondition(
 	condition: Predicate | undefined,
 	currentCaseType?: string,
+	lookupNaming?: LookupWireNaming,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
-	return emitCaseListFilter(effective, "casedb", {
-		...(currentCaseType !== undefined && { currentCaseType }),
-	});
+	return emitCaseListFilter(
+		effective,
+		"casedb",
+		{
+			...(currentCaseType !== undefined && { currentCaseType }),
+		},
+		undefined,
+		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+	);
 }
 
 /**
@@ -30,6 +38,7 @@ export function emitModuleDisplayCondition(
 export function emitFormDisplayConditionForSuite(
 	condition: Predicate | undefined,
 	currentCaseType?: string,
+	lookupNaming?: LookupWireNaming,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
@@ -41,6 +50,9 @@ export function emitFormDisplayConditionForSuite(
 		{
 			emitSelfProperty: (property) =>
 				`${SELECTED_CASE}/${emitCasePropertyWirePath(property.property)}`,
+			...(lookupNaming !== undefined && {
+				lookup: { naming: lookupNaming },
+			}),
 		},
 	);
 }
@@ -52,6 +64,7 @@ export function emitFormDisplayConditionForSuite(
 export function emitFormDisplayConditionForHq(
 	condition: Predicate | undefined,
 	currentCaseType?: string,
+	lookupNaming?: LookupWireNaming,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
@@ -63,6 +76,9 @@ export function emitFormDisplayConditionForHq(
 		{
 			emitSelfProperty: (property) =>
 				`#case/${emitCasePropertyWirePath(property.property)}`,
+			...(lookupNaming !== undefined && {
+				lookup: { naming: lookupNaming },
+			}),
 		},
 	);
 }

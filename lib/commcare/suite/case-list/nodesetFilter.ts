@@ -48,6 +48,7 @@
 //     emitter's contract.
 
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
 import {
 	effectiveFilterForEmission,
@@ -71,6 +72,7 @@ import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 export function emitNodesetFilter(
 	filter: Predicate | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): string {
 	// The ordinary case list evaluates before any Search runs, so every
 	// Search-input dependency substitutes to its unanswered reading first
@@ -101,7 +103,13 @@ export function emitNodesetFilter(
 	// nodeset position. `match-none` emits as `false()` — wrapped
 	// here as `[false()]`, the wire form that faithfully represents
 	// "match no cases" against the surrounding nodeset.
-	return `[${emitCaseListFilter(effective, undefined, relationContext)}]`;
+	return `[${emitCaseListFilter(
+		effective,
+		undefined,
+		relationContext,
+		undefined,
+		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+	)}]`;
 }
 
 /**
@@ -141,6 +149,7 @@ export function emitNodesetFilter(
 export function emitExcludedOwnerFilterExpression(
 	excludedOwnerIds: ValueExpression | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): string | undefined {
 	if (excludedOwnerIds === undefined) return undefined;
 	const unanswered =
@@ -149,6 +158,7 @@ export function emitExcludedOwnerFilterExpression(
 	const expression = emitNormalizedExcludedOwnerIdsExpression(
 		unanswered,
 		relationContext,
+		lookupNaming,
 	);
 	return `${expression} = '' or not(selected(${expression}, @owner_id))`;
 }
@@ -179,11 +189,14 @@ function staticallyBlankExclusion(expression: ValueExpression): boolean {
 export function emitNormalizedExcludedOwnerIdsExpression(
 	excludedOwnerIds: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): string {
 	return `normalize-space(${emitOnDeviceExpression(
 		excludedOwnerIds,
 		undefined,
 		relationContext,
+		undefined,
+		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
 	)})`;
 }
 
@@ -191,10 +204,12 @@ export function emitNormalizedExcludedOwnerIdsExpression(
 export function emitExcludedOwnerNodesetFilter(
 	excludedOwnerIds: ValueExpression | undefined,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): string {
 	const predicate = emitExcludedOwnerFilterExpression(
 		excludedOwnerIds,
 		relationContext,
+		lookupNaming,
 	);
 	return predicate === undefined ? "" : `[${predicate}]`;
 }

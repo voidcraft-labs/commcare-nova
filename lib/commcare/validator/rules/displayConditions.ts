@@ -169,9 +169,7 @@ function firstPortabilityIssue(
 			issue =
 				scalarIssue.reason === "unwrap-list"
 					? "uses `unwrap-list`, which exists only in CommCare's server-side search grammar"
-					: scalarIssue.reason === "table-lookup"
-						? "uses a table lookup, but lookup-table expressions are dormant until fixture emission lands and cannot run in an on-device navigation condition"
-						: "uses a relation read that may return several values in one scalar menu expression";
+					: "uses a relation read that may return several values in one scalar menu expression";
 		}
 	});
 	return issue;

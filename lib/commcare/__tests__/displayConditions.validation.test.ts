@@ -181,16 +181,17 @@ describe("form display-condition validation", () => {
 		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");
 	});
 
-	it("reports dormant table lookups as lookup emission gaps", () => {
+	it("accepts a table lookup as an on-device navigation condition", () => {
 		const tableId = "00000000-0000-7000-8000-000000000001" as LookupTableId;
 		const columnId = "10000000-0000-7000-8000-000000000001" as LookupColumnId;
 		const finding = validateFormFindings(
 			eq(tableLookup(tableId, columnId, matchAll()), literal("North")),
 		).find((error) => error.code === "DISPLAY_CONDITION_NOT_ON_DEVICE");
 
-		expect(finding?.message).toBe(
-			'Form "Visit" in module "Visits" uses a table lookup, but lookup-table expressions are dormant until fixture emission lands and cannot run in an on-device navigation condition.',
-		);
+		/* The first-match lowering yields at most one row node, so a table
+		 * lookup is a scalar-safe on-device read; only the structural
+		 * lookup-reference findings still apply to this shape. */
+		expect(finding).toBeUndefined();
 	});
 
 	it("reports type errors independently of context availability", () => {

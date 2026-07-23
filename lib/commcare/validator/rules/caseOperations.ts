@@ -9,6 +9,7 @@ import {
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare/constants";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
+import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
 import {
 	caseOperationTargetTypeOrderViolations,
@@ -789,6 +790,7 @@ function validateOnDeviceExpression(
 		emitOnDeviceExpression(expression, "casedb", typeContext, undefined, {
 			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
 			operationIds: identityBindings(typeContext.operationIds ?? []),
+			lookup: { naming: inertLookupWireNaming() },
 		});
 	} catch (error) {
 		errors.push(
@@ -813,6 +815,7 @@ function validateOnDevicePredicate(
 		emitCaseListFilter(predicate, "casedb", typeContext, undefined, {
 			formFields: identityBindings(typeContext.formFields?.keys() ?? []),
 			operationIds: identityBindings(typeContext.operationIds ?? []),
+			lookup: { naming: inertLookupWireNaming() },
 		});
 	} catch (error) {
 		errors.push(

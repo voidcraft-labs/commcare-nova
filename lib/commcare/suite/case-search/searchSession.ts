@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { validateCaseType } from "../../identifierValidation";
+import type { LookupWireNaming } from "../../lookup/naming";
 import {
 	collectExpressionInstances,
 	collectPredicateInstances,
@@ -91,6 +92,7 @@ export function buildSearchSession(args: {
 	readonly moduleIndex: number;
 	readonly hasDetailScreen?: boolean;
 	readonly typeContext?: TypeContext;
+	readonly lookupNaming?: LookupWireNaming;
 }): SearchSessionEmission {
 	const { caseListConfig, caseSearchConfig, wire, moduleIndex } = args;
 	// Route `caseType` through the identifier-validation gate before
@@ -186,6 +188,7 @@ export function buildSearchSession(args: {
 		moduleId,
 		buildRuntimeCsqlPromptValidations(xpathQueryEmission),
 		args.typeContext ?? {},
+		args.lookupNaming,
 	);
 
 	// Title locale id pattern is CCHQ's `case_search.{m}.inputs`. The
@@ -293,12 +296,18 @@ export function buildSearchSession(args: {
 	// surfaces as a wire that ships valid XML but raises
 	// `XPathException` at search-execution time.
 	if (caseListConfig.filter !== undefined) {
-		for (const id of collectPredicateInstances(caseListConfig.filter)) {
+		for (const id of collectPredicateInstances(
+			caseListConfig.filter,
+			args.lookupNaming,
+		)) {
 			instances.add(id);
 		}
 	}
 	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs)) {
-		for (const id of collectPredicateInstances(entry.predicate)) {
+		for (const id of collectPredicateInstances(
+			entry.predicate,
+			args.lookupNaming,
+		)) {
 			instances.add(id);
 		}
 	}
@@ -315,7 +324,7 @@ export function buildSearchSession(args: {
 				caseType,
 				args.typeContext,
 			);
-			for (const id of collectPredicateInstances(derived)) {
+			for (const id of collectPredicateInstances(derived, args.lookupNaming)) {
 				instances.add(id);
 			}
 		}
@@ -324,7 +333,10 @@ export function buildSearchSession(args: {
 		// another input or a session term needs the matching instance
 		// declared on `<remote-request>`.
 		if (input.default !== undefined) {
-			for (const id of collectExpressionInstances(input.default)) {
+			for (const id of collectExpressionInstances(
+				input.default,
+				args.lookupNaming,
+			)) {
 				instances.add(id);
 			}
 		}
@@ -332,6 +344,7 @@ export function buildSearchSession(args: {
 	if (caseSearchConfig.excludedOwnerIds !== undefined) {
 		for (const id of collectExpressionInstances(
 			caseSearchConfig.excludedOwnerIds,
+			args.lookupNaming,
 		)) {
 			instances.add(id);
 		}
@@ -346,7 +359,10 @@ export function buildSearchSession(args: {
 	// `commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`.
 	for (const column of caseListConfig.columns) {
 		if (column.kind !== "calculated") continue;
-		for (const id of collectExpressionInstances(column.expression)) {
+		for (const id of collectExpressionInstances(
+			column.expression,
+			args.lookupNaming,
+		)) {
 			instances.add(id);
 		}
 	}

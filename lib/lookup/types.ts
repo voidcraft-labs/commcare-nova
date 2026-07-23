@@ -111,6 +111,21 @@ export interface LookupDefinitionsSnapshot {
 	definitions: readonly LookupTableDefinition[];
 }
 
+/** One emission-ready row: stable identity plus the stored UUID-keyed cells. */
+export interface LookupFixtureRow {
+	id: LookupRowId;
+	values: LookupRowValues;
+}
+
+/**
+ * Definitions plus complete ordered rows from the same database snapshot.
+ * Every present definition has a `rowsByTable` entry; a missing or foreign
+ * requested id is absent from both axes.
+ */
+export interface LookupFixtureDataSnapshot extends LookupDefinitionsSnapshot {
+	rowsByTable: ReadonlyMap<LookupTableId, readonly LookupFixtureRow[]>;
+}
+
 /** Exact storage accounting produced by Postgres `jsonb::text`. */
 export interface LookupStorageMeasurement {
 	rowValueBytes: readonly number[];

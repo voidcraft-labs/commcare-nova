@@ -11,6 +11,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type CaseListConfig,
 	type CaseSearchConfig,
@@ -75,6 +76,7 @@ export function buildRemoteRequest(args: {
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
 	readonly typeContext?: TypeContext;
+	readonly lookupNaming?: LookupWireNaming;
 }): RemoteRequestBuild {
 	const { module: mod, moduleIndex } = args;
 	const platformContext = args.platformContext ?? DEFAULT_PLATFORM_CONTEXT;
@@ -133,6 +135,7 @@ export function buildRemoteRequest(args: {
 			(column) => column.visibleInDetail !== false,
 		),
 		typeContext: args.typeContext,
+		lookupNaming: args.lookupNaming,
 	});
 
 	// Instance declarations — sort the accumulated id set so the wire

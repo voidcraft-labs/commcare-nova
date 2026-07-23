@@ -328,9 +328,10 @@ describe("MediaPickerDialog", () => {
 		).toBeTruthy();
 		// This controlled dialog remains open by design. Let Base UI finish the
 		// dialog's initial-focus task before unmounting, then drain its zero-delay
-		// scroll-lock release before the leak gate samples cleanup.
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		// scroll-lock release before the leak gate samples cleanup. The drains
+		// must run inside act(...) or the dialog's work commits outside the test.
+		await settleBaseUiTransitions();
 		view.unmount();
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		await settleBaseUiTransitions();
 	});
 });

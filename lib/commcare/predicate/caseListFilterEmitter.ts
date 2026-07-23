@@ -109,9 +109,11 @@ import {
 	emitImmediateRelationPresence,
 	type OnDeviceCaseAnchor,
 	ROOT_ON_DEVICE_CASE_ANCHOR,
+	relationPresenceOrigin,
 } from "./relationPresenceEmitter";
 import { formatNumeric } from "./stringQuoting";
 import {
+	clearLookupRowScope,
 	DEFAULT_INSTANCE_ROOT,
 	emitOnDeviceLiteralValue,
 	emitTerm,
@@ -620,6 +622,10 @@ function emitExistsOrMissing(
 		case "ancestor":
 		case "subcase":
 		case "any-relation": {
+			/* The relation `where` evaluates with the candidate case as its
+			 * predicate context, so an enclosing fixture-row scope no longer
+			 * applies inside it; the self collapse above keeps the current
+			 * context, scope included. */
 			const whereText =
 				where === undefined
 					? undefined
@@ -629,13 +635,13 @@ function emitExistsOrMissing(
 							root,
 							childContext,
 							childAnchor,
-							termContext,
+							clearLookupRowScope(termContext),
 						);
 			const presence = emitImmediateRelationPresence(
 				relation.via,
 				whereText,
 				root,
-				anchor.kind === "root" ? termContext.rootCaseId : undefined,
+				relationPresenceOrigin(anchor, root, termContext),
 			);
 			return kind === "exists" ? presence : `not(${presence})`;
 		}

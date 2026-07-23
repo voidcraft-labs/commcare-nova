@@ -1154,6 +1154,93 @@ function collectRelevanceEvaluationInstances(
  * persistent detail, that loading entry must be folded into the referrer map
  * here, or its scope would be missed and the intersection left too wide.
  */
+/**
+ * Suite-embedded lookup fixtures. `SuiteParser` hands each `<fixture>` to
+ * `FixtureXmlParser`, which requires an `id`, stores a `user_id`-less fixture
+ * as global, and parses exactly one body element as the instance root. A
+ * declared `<instance src="jr://fixture/<X>">` resolves the DELIVERED fixture
+ * by the src's after-last-`/` suffix, so every such declaration must name an
+ * embedded fixture id — a miss is a runtime FixtureInitializationException
+ * ("Unable to find lookup table") the moment the instance is evaluated.
+ */
+function checkFixtures(
+	model: SuiteModel,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const fixtureIds = new Set<string>();
+	for (const fixture of findAll(
+		(el) => el.name === "fixture",
+		model.doc.children,
+	)) {
+		const id = getAttributeValue(fixture, "id");
+		if (id === undefined || id === "") {
+			errors.push(
+				validationError(
+					"SUITE_FIXTURE_INVALID",
+					"app",
+					`The suite embeds a <fixture> with no id attribute. FixtureXmlParser rejects it at install ("fixture is lacking id attribute"). This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+			continue;
+		}
+		if (fixtureIds.has(id)) {
+			errors.push(
+				validationError(
+					"SUITE_FIXTURE_INVALID",
+					"app",
+					`The suite embeds <fixture id="${id}"> twice. The device stores fixtures by id, so the second block silently overwrites the first. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+		fixtureIds.add(id);
+		if (getAttributeValue(fixture, "user_id") !== undefined) {
+			errors.push(
+				validationError(
+					"SUITE_FIXTURE_INVALID",
+					"app",
+					`The suite embeds <fixture id="${id}"> with a user_id attribute, which would store it as a user fixture instead of a global one. Nova's embedded lookup fixtures are global. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+		const bodyElements = getChildren(fixture).filter(isTag);
+		if (bodyElements.length !== 1) {
+			errors.push(
+				validationError(
+					"SUITE_FIXTURE_INVALID",
+					"app",
+					`The suite embeds <fixture id="${id}"> with ${bodyElements.length} body elements. FixtureXmlParser parses exactly one root element as the instance body. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+	}
+
+	// Every declared jr://fixture src must name an embedded fixture.
+	for (const inst of findAll(
+		(el) => el.name === "instance",
+		model.doc.children,
+	)) {
+		const src = getAttributeValue(inst, "src");
+		if (src === undefined || !src.startsWith("jr://fixture/")) continue;
+		const deliveredId = src.slice(src.lastIndexOf("/") + 1);
+		if (!fixtureIds.has(deliveredId)) {
+			errors.push(
+				validationError(
+					"SUITE_FIXTURE_INVALID",
+					"app",
+					`The suite declares <instance src="${src}"> but embeds no <fixture id="${deliveredId}">. CommCare throws FixtureInitializationException ("Unable to find lookup table") the moment the instance is evaluated. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 function checkInstanceResolution(
 	model: SuiteModel,
 	loc: ValidationLocation,
@@ -1817,6 +1904,7 @@ export function validateSuite(
 		...checkMenuCommands(model, loc),
 		...checkDetailReferences(model, loc),
 		...checkInstanceResolution(model, loc),
+		...checkFixtures(model, loc),
 		...checkLocaleResolution(model, appStringKeys, loc),
 		// Sort — silently tolerated.
 		...checkSort(model, loc),

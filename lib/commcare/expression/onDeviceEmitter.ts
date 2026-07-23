@@ -89,6 +89,7 @@
 //     literal).
 
 import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
+import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 import {
 	canonicalizeRelationPath,
 	type RelationEvaluationScopeContext,
@@ -107,10 +108,12 @@ import {
 	type OnDeviceCaseAnchor,
 	onDeviceAnchorCaseId,
 	ROOT_ON_DEVICE_CASE_ANCHOR,
+	relationPresenceOrigin,
 } from "../predicate/relationPresenceEmitter";
 import { quoteLiteral } from "../predicate/stringQuoting";
 import {
 	buildSubcaseJoinNodeset,
+	clearLookupRowScope,
 	DEFAULT_INSTANCE_ROOT,
 	emitTerm,
 	type InstanceRoot,
@@ -168,11 +171,6 @@ export function emitOnDeviceExpression(
 	if (compatibilityIssue?.reason === "unwrap-list") {
 		throw new Error(
 			"emitOnDeviceExpression: unwrap-list is a server-side case-search function and is not registered by CommCare Core's on-device XPath evaluator. Validation should reject it before wire emission.",
-		);
-	}
-	if (compatibilityIssue?.reason === "table-lookup") {
-		throw new Error(
-			"emitOnDeviceExpression: lookup-table expressions are dormant until fixture emission lands; validation should reject them before on-device XPath emission.",
 		);
 	}
 	if (compatibilityIssue?.reason === "multi-valued-relation-read") {
@@ -338,10 +336,32 @@ export function emitOnDeviceExpression(
 			throw new Error(
 				"emitOnDeviceExpression: unwrap-list cannot run in CommCare Core's on-device XPath evaluator",
 			);
-		case "table-lookup":
-			throw new Error(
-				"emitOnDeviceExpression: lookup-table expressions are dormant until fixture emission lands; validation should reject them before on-device XPath emission.",
-			);
+		case "table-lookup": {
+			// First match by authored row order: the fixture emits rows in
+			// `(order_key, row UUID)` order, so document order IS the authored
+			// order and the explicit positional `[1]` selects the first
+			// matching row. No match yields an empty node-set — the standard
+			// absent-node semantics, never manufactured empty text.
+			const naming = termContext.lookup?.naming;
+			if (naming === undefined) {
+				throw new Error(
+					"emitOnDeviceExpression: a lookup-table expression reached an emission surface with no lookup wire naming. The local-CCZ compile boundary supplies naming; every other surface should reject lookup carriers before emission.",
+				);
+			}
+			const table = naming.tableFor(expr.tableId);
+			const where = simplifyForEmission(expr.where);
+			const whereContext: OnDeviceTermEmissionContext = {
+				...termContext,
+				lookup: {
+					naming,
+					rowScope: { tableId: expr.tableId, caseAnchor: anchor },
+				},
+			};
+			const filterText = isMatchAll(where)
+				? ""
+				: `[${emitCaseListFilter(where, root, relationContext, anchor, whereContext)}]`;
+			return `instance('${table.instanceId}')/${table.listElementName}/${table.rowElementName}${filterText}[1]/${table.wireNameFor(expr.resultColumnId)}`;
+		}
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
@@ -490,6 +510,10 @@ function emitCount(
 					currentCaseType: relation.destinationCaseType,
 				};
 	const childAnchor = descendOnDeviceCaseAnchor(anchor, relation.via);
+	/* A directed relation `where` evaluates with the candidate case as its
+	 * predicate context, so any enclosing fixture-row scope no longer applies
+	 * there. The self collapse keeps the current context, scope included. */
+	const whereTermContext = clearLookupRowScope(termContext);
 	switch (relation.via.kind) {
 		case "self":
 			if (where === undefined) return "1";
@@ -504,16 +528,15 @@ function emitCount(
 							root,
 							childContext,
 							childAnchor,
-							termContext,
+							whereTermContext,
 						),
 				root,
-				anchor.kind === "root" ? termContext.rootCaseId : undefined,
+				relationPresenceOrigin(anchor, root, termContext),
 			)}, 1, 0)`;
 		case "subcase": {
 			const anchorCaseId =
-				anchor.kind === "root" && termContext.rootCaseId !== undefined
-					? termContext.rootCaseId
-					: onDeviceAnchorCaseId(anchor, root);
+				relationPresenceOrigin(anchor, root, termContext) ??
+				onDeviceAnchorCaseId(anchor, root);
 			if (anchorCaseId === undefined) {
 				throw new Error(
 					"emitOnDeviceExpression: a child-case count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",
@@ -530,7 +553,7 @@ function emitCount(
 				root,
 				childContext,
 				childAnchor,
-				termContext,
+				whereTermContext,
 			);
 		}
 		case "any-relation": {
@@ -562,15 +585,14 @@ function emitCount(
 									},
 								],
 							}),
-							termContext,
+							whereTermContext,
 						),
 				root,
-				anchor.kind === "root" ? termContext.rootCaseId : undefined,
+				relationPresenceOrigin(anchor, root, termContext),
 			)}, 1, 0)`;
 			const anchorCaseId =
-				anchor.kind === "root" && termContext.rootCaseId !== undefined
-					? termContext.rootCaseId
-					: onDeviceAnchorCaseId(anchor, root);
+				relationPresenceOrigin(anchor, root, termContext) ??
+				onDeviceAnchorCaseId(anchor, root);
 			if (anchorCaseId === undefined) {
 				throw new Error(
 					"emitOnDeviceExpression: an any-relation count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",
@@ -587,7 +609,7 @@ function emitCount(
 				root,
 				childContext,
 				{ kind: "unaddressable" },
-				termContext,
+				whereTermContext,
 			);
 			return `(${ancestorCount} + ${subcaseCount})`;
 		}

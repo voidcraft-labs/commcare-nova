@@ -24,6 +24,7 @@
 //     (`<detail id>`, locale-id substring, calc-xpath instance
 //     reference) — every other byte is identical.
 
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { CaseProperty, CaseType, Uuid } from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ResolvedSortDirective } from "./sortKeys";
@@ -165,4 +166,10 @@ export interface CaseListEmitContext {
 	 * value) columns.
 	 */
 	readonly assets?: AssetManifest;
+	/**
+	 * Lookup wire naming from the validated definitions snapshot. Present
+	 * only on the local-CCZ path; lookup carriers in calculated columns
+	 * lower through it.
+	 */
+	readonly lookupNaming?: LookupWireNaming;
 }

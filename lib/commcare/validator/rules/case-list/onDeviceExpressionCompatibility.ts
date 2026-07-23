@@ -36,6 +36,7 @@ import {
 	type Predicate,
 	type TypeContext,
 	type ValueExpression,
+	walkExpressionNodes,
 	walkPredicateExpressionNodes,
 	walkPredicateNodes,
 } from "@/lib/domain/predicate";
@@ -68,6 +69,9 @@ type RelationIssue =
 	| {
 			reason: "invalid-geopoint-center";
 			value: string;
+	  }
+	| {
+			reason: "lookup-row-escaped-column";
 	  };
 type OnDeviceIssue = ScalarIssue | RelationIssue;
 
@@ -106,6 +110,14 @@ function judgePredicateSlot(
 	if (offender !== undefined) {
 		return buildError(slot, { reason: "unwrap-list", expression: offender });
 	}
+	let lookupIssue: RelationIssue | undefined;
+	walkPredicateExpressionNodes(predicate, (node) => {
+		if (lookupIssue !== undefined || node.kind !== "table-lookup") return;
+		lookupIssue = firstLookupRowEscapedColumn(node.where, ctx);
+	});
+	if (lookupIssue !== undefined) {
+		return buildError(slot, lookupIssue);
+	}
 	const issue = firstRelationIssueInPredicate(predicate, ctx);
 	return issue === undefined ? undefined : buildError(slot, issue);
 }
@@ -127,6 +139,14 @@ function judgeScalarExpressionSlot(
 	});
 	if (invalidCenter !== undefined) {
 		return buildError(slot, invalidCenter);
+	}
+	let lookupIssue: RelationIssue | undefined;
+	walkExpressionNodes(expression, (node) => {
+		if (lookupIssue !== undefined || node.kind !== "table-lookup") return;
+		lookupIssue = firstLookupRowEscapedColumn(node.where, ctx);
+	});
+	if (lookupIssue !== undefined) {
+		return buildError(slot, lookupIssue);
 	}
 	const relationIssue = firstRelationIssueInExpression(expression, ctx);
 	return relationIssue === undefined
@@ -248,6 +268,150 @@ function firstRelationIssueInExpression(
 		if ("issue" in normalization) scopeIssue = normalization.issue;
 	});
 	return scopeIssue ?? firstNestedMultiCaseCountInExpression(expression, ctx);
+}
+
+/**
+ * A lookup column read that a relation rewrite would evaluate away from its
+ * fixture row. The wire lowering keeps table-column terms row-relative while
+ * the fixture row is the predicate context, and the relation-scope normalizer
+ * rebases a comparison that reads a related case into that relation's `where`
+ * — evaluated with the candidate case as context, where the fixture row is no
+ * longer addressable (Core's `current()` is already spoken for). Run the same
+ * normalizer this slot's emission runs, then look for any table-column term
+ * that landed inside a relation scope: a hit means the emitted expression
+ * would read a nonexistent fixture column off a case row (or throw), so the
+ * shape is unrepresentable and must reject here. Authored columns directly
+ * inside a relation `where` are caught by the same normalized-output check.
+ */
+function firstLookupRowEscapedColumn(
+	root: Predicate,
+	ctx: TypeContext,
+): RelationIssue | undefined {
+	let escaped = false;
+	let normalized: Predicate;
+	try {
+		normalized = normalizeRelationEvaluationScopes(root, ctx);
+	} catch (error) {
+		if (error instanceof RelationEvaluationScopeError) return undefined;
+		throw error;
+	}
+	walkPredicateNodes(normalized, (node) => {
+		if (node.kind !== "exists" && node.kind !== "missing") return;
+		if (node.where !== undefined && predicateReadsTableColumn(node.where)) {
+			escaped = true;
+		}
+	});
+	walkPredicateExpressionNodes(normalized, (node) => {
+		if (node.kind !== "count" || node.where === undefined) return;
+		if (predicateReadsTableColumn(node.where)) escaped = true;
+	});
+	return escaped ? { reason: "lookup-row-escaped-column" } : undefined;
+}
+
+/** Any table-column term in the subtree, stopping at nested table lookups —
+ *  a nested lookup's columns belong to its own fixture-row scope. */
+function predicateReadsTableColumn(predicate: Predicate): boolean {
+	let found = false;
+	walkPredicateNodes(predicate, (node) => {
+		if (found) return;
+		switch (node.kind) {
+			case "eq":
+			case "neq":
+			case "gt":
+			case "gte":
+			case "lt":
+			case "lte":
+				found =
+					expressionReadsTableColumn(node.left) ||
+					expressionReadsTableColumn(node.right);
+				return;
+			case "in":
+			case "is-blank":
+			case "is-null":
+				found = expressionReadsTableColumn(node.left);
+				return;
+			case "between":
+				found =
+					expressionReadsTableColumn(node.left) ||
+					(node.lower !== undefined &&
+						expressionReadsTableColumn(node.lower)) ||
+					(node.upper !== undefined && expressionReadsTableColumn(node.upper));
+				return;
+			case "match":
+				/* The property slots below are PropertyRef-typed and cannot hold
+				 * a table-column term; only their value operands can. */
+				found = expressionReadsTableColumn(node.value);
+				return;
+			case "within-distance":
+				found = expressionReadsTableColumn(node.center);
+				return;
+			default:
+				return;
+		}
+	});
+	return found;
+}
+
+function expressionReadsTableColumn(expression: ValueExpression): boolean {
+	switch (expression.kind) {
+		case "term":
+			return expression.term.kind === "table-column";
+		case "table-lookup":
+			/* A nested lookup opens its own fixture-row scope. */
+			return false;
+		case "today":
+		case "now":
+		case "id-of":
+		case "acting-user":
+		case "unowned":
+			return false;
+		case "date-coerce":
+		case "datetime-coerce":
+		case "double":
+		case "unwrap-list":
+			return expressionReadsTableColumn(expression.value);
+		case "format-date":
+			return expressionReadsTableColumn(expression.date);
+		case "date-add":
+			return (
+				expressionReadsTableColumn(expression.date) ||
+				expressionReadsTableColumn(expression.quantity)
+			);
+		case "arith":
+			return (
+				expressionReadsTableColumn(expression.left) ||
+				expressionReadsTableColumn(expression.right)
+			);
+		case "concat":
+			return expression.parts.some(expressionReadsTableColumn);
+		case "coalesce":
+			return expression.values.some(expressionReadsTableColumn);
+		case "if":
+			return (
+				predicateReadsTableColumn(expression.cond) ||
+				expressionReadsTableColumn(expression.then) ||
+				expressionReadsTableColumn(expression.else)
+			);
+		case "switch":
+			return (
+				expressionReadsTableColumn(expression.on) ||
+				expression.cases.some((switchCase) =>
+					expressionReadsTableColumn(switchCase.then),
+				) ||
+				expressionReadsTableColumn(expression.fallback)
+			);
+		case "count":
+			return (
+				expression.where !== undefined &&
+				predicateReadsTableColumn(expression.where)
+			);
+		default: {
+			const _exhaustive: never = expression;
+			throw new Error(
+				`onDeviceExpressionCompatibility: unhandled expression ${String(_exhaustive)}`,
+			);
+		}
+	}
 }
 
 function walkPredicateCarriersInExpression(
@@ -583,8 +747,6 @@ function buildError(
 		switch (issue.reason) {
 			case "unwrap-list":
 				return `Module "${args.mod.name}" turns stored list text into several values in ${args.slotLabel}, but that setting runs in an app screen that can only use one value. Replace it with a single-value calculation.`;
-			case "table-lookup":
-				return `Module "${args.mod.name}" uses a lookup-table expression in ${args.slotLabel}, but lookup execution is not active yet. Remove the lookup until lookup-table support is available.`;
 			case "multi-valued-relation-read":
 				return `Module "${args.mod.name}" reads case property "${issue.property.property}" through a relationship that can return several cases in ${args.slotLabel}, but that setting needs one value. Use an explicit related-case count or move the check into a related-case condition.`;
 			case "mixed-property-scopes":
@@ -595,6 +757,8 @@ function buildError(
 				return `Module "${args.mod.name}" counts child cases from inside another related-case condition in ${args.slotLabel}. CommCare cannot keep the inner child count attached to the current related case. Move that count to its own top-level condition, or count an ancestor instead.`;
 			case "invalid-geopoint-center":
 				return `Module "${args.mod.name}" uses "${issue.value}" as a location in ${args.slotLabel}, but it is not a valid latitude and longitude. Enter coordinates such as "42.3601, -71.0589"; altitude and accuracy are optional.`;
+			case "lookup-row-escaped-column":
+				return `Module "${args.mod.name}" compares a lookup column with a related case's information in ${args.slotLabel}. CommCare evaluates the related-case part away from the lookup row, so the lookup column cannot be read there. Compare the lookup column with the current case's own information, or check the related case in its own condition.`;
 			default: {
 				const _exhaustive: never = issue;
 				return String(_exhaustive);
