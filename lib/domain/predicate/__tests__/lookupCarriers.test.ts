@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
 	type LookupColumnId,
 	type LookupOptionsSource,
@@ -14,6 +15,7 @@ import {
 	literal,
 	matchAll,
 	type Predicate,
+	predicateSchema,
 	simplifyForEmission,
 	tableColumn,
 	tableLookup,
@@ -62,6 +64,17 @@ describe("lookup carrier schemas", () => {
 		expect(
 			valueExpressionSchema.parse(tableLookup(TABLE, VALUE_COLUMN, filter)),
 		).toEqual(tableLookup(TABLE, VALUE_COLUMN, filter));
+	});
+
+	it("keeps every lookup-bearing recursive schema JSON-schema representable", () => {
+		for (const schema of [
+			lookupOptionsSourceSchema,
+			termSchema,
+			predicateSchema,
+			valueExpressionSchema,
+		]) {
+			expect(() => z.toJSONSchema(schema)).not.toThrow();
+		}
 	});
 });
 
