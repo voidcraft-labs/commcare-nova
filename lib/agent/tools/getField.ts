@@ -22,6 +22,7 @@ import { unwrittenPropertiesReadBy } from "@/lib/doc/unwrittenProperties";
 import type { BlueprintDoc, Field } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
 import { FIELD_REF_HINT, resolveFieldTarget } from "../blueprintHelpers";
+import { carrierBlindFieldProjection } from "../dormantCarrierReadProjection";
 import { unwrittenPropertiesReminder } from "../systemReminder";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
@@ -84,12 +85,14 @@ export const getFieldTool = {
 		// If the resolved field is a container, include its children so
 		// the SA sees the subtree in one call. Leaf fields return a plain
 		// `Field` with no `children` key.
-		const field = isContainer(resolved.field)
-			? {
-					...resolved.field,
-					children: buildFieldTree(doc, resolved.field.uuid),
-				}
-			: resolved.field;
+		const field = carrierBlindFieldProjection(
+			isContainer(resolved.field)
+				? {
+						...resolved.field,
+						children: buildFieldTree(doc, resolved.field.uuid),
+					}
+				: resolved.field,
+		);
 		const reminder = unwrittenReadsReminder(doc, field);
 		return {
 			kind: "read",

@@ -40,6 +40,10 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { resolveModuleUuid } from "../blueprintHelpers";
+import {
+	carrierBlindCaseListConfig,
+	carrierBlindCaseSearchConfig,
+} from "../dormantCarrierReadProjection";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -117,7 +121,15 @@ export const getModuleTool = {
 			};
 		}
 		const formUuids = orderedFormUuids(doc, moduleUuid);
-		const columns = mod.caseListConfig?.columns ?? [];
+		const caseListConfig =
+			mod.caseListConfig === undefined
+				? undefined
+				: carrierBlindCaseListConfig(mod.caseListConfig);
+		const caseSearchConfig =
+			mod.caseSearchConfig === undefined
+				? undefined
+				: carrierBlindCaseSearchConfig(mod.caseSearchConfig);
+		const columns = caseListConfig?.columns ?? [];
 		return {
 			kind: "read",
 			data: {
@@ -126,7 +138,7 @@ export const getModuleTool = {
 				case_type: mod.caseType ?? null,
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
-				case_list_config: mod.caseListConfig ?? null,
+				case_list_config: caseListConfig ?? null,
 				results_column_order: [...columns]
 					.filter((column) => column.visibleInList !== false)
 					.sort(byListColumnOrder)
@@ -135,7 +147,7 @@ export const getModuleTool = {
 					.filter((column) => column.visibleInDetail !== false)
 					.sort(byDetailColumnOrder)
 					.map((column) => column.uuid),
-				case_search_config: mod.caseSearchConfig ?? null,
+				case_search_config: caseSearchConfig ?? null,
 				forms: formUuids.map((fUuid, i) => {
 					const f = doc.forms[fUuid];
 					return {

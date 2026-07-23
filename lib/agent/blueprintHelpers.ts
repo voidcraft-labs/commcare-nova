@@ -81,6 +81,7 @@ import type {
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
+import { carrierBlindFormProjection } from "./dormantCarrierReadProjection";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -363,10 +364,9 @@ export function resolveFormContext(
 
 /**
  * Shape returned by `formSnapshot` — the form entity augmented with its
- * ordered, nested field tree. Uses the domain `Form` type verbatim so
- * downstream consumers (SA `getForm` tool, MCP adapter) read domain
- * names (`closeCondition`, `postSubmit`, `formLinks`) and don't carry
- * any CommCare wire-format translation.
+ * ordered, nested field tree. It keeps domain names (`closeCondition`,
+ * `postSubmit`, `formLinks`) while the dormant S05a read projection removes
+ * lookup-only carriers before SA/MCP consumers see the snapshot.
  *
  * Lives alongside the positional lookup helpers because it's a
  * `BlueprintDoc`-read derived shape — the same category of surface.
@@ -374,9 +374,9 @@ export function resolveFormContext(
 export type FormSnapshot = Form & { fields: FieldWithChildren[] };
 
 /**
- * Build a `FormSnapshot` for the given form uuid. Returns `undefined`
- * when the form doesn't exist in the doc — callers surface that as a
- * "form not found" error to the SA.
+ * Build a carrier-blind `FormSnapshot` for the given form uuid. Returns
+ * `undefined` when the form doesn't exist in the doc — callers surface that
+ * as a "form not found" error to the SA.
  */
 export function formSnapshot(
 	doc: BlueprintDoc,
@@ -395,11 +395,11 @@ export function formSnapshot(
 				),
 			}
 		: undefined;
-	return {
+	return carrierBlindFormProjection({
 		...form,
 		...(closeCondition !== undefined && { closeCondition }),
 		fields: buildFieldTree(doc, formUuid),
-	};
+	});
 }
 
 // ── Mutation builders — modules ─────────────────────────────────────────

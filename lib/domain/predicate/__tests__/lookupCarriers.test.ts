@@ -7,6 +7,9 @@ import {
 	lookupOptionsSourceSchema,
 } from "@/lib/domain";
 import {
+	carrierBlindPredicateSchema,
+	carrierBlindTermSchema,
+	carrierBlindValueExpressionSchema,
 	checkPredicate,
 	checkValueExpression,
 	eq,
@@ -74,6 +77,78 @@ describe("lookup carrier schemas", () => {
 			valueExpressionSchema,
 		]) {
 			expect(() => z.toJSONSchema(schema)).not.toThrow();
+		}
+	});
+
+	it("keeps the rolling family structurally carrier-blind at every depth", () => {
+		const tableColumnPredicate = {
+			kind: "not",
+			clause: {
+				kind: "eq",
+				left: {
+					kind: "if",
+					cond: { kind: "match-all" },
+					// biome-ignore lint/suspicious/noThenProperty: this is the canonical non-callable ValueExpression branch slot.
+					then: { kind: "term", term: { kind: "literal", value: "safe" } },
+					else: {
+						kind: "term",
+						term: {
+							kind: "table-column",
+							tableId: TABLE,
+							columnId: VALUE_COLUMN,
+						},
+					},
+				},
+				right: { kind: "term", term: { kind: "literal", value: "safe" } },
+			},
+		};
+		const tableLookupExpression = {
+			kind: "coalesce",
+			values: [
+				{
+					kind: "if",
+					cond: { kind: "match-all" },
+					// biome-ignore lint/suspicious/noThenProperty: this is the canonical non-callable ValueExpression branch slot.
+					then: {
+						kind: "table-lookup",
+						tableId: TABLE,
+						resultColumnId: VALUE_COLUMN,
+						where: { kind: "match-all" },
+					},
+					else: { kind: "term", term: { kind: "literal", value: null } },
+				},
+			],
+		};
+
+		expect(predicateSchema.safeParse(tableColumnPredicate).success).toBe(true);
+		expect(valueExpressionSchema.safeParse(tableLookupExpression).success).toBe(
+			true,
+		);
+		expect(
+			carrierBlindPredicateSchema.safeParse(tableColumnPredicate).success,
+		).toBe(false);
+		expect(
+			carrierBlindValueExpressionSchema.safeParse(tableLookupExpression)
+				.success,
+		).toBe(false);
+		expect(
+			carrierBlindTermSchema.safeParse({
+				kind: "table-column",
+				tableId: TABLE,
+				columnId: VALUE_COLUMN,
+			}).success,
+		).toBe(false);
+	});
+
+	it("omits dormant discriminators from the rolling JSON grammar", () => {
+		for (const schema of [
+			carrierBlindTermSchema,
+			carrierBlindPredicateSchema,
+			carrierBlindValueExpressionSchema,
+		]) {
+			const grammar = JSON.stringify(z.toJSONSchema(schema));
+			expect(grammar).not.toContain("table-column");
+			expect(grammar).not.toContain("table-lookup");
 		}
 	});
 });

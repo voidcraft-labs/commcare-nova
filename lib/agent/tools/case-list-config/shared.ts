@@ -41,7 +41,13 @@ import {
 	searchInputDefSchema,
 	type Uuid,
 } from "@/lib/domain";
-import { expressionReadsCaseData } from "@/lib/domain/predicate";
+import {
+	carrierBlindPredicateSchema,
+	carrierBlindValueExpressionSchema,
+	expressionReadsCaseData,
+	type Predicate,
+	type ValueExpression,
+} from "@/lib/domain/predicate";
 import {
 	canonicalizeExpressionCaseProperties,
 	canonicalizePredicateCaseProperties,
@@ -52,6 +58,21 @@ import {
 // it lives at `tools/shared/`. The re-export below keeps every existing
 // case-list-config consumer's import path stable on the relocation.
 export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
+
+/**
+ * Runtime-narrow, statically canonical views of the authoring schemas.
+ *
+ * Predicate builders deliberately return the canonical persisted unions:
+ * TypeScript cannot prove that a particular builder call omitted a dormant
+ * recursive arm even when its concrete value did. Tool callers and tests have
+ * always composed those builders directly. Keep that ergonomic input type
+ * while the underlying Zod nodes remain structurally carrier-blind at parse
+ * and JSON-schema emission time.
+ */
+const carrierBlindPredicateInputSchema =
+	carrierBlindPredicateSchema as z.ZodType<Predicate>;
+const carrierBlindValueExpressionInputSchema =
+	carrierBlindValueExpressionSchema as z.ZodType<ValueExpression>;
 
 // ── Tool input schemas — column + search-input shapes without uuid ──
 //
@@ -104,7 +125,9 @@ export const columnInputSchema = z
 		idMappingColumnArm.omit(columnToolOwnedSlots),
 		imageMapColumnArm.omit(columnToolOwnedSlots),
 		intervalColumnArm.omit(columnToolOwnedSlots),
-		calculatedColumnArm.omit(columnToolOwnedSlots),
+		calculatedColumnArm
+			.omit(columnToolOwnedSlots)
+			.extend({ expression: carrierBlindValueExpressionInputSchema }),
 	])
 	.superRefine((column, ctx) => {
 		// A definition absent from both worker-facing screens has no job unless
@@ -161,12 +184,15 @@ const saSearchInputType = z
  */
 export const searchInputDefInputSchema = z
 	.discriminatedUnion("kind", [
-		simpleSearchInputArm
-			.omit({ uuid: true, order: true })
-			.extend({ type: saSearchInputType }),
-		advancedSearchInputArm
-			.omit({ uuid: true, order: true })
-			.extend({ type: saSearchInputType }),
+		simpleSearchInputArm.omit({ uuid: true, order: true }).extend({
+			type: saSearchInputType,
+			default: carrierBlindValueExpressionInputSchema.optional(),
+		}),
+		advancedSearchInputArm.omit({ uuid: true, order: true }).extend({
+			type: saSearchInputType,
+			default: carrierBlindValueExpressionInputSchema.optional(),
+			predicate: carrierBlindPredicateInputSchema,
+		}),
 	])
 	.superRefine((input, ctx) => {
 		if (input.kind === "simple") {

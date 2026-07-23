@@ -30,8 +30,21 @@ import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	LookupColumnId,
+	LookupTableId,
+	Uuid,
+} from "@/lib/domain";
+import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
+import {
+	concat,
+	eq,
+	literal,
+	tableColumn,
+	tableLookup,
+	term,
+} from "@/lib/domain/predicate";
 import {
 	projectResult,
 	registerSharedTool,
@@ -463,6 +476,146 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 		expect(parsed.query).toBe("any");
 		expect(Array.isArray(parsed.results)).toBe(true);
 		expect(parsed.results).toHaveLength(0);
+	});
+});
+
+describe("registerSharedTool — dormant lookup read projection", () => {
+	it("keeps a real getModule MCP result carrier-blind without touching persisted input", async () => {
+		const { blueprint, modUuid } = mockBlueprintWithForm();
+		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+		const valueColumn =
+			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+		const labelColumn =
+			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+		const where = eq(tableColumn(table, labelColumn), literal("enabled"));
+		const lookup = concat(
+			term(literal("prefix:")),
+			tableLookup(table, valueColumn, where),
+		);
+		const safeColumn = asUuid("71111111-1111-4111-8111-111111111111");
+		const dormantColumn = asUuid("72222222-2222-4222-8222-222222222222");
+
+		blueprint.modules[modUuid] = {
+			...blueprint.modules[modUuid],
+			caseListConfig: {
+				columns: [
+					plainColumn(safeColumn, "name", "Name"),
+					calculatedColumn(dormantColumn, "Lookup result", lookup),
+				],
+				filter: eq(lookup, literal("active")),
+				searchInputs: [],
+			},
+			caseSearchConfig: {
+				searchScreenTitle: "Find people",
+				excludedOwnerIds: lookup,
+			},
+		};
+		const persistedBefore = JSON.stringify(blueprint);
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
+		);
+
+		const { getModuleTool } = await import("@/lib/agent/tools/getModule");
+		const { server, capture } = makeFakeServer();
+		registerSharedTool(server, "get_module", getModuleTool, toolCtx, "view");
+
+		const out = (await capture()({ app_id: "a1", moduleIndex: 0 }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const wireText = out.content[0]?.text ?? "{}";
+		const payload = JSON.parse(wireText) as {
+			case_list_config: {
+				columns: Array<{ uuid: string; header: string }>;
+				filter?: unknown;
+			};
+			results_column_order: string[];
+			case_search_config: Record<string, unknown>;
+		};
+
+		expect(wireText).not.toContain("table-column");
+		expect(wireText).not.toContain("table-lookup");
+		expect(wireText).not.toContain("optionsSource");
+		expect(payload.case_list_config.columns).toEqual([
+			expect.objectContaining({ uuid: safeColumn, header: "Name" }),
+		]);
+		expect(payload.case_list_config.filter).toBeUndefined();
+		expect(payload.results_column_order).toEqual([safeColumn]);
+		expect(payload.case_search_config).toEqual({
+			searchScreenTitle: "Find people",
+		});
+		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
+	});
+
+	it("removes a dormant case-operation link through the real getForm MCP path", async () => {
+		const { blueprint, formUuid } = mockBlueprintWithForm();
+		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+		const valueColumn =
+			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+		const labelColumn =
+			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+		const lookup = tableLookup(
+			table,
+			valueColumn,
+			eq(tableColumn(table, labelColumn), literal("enabled")),
+		);
+		blueprint.forms[formUuid] = {
+			...blueprint.forms[formUuid],
+			caseOperations: [
+				{
+					uuid: asUuid("73333333-3333-4333-8333-333333333333"),
+					id: "link_household",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					links: [
+						{
+							identifier: "safe_null",
+							targetType: "household",
+							target: null,
+							relationship: "child",
+						},
+						{
+							identifier: "dormant_expression",
+							targetType: "household",
+							target: { kind: "expression", expr: lookup },
+							relationship: "extension",
+						},
+					],
+				},
+			],
+		};
+		const persistedBefore = JSON.stringify(blueprint);
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
+		);
+
+		const { getFormTool } = await import("@/lib/agent/tools/getForm");
+		const { server, capture } = makeFakeServer();
+		registerSharedTool(server, "get_form", getFormTool, toolCtx, "view");
+
+		const out = (await capture()(
+			{ app_id: "a1", moduleIndex: 0, formIndex: 0 },
+			{},
+		)) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const wireText = out.content[0]?.text ?? "{}";
+		const payload = JSON.parse(wireText) as {
+			form: { caseOperations?: Array<{ links?: unknown[] }> };
+		};
+
+		expect(wireText).not.toContain("table-column");
+		expect(wireText).not.toContain("table-lookup");
+		expect(wireText).not.toContain("optionsSource");
+		expect(payload.form.caseOperations?.[0]?.links).toEqual([
+			{
+				identifier: "safe_null",
+				targetType: "household",
+				target: null,
+				relationship: "child",
+			},
+		]);
+		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
 	});
 });
 

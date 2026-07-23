@@ -39,11 +39,21 @@ import {
 	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import {
+	carrierBlindPredicateSchema,
+	carrierBlindValueExpressionSchema,
 	expressionReadsCaseData,
+	type Predicate,
 	predicateReadsCaseData,
-	predicateSchema,
-	valueExpressionSchema,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
+
+// Builders expose canonical AST union types. These aliases keep existing tool
+// callers source-compatible while retaining the carrier-blind Zod nodes at
+// runtime and in generated MCP/chat schemas.
+const carrierBlindPredicateInputSchema =
+	carrierBlindPredicateSchema as z.ZodType<Predicate>;
+const carrierBlindValueExpressionInputSchema =
+	carrierBlindValueExpressionSchema as z.ZodType<ValueExpression>;
 
 // ── Cluster slot tuples — source of truth ───────────────────────────
 
@@ -192,16 +202,15 @@ export function slotsSetByInput<K extends keyof CaseSearchConfig>(
 
 // ── Input schemas — advanced cluster ────────────────────────────────
 
-const globallyResolvedOwnerExpressionSchema = valueExpressionSchema.superRefine(
-	(expression, ctx) => {
+const globallyResolvedOwnerExpressionSchema =
+	carrierBlindValueExpressionInputSchema.superRefine((expression, ctx) => {
 		if (!expressionReadsCaseData(expression)) return;
 		ctx.addIssue({
 			code: "custom",
 			message:
 				"Assigned-case exclusions are resolved before a case is selected, so they cannot read case properties or relationships. Use a fixed owner-id list, a current-user/session value, a Search answer, or a calculation over those values.",
 		});
-	},
-);
+	});
 
 /**
  * The search-button display condition evaluates on the case list /
@@ -212,16 +221,15 @@ const globallyResolvedOwnerExpressionSchema = valueExpressionSchema.superRefine(
  * rejects the shape with the honest alternatives instead of letting
  * the gate (or the runtime) break the news.
  */
-const globallyResolvedDisplayConditionSchema = predicateSchema.superRefine(
-	(condition, ctx) => {
+const globallyResolvedDisplayConditionSchema =
+	carrierBlindPredicateInputSchema.superRefine((condition, ctx) => {
 		if (!predicateReadsCaseData(condition)) return;
 		ctx.addIssue({
 			code: "custom",
 			message:
 				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and current-user/session values; to filter which cases appear, use the case list filter or a search input instead.",
 		});
-	},
-);
+	});
 
 /**
  * SA boundary shape for `setCaseSearchAdvanced`. `moduleIndex` is

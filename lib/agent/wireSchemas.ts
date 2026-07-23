@@ -20,7 +20,12 @@
 
 import { jsonSchema, type Schema } from "ai";
 import { z } from "zod";
-import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
+import {
+	carrierBlindPredicateSchema,
+	carrierBlindValueExpressionSchema,
+	predicateSchema,
+	valueExpressionSchema,
+} from "@/lib/domain/predicate";
 
 const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 	[
@@ -33,7 +38,25 @@ const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 		},
 	],
 	[
+		carrierBlindPredicateSchema,
+		{
+			type: "object",
+			additionalProperties: true,
+			description:
+				'Predicate AST node (boolean filter). Shape reference: "Filters & expressions" in your instructions.',
+		},
+	],
+	[
 		valueExpressionSchema,
+		{
+			type: "object",
+			additionalProperties: true,
+			description:
+				'ValueExpression AST node (typed value). Shape reference: "Filters & expressions" in your instructions.',
+		},
+	],
+	[
+		carrierBlindValueExpressionSchema,
 		{
 			type: "object",
 			additionalProperties: true,

@@ -12,9 +12,18 @@
  */
 
 import { z } from "zod";
-import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
+import {
+	carrierBlindPredicateSchema,
+	carrierBlindValueExpressionSchema,
+} from "@/lib/domain/predicate";
 
 type JsonNode = Record<string, unknown>;
+
+const DISPLAY_TYPE_NAMES: Readonly<Record<string, string>> = {
+	CarrierBlindPredicate: "Predicate",
+	CarrierBlindValueExpression: "ValueExpression",
+	CarrierBlindTerm: "Term",
+};
 
 function commentLines(text: unknown): string[] {
 	if (typeof text !== "string" || text.length === 0) return [];
@@ -22,7 +31,8 @@ function commentLines(text: unknown): string[] {
 }
 
 function refName(ref: string): string {
-	return ref.split("/").pop() ?? "unknown";
+	const emittedName = ref.split("/").pop() ?? "unknown";
+	return DISPLAY_TYPE_NAMES[emittedName] ?? emittedName;
 }
 
 /** JSON-schema node → TypeScript type text. `$ref`s render as their
@@ -96,25 +106,33 @@ function tsType(node: JsonNode | undefined, indent: string): string {
  */
 export function buildExpressionReference(): string {
 	const json = z.toJSONSchema(
-		z.object({ p: predicateSchema, v: valueExpressionSchema }),
+		z.object({
+			p: carrierBlindPredicateSchema,
+			v: carrierBlindValueExpressionSchema,
+		}),
 		{ target: "draft-7", io: "input" },
 	) as JsonNode;
 	const defs = (json.definitions ?? {}) as Record<string, JsonNode>;
 	// Stable presentation order: the two grammar roots first, Term next,
 	// then every remaining referenced type in emission order.
 	const order = [
-		"Predicate",
-		"ValueExpression",
-		"Term",
+		"CarrierBlindPredicate",
+		"CarrierBlindValueExpression",
+		"CarrierBlindTerm",
 		...Object.keys(defs).filter(
-			(k) => !["Predicate", "ValueExpression", "Term"].includes(k),
+			(k) =>
+				![
+					"CarrierBlindPredicate",
+					"CarrierBlindValueExpression",
+					"CarrierBlindTerm",
+				].includes(k),
 		),
 	].filter((k) => defs[k]);
 	const blocks = order.map((name) => {
 		const def = defs[name] as JsonNode;
 		const lines = [...commentLines(def.description)];
 		const body = tsType({ ...def, description: undefined }, "");
-		lines.push(`type ${name} = ${body};`);
+		lines.push(`type ${DISPLAY_TYPE_NAMES[name] ?? name} = ${body};`);
 		return lines.join("\n");
 	});
 	return blocks.join("\n\n");

@@ -10,6 +10,7 @@ import {
 	type Event,
 	eventSchema,
 	type MutationEvent,
+	mutationEventSchema,
 } from "../types";
 
 describe("eventSchema", () => {
@@ -49,6 +50,43 @@ describe("eventSchema", () => {
 		};
 		const parsed = eventSchema.parse(event);
 		expect(parsed).toEqual(event);
+	});
+
+	it("preserves canonical lookup carriers in durable mutation events", () => {
+		const event = {
+			kind: "mutation",
+			runId: "run-lookup-replay",
+			ts: 1_700_000_000_000,
+			seq: 2,
+			source: "chat",
+			actor: "agent",
+			mutation: {
+				kind: "addModule",
+				module: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000000"),
+					id: "visits",
+					name: "Visits",
+					displayCondition: {
+						kind: "eq",
+						left: {
+							kind: "term",
+							term: {
+								kind: "table-column",
+								tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
+								columnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
+							},
+						},
+						right: {
+							kind: "term",
+							term: { kind: "literal", value: "open" },
+						},
+					},
+				},
+			},
+		};
+
+		expect(mutationEventSchema.parse(event)).toEqual(event);
+		expect(eventSchema.parse(event)).toEqual(event);
 	});
 
 	it("parses every conversation payload variant", () => {

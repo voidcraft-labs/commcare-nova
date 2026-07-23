@@ -22,7 +22,7 @@ import {
 	type AttachmentRef,
 	attachmentRefSchema,
 } from "@/lib/chat/attachmentRefs";
-import { mutationSchema } from "@/lib/doc/types";
+import { canonicalMutationSchema } from "@/lib/doc/types";
 
 // ── Conversation payloads ──────────────────────────────────────────
 
@@ -199,7 +199,7 @@ export const mutationEventSchema = envelopeSchema.extend({
 	actor: z.enum(["user", "agent"]),
 	/** Optional semantic tag: "scaffold" | "module:0" | "form:0-1" | "fix" | … */
 	stage: z.string().optional(),
-	mutation: mutationSchema,
+	mutation: canonicalMutationSchema,
 });
 export type MutationEvent = z.infer<typeof mutationEventSchema>;
 
