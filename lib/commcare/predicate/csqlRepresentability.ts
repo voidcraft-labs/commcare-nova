@@ -792,11 +792,9 @@ function checkRuntimeValue(
 				message:
 					"Lookup-table expressions are not active in case search yet. Remove this lookup until lookup fixture emission is available.",
 			});
-			checkQueryPredicate(
-				expression.where,
-				[...path, "table-lookup", "where"],
-				issues,
-			);
+			// This dormant boundary is terminal. The nested predicate evaluates
+			// against a lookup row, not a case-query row, so descending through
+			// `checkQueryPredicate` would manufacture case-anchor findings.
 			return;
 		default: {
 			const _exhaustive: never = expression;

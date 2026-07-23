@@ -33,6 +33,7 @@ import {
 	type Predicate,
 	type Term,
 	type ValueExpression,
+	walkExpressionNodes,
 	walkExpressionTerms,
 	walkTerms,
 } from "@/lib/domain/predicate";
@@ -86,9 +87,17 @@ export function collectPredicateInstances(predicate: Predicate): Set<string> {
 export function collectExpressionInstances(
 	expression: ValueExpression,
 ): Set<string> {
+	walkExpressionNodes(expression, rejectDormantTableLookup);
 	const instances = new Set<string>();
 	walkExpressionTerms(expression, (term) => addTermInstance(term, instances));
 	return instances;
+}
+
+function rejectDormantTableLookup(expression: ValueExpression): void {
+	if (expression.kind !== "table-lookup") return;
+	throw new Error(
+		"collectAstInstances: lookup-table expressions are dormant until fixture emission lands; validation should reject them before suite instance collection.",
+	);
 }
 
 function addTermInstance(term: Term, instances: Set<string>): void {
