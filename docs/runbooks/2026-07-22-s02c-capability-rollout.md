@@ -1,11 +1,10 @@
 # S02c runtime-capability rollout
 
 **Status:** S02c1 shipped in PR #300 and is live as
-`commcare-nova-00354-dq4`; S02c2 guarded deployment is in progress on
-`agent/s02c2`. This document records the checked-in contract and its safe
-verification commands. It is not yet a manual traffic-cutover procedure;
-S02c2 must add and exercise the guarded no-traffic deploy, durable exact
-rollback, and drain/status controller before it replaces the current pipeline.
+`commcare-nova-00354-dq4`; S02c2 deployment hardening is in progress on
+`agent/s02c2-simple`. This document records the checked-in contract and its safe
+verification commands. Nova uses the ordinary Cloud Build → blocking migration
+Job → Cloud Run deployment path; this slice adds no custom traffic controller.
 
 ## Source of truth
 
@@ -175,27 +174,23 @@ state.
 ## S02c2 activation boundary
 
 This commit stores and transports nonce generations but does not activate exact
-nonce authority. S02c2 exercises only deployment and reconciliation while all
-floors remain `0` and every activation flag remains false. Its controller has no
-floor-raise or nonce-activation command, and its database role has no privilege
-to perform either. A later explicitly reviewed total-consumer activation must
+nonce authority. S02c2 changes no floor and every activation flag remains
+false. The serving identity cannot update compatibility control state, and
+S02c2 exposes no floor-raise or nonce-activation command. Any explicitly
+reviewed total-consumer activation must
 first serve compatible code at 100% traffic, drain the request epoch, every
 v0/null-nonce run holder, and every below-floor stream receiver lease. Only that
 later unit may raise the runtime-reader floor and irreversibly set
 `run_holder_nonce_enforced = true`; after activation an old tab without the
 exact nonce is required to refresh.
 
-## S02c2 topology decisions
+## S02c2 deployment decisions
 
-The default `run.app` URL remains disabled. A traffic-tag URL therefore is not
-the health contract, and Nova will not provision a permanently billed internal
-load balancer solely to manufacture one. The exact no-traffic candidate must
-instead reach Ready through `/warmup`, strengthened to fail closed when its
-baked capability environment, build identity, or bounded database check is
-wrong. Before traffic, the controller independently verifies the exact
-revision's image, labels, template, and Ready condition through the Cloud Run
-API. After traffic it probes the public main/docs/MCP contracts; any failure
-restores and verifies the durably journaled prior concrete percentages and tags.
+The default `run.app` URL remains disabled. `/warmup` is strengthened to fail
+closed when the baked capability environment, build identity, or bounded
+database check is wrong. Cloud Run waits for that startup probe before its
+ordinary deploy moves traffic. Nova does not provision a candidate-only load
+balancer, traffic controller, or durable cutover journal.
 
 Production unknown hosts are not a general internal trust zone. Apart from the
 platform's exact `/warmup` request, they return 404 before `/api/*` handling;
@@ -203,21 +198,19 @@ localhost-only conveniences remain development-only. This closes the forged
 Host path through the public load balancer without exposing a rollout-only
 application route.
 
-Migration, runtime, rollout, and build use distinct IAM/database identities.
-Migration owns fixed objects; rollout receives only narrow compatibility
-reconciliation access and cannot change floors or flags; runtime does not own
-auth/control tables. Runtime temporarily remains the owner of `cases` because
-the live schema path performs concurrent index DDL. Removing that last ownership
-exception requires a privileged schema worker and is not faked by granting the
-web process broad migration authority.
+Migration, runtime, and build use distinct IAM/database identities. Migration
+owns fixed objects; runtime does not own auth/control tables. Runtime owns only
+`cases` in the isolated `nova_case_runtime` schema because the live schema path
+performs concurrent index DDL. It receives no CREATE privilege in `public`.
 
-## Build behavior in S02c1
+## Build and deploy behavior
 
 Before Docker runs, Cloud Build executes:
 
 ```bash
 node scripts/rollout/render-build-config.mjs \
   --check \
+  --build-id "$BUILD_ID" \
   --output /workspace/rollout.env
 ```
 
@@ -231,13 +224,12 @@ the declarations into the runner image. Its structural check also proves:
 - the database writer version and both legacy run-liveness constants derive
   from the manifest instead of duplicate literals.
 
-The current deploy step still sends traffic by the pre-S02c pipeline and does
-not apply capability labels. Do not infer rollout safety from the image
-environment alone. S02c2 will reserve the revision labels `nova_writer`,
-`nova_stream_receiver`, `nova_runtime_reader`, `nova_stream_registry`,
-`nova_manifest`, and `nova_build`, verify them against the canonical manifest,
-pin the service timeout from the generated value, and gate traffic under the
-deployment-cutover lock.
+Cloud Build tags each image with its always-present unique build UUID, runs the
+migration Job as `nova-migrate`, then deploys that same image as the existing
+`commcare-nova` runtime identity. The generated request cap pins Cloud Run's
+timeout. The first split-identity deploy is an explicit dogfood maintenance
+cutover because ownership convergence moves `cases` out of `public`; it is not
+presented as zero-downtime machinery.
 
 ## Safe verification
 

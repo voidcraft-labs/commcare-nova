@@ -7,11 +7,9 @@ import {
 	canonicalRuntimeCapabilityManifest,
 	RUNTIME_BUILD_ID_ENV_KEY,
 	RUNTIME_BUILD_ID_FILE_PATH,
-	RUNTIME_REVISION_LABELS_ENV_KEY,
 	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
-	runtimeCapabilityRevisionLabelsFromHash,
 } from "../../lib/runtimeCapabilities/core.mts";
 import { hashCanonicalRuntimeCapabilityManifest } from "../../lib/runtimeCapabilities/serverHash.mts";
 
@@ -95,14 +93,6 @@ function renderShellEnvironment(manifest, manifestHash, buildId) {
 	}
 	if (buildId !== undefined) {
 		lines.push(`export ${RUNTIME_BUILD_ID_ENV_KEY}=${shellQuote(buildId)}`);
-		const revisionLabels = Object.entries(
-			runtimeCapabilityRevisionLabelsFromHash(manifest, manifestHash, buildId),
-		)
-			.map(([key, value]) => `${key}=${value}`)
-			.join(",");
-		lines.push(
-			`export ${RUNTIME_REVISION_LABELS_ENV_KEY}=${shellQuote(revisionLabels)}`,
-		);
 	}
 	return `${lines.join("\n")}\n`;
 }
@@ -116,6 +106,15 @@ function requireExactlyOnce(source, needle, file, issues) {
 	if (occurrences !== 1) {
 		issues.push(
 			`${file} must contain exactly one ${JSON.stringify(needle)} (found ${occurrences})`,
+		);
+	}
+}
+
+function requireExactlyTwice(source, needle, file, issues) {
+	const occurrences = count(source, needle);
+	if (occurrences !== 2) {
+		issues.push(
+			`${file} must contain exactly two ${JSON.stringify(needle)} occurrences (found ${occurrences})`,
 		);
 	}
 }
@@ -169,7 +168,7 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		"cloudbuild.yaml",
 		issues,
 	);
-	requireExactlyOnce(
+	requireExactlyTwice(
 		cloudBuild,
 		"source /workspace/rollout.env",
 		"cloudbuild.yaml",
@@ -194,6 +193,12 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		requireExactlyOnce(dockerfile, `ARG ${key}`, "Dockerfile", issues);
 		requireExactlyOnce(dockerfile, `${key}="\${${key}}"`, "Dockerfile", issues);
 	}
+	requireExactlyOnce(
+		cloudBuild,
+		`--build-arg ${RUNTIME_BUILD_ID_ENV_KEY}="$$${RUNTIME_BUILD_ID_ENV_KEY}"`,
+		"cloudbuild.yaml",
+		issues,
+	);
 	requireExactlyOnce(
 		dockerfile,
 		`ARG ${RUNTIME_BUILD_ID_ENV_KEY}`,

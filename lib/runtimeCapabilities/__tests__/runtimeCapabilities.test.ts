@@ -17,7 +17,6 @@ import {
 	parseRuntimeCapabilityVersion,
 	RUNTIME_BUILD_ID_ENV_KEY,
 	RUNTIME_CAPABILITY_ENV_KEYS,
-	RUNTIME_REVISION_LABELS_ENV_KEY,
 	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
@@ -239,7 +238,7 @@ describe("runtime capability manifest", () => {
 		);
 	});
 
-	it("renders deterministic shell-safe build identity and revision labels", () => {
+	it("renders a deterministic shell-safe build identity", () => {
 		const repoRoot = path.resolve(import.meta.dirname, "../../..");
 		const args = [
 			"scripts/rollout/render-build-config.mjs",
@@ -256,9 +255,6 @@ describe("runtime capability manifest", () => {
 		});
 		expect(second).toBe(first);
 		expect(first).toContain(`export ${RUNTIME_BUILD_ID_ENV_KEY}='${buildId}'`);
-		expect(first).toContain(
-			`export ${RUNTIME_REVISION_LABELS_ENV_KEY}='nova_writer=0,nova_stream_receiver=1,nova_runtime_reader=1,nova_stream_registry=1,nova_manifest=c151a1240c6508fe,nova_build=${buildId}'`,
-		);
 		expect(() =>
 			execFileSync(
 				process.execPath,

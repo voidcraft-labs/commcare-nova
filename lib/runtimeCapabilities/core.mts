@@ -72,9 +72,6 @@ export const RUNTIME_BUILD_ID_ENV_KEY = "NOVA_BUILD_ID";
 /** Immutable runner-image copy used to reject runtime env overrides. */
 export const RUNTIME_BUILD_ID_FILE_PATH = "/app/.nova-build-id";
 
-/** Shell variable the renderer exposes for `gcloud run deploy --labels`. */
-export const RUNTIME_REVISION_LABELS_ENV_KEY = "NOVA_REVISION_LABELS";
-
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
 		return false;

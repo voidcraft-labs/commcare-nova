@@ -1184,9 +1184,10 @@ separate best-effort purge of at most 256 expired leases through the
 the already-decided admission. `ReconcilerProvider` now appends the manifest's
 compiled receiver version to every EventSource URL, so new browser bundles
 declare v1; already-open pre-wiring bundles still declare v0 by omission. This
-foundation does **not** label a revision, change traffic, raise a floor, or
-enable a flag. S02c2 owns the no-traffic candidate, manifest-label verification,
-`--timeout` pin, and guarded cutover/rollback controller.
+foundation does **not** change traffic, raise a floor, or enable a flag. S02c2
+hardens the ordinary Cloud Build → blocking migration Job → Cloud Run deploy
+path, pins the request timeout, and verifies the baked manifest/build identity
+at startup. It does not add a Nova-specific traffic control plane.
 
 The runtime-holder callsite slice is now source-complete too: every current
 holder-touching transaction declares runtime reader v1 before DML, including
@@ -1316,56 +1317,24 @@ and receivers below v3 block S07 carrier activation. Cover both registration/
 admission winner orders, abort cleanup failure, old-server overlap, and the
 forced-refresh no-loop path.
 
-Runtime-reader draining has a separate per-target traffic epoch; the registry
-epoch cannot stand in for it. Under the deployment-cutover lock, an explicit
-prepare action creates a `runtime_reader_traffic_epochs` row for the target only
-after every traffic-receiving revision declares at least that target. Every
-later cutover, rollback, and supported traffic edit
-preserves an epoch only while all receiving revisions remain compatible and
-deletes it as soon as any lower revision receives traffic. Raising the runtime
-floor to `V` requires `V`'s uninterrupted epoch to exceed the 3,600-second
-request cap and every present lower-version run holder to clear; corrupt or
-unstamped holders read as v0 and fail closed. S02c creates/tests this machinery
-but performs no runtime-floor prepare or raise.
+The already-landed runtime traffic-epoch and holder-census primitives remain
+dormant database safety inputs; S02c performs no runtime-floor prepare or raise.
+Nova does not build a reusable traffic controller merely to exercise them. If a
+future feature genuinely requires an irreversible nonzero floor, that change
+must make a fresh product decision between a maintenance cutover and additional
+rollout machinery based on then-current traffic and downtime requirements.
 
 Add persistent lookup-reference compatibility state with monotonic
 `minimum_writer_version`, `minimum_stream_receiver_version`, and
 `minimum_runtime_reader_version`, plus initially-false carrier-commit,
 schema-action, and Project-move activation flags. Build revisions declare their
 supported versions, including stream-registry support; a missing or malformed
-declaration is zero. Deployment and rollback tooling must refuse traffic to a
-revision below either the runtime-reader or stream-receiver floor, and any
-nonzero receiver floor additionally requires stream-registry v1 or newer. Thus a
-pre-registry server can never bypass lease admission after a stream cutoff. All
-supported traffic mutations and activation tooling share one deployment-cutover
-advisory lock. The pipeline deploys a capability-labelled candidate with
-`--no-traffic`; a VPC-connected cutover controller using a dedicated
-least-privilege service account holds the
-session advisory lock on one dedicated database connection across the Cloud Run
-traffic mutation. Before cutover it requires the candidate Ready, verifies its
-capability labels, immutable image/build identity, and manifest hash. The
-service keeps its default `run.app` URL disabled: instead of provisioning a
-permanent internal load balancer solely for a tagged probe, the exact candidate
-must become Ready through a strengthened `/warmup` startup probe that fails on
-declaration mismatch or database unavailability. The controller independently
-verifies the revision template and Ready condition through the Cloud Run API.
-After cutover it verifies the intended exact traffic state plus the public
-app/docs/MCP contracts. Any injected or real post-mutation failure restores the
-durably journaled exact revision/tag split and verifies the restoration before
-reporting failure. A process restart resumes or rolls back an incomplete journal
-entry before accepting another cutover. It records the exact timestamp at which
-the current uninterrupted interval of 100% registry-capable traffic begins,
-since leases cannot observe pre-registry streams; any later traffic to a
-pre-registry revision clears the marker, and a
-later return to 100% starts a new interval. Cover S02c -> S02b rollback -> S02c
-and prove the original timestamp cannot authorize the second rollout. The
-controller also preserves or clears each prepared runtime-reader target epoch
-against the exact effective split, so a lower-reader rollback resets only the
-epochs it invalidates. The
-runtime service account never receives Cloud Run Admin. S02c ships and exercises
-this machinery with all floors at `0` and all activation flags false; it performs
-no production floor raise. An instance-local code rollout alone never activates
-vocabulary.
+declaration is zero. The service keeps its default `run.app` URL disabled. Its
+strengthened `/warmup` startup probe fails on a malformed baked declaration,
+build-identity override, or database unavailability; Cloud Run waits for that
+probe before moving traffic through its standard deployment path. S02c ships
+with all floors at `0` and all activation flags false and performs no production
+floor raise. Deploying code alone never activates vocabulary.
 
 S02c2 also closes the current unknown-Host bypass in the multi-host proxy:
 production accepts only the three configured public hosts plus the platform's
@@ -1374,15 +1343,12 @@ generic API short-circuit. Localhost affordances remain development-only. This
 keeps the hostname allowlists a real security boundary even when the external
 load balancer receives a forged HTTP `Host` value.
 
-Deployment identities split into build, migration, runtime, and rollout roles.
-The rollout role can inspect/update this one Cloud Run service and reconcile only
-the compatibility continuity fields and runtime epochs; it cannot raise floors,
-enable flags, or write application data. Migration owns fixed schema objects.
-Runtime receives ordinary application DML but not ownership of auth/control
-tables. The one documented temporary exception is `cases`: runtime schema
-materialization still creates and drops indexes concurrently, which PostgreSQL
-restricts to the table owner. Removing that exception requires a later
-privileged asynchronous schema worker rather than broadening the web runtime.
+Deployment identities split into build, migration, and runtime roles. Migration
+owns fixed schema objects. Runtime receives ordinary application DML but not
+ownership of auth/control tables. The one documented exception is `cases`:
+runtime schema materialization still creates and drops indexes concurrently, so
+that table lives in an isolated runtime-owned schema where the web process may
+create indexes without receiving DDL authority beside fixed objects in `public`.
 
 The database writer guard covers app insertion, every `blueprint_entities`
 write, `accepted_mutations` insertion, mutation-sequence/Project-id advance, and
@@ -1422,28 +1388,26 @@ S02 ships in three sequential review units from merged `main`:
    runtime-holder versioning,
    authoritative reload and mutable editability, per-operation case/presence
    tenancy, transactional media deletion, dual-Project owner/run governance,
-   the fully tested but still-disabled move path, and the guarded no-traffic
-   deploy/cutover/rollback controller. Production floors remain `0` and flags
-   remain false.
+   the fully tested but still-disabled move path, and permanent deployment/
+   database-identity hardening. Production floors remain `0` and flags remain
+   false.
 
 S02c ships as three sequential PRs from each newly deployed `main`, with small
 independently reviewed commits inside each PR. This keeps the transport,
-control-plane, and tenant-move risk surfaces reviewable while allowing the
-guarded pipeline to dogfood the final move deployment:
+deployment-security, and tenant-move risk surfaces reviewable:
 
 1. **S02c1 — authorization and transport foundation:** roadmap/concurrency
    matrix; auth-membership serialization; authoritative app transactions and
    reload snapshots; the capability manifest; compatibility, stream-lease, and
    runtime-holder primitives; receiver-v1 admission and migration
    classification; and mutable client writability. **Shipped in PR #300.**
-2. **S02c2 — guarded deployment:** the no-traffic candidate path,
-   least-privilege cutover/rollback controller, capability labels and health
-   contract, runtime/migration database-role separation, drain/status runbook,
-   and structural CI guards. Apply the reviewed
-   IAM/Cloud SQL scaffolding before merging the pipeline switch. Its own first
-   production cutover exercises the controller while every floor remains `0`
-   and every activation flag remains false. **In progress on
-   `agent/s02c2`.**
+2. **S02c2 — deployment hardening:** immutable build identity and startup health,
+   strict production Host routing, build/migration/runtime identity separation,
+   migration-owned fixed schema plus the isolated runtime case-index schema,
+   the ordinary blocking migration/Cloud Run deploy path, and structural
+   verification. Apply the reviewed IAM/Cloud SQL bootstrap before merging the
+   pipeline switch. Every floor remains `0` and every activation flag false.
+   **In progress on `agent/s02c2-simple`.**
 3. **S02c3 — tenant-safe dormant move:** per-operation case authorization and
    transactional presence, atomic move and run normalization, exact media
    protocol, and same-Project repair. Its deployment dogfoods S02c2; true moves
@@ -1456,8 +1420,8 @@ Within those PRs, commit and review in this order:
 3. compatibility, stream-lease, runtime-holder, and cutover-lock primitives;
 4. receiver-v1 admission, migration classification, authoritative reload, and
    mutable client writability;
-5. no-traffic candidate deployment, least-privilege cutover/rollback controller,
-   drain/status runbook, and structural CI guards;
+5. startup/Host hardening, deployment identity separation, fixed-schema
+   ownership convergence, and structural CI guards;
 6. per-operation case authorization and transactional presence;
 7. dormant atomic move, run normalization, exact media protocol, and
    same-Project repair; and
@@ -1477,11 +1441,9 @@ compatible/incompatible stream leases,
 registration/admission winner orders, stream teardown/expiry, runtime-holder
 new-identity/same-identity/supersede/heartbeat/finalize/reap behavior,
 ownership-safe stale terminal writes, every unstamped present run reading as v0,
-per-target runtime epoch preservation/reset, destination reload versus true
+per-target runtime epoch behavior, destination reload versus true
 revoke, upgrade-required no-loop, PUT-403 downgrade/upgrade-before-cadence,
-transient retry, lower-revision reset, unsaved role transitions, continuous-registry
-timestamp reset across rollback, exact traffic-split restoration, and cursor
-independence.
+transient retry, unsaved role transitions, and cursor independence.
 
 Then typecheck, scoped lint, and one affected leak pass. S02c stays at provider,
 route, and shared-Postgres integration because production move activation remains
@@ -1801,9 +1763,9 @@ grows; keep every HQ JSON/compiler projection identical.
   read-only 401-app production edge scan passed; all S02b branches/worktrees
   were cleaned. The S02c re-audit froze shared/exclusive membership
   serialization, per-operation case safety, atomic move/media behavior, mutable
-  editability, receiver leases and runtime-holder stamps, dual-floor rollback
-  safety, and the guarded no-traffic cutover controller. Fresh branch
-  `agent/s02c` owns the still-disabled implementation.
+  editability, receiver leases, runtime-holder stamps, and permanent deployment
+  identity/startup hardening. Fresh branches own the still-disabled
+  implementation.
 - **2026-07-22 — S02a shipped / S02b owned:** PR #298 shipped the distinct
   lookup identities, rows-free definition snapshot, dormant exact-reference and
   stream-lease storage, compatibility floors/flags, and database writer guard at

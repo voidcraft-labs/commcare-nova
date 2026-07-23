@@ -108,9 +108,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 # Runtime capability declarations are rendered from the checked-in manifest by
 # Cloud Build. Baking them and the unique Cloud Build identity into the image
-# gives startup health and cutover tooling one immutable candidate declaration.
-# A local build that omits the args fails candidate startup health instead of
-# masquerading as a deployable revision.
+# gives startup health one immutable deployed-image declaration. A local build
+# that omits the args fails startup health instead of masquerading as a
+# deployable revision.
 ARG NOVA_BUILD_ID
 ARG NOVA_WRITER_VERSION
 ARG NOVA_STREAM_RECEIVER_VERSION
