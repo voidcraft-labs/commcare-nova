@@ -56,17 +56,22 @@ import {
 	expressionReadsCaseData,
 } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../../lookupTypeContext";
 import { formatPath, moduleTypeContext } from "./shared";
 
 export function searchInputDefaultTypeCheck(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
 	if (inputs.length === 0) return [];
 
-	const ctx = moduleTypeContext(mod, doc);
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < inputs.length; index++) {
@@ -109,10 +114,12 @@ export function searchInputDefaultTypeCheck(
 			continue;
 		}
 		const expectedType = SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES[input.type];
-		const result = checkValueExpression(input.default, ctx, expectedType);
-		if (result.ok) continue;
+		const typeErrors = semanticCheckErrors(
+			checkValueExpression(input.default, ctx, expectedType),
+		);
+		if (typeErrors.length === 0) continue;
 
-		for (const err of result.errors) {
+		for (const err of typeErrors) {
 			const at = formatPath(err.path);
 			const suffix = at ? ` (at ${at})` : "";
 			errors.push(

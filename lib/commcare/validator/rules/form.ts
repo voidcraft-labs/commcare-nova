@@ -34,8 +34,10 @@ import {
 	xpathPrintContext,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import type { LookupTypeIndex } from "../lookupTypeContext";
 import { validateCaseOperations } from "./caseOperations";
 import { formDisplayCondition } from "./displayConditions";
+import { validateLookupOptionsSources } from "./lookupOptionsSource";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -1183,6 +1185,7 @@ export function runFormRules(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	moduleUuid: Uuid,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
 	const mod = doc.modules[moduleUuid];
@@ -1206,7 +1209,12 @@ export function runFormRules(
 
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));
-	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid));
+	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid, lookupTables));
+	if (lookupTables !== undefined) {
+		errors.push(
+			...validateLookupOptionsSources(doc, formUuid, moduleUuid, lookupTables),
+		);
+	}
 	errors.push(...closeConditionValidation(doc, form, ctx, mod));
 	errors.push(...duplicateFieldIds(doc, ctx));
 	errors.push(...primaryInRepeatErrors);
@@ -1225,7 +1233,9 @@ export function runFormRules(
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
 	errors.push(...childCaseNoNameField(ctx, caseConfig));
-	errors.push(...validateCaseOperations(doc, formUuid, moduleUuid));
+	errors.push(
+		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
+	);
 
 	return errors;
 }

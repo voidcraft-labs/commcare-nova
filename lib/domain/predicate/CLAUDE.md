@@ -27,6 +27,18 @@ Three data-model states: key absent, key present with JSON null, key present wit
 
 - Strings are deliberately excluded from `ORDERED_TYPES` — locale-dependent string ordering is rarely meaningful for case-list filtering, so `gt`/`lt` reject text.
 - Property references inside relational `where` clauses must resolve against the surrounding `via`'s DESTINATION scope, not the originating one.
+- Lookup-aware callers supply a rows-free `lookupTables` index. A
+  `table-lookup` resolves its result column from that index and checks its
+  nested predicate under one `tableScope`; `table-column` is legal only for
+  that exact table. Missing table/column checker codes are semantic primitives,
+  but the CommCare validator's structural lookup extractor owns their
+  user-facing findings and filters them from containing-slot type errors.
+- Structural consumers that need authoring provenance use the path-aware
+  predicate/expression walker twins (`walkTermsWithPaths` /
+  `walkExpressionTermsWithPaths`). Their paths cross family boundaries,
+  including the explicit `table-lookup → where` segments case-operation
+  correlation uses to keep lookup-specific repeat rules separate from ordinary
+  operation terms.
 - **The checker is the gate every emitter trusts.** Compiler/emitter code that hits a state the checker should have rejected throws a "the type checker should have caught this" error — never falls back to a default. Checker coverage is the structural contract, not a hint.
 
 ## Exact calendar-day search

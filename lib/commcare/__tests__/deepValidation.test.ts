@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type CaseType } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { eq, formField, literal } from "@/lib/domain/predicate";
 import {
 	buildDoc,
 	caseListConfig,
@@ -606,6 +608,35 @@ function treeFromFields(fields: FieldSpec[]) {
 	};
 }
 
+const DAG_LOOKUP_TABLE =
+	"30000000-0000-7000-8000-000000000001" as LookupTableId;
+const DAG_LOOKUP_COLUMN =
+	"40000000-0000-7000-8000-000000000001" as LookupColumnId;
+
+function lookupSelectForDag(
+	uuid: ReturnType<typeof asUuid>,
+	id: string,
+	dependsOn: ReturnType<typeof asUuid>,
+): FieldSpec {
+	return f({
+		uuid,
+		kind: "single_select",
+		id,
+		label: id.toUpperCase(),
+		options: [
+			{ value: "yes", label: "Yes" },
+			{ value: "no", label: "No" },
+		],
+		optionsSource: {
+			kind: "lookup-table",
+			tableId: DAG_LOOKUP_TABLE,
+			valueColumnId: DAG_LOOKUP_COLUMN,
+			labelColumnId: DAG_LOOKUP_COLUMN,
+			filter: eq(formField(dependsOn), literal("yes")),
+		},
+	});
+}
+
 describe("TriggerDag.reportCycles", () => {
 	// A field that carries `calculate` is a computed field, which in the
 	// domain is the `hidden` kind (visible inputs don't carry `calculate`).
@@ -641,6 +672,129 @@ describe("TriggerDag.reportCycles", () => {
 			}),
 		]);
 		expect(dag.reportCycles(tree, doc)).toEqual([]);
+	});
+
+	it("includes field defaults and lookup filters in the authoring-time cycle proof", () => {
+		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a1");
+		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b1");
+		const { tree, doc } = treeFromFields([
+			f({
+				uuid: fieldA,
+				kind: "text",
+				id: "a",
+				label: "A",
+				default_value: "/data/b",
+			}),
+			lookupSelectForDag(fieldB, "b", fieldA),
+		]);
+
+		expect(new TriggerDag().reportCycles(tree, doc)).toContainEqual([
+			"/data/a",
+			"/data/b",
+			"/data/a",
+		]);
+	});
+
+	it("detects a calculate-to-options cycle", () => {
+		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a3");
+		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b3");
+		const { tree, doc } = treeFromFields([
+			f({
+				uuid: fieldA,
+				kind: "hidden",
+				id: "a",
+				calculate: "/data/b",
+			}),
+			lookupSelectForDag(fieldB, "b", fieldA),
+		]);
+
+		expect(new TriggerDag().reportCycles(tree, doc)).toContainEqual([
+			"/data/a",
+			"/data/b",
+			"/data/a",
+		]);
+	});
+
+	it("detects a multi-hop relevance/options cycle", () => {
+		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a4");
+		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b4");
+		const fieldC = asUuid("20000000-0000-7000-8000-0000000000c4");
+		const { tree, doc } = treeFromFields([
+			f({
+				uuid: fieldA,
+				kind: "text",
+				id: "a",
+				label: "A",
+				relevant: "/data/c = 'yes'",
+			}),
+			lookupSelectForDag(fieldB, "b", fieldA),
+			f({
+				uuid: fieldC,
+				kind: "hidden",
+				id: "c",
+				calculate: "/data/b",
+			}),
+		]);
+
+		expect(new TriggerDag().reportCycles(tree, doc)).toContainEqual([
+			"/data/a",
+			"/data/b",
+			"/data/c",
+			"/data/a",
+		]);
+	});
+
+	it("keeps validation-only edges out of a non-empty runtime build and rebuild DAG", () => {
+		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a2");
+		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b2");
+		const fieldC = asUuid("20000000-0000-7000-8000-0000000000c2");
+		const { tree, doc } = treeFromFields([
+			f({
+				uuid: fieldA,
+				kind: "text",
+				id: "a",
+				label: "A",
+				default_value: "/data/b",
+			}),
+			lookupSelectForDag(fieldB, "b", fieldA),
+			f({
+				uuid: fieldC,
+				kind: "text",
+				id: "c",
+				label: "C",
+				relevant: "/data/a = 'yes'",
+			}),
+		]);
+		const dag = new TriggerDag();
+		const runtimeSnapshot = () => {
+			const repeatCount = () => 0;
+			return {
+				expressionsA: dag
+					.getExpressions("/data/a")
+					.map((expression) => ({ ...expression })),
+				expressionsB: dag
+					.getExpressions("/data/b")
+					.map((expression) => ({ ...expression })),
+				expressionsC: dag
+					.getExpressions("/data/c")
+					.map((expression) => ({ ...expression })),
+				affectedByA: dag.getAffected("/data/a", repeatCount),
+				affectedByB: dag.getAffected("/data/b", repeatCount),
+				allPaths: dag.getAllPaths(repeatCount),
+			};
+		};
+
+		dag.build(tree, doc);
+		const beforeReport = runtimeSnapshot();
+		expect(beforeReport.expressionsA).toEqual([]);
+		expect(beforeReport.expressionsB).toEqual([]);
+		expect(beforeReport.expressionsC).not.toEqual([]);
+		expect(beforeReport.affectedByA).not.toEqual([]);
+		expect(beforeReport.allPaths).not.toEqual([]);
+		expect(dag.reportCycles(tree, doc)).not.toEqual([]);
+		expect(runtimeSnapshot()).toEqual(beforeReport);
+		dag.rebuild(tree, doc);
+		expect(runtimeSnapshot()).toEqual(beforeReport);
 	});
 });
 

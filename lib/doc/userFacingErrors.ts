@@ -507,6 +507,14 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(fieldName(e))} in ${q(formName(e))} uses an ID prefix that's reserved for fields Nova creates. Pick a different ID.`,
 	FIXTURE_REFERENCE_NOT_MODELED: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} pulls from a data source Nova doesn't support. For a fixed set of choices, add them as options on the field instead.`,
+	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} filters lookup choices with information that isn't available while choices are being built. Use lookup columns, fixed values, current-user/session values, or an eligible earlier answer.`,
+	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using an answer that comes later in the form. Move the source question earlier or remove that dependency.`,
+	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} filters its choices using a repeated answer from a different repetition context. Use a root answer or an earlier answer from the current or an enclosing repeat.`,
+	LOOKUP_SELECT_FILTER_TYPE_ERROR: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} has a lookup-choice filter whose values don't fit the comparison. Adjust the referenced columns, values, or operator.`,
 
 	// ── XPath / formula deep validation ──────────────────────────────
 	XPATH_SYNTAX: (e) =>
@@ -520,7 +528,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	INVALID_CASE_REF: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	CYCLE: (e) =>
-		`Some calculated fields in ${q(formName(e))} depend on each other in a loop, so none of them can be worked out. Remove one of the references to break it.`,
+		`Some field formulas or lookup choices in ${q(formName(e))} depend on each other in a loop, so their values can't settle. Remove one of the references to break it.`,
 	TYPE_ERROR: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where it needs a number, so the result might come out wrong. Check the values it's working with.`,
 

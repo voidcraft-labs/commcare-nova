@@ -14,20 +14,26 @@ import {
 	type SearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
 	isNull,
 	literal,
+	matchAll,
 	type Predicate,
 	prop,
 	sessionContext,
+	tableLookup,
 	term,
 	unwrapList,
 } from "@/lib/domain/predicate";
 import { caseWorkspaceBoundaryVerdicts } from "../commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 
 const MODULE_UUID = asUuid("module-clients");
 const CALCULATED_UUID = asUuid("calculated-tags");
+const LOOKUP_TABLE = "00000000-0000-7000-8000-0000000000a1" as LookupTableId;
+const LOOKUP_COLUMN = "10000000-0000-7000-8000-0000000000a1" as LookupColumnId;
 
 const form = {
 	name: "Register client",
@@ -95,7 +101,13 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 			},
 		});
 
-		expect(caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID)).toEqual({
+		expect(
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		).toEqual({
 			filterBroken: false,
 			searchInputsBroken: false,
 			searchButtonConditionBroken: false,
@@ -114,7 +126,11 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 			},
 		});
 
-		const verdict = caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID);
+		const verdict = caseWorkspaceBoundaryVerdicts(
+			doc,
+			MODULE_UUID,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.searchButtonConditionBroken).toBe(true);
 		expect(verdict.excludedOwnerIdsBroken).toBe(true);
 		expect(verdict.filterBroken).toBe(false);
@@ -144,7 +160,11 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 			],
 		});
 
-		const verdict = caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID);
+		const verdict = caseWorkspaceBoundaryVerdicts(
+			doc,
+			MODULE_UUID,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.filterBroken).toBe(true);
 		expect(verdict.searchInputsBroken).toBe(true);
 		expect(verdict.brokenColumnUuids).toContain(CALCULATED_UUID);
@@ -165,7 +185,11 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		});
 
 		expect(
-			caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID).brokenColumnUuids,
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).brokenColumnUuids,
 		).toContain(columnUuid);
 	});
 
@@ -182,7 +206,11 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		});
 
 		expect(
-			caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID).brokenColumnUuids,
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).brokenColumnUuids,
 		).toContain(columnUuid);
 	});
 
@@ -204,7 +232,11 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		});
 
 		expect(
-			caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID).searchInputsBroken,
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).searchInputsBroken,
 		).toBe(true);
 	});
 
@@ -213,8 +245,38 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 			filter: eq(prop("client", "age"), prop("client", "score")),
 		});
 
-		expect(caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID).filterBroken).toBe(
-			false,
-		);
+		expect(
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).filterBroken,
+		).toBe(false);
+	});
+
+	it("marks a historical lookup carrier broken when definitions are unavailable", () => {
+		const doc = docWith({
+			searchInputs: [
+				advancedSearchInputDef(
+					asUuid("historical-lookup-input"),
+					"lookup_query",
+					"Lookup query",
+					"text",
+					eq(
+						tableLookup(LOOKUP_TABLE, LOOKUP_COLUMN, matchAll()),
+						literal("north"),
+					),
+				),
+			],
+			caseSearchConfig: {},
+		});
+
+		expect(
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).searchInputsBroken,
+		).toBe(true);
 	});
 });

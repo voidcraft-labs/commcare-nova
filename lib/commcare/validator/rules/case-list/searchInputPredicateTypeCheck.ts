@@ -27,17 +27,22 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { checkPredicate } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../../lookupTypeContext";
 import { formatPath, moduleTypeContext } from "./shared";
 
 export function searchInputPredicateTypeCheck(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
 	if (inputs.length === 0) return [];
 
-	const ctx = moduleTypeContext(mod, doc);
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < inputs.length; index++) {
@@ -47,10 +52,12 @@ export function searchInputPredicateTypeCheck(
 		// emission time. The mode-vs-property-type compatibility check
 		// for simple inputs lives in `searchInputModeMatchesPropertyType`.
 		if (input.kind !== "advanced") continue;
-		const result = checkPredicate(input.predicate, ctx);
-		if (result.ok) continue;
+		const typeErrors = semanticCheckErrors(
+			checkPredicate(input.predicate, ctx),
+		);
+		if (typeErrors.length === 0) continue;
 
-		for (const err of result.errors) {
+		for (const err of typeErrors) {
 			const at = formatPath(err.path);
 			const suffix = at ? ` (at ${at})` : "";
 			errors.push(

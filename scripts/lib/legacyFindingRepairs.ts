@@ -489,6 +489,18 @@ export const REPAIR_JUDGMENTS: Readonly<
 	FIXTURE_REFERENCE_NOT_MODELED: owner(
 		"the fixture needs modeling work, not a doc edit",
 	),
+	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: owner(
+		"choosing a legal lookup column, session value, or form answer changes the authored filter",
+	),
+	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: owner(
+		"moving a question or removing the dependency changes form structure or authored behavior",
+	),
+	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: owner(
+		"choosing a repeat-correlated source or restructuring repeats changes authored behavior",
+	),
+	LOOKUP_SELECT_FILTER_TYPE_ERROR: owner(
+		"changing an operator or operand to satisfy lookup-column types changes the authored filter",
+	),
 	// ── Lookup references ────────────────────────────────────────────
 	LOOKUP_CONTEXT_UNAVAILABLE: owner(
 		"lookup definitions are external Project state; the operation must retry with a fresh available snapshot rather than rewrite the document",

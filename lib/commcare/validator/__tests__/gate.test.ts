@@ -206,8 +206,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(4);
 		expect(byClass.get("oracle")).toHaveLength(95);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(117);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(232);
+		expect(byClass.get("soundness")).toHaveLength(121);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(236);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -332,6 +332,59 @@ describe("errorIdentity", () => {
 		});
 		expect(errorIdentity(finding("mixed-property-scopes"))).not.toBe(
 			errorIdentity(finding("invalid-geopoint-center")),
+		);
+	});
+
+	it("keys lookup-filter policy findings by stable field and referenced leaf", () => {
+		const finding = (
+			code:
+				| "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED"
+				| "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER",
+			details: Record<string, string>,
+		): ValidationError => ({
+			code,
+			scope: "field",
+			message: "lookup policy",
+			location: {
+				moduleUuid: asUuid("m-1"),
+				formUuid: asUuid("f-1"),
+				fieldUuid: asUuid("select-1"),
+				field: "optionsSource.filter",
+			},
+			details,
+		});
+
+		expect(
+			errorIdentity(
+				finding("LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED", {
+					reason: "case-data",
+					target: "case-data",
+					path: "eq.left",
+				}),
+			),
+		).not.toBe(
+			errorIdentity(
+				finding("LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED", {
+					reason: "search-input",
+					target: "input:region",
+					path: "eq.right",
+				}),
+			),
+		);
+		expect(
+			errorIdentity(
+				finding("LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER", {
+					referencedFieldUuid: "field-a",
+					path: "and.0",
+				}),
+			),
+		).toBe(
+			errorIdentity(
+				finding("LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER", {
+					referencedFieldUuid: "field-a",
+					path: "and.1",
+				}),
+			),
 		);
 	});
 

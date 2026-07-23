@@ -35,12 +35,17 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { checkPredicate, predicateReadsCaseData } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../../lookupTypeContext";
 import { formatPath, moduleTypeContext } from "../case-list/shared";
 
 export function searchButtonDisplayConditionTypeCheck(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const condition = mod.caseSearchConfig?.searchButtonDisplayCondition;
 	if (!condition) return [];
@@ -60,11 +65,11 @@ export function searchButtonDisplayConditionTypeCheck(
 		];
 	}
 
-	const ctx = moduleTypeContext(mod, doc);
-	const result = checkPredicate(condition, ctx);
-	if (result.ok) return [];
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
+	const errors = semanticCheckErrors(checkPredicate(condition, ctx));
+	if (errors.length === 0) return [];
 
-	return result.errors.map((err) => {
+	return errors.map((err) => {
 		const at = formatPath(err.path);
 		// Suffix the AST path when present — locates the offending
 		// node inside the predicate. Reads as a sentence fragment

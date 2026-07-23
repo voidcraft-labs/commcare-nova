@@ -33,12 +33,17 @@ import {
 	expressionReadsCaseData,
 } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../../lookupTypeContext";
 import { formatPath, moduleTypeContext } from "../case-list/shared";
 
 export function excludedOwnerIdsTypeCheck(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const expression = mod.caseSearchConfig?.excludedOwnerIds;
 	if (!expression) return [];
@@ -57,11 +62,13 @@ export function excludedOwnerIdsTypeCheck(
 		];
 	}
 
-	const ctx = moduleTypeContext(mod, doc);
-	const result = checkValueExpression(expression, ctx, "text");
-	if (result.ok) return [];
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
+	const errors = semanticCheckErrors(
+		checkValueExpression(expression, ctx, "text"),
+	);
+	if (errors.length === 0) return [];
 
-	return result.errors.map((err) => {
+	return errors.map((err) => {
 		const at = formatPath(err.path);
 		const suffix = at ? ` (at ${at})` : "";
 		return validationError(

@@ -35,27 +35,34 @@ import {
 } from "@/lib/domain";
 import { checkValueExpression } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../../lookupTypeContext";
 import { formatPath, moduleTypeContext } from "./shared";
 
 export function calculatedColumnTypeCheck(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const columns = mod.caseListConfig?.columns ?? [];
 	if (columns.length === 0) return [];
 
-	const ctx = moduleTypeContext(mod, doc);
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
 		if (!caseListColumnHasRuntimeRole(column)) continue;
 		if (column.kind !== "calculated") continue;
-		const result = checkValueExpression(column.expression, ctx);
-		if (result.ok) continue;
+		const typeErrors = semanticCheckErrors(
+			checkValueExpression(column.expression, ctx),
+		);
+		if (typeErrors.length === 0) continue;
 
-		for (const err of result.errors) {
+		for (const err of typeErrors) {
 			const at = formatPath(err.path);
 			const suffix = at ? ` at \`${at}\`` : "";
 			errors.push(

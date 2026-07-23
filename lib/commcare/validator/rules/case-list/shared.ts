@@ -83,6 +83,7 @@ import type {
 	SearchInputDecl,
 	TypeContext,
 } from "@/lib/domain/predicate";
+import type { LookupTypeIndex } from "../../lookupTypeContext";
 
 /**
  * Per-doc validation context. Carries the augmented case-type list —
@@ -171,8 +172,16 @@ function canonicalPropertiesForValidation(
  * relational quantifiers (`exists` / `missing`) and the destination-
  * scope pin inside their `where` clauses can resolve property
  * references against the surrounding `via`'s destination scope.
+ *
+ * `lookupTables`, when supplied by the runner, is the rows-free type index
+ * derived from the exact structural lookup-validation snapshot. Every
+ * module-level Predicate/ValueExpression checker receives the same index.
  */
-export function moduleTypeContext(mod: Module, doc: BlueprintDoc): TypeContext {
+export function moduleTypeContext(
+	mod: Module,
+	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
+): TypeContext {
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
 	const moduleCaseType = mod.caseType;
 	const { augmentedCaseTypes } = validationContextFor(doc);
@@ -192,6 +201,7 @@ export function moduleTypeContext(mod: Module, doc: BlueprintDoc): TypeContext {
 		caseTypes: [...augmentedCaseTypes],
 		knownInputs,
 		...(moduleCaseType !== undefined && { currentCaseType: moduleCaseType }),
+		...(lookupTables !== undefined && { lookupTables }),
 	};
 }
 

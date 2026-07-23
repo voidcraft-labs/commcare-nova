@@ -129,7 +129,8 @@ interface DeepLocation {
  *   - `field-xpath` — an XPath error on a specific field surface; carries the
  *     field's uuid + id, the `surface`, and the underlying typed `XPathError`.
  *   - `connect-xpath` — an XPath error in a Connect-block slot.
- *   - `cycle` — a dependency cycle among calculated fields in one form.
+ *   - `cycle` — a dependency cycle among authored field expressions in one
+ *     form, including defaults and lookup-choice filters.
  * The runner switches on `kind` and projects each into a `ValidationError`.
  */
 export type DeepValidationError =
@@ -386,8 +387,10 @@ export function validateBlueprintDeep(
 			}
 
 			// Cycle detection runs on the engine's `FieldTreeNode` shape — the
-			// same rose tree we already built. The cycle (a list of field ids)
-			// travels structured; the runner formats it.
+			// same rose tree we already built. `reportCycles` adds authoring-only
+			// default/filter dependencies without changing Preview's incremental
+			// runtime DAG. The cycle (a list of field ids) travels structured;
+			// the runner formats it.
 			const dag = new TriggerDag();
 			for (const cycle of dag.reportCycles(tree, doc)) {
 				errors.push({ ...loc, kind: "cycle", cycle });

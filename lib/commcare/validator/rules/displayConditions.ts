@@ -37,6 +37,10 @@ import {
 	walkTerms,
 } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../lookupTypeContext";
 import { formatPath, moduleTypeContext } from "./case-list/shared";
 
 type Carrier =
@@ -174,6 +178,7 @@ function firstPortabilityIssue(
 function validateCarrier(
 	carrier: Carrier,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const loc = location(carrier);
@@ -222,14 +227,16 @@ function validateCarrier(
 		);
 	}
 
-	const ctx = moduleTypeContext(carrier.mod, doc);
-	const result = checkPredicate(carrier.condition, ctx);
-	if (!result.ok) {
+	const ctx = moduleTypeContext(carrier.mod, doc, lookupTables);
+	const typeErrors = semanticCheckErrors(
+		checkPredicate(carrier.condition, ctx),
+	);
+	if (typeErrors.length > 0) {
 		const code =
 			carrier.kind === "module"
 				? "MODULE_DISPLAY_CONDITION_TYPE_ERROR"
 				: "FORM_DISPLAY_CONDITION_TYPE_ERROR";
-		for (const error of result.errors) {
+		for (const error of typeErrors) {
 			const path = formatPath(error.path);
 			errors.push(
 				validationError(
@@ -262,11 +269,13 @@ export function moduleDisplayCondition(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	if (mod.displayCondition === undefined) return [];
 	return validateCarrier(
 		{ kind: "module", moduleUuid, mod, condition: mod.displayCondition },
 		doc,
+		lookupTables,
 	);
 }
 
@@ -274,6 +283,7 @@ export function formDisplayCondition(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	moduleUuid: Uuid,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
 	if (form.displayCondition === undefined) return [];
@@ -292,5 +302,6 @@ export function formDisplayCondition(
 			caseFirst: isCaseFirstModule(formTypes, mod.caseType !== undefined),
 		},
 		doc,
+		lookupTables,
 	);
 }

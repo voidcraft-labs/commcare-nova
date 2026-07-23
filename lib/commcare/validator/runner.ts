@@ -6,8 +6,9 @@
  * validation. Returns structured `ValidationError[]` keyed by uuid.
  *
  * Every run receives an explicit lookup-definition context. The production
- * extractor registry is empty until S05, but the argument remains required so
- * no future carrier can inherit a silent skip/default at an old call site.
+ * S05a's immutable production extractor registry covers every dormant carrier;
+ * the argument remains required so no carrier can inherit a silent
+ * skip/default at an old call site.
  *
  * Asset-context media rules (existence / ready / kind-match) need data
  * the doc alone can't carry: the resolved media-asset rows for the assets
@@ -38,6 +39,7 @@ import {
 	type XPathSurface,
 } from "./index";
 import { validateLookupReferences } from "./lookupReferences";
+import { lookupTypeIndex } from "./lookupTypeContext";
 import { APP_RULES } from "./rules/app";
 import { runFieldRules } from "./rules/field";
 import { runFormRules } from "./rules/form";
@@ -67,7 +69,7 @@ export interface RunValidationOptions {
 	readonly scope?: ValidationScope;
 	/**
 	 * Explicit extractor seam for synthetic pure tests. Production callers omit
-	 * it and use the immutable production registry (empty until S05).
+	 * it and use the immutable S05a production registry.
 	 */
 	readonly lookupReferenceExtractors?: LookupReferenceExtractorRegistry;
 }
@@ -161,6 +163,7 @@ export function runValidation(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const scope = options?.scope;
+	const lookupTables = lookupTypeIndex(lookupContext);
 
 	// App rules always run — see SCOPE_EXEMPT_CODES for why.
 	for (const rule of APP_RULES) {
@@ -175,7 +178,7 @@ export function runValidation(
 		// point is skipping the work, not post-filtering its output.
 		if (inModuleScope) {
 			for (const rule of MODULE_RULES) {
-				errors.push(...rule(mod, moduleUuid, doc));
+				errors.push(...rule(mod, moduleUuid, doc, lookupTables));
 			}
 		}
 
@@ -183,7 +186,7 @@ export function runValidation(
 			if (!inModuleScope && !(scope?.formUuids?.has(formUuid) ?? false)) {
 				continue;
 			}
-			errors.push(...runFormRules(doc, formUuid, moduleUuid));
+			errors.push(...runFormRules(doc, formUuid, moduleUuid, lookupTables));
 			const order = doc.fieldOrder[formUuid] ?? [];
 			if (order.length > 0) {
 				errors.push(
@@ -296,7 +299,7 @@ function runDeepValidation(
 				return validationError(
 					"CYCLE",
 					"form",
-					`"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${deep.cycle.join(" → ")}. These calculated fields reference each other in a loop, so none of them can ever finish computing. Break the cycle by removing one of the references.`,
+					`"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${deep.cycle.join(" → ")}. These field expressions reference each other in a loop, so their values or choices can never settle. Break the cycle by removing one of the references.`,
 					{
 						moduleUuid: deep.moduleUuid,
 						moduleName: deep.moduleName,

@@ -237,6 +237,10 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	EMPTY_REPEAT_COUNT: "soundness",
 	EMPTY_IDS_QUERY: "soundness",
 	FIXTURE_REFERENCE_NOT_MODELED: "soundness",
+	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
+	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",
+	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: "soundness",
+	LOOKUP_SELECT_FILTER_TYPE_ERROR: "soundness",
 	// ── XForm parse-time oracle ──────────────────────────────────────
 	XFORM_PARSE_ERROR: "oracle",
 	XFORM_NO_INSTANCE: "oracle",
@@ -598,6 +602,20 @@ export function errorIdentity(err: ValidationError): string {
 		// Field-scope with a structural extra.
 		case "FIXTURE_REFERENCE_NOT_MODELED":
 			parts.push(part("q", loc.fieldUuid), part("fixture", det?.fixtureId));
+			break;
+		case "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED":
+			parts.push(
+				part("q", loc.fieldUuid),
+				part("reason", det?.reason),
+				part("target", det?.target),
+			);
+			break;
+		case "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER":
+		case "LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE":
+			parts.push(
+				part("q", loc.fieldUuid),
+				part("ref", det?.referencedFieldUuid),
+			);
 			break;
 
 		// Media asset-context findings (boundary-only): the slot anchor

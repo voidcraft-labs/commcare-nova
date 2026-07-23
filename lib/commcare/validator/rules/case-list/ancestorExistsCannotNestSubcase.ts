@@ -89,6 +89,7 @@ import {
 } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads as liftPropertyVias } from "@/lib/domain/predicate/normalizeRelationReads";
 import { type ValidationError, validationError } from "../../errors";
+import type { LookupTypeIndex } from "../../lookupTypeContext";
 import { moduleTypeContext } from "./shared";
 
 type AncestorEnvelopeKind = "exists" | "missing";
@@ -112,9 +113,10 @@ export function ancestorExistsCannotNestSubcase(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const ctx = moduleTypeContext(mod, doc);
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
 	if (effectiveCaseSearchConfig(mod) === undefined) return errors;
 
 	const filter = mod.caseListConfig?.filter;

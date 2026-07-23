@@ -24,7 +24,8 @@
  * `walkTerms` receives one callback that fires for every `Term`
  * leaf reached anywhere in the predicate tree. Term arms are the
  * leaf family (`prop` / `input` / `session-user` / `session-context`
- * / `literal`) — no further recursion happens once a Term is hit.
+ * / `field` / `table-column` / `literal`) — no further recursion happens
+ * once a Term is hit.
  * Sub-AST property references (the `property: PropertyRef` slot on
  * `within-distance` / `match` / `multi-select-contains`) surface to
  * the visitor as a `prop`-kinded Term so consumers don't have to
@@ -69,6 +70,14 @@ export function walkTerms(
 	walkPredicate(predicate, { visitTerm: visit }, []);
 }
 
+/** Visit every `Term` together with its exact structural AST path. */
+export function walkTermsWithPaths(
+	predicate: Predicate,
+	visit: (term: Term, path: PredicateAstPath) => void,
+): void {
+	walkPredicate(predicate, { visitTerm: visit }, []);
+}
+
 /**
  * Visit every `Term` reached anywhere inside `expression`. Same
  * visitor contract as `walkTerms`, but rooted at a `ValueExpression`
@@ -80,6 +89,14 @@ export function walkTerms(
 export function walkExpressionTerms(
 	expression: ValueExpression,
 	visit: (term: Term) => void,
+): void {
+	walkValueExpression(expression, { visitTerm: visit }, []);
+}
+
+/** Expression-rooted counterpart to `walkTermsWithPaths`. */
+export function walkExpressionTermsWithPaths(
+	expression: ValueExpression,
+	visit: (term: Term, path: PredicateAstPath) => void,
 ): void {
 	walkValueExpression(expression, { visitTerm: visit }, []);
 }

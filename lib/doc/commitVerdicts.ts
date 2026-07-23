@@ -41,9 +41,14 @@ import {
 	evaluateBoundary,
 	evaluateCommit,
 } from "@/lib/commcare/validator/gate";
+import { validateLookupReferences } from "@/lib/commcare/validator/lookupReferences";
+import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { MODULE_RULES } from "@/lib/commcare/validator/rules/module";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
-import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import {
+	type LookupValidationContext,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, MutationResult } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
@@ -129,25 +134,33 @@ const CLEAN_CASE_WORKSPACE_BOUNDARY: CaseWorkspaceBoundaryVerdicts = {
 
 const CASE_WORKSPACE_VERDICT_CACHE = new WeakMap<
 	BlueprintDoc,
-	Map<Uuid, CaseWorkspaceBoundaryVerdicts>
+	Map<LookupValidationContext, Map<Uuid, CaseWorkspaceBoundaryVerdicts>>
 >();
 
 /** Run the same module-rule inventory as the commit/export boundary and retain
  * only findings owned by a case-workspace AST slot.
  *
- * Memoized per (doc reference, module uuid) — the `validationContextFor`
- * discipline. The inventory includes expensive rules (CSQL
- * representability) and the workspace hook re-runs its selector on every
+ * The client workspace deliberately supplies `LOOKUP_CONTEXT_UNAVAILABLE`: it
+ * has no rows-free Project definition snapshot, and pretending an empty
+ * registry were authoritative would hide historical carriers. Structural
+ * lookup findings still mark their owning workspace surface broken; fetching
+ * definitions belongs to a future context-owning boundary, not this selector.
+ *
+ * Memoized per (doc reference, lookup-context identity, module uuid) — the
+ * `validationContextFor` discipline. The inventory includes expensive rules
+ * (CSQL representability) and the workspace hook re-runs its selector on every
  * doc-store notification; every committed batch produces a fresh doc
- * reference, so reference keying is sound. */
+ * reference, while a changed lookup snapshot has a fresh context identity. */
 export function caseWorkspaceBoundaryVerdicts(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
+	lookupContext: LookupValidationContext,
 ): CaseWorkspaceBoundaryVerdicts {
 	const mod = doc.modules[moduleUuid];
 	if (mod === undefined) return CLEAN_CASE_WORKSPACE_BOUNDARY;
 
-	const cachedPerModule = CASE_WORKSPACE_VERDICT_CACHE.get(doc);
+	const cachedPerContext = CASE_WORKSPACE_VERDICT_CACHE.get(doc);
+	const cachedPerModule = cachedPerContext?.get(lookupContext);
 	const cached = cachedPerModule?.get(moduleUuid);
 	if (cached !== undefined) return cached;
 
@@ -157,33 +170,63 @@ export function caseWorkspaceBoundaryVerdicts(
 	let excludedOwnerIdsBroken = false;
 	const brokenColumnUuids = new Set<Uuid>();
 
-	for (const rule of MODULE_RULES) {
-		for (const finding of rule(mod, moduleUuid, doc)) {
-			const slot =
-				typeof finding.details?.slot === "string"
-					? finding.details.slot
-					: undefined;
-			if (slot === "caseListConfig.filter") {
-				filterBroken = true;
-				continue;
-			}
-			if (slot?.startsWith("caseListConfig.searchInputs[") === true) {
-				searchInputsBroken = true;
-				continue;
-			}
-			if (slot === "caseSearchConfig.searchButtonDisplayCondition") {
-				searchButtonConditionBroken = true;
-				continue;
-			}
-			if (slot === "caseSearchConfig.excludedOwnerIds") {
-				excludedOwnerIdsBroken = true;
-				continue;
-			}
-			if (slot?.startsWith("caseListConfig.columns[") !== true) continue;
-			const columnUuid = finding.details?.columnUuid;
-			if (typeof columnUuid === "string") {
-				brokenColumnUuids.add(columnUuid as Uuid);
-			}
+	const lookupTables = lookupTypeIndex(lookupContext);
+	const findings = MODULE_RULES.flatMap((rule) =>
+		rule(mod, moduleUuid, doc, lookupTables),
+	);
+	findings.push(
+		...validateLookupReferences(
+			doc,
+			lookupContext,
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		).filter((finding) => finding.location.moduleUuid === moduleUuid),
+	);
+
+	for (const finding of findings) {
+		const slot =
+			typeof finding.details?.slot === "string"
+				? finding.details.slot
+				: undefined;
+		const registrySlot = finding.details?.registrySlot;
+		if (
+			slot === "caseListConfig.filter" ||
+			registrySlot === "case_list_filter"
+		) {
+			filterBroken = true;
+			continue;
+		}
+		if (
+			slot?.startsWith("caseListConfig.searchInputs[") === true ||
+			registrySlot === "search_input_default" ||
+			registrySlot === "search_input_predicate"
+		) {
+			searchInputsBroken = true;
+			continue;
+		}
+		if (
+			slot === "caseSearchConfig.searchButtonDisplayCondition" ||
+			registrySlot === "search_button_display_condition"
+		) {
+			searchButtonConditionBroken = true;
+			continue;
+		}
+		if (
+			slot === "caseSearchConfig.excludedOwnerIds" ||
+			registrySlot === "excluded_owner_ids"
+		) {
+			excludedOwnerIdsBroken = true;
+			continue;
+		}
+		if (
+			slot?.startsWith("caseListConfig.columns[") !== true &&
+			registrySlot !== "case_list_column_expression"
+		) {
+			continue;
+		}
+		const columnUuid =
+			finding.details?.columnUuid ?? finding.details?.carrierUuid;
+		if (typeof columnUuid === "string") {
+			brokenColumnUuids.add(columnUuid as Uuid);
 		}
 	}
 
@@ -194,10 +237,19 @@ export function caseWorkspaceBoundaryVerdicts(
 		excludedOwnerIdsBroken,
 		brokenColumnUuids: [...brokenColumnUuids],
 	};
+	const perContext =
+		cachedPerContext ??
+		new Map<
+			LookupValidationContext,
+			Map<Uuid, CaseWorkspaceBoundaryVerdicts>
+		>();
+	if (cachedPerContext === undefined) {
+		CASE_WORKSPACE_VERDICT_CACHE.set(doc, perContext);
+	}
 	const perModule =
 		cachedPerModule ?? new Map<Uuid, CaseWorkspaceBoundaryVerdicts>();
 	if (cachedPerModule === undefined) {
-		CASE_WORKSPACE_VERDICT_CACHE.set(doc, perModule);
+		perContext.set(lookupContext, perModule);
 	}
 	perModule.set(moduleUuid, verdicts);
 	return verdicts;
