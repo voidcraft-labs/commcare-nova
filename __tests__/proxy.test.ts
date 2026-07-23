@@ -488,6 +488,18 @@ describe("proxy: production-build local smoke boundary", () => {
 	it("does not let the smoke flag trust a non-loopback Host", () => {
 		expectNotFound(proxy(req("forged.example", "/api/chat")));
 	});
+
+	it.each([
+		"localhost:3000.attacker",
+		"localhost:@forged.example",
+		"localhost:0",
+		"localhost:65536",
+		"127.0.0.1.attacker",
+		"[::1]:not-a-port",
+		"[::1]evil",
+	])("rejects malformed loopback authority %s", (host) => {
+		expectNotFound(proxy(req(host, "/api/chat")));
+	});
 });
 
 describe("proxy: /warmup stays probe-only on the custom domains", () => {

@@ -140,14 +140,14 @@ function deriveProxyHeaders(request: NextRequest): Headers {
  * into a trusted local one. Cloud Run never receives this flag. */
 function isExplicitLocalHarnessHost(host: string): boolean {
 	if (process.env.NOVA_ALLOW_LOCALHOST_HOSTS !== "1") return false;
-	return (
-		host === "localhost" ||
-		host.startsWith("localhost:") ||
-		host === "127.0.0.1" ||
-		host.startsWith("127.0.0.1:") ||
-		host === "[::1]" ||
-		host.startsWith("[::1]:")
+	const match = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::([0-9]{1,5}))?$/.exec(
+		host,
 	);
+	if (!match) return false;
+	const port = match[1];
+	if (port === undefined) return true;
+	const numericPort = Number(port);
+	return numericPort >= 1 && numericPort <= 65_535;
 }
 
 /**
