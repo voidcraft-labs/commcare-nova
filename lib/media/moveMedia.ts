@@ -214,6 +214,16 @@ async function copyOneAsset(
 						lockedDb,
 					);
 					if (existing) {
+						// A ready row is not sufficient evidence that its base pair
+						// is usable: an earlier failed cleanup or manual storage loss
+						// can leave metadata naming a missing object. The destination
+						// Project/hash identity is already locked (extensions collapse
+						// to that identity), so repair from the equally locked immutable
+						// source before returning a mapping. A missing source or copy
+						// failure rejects this attempt instead of adopting broken bytes.
+						if ((await getStoredObjectSize(existing.gcsObjectKey)) === null) {
+							await copyAssetObject(source.gcsObjectKey, existing.gcsObjectKey);
+						}
 						await copyReadyExtractToExisting(
 							sourceExtractPair,
 							existing,
@@ -256,11 +266,27 @@ async function copyOneAsset(
 						},
 						lockedDb,
 					);
+					// Both objects now have committed metadata. Do not treat either
+					// as an unpublished attempt after releasing the content locks.
+					baseObjectMayNeedCleanup = null;
+					extractObjectMayNeedCleanup = null;
 					return [row.id, assetId] as [string, string];
 				},
 			);
 			baseObjectMayNeedCleanup = null;
-			extractObjectMayNeedCleanup = null;
+			if (extractObjectMayNeedCleanup !== null) {
+				// installCopiedReadyExtract can preserve a higher-version claim that
+				// raced after the destination snapshot. In that case the lower
+				// version we copied is not named by this row. Release the publication
+				// lock before the winner-aware cleanup reacquires it; the cleanup
+				// retains the object if another ready duplicate does name the version.
+				await cleanupFailedMovePublication({
+					assetId: row.id,
+					baseObjectKey: null,
+					extractObject: extractObjectMayNeedCleanup,
+				});
+				extractObjectMayNeedCleanup = null;
+			}
 			return mapping;
 		} catch (err) {
 			lastErr = err;
@@ -356,7 +382,7 @@ async function copyReadyExtractToExisting(
 	sourcePair: ReadySourceExtractPair | null,
 	destination: MediaAssetRecord,
 	lockedDb: LockedMediaDb,
-	markObjectForCleanup: (cleanup: ExtractPublicationCleanup) => void,
+	setObjectForCleanup: (cleanup: ExtractPublicationCleanup | null) => void,
 ): Promise<void> {
 	if (sourcePair === null) return;
 	const sourceExtract = sourcePair.extract;
@@ -390,20 +416,26 @@ async function copyReadyExtractToExisting(
 		);
 		return;
 	}
-	markObjectForCleanup({
+	setObjectForCleanup({
 		gcsObjectKey: destinationKey,
 		projectId: destination.project_id,
 		contentHash: destination.contentHash,
 		version: sourceExtract.version,
 	});
 	await copyAssetObject(sourcePair.sourceKey, destinationKey);
-	await installCopiedReadyExtract(
+	const installed = await installCopiedReadyExtract(
 		{
 			assetId: destination.id,
 			extract: sourceExtract,
 		},
 		lockedDb,
 	);
+	if (
+		installed.status === "ready" &&
+		installed.version === sourceExtract.version
+	) {
+		setObjectForCleanup(null);
+	}
 }
 
 function cleanupForExtractPair(
