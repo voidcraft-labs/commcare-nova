@@ -1703,8 +1703,9 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a ready; S05b blocked on S05a; S05c blocked on S05b and a
-fresh owner decision between maintenance and additional rollout machinery.
+**Status:** S05a in progress (foundation checkpoint `fe0a7027`); S05b blocked
+on S05a; S05c blocked on S05b and a fresh owner decision between maintenance
+and additional rollout machinery.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 rolling-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. It does not
@@ -1875,6 +1876,44 @@ Implementation remains split into independently reviewed units:
    after S05b and a fresh owner decision, perform the chosen compatibility or
    maintenance cutover and leave carrier commits runtime-disabled for S07. No
    nonzero floor is authorized by S05a or S05b.
+
+#### S05a execution checkpoint — 2026-07-23
+
+Commit `fe0a7027` on `agent/s05a-lookup-carriers` is a verified internal
+foundation, not a merge-ready S05a result. It now owns:
+
+- the three dormant domain carriers and their stable table/column identities;
+- required inline select fallbacks plus the rolling-compatible top-level
+  `addField` / `updateField` extension, exact set/replace/clear diff and replay;
+- carrier-aware predicate walks, simplification, relation normalization,
+  reference-slot traversal, type resolution, nested-lookup rejection, and the
+  `is-null` versus `is-blank` table-column distinction;
+- carrier-blind builder field-add inputs and non-authorable generic expression
+  fallbacks; and
+- deliberate rejection or incompatibility results at the existing preview,
+  case-store SQL, on-device XPath, CSQL, suite, and instance boundaries.
+
+The checkpoint passes TypeScript plus a 12-file, 310-test focused matrix
+covering carrier schemas, mutation compatibility, reference-index totality and
+fuzz, case-type retirement, AST transforms, and builder round trips.
+
+The following work remains in S05a and must land before a PR is called
+merge-ready:
+
+1. register the immutable production lookup extractor, cover every carrier
+   location, and then bump only the shared manifest's writer to v1 and stream
+   receiver to v2 (database floors and feature flags stay zero/off);
+2. add explicit dormant commit and mode-aware export findings so structurally
+   valid carriers remain uncommittable and all three export modes remain closed;
+3. thread the rows-free lookup type index through validation, implement the
+   select-filter and containing-slot term policies (including earlier-field and
+   repeat ancestry), avoid duplicate structural/type diagnostics, and join
+   option-filter field reads to the validation dependency-cycle graph;
+4. keep SA and MCP schemas, generated model vocabulary, read-tool projections,
+   and generic builder controls carrier-blind, with boundary regression tests;
+5. extend the frozen-receiver, raw-SSE, JSONB/hydration/log, authoritative-writer
+   race, removal, and export short-circuit test matrices using real carriers;
+   then run independent review, CI, and the normal merge/deploy verification.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
