@@ -5,13 +5,13 @@
  * dedups, and stores. The pipeline + storage + DB calls are mocked so the
  * test exercises the tool's branching, not the real GCS / sharp /
  * music-metadata stack. Coverage:
- *   1. Happy path — validate → store → confirm → returns asset id.
+ *   1. Happy path — validate → store → atomic ready insert → returns asset id.
  *   2. Dedup — a matching `ready` asset returns its id, no store.
  *   3. Validation rejection — `invalid_input` envelope with the message.
  *   4. Empty/invalid base64 — `invalid_input` envelope.
  *   5. Oversized inline payload — rejected before Buffer allocation.
- *   6. Lost metadata publication — pending-row cleanup, exact-key recheck,
- *      orphan deletion, and winner preservation.
+ *   6. Lost/ambiguous metadata publication — exact-key recheck, orphan
+ *      deletion, committed-result recovery, and crash-retry adoption.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,9 +27,7 @@ const {
 	validateMediaBytes,
 	findReadyAssetByProjectAndHash,
 	hasAssetForGcsObjectKey,
-	createPendingAsset,
-	confirmAssetReady,
-	deletePendingAssetForActor,
+	insertReadyAsset,
 	uploadAssetBytes,
 	deleteStoredAsset,
 	ensurePersonalProject,
@@ -38,9 +36,7 @@ const {
 	validateMediaBytes: vi.fn(),
 	findReadyAssetByProjectAndHash: vi.fn(),
 	hasAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
-	createPendingAsset: vi.fn(),
-	confirmAssetReady: vi.fn(() => Promise.resolve()),
-	deletePendingAssetForActor: vi.fn(() => Promise.resolve({ kind: "deleted" })),
+	insertReadyAsset: vi.fn(),
 	uploadAssetBytes: vi.fn(() => Promise.resolve()),
 	deleteStoredAsset: vi.fn(() => Promise.resolve()),
 	// The MCP upload is app-less — it lands in the caller's personal Project.
@@ -57,9 +53,7 @@ vi.mock("@/lib/media/validate", () => ({
 vi.mock("@/lib/db/mediaAssets", () => ({
 	findReadyAssetByProjectAndHash,
 	hasAssetForGcsObjectKey,
-	createPendingAsset,
-	confirmAssetReady,
-	deletePendingAssetForActor,
+	insertReadyAsset,
 }));
 vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes,
@@ -93,8 +87,6 @@ const validatedImage: ValidationResult = {
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	confirmAssetReady.mockResolvedValue(undefined);
-	deletePendingAssetForActor.mockResolvedValue({ kind: "deleted" });
 	hasAssetForGcsObjectKey.mockResolvedValue(false);
 });
 
@@ -108,10 +100,7 @@ describe("uploadMediaAsset", () => {
 	it("validates, stores, and returns a fresh asset id", async () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
 		findReadyAssetByProjectAndHash.mockResolvedValue(null);
-		createPendingAsset.mockResolvedValue({
-			assetId: "new-asset-id",
-			gcsObjectKey: "projects/project-1/deadbeef.png",
-		});
+		insertReadyAsset.mockImplementation(async (args) => ({ id: args.assetId }));
 
 		const { server, capture } = makeFakeServer();
 		registerUploadMediaAsset(server, toolCtx);
@@ -122,7 +111,7 @@ describe("uploadMediaAsset", () => {
 		});
 
 		const payload = parsePayload(out);
-		expect(payload.asset_id).toBe("new-asset-id");
+		expect(payload.asset_id).toEqual(expect.any(String));
 		expect(payload.kind).toBe("image");
 		expect(payload.deduplicated).toBe(false);
 		expect(uploadAssetBytes).toHaveBeenCalledOnce();
@@ -130,11 +119,11 @@ describe("uploadMediaAsset", () => {
 			"projects/project-1/deadbeef.png",
 			expect.any(Function),
 		);
-		expect(confirmAssetReady).toHaveBeenCalledWith(
-			{
-				assetId: "new-asset-id",
+		expect(insertReadyAsset).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assetId: expect.any(String),
 				dimensions: { width: 10, height: 10 },
-			},
+			}),
 			expect.anything(),
 		);
 	});
@@ -155,13 +144,13 @@ describe("uploadMediaAsset", () => {
 		expect(payload.asset_id).toBe("existing-id");
 		expect(payload.deduplicated).toBe(true);
 		expect(uploadAssetBytes).not.toHaveBeenCalled();
-		expect(createPendingAsset).not.toHaveBeenCalled();
+		expect(insertReadyAsset).not.toHaveBeenCalled();
 	});
 
-	it("cleans a final object when its metadata insert fails", async () => {
+	it("cleans a final object when its atomic metadata insert did not commit", async () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
 		findReadyAssetByProjectAndHash.mockResolvedValue(null);
-		createPendingAsset.mockRejectedValue(new Error("insert failed"));
+		insertReadyAsset.mockRejectedValue(new Error("insert failed"));
 
 		const { server, capture } = makeFakeServer();
 		registerUploadMediaAsset(server, toolCtx);
@@ -173,36 +162,8 @@ describe("uploadMediaAsset", () => {
 
 		expect(out.isError).toBe(true);
 		expect(withMediaObjectKeyLock).toHaveBeenCalledTimes(2);
-		expect(deletePendingAssetForActor).not.toHaveBeenCalled();
-		expect(deleteStoredAsset).toHaveBeenCalledWith(
+		expect(hasAssetForGcsObjectKey).toHaveBeenCalledWith(
 			"projects/project-1/deadbeef.png",
-		);
-	});
-
-	it("deletes its pending row and final object when confirmation fails", async () => {
-		validateMediaBytes.mockResolvedValue(validatedImage);
-		findReadyAssetByProjectAndHash.mockResolvedValue(null);
-		createPendingAsset.mockResolvedValue({
-			assetId: "new-asset-id",
-			gcsObjectKey: "projects/project-1/deadbeef.png",
-		});
-		confirmAssetReady.mockRejectedValue(new Error("confirm failed"));
-
-		const { server, capture } = makeFakeServer();
-		registerUploadMediaAsset(server, toolCtx);
-		const out = (await capture()({
-			filename: "logo.png",
-			mime_type: "image/png",
-			data_base64: "aGVsbG8=",
-		})) as { isError?: boolean };
-
-		expect(out.isError).toBe(true);
-		expect(deletePendingAssetForActor).toHaveBeenCalledWith(
-			{
-				assetId: "new-asset-id",
-				actorUserId: "user-1",
-				expectedProjectId: "project-1",
-			},
 			expect.anything(),
 		);
 		expect(deleteStoredAsset).toHaveBeenCalledWith(
@@ -210,11 +171,11 @@ describe("uploadMediaAsset", () => {
 		);
 	});
 
-	it("retains the final object when a ready winner appears before cleanup", async () => {
+	it("retains a failed publication's object when committed metadata names it", async () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
 		findReadyAssetByProjectAndHash.mockResolvedValue(null);
 		hasAssetForGcsObjectKey.mockResolvedValue(true);
-		createPendingAsset.mockRejectedValue(new Error("insert lost"));
+		insertReadyAsset.mockRejectedValue(new Error("insert result lost"));
 
 		const { server, capture } = makeFakeServer();
 		registerUploadMediaAsset(server, toolCtx);
@@ -225,7 +186,6 @@ describe("uploadMediaAsset", () => {
 		})) as { isError?: boolean };
 
 		expect(out.isError).toBe(true);
-		expect(findReadyAssetByProjectAndHash).toHaveBeenCalledOnce();
 		expect(hasAssetForGcsObjectKey).toHaveBeenCalledWith(
 			"projects/project-1/deadbeef.png",
 			expect.anything(),
@@ -233,30 +193,74 @@ describe("uploadMediaAsset", () => {
 		expect(deleteStoredAsset).not.toHaveBeenCalled();
 	});
 
-	it("retains the final object when its own pending row became ready", async () => {
+	it("returns the exact ready row after an ambiguous post-commit error", async () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
-		findReadyAssetByProjectAndHash.mockResolvedValue(null);
-		createPendingAsset.mockResolvedValue({
-			assetId: "new-asset-id",
-			gcsObjectKey: "projects/project-1/deadbeef.png",
-		});
-		confirmAssetReady.mockRejectedValue(new Error("ambiguous confirm result"));
-		deletePendingAssetForActor.mockResolvedValue({
-			kind: "already_ready",
+		let attemptAssetId: string | undefined;
+		findReadyAssetByProjectAndHash.mockImplementation(async () =>
+			attemptAssetId === undefined ? null : { id: attemptAssetId },
+		);
+		insertReadyAsset.mockImplementation(async (args) => {
+			attemptAssetId = args.assetId;
+			throw new Error("commit acknowledgement lost");
 		});
 
 		const { server, capture } = makeFakeServer();
 		registerUploadMediaAsset(server, toolCtx);
-		const out = (await capture()({
+		const out = await capture()({
 			filename: "logo.png",
 			mime_type: "image/png",
 			data_base64: "aGVsbG8=",
-		})) as { isError?: boolean };
+		});
 
-		expect(out.isError).toBe(true);
+		expect(parsePayload(out)).toMatchObject({
+			asset_id: attemptAssetId,
+			deduplicated: false,
+		});
+		expect(withMediaObjectKeyLock).toHaveBeenCalledTimes(2);
 		expect(deleteStoredAsset).not.toHaveBeenCalled();
+	});
+
+	it("returns a concurrent ready winner after its metadata insert rolls back", async () => {
+		validateMediaBytes.mockResolvedValue(validatedImage);
+		findReadyAssetByProjectAndHash
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ id: "winner-id" });
+		insertReadyAsset.mockRejectedValue(new Error("insert rolled back"));
+
+		const { server, capture } = makeFakeServer();
+		registerUploadMediaAsset(server, toolCtx);
+		const out = await capture()({
+			filename: "logo.png",
+			mime_type: "image/png",
+			data_base64: "aGVsbG8=",
+		});
+
+		expect(parsePayload(out)).toMatchObject({
+			asset_id: "winner-id",
+			deduplicated: true,
+		});
+		expect(deleteStoredAsset).not.toHaveBeenCalled();
+	});
+
+	it("adopts the ready metadata left by a crash before the prior response", async () => {
+		validateMediaBytes.mockResolvedValue(validatedImage);
+		findReadyAssetByProjectAndHash.mockResolvedValue({ id: "crash-winner-id" });
+
+		const { server, capture } = makeFakeServer();
+		registerUploadMediaAsset(server, toolCtx);
+		const out = await capture()({
+			filename: "logo.png",
+			mime_type: "image/png",
+			data_base64: "aGVsbG8=",
+		});
+
+		expect(parsePayload(out)).toMatchObject({
+			asset_id: "crash-winner-id",
+			deduplicated: true,
+		});
 		expect(findReadyAssetByProjectAndHash).toHaveBeenCalledOnce();
-		expect(hasAssetForGcsObjectKey).not.toHaveBeenCalled();
+		expect(uploadAssetBytes).not.toHaveBeenCalled();
+		expect(insertReadyAsset).not.toHaveBeenCalled();
 	});
 
 	it("surfaces a validation rejection as invalid_input", async () => {

@@ -654,40 +654,41 @@ export async function purgeExpiredMediaUploadAliases(
 	return Number(deleted.numDeletedRows);
 }
 
+export interface ReadyAssetInsert {
+	assetId: AssetId;
+	owner: string;
+	project_id: string;
+	contentHash: string;
+	mimeType: AssetMimeType;
+	kind: AssetKind;
+	extension: string;
+	sizeBytes: number;
+	gcsObjectKey: string;
+	originalFilename: string;
+	displayName?: string;
+	dimensions?: { width: number; height: number };
+	durationMs?: number;
+	extract?: MediaAssetExtract;
+}
+
 /**
- * Create a `ready` asset row in one shot — the cross-Project move's
- * copy-into-destination path (`lib/media/moveMedia.ts`). The bytes are already
- * validated (they are a server-side GCS copy of an existing `ready` asset), so
- * this skips the pending→confirm dance browser uploads need and writes the
- * final row directly: no lingering `pending` intermediate to strand on a crash.
- * This pre-copy step deliberately creates no app reference; the final app-move
- * transaction revalidates the destination row and inserts the exact edge only
- * when the blueprint/thread remap and Project flip commit. Returns the new id.
+ * Insert one terminal `ready` asset with a caller-allocated id.
+ *
+ * The insert is the complete metadata publication: there is no separately
+ * committed `pending` row or follow-up status flip. Callers that publish bytes
+ * before metadata can retain `assetId` across an ambiguous commit response,
+ * re-read that exact publication under their content lock, and distinguish
+ * "commit succeeded" from "no metadata exists; clean the object".
  */
-export async function createReadyAsset(
-	args: {
-		owner: string;
-		project_id: string;
-		contentHash: string;
-		mimeType: AssetMimeType;
-		kind: AssetKind;
-		extension: string;
-		sizeBytes: number;
-		gcsObjectKey: string;
-		originalFilename: string;
-		displayName?: string;
-		dimensions?: { width: number; height: number };
-		durationMs?: number;
-		extract?: MediaAssetExtract;
-	},
+export async function insertReadyAsset(
+	args: ReadyAssetInsert,
 	lockedDb?: Kysely<AppDatabase>,
-): Promise<{ assetId: AssetId }> {
-	const assetId = asAssetId(randomUUID());
+): Promise<MediaAssetRecord> {
 	const insert = async (tx: Transaction<AppDatabase>) => {
-		await tx
+		const row = await tx
 			.insertInto("media_assets")
 			.values({
-				id: assetId,
+				id: args.assetId,
 				owner: args.owner,
 				project_id: args.project_id,
 				content_hash: args.contentHash,
@@ -708,13 +709,32 @@ export async function createReadyAsset(
 				status: "ready",
 				created_at: new Date(),
 			})
-			.execute();
+			.returningAll()
+			.executeTakeFirstOrThrow();
+		return mediaAssetRecordFromRow(row);
 	};
 	if (lockedDb) {
-		await lockedDb.transaction().execute(insert);
-	} else {
-		await withAppTx(insert);
+		return lockedDb.transaction().execute(insert);
 	}
+	return withAppTx(insert);
+}
+
+/**
+ * Create a `ready` asset row in one shot — the cross-Project move's
+ * copy-into-destination path (`lib/media/moveMedia.ts`). The bytes are already
+ * validated (they are a server-side GCS copy of an existing `ready` asset), so
+ * this skips the pending→confirm dance browser uploads need and writes the
+ * final row directly: no lingering `pending` intermediate to strand on a crash.
+ * This pre-copy step deliberately creates no app reference; the final app-move
+ * transaction revalidates the destination row and inserts the exact edge only
+ * when the blueprint/thread remap and Project flip commit. Returns the new id.
+ */
+export async function createReadyAsset(
+	args: Omit<ReadyAssetInsert, "assetId">,
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<{ assetId: AssetId }> {
+	const assetId = asAssetId(randomUUID());
+	await insertReadyAsset({ ...args, assetId }, lockedDb);
 	return { assetId };
 }
 
