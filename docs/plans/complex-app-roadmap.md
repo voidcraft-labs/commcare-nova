@@ -1,8 +1,10 @@
 # Complex app roadmap
 
-> **Authoritative living plan.** Last rebaselined 2026-07-22 against Nova
-> `dd5fbecf`; S01, S02a, and S02b shipped, and S02c is owned by
-> `agent/s02c` from that deployed `main`. This file
+> **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
+> Nova `81e5ad8b` (PR #300). S01, S02a, S02b, and S02c1 are shipped;
+> S02c2 and S02c3 are in review on `agent/s02c2-simple` and `agent/s02c3`,
+> S03 is in review on `agent/s03`, and S04 is in progress on `agent/s04`.
+> This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
@@ -311,7 +313,8 @@ when it changes what authors see or do.
 ```text
 S00 -> S01 -> S02
 
-S02 -> {S03 display conditions, S04 case operations, S05 table expressions}
+S02c1 -> {S03 display conditions, S04 case operations}
+S02 -> S05 table expressions
 {S03, S04, S05} -> S06 atomic submission/resolved preview identity -> S07 preview
 {S03, S04, S07} -> S08 conditions/operations authoring
 {S05, S07} -> S09 Project data authoring
@@ -332,9 +335,13 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S11-S14 and S15-S21 may overlap only after S02 is shipped and only when their
-worktrees do not share subsystem ownership. S22 may begin after S03 and S04, but
-compiler verification remains serialized with other wire slices.
+S03 and S04 source work may overlap S02c2/S02c3 after S02c1 because their
+domain/wire files do not depend on deployment hardening or the dormant tenant
+move protocol; each still rebases onto the latest deployed `main` before merge.
+S05 waits for all of S02. S11-S14 and S15-S21 may overlap only after S02 is
+shipped and only when their worktrees do not share subsystem ownership. S22 may
+begin after S03 and S04, but compiler verification remains serialized with other
+wire slices.
 
 ## Slice ledger
 
@@ -343,8 +350,8 @@ compiler verification remains serialized with other wire slices.
 | S00 | Roadmap rebaseline | — | shipped | execution index + all PR plans |
 | S01 | Lookup persistence and realtime | S00 | shipped | PR-02, F5 |
 | S02 | External validation context and exact references | S01 | in progress | PR-01/02, F5 |
-| S03 | Display conditions: domain and wire | S02 | blocked | PR-01/03, F1 |
-| S04 | Case operations: domain and wire | S02 | blocked | PR-01/03, F4 |
+| S03 | Display conditions: domain and wire | S02c1 | review | PR-01/03, F1 |
+| S04 | Case operations: domain and wire | S02c1 | in progress | PR-01/03, F4 |
 | S05 | Lookup carriers, expressions, and wire foundations | S02 | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03-S05 | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
@@ -723,9 +730,15 @@ query passed, and its branches/worktrees were cleaned. S02b then shipped as PR
 `commcare-nova-migrate-rnqqd` successfully before deploying healthy 100%-traffic
 revision `commcare-nova-00353-plw`; app/docs/MCP contract probes passed, the new
 revision had no error logs, and the read-only production edge audit found all
-401 persisted apps clean. Its branches/worktrees were cleaned and fresh branch
-`agent/s02c` now owns move/transport safety. S02 remains `in progress` until
-S02c separately passes review, CI, deployment verification, and cleanup.
+401 persisted apps clean. Its branches/worktrees were cleaned. S02c1 then
+shipped in PR #300 at squash `81e5ad8b`, including authorization serialization,
+runtime capability and stream admission, authoritative reload, and dormant
+holder-generation safety; healthy 100%-traffic revision
+`commcare-nova-00354-dq4` passed app/docs/MCP probes and its production error
+check. S02c2 is in whole-branch review on `agent/s02c2-simple`; S02c3's
+implementation is frozen for independent review on `agent/s02c3`. S02 remains
+`in progress` until both units separately pass review, CI, deployment
+verification, and cleanup.
 
 #### Identity, context, and extraction
 
@@ -1407,11 +1420,12 @@ deployment-security, and tenant-move risk surfaces reviewable:
    the ordinary blocking migration/Cloud Run deploy path, and structural
    verification. Apply the reviewed IAM/Cloud SQL bootstrap before merging the
    pipeline switch. Every floor remains `0` and every activation flag false.
-   **In progress on `agent/s02c2-simple`.**
+   **In review on `agent/s02c2-simple`.**
 3. **S02c3 — tenant-safe dormant move:** per-operation case authorization and
    transactional presence, atomic move and run normalization, exact media
    protocol, and same-Project repair. Its deployment dogfoods S02c2; true moves
-   remain disabled.
+   remain disabled. **Implementation complete on `agent/s02c3`; independent
+   review pending.**
 
 Within those PRs, commit and review in this order:
 
@@ -1460,6 +1474,9 @@ scan-before-migrate/rescan tool later; it never repairs data.
 
 ### S03 — display conditions: domain and wire
 
+**Status:** implementation complete on `agent/s03`; review fixes and independent
+approval remain before integration.
+
 Add typed condition carriers only where evaluation context is defined. Preserve
 the current expression-admission policy: global/module contexts cannot gain row
 property reads merely because a generic type context exists. Reverify exact
@@ -1471,6 +1488,8 @@ signal is stable enough for Nova's authoring model. If excluded, retain the wire
 evidence and do not expose the term.
 
 ### S04 — case operations: domain and wire
+
+**Status:** in progress on `agent/s04` from the S02c1 deployed baseline.
 
 Define operation UUIDs, authored create ids, typed targets, links, repeat
 correlation, remove/retype semantics, ordering, property-writer participation,
