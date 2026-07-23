@@ -97,6 +97,7 @@ const APPLICATION_TABLES = [
 	"credit_grants",
 	"media_assets",
 	"media_asset_refs",
+	"media_upload_aliases",
 	"lookup_project_state",
 	"lookup_tables",
 	"lookup_columns",
@@ -115,6 +116,7 @@ export const RUNTIME_CASE_TABLES = ["cases"] as const;
 
 const CONTROL_TABLES = [
 	"lookup_reference_compatibility",
+	"media_reference_index_state",
 	"runtime_reader_traffic_epochs",
 ] as const;
 
@@ -830,6 +832,7 @@ async function convergePrivilegesInTransaction(
 	}
 	await sql`
 		GRANT SELECT ON TABLE public.lookup_reference_compatibility,
+			public.media_reference_index_state,
 			public.runtime_reader_traffic_epochs
 		TO ${sql.id(config.runtimeRole)}
 	`.execute(tx);

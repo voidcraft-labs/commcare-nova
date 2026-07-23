@@ -19,8 +19,8 @@
  *     runs to completion and persists even if the client disconnects mid-stream —
  *     progress writes are best-effort, the extract is not.
  *   - `GET` returns the stored extract text for the "What Nova reads" preview
- *     tab; 404 when no current-version extract exists yet (the client reads the
- *     `extracting`/`failed` status off the asset itself).
+ *     tab; 404 when no locally-current-or-newer extract exists yet (the client
+ *     reads the `extracting`/`failed` status off the asset itself).
  *
  * Project-gated on every path (a non-member reads as 404, never enumerable):
  * POST requires edit because it writes metadata/GCS and incurs model cost;
@@ -183,17 +183,24 @@ export async function POST(
 					if (result.status === "ready") {
 						// Re-read for the persisted title/summary so the caller can refresh
 						// its staged snapshot the instant extraction finishes (no re-fetch).
+						// Only combine metadata from the exact result version; a newer
+						// publication can win between the store return and this read.
 						const fresh = await loadAssetById(asset.id).catch(() => null);
+						const persistedReady =
+							fresh?.extract?.status === "ready" &&
+							fresh.extract.version === result.version
+								? fresh.extract
+								: null;
 						write({
 							type: "done",
 							extract: {
 								status: "ready" as const,
-								version: EXTRACTOR_VERSION,
+								version: result.version,
 								truncated: result.truncated,
 								charCount: result.charCount,
-								...(fresh?.extract?.title && { title: fresh.extract.title }),
-								...(fresh?.extract?.summary && {
-									summary: fresh.extract.summary,
+								...(persistedReady?.title && { title: persistedReady.title }),
+								...(persistedReady?.summary && {
+									summary: persistedReady.summary,
 								}),
 							},
 						});
@@ -249,10 +256,11 @@ export async function POST(
 
 /**
  * Serve the stored extract text for the "What Nova reads" preview tab. 404
- * when no current-version extract exists yet — the client reads the
+ * when no usable extract exists yet — the client reads the
  * `extracting`/`failed` status off the asset itself and only fetches the body
- * once it's `ready`. CSP `sandbox` + `nosniff` mirror the bytes route's
- * defense-in-depth even though markdown text is inert.
+ * once it's `ready`. A higher-version ready extract produced by a newer server
+ * is usable here; only an older version is stale. CSP `sandbox` + `nosniff`
+ * mirror the bytes route's defense-in-depth even though markdown text is inert.
  *
  * `?meta=1` returns the extract's header metadata as JSON ({ status, title,
  * summary }) instead of the body — a cheap asset-doc read, no GCS fetch. The
@@ -271,7 +279,7 @@ export async function GET(
 		if (new URL(req.url).searchParams.get("meta") === "1") {
 			const ready =
 				asset.extract?.status === "ready" &&
-				asset.extract.version === EXTRACTOR_VERSION;
+				asset.extract.version >= EXTRACTOR_VERSION;
 			return NextResponse.json(
 				{
 					status: asset.extract?.status ?? null,
@@ -285,7 +293,7 @@ export async function GET(
 
 		if (
 			asset.extract?.status !== "ready" ||
-			asset.extract.version !== EXTRACTOR_VERSION
+			asset.extract.version < EXTRACTOR_VERSION
 		) {
 			throw new ApiError(
 				"This document hasn't been extracted yet (or its extract is being refreshed). Check back once extraction finishes.",
@@ -296,7 +304,7 @@ export async function GET(
 			extractGcsObjectKeyFor(
 				asset.project_id,
 				asset.contentHash,
-				EXTRACTOR_VERSION,
+				asset.extract.version,
 			),
 			EXTRACT_MAX_BYTES,
 		);

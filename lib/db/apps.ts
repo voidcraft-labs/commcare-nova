@@ -31,13 +31,20 @@ import type {
 import type { ErrorType } from "@/lib/agent";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { retenantAppCasesOn } from "@/lib/case-store/retenant";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
+import {
+	collectThreadAttachmentAssetIds,
+	remapThreadAttachmentAssetIds,
+} from "@/lib/chat/threadAttachments";
+import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { log } from "@/lib/logger";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import {
 	describeMediaExpectationFailures,
 	type MediaAttachExpectation,
 } from "@/lib/media/attachVerdicts";
+import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 import {
 	assertPersistenceSafeMutationIdentities,
 	describeIntroducedErrors,
@@ -94,6 +101,7 @@ import {
 	type Reservation,
 	refundStaleGeneration,
 	refundStaleReservation,
+	type StaleRunReapOutcome,
 } from "./credits";
 import {
 	LEASE_COLUMNS,
@@ -107,17 +115,34 @@ import {
 	readStoredLookupReferenceTargets,
 	replaceLookupReferenceEdges,
 } from "./lookupReferenceEdges";
-import { declareLookupReferenceWriter } from "./lookupReferenceWriter";
-import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
+import {
+	CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
+	declareLookupReferenceWriter,
+} from "./lookupReferenceWriter";
+import {
+	addReferencingApp,
+	addReferencingAppInTransaction,
+	getAssetsInTransaction,
+	type MediaAssetRecord,
+} from "./mediaAssets";
+import {
+	deleteMediaAssetMetadataInTransaction,
+	MediaAssetStillReferencedError,
+} from "./mediaDeletion";
 import { getCurrentPeriod } from "./period";
 import {
 	type AppDatabase,
 	type AppsTable,
 	getAppDb,
 	notifyAppStream,
+	notifyPresence,
 	withAppTx,
 } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
+import {
+	lockProjectMoveCompatibility,
+	lockProjectMoveMemberships,
+} from "./projectMoveAdmission";
 import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
 import {
 	type ExactRunHolderIdentity,
@@ -351,6 +376,65 @@ async function syncMediaReferences(
 	}
 }
 
+/**
+ * Lock, validate, and reverse-index every real asset reference a candidate
+ * newly introduces. The asset locks are sorted and held through the blueprint
+ * commit; deletion takes the conflicting `FOR UPDATE`, so exactly one side of
+ * attach-vs-delete wins and the loser re-evaluates fresh state.
+ */
+async function admitIntroducedMediaReferences(
+	tx: Transaction<AppDatabase>,
+	args: {
+		appId: string;
+		projectId: string | null;
+		previousDoc: BlueprintDoc | PersistableDoc;
+		candidateDoc: BlueprintDoc | PersistableDoc;
+		expectations?: readonly MediaAttachExpectation[];
+	},
+): Promise<void> {
+	const previous = new Set(
+		collectRealAssetRefs(asWalkableDoc(args.previousDoc)),
+	);
+	const candidate = collectRealAssetRefs(asWalkableDoc(args.candidateDoc));
+	const introduced = [
+		...new Set(candidate.filter((id) => !previous.has(id))),
+	].sort();
+	const idsToLock = [
+		...new Set([
+			...introduced,
+			...(args.expectations ?? []).map((entry) => entry.assetId),
+		]),
+	].sort();
+	if (idsToLock.length === 0) return;
+	if (args.projectId === null) {
+		throw new BlueprintCommitRejectedError(
+			"This app has no Project, so its media can't be verified. Reload and try again.",
+		);
+	}
+	const assets = await getAssetsInTransaction(tx, idsToLock);
+	if (args.expectations && args.expectations.length > 0) {
+		const failure = describeMediaExpectationFailures(
+			args.expectations,
+			assets,
+			args.projectId,
+		);
+		if (failure !== null) throw new BlueprintCommitRejectedError(failure);
+	}
+	for (const assetId of introduced) {
+		const asset = assets.get(assetId);
+		if (
+			asset === undefined ||
+			asset.project_id !== args.projectId ||
+			asset.status !== "ready"
+		) {
+			throw new BlueprintCommitRejectedError(
+				"A media file this change attaches is no longer available in this Project. Choose it again and retry.",
+			);
+		}
+	}
+	await addReferencingAppInTransaction(tx, introduced, args.appId);
+}
+
 function hasLookupReferenceTargets(targets: LookupReferenceTargetSet): boolean {
 	return targets.tableIds.length > 0 || targets.columnTargets.length > 0;
 }
@@ -505,10 +589,9 @@ export async function withAuthorizedAppEditSideEffect<T>(
 /**
  * Delete one media metadata row for a live chat run under the same app-row,
  * authorization, Project, and holder fence used by blueprint side effects.
- * The reference scan remains an optimistic preflight (S02c3 owns its complete
- * attach/delete race protocol); this boundary guarantees only that an SA
- * process which lost its run cannot perform the irreversible row delete.
- * Object-store cleanup happens after this transaction commits.
+ * After the app/holder fence, the shared deletion core locks the asset,
+ * re-walks every relevant persisted carrier, and deletes metadata on this same
+ * transaction. Object-store cleanup happens only after commit.
  */
 export async function deleteMediaAssetForChatRun(args: {
 	appId: string;
@@ -516,7 +599,7 @@ export async function deleteMediaAssetForChatRun(args: {
 	actorUserId: string;
 	expectedProjectId: string;
 	holder: ChatRunHolderCapability;
-}): Promise<boolean> {
+}): Promise<MediaAssetRecord | false> {
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, args.appId);
 		if (!fresh) throw new CommitReauthError("App not found.");
@@ -535,12 +618,15 @@ export async function deleteMediaAssetForChatRun(args: {
 		) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
 		}
-		const result = await tx
-			.deleteFrom("media_assets")
-			.where("id", "=", args.assetId)
-			.where("project_id", "=", args.expectedProjectId)
-			.executeTakeFirst();
-		return result.numDeletedRows === BigInt(1);
+		const result = await deleteMediaAssetMetadataInTransaction(tx, {
+			assetId: args.assetId,
+			actorUserId: args.actorUserId,
+			expectedProjectId: args.expectedProjectId,
+		});
+		if (result.kind === "referenced") {
+			throw new MediaAssetStillReferencedError(result.references);
+		}
+		return result.kind === "deleted" ? result.asset : false;
 	});
 }
 
@@ -781,6 +867,12 @@ export async function createApp(
 				);
 			}
 		}
+		await admitIntroducedMediaReferences(tx, {
+			appId,
+			projectId,
+			previousDoc: emptyDoc,
+			candidateDoc: verdict.nextDoc,
+		});
 		await replaceLookupReferenceEdges(tx, {
 			appId,
 			projectId,
@@ -1085,25 +1177,6 @@ export async function commitGuardedBatch(
 					deduped: true,
 				};
 			}
-			// Media-attach expectations re-check — the asset rows are read FOR
-			// SHARE so a racing delete serializes against this commit.
-			if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
-				if (!fresh.project_id) {
-					throw new BlueprintCommitRejectedError(
-						"This app has no Project, so its media can't be verified. Reload and try again.",
-					);
-				}
-				const rows = await getAssetsInTransaction(
-					tx,
-					mediaExpectations.map((e) => e.assetId),
-				);
-				const failure = describeMediaExpectationFailures(
-					mediaExpectations,
-					rows,
-					fresh.project_id,
-				);
-				if (failure !== null) throw new BlueprintCommitRejectedError(failure);
-			}
 			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
 			const freshDoc = hydratePersistedBlueprint(freshPersistable);
 			assertDeterministicPersistedMutations(mutations);
@@ -1192,6 +1265,13 @@ export async function commitGuardedBatch(
 			}
 			const seq = Number(fresh.mutation_seq) + 1;
 			const persistable = toPersistableDoc(verdict.nextDoc);
+			await admitIntroducedMediaReferences(tx, {
+				appId,
+				projectId: fresh.project_id,
+				previousDoc: freshDoc,
+				candidateDoc: verdict.nextDoc,
+				expectations: mediaExpectations,
+			});
 			/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
 			 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
 			 * the edit lock (through the one liveness reader). */
@@ -1425,6 +1505,12 @@ export async function appendSyntheticBatch(
 		}
 		const persistable = toPersistableDoc(verdict.nextDoc);
 		const seq = Number(fresh.mutation_seq) + 1;
+		await admitIntroducedMediaReferences(tx, {
+			appId: args.appId,
+			projectId: fresh.project_id,
+			previousDoc,
+			candidateDoc: verdict.nextDoc,
+		});
 		await replaceLookupReferenceEdges(tx, {
 			appId: args.appId,
 			projectId: fresh.project_id,
@@ -1449,179 +1535,444 @@ export async function appendSyntheticBatch(
 	return publicResult;
 }
 
-/**
- * Outcome of {@link commitAppProjectMove}. `moved` and `already_moved` are
- * terminal success; `media_stale` reports asset ids the FRESH doc references
- * that the caller never copied (a concurrent edit added them), so the move
- * orchestrator copies those and retries.
- */
+interface ProjectMoveThreadSnapshot {
+	readonly threadId: string;
+	readonly messages: readonly unknown[];
+}
+
+export type PrepareProjectMoveResult =
+	| {
+			kind: "ready";
+			requiredAssetIds: readonly string[];
+			historicalAssetIds: readonly string[];
+	  }
+	| { kind: "already_moved" }
+	| { kind: "busy" }
+	| { kind: "reapable"; identity: ExactRunHolderIdentity }
+	| { kind: "corrupt_holder" };
+
 export type CommitMoveResult =
 	| { kind: "moved" }
 	| { kind: "already_moved" }
 	| { kind: "media_stale"; missing: string[] }
-	| { kind: "busy" };
+	| { kind: "busy" }
+	| { kind: "reapable"; identity: ExactRunHolderIdentity }
+	| { kind: "corrupt_holder" };
+
+interface ProjectMoveCoreArgs {
+	readonly appId: string;
+	readonly toProjectId: string;
+	readonly expectedFromProjectId: string;
+	readonly actorUserId: string;
+}
+
+interface ProjectMoveCommitArgs extends ProjectMoveCoreArgs {
+	readonly assetIdMap: ReadonlyMap<string, string>;
+	readonly attemptedRealIds: ReadonlySet<string>;
+}
+
+async function authorizeProjectMoveGovernance(
+	tx: Transaction<AppDatabase>,
+	args: ProjectMoveCoreArgs,
+): Promise<void> {
+	const memberships = await lockProjectMoveMemberships(tx, {
+		actorUserId: args.actorUserId,
+		sourceProjectId: args.expectedFromProjectId,
+		destinationProjectId: args.toProjectId,
+	});
+	if (
+		memberships.sourceOwnerIds.length === 0 ||
+		memberships.actorSourceRole === null ||
+		memberships.actorDestinationRole === null ||
+		!roleAllowsApp(memberships.actorSourceRole, "delete") ||
+		!roleAllowsApp(memberships.actorDestinationRole, "delete") ||
+		(!memberships.actorIsSourceOwner &&
+			memberships.sourceOwnersMissingFromDestination.length > 0)
+	) {
+		throw new CommitReauthError(
+			"You no longer have permission to move this app.",
+		);
+	}
+}
+
+function projectMoveRunDisposition(
+	fresh: AppRow,
+): Extract<
+	PrepareProjectMoveResult,
+	{ kind: "busy" | "reapable" | "corrupt_holder" }
+> | null {
+	const lease = runLeaseState(leaseView(fresh));
+	if (lease.reapableStaleBuild || lease.reapableStrandedEdit) {
+		const identity = toExactRunHolderIdentity(lease.holderIdentity);
+		return identity === null
+			? { kind: "corrupt_holder" }
+			: { kind: "reapable", identity };
+	}
+	if (lease.mode === "none") return null;
+	if (lease.live || lease.paused) return { kind: "busy" };
+	return { kind: "corrupt_holder" };
+}
+
+async function assembleLockedProjectMoveDoc(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	fresh: AppRow,
+): Promise<{ persisted: PersistedBlueprint; doc: BlueprintDoc }> {
+	const entities = await loadEntities(tx, appId);
+	const persisted = assembleBlueprint(
+		appId,
+		{
+			app_name: fresh.app_name,
+			connect_type: fresh.connect_type,
+			case_types: fresh.case_types,
+			logo: fresh.logo,
+		},
+		entities,
+	);
+	return { persisted, doc: hydratePersistedBlueprint(persisted) };
+}
+
+async function readProjectMoveThreads(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<ProjectMoveThreadSnapshot[]> {
+	const rows = await tx
+		.selectFrom("threads")
+		.select(["thread_id", "messages"])
+		.where("app_id", "=", appId)
+		.orderBy("thread_id")
+		.execute();
+	return rows.map((row) => ({
+		threadId: row.thread_id,
+		messages: Array.isArray(row.messages) ? row.messages : [],
+	}));
+}
+
+async function lockProjectMoveThreads(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<ProjectMoveThreadSnapshot[]> {
+	const rows = await tx
+		.selectFrom("threads")
+		.select(["thread_id", "messages"])
+		.where("app_id", "=", appId)
+		.orderBy("thread_id")
+		.forUpdate()
+		.execute();
+	return rows.map((row) => ({
+		threadId: row.thread_id,
+		messages: Array.isArray(row.messages) ? row.messages : [],
+	}));
+}
+
+function realHistoricalAssetIds(
+	threads: readonly ProjectMoveThreadSnapshot[],
+): string[] {
+	return [
+		...new Set(
+			threads
+				.flatMap((thread) => collectThreadAttachmentAssetIds(thread.messages))
+				.filter((assetId) => !isBuiltinIconRef(assetId)),
+		),
+	].sort();
+}
+
+async function assertMoveLookupClosureEmpty(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	doc: BlueprintDoc,
+): Promise<void> {
+	const structural = extractLookupReferenceTargets(doc);
+	const stored = await readStoredLookupReferenceTargets(tx, appId);
+	if (!deepEqual(structural, stored)) {
+		throw new BlueprintCommitRejectedError(
+			"This app's lookup references are out of sync and must be repaired before it can move Projects.",
+		);
+	}
+	if (hasLookupReferenceTargets(structural)) {
+		throw new BlueprintCommitRejectedError(
+			"This app uses lookup tables and cannot move Projects yet. Remove those references or keep the app in its current Project.",
+		);
+	}
+}
+
+/** Production-capability wrapper; dormant while the manifest remains writer v0. */
+export async function prepareAppProjectMove(
+	args: ProjectMoveCoreArgs,
+): Promise<PrepareProjectMoveResult> {
+	return withAppTx(async (tx) => {
+		await declareLookupReferenceWriter(tx);
+		return prepareAppProjectMoveInTransaction(
+			tx,
+			args,
+			CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
+			RUNTIME_CAPABILITIES.streamReceiverVersion,
+		);
+	});
+}
+
+/** Package-private v1 integration seam; caller sets the matching writer GUC. */
+export async function prepareAppProjectMoveInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: ProjectMoveCoreArgs,
+	declaredWriterVersion: number,
+	streamReceiverVersion: number,
+): Promise<PrepareProjectMoveResult> {
+	const fresh = await lockAppRow(tx, args.appId);
+	if (!fresh) throw new CommitReauthError("App not found.");
+	if (fresh.project_id === args.toProjectId) {
+		await assertProjectCapabilityInTransaction(
+			tx,
+			args.actorUserId,
+			args.toProjectId,
+			"delete",
+			"You no longer have permission to move this app.",
+		);
+		return { kind: "already_moved" };
+	}
+	if (fresh.project_id !== args.expectedFromProjectId) {
+		throw new BlueprintCommitRejectedError(
+			"This app changed Projects while the move was being prepared. Reload and try again.",
+		);
+	}
+	if (fresh.deleted_at !== null) {
+		throw new BlueprintCommitRejectedError(
+			"Restore this app before moving it to another Project.",
+		);
+	}
+	await authorizeProjectMoveGovernance(tx, args);
+	await lockProjectMoveCompatibility(tx, {
+		appId: args.appId,
+		declaredWriterVersion,
+		streamReceiverVersion,
+	});
+	const runDisposition = projectMoveRunDisposition(fresh);
+	if (runDisposition) return runDisposition;
+	const { doc } = await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
+	await assertMoveLookupClosureEmpty(tx, args.appId, doc);
+	const threads = await readProjectMoveThreads(tx, args.appId);
+	const requiredAssetIds = [...collectRealAssetRefs(asWalkableDoc(doc))].sort();
+	const required = new Set(requiredAssetIds);
+	return {
+		kind: "ready",
+		requiredAssetIds,
+		historicalAssetIds: realHistoricalAssetIds(threads).filter(
+			(assetId) => !required.has(assetId),
+		),
+	};
+}
 
 /**
- * The single write that changes an app's `project_id` — the commit point of a
- * cross-Project move. In one transaction over the locked row it repoints the
- * blueprint's media refs onto the destination copies and flips `project_id`,
- * so a co-editor's stale tab 409-reloads (its next PUT's in-transaction
- * `project_id` compare rejects) and the blueprint never spends an instant
- * referencing destination-absent media. Writes nothing on any non-`moved`
- * outcome.
+ * Same-Project recovery is case-only and follows the freshly locked app row.
+ * It writes no migration batch and purges no presence, so either race order
+ * with a true move converges on the winner's current Project.
  */
+export async function repairAppCaseTenancy(
+	appId: string,
+	actorUserId: string,
+): Promise<{ projectId: string; moved: number }> {
+	return withAppTx(async (tx) => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh?.project_id) throw new CommitReauthError("App not found.");
+		await assertAppCapabilityInTransaction(
+			tx,
+			fresh,
+			actorUserId,
+			"delete",
+			"You no longer have permission to repair this app.",
+		);
+		const fullTx = tx as unknown as Transaction<AppDatabase & CaseDatabase>;
+		const repaired = await retenantAppCasesOn(
+			fullTx.$pickTables<keyof CaseDatabase>(),
+			{ appId, toProjectId: fresh.project_id },
+		);
+		return { projectId: fresh.project_id, moved: repaired.moved };
+	});
+}
+
+/** Production-capability wrapper; dormant while the manifest remains writer v0. */
 export async function commitAppProjectMove(
 	appId: string,
-	args: {
-		toProjectId: string;
-		expectedFromProjectId: string;
-		actorUserId: string;
-		assetIdMap: ReadonlyMap<string, string>;
-		attemptedRealIds: ReadonlySet<string>;
-	},
+	args: Omit<ProjectMoveCommitArgs, "appId">,
 ): Promise<CommitMoveResult> {
 	const batchId = crypto.randomUUID();
-	const result = await withAppTx(
-		async (
+	return withAppTx(async (tx) => {
+		await declareLookupReferenceWriter(tx);
+		return commitAppProjectMoveInTransaction(
 			tx,
-		): Promise<{
-			outcome: CommitMoveResult;
-			committed: PersistedBlueprint | null;
-		}> => {
-			await declareLookupReferenceWriter(tx);
-			const fresh = await lockAppRow(tx, appId);
-			if (!fresh) {
-				throw new Error(
-					`[commitAppProjectMove] app row missing for appId=${appId}`,
-				);
-			}
-			if (fresh.project_id === args.toProjectId) {
-				await assertProjectCapabilityInTransaction(
-					tx,
-					args.actorUserId,
-					args.toProjectId,
-					"delete",
-					"You no longer have permission to move this app.",
-				);
-				return { outcome: { kind: "already_moved" }, committed: null };
-			}
-			if (fresh.project_id !== args.expectedFromProjectId) {
-				throw new BlueprintCommitRejectedError(
-					"This app changed Projects while the move was being prepared. Reload and try again.",
-				);
-			}
-			// The shared advisory gate now serializes existing and missing membership
-			// rows. The sorted order avoids opposite-direction tuple-lock inversion;
-			// S02c3 adds the full source-owner retention protocol.
-			for (const projectId of [
-				...new Set([args.expectedFromProjectId, args.toProjectId]),
-			].sort()) {
-				await assertProjectCapabilityInTransaction(
-					tx,
-					args.actorUserId,
-					projectId,
-					"delete",
-					"You no longer have permission to move this app.",
-				);
-			}
-			// A build that started after the caller's authz read would, on its
-			// next save, blind-overwrite the repoint while leaving project_id
-			// flipped. Re-check against the LOCKED row so the bar is atomic.
-			if (fresh.status === "generating") {
-				return { outcome: { kind: "busy" }, committed: null };
-			}
-			const entities = await loadEntities(tx, appId);
-			const prevDoc = assembleBlueprint(
-				appId,
-				{
-					app_name: fresh.app_name,
-					connect_type: fresh.connect_type,
-					case_types: fresh.case_types,
-					logo: fresh.logo,
-				},
-				entities,
-			);
-			const previousDoc = hydratePersistedBlueprint(prevDoc);
-			const missing = collectRealAssetRefs(asWalkableDoc(previousDoc)).filter(
-				(id) => !args.attemptedRealIds.has(id),
-			);
-			if (missing.length > 0) {
-				return { outcome: { kind: "media_stale", missing }, committed: null };
-			}
-			const requestedCandidate =
-				args.assetIdMap.size > 0
-					? hydratePersistedBlueprint(
-							remapAssetRefs(toPersistableDoc(previousDoc), args.assetIdMap),
-						)
-					: previousDoc;
-			const mutations = diffDocsToMutations(previousDoc, requestedCandidate);
-			assertDeterministicPersistedMutations(mutations);
-			const prepared = prepareMutationCandidate(previousDoc, mutations);
-			if (
-				!deepEqual(
-					toPersistableDoc(prepared.nextDoc),
-					toPersistableDoc(requestedCandidate),
-				)
-			) {
-				throw new BlueprintCommitRejectedError(
-					"The app's media references could not be remapped deterministically.",
-				);
-			}
-			const previousTargets = extractLookupReferenceTargets(previousDoc);
-			const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-			const storedTargets = await readStoredLookupReferenceTargets(tx, appId);
-			if (
-				hasLookupReferenceTargets(previousTargets) ||
-				hasLookupReferenceTargets(candidateTargets) ||
-				hasLookupReferenceTargets(storedTargets)
-			) {
-				throw new BlueprintCommitRejectedError(
-					"This app uses lookup tables and cannot move Projects yet. Remove those references or keep the app in its current Project.",
-				);
-			}
-			const destinationContext = await lookupContextForAuthoritativeWrite(
-				tx,
-				args.toProjectId,
-				EMPTY_LOOKUP_REFERENCE_TARGETS,
-			);
-			const verdict = evaluatePreparedMutationCandidate(
-				previousDoc,
-				prepared,
-				destinationContext,
-			);
-			if (!verdict.ok) {
-				throw new BlueprintCommitRejectedError(
-					describeIntroducedErrors(verdict.introduced),
-				);
-			}
-			const seq = Number(fresh.mutation_seq) + 1;
-			const committedDoc = toPersistableDoc(verdict.nextDoc);
-			await replaceLookupReferenceEdges(tx, {
-				appId,
-				projectId: fresh.project_id,
-				targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
-			});
-			await writeCommittedBatch(tx, {
-				appId,
-				seq,
+			{ ...args, appId },
+			{
 				batchId,
-				prevDoc,
-				committedDoc,
-				mutations,
-				actorUserId: args.actorUserId,
-				kind: "migration",
-				extraAppFields: { project_id: args.toProjectId },
-			});
-			return {
-				outcome: { kind: "moved" },
-				committed: mutations.length > 0 ? committedDoc : null,
-			};
-		},
-	);
-	if (result.committed) {
-		await syncMediaReferences(appId, result.committed);
+				declaredWriterVersion: CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
+				streamReceiverVersion: RUNTIME_CAPABILITIES.streamReceiverVersion,
+			},
+		);
+	});
+}
+
+/** Package-private v1 integration seam; caller sets the matching writer GUC. */
+export async function commitAppProjectMoveInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: ProjectMoveCommitArgs,
+	capabilities: {
+		readonly batchId: string;
+		readonly declaredWriterVersion: number;
+		readonly streamReceiverVersion: number;
+	},
+): Promise<CommitMoveResult> {
+	const fresh = await lockAppRow(tx, args.appId);
+	if (!fresh) throw new CommitReauthError("App not found.");
+	if (fresh.project_id === args.toProjectId) {
+		await assertProjectCapabilityInTransaction(
+			tx,
+			args.actorUserId,
+			args.toProjectId,
+			"delete",
+			"You no longer have permission to move this app.",
+		);
+		return { kind: "already_moved" };
 	}
-	return result.outcome;
+	if (fresh.project_id !== args.expectedFromProjectId) {
+		throw new BlueprintCommitRejectedError(
+			"This app changed Projects while the move was being prepared. Reload and try again.",
+		);
+	}
+	if (fresh.deleted_at !== null) {
+		throw new BlueprintCommitRejectedError(
+			"Restore this app before moving it to another Project.",
+		);
+	}
+	await authorizeProjectMoveGovernance(tx, args);
+	await lockProjectMoveCompatibility(tx, {
+		appId: args.appId,
+		declaredWriterVersion: capabilities.declaredWriterVersion,
+		streamReceiverVersion: capabilities.streamReceiverVersion,
+	});
+	const runDisposition = projectMoveRunDisposition(fresh);
+	if (runDisposition) return runDisposition;
+
+	const { persisted: previousPersisted, doc: previousDoc } =
+		await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
+	await assertMoveLookupClosureEmpty(tx, args.appId, previousDoc);
+	const threads = await lockProjectMoveThreads(tx, args.appId);
+	const requiredAssetIds = [
+		...collectRealAssetRefs(asWalkableDoc(previousDoc)),
+	].sort();
+	const historicalAssetIds = realHistoricalAssetIds(threads);
+	const freshClosure = [
+		...new Set([...requiredAssetIds, ...historicalAssetIds]),
+	].sort();
+	const staleSources = new Set(
+		freshClosure.filter((assetId) => !args.attemptedRealIds.has(assetId)),
+	);
+	for (const sourceId of requiredAssetIds) {
+		if (!args.assetIdMap.has(sourceId)) staleSources.add(sourceId);
+	}
+	const mappedFreshSources = freshClosure.filter((sourceId) =>
+		args.assetIdMap.has(sourceId),
+	);
+	const destinationIds = mappedFreshSources.map(
+		(sourceId) => args.assetIdMap.get(sourceId) as string,
+	);
+	const destinationAssets = await getAssetsInTransaction(tx, destinationIds);
+	for (const sourceId of mappedFreshSources) {
+		const destinationId = args.assetIdMap.get(sourceId) as string;
+		const asset = destinationAssets.get(destinationId);
+		if (
+			asset === undefined ||
+			asset.project_id !== args.toProjectId ||
+			asset.status !== "ready"
+		) {
+			staleSources.add(sourceId);
+		}
+	}
+	if (staleSources.size > 0) {
+		return { kind: "media_stale", missing: [...staleSources].sort() };
+	}
+	// The reverse index covers every persisted carrier, not only blueprint
+	// fields. Chat-only image/document attachments therefore protect their
+	// destination copies from deletion as soon as this move commits.
+	await addReferencingAppInTransaction(tx, destinationIds, args.appId);
+
+	const requestedCandidate =
+		args.assetIdMap.size > 0
+			? hydratePersistedBlueprint(
+					remapAssetRefs(toPersistableDoc(previousDoc), args.assetIdMap),
+				)
+			: previousDoc;
+	const mutations = diffDocsToMutations(previousDoc, requestedCandidate);
+	assertDeterministicPersistedMutations(mutations);
+	const prepared = prepareMutationCandidate(previousDoc, mutations);
+	if (
+		!deepEqual(
+			toPersistableDoc(prepared.nextDoc),
+			toPersistableDoc(requestedCandidate),
+		)
+	) {
+		throw new BlueprintCommitRejectedError(
+			"The app's media references could not be remapped deterministically.",
+		);
+	}
+	const destinationContext = await lookupContextForAuthoritativeWrite(
+		tx,
+		args.toProjectId,
+		EMPTY_LOOKUP_REFERENCE_TARGETS,
+	);
+	const verdict = evaluatePreparedMutationCandidate(
+		previousDoc,
+		prepared,
+		destinationContext,
+	);
+	if (!verdict.ok) {
+		throw new BlueprintCommitRejectedError(
+			describeIntroducedErrors(verdict.introduced),
+		);
+	}
+	const committedDoc = toPersistableDoc(verdict.nextDoc);
+	await admitIntroducedMediaReferences(tx, {
+		appId: args.appId,
+		projectId: args.toProjectId,
+		previousDoc,
+		candidateDoc: verdict.nextDoc,
+	});
+	await replaceLookupReferenceEdges(tx, {
+		appId: args.appId,
+		projectId: args.toProjectId,
+		targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
+	});
+	for (const thread of threads) {
+		const remapped = remapThreadAttachmentAssetIds(
+			thread.messages,
+			args.assetIdMap,
+		);
+		if (deepEqual(remapped, thread.messages)) continue;
+		await tx
+			.updateTable("threads")
+			.set({ messages: JSON.stringify(remapped) })
+			.where("app_id", "=", args.appId)
+			.where("thread_id", "=", thread.threadId)
+			.execute();
+	}
+	const fullTx = tx as unknown as Transaction<AppDatabase & CaseDatabase>;
+	await retenantAppCasesOn(fullTx.$pickTables<keyof CaseDatabase>(), {
+		appId: args.appId,
+		toProjectId: args.toProjectId,
+	});
+	await tx.deleteFrom("presence").where("app_id", "=", args.appId).execute();
+	const seq = Number(fresh.mutation_seq) + 1;
+	await writeCommittedBatch(tx, {
+		appId: args.appId,
+		seq,
+		batchId: capabilities.batchId,
+		prevDoc: previousPersisted,
+		committedDoc,
+		mutations,
+		actorUserId: args.actorUserId,
+		kind: "migration",
+		extraAppFields: { project_id: args.toProjectId },
+	});
+	await notifyPresence(tx, args.appId);
+	return { kind: "moved" };
 }
 
 // ── Run lifecycle ───────────────────────────────────────────────────
@@ -2525,6 +2876,20 @@ export async function reapStaleReservation(
 			appId,
 		});
 	}
+}
+
+/**
+ * Result-bearing canonical reaper used by the Project-move orchestrator. Unlike
+ * the scan-side wrappers above, storage failures propagate and a stale identity
+ * returns `state_changed`; neither can be mistaken for a successful release.
+ */
+export async function normalizeReapableRunForProjectMove(
+	appId: string,
+	expectedIdentity: ExactRunHolderIdentity,
+): Promise<StaleRunReapOutcome> {
+	return expectedIdentity.mode === "build"
+		? refundStaleGeneration(appId, expectedIdentity)
+		: refundStaleReservation(appId, expectedIdentity);
 }
 
 // ── Soft delete / restore ───────────────────────────────────────────

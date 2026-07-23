@@ -158,11 +158,11 @@ export async function materializeCaseStoreSchemas(
 		return;
 	}
 
-	// `withSchemaContext` returns a tenant-FREE `SchemaCaseStore`:
+	// `withSchemaContext` returns an actor-free `SchemaCaseStore`:
 	// `applySchemaChange` is app-scoped (it syncs the schema row + the
-	// per-property indexes + migrates EVERY member's rows of the case
-	// type), so it needs no bound Project. This helper never reads or
-	// writes a single tenant's case data, so it binds none.
+	// per-property indexes + migrates EVERY member's rows of the case type), so
+	// the instance carries no bound Project. Each write still locks the live app
+	// and observes its current Project inside the schema/data transaction.
 	const store = await withSchemaContext();
 
 	// Sequential rather than parallel: each `applySchemaChange`

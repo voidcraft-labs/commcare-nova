@@ -3,9 +3,11 @@
  *
  * The asset row lives in `media_assets` (keyed by the asset's UUID); the
  * referencing-apps reverse index lives in the `media_asset_refs` join table
- * (one row per `(asset, app)` candidate edge). `project_id` is the tenant and
- * the only access gate — every read SITE authorizes Project membership on the
- * returned `project_id` before serving bytes or metadata.
+ * (one row per `(asset, app)` candidate edge). A successful browser confirm
+ * that deduplicates to another row leaves a 24-hour `media_upload_aliases`
+ * replay record keyed by the original attempt id. `project_id` is the tenant
+ * and the only access gate — every read SITE authorizes Project membership on
+ * the returned `project_id` before serving bytes or metadata.
  *
  * The record builders `Number(...)` the `bigint` columns (`size_bytes`,
  * `duration_ms`) that pg returns as strings, and parse the `extract` jsonb
@@ -13,7 +15,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { type Selectable, sql, type Transaction } from "kysely";
+import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
 	type AssetId,
 	type AssetKind,
@@ -29,6 +32,7 @@ import {
 	type MediaAssetsTable,
 	withAppTx,
 } from "./pg";
+import { projectRoleForInTransaction } from "./projectMembership";
 import {
 	type MediaAssetDoc,
 	type MediaAssetExtract,
@@ -42,8 +46,34 @@ import {
  */
 export type MediaAssetRecord = MediaAssetDoc & { id: AssetId };
 
+/** Identity of one extraction claim. `extractedAt` is the row-stored fencing
+ * token, not merely display metadata: a stale job may publish only while this
+ * exact claim still owns the asset's extract slot. */
+export interface AssetExtractionClaim {
+	readonly version: number;
+	readonly model: string;
+	readonly extractedAt: number;
+}
+
+export type AssetExtractionClaimResult =
+	| { readonly kind: "claimed"; readonly claim: AssetExtractionClaim }
+	| { readonly kind: "in_flight" }
+	| { readonly kind: "superseded"; readonly extract: MediaAssetExtract }
+	| { readonly kind: "not_found" };
+
+export type ClaimedExtractPublicationResult =
+	| { readonly kind: "published"; readonly extract: MediaAssetExtract }
+	| { readonly kind: "adopted"; readonly extract: MediaAssetExtract }
+	| {
+			readonly kind: "superseded";
+			readonly extract: MediaAssetExtract | null;
+	  }
+	| { readonly kind: "not_found" };
+
 /** Assemble a `media_assets` row into the in-memory `MediaAssetRecord`. */
-function toRecord(row: Selectable<MediaAssetsTable>): MediaAssetRecord {
+export function mediaAssetRecordFromRow(
+	row: Selectable<MediaAssetsTable>,
+): MediaAssetRecord {
 	return {
 		id: asAssetId(row.id),
 		project_id: row.project_id,
@@ -161,24 +191,30 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
  * referenced by no app (no `media_asset_refs` rows), so the deletion guard
  * reads an empty candidate set from the start.
  */
-export async function createPendingAsset(args: {
-	owner: string;
-	/** The Project the asset belongs to (the tenant) — the app's Project for an
-	 *  app upload, else the uploader's active Project. Gates every later read. */
-	project_id: string;
-	contentHash: string;
-	mimeType: AssetMimeType;
-	kind: AssetKind;
-	extension: string;
-	sizeBytes: number;
-	gcsObjectKey?: string;
-	originalFilename: string;
-}): Promise<{ assetId: AssetId; gcsObjectKey: string }> {
+export async function createPendingAsset(
+	args: {
+		owner: string;
+		/** The Project the asset belongs to (the tenant) — the app's Project for an
+		 *  app upload, else the uploader's active Project. Gates every later read. */
+		project_id: string;
+		contentHash: string;
+		mimeType: AssetMimeType;
+		kind: AssetKind;
+		extension: string;
+		sizeBytes: number;
+		gcsObjectKey?: string;
+		originalFilename: string;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<{
+	assetId: AssetId;
+	gcsObjectKey: string;
+}> {
 	const assetId = asAssetId(randomUUID());
 	const gcsObjectKey =
 		args.gcsObjectKey ??
 		pendingGcsObjectKeyFor(args.project_id, assetId, args.extension);
-	const db = await getAppDb();
+	const db = lockedDb ?? (await getAppDb());
 	await db
 		.insertInto("media_assets")
 		.values({
@@ -216,15 +252,18 @@ export async function createPendingAsset(args: {
  * harmless no-op. `sizeBytes` is the one field that can't change — the validator
  * hard-rejects any byte-length mismatch against the claim before this runs.
  */
-export async function confirmAssetReady(args: {
-	assetId: AssetId;
-	gcsObjectKey?: string;
-	mimeType?: AssetMimeType;
-	extension?: string;
-	dimensions?: { width: number; height: number };
-	durationMs?: number;
-}): Promise<void> {
-	const db = await getAppDb();
+export async function confirmAssetReady(
+	args: {
+		assetId: AssetId;
+		gcsObjectKey?: string;
+		mimeType?: AssetMimeType;
+		extension?: string;
+		dimensions?: { width: number; height: number };
+		durationMs?: number;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<void> {
+	const db = lockedDb ?? (await getAppDb());
 	const result = await db
 		.updateTable("media_assets")
 		.set({
@@ -256,20 +295,367 @@ export async function confirmAssetReady(args: {
 	}
 }
 
+export type PendingAssetPublicationResult =
+	| { readonly kind: "published"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "already_ready"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "not_found" };
+
 /**
- * Create a `ready` asset row in one shot — the cross-Project move's
- * copy-into-destination path (`lib/media/moveMedia.ts`). The bytes are already
- * validated (they are a server-side GCS copy of an existing `ready` asset), so
- * this skips the pending→confirm dance browser uploads need and writes the
- * final row directly: no lingering `pending` intermediate to strand on a crash.
- * The caller passes `referencingAppIds` (the moving app) so the copy is born
- * already reverse-indexed — if the process dies after the flip commits but
- * before the post-commit `syncMediaReferences`, the copy still reads as
- * referenced and the deletion guard protects it (an empty ref set would let a
- * co-member delete a live-referenced copy). The row + its ref edges commit in
- * one transaction. Returns the new `assetId`.
+ * Freshly authorize and atomically publish one browser upload.
+ *
+ * The caller holds the canonical final-object key lock and has already copied
+ * validated bytes. Membership is re-proved before the asset row lock, matching
+ * deletion's membership -> asset order. A stale duplicate confirm that wakes
+ * after another request published returns the authoritative ready row; it never
+ * rewrites or deletes terminal state.
  */
-export async function createReadyAsset(args: {
+export async function publishPendingAssetForActor(
+	args: {
+		assetId: AssetId;
+		actorUserId: string;
+		expectedProjectId: string;
+		gcsObjectKey: string;
+		mimeType: AssetMimeType;
+		extension: string;
+		dimensions?: { width: number; height: number };
+		durationMs?: number;
+	},
+	lockedDb: Kysely<AppDatabase>,
+): Promise<PendingAssetPublicationResult> {
+	return lockedDb.transaction().execute(async (tx) => {
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			return { kind: "not_found" };
+		}
+		const row = await tx
+			.selectFrom("media_assets")
+			.selectAll()
+			.where("id", "=", args.assetId)
+			.where("project_id", "=", args.expectedProjectId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) return { kind: "not_found" };
+		const current = mediaAssetRecordFromRow(row);
+		if (current.status === "ready") {
+			return { kind: "already_ready", asset: current };
+		}
+		if (current.status !== "pending") {
+			return { kind: "not_found" };
+		}
+		const published = await tx
+			.updateTable("media_assets")
+			.set({
+				status: "ready",
+				gcs_object_key: args.gcsObjectKey,
+				mime_type: args.mimeType,
+				extension: args.extension,
+				...(args.dimensions && {
+					dimensions: JSON.stringify(args.dimensions),
+				}),
+				...(args.durationMs !== undefined && {
+					duration_ms: args.durationMs,
+				}),
+			})
+			.where("id", "=", args.assetId)
+			.where("status", "=", "pending")
+			.returningAll()
+			.executeTakeFirst();
+		if (published === undefined) return { kind: "not_found" };
+		return { kind: "published", asset: mediaAssetRecordFromRow(published) };
+	});
+}
+
+export type PendingAssetDeleteResult =
+	| { readonly kind: "deleted"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "already_ready"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "not_found" };
+
+/**
+ * Delete only a still-pending browser attempt under fresh Project authority.
+ * A stale validation failure that loses to publication observes `ready` and
+ * returns it idempotently instead of deleting terminal metadata.
+ */
+export async function deletePendingAssetForActor(
+	args: {
+		assetId: AssetId;
+		actorUserId: string;
+		expectedProjectId: string;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<PendingAssetDeleteResult> {
+	const db = lockedDb ?? (await getAppDb());
+	return db.transaction().execute(async (tx) => {
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			return { kind: "not_found" };
+		}
+		const row = await tx
+			.selectFrom("media_assets")
+			.selectAll()
+			.where("id", "=", args.assetId)
+			.where("project_id", "=", args.expectedProjectId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) return { kind: "not_found" };
+		const current = mediaAssetRecordFromRow(row);
+		if (current.status === "ready") {
+			return { kind: "already_ready", asset: current };
+		}
+		if (current.status !== "pending") return { kind: "not_found" };
+		const deleted = await tx
+			.deleteFrom("media_assets")
+			.where("id", "=", args.assetId)
+			.where("status", "=", "pending")
+			.executeTakeFirst();
+		return Number(deleted.numDeletedRows) === 1
+			? { kind: "deleted", asset: current }
+			: { kind: "not_found" };
+	});
+}
+
+export type PendingAssetCanonicalizationResult =
+	| {
+			readonly kind: "canonicalized";
+			readonly asset: MediaAssetRecord;
+			readonly releasedPending: MediaAssetRecord;
+	  }
+	| { readonly kind: "already_canonical"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "already_ready"; readonly asset: MediaAssetRecord }
+	| { readonly kind: "not_found" };
+
+/**
+ * Atomically replace one pending upload attempt with a durable pointer to an
+ * already-ready Project/hash sibling.
+ *
+ * The caller holds the canonical content-object lock. Fresh Project edit
+ * authority is proved before asset rows; the attempt and candidate are then
+ * locked in lexical id order. The alias INSERT and pending-row DELETE share one
+ * transaction, so a successful response can always be replayed by the original
+ * attempt id. A same-attempt loser whose row is already gone resolves the
+ * existing alias instead of inferring a sibling from the hash.
+ */
+export async function canonicalizePendingAssetForActor(
+	args: {
+		attemptAssetId: AssetId;
+		canonicalAssetId: AssetId;
+		actorUserId: string;
+		expectedProjectId: string;
+		expectedContentHash: string;
+	},
+	lockedDb: Kysely<AppDatabase>,
+): Promise<PendingAssetCanonicalizationResult> {
+	return lockedDb.transaction().execute(async (tx) => {
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			return { kind: "not_found" };
+		}
+
+		// Avoid locking a caller-supplied canonical row when this is already a
+		// retry whose attempt row vanished. The alias is the only durable
+		// authority in that state.
+		const attemptSnapshot = await tx
+			.selectFrom("media_assets")
+			.select("id")
+			.where("id", "=", args.attemptAssetId)
+			.where("project_id", "=", args.expectedProjectId)
+			.executeTakeFirst();
+		if (attemptSnapshot === undefined) {
+			const replay = await resolveReadyUploadAliasInTransaction(tx, {
+				attemptAssetId: args.attemptAssetId,
+				actorUserId: args.actorUserId,
+			});
+			return replay
+				? { kind: "already_canonical", asset: replay }
+				: { kind: "not_found" };
+		}
+
+		const lockedRows = await tx
+			.selectFrom("media_assets")
+			.selectAll()
+			.where("id", "in", [args.attemptAssetId, args.canonicalAssetId].sort())
+			.orderBy("id")
+			.forUpdate()
+			.execute();
+		const attemptRow = lockedRows.find((row) => row.id === args.attemptAssetId);
+		if (attemptRow === undefined) {
+			const replay = await resolveReadyUploadAliasInTransaction(tx, {
+				attemptAssetId: args.attemptAssetId,
+				actorUserId: args.actorUserId,
+			});
+			return replay
+				? { kind: "already_canonical", asset: replay }
+				: { kind: "not_found" };
+		}
+		const attempt = mediaAssetRecordFromRow(attemptRow);
+		if (
+			attempt.project_id !== args.expectedProjectId ||
+			attempt.contentHash !== args.expectedContentHash
+		) {
+			return { kind: "not_found" };
+		}
+		if (attempt.status === "ready") {
+			return { kind: "already_ready", asset: attempt };
+		}
+		if (attempt.status !== "pending") return { kind: "not_found" };
+
+		const canonicalRow = lockedRows.find(
+			(row) => row.id === args.canonicalAssetId,
+		);
+		if (canonicalRow === undefined) return { kind: "not_found" };
+		const canonical = mediaAssetRecordFromRow(canonicalRow);
+		if (
+			canonical.id === attempt.id ||
+			canonical.status !== "ready" ||
+			canonical.project_id !== args.expectedProjectId ||
+			canonical.contentHash !== args.expectedContentHash
+		) {
+			return { kind: "not_found" };
+		}
+
+		// A UUID collision with an expired attempt tombstone is fantastically
+		// unlikely, but deleting it explicitly keeps the invariant local instead
+		// of allowing a stale primary-key conflict to rewrite a past result.
+		await tx
+			.deleteFrom("media_upload_aliases")
+			.where("attempt_asset_id", "=", args.attemptAssetId)
+			.where("expires_at", "<=", sql<Date>`now()`)
+			.execute();
+		await tx
+			.insertInto("media_upload_aliases")
+			.values({
+				attempt_asset_id: args.attemptAssetId,
+				project_id: args.expectedProjectId,
+				content_hash: args.expectedContentHash,
+				canonical_asset_id: canonical.id,
+			})
+			.onConflict((conflict) => conflict.column("attempt_asset_id").doNothing())
+			.execute();
+		const alias = await tx
+			.selectFrom("media_upload_aliases")
+			.select(["project_id", "content_hash", "canonical_asset_id"])
+			.where("attempt_asset_id", "=", args.attemptAssetId)
+			.where("expires_at", ">", sql<Date>`now()`)
+			.forUpdate()
+			.executeTakeFirst();
+		if (
+			alias === undefined ||
+			alias.project_id !== args.expectedProjectId ||
+			alias.content_hash !== args.expectedContentHash ||
+			alias.canonical_asset_id !== canonical.id
+		) {
+			return { kind: "not_found" };
+		}
+
+		const deleted = await tx
+			.deleteFrom("media_assets")
+			.where("id", "=", args.attemptAssetId)
+			.where("status", "=", "pending")
+			.executeTakeFirst();
+		if (Number(deleted.numDeletedRows) !== 1) {
+			throw new Error(
+				`[canonicalizePendingAssetForActor] locked pending row was not deleted for assetId=${args.attemptAssetId}.`,
+			);
+		}
+		return {
+			kind: "canonicalized",
+			asset: canonical,
+			releasedPending: attempt,
+		};
+	});
+}
+
+/**
+ * Resolve the exact durable successful result for an upload attempt whose
+ * pending row no longer exists. The alias names its Project/hash as well as the
+ * canonical id; resolution rechecks all three against a terminal ready row and
+ * freshly proves Project edit authority before taking the asset share lock.
+ */
+export async function resolveReadyUploadAliasForActor(args: {
+	attemptAssetId: AssetId;
+	actorUserId: string;
+}): Promise<MediaAssetRecord | null> {
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.execute((tx) => resolveReadyUploadAliasInTransaction(tx, args));
+}
+
+async function resolveReadyUploadAliasInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		attemptAssetId: AssetId;
+		actorUserId: string;
+	},
+): Promise<MediaAssetRecord | null> {
+	const scope = await tx
+		.selectFrom("media_upload_aliases")
+		.select(["project_id", "content_hash", "canonical_asset_id"])
+		.where("attempt_asset_id", "=", args.attemptAssetId)
+		.where("expires_at", ">", sql<Date>`now()`)
+		.executeTakeFirst();
+	if (scope === undefined) return null;
+	const role = await projectRoleForInTransaction(
+		tx,
+		args.actorUserId,
+		scope.project_id,
+	);
+	if (role === null || !roleAllowsApp(role, "edit")) return null;
+
+	const row = await tx
+		.selectFrom("media_upload_aliases as alias")
+		.innerJoin("media_assets as asset", "asset.id", "alias.canonical_asset_id")
+		.selectAll("asset")
+		.where("alias.attempt_asset_id", "=", args.attemptAssetId)
+		.where("alias.project_id", "=", scope.project_id)
+		.where("alias.content_hash", "=", scope.content_hash)
+		.where("alias.canonical_asset_id", "=", scope.canonical_asset_id)
+		.where("alias.expires_at", ">", sql<Date>`now()`)
+		.where("asset.project_id", "=", scope.project_id)
+		.where("asset.content_hash", "=", scope.content_hash)
+		.where("asset.status", "=", "ready")
+		.forShare("asset")
+		.executeTakeFirst();
+	return row ? mediaAssetRecordFromRow(row) : null;
+}
+
+/** Opportunistically remove a bounded oldest batch of expired replay rows. */
+export async function purgeExpiredMediaUploadAliases(
+	limit = 256,
+): Promise<number> {
+	if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
+		throw new Error(
+			"[purgeExpiredMediaUploadAliases] limit must be an integer from 1 to 1000.",
+		);
+	}
+	const db = await getAppDb();
+	const expired = db
+		.selectFrom("media_upload_aliases")
+		.select("attempt_asset_id")
+		.where("expires_at", "<=", sql<Date>`now()`)
+		.orderBy("expires_at")
+		.orderBy("attempt_asset_id")
+		.limit(limit);
+	const deleted = await db
+		.deleteFrom("media_upload_aliases")
+		.where("attempt_asset_id", "in", expired)
+		.executeTakeFirst();
+	return Number(deleted.numDeletedRows);
+}
+
+export interface ReadyAssetInsert {
+	assetId: AssetId;
 	owner: string;
 	project_id: string;
 	contentHash: string;
@@ -282,14 +668,27 @@ export async function createReadyAsset(args: {
 	displayName?: string;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
-	referencingAppIds?: readonly string[];
-}): Promise<{ assetId: AssetId }> {
-	const assetId = asAssetId(randomUUID());
-	await withAppTx(async (tx) => {
-		await tx
+	extract?: MediaAssetExtract;
+}
+
+/**
+ * Insert one terminal `ready` asset with a caller-allocated id.
+ *
+ * The insert is the complete metadata publication: there is no separately
+ * committed `pending` row or follow-up status flip. Callers that publish bytes
+ * before metadata can retain `assetId` across an ambiguous commit response,
+ * re-read that exact publication under their content lock, and distinguish
+ * "commit succeeded" from "no metadata exists; clean the object".
+ */
+export async function insertReadyAsset(
+	args: ReadyAssetInsert,
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<MediaAssetRecord> {
+	const insert = async (tx: Transaction<AppDatabase>) => {
+		const row = await tx
 			.insertInto("media_assets")
 			.values({
-				id: assetId,
+				id: args.assetId,
 				owner: args.owner,
 				project_id: args.project_id,
 				content_hash: args.contentHash,
@@ -304,52 +703,233 @@ export async function createReadyAsset(args: {
 					dimensions: JSON.stringify(args.dimensions),
 				}),
 				...(args.durationMs !== undefined && { duration_ms: args.durationMs }),
+				...(args.extract !== undefined && {
+					extract: JSON.stringify(args.extract),
+				}),
 				status: "ready",
 				created_at: new Date(),
 			})
-			.execute();
-		const appIds = [...new Set(args.referencingAppIds ?? [])];
-		if (appIds.length > 0) {
-			await tx
-				.insertInto("media_asset_refs")
-				.values(appIds.map((appId) => ({ asset_id: assetId, app_id: appId })))
-				.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
-				.execute();
-		}
-	});
+			.returningAll()
+			.executeTakeFirstOrThrow();
+		return mediaAssetRecordFromRow(row);
+	};
+	if (lockedDb) {
+		return lockedDb.transaction().execute(insert);
+	}
+	return withAppTx(insert);
+}
+
+/**
+ * Create a `ready` asset row in one shot — the cross-Project move's
+ * copy-into-destination path (`lib/media/moveMedia.ts`). The bytes are already
+ * validated (they are a server-side GCS copy of an existing `ready` asset), so
+ * this skips the pending→confirm dance browser uploads need and writes the
+ * final row directly: no lingering `pending` intermediate to strand on a crash.
+ * This pre-copy step deliberately creates no app reference; the final app-move
+ * transaction revalidates the destination row and inserts the exact edge only
+ * when the blueprint/thread remap and Project flip commit. Returns the new id.
+ */
+export async function createReadyAsset(
+	args: Omit<ReadyAssetInsert, "assetId">,
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<{ assetId: AssetId }> {
+	const assetId = asAssetId(randomUUID());
+	await insertReadyAsset({ ...args, assetId }, lockedDb);
 	return { assetId };
 }
 
 /**
- * Write the document-extract subobject in one shot, stamping `extractedAt` as
- * epoch ms. The extract is a self-contained jsonb object, so a plain
- * `set({ extract })` replaces the whole subobject on every state transition
- * (`extracting` → `ready`/`failed`) — no dot-path merge, no stale leftover
- * field. `failureReason` is passed only on the `failed` transition; an absent
- * optional simply isn't a key on the object. The extract TEXT is written to GCS
- * separately (see `writeTextObject`); this only tracks status + the metadata
- * the UI and chat resolve step read.
+ * Publish a verified ready document extract pair across duplicate asset rows.
+ * The caller holds the Project/hash content lock and has either verified the
+ * destination object paired with `extract`, or just copied that exact source
+ * object there. Lock every duplicate row in asset-id order, preserve strictly
+ * higher versions, and make all other ready rows name this one canonical pair.
  */
-export async function setAssetExtractStatus(
-	assetId: AssetId,
-	extract: Omit<MediaAssetExtract, "extractedAt">,
-): Promise<void> {
-	const db = await getAppDb();
-	const result = await db
-		.updateTable("media_assets")
-		.set({
-			extract: JSON.stringify({ ...extract, extractedAt: Date.now() }),
-		})
-		.where("id", "=", assetId)
-		.executeTakeFirst();
-	/* A deleted-mid-extraction asset must surface here (the extraction store
-	 * treats a thrown status write as the job failing), not read as a recorded
-	 * status on a row that no longer exists. */
-	if (Number(result.numUpdatedRows) === 0) {
+export async function installCopiedReadyExtract(
+	args: {
+		assetId: AssetId;
+		extract: MediaAssetExtract;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<MediaAssetExtract> {
+	if (args.extract.status !== "ready") {
 		throw new Error(
-			`[setAssetExtractStatus] asset row missing for assetId=${assetId} — it was deleted while its document was being extracted.`,
+			"[installCopiedReadyExtract] only a ready source extract may be published.",
 		);
 	}
+	const install = async (tx: Transaction<AppDatabase>) => {
+		const snapshot = await tx
+			.selectFrom("media_assets")
+			.select(["project_id", "content_hash"])
+			.where("id", "=", args.assetId)
+			.executeTakeFirst();
+		if (snapshot === undefined) {
+			throw new Error(
+				`[installCopiedReadyExtract] destination asset row missing for assetId=${args.assetId}.`,
+			);
+		}
+		const contentRows = await tx
+			.selectFrom("media_assets")
+			.select(["id", "status", "extract"])
+			.where("project_id", "=", snapshot.project_id)
+			.where("content_hash", "=", snapshot.content_hash)
+			.orderBy("id")
+			.forUpdate()
+			.execute();
+		const target = contentRows.find((row) => row.id === args.assetId);
+		if (target === undefined || target.status !== "ready") {
+			throw new Error(
+				`[installCopiedReadyExtract] destination asset is missing or not ready for assetId=${args.assetId}.`,
+			);
+		}
+		const eligibleIds = contentRows
+			.filter((row) => {
+				if (row.status !== "ready") return false;
+				if (row.extract === null) return true;
+				return (
+					mediaAssetExtractSchema.parse(row.extract).version <=
+					args.extract.version
+				);
+			})
+			.map((row) => asAssetId(row.id));
+		if (eligibleIds.length > 0) {
+			await tx
+				.updateTable("media_assets")
+				.set({ extract: JSON.stringify(args.extract) })
+				.where("id", "in", eligibleIds)
+				.execute();
+		}
+		if (eligibleIds.includes(args.assetId)) return args.extract;
+		if (target.extract === null) {
+			throw new Error(
+				`[installCopiedReadyExtract] target unexpectedly lacked an eligible extract for assetId=${args.assetId}.`,
+			);
+		}
+		return mediaAssetExtractSchema.parse(target.extract);
+	};
+	if (lockedDb) {
+		return lockedDb.transaction().execute(install);
+	}
+	return withAppTx(install);
+}
+
+/**
+ * Publish one claimed extraction while the caller holds the asset's canonical
+ * extension-independent Project/hash content session lock.
+ *
+ * Lock order is canonical content -> asset row. Deletion takes the asset row
+ * only for its metadata transaction, commits, and acquires the content lock
+ * afterward for byte cleanup, so there is no row/key cycle. The exact claim
+ * comparison fences a stale model job: Project-copy publication, a newer claim,
+ * or deletion may win while the model runs, and none can be overwritten when
+ * the old job eventually returns.
+ *
+ * For a ready result, `publishReadyObject` runs after the row is locked and the
+ * claim is proven, but before ready metadata is committed. Thus a delete winner
+ * yields `not_found` without recreating an extract object; a publication winner
+ * makes its GCS object and matching metadata visible as one serialized pair.
+ */
+export async function publishClaimedAssetExtract(
+	args: {
+		readonly assetId: AssetId;
+		readonly claim: AssetExtractionClaim;
+		readonly extract: Omit<MediaAssetExtract, "extractedAt" | "status"> & {
+			readonly status: "ready" | "failed";
+		};
+		readonly publishReadyObject?: () => Promise<void>;
+		/** A committed same-content pair whose object the caller verified while
+		 * holding the content lock. Adopt it instead of overwriting the shared
+		 * object with this job's independently generated output. */
+		readonly sharedReadyExtract?: MediaAssetExtract;
+	},
+	lockedDb: Kysely<AppDatabase>,
+): Promise<ClaimedExtractPublicationResult> {
+	return lockedDb.transaction().execute(async (tx) => {
+		const snapshot = await tx
+			.selectFrom("media_assets")
+			.select(["project_id", "content_hash"])
+			.where("id", "=", args.assetId)
+			.executeTakeFirst();
+		if (snapshot === undefined) return { kind: "not_found" };
+
+		// Extraction metadata is content-scoped even though callers address one
+		// asset id. Lock every duplicate row in global asset-id order from the
+		// outset: app writers use the same sorted order for their `FOR SHARE`
+		// admission locks, so starting with an arbitrary current row and then a
+		// lower-id sibling would introduce a row-lock cycle.
+		const contentRows = await tx
+			.selectFrom("media_assets")
+			.select(["id", "status", "extract"])
+			.where("project_id", "=", snapshot.project_id)
+			.where("content_hash", "=", snapshot.content_hash)
+			.orderBy("id")
+			.forUpdate()
+			.execute();
+		const row = contentRows.find((candidate) => candidate.id === args.assetId);
+		if (row === undefined) return { kind: "not_found" };
+
+		const current =
+			row.extract === null ? null : mediaAssetExtractSchema.parse(row.extract);
+		const ownsClaim =
+			current?.status === "extracting" &&
+			current.version === args.claim.version &&
+			current.model === args.claim.model &&
+			current.extractedAt === args.claim.extractedAt;
+		if (!ownsClaim) return { kind: "superseded", extract: current };
+
+		if (args.sharedReadyExtract !== undefined) {
+			if (
+				args.sharedReadyExtract.status !== "ready" ||
+				args.sharedReadyExtract.version !== args.claim.version
+			) {
+				throw new Error(
+					"[publishClaimedAssetExtract] shared extract must be ready at the claim version.",
+				);
+			}
+			await tx
+				.updateTable("media_assets")
+				.set({ extract: JSON.stringify(args.sharedReadyExtract) })
+				.where("id", "=", args.assetId)
+				.execute();
+			return { kind: "adopted", extract: args.sharedReadyExtract };
+		}
+
+		if (args.extract.status === "ready") {
+			if (args.publishReadyObject === undefined) {
+				throw new Error(
+					"[publishClaimedAssetExtract] ready publication requires its GCS object callback.",
+				);
+			}
+			await args.publishReadyObject();
+		}
+		const extract = mediaAssetExtractSchema.parse({
+			...args.extract,
+			extractedAt: Date.now(),
+		});
+
+		let synchronizedAssetIds = [args.assetId];
+		if (extract.status === "ready" && row.status === "ready") {
+			// Every ready asset row for this Project/hash/version points at ONE
+			// shared extract object. Advance every non-newer state in the already
+			// sorted/locked content set to the same metadata, so two rows that
+			// claimed concurrently cannot leave one object paired with two model
+			// summaries/truncation records. A higher version always wins.
+			synchronizedAssetIds = contentRows
+				.filter((sibling) => {
+					if (sibling.status !== "ready") return false;
+					if (sibling.extract === null) return true;
+					const siblingExtract = mediaAssetExtractSchema.parse(sibling.extract);
+					return siblingExtract.version <= extract.version;
+				})
+				.map((sibling) => asAssetId(sibling.id));
+		}
+		await tx
+			.updateTable("media_assets")
+			.set({ extract: JSON.stringify(extract) })
+			.where("id", "in", synchronizedAssetIds)
+			.execute();
+		return { kind: "published", extract };
+	});
 }
 
 /**
@@ -357,9 +937,11 @@ export async function setAssetExtractStatus(
  * extract status under a row lock and write `extracting` only if no LIVE current
  * job already holds it — a job is live iff its status is `extracting`, at
  * `currentVersion`, and younger than `staleMs` (a dead process leaves a stale
- * `extracting` record that is reclaimable). Returns `true` when THIS caller
- * acquired the claim (and should run the model), `false` when a live job already
- * owns it (the caller should wait or report in-flight).
+ * `extracting` record that is reclaimable). A higher-version state always
+ * supersedes an older binary's request, regardless of status, so a rolling
+ * server fleet cannot regress ready metadata. Returns the exact fencing claim
+ * when this caller acquired it, `in_flight` for a live same-version job,
+ * `superseded` for any higher-version state, or `not_found` when deletion won.
  *
  * This is the lock that stops two concurrent eager extractions from both running
  * the model: the plain read-decide-then-write it backs let both pass the check
@@ -370,7 +952,7 @@ export async function setAssetExtractStatus(
 export async function claimExtractionIfIdle(
 	assetId: AssetId,
 	opts: { now: number; staleMs: number; currentVersion: number; model: string },
-): Promise<boolean> {
+): Promise<AssetExtractionClaimResult> {
 	return withAppTx(async (tx) => {
 		const row = await tx
 			.selectFrom("media_assets")
@@ -378,28 +960,38 @@ export async function claimExtractionIfIdle(
 			.where("id", "=", assetId)
 			.forUpdate()
 			.executeTakeFirst();
-		const extract = row?.extract as MediaAssetExtract | null | undefined;
+		if (row === undefined) return { kind: "not_found" };
+		const extract =
+			row.extract === null ? null : mediaAssetExtractSchema.parse(row.extract);
+		if (extract !== null && extract.version > opts.currentVersion) {
+			return { kind: "superseded", extract };
+		}
 		const liveJob =
 			extract?.status === "extracting" &&
 			extract.version === opts.currentVersion &&
 			typeof extract.extractedAt === "number" &&
 			opts.now - extract.extractedAt < opts.staleMs;
-		if (liveJob) return false;
+		if (liveJob) return { kind: "in_flight" };
+		const claim: AssetExtractionClaim = {
+			version: opts.currentVersion,
+			model: opts.model,
+			extractedAt: opts.now,
+		};
 		await tx
 			.updateTable("media_assets")
 			.set({
 				extract: JSON.stringify({
 					status: "extracting",
-					version: opts.currentVersion,
-					model: opts.model,
+					version: claim.version,
+					model: claim.model,
 					truncated: false,
 					charCount: 0,
-					extractedAt: Date.now(),
+					extractedAt: claim.extractedAt,
 				}),
 			})
 			.where("id", "=", assetId)
 			.execute();
-		return true;
+		return { kind: "claimed", claim };
 	});
 }
 
@@ -409,19 +1001,19 @@ export async function claimExtractionIfIdle(
  * storage, so a row delete must not blindly remove the object out from under a
  * sibling.
  *
- * This closes the common shared-bytes case, not a transactional one: a delete
- * racing a same-bytes re-upload that promotes to the final key AFTER this check
- * can still leave the new row pointing at deleted bytes (no Postgres↔GCS
- * transaction spans the two layers). The window is narrow and the broken
- * reference is recoverable by re-upload; callers fail closed — a query throw is
- * treated as "shared" so bytes are retained — which keeps the conservative
- * choice the default.
+ * Correct callers invoke this only while holding the canonical object-key
+ * session advisory lock, after the deleted metadata committed. Every publisher
+ * holds that same lock across object publication and committed ready metadata,
+ * so the re-read is the serialized last-reference decision even though GCS and
+ * Postgres do not share a transaction. A query failure still fails closed:
+ * retain bytes rather than risk another row's object.
  */
 export async function hasOtherAssetForGcsObjectKey(
 	gcsObjectKey: string,
 	excludeAssetId: AssetId,
+	lockedDb?: Kysely<AppDatabase>,
 ): Promise<boolean> {
-	const db = await getAppDb();
+	const db = lockedDb ?? (await getAppDb());
 	const row = await db
 		.selectFrom("media_assets")
 		.select("id")
@@ -430,6 +1022,77 @@ export async function hasOtherAssetForGcsObjectKey(
 		.limit(1)
 		.executeTakeFirst();
 	return row !== undefined;
+}
+
+/**
+ * True when any committed asset row currently names a GCS object key.
+ * Lost-publication cleanup uses this under the canonical key lock and must NOT
+ * exclude the attempted asset id: a retry of that same upload may have won and
+ * published the row while cleanup waited to reacquire the lock.
+ */
+export async function hasAssetForGcsObjectKey(
+	gcsObjectKey: string,
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<boolean> {
+	const db = lockedDb ?? (await getAppDb());
+	const row = await db
+		.selectFrom("media_assets")
+		.select("id")
+		.where("gcs_object_key", "=", gcsObjectKey)
+		.limit(1)
+		.executeTakeFirst();
+	return row !== undefined;
+}
+
+/**
+ * Whether any committed asset row for this content names a ready extract at
+ * `version`. Failed ready-publication cleanup calls this while holding the
+ * canonical Project/hash content lock: retain the shared extract object if a deduplicated
+ * sibling already published the same version.
+ */
+export async function hasReadyExtractForProjectAndHash(
+	projectId: string,
+	contentHash: string,
+	version: number,
+	lockedDb: Kysely<AppDatabase>,
+): Promise<boolean> {
+	return (
+		(await findReadyExtractForProjectAndHash(
+			projectId,
+			contentHash,
+			version,
+			lockedDb,
+		)) !== null
+	);
+}
+
+/**
+ * The canonical committed ready metadata for one shared extract object, if any.
+ * Callers pair this with a read of the versioned object while holding the
+ * Project/hash content lock before adopting it onto another duplicate row.
+ */
+export async function findReadyExtractForProjectAndHash(
+	projectId: string,
+	contentHash: string,
+	version: number,
+	lockedDb: Kysely<AppDatabase>,
+): Promise<MediaAssetExtract | null> {
+	const rows = await lockedDb
+		.selectFrom("media_assets")
+		.select(["id", "extract"])
+		.where("project_id", "=", projectId)
+		.where("content_hash", "=", contentHash)
+		.where("status", "=", "ready")
+		.orderBy("id")
+		.execute();
+	for (const row of rows) {
+		if (row.extract === null) continue;
+		const extract = mediaAssetExtractSchema.parse(row.extract);
+		if (extract.status === "ready" && extract.version === version) {
+			return extract;
+		}
+	}
+	return null;
 }
 
 /**
@@ -445,17 +1108,20 @@ export async function hasOtherAssetForGcsObjectKey(
 export async function findReadyAssetByProjectAndHash(
 	projectId: string,
 	contentHash: string,
+	lockedDb?: Kysely<AppDatabase>,
 ): Promise<MediaAssetRecord | null> {
-	const db = await getAppDb();
+	const db = lockedDb ?? (await getAppDb());
 	const row = await db
 		.selectFrom("media_assets")
 		.selectAll()
 		.where("project_id", "=", projectId)
 		.where("content_hash", "=", contentHash)
 		.where("status", "=", "ready")
+		.orderBy("created_at")
+		.orderBy("id")
 		.limit(1)
 		.executeTakeFirst();
-	return row ? toRecord(row) : null;
+	return row ? mediaAssetRecordFromRow(row) : null;
 }
 
 /**
@@ -473,7 +1139,7 @@ export async function loadAssetById(
 		.selectAll()
 		.where("id", "=", assetId)
 		.executeTakeFirst();
-	return row ? toRecord(row) : null;
+	return row ? mediaAssetRecordFromRow(row) : null;
 }
 
 /**
@@ -504,7 +1170,7 @@ export async function loadAssetsByIds(
 		.execute();
 	return rows
 		.filter((row) => row.project_id === projectId)
-		.map((row) => toRecord(row));
+		.map((row) => mediaAssetRecordFromRow(row));
 }
 
 /**
@@ -529,9 +1195,10 @@ export async function getAssetsInTransaction(
 		.selectFrom("media_assets")
 		.selectAll()
 		.where("id", "in", unique)
+		.orderBy("id")
 		.forShare()
 		.execute();
-	for (const row of rows) out.set(row.id, toRecord(row));
+	for (const row of rows) out.set(row.id, mediaAssetRecordFromRow(row));
 	return out;
 }
 
@@ -603,7 +1270,7 @@ export async function listReadyAssetsForProject(
 		);
 	}
 	const rows = await query.execute();
-	const assets = rows.map((row) => toRecord(row));
+	const assets = rows.map((row) => mediaAssetRecordFromRow(row));
 	const last = rows[rows.length - 1];
 	const nextCursor =
 		rows.length === LIBRARY_PAGE_SIZE && last
@@ -715,6 +1382,26 @@ export async function addReferencingApp(
 }
 
 /**
+ * Persist newly introduced reverse edges on the authoritative app-write
+ * transaction. Callers must already hold every named asset `FOR SHARE` and
+ * have validated its Project/readiness; an FK failure therefore aborts the app
+ * write instead of silently leaving the completeness protocol behind.
+ */
+export async function addReferencingAppInTransaction(
+	tx: Transaction<AppDatabase>,
+	assetIds: readonly string[],
+	appId: string,
+): Promise<void> {
+	const unique = [...new Set(assetIds)].sort();
+	if (unique.length === 0) return;
+	await tx
+		.insertInto("media_asset_refs")
+		.values(unique.map((assetId) => ({ asset_id: assetId, app_id: appId })))
+		.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
+		.execute();
+}
+
+/**
  * The apps whose persisted blueprint has EVER referenced `assetId` — the asset's
  * reverse-index candidate set (`media_asset_refs`), read by the deletion guard
  * so it re-walks only the 0–2 candidates instead of the Project's whole app
@@ -739,7 +1426,10 @@ export async function listReferencingAppIds(
  * refuses to call this if any reference is found. The `media_asset_refs` edges
  * cascade on the row delete.
  */
-export async function deleteAsset(assetId: AssetId): Promise<void> {
-	const db = await getAppDb();
+export async function deleteAsset(
+	assetId: AssetId,
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<void> {
+	const db = lockedDb ?? (await getAppDb());
 	await db.deleteFrom("media_assets").where("id", "=", assetId).execute();
 }

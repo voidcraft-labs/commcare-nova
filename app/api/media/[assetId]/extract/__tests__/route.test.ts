@@ -103,7 +103,14 @@ const drainBody = (res: Response): Promise<string> => res.text();
  *  order, and the single terminal `done` line's extract. */
 async function readNdjson(res: Response): Promise<{
 	progress: number[];
-	done: { status: string; title?: string; summary?: string } | undefined;
+	done:
+		| {
+				status: string;
+				version?: number;
+				title?: string;
+				summary?: string;
+		  }
+		| undefined;
 }> {
 	const lines = (await res.text())
 		.split("\n")
@@ -117,7 +124,12 @@ async function readNdjson(res: Response): Promise<{
 			.filter((l) => l.type === "progress")
 			.map((l) => l.chars as number),
 		done: lines.find((l) => l.type === "done")?.extract as
-			| { status: string; title?: string; summary?: string }
+			| {
+					status: string;
+					version?: number;
+					title?: string;
+					summary?: string;
+			  }
 			| undefined,
 	};
 }
@@ -137,6 +149,7 @@ describe("POST extract (streamed result)", () => {
 		ensureStoredExtractMock.mockResolvedValue({
 			status: "ready",
 			text: "EXTRACT BODY",
+			version: EXTRACTOR_VERSION,
 			truncated: false,
 			charCount: "EXTRACT BODY".length,
 		});
@@ -172,6 +185,7 @@ describe("POST extract (streamed result)", () => {
 				return {
 					status: "ready",
 					text: "EXTRACT BODY",
+					version: EXTRACTOR_VERSION,
 					truncated: false,
 					charCount: 12,
 				};
@@ -205,6 +219,7 @@ describe("POST extract (streamed result)", () => {
 		ensureStoredExtractMock.mockResolvedValue({
 			status: "ready",
 			text: "EXTRACT BODY",
+			version: EXTRACTOR_VERSION,
 			truncated: false,
 			charCount: "EXTRACT BODY".length,
 		});
@@ -214,6 +229,71 @@ describe("POST extract (streamed result)", () => {
 			status: "ready",
 			title: "ANC Program Requirements",
 			summary: "A data-collection spec for antenatal care visits.",
+		});
+	});
+
+	it("reports the actual higher ready version returned by the store", async () => {
+		const newerVersion = EXTRACTOR_VERSION + 1;
+		loadAssetByIdMock.mockResolvedValue(
+			docAsset({
+				extract: {
+					status: "ready",
+					version: newerVersion,
+					model: "newer-model",
+					truncated: false,
+					charCount: 12,
+					extractedAt: 456,
+				},
+			}),
+		);
+		ensureStoredExtractMock.mockResolvedValue({
+			status: "ready",
+			text: "NEWER EXTRACT",
+			version: newerVersion,
+			truncated: false,
+			charCount: 13,
+		});
+
+		const { done } = await readNdjson(await POST(req(), ctx()));
+
+		expect(done).toMatchObject({
+			status: "ready",
+			version: newerVersion,
+			charCount: 13,
+		});
+	});
+
+	it("does not mix title metadata from a different ready version", async () => {
+		const resultVersion = EXTRACTOR_VERSION;
+		loadAssetByIdMock.mockResolvedValueOnce(docAsset()).mockResolvedValueOnce(
+			docAsset({
+				extract: {
+					status: "ready",
+					version: resultVersion + 1,
+					model: "newer-model",
+					truncated: false,
+					charCount: 15,
+					title: "Newer title",
+					summary: "Newer summary",
+					extractedAt: 789,
+				},
+			}),
+		);
+		ensureStoredExtractMock.mockResolvedValue({
+			status: "ready",
+			text: "CURRENT RESULT",
+			version: resultVersion,
+			truncated: false,
+			charCount: 14,
+		});
+
+		const { done } = await readNdjson(await POST(req(), ctx()));
+
+		expect(done).toEqual({
+			status: "ready",
+			version: resultVersion,
+			truncated: false,
+			charCount: 14,
 		});
 	});
 
@@ -328,6 +408,32 @@ describe("GET extract", () => {
 		expect(res.headers.get("Content-Type")).toContain("text/markdown");
 		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(await res.text()).toBe("HELLO");
+	});
+
+	it("serves a higher-version ready extract from its actual object key", async () => {
+		const newerVersion = EXTRACTOR_VERSION + 1;
+		loadAssetByIdMock.mockResolvedValue(
+			docAsset({
+				extract: {
+					status: "ready",
+					version: newerVersion,
+					model: "newer-model",
+					truncated: false,
+					charCount: 5,
+					extractedAt: 456,
+				},
+			}),
+		);
+		readTextObjectMock.mockResolvedValue("NEWER");
+
+		const res = await GET(req(), ctx());
+
+		expect(res.status).toBe(200);
+		expect(readTextObject).toHaveBeenCalledWith(
+			expect.stringContaining(`.extract.v${newerVersion}.md`),
+			expect.any(Number),
+		);
+		expect(await res.text()).toBe("NEWER");
 	});
 
 	it("404s when the document has no current-version extract", async () => {

@@ -9,9 +9,9 @@
  * mutations the persisted copy lacks) before scanning the Project's other apps.
  *
  * **Reference guard.** Refuse if any carrier — in the current working app OR any
- * other live app — still points at the asset, naming the slots to clear:
- * deleting a referenced asset orphans a live reference the export boundary gate
- * would later reject far from where the SA could fix it.
+ * other persisted app, including one still in its restore window — points at the
+ * asset, naming the slots to clear. Deleting that asset would corrupt an exact
+ * later restore (or orphan a live reference).
  *
  * Authorization is by Project: the asset is loaded id-only (`loadAssetById`) and
  * accepted only when its `project_id` matches the app's Project; a foreign-Project
@@ -26,6 +26,10 @@
 import { z } from "zod";
 import { deleteMediaAssetForChatRun } from "@/lib/db/apps";
 import { listReferencingAppIds, loadAssetById } from "@/lib/db/mediaAssets";
+import {
+	deleteMediaAssetForActor,
+	MediaAssetStillReferencedError,
+} from "@/lib/db/mediaDeletion";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
@@ -58,7 +62,7 @@ export type RemoveMediaAssetResult =
 
 export const removeMediaAssetTool = {
 	description:
-		"Delete one media asset from the user's library. Refuses if any live app still references the asset anywhere — clear those references first. Identify the asset by its id from list_media_assets.",
+		"Delete one media asset from the user's library. Refuses if any app, including one still in its restore window, references the asset anywhere — clear those references first. Identify the asset by its id from list_media_assets.",
 	inputSchema: removeMediaAssetInputSchema,
 	async execute(
 		input: RemoveMediaAssetInput,
@@ -96,10 +100,10 @@ export const removeMediaAssetTool = {
 			};
 		}
 
-		// Reference guard, part 2: every OTHER live app's persisted doc. The
-		// current app is covered by the working-doc check above, so skip it here.
-		// `listReferencingAppIds` reads the reverse index — the guard re-walks only
-		// those candidates instead of loading every one of the Project's apps.
+		// Reference guard, part 2: every OTHER list-visible app's persisted doc.
+		// This is only an actionable preflight; the transaction below also scans
+		// recoverable deleted apps. The current app is covered by the working-doc
+		// check above, so skip it here.
 		const otherAppReferences = await findAppReferencesToAsset(
 			projectId,
 			input.assetId,
@@ -115,24 +119,47 @@ export const removeMediaAssetTool = {
 			};
 		}
 
-		// No live references — purge the row, the bytes, and the document-extract
-		// sibling (if any), keeping shared bytes intact.
+		// No preflight references — the authoritative transaction rechecks every
+		// persisted carrier before purging the row, bytes, and extract sibling.
 		const chatRunHolder = ctx.chatRunHolder;
-		const deleted = await purgeAssetStorage(asset, {
-			alsoDelete: [extractObjectKeyForAsset(asset)],
-			...(chatRunHolder
-				? {
-						deleteRow: () =>
-							deleteMediaAssetForChatRun({
-								appId: ctx.appId,
-								assetId,
-								actorUserId: ctx.userId,
-								expectedProjectId: projectId,
-								holder: chatRunHolder,
-							}),
+		let deleted: boolean;
+		try {
+			deleted = await purgeAssetStorage(asset, {
+				alsoDeleteForAsset: (deletedAsset) => [
+					extractObjectKeyForAsset(deletedAsset),
+				],
+				deleteRow: async () => {
+					if (chatRunHolder) {
+						return deleteMediaAssetForChatRun({
+							appId: ctx.appId,
+							assetId,
+							actorUserId: ctx.userId,
+							expectedProjectId: projectId,
+							holder: chatRunHolder,
+						});
 					}
-				: {}),
-		});
+					const result = await deleteMediaAssetForActor({
+						assetId,
+						actorUserId: ctx.userId,
+						expectedProjectId: projectId,
+					});
+					if (result.kind === "referenced") {
+						throw new MediaAssetStillReferencedError(result.references);
+					}
+					return result.kind === "deleted" ? result.asset : false;
+				},
+			});
+		} catch (error) {
+			if (error instanceof MediaAssetStillReferencedError) {
+				return {
+					kind: "read" as const,
+					data: {
+						error: `Can't delete media asset "${input.assetId}" — an app still uses it (possibly in its restore window): ${error.references.join("; ")}. Clear those references before deleting the asset.`,
+					},
+				};
+			}
+			throw error;
+		}
 		if (!deleted) {
 			return {
 				kind: "read" as const,

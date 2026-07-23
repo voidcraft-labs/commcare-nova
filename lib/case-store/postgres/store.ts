@@ -14,10 +14,11 @@
 //     `project_id` filter on every joined `cases` row inside relation
 //     walks lives at the compiler stack (`compileRelationPath`).
 //     Cross-Project reads are structurally impossible. The per-row
-//     SCHEMA migrations are the deliberate exception — they are
-//     app-scoped (`(app_id, case_type)`, no tenant filter) so a schema
-//     change migrates every member's rows, and run on a tenant-free
-//     `withSchemaContext` store.
+//     SCHEMA migrations are the deliberate exception — their case-row work is
+//     app-scoped (`(app_id, case_type)`, no tenant filter) so a schema change
+//     migrates every member's rows. Their actor-free store nevertheless starts
+//     every write with `apps FOR SHARE`, binding it to one current Project-move
+//     winner for the transaction.
 //   - **API-trust-boundary validation.** Writes validate the
 //     candidate `properties` payload against the case-type's JSON
 //     Schema (the row in `case_type_schemas`) via `ajv` BEFORE the
@@ -121,8 +122,9 @@ import { ajvErrorToCaseFailure } from "./validationFailure";
  * or a stub.
  *
  * `projectId` / `actorUserId` are `null` for a schema-only store
- * (`withSchemaContext`): `applySchemaChange` / `dropSchema` are
- * app-scoped and bind no tenant. Every tenant-bound read/write reads
+ * (`withSchemaContext`): schema operations are actor-free and app-scoped,
+ * while their injected authorization fence locks the live app and observes
+ * its current Project inside each write transaction. Every tenant-bound read/write reads
  * them through `requireProjectId()` / `requireActorUserId()`, which
  * throw if reached on a schema-only store — unreachable in practice
  * because `withSchemaContext` returns the narrow `SchemaCaseStore`
@@ -133,6 +135,29 @@ export interface PostgresCaseStoreArgs {
 	actorUserId: string | null;
 	db: Kysely<Database>;
 	sampleGenerator: SampleCaseGenerator;
+	/**
+	 * Production-only fresh authorization fence for actor case mutations. It
+	 * runs as the first operation in the SAME transaction as the case write;
+	 * direct package tests may omit it because they exercise storage mechanics
+	 * without app-state/auth tables.
+	 */
+	authorizeMutation?: (
+		tx: Transaction<Database>,
+		args: {
+			readonly appId: string;
+			readonly projectId: string;
+			readonly actorUserId: string;
+		},
+	) => Promise<void>;
+	/**
+	 * Production-only app-placement fence for actor-free schema mutations. It
+	 * runs first in the schema/data transaction and holds `apps FOR SHARE` so a
+	 * Project move cannot straddle the write. Direct storage tests may omit it.
+	 */
+	authorizeSchemaMutation?: (
+		tx: Transaction<Database>,
+		args: { readonly appId: string },
+	) => Promise<void>;
 }
 
 /**
@@ -182,6 +207,12 @@ export class PostgresCaseStore implements CaseStore {
 	private readonly ajv: Ajv2020;
 	private readonly validatorCache: Map<string, ValidatorCacheEntry>;
 	private readonly sampleGenerator: SampleCaseGenerator;
+	private readonly authorizeMutationCallback:
+		| NonNullable<PostgresCaseStoreArgs["authorizeMutation"]>
+		| undefined;
+	private readonly authorizeSchemaMutationCallback:
+		| NonNullable<PostgresCaseStoreArgs["authorizeSchemaMutation"]>
+		| undefined;
 
 	constructor(args: PostgresCaseStoreArgs) {
 		this.projectId = args.projectId;
@@ -190,6 +221,47 @@ export class PostgresCaseStore implements CaseStore {
 		this.ajv = buildAjv();
 		this.validatorCache = new Map();
 		this.sampleGenerator = args.sampleGenerator;
+		this.authorizeMutationCallback = args.authorizeMutation;
+		this.authorizeSchemaMutationCallback = args.authorizeSchemaMutation;
+	}
+
+	/** Hold the live app's placement stable for one actor-free schema write. */
+	private async authorizeSchemaMutation(
+		trx: Transaction<Database>,
+		appId: string,
+	): Promise<void> {
+		await this.authorizeSchemaMutationCallback?.(trx, { appId });
+	}
+
+	/**
+	 * Re-prove the actor's edit capability and the app's Project placement on
+	 * the caller's write transaction. The callback owns the cross-store app +
+	 * membership locks; keeping this seam injected leaves the case-store's
+	 * direct test constructor independent of app-state fixtures.
+	 */
+	private async authorizeMutation(
+		trx: Transaction<Database>,
+		appId: string,
+	): Promise<void> {
+		if (this.authorizeMutationCallback === undefined) return;
+		await this.authorizeMutationCallback(trx, {
+			appId,
+			projectId: this.requireProjectId(),
+			actorUserId: this.requireActorUserId(),
+		});
+	}
+
+	/** Acquire every schema lock an operation needs in deterministic order. */
+	private async lockValidators(
+		trx: Transaction<Database>,
+		appId: string,
+		caseTypes: Iterable<string>,
+	): Promise<ReadonlyMap<string, ValidatorCacheEntry>> {
+		const validators = new Map<string, ValidatorCacheEntry>();
+		for (const caseType of [...new Set(caseTypes)].sort()) {
+			validators.set(caseType, await this.getValidator(appId, caseType, trx));
+		}
+		return validators;
 	}
 
 	/**
@@ -236,11 +308,12 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Serialize the small set of operations that create, replace, or change
-	 * parent relationships within one app + Project. `case_indices` cannot use
-	 * a conventional FK because it also models CommCare relationship semantics,
-	 * so reset and relationship writers share this transaction-level advisory
-	 * lock instead. Unrelated, parentless case writes remain concurrent.
+	 * Serialize operations that create, replace, or change cases within one app
+	 * + Project. `case_indices` cannot use a conventional FK because it also
+	 * models CommCare relationship semantics, so reset and every relationship-
+	 * capable writer take the same transaction-level advisory lock even when one
+	 * particular row is parentless. Writes for unrelated apps/Projects remain
+	 * concurrent.
 	 */
 	private async lockRelationshipWrites(
 		trx: Transaction<Database>,
@@ -578,22 +651,23 @@ export class PostgresCaseStore implements CaseStore {
 		// `getValidator`) — and AFTER the advisory block, keeping the
 		// uniform advisory → schema → rows lock order.
 		return await this.db.transaction().execute(async (trx) => {
-			if (
-				args.row.parent_case_id !== null &&
-				args.row.parent_case_id !== undefined
-			) {
-				await this.lockRelationshipWrites(trx, args.appId);
-				await this.assertParentExists(trx, {
-					appId: args.appId,
-					parentCaseId: args.row.parent_case_id,
-				});
-			}
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
 			await this.validateProperties({
 				appId: args.appId,
 				caseType: args.row.case_type,
 				properties: propertiesObject,
 				executor: trx,
 			});
+			if (
+				args.row.parent_case_id !== null &&
+				args.row.parent_case_id !== undefined
+			) {
+				await this.assertParentExists(trx, {
+					appId: args.appId,
+					parentCaseId: args.row.parent_case_id,
+				});
+			}
 			const inserted = await trx
 				.insertInto("cases")
 				.values(insertRow)
@@ -655,16 +729,13 @@ export class PostgresCaseStore implements CaseStore {
 		// derived edge. A failure anywhere rolls the entire
 		// registration back.
 		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
 			const primaryParentCaseId = args.primary.parent_case_id ?? null;
-			// Only a relationship-bearing registration serializes — the same
-			// conditional `insert` / `update` apply, honoring
-			// `lockRelationshipWrites`'s parentless-writes-stay-concurrent
-			// contract. Unconditional locking would block every Preview form
-			// submission behind `resetSampleData`'s whole replace
-			// transaction, even for forms that create no relationships.
-			if (primaryParentCaseId !== null || args.children.length > 0) {
-				await this.lockRelationshipWrites(trx, args.appId);
-			}
+			await this.lockRelationshipWrites(trx, args.appId);
+			const validators = await this.lockValidators(trx, args.appId, [
+				args.primary.case_type,
+				...args.children.map((row) => row.case_type),
+			]);
 			if (primaryParentCaseId !== null) {
 				await this.assertParentExists(trx, {
 					appId: args.appId,
@@ -678,11 +749,14 @@ export class PostgresCaseStore implements CaseStore {
 			const primaryCaseId = args.primary.case_id ?? uuidv7();
 
 			const primaryProperties = parseJsonbInput(args.primary.properties);
-			await this.validateProperties({
+			const primaryValidator = validators.get(args.primary.case_type);
+			if (primaryValidator === undefined) {
+				throw new SchemaNotSyncedError(args.appId, args.primary.case_type);
+			}
+			this.assertValidProperties(primaryValidator, {
 				appId: args.appId,
 				caseType: args.primary.case_type,
 				properties: primaryProperties,
-				executor: trx,
 			});
 
 			// Insert the primary row. With an explicit `case_id` the
@@ -896,104 +970,95 @@ export class PostgresCaseStore implements CaseStore {
 		caseId: string;
 		patch: CaseUpdate;
 	}): Promise<void> {
-		// Read inside the transaction so merge + validate + write is
-		// atomic against a concurrent updater of the same row.
 		await this.db.transaction().execute(async (trx) => {
-			if (args.patch.parent_case_id !== undefined) {
-				await this.lockRelationshipWrites(trx, args.appId);
-				if (args.patch.parent_case_id !== null) {
-					await this.assertParentExists(trx, {
-						appId: args.appId,
-						parentCaseId: args.patch.parent_case_id,
-					});
-				}
-			}
-			const existing = await trx
-				.selectFrom("cases as c")
-				.select(["c.case_type", "c.parent_case_id", "c.properties"])
-				.where("c.app_id", "=", args.appId)
-				.where("c.case_id", "=", args.caseId)
-				.where("c.project_id", "=", this.requireProjectId())
-				.executeTakeFirst();
-			if (existing === undefined) {
-				throw new CaseNotFoundError(args.caseId);
-			}
-
-			// Patches without `properties` short-circuit JSONB
-			// validation; every other column updates without touching
-			// the document. Validation passes `trx` as the executor —
-			// with `max: 1` pools (the per-test isolation harness's
-			// shape), an unscoped read would wait forever on a
-			// connection the transaction owns.
-			//
-			// The merge SHEDS inherited keys the current schema no longer
-			// declares before validating: a key orphaned by a property
-			// removal (or by a rename whose migration predates this
-			// deploy) would otherwise fail `additionalProperties` on this
-			// row's every future write — the value is dead data the
-			// blueprint can no longer reference, so it drops with the
-			// write instead of locking the row. Only the INHERITED half is
-			// shed; an unknown key in the caller's PATCH is still a
-			// validation error (a caller bug worth surfacing, not
-			// residue).
-			let mergedProperties: Record<string, unknown> | undefined;
-			if (args.patch.properties !== undefined) {
-				const validator = await this.getValidator(
-					args.appId,
-					existing.case_type,
-					trx,
-				);
-				const inherited: Record<string, unknown> = {};
-				for (const [key, value] of Object.entries(existing.properties)) {
-					if (validator.declared.has(key)) {
-						inherited[key] = value;
-					}
-				}
-				mergedProperties = {
-					...inherited,
-					...parseJsonbInput(args.patch.properties),
-				};
-				this.assertValidProperties(validator, {
-					appId: args.appId,
-					caseType: existing.case_type,
-					properties: mergedProperties,
-				});
-			}
-
-			// `properties` is split out because the merged-and-
-			// stringified form replaces the patch's unmerged value;
-			// the rest of the patch passes through as column writes.
-			// `CaseUpdate` is an explicit allowlist that excludes
-			// immutable identity columns and auto-stamped
-			// `modified_on`, so no defensive stripping is needed.
-			const { properties: _patchProperties, ...patchRest } = args.patch;
-			await trx
-				.updateTable("cases as c")
-				.set({
-					...patchRest,
-					modified_on: sql<Date>`now()`,
-					...(mergedProperties !== undefined
-						? { properties: JSON.stringify(mergedProperties) }
-						: {}),
-				})
-				.where("c.app_id", "=", args.appId)
-				.where("c.case_id", "=", args.caseId)
-				.where("c.project_id", "=", this.requireProjectId())
-				.execute();
-
-			// Re-derive `case_indices` only when the parent edge
-			// actually changes — same-value patches are a no-op.
-			if (
-				args.patch.parent_case_id !== undefined &&
-				args.patch.parent_case_id !== existing.parent_case_id
-			) {
-				await this.rebuildParentEdge(
-					trx,
-					args.caseId,
-					args.patch.parent_case_id,
-				);
-			}
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
+			await this.updateInTransaction(trx, args);
 		});
+	}
+
+	/** Validated update core for `update` and atomic parked-value replace. */
+	private async updateInTransaction(
+		trx: Transaction<Database>,
+		args: { appId: string; caseId: string; patch: CaseUpdate },
+	): Promise<void> {
+		// Discover the immutable type without a row lock, then acquire its schema
+		// lock before re-reading the case `FOR UPDATE`. This preserves the global
+		// app -> membership -> relationship -> schema -> case-row order while
+		// making merge + validation + write atomic against concurrent updates.
+		const discovered = await trx
+			.selectFrom("cases as c")
+			.select("c.case_type")
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_id", "=", args.caseId)
+			.where("c.project_id", "=", this.requireProjectId())
+			.executeTakeFirst();
+		if (discovered === undefined) throw new CaseNotFoundError(args.caseId);
+
+		const validator = await this.getValidator(
+			args.appId,
+			discovered.case_type,
+			trx,
+		);
+		const existing = await trx
+			.selectFrom("cases as c")
+			.select(["c.case_type", "c.parent_case_id", "c.properties"])
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_id", "=", args.caseId)
+			.where("c.project_id", "=", this.requireProjectId())
+			.forUpdate()
+			.executeTakeFirst();
+		if (existing === undefined || existing.case_type !== discovered.case_type) {
+			throw new CaseNotFoundError(args.caseId);
+		}
+		if (
+			args.patch.parent_case_id !== undefined &&
+			args.patch.parent_case_id !== null
+		) {
+			await this.assertParentExists(trx, {
+				appId: args.appId,
+				parentCaseId: args.patch.parent_case_id,
+			});
+		}
+
+		let mergedProperties: Record<string, unknown> | undefined;
+		if (args.patch.properties !== undefined) {
+			const inherited: Record<string, unknown> = {};
+			for (const [key, value] of Object.entries(existing.properties)) {
+				if (validator.declared.has(key)) inherited[key] = value;
+			}
+			mergedProperties = {
+				...inherited,
+				...parseJsonbInput(args.patch.properties),
+			};
+			this.assertValidProperties(validator, {
+				appId: args.appId,
+				caseType: existing.case_type,
+				properties: mergedProperties,
+			});
+		}
+
+		const { properties: _patchProperties, ...patchRest } = args.patch;
+		await trx
+			.updateTable("cases as c")
+			.set({
+				...patchRest,
+				modified_on: sql<Date>`now()`,
+				...(mergedProperties !== undefined
+					? { properties: JSON.stringify(mergedProperties) }
+					: {}),
+			})
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_id", "=", args.caseId)
+			.where("c.project_id", "=", this.requireProjectId())
+			.execute();
+
+		if (
+			args.patch.parent_case_id !== undefined &&
+			args.patch.parent_case_id !== existing.parent_case_id
+		) {
+			await this.rebuildParentEdge(trx, args.caseId, args.patch.parent_case_id);
+		}
 	}
 
 	async close(args: { appId: string; caseId: string }): Promise<void> {
@@ -1006,23 +1071,36 @@ export class PostgresCaseStore implements CaseStore {
 		// a genuinely open row; status-only repair preserves the original
 		// close event's timestamp. Import/reopen flows go through `update`
 		// with both lifecycle fields.
-		await this.db
-			.updateTable("cases as c")
-			.set({
-				closed_on: sql<Date>`coalesce(c.closed_on, now())`,
-				modified_on: sql<Date>`case when c.closed_on is null then now() else c.modified_on end`,
-				status: "closed",
-			})
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_id", "=", args.caseId)
-			.where("c.project_id", "=", this.requireProjectId())
-			.where((eb) =>
-				eb.or([
-					eb("c.closed_on", "is", null),
-					eb("c.status", "is distinct from", "closed"),
-				]),
-			)
-			.execute();
+		await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
+			const discovered = await trx
+				.selectFrom("cases as c")
+				.select("c.case_type")
+				.where("c.app_id", "=", args.appId)
+				.where("c.case_id", "=", args.caseId)
+				.where("c.project_id", "=", this.requireProjectId())
+				.executeTakeFirst();
+			if (discovered === undefined) return;
+			await this.getValidator(args.appId, discovered.case_type, trx);
+			await trx
+				.updateTable("cases as c")
+				.set({
+					closed_on: sql<Date>`coalesce(c.closed_on, now())`,
+					modified_on: sql<Date>`case when c.closed_on is null then now() else c.modified_on end`,
+					status: "closed",
+				})
+				.where("c.app_id", "=", args.appId)
+				.where("c.case_id", "=", args.caseId)
+				.where("c.project_id", "=", this.requireProjectId())
+				.where((eb) =>
+					eb.or([
+						eb("c.closed_on", "is", null),
+						eb("c.status", "is distinct from", "closed"),
+					]),
+				)
+				.execute();
+		});
 	}
 
 	async traverse(args: {
@@ -1167,9 +1245,10 @@ export class PostgresCaseStore implements CaseStore {
 	async applySchemaChange(
 		args: ApplySchemaChangeArgs,
 	): Promise<MigrationReport> {
-		const phaseA = await this.db
-			.transaction()
-			.execute((tx) => this.applySchemaChangePhaseA(tx, args));
+		const phaseA = await this.db.transaction().execute(async (tx) => {
+			await this.authorizeSchemaMutation(tx, args.appId);
+			return this.applySchemaChangePhaseA(tx, args);
+		});
 		await phaseA.completeAfterCommit();
 		return phaseA.report;
 	}
@@ -1523,17 +1602,16 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	async dropSchema(args: { appId: string; caseType: string }): Promise<void> {
-		// Phase A: DELETE the `case_type_schemas` row. A single
-		// statement is atomic on its own — no transaction needed
-		// for one DELETE — but the structural shape mirrors
-		// `applySchemaChange`'s Phase A so the file's two-phase
-		// pattern stays uniform. Idempotent on every absence path:
-		// DELETE matching zero rows is a no-op.
-		await this.db
-			.deleteFrom("case_type_schemas")
-			.where("app_id", "=", args.appId)
-			.where("case_type", "=", args.caseType)
-			.execute();
+		// Phase A: lock the live app placement, then DELETE the schema row in
+		// that same transaction. Idempotent when the schema row is absent.
+		await this.db.transaction().execute(async (trx) => {
+			await this.authorizeSchemaMutation(trx, args.appId);
+			await trx
+				.deleteFrom("case_type_schemas")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", args.caseType)
+				.execute();
+		});
 
 		// Phase B: drop every per-property expression index for THIS
 		// app's case type. The "desired set" for a dropped case type is
@@ -1642,7 +1720,9 @@ export class PostgresCaseStore implements CaseStore {
 		// so `resetSampleData` can pass its own `trx` and the full
 		// delete + regenerate runs as one Postgres transaction.
 		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
+			await this.getValidator(args.appId, args.caseType.name, trx);
 			return await this.generateSampleDataInTransaction(trx, args);
 		});
 	}
@@ -1695,6 +1775,7 @@ export class PostgresCaseStore implements CaseStore {
 		// regeneration so the user never lands on an empty case type.
 		const caseTypeName = args.caseType.name;
 		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
 			// Take the schema `FOR SHARE` BEFORE the row deletes below —
 			// the bulk insert's hoisted validator fetch would otherwise
@@ -2553,6 +2634,7 @@ export class PostgresCaseStore implements CaseStore {
 	}): Promise<{ restored: number; kept: number }> {
 		if (args.ids.length === 0) return { restored: 0, kept: 0 };
 		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeSchemaMutation(trx, args.appId);
 			const entries = await trx
 				.selectFrom("parked_case_values as p")
 				.selectAll("p")
@@ -2604,6 +2686,11 @@ export class PostgresCaseStore implements CaseStore {
 		entries: ReadonlyArray<Selectable<ParkedCaseValuesTable>>,
 		opts: { overwriteExisting: boolean },
 	): Promise<{ restored: number; kept: number; displaced: number }> {
+		const { classify, currentTypeOf } = await this.parkedValueFitClassifier(
+			trx,
+			appId,
+			new Set(entries.map((entry) => entry.case_type)),
+		);
 		const rows = await trx
 			.selectFrom("cases as c")
 			.select(["c.case_id", "c.properties"])
@@ -2616,11 +2703,6 @@ export class PostgresCaseStore implements CaseStore {
 			.forUpdate()
 			.execute();
 		const rowByCaseId = new Map(rows.map((row) => [row.case_id, row]));
-		const { classify, currentTypeOf } = await this.parkedValueFitClassifier(
-			trx,
-			appId,
-			new Set(entries.map((entry) => entry.case_type)),
-		);
 
 		// Group per row so several restored properties on one case
 		// compose into a single rewrite.
@@ -2781,6 +2863,8 @@ export class PostgresCaseStore implements CaseStore {
 		const projectId = this.requireProjectId();
 		if (args.ids.length === 0) return { restored: 0, kept: 0, displaced: 0 };
 		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
 			// The `cases` join is the tenant gate; an id it filters out
 			// (vanished row, foreign Project) counts as `kept`, exactly
 			// like every other blocked entry — never touched, never
@@ -2821,21 +2905,39 @@ export class PostgresCaseStore implements CaseStore {
 	}): Promise<number> {
 		const projectId = this.requireProjectId();
 		if (args.ids.length === 0) return 0;
-		const result = await this.db
-			.updateTable("parked_case_values as p")
-			.set({ dismissed_at: args.dismissed ? new Date() : null })
-			.where("p.app_id", "=", args.appId)
-			.where("p.id", "in", [...args.ids])
-			.where(({ exists, selectFrom }) =>
-				exists(
-					selectFrom("cases as c")
-						.select("c.case_id")
-						.whereRef("c.case_id", "=", "p.case_id")
-						.where("c.project_id", "=", projectId),
-				),
-			)
-			.executeTakeFirst();
-		return Number(result.numUpdatedRows);
+		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
+			const entries = await trx
+				.selectFrom("parked_case_values as p")
+				.innerJoin("cases as c", "c.case_id", "p.case_id")
+				.select("c.case_type")
+				.where("p.app_id", "=", args.appId)
+				.where("p.id", "in", [...args.ids])
+				.where("c.project_id", "=", projectId)
+				.execute();
+			if (entries.length === 0) return 0;
+			await this.lockValidators(
+				trx,
+				args.appId,
+				entries.map((entry) => entry.case_type),
+			);
+			const result = await trx
+				.updateTable("parked_case_values as p")
+				.set({ dismissed_at: args.dismissed ? new Date() : null })
+				.where("p.app_id", "=", args.appId)
+				.where("p.id", "in", [...args.ids])
+				.where(({ exists, selectFrom }) =>
+					exists(
+						selectFrom("cases as c")
+							.select("c.case_id")
+							.whereRef("c.case_id", "=", "p.case_id")
+							.where("c.project_id", "=", projectId),
+					),
+				)
+				.executeTakeFirst();
+			return Number(result.numUpdatedRows);
+		});
 	}
 
 	async replaceParkedValue(args: {
@@ -2844,34 +2946,48 @@ export class PostgresCaseStore implements CaseStore {
 		value: JsonValue;
 	}): Promise<void> {
 		const projectId = this.requireProjectId();
-		const entry = await this.db
-			.selectFrom("parked_case_values as p")
-			.innerJoin("cases as c", "c.case_id", "p.case_id")
-			.select(["p.id", "p.case_id", "p.property"])
-			.where("p.app_id", "=", args.appId)
-			.where("p.id", "=", args.id)
-			.where("c.project_id", "=", projectId)
-			.executeTakeFirst();
-		if (entry === undefined) {
-			throw new ParkedValueNotFoundError(args.id);
-		}
-		// The write goes through the standard validated `update` (schema
-		// validation, orphan shed, `modified_on` stamp) FIRST; the
-		// dismiss follows in its own statement. A crash between the two
-		// leaves the entry active with its key occupied — the list then
-		// shows it blocked (`occupied`), which is honest and settled by
-		// hand, whereas the inverse order could archive an entry whose
-		// replacement never landed.
-		await this.update({
-			appId: args.appId,
-			caseId: entry.case_id,
-			patch: { properties: { [entry.property]: args.value } },
+		await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
+			const discovered = await trx
+				.selectFrom("parked_case_values as p")
+				.innerJoin("cases as c", "c.case_id", "p.case_id")
+				.select(["p.case_id", "c.case_type"])
+				.where("p.app_id", "=", args.appId)
+				.where("p.id", "=", args.id)
+				.where("c.project_id", "=", projectId)
+				.executeTakeFirst();
+			if (discovered === undefined) {
+				throw new ParkedValueNotFoundError(args.id);
+			}
+			await this.getValidator(args.appId, discovered.case_type, trx);
+			const entry = await trx
+				.selectFrom("parked_case_values as p")
+				.innerJoin("cases as c", "c.case_id", "p.case_id")
+				.select(["p.id", "p.case_id", "p.property", "c.case_type"])
+				.where("p.app_id", "=", args.appId)
+				.where("p.id", "=", args.id)
+				.where("c.project_id", "=", projectId)
+				.forUpdate("p")
+				.executeTakeFirst();
+			if (
+				entry === undefined ||
+				entry.case_type !== discovered.case_type ||
+				entry.case_id !== discovered.case_id
+			) {
+				throw new ParkedValueNotFoundError(args.id);
+			}
+			await this.updateInTransaction(trx, {
+				appId: args.appId,
+				caseId: entry.case_id,
+				patch: { properties: { [entry.property]: args.value } },
+			});
+			await trx
+				.updateTable("parked_case_values")
+				.set({ dismissed_at: new Date() })
+				.where("id", "=", entry.id)
+				.execute();
 		});
-		await this.db
-			.updateTable("parked_case_values")
-			.set({ dismissed_at: new Date() })
-			.where("id", "=", entry.id)
-			.execute();
 	}
 
 	/**
@@ -2906,7 +3022,9 @@ export class PostgresCaseStore implements CaseStore {
 			.selectFrom("case_type_schemas")
 			.select(["case_type", "schema"])
 			.where("app_id", "=", appId)
-			.where("case_type", "in", [...caseTypes])
+			.where("case_type", "in", [...caseTypes].sort())
+			.orderBy("case_type")
+			.forShare()
 			.execute();
 		const propsByType = new Map<string, Record<string, unknown>>();
 		for (const row of schemaRows) {

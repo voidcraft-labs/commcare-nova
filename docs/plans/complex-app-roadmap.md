@@ -1,9 +1,8 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
-> Nova `e9a6377a` (PR #301). S01, S02a, S02b, S02c1, and S02c2 are shipped;
-> S02c3 is in final re-review on `agent/s02c3`, S03 is review-approved on
-> `agent/s03-clean`, and S04 is in progress on `agent/s04`.
+> Nova `b0e3f48e` (PR #302). S01 through S02c2 and S03 are shipped; S02c3 is
+> review-ready on `agent/s02c3`, and S04 is in progress on `agent/s04`.
 > This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -48,7 +47,7 @@ The source snapshots visible during this rebaseline were:
 
 | Repository | Commit | Use |
 |---|---|---|
-| CommCare Nova | `e9a6377a56ebc3c102acfb88747585a61ee0b069` | S03 integration baseline |
+| CommCare Nova | `b0e3f48e7314bcb378572c78d406860ead1c84df` | Current deployed integration baseline |
 | CommCare HQ | `0fa01e0e8aea95ed9013d564145ad6cffeb91371` | HQ JSON, app build, APIs, fixtures |
 | CommCare Core | `130df00962a289381a8e0936c3ea5d3f53d96f73` | suite/runtime parsing |
 | Formplayer | `ef9096c6109ce3cca5cc3c5e3ef9f4c6a80b01b7` | Web Apps execution |
@@ -335,9 +334,9 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S03 and S04 source work may overlap S02c2/S02c3 after S02c1 because their
-domain/wire files do not depend on deployment hardening or the dormant tenant
-move protocol; each still rebases onto the latest deployed `main` before merge.
+S03 is shipped. S04 source work may overlap S02c3 because its domain/wire files
+do not depend on the dormant tenant-move protocol; it still rebases onto the
+latest deployed `main` before merge.
 S05 waits for all of S02. S11-S14 and S15-S21 may overlap only after S02 is
 shipped and only when their worktrees do not share subsystem ownership. S22 may
 begin after S03 and S04, but compiler verification remains serialized with other
@@ -350,7 +349,7 @@ wire slices.
 | S00 | Roadmap rebaseline | — | shipped | execution index + all PR plans |
 | S01 | Lookup persistence and realtime | S00 | shipped | PR-02, F5 |
 | S02 | External validation context and exact references | S01 | in progress | PR-01/02, F5 |
-| S03 | Display conditions: domain and wire | S02c1 | review | PR-01/03, F1 |
+| S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02c1 | in progress | PR-01/03, F4 |
 | S05 | Lookup carriers, expressions, and wire foundations | S02 | blocked | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03-S05 | blocked | PR-04, F1/F4 |
@@ -736,9 +735,9 @@ runtime capability and stream admission, authoritative reload, and dormant
 holder-generation safety; healthy 100%-traffic revision
 `commcare-nova-00354-dq4` passed app/docs/MCP probes and its production error
 check. S02c2 passed independent whole-branch review on
-`agent/s02c2-simple`; S02c3's six review findings are fixed at `796e5d15` and
-the branch is in final independent re-review. S02 remains `in progress` until
-both units separately pass review, CI, deployment verification, and cleanup.
+`agent/s02c2-simple` and shipped in PR #301 at squash `e9a6377a`. S02c3's
+review findings are fixed and its rebased branch is review-ready. S02 remains
+`in progress` until S02c3 passes CI, merge verification, and cleanup.
 
 #### Identity, context, and extraction
 
@@ -1048,10 +1047,15 @@ move to the destination Project. The move's media closure is therefore the union
 of blueprint references and canonical
 `threads.messages[*].metadata.attachments[*].assetId` references, not the
 blueprint alone. Pre-copy includes present, ready source-Project chat assets of
-every media kind, including documents and their current extraction object/status;
-a historical attachment that is already missing, deleted, or foreign remains an
-unavailable transcript reference and does not block the move. In the final
-app-locked transaction, lock the app's threads in deterministic `thread_id`
+every media kind. A document carries only a published `ready` extraction
+object/metadata pair — never an `extracting`/`failed` status that has no
+destination job — and an equal/newer destination extract state wins over an
+older copy. Move-copy verifies the destination's versioned object before
+adopting ready sibling metadata; if those bytes are absent, it repairs the pair
+from the source and synchronizes all non-newer duplicate rows. A historical
+attachment that is already missing, deleted, or foreign
+remains an unavailable transcript reference and does not block the move. In the
+final app-locked transaction, lock the app's threads in deterministic `thread_id`
 order, re-walk their canonical attachment references, revalidate every required
 destination copy, and rewrite only each attachment's `assetId` through the same
 deterministic source-to-destination map used by the blueprint. Preserve message
@@ -1073,6 +1077,7 @@ the existing post-commit sync may clean removals but is no longer a correctness
 boundary. Both browser and SA media deletion paths share one transaction
 containing the shared membership gate, fresh Project `edit` authorization,
 asset `FOR UPDATE`, a re-walk of every persisted app carrier in that Project,
+including soft-deleted app rows whose exact blueprint may be restored,
 and metadata deletion, so delete-versus-attach/move is serialized. SA
 working-document state never exempts its persisted app from that re-walk. The
 deletion path never acquires app locks after taking the asset lock; app writers
@@ -1080,11 +1085,22 @@ serialize against it through their introduced-asset `FOR SHARE` locks. The
 reverse index may narrow candidates only after an audited backfill plus durable
 completeness marker proves it authoritative; until then deletion never trusts
 it as a complete set. GCS byte cleanup remains post-commit but obtains a dedicated
-session advisory lock derived from the canonical object key, rechecks for sibling
-metadata under that lock, and deletes only when none exists. Upload, copy, and
-ready-finalization hold the same key lock across object publication and the
-committed ready metadata, preventing a new ready row from pointing at bytes a
-concurrent cleanup removes. Same-Project repair takes the app lock,
+session advisory lock derived from the extension-independent Project/content
+hash, rechecks exact base-object and `(Project, hash, extract version)` sibling
+metadata separately under that lock, and deletes each only when unshared.
+Upload, copy, and ready-finalization hold the same content lock across object
+publication and committed ready metadata, preventing a new ready row from
+pointing at bytes a concurrent cleanup removes. Document extraction terminal
+publication rechecks its exact `(version, model, extractedAt)` claim under the
+row lock before writing GCS, and claim admission refuses to overwrite any
+higher-version state from a newer server. A committed ready
+`(Project, hash, version)` pair is canonical: duplicate/cross-extension rows and
+Project-copy adopt its object plus exact metadata instead of overwriting it, and
+the first publisher synchronizes all non-newer duplicate-row states before
+commit. Thus delete-first cannot recreate an orphan, copied equal/newer state
+fences a stale model job, and a rejected metadata transaction removes its
+unpublished object unless a committed deduplicated sibling already names that
+Project/hash/version. Same-Project repair takes the app lock,
 derives and matches the fresh app Project rather than trusting a caller value,
 and repairs case tenancy only: it writes no migration row and purges no presence.
 Cover case/presence/media writer-wins and move-wins, notification visibility only
@@ -1420,12 +1436,16 @@ deployment-security, and tenant-move risk surfaces reviewable:
    the ordinary blocking migration/Cloud Run deploy path, and structural
    verification. Apply the reviewed IAM/Cloud SQL bootstrap before merging the
    pipeline switch. Every floor remains `0` and every activation flag false.
-   **In review on `agent/s02c2-simple`.**
+   **Shipped in PR #301.**
 3. **S02c3 — tenant-safe dormant move:** per-operation case authorization and
    transactional presence, atomic move and run normalization, exact media
-   protocol, and same-Project repair. Its deployment dogfoods S02c2; true moves
-   remain disabled. **Implementation complete on `agent/s02c3`; independent
-   review pending.**
+   protocol, and same-Project repair. True moves remain disabled. **Review-ready
+   on `agent/s02c3`; implementation and independent review are complete.** The
+   dormant v1 core now
+   commits Project flip, case tenancy, blueprint/thread media remaps, presence
+   purge, migration history, reverse references, and notifications atomically;
+   production still declares writer v0 and the static move policy still rejects
+   before media work.
 
 Within those PRs, commit and review in this order:
 
@@ -1450,7 +1470,8 @@ role/owner/membership/run-lease matrices, membership/case/presence races,
 TRUNCATE rejection without advisory waiting, media-delete/move winner orders,
 concurrent case-patch preservation, atomic parked replacement/dismissal,
 transactional introduced-media references, complete deletion re-walks, and
-object-key cleanup/upload winner orders, transactional notification visibility,
+object-key cleanup/upload/extraction/move winner orders, transactional
+notification visibility,
 compatible/incompatible stream leases,
 registration/admission winner orders, stream teardown/expiry, runtime-holder
 new-identity/same-identity/supersede/heartbeat/finalize/reap behavior,
@@ -1474,9 +1495,7 @@ scan-before-migrate/rescan tool later; it never repairs data.
 
 ### S03 — display conditions: domain and wire
 
-**Status:** implementation and review fixes are independently approved on the
-clean `agent/s03-clean` branch; publication, CI, deployment verification, and
-cleanup remain.
+**Status:** shipped in PR #302 at squash `b0e3f48e`.
 
 `Module.displayCondition?` and `Form.displayCondition?` are typed `Predicate`
 carriers. This slice owns persistence/schema acceptance, reference indexing and
@@ -1554,7 +1573,7 @@ follow-through.
 
 ### S04 — case operations: domain and wire
 
-**Status:** in progress on `agent/s04` from the S02c1 deployed baseline.
+**Status:** in progress on `agent/s04` from the current deployed baseline.
 
 Define operation UUIDs, authored create ids, typed targets, links, repeat
 correlation, remove/retype semantics, ordering, property-writer participation,
@@ -1828,6 +1847,10 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-22 — S03 shipped / S02c3 review-ready:** PR #302 shipped module and
+  form display conditions at squash `b0e3f48e`. S02c3 is rebased on that
+  deployed baseline and remains review-ready, not shipped; true Project moves
+  remain disabled.
 - **2026-07-22 — S02b shipped / S02c owned:** Integrated the required lookup
   context/finding identity through every validation boundary; exact edge
   replacement, same-transaction Project reauthorization, apply-once candidate

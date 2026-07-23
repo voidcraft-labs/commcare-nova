@@ -21,13 +21,11 @@ import type { NextRequest } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
-import { listReferencingAppIds, loadAssetById } from "@/lib/db/mediaAssets";
+import { loadAssetById } from "@/lib/db/mediaAssets";
+import { deleteMediaAssetForActor } from "@/lib/db/mediaDeletion";
 import { asAssetId, extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import {
-	findAppReferencesToAsset,
-	purgeAssetStorage,
-} from "@/lib/media/assetDeletion";
+import { purgeAssetStorage } from "@/lib/media/assetDeletion";
 import { getStoredObjectSize, streamAsset } from "@/lib/storage/media";
 
 export async function GET(
@@ -113,17 +111,16 @@ export async function GET(
 /**
  * DELETE /api/media/[assetId] — remove an asset from the owner's library.
  *
- * Project-gated (404 on missing OR non-member, so ids stay non-enumerable). Refuses
- * with a 409 — naming the carriers — if any of the owner's live apps still
- * reference the asset, so a delete can't silently orphan a reference the
- * export boundary gate would later reject. On success it purges the asset
- * row, the GCS bytes, and the document-extract sibling (keeping shared bytes
- * intact), then returns 204. The deletion mechanics are shared with the SA's
+ * Project-gated (404 on missing OR non-member, so ids stay non-enumerable).
+ * Refuses with a 409 — naming the carriers — if any persisted app (including a
+ * recoverable soft-deleted app) still references the asset, so delete cannot
+ * corrupt an exact later restore. On success it purges the asset row, the GCS
+ * bytes, and the document-extract sibling (keeping shared bytes intact), then
+ * returns 204. The deletion mechanics are shared with the SA's
  * `remove_media_asset` tool via `lib/media/assetDeletion`.
  *
- * Chat-attachment references live in thread history, not in an app doc, so they
- * are intentionally NOT a blocker: a deleted attachment degrades to a "couldn't
- * be loaded" placeholder on re-resolve rather than wedging the delete.
+ * Conversation attachments are persisted carriers too. The authoritative
+ * deletion transaction scans thread history alongside the blueprint.
  */
 export async function DELETE(
 	req: NextRequest,
@@ -145,25 +142,31 @@ export async function DELETE(
 			);
 		}
 
-		// Reference guard: refuse if any live app in the asset's PROJECT still uses
-		// it. `listReferencingAppIds` reads the `media_asset_refs` reverse index —
-		// the candidate set the guard re-walks, so it loads 0–2 apps instead of the
-		// Project's whole app list.
-		const references = await findAppReferencesToAsset(
-			asset.project_id,
-			assetId,
-			await listReferencingAppIds(assetId),
-		);
-		if (references.length > 0) {
+		const deleted = await purgeAssetStorage(asset, {
+			alsoDeleteForAsset: (deletedAsset) => [
+				extractObjectKeyForAsset(deletedAsset),
+			],
+			deleteRow: async () => {
+				const result = await deleteMediaAssetForActor({
+					assetId,
+					actorUserId: session.user.id,
+					expectedProjectId: asset.project_id,
+				});
+				if (result.kind === "referenced") {
+					throw new ApiError(
+						`Can't delete this file — it's still used by ${result.references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
+						409,
+					);
+				}
+				return result.kind === "deleted" ? result.asset : false;
+			},
+		});
+		if (!deleted) {
 			throw new ApiError(
-				`Can't delete this file — it's still used by ${references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
-				409,
+				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
+				404,
 			);
 		}
-
-		await purgeAssetStorage(asset, {
-			alsoDelete: [extractObjectKeyForAsset(asset)],
-		});
 
 		return new Response(null, { status: 204 });
 	} catch (err) {

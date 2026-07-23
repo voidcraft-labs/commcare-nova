@@ -6,7 +6,7 @@
 // both depend on. This module imports from neither.
 //
 // Architectural contract: two interfaces, one implementation.
-// `SchemaCaseStore` is the tenant-FREE schema-change slice (app-scoped
+// `SchemaCaseStore` is the actor-free schema-change slice (app-scoped
 // `applySchemaChange` / `dropSchema`); `CaseStore extends
 // SchemaCaseStore` adds the tenant-bound read/write surface.
 // `withProjectContext(projectId, actorUserId)` binds the Project at
@@ -14,8 +14,9 @@
 // `WHERE project_id = <bound>` filter automatically and every insert
 // stamps the new case's `owner_id = <actor>` (the CommCare case-owner —
 // the reserved axis future location-based access carves on, distinct
-// from the Project tenant filter); `withSchemaContext()` binds no
-// tenant, for the schema-only callers.
+// from the Project tenant filter); `withSchemaContext()` binds no Project at
+// construction, but every schema write dynamically fences the app's current
+// Project placement in its transaction.
 //
 // Methods take their narrow dependency directly: predicate / sort /
 // calculated-column compilation needs the case-type schema map; the
@@ -515,9 +516,10 @@ export interface PreparedSchemaChangePhaseB {
 }
 
 /**
- * The tenant-free slice of the store: schema-change operations that
- * are APP-scoped (they apply to every row of an app's case type
- * regardless of which member created it), so they bind no Project.
+ * The actor-free slice of the store: schema-change operations are APP-scoped
+ * (they apply to every row of an app's case type regardless of which member
+ * created it). The instance binds no Project, but each write locks the live app
+ * and observes its current Project before schema/case work.
  * `withSchemaContext()` returns this narrow type; callers that only
  * sync schemas (the cross-store saga, the chat-completion materialize,
  * the point-of-use heal) take it so they CANNOT reach a tenant-bound

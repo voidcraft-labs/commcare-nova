@@ -32,6 +32,8 @@ import * as lookupTables from "./20260722053000_lookup_tables";
 import * as lookupReferenceInfrastructure from "./20260722060000_lookup_reference_infrastructure";
 import * as runtimeReaderRollout from "./20260722080000_runtime_reader_rollout";
 import * as runHolderNonce from "./20260722120000_run_holder_nonce";
+import * as mediaReferenceIndexState from "./20260722140000_media_reference_index_state";
+import * as mediaUploadAliases from "./20260722203000_media_upload_aliases";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -54,6 +56,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		lookupReferenceInfrastructure,
 	"20260722080000_runtime_reader_rollout": runtimeReaderRollout,
 	"20260722120000_run_holder_nonce": runHolderNonce,
+	"20260722140000_media_reference_index_state": mediaReferenceIndexState,
+	"20260722203000_media_upload_aliases": mediaUploadAliases,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

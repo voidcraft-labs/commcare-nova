@@ -16,8 +16,11 @@ import {
 } from "@/lib/agent/resolveAttachments";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { loadAssetsByIds, setAssetExtractStatus } from "@/lib/db/mediaAssets";
-import { asAssetId } from "@/lib/domain/multimedia";
+import {
+	loadAssetsByIds,
+	publishClaimedAssetExtract,
+} from "@/lib/db/mediaAssets";
+import { asAssetId, EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { readTextObject, writeTextObject } from "@/lib/storage/media";
 
 // mammoth pulls bluebird (a module-level promise the leak detector flags); the
@@ -30,19 +33,32 @@ vi.mock("mammoth", () => ({
 const {
 	loadAssetsByIdsMock,
 	loadAssetByIdMock,
-	setAssetExtractStatusMock,
+	publishClaimedAssetExtractMock,
+	findReadyExtractForProjectAndHashMock,
+	hasReadyExtractForProjectAndHashMock,
+	installCopiedReadyExtractMock,
 	claimExtractionIfIdleMock,
+	deleteAssetMock,
 	downloadAssetBytesMock,
 	readTextObjectMock,
 	writeTextObjectMock,
+	withMediaObjectKeyLockMock,
 } = vi.hoisted(() => ({
 	loadAssetsByIdsMock: vi.fn(),
 	loadAssetByIdMock: vi.fn(),
-	setAssetExtractStatusMock: vi.fn(),
+	publishClaimedAssetExtractMock: vi.fn(),
+	findReadyExtractForProjectAndHashMock: vi.fn(),
+	hasReadyExtractForProjectAndHashMock: vi.fn(),
+	installCopiedReadyExtractMock: vi.fn(),
 	claimExtractionIfIdleMock: vi.fn(),
+	deleteAssetMock: vi.fn(),
 	downloadAssetBytesMock: vi.fn(),
 	readTextObjectMock: vi.fn(),
 	writeTextObjectMock: vi.fn(),
+	withMediaObjectKeyLockMock: vi.fn(
+		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
+			body({ pinned: true }),
+	),
 }));
 
 // `loadAssetById` + `claimExtractionIfIdle` are pulled in transitively via the
@@ -52,13 +68,20 @@ const {
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetsByIds: loadAssetsByIdsMock,
 	loadAssetById: loadAssetByIdMock,
-	setAssetExtractStatus: setAssetExtractStatusMock,
+	publishClaimedAssetExtract: publishClaimedAssetExtractMock,
+	findReadyExtractForProjectAndHash: findReadyExtractForProjectAndHashMock,
+	hasReadyExtractForProjectAndHash: hasReadyExtractForProjectAndHashMock,
+	installCopiedReadyExtract: installCopiedReadyExtractMock,
 	claimExtractionIfIdle: claimExtractionIfIdleMock,
 }));
 vi.mock("@/lib/storage/media", () => ({
+	deleteAsset: deleteAssetMock,
 	downloadAssetBytes: downloadAssetBytesMock,
 	readTextObject: readTextObjectMock,
 	writeTextObject: writeTextObjectMock,
+}));
+vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
+	withMediaObjectKeyLock: withMediaObjectKeyLockMock,
 }));
 
 /** A condenser whose lazy-backstop extraction returns a fixed result from the
@@ -92,6 +115,17 @@ function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	} as MediaAssetRecord;
 }
 
+function readyExtract(): MediaAssetRecord["extract"] {
+	return {
+		status: "ready",
+		version: EXTRACTOR_VERSION,
+		model: "gpt-5.6-luna",
+		truncated: false,
+		charCount: 100,
+		extractedAt: 123,
+	};
+}
+
 /** A user message carrying one attachment ref. */
 function userMsg(
 	id: string,
@@ -109,10 +143,34 @@ function userMsg(
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	setAssetExtractStatusMock.mockResolvedValue(undefined);
+	publishClaimedAssetExtractMock.mockImplementation(
+		async (args: {
+			extract: Record<string, unknown>;
+			publishReadyObject?: () => Promise<void>;
+		}) => {
+			await args.publishReadyObject?.();
+			return {
+				kind: "published",
+				extract: { ...args.extract, extractedAt: 456 },
+			};
+		},
+	);
+	hasReadyExtractForProjectAndHashMock.mockResolvedValue(false);
+	findReadyExtractForProjectAndHashMock.mockResolvedValue(null);
+	installCopiedReadyExtractMock.mockImplementation(
+		async (args: { extract: MediaAssetRecord["extract"] }) => args.extract,
+	);
+	deleteAssetMock.mockResolvedValue(undefined);
 	// The store atomically claims before extracting; the backstop's lazy path
 	// always wins the claim in these single-caller tests.
-	claimExtractionIfIdleMock.mockResolvedValue(true);
+	claimExtractionIfIdleMock.mockResolvedValue({
+		kind: "claimed",
+		claim: {
+			version: EXTRACTOR_VERSION,
+			model: "gpt-5.6-luna",
+			extractedAt: 123,
+		},
+	});
 	downloadAssetBytesMock.mockResolvedValue(Buffer.from("raw bytes"));
 	writeTextObjectMock.mockResolvedValue(undefined);
 	// Default fresh status read: an asset with no extract record yet, so the
@@ -122,7 +180,7 @@ beforeEach(() => {
 
 describe("resolveAttachments", () => {
 	it("appends a document's STORED extract as a text part (no model call)", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([asset()]);
+		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
 		readTextObjectMock.mockResolvedValue("STORED EXTRACT BODY");
 		const condenser = stubCondenser();
 
@@ -154,9 +212,12 @@ describe("resolveAttachments", () => {
 		expect(condenser.extractDocumentStructured).toHaveBeenCalledOnce();
 		// Persisted for reuse next turn.
 		expect(writeTextObject).toHaveBeenCalledOnce();
-		expect(setAssetExtractStatus).toHaveBeenCalledWith(
-			"doc-1",
-			expect.objectContaining({ status: "ready" }),
+		expect(publishClaimedAssetExtract).toHaveBeenCalledWith(
+			expect.objectContaining({
+				assetId: "doc-1",
+				extract: expect.objectContaining({ status: "ready" }),
+			}),
+			expect.anything(),
 		);
 	});
 
@@ -189,7 +250,7 @@ describe("resolveAttachments", () => {
 	});
 
 	it("never emits a raw document file part (the multi-turn crash fix)", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([asset()]);
+		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
 		readTextObjectMock.mockResolvedValue("EXTRACT");
 		const [msg] = await resolveAttachments(
 			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
@@ -241,7 +302,7 @@ describe("resolveAttachments", () => {
 	});
 
 	it("resolves EVERY turn's attachments and dedups a repeated ref to one read", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([asset()]);
+		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
 		readTextObjectMock.mockResolvedValue("SHARED EXTRACT");
 		const ref = {
 			assetId: "doc-1",

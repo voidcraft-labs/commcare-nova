@@ -11,7 +11,7 @@
  *        close / unmount).
  *
  * Both require an authenticated session and Project membership (view) on the
- * app, via `resolveAppScope`. Presence is keyed per browser session
+ * app, re-proved inside the presence mutation transaction. Presence is keyed per browser session
  * (`(app_id, user_id, session_id)`) so a user's two tabs don't clobber each
  * other and one tab's DELETE doesn't drop the other; the relay reads the roster
  * back out (see the stream route). After each write the endpoint pokes the
@@ -27,9 +27,9 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { resolveAppScope } from "@/lib/db/appAccess";
+import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import { PRESENCE_TTL_MS } from "@/lib/db/constants";
-import { getAppDb, notifyPresence } from "@/lib/db/pg";
+import { notifyPresence, withAppTx } from "@/lib/db/pg";
 import { locationSchema } from "@/lib/routing/types";
 
 /** The per-tab session id the client mints via `crypto.randomUUID()`. Shape-
@@ -59,7 +59,6 @@ export async function POST(
 	try {
 		const session = await requireSession(req);
 		const { id } = await params;
-		await resolveAppScope(id, session.user.id, "view");
 
 		const body = await readJsonBody(req, PRESENCE_REQUEST_MAX_BYTES);
 		if (body === null) throw new ApiError("Invalid JSON body", 400);
@@ -69,47 +68,44 @@ export async function POST(
 		const userId = session.user.id;
 		const { sessionId, name, color, location } = parsed.data;
 		const now = new Date();
-		const db = await getAppDb();
-		await db
-			.insertInto("presence")
-			.values({
-				app_id: id,
-				user_id: userId,
-				session_id: sessionId,
-				name,
-				/* Avatar + email stamped from the SESSION (authoritative), never the
-				 * body — a client can't wear someone else's face or address. */
-				image: session.user.image ?? null,
-				email: session.user.email ?? "",
-				color,
-				location: JSON.stringify(location),
-				updated_at: now,
-				expire_at: new Date(now.getTime() + PRESENCE_TTL_MS),
-			})
-			.onConflict((oc) =>
-				oc.columns(["app_id", "user_id", "session_id"]).doUpdateSet({
-					name: (eb) => eb.ref("excluded.name"),
-					image: (eb) => eb.ref("excluded.image"),
-					email: (eb) => eb.ref("excluded.email"),
-					color: (eb) => eb.ref("excluded.color"),
-					location: (eb) => eb.ref("excluded.location"),
-					updated_at: (eb) => eb.ref("excluded.updated_at"),
-					expire_at: (eb) => eb.ref("excluded.expire_at"),
-				}),
-			)
-			.execute();
+		await withAppTx(async (tx) => {
+			await resolveAppScopeInTransaction(tx, id, userId, "view");
+			await tx
+				.insertInto("presence")
+				.values({
+					app_id: id,
+					user_id: userId,
+					session_id: sessionId,
+					name,
+					/* Avatar + email stamped from the SESSION (authoritative), never the
+					 * body — a client can't wear someone else's face or address. */
+					image: session.user.image ?? null,
+					email: session.user.email ?? "",
+					color,
+					location: JSON.stringify(location),
+					updated_at: now,
+					expire_at: new Date(now.getTime() + PRESENCE_TTL_MS),
+				})
+				.onConflict((oc) =>
+					oc.columns(["app_id", "user_id", "session_id"]).doUpdateSet({
+						name: (eb) => eb.ref("excluded.name"),
+						image: (eb) => eb.ref("excluded.image"),
+						email: (eb) => eb.ref("excluded.email"),
+						color: (eb) => eb.ref("excluded.color"),
+						location: (eb) => eb.ref("excluded.location"),
+						updated_at: (eb) => eb.ref("excluded.updated_at"),
+						expire_at: (eb) => eb.ref("excluded.expire_at"),
+					}),
+				)
+				.execute();
 
-		/* Opportunistic sweep — bound the table so an abandoned app's dead sessions
-		 * don't accumulate. The roster read filters expired rows anyway; this keeps
-		 * the row count in check. Never touches the just-written row (its
-		 * `expire_at` is in the future). */
-		await db
-			.deleteFrom("presence")
-			.where("app_id", "=", id)
-			.where(sql<boolean>`expire_at < now()`)
-			.execute();
-
-		await notifyPresence(id);
+			await tx
+				.deleteFrom("presence")
+				.where("app_id", "=", id)
+				.where(sql<boolean>`expire_at < now()`)
+				.execute();
+			await notifyPresence(tx, id);
+		});
 		return Response.json({ ok: true });
 	} catch (err) {
 		return handleApiError(
@@ -125,22 +121,22 @@ export async function DELETE(
 	try {
 		const session = await requireSession(req);
 		const { id } = await params;
-		await resolveAppScope(id, session.user.id, "view");
 
 		const body = await readJsonBody(req, PRESENCE_REQUEST_MAX_BYTES);
 		if (body === null) throw new ApiError("Invalid JSON body", 400);
 		const parsed = presenceDeleteSchema.safeParse(body);
 		if (!parsed.success) throw new ApiError("Invalid presence body", 400);
 
-		const db = await getAppDb();
-		await db
-			.deleteFrom("presence")
-			.where("app_id", "=", id)
-			.where("user_id", "=", session.user.id)
-			.where("session_id", "=", parsed.data.sessionId)
-			.execute();
-
-		await notifyPresence(id);
+		await withAppTx(async (tx) => {
+			await resolveAppScopeInTransaction(tx, id, session.user.id, "view");
+			await tx
+				.deleteFrom("presence")
+				.where("app_id", "=", id)
+				.where("user_id", "=", session.user.id)
+				.where("session_id", "=", parsed.data.sessionId)
+				.execute();
+			await notifyPresence(tx, id);
+		});
 		return Response.json({ ok: true });
 	} catch (err) {
 		return handleApiError(

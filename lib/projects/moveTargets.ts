@@ -1,9 +1,9 @@
 // lib/projects/moveTargets.ts
 //
-// Pure policy behind the home-page Project-placement affordance. S01 temporarily
-// blocks every true cross-Project move while lookup data is Project-scoped but
-// not yet reference-aware. Keep the policy dependency-free so the Server Action,
-// database orchestrator, and explanatory UI share one exact contract.
+// Pure policy behind the home-page Project-placement affordance. The dormant
+// move protocol is implemented, but true moves remain closed until the S07
+// compatibility cutover activates them. Keep the policy dependency-free so the
+// Server Action, database orchestrator, and explanatory UI share one contract.
 
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 
@@ -22,8 +22,8 @@ export type AppProjectMovePolicy =
 	  };
 
 /**
- * Whether a member holding `role` would manage app placement. The temporary S01
- * block still shows those members an informational affordance rather than
+ * Whether a member holding `role` would manage app placement. The staged block
+ * still shows those members an informational affordance rather than
  * hiding the previously available operation. Moving an app is a governance act,
  * so this remains tied to the Project's `delete` capability (admin/owner).
  */
@@ -32,9 +32,9 @@ export function canManageAppPlacement(role: string): boolean {
 }
 
 /**
- * Classify a requested Project change. Exact equality is intentionally the only
- * permitted branch: it is not a move, but the idempotent recovery entry point
- * that reconciles case rows after an older partially completed move.
+ * Classify a requested Project change. Until S07 activation, exact equality is
+ * intentionally the only permitted branch: it is not a move, but the idempotent
+ * case-tenancy repair entry point.
  */
 export function appProjectMovePolicy(
 	fromProjectId: string,

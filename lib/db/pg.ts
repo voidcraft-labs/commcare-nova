@@ -290,6 +290,21 @@ export interface MediaAssetRefsTable {
 	app_id: string;
 }
 
+/** One successful pending-attempt id -> canonical ready asset replay record. */
+export interface MediaUploadAliasesTable {
+	attempt_asset_id: string;
+	project_id: string;
+	content_hash: string;
+	canonical_asset_id: string;
+	created_at: Timestamp;
+	expires_at: Timestamp;
+}
+
+export interface MediaReferenceIndexStateTable {
+	singleton: boolean;
+	audited_complete_at: ColumnType<Date | null, Date | null, Date | null>;
+}
+
 export interface LookupProjectStateTable {
 	project_id: string;
 	/** Project-wide invalidation clock; never coerce to a JavaScript number. */
@@ -430,6 +445,8 @@ export interface AppDatabase {
 	credit_grants: CreditGrantsTable;
 	media_assets: MediaAssetsTable;
 	media_asset_refs: MediaAssetRefsTable;
+	media_upload_aliases: MediaUploadAliasesTable;
+	media_reference_index_state: MediaReferenceIndexStateTable;
 	lookup_project_state: LookupProjectStateTable;
 	lookup_tables: LookupTablesTable;
 	lookup_columns: LookupColumnsTable;
@@ -594,11 +611,13 @@ export async function notifyLookupProject(
 	);
 }
 
-/** Poke the presence channel (plain connection — presence writes aren't transactional). */
-export async function notifyPresence(appId: string): Promise<void> {
-	const db = await getAppDb();
+/** Poke presence subscribers from INSIDE the presence mutation transaction. */
+export async function notifyPresence(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
 	await sql`SELECT pg_notify(${PRESENCE_CHANNEL}, ${JSON.stringify({ appId })})`.execute(
-		db,
+		tx,
 	);
 }
 

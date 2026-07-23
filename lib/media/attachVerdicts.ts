@@ -11,15 +11,15 @@
 // matches its slot's kind — and the attach never pushes the app's
 // referenced-media aggregate past the export ceiling.
 //
-// Why attach-time checking holds — every way an asset could go bad
-// after the attach commits is closed, except one narrow delete/attach
-// interleaving with a designed backstop (see the surfaces paragraph):
+// Why attach-time checking holds:
 //
-//   - Deleting a referenced asset is refused at both delete surfaces:
-//     the browser route (`app/api/media/[assetId]/route.ts::DELETE`,
-//     409) and the SA tool (`lib/agent/tools/media/removeMediaAsset.ts`)
-//     both run `lib/media/assetDeletion.ts::findAppReferencesToAsset`
-//     and refuse while any live app references the asset.
+//   - Every authoritative app writer locks newly introduced asset rows
+//     `FOR SHARE`, rechecks Project/readiness, and inserts reverse edges
+//     in the SAME transaction as the blueprint/thread commit. Deletion
+//     takes the conflicting asset `FOR UPDATE` lock and then coherently
+//     re-walks persisted carriers. Attach-first therefore makes deletion
+//     refuse; delete-first makes the waiting attach reject the missing row.
+//     `findAppReferencesToAsset` is only an actionable UX preflight.
 //   - `ready` is terminal: the only status writers are
 //     `lib/db/mediaAssets.ts::createPendingAsset` (births `pending`) and
 //     `lib/db/mediaAssets.ts::confirmAssetReady` (flips to `ready`);
@@ -37,28 +37,12 @@
 // for ops disasters (a hand-deleted row, a reaped object), not as the
 // live surface's gate.
 //
-// Surfaces: chat runs the verdict as a pre-commit read (the run owns its
-// doc between the read and the inline guarded commit). MCP re-runs the
-// per-asset judgment INSIDE the transactional commit — the expectations
-// ride `guardedMutate` → `recordMutations` → `applyBlueprintChange`'s
-// guard, and `describeMediaExpectationFailures` is re-applied to rows
-// read in the SAME Postgres transaction that re-verdicts the batch.
-// That covers the ordering where the delete COMMITS first: a row gone
-// by the attach's transactional read fails the re-verdict and the
-// attach refuses. The REVERSE interleaving survives on both surfaces —
-// the delete's reference guard (`findAppReferencesToAsset`) runs
-// outside any transaction against the `referencingAppIds` reverse
-// index, which updates only after a blueprint write commits, so a
-// guard read taken just before the attach commit lands sees no
-// reference, approves the delete, and the row drops just after the
-// attach. The ref that interleaving strands is exactly what the export
-// boundary's media arm exists for (`MEDIA_ASSET_NOT_FOUND` rejects the
-// export naming the re-uploadable file), with the legacy repair pair's
-// `--media` arm (`scripts/lib/legacyMediaRefs.ts`) as the bulk
-// clear-dead-refs tool. The aggregate ceiling stays pre-commit-only on
-// both surfaces: a racing delete can only SHRINK the aggregate, and
-// the boundary's own budget check remains the backstop for the
-// pathological concurrent-attach case.
+// Surfaces: chat and MCP both feed their expectations into the authoritative
+// transactional writer; this preflight exists for early, specific feedback,
+// never as the concurrency boundary. The aggregate ceiling stays
+// pre-commit-only: a racing delete can only SHRINK the aggregate, and the
+// boundary's own budget check remains defense in depth for pathological
+// concurrent attaches.
 
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";

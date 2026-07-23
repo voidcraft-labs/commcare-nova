@@ -5,10 +5,11 @@
 //   - `findAppReferencesToAsset` — the reference guard. Given the asset's
 //     `media_asset_refs` reverse-index candidate set it re-walks ONLY those
 //     candidate apps (names the app + carrier; skips a given app; ignores
-//     deleted/foreign-Project; drops stale candidates). There is no un-indexed
-//     full-scan fallback — the migration backfills the join table for every row.
-//   - `purgeAssetStorage` — drop the row always, delete bytes + sibling keys
-//     only when the bytes are unshared, fail closed on a probe error.
+//     deleted/foreign-Project; drops stale candidates). This is only the fast
+//     preflight; the metadata-delete transaction full-scans while its durable
+//     reverse-index completeness marker is unset.
+//   - `purgeAssetStorage` — commit metadata deletion first, then under the
+//     canonical key lock delete bytes + siblings only when unshared.
 //
 // Driven against mocked db/storage + a mocked `walkAssetRefs`, so no Postgres,
 // GCS, or real blueprint walk runs. `walkAssetRefs` is mocked to return chosen
@@ -18,8 +19,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListAppsResult } from "@/lib/db/apps";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import {
 	carriersForAsset,
+	cleanupReleasedAssetStorage,
+	cleanupUnpublishedAssetObject,
+	cleanupUnpublishedExtractObject,
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
@@ -28,26 +33,40 @@ const {
 	listApps,
 	loadApp,
 	deleteAssetRow,
+	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
+	hasReadyExtractForProjectAndHash,
 	deleteGcsObject,
 	walkAssetRefs,
+	withMediaObjectKeyLock,
 } = vi.hoisted(() => ({
 	listApps: vi.fn<() => Promise<ListAppsResult>>(() =>
 		Promise.resolve({ apps: [] }),
 	),
 	loadApp: vi.fn(),
 	deleteAssetRow: vi.fn(() => Promise.resolve()),
+	hasAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	hasOtherAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
+	hasReadyExtractForProjectAndHash: vi.fn(() => Promise.resolve(false)),
 	deleteGcsObject: vi.fn(() => Promise.resolve()),
 	walkAssetRefs: vi.fn(() => []),
+	withMediaObjectKeyLock: vi.fn(
+		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
+			body({ pinned: true }),
+	),
 }));
 
 vi.mock("@/lib/db/apps", () => ({ listApps, loadApp }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	deleteAsset: deleteAssetRow,
+	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
+	hasReadyExtractForProjectAndHash,
 }));
 vi.mock("@/lib/storage/media", () => ({ deleteAsset: deleteGcsObject }));
+vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
+	withMediaObjectKeyLock,
+}));
 vi.mock("@/lib/domain/mediaRefs", async (importOriginal) => ({
 	// Keep the real `describeCarrier` (a pure domain switch carriersForAsset
 	// renders refs through); override only the walk + adapter.
@@ -91,7 +110,9 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	listApps.mockResolvedValue({ apps: [] });
 	loadApp.mockResolvedValue(null);
+	hasAssetForGcsObjectKey.mockResolvedValue(false);
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
+	hasReadyExtractForProjectAndHash.mockResolvedValue(false);
 	walkAssetRefs.mockReturnValue([]);
 });
 
@@ -218,6 +239,91 @@ describe("purgeAssetStorage", () => {
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
+	it("deletes extension-specific bytes but retains a cross-extension shared extract", async () => {
+		const deleted = asset({
+			contentHash: "a".repeat(64),
+			gcsObjectKey: `projects/project-1/${"a".repeat(64)}.txt`,
+			extension: ".txt",
+			mimeType: "text/plain",
+			kind: "text",
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "gpt-5.6-luna",
+				truncated: false,
+				charCount: 12,
+				extractedAt: 123,
+			},
+		});
+		const extractKey = `projects/project-1/${"a".repeat(64)}.extract.v2.md`;
+		hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
+		// A surviving `.md` row for the same bytes names this extract version,
+		// even though it does not share the `.txt` base-object key.
+		hasReadyExtractForProjectAndHash.mockResolvedValue(true);
+
+		await purgeAssetStorage(deleted, { alsoDelete: [extractKey] });
+
+		expect(deleteGcsObject).toHaveBeenCalledWith(deleted.gcsObjectKey);
+		expect(deleteGcsObject).not.toHaveBeenCalledWith(extractKey);
+		expect(hasReadyExtractForProjectAndHash).toHaveBeenCalledWith(
+			"project-1",
+			"a".repeat(64),
+			2,
+			expect.anything(),
+		);
+	});
+
+	it("retains a current shared extract when the deleted cross-extension row has no metadata", async () => {
+		const deleted = asset({
+			contentHash: "c".repeat(64),
+			gcsObjectKey: `projects/project-1/${"c".repeat(64)}.txt`,
+			extension: ".txt",
+			mimeType: "text/plain",
+			kind: "text",
+			extract: undefined,
+		});
+		const extractKey = `projects/project-1/${"c".repeat(64)}.extract.v${EXTRACTOR_VERSION}.md`;
+		hasReadyExtractForProjectAndHash.mockResolvedValue(true);
+
+		await purgeAssetStorage(deleted, { alsoDelete: [extractKey] });
+
+		expect(deleteGcsObject).toHaveBeenCalledWith(deleted.gcsObjectKey);
+		expect(deleteGcsObject).not.toHaveBeenCalledWith(extractKey);
+		expect(hasReadyExtractForProjectAndHash).toHaveBeenCalledWith(
+			"project-1",
+			"c".repeat(64),
+			EXTRACTOR_VERSION,
+			expect.anything(),
+		);
+	});
+
+	it("fails closed for a shared-extract probe without retaining unshared base bytes", async () => {
+		const deleted = asset({
+			contentHash: "b".repeat(64),
+			gcsObjectKey: `projects/project-1/${"b".repeat(64)}.md`,
+			extension: ".md",
+			mimeType: "text/markdown",
+			kind: "text",
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "gpt-5.6-luna",
+				truncated: false,
+				charCount: 12,
+				extractedAt: 123,
+			},
+		});
+		const extractKey = `projects/project-1/${"b".repeat(64)}.extract.v2.md`;
+		hasReadyExtractForProjectAndHash.mockRejectedValue(
+			new Error("db unavailable"),
+		);
+
+		await purgeAssetStorage(deleted, { alsoDelete: [extractKey] });
+
+		expect(deleteGcsObject).toHaveBeenCalledWith(deleted.gcsObjectKey);
+		expect(deleteGcsObject).not.toHaveBeenCalledWith(extractKey);
+	});
+
 	it("fails closed (retains bytes) when the shared-bytes probe throws", async () => {
 		hasOtherAssetForGcsObjectKey.mockRejectedValue(new Error("db unavailable"));
 		await purgeAssetStorage(asset());
@@ -243,6 +349,207 @@ describe("purgeAssetStorage", () => {
 		).toBe(false);
 		expect(deleteRow).toHaveBeenCalledOnce();
 		expect(deleteAssetRow).not.toHaveBeenCalled();
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("commits metadata deletion before taking the object-key cleanup lock", async () => {
+		const deleteRow = vi.fn(() => Promise.resolve(true));
+		await purgeAssetStorage(asset(), { deleteRow });
+
+		expect(deleteRow.mock.invocationCallOrder[0]).toBeLessThan(
+			withMediaObjectKeyLock.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
+			"projects/project-1/asset-1.pdf",
+			expect.any(Function),
+		);
+	});
+
+	it("cleans the authoritative locked row when publication changed the key after preflight", async () => {
+		const locked = asset({
+			gcsObjectKey: "projects/project-1/final.pdf",
+			contentHash: "final-hash",
+		});
+		const deleteRow = vi.fn(() => Promise.resolve(locked));
+		await purgeAssetStorage(asset({ gcsObjectKey: "pending/asset-1.pdf" }), {
+			deleteRow,
+			alsoDeleteForAsset: (deletedAsset) => [
+				`${deletedAsset.contentHash}.extract`,
+			],
+		});
+
+		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
+			"projects/project-1/final.pdf",
+			expect.any(Function),
+		);
+		expect(deleteGcsObject).toHaveBeenCalledWith(
+			"projects/project-1/final.pdf",
+		);
+		expect(deleteGcsObject).toHaveBeenCalledWith("final-hash.extract");
+	});
+});
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+function installKeyMutex(): void {
+	let tail = Promise.resolve();
+	withMediaObjectKeyLock.mockImplementation(
+		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) => {
+			const prior = tail;
+			let release!: () => void;
+			tail = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			await prior;
+			try {
+				return await body({ pinned: true });
+			} finally {
+				release();
+			}
+		},
+	);
+}
+
+describe("canonical object-key cleanup/publication winner orders", () => {
+	it("deletes a copied final object when no metadata publication names it", async () => {
+		const key = "projects/project-1/unpublished.pdf";
+
+		await cleanupUnpublishedAssetObject(key);
+
+		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
+			key,
+			expect.any(Function),
+		);
+		expect(hasAssetForGcsObjectKey).toHaveBeenCalledWith(
+			key,
+			expect.anything(),
+		);
+		expect(deleteGcsObject).toHaveBeenCalledWith(key);
+	});
+
+	it("retains a copied final object when a retry published while cleanup waited", async () => {
+		hasAssetForGcsObjectKey.mockResolvedValue(true);
+
+		await cleanupUnpublishedAssetObject("projects/project-1/published.pdf");
+
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("deletes a copied extract when no ready metadata publication names its version", async () => {
+		const key = "projects/project-1/hash.extract.v2.md";
+
+		await cleanupUnpublishedExtractObject({
+			gcsObjectKey: key,
+			projectId: PROJECT,
+			contentHash: "hash",
+			version: 2,
+		});
+
+		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
+			key,
+			expect.any(Function),
+		);
+		expect(hasReadyExtractForProjectAndHash).toHaveBeenCalledWith(
+			PROJECT,
+			"hash",
+			2,
+			expect.anything(),
+		);
+		expect(deleteGcsObject).toHaveBeenCalledWith(key);
+	});
+
+	it("retains a copied extract when a ready sibling won before cleanup", async () => {
+		hasReadyExtractForProjectAndHash.mockResolvedValue(true);
+
+		await cleanupUnpublishedExtractObject({
+			gcsObjectKey: "projects/project-1/hash.extract.v2.md",
+			projectId: PROJECT,
+			contentHash: "hash",
+			version: 2,
+		});
+
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("fails closed when the post-failure extract metadata recheck errors", async () => {
+		hasReadyExtractForProjectAndHash.mockRejectedValue(
+			new Error("database unavailable"),
+		);
+
+		await cleanupUnpublishedExtractObject({
+			gcsObjectKey: "projects/project-1/hash.extract.v2.md",
+			projectId: PROJECT,
+			contentHash: "hash",
+			version: 2,
+		});
+
+		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("lets cleanup finish first, then a waiting publisher restores bytes before ready metadata", async () => {
+		installKeyMutex();
+		let objectExists = true;
+		let siblingExists = false;
+		const probeStarted = deferred();
+		const allowProbe = deferred();
+		hasOtherAssetForGcsObjectKey.mockImplementation(async () => {
+			probeStarted.resolve();
+			await allowProbe.promise;
+			return siblingExists;
+		});
+		deleteGcsObject.mockImplementation(async () => {
+			objectExists = false;
+		});
+
+		const cleanup = cleanupReleasedAssetStorage(asset());
+		await probeStarted.promise;
+		const publication = withMediaObjectKeyLock(
+			"projects/project-1/asset-1.pdf",
+			async () => {
+				objectExists = true;
+				siblingExists = true;
+			},
+		);
+		allowProbe.resolve();
+		await Promise.all([cleanup, publication]);
+
+		expect(objectExists).toBe(true);
+		expect(siblingExists).toBe(true);
+	});
+
+	it("lets publication finish first, then cleanup sees its ready sibling and retains bytes", async () => {
+		installKeyMutex();
+		let objectExists = false;
+		let siblingExists = false;
+		const publisherEntered = deferred();
+		const allowPublisherCommit = deferred();
+		hasOtherAssetForGcsObjectKey.mockImplementation(async () => siblingExists);
+		deleteGcsObject.mockImplementation(async () => {
+			objectExists = false;
+		});
+
+		const publication = withMediaObjectKeyLock(
+			"projects/project-1/asset-1.pdf",
+			async () => {
+				publisherEntered.resolve();
+				objectExists = true;
+				await allowPublisherCommit.promise;
+				siblingExists = true;
+			},
+		);
+		await publisherEntered.promise;
+		const cleanup = cleanupReleasedAssetStorage(asset());
+		allowPublisherCommit.resolve();
+		await Promise.all([publication, cleanup]);
+
+		expect(objectExists).toBe(true);
+		expect(siblingExists).toBe(true);
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 });

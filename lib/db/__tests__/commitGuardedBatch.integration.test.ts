@@ -835,6 +835,15 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(village && "label_media" in village && village.label_media).toEqual({
 			image: assetId,
 		});
+		expect(
+			await h
+				.db()
+				.selectFrom("media_asset_refs")
+				.select(["asset_id", "app_id"])
+				.where("asset_id", "=", assetId)
+				.where("app_id", "=", appId)
+				.executeTakeFirst(),
+		).toEqual({ asset_id: assetId, app_id: appId });
 	});
 
 	it("rejects a media attach whose asset was concurrently deleted (in-txn re-check)", async () => {

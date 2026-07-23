@@ -54,8 +54,9 @@ scan script's fold check is the tripwire.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
-(delivered on commit, after the rows are visible); presence writes poke
-`nova_presence`; chat chunk-log appends poke `nova_chat_stream`; lookup writers
+(delivered on commit, after the rows are visible); presence reauthorizes against
+the app row + exact membership and writes/sweeps/deletes + pokes
+`nova_presence` in that same transaction; chat chunk-log appends poke `nova_chat_stream`; lookup writers
 poke `nova_lookup_stream` with an exact decimal Project revision. Payloads are
 pokes only — the relay (`app/api/apps/[id]/stream`) and the chat-resume
 endpoint SELECT durable state from their cursor/scope, so a missed notification
@@ -113,10 +114,21 @@ deterministic mutations.
 `appendSyntheticBatch` requires an exact expected sequence and explicit user or
 named-system authority. After locking fresh state it diffs to the requested
 target, proves replay identity, and persists the actual mutations; a true no-op
-writes no row and advances no sequence. The dormant Project move is deliberately
-closed while lookup targets exist: both structural and stored sets must be
-empty, the destination context is evaluated, source edges are cleared before
-the Project flip, and media remaps are deterministic attributed mutations.
+writes no row and advances no sequence. The dormant Project move now implements
+the final transaction but remains production-disabled. Its v1 test seam requires
+the enabled compatibility row, writer/receiver v1, and no incompatible live
+stream; the production wrapper declares the manifest's real writer v0 and fails
+closed. Under the app lock it takes the membership gate, locks the actor and all
+source-owner membership pairs across both Projects, enforces dual `delete` plus
+owner retention, rejects deleted apps, classifies runs only through
+`runLeaseState`, and requires structural/stored lookup targets to match exactly
+and both be empty. The final transaction locks threads and destination assets,
+remaps blueprint and canonical transcript attachment ids, re-tenants all cases,
+purges presence, flips `project_id`, appends one attributed migration batch, and
+emits app/presence notifications atomically. Media byte copies are the only
+non-destructive pre-transaction work. Exact same-Project recovery instead locks
+the app, derives its fresh Project, and repairs only case tenancy: no migration
+row and no presence purge.
 Membership `INSERT`/`UPDATE`/`DELETE` take the matching exclusive transaction
 lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
 `55000` once its `BEFORE TRUNCATE` trigger fires, without ever waiting on the
@@ -322,10 +334,19 @@ chunk log by `assembleResponseMessage`). (A BAILED POST —
 serialize-wait gate/timeout, superseded resume — additionally merges its
 incoming messages via `mergeThreadTurnMessages`, identity/marker untouched,
 so an answered question round survives the refresh the bail recommends.)
-Both writers are row-locked and
-MERGE by message id (`mergeTranscript` — union, richer version wins), never
-rewrite: a stale tab or a late finalize can add turns, not erase them, and
-an askQuestions continuation lands as ONE merged message. The finalize
+Every thread writer locks the app before its deterministic thread-row lock, so
+the dormant Project move is a serial winner rather than a whole-history race.
+Writers MERGE by message id (`mergeTranscript` — union, richer version wins),
+never rewrite: a stale tab or a late finalize can add turns, not erase them,
+and an askQuestions continuation lands as ONE merged message. For a shared
+message id, stored `metadata.attachments` is authoritative even when an incoming
+version wins the parts tiebreak; a stale source-Project history therefore cannot
+restore asset ids the move already remapped. Every newly persisted canonical
+attachment is admitted in that same app/thread transaction: its current Project
+and ready status are rechecked under an asset `FOR SHARE` lock and its reverse
+reference is inserted before the message write. Chat admission passes its expected
+Project to turn/upsert and bail-history writers, which stop if the app moved
+before they acquired the app lock. The finalize
 retires the live marker ONLY while it still names its own run's stream (the
 app releases before finalize completes, so a newer claim may already own a
 fresh marker) — with one retry then a marker-only clear, because a marker
@@ -518,12 +539,30 @@ edit holder; a replacement or reap is a clean no-op.
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required
 `expectedProjectId` → reauth against the fresh row (owner fallback for
-null-Project apps) → media expectations re-checked against
-rows read `FOR SHARE` → assemble + hydrate the fresh doc →
+null-Project apps) → assemble + hydrate the fresh doc →
 `batchTargetsMissing` → re-run verdict → literal `seq + 1` → entity-row diff
 write + the permanent stream row + the in-commit NOTIFY. The per-commit edit
 lease refresh rides the same transaction when the committing run owns the
-lock.
+lock. Before any blueprint write, it computes newly introduced real media refs,
+locks their rows sorted `FOR SHARE`, rechecks Project/readiness plus explicit
+slot expectations, and inserts exact `media_asset_refs` edges in that SAME
+transaction. Atomic creation and `appendSyntheticBatch` apply the identical
+admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
+
+**Media deletion is one authoritative transaction.**
+`mediaDeletion.ts` takes the shared membership gate, freshly proves Project
+`edit`, locks the asset `FOR UPDATE`, then re-walks every persisted carrier
+(including soft-deleted app rows)
+without taking app locks and deletes metadata only when the result is empty.
+Each app root, its normalized blueprint entities, and thread messages come from
+one correlated SQL statement snapshot, so an atomic carrier relocation cannot
+fall between separate READ COMMITTED reads.
+Until `media_reference_index_state.audited_complete_at` is stamped by an audited
+backfill, it scans every persisted app in the asset Project; afterward the exact
+index may narrow candidates. This lock conflicts with the introduced-ref share
+lock, so attach/delete has two safe winner orders. Object cleanup is post-commit
+and serialized with every publisher by the canonical extension-independent
+Project/hash content session lock.
 
 ## Period leaf
 

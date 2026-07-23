@@ -55,6 +55,9 @@ describe("runCaseStoreMigrations", () => {
 		expect(await regclassExists(db, "public.case_indices")).toBe(true);
 		expect(await regclassExists(db, "public.case_type_schemas")).toBe(true);
 		expect(await regclassExists(db, "public.parked_case_values")).toBe(true);
+		expect(await regclassExists(db, "public.media_reference_index_state")).toBe(
+			true,
+		);
 		// The baseline's whole-row quarantine sink is created and then
 		// dropped by the park migration — the full chain must end
 		// without it.
@@ -87,6 +90,12 @@ describe("runCaseStoreMigrations", () => {
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
 		expect(await regclassExists(db, "public.cases")).toBe(true);
 		expect(await columnExists(db, "cases", "case_name")).toBe(true);
+		const mediaIndexState = await sql<{ count: string }>`
+			SELECT count(*)::text AS count
+			FROM media_reference_index_state
+			WHERE singleton = true
+		`.execute(db);
+		expect(mediaIndexState.rows[0]?.count).toBe("1");
 	});
 
 	it("adds case_name when adopting a volume that only had the first baseline", async () => {

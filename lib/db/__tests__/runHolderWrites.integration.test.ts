@@ -341,11 +341,13 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 			},
 		});
 
-		await refundStaleGeneration(appId, {
-			mode: "build",
-			runId: OLD_RUN,
-			nonce: OLD_NONCE,
-		});
+		await expect(
+			refundStaleGeneration(appId, {
+				mode: "build",
+				runId: OLD_RUN,
+				nonce: OLD_NONCE,
+			}),
+		).resolves.toBe("reaped");
 
 		expect((await h.readAppRow(appId))?.status).toBe("error");
 		expect(await h.readConsumed(ACTOR, period)).toBe(0);
@@ -390,11 +392,13 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 					.execute();
 			});
 		await enableNonceEnforcement();
-		await refundStaleGeneration(appId, {
-			mode: "build",
-			runId: OLD_RUN,
-			nonce: OLD_NONCE,
-		});
+		await expect(
+			refundStaleGeneration(appId, {
+				mode: "build",
+				runId: OLD_RUN,
+				nonce: OLD_NONCE,
+			}),
+		).resolves.toBe("state_changed");
 
 		expect(await h.readReservation(appId)).toMatchObject({
 			runId: OLD_RUN,
@@ -403,11 +407,13 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 		expect((await h.readAppRow(appId))?.status).toBe("generating");
 		expect(await h.readConsumed(ACTOR, period)).toBe(CREDITS_PER_BUILD);
 
-		await refundStaleGeneration(appId, {
-			mode: "build",
-			runId: OLD_RUN,
-			nonce: NEW_NONCE,
-		});
+		await expect(
+			refundStaleGeneration(appId, {
+				mode: "build",
+				runId: OLD_RUN,
+				nonce: NEW_NONCE,
+			}),
+		).resolves.toBe("reaped");
 		expect((await h.readAppRow(appId))?.status).toBe("error");
 		expect(await h.readConsumed(ACTOR, period)).toBe(0);
 	});

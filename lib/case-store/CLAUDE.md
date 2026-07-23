@@ -7,7 +7,7 @@ JS evaluator, no parity tests.
 
 ## Public surface — barrel
 
-External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId)` — the tenant-bound reads/writes store; `withSchemaContext()` — the tenant-free, app-scoped schema-ops store), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
+External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId)` — the tenant-bound reads/writes store; `withSchemaContext()` — the actor-free, app-scoped schema-ops store with a dynamic current-Project fence), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
 
 **The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included (the compiler's casts stay in lockstep with the type checker), implicit standard entries excluded (their values live in scalar columns, never the JSONB document — a map entry would compile a standard-name reference to a silently-NULL JSONB read, and on the schema-write side would put `format` constraints + a GIN index per text-typed standard name on every case type). Standard-name references resolve instead through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the name→column map mirroring CCHQ's own field-alias table (`commcare-hq/.../app_manager/detail_screen.py`: `name`→`case_name`, `date_opened`/`date-opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`/`external-id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-null`/`is-blank` arms (timestamp columns collapse `is-blank` to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays. The alias shadows any same-named JSONB key, exactly as the device shadows it.
 
@@ -69,33 +69,47 @@ automatically. The compiler stack (`./sql/`) handles the JOIN-side
 outer-scan filter on every method. The two halves combine to make
 cross-Project reads structurally impossible.
 
+The request gate is only a read optimization, never a write authority. Every
+actor mutation reauthorizes inside its own case transaction in this lock order:
+`apps FOR SHARE` → shared membership gate + exact membership row → relationship
+advisory lock → all involved `case_type_schemas` rows in sorted order → case
+rows. The transaction rejects a store whose bound Project no longer matches
+the freshly locked app. `update` first discovers immutable `case_type`, then
+takes the schema lock and re-reads the row `FOR UPDATE`; registration locks all
+primary/child schemas before its first insert. Restore, dismiss, replace,
+close, populate, and reset use the same fence. Parked-value replace updates the
+case and archives the review entry in one transaction.
+
 `owner_id` is the **CommCare case-owner** — a SEPARATE axis written
 on every insert (the acting user today), reserved for future
 location-/group-based access carving. It is never a tenant filter and
 never to be repurposed/dropped. The two axes are orthogonal:
 `project_id` (tenant / sharing) × `owner_id` (case ownership).
 
-**Schema changes are the deliberate exception — app-scoped,
-tenant-free.** `applySchemaChange` / `dropSchema` (the
+**Schema row work is the deliberate app-scoped exception.** `applySchemaChange` / `dropSchema` (the
 `SchemaCaseStore` slice, built by `withSchemaContext()`) migrate
 EVERY member's rows of an app's case type, so their per-row
 migrations filter `(app_id, case_type)` ONLY — no `project_id` /
-`owner_id`. The schema-write callers (the cross-store saga, the
-chat-completion materialize, the point-of-use heal) therefore bind
-no tenant.
+`owner_id`. The store binds no actor or construction-time Project, but every
+standalone schema mutation starts with `apps FOR SHARE`, rejects a missing or
+deleted app, and holds the app's current Project placement stable through its
+schema/data transaction. The migration-bearing blueprint saga already owns the
+same outer app/auth fence and calls Phase A directly on that transaction.
 
 **Re-tenanting is the second, narrower exception — `retenant.ts`.**
 `retenantAppCases({appId, toProjectId})` is the ONE write that crosses
 the tenant boundary on purpose: it rewrites `cases.project_id` for an
 app's rows when Nova reconciles app placement
-(`lib/db/moveAppToProject.ts`). True cross-Project moves are temporarily
-blocked before any storage work while lookup references are not yet
-admission-checked; exact same-Project calls retain this recovery path for an
-older partially completed move. The operation keys on `app_id` alone and moves
-every row not already in the destination, so it reconciles the rows to
-wherever the app doc committed — the move flips the doc FIRST, then runs
-this, so the doc is the source of truth and the cases follow it
-(idempotent + crash-convergent). It is a standalone barrel export, not a
+(`lib/db/moveAppToProject.ts`). True cross-Project moves remain
+production-disabled, but their dormant v1 transaction now performs this update
+on the same physical Postgres transaction as the app Project flip, blueprint and
+thread media remap, presence purge, migration row, and notifications. There is
+no observable flip-first/cases-follow gap. Exact same-Project recovery takes the
+app lock, derives the fresh app Project rather than trusting a caller value, and
+uses the same update as a case-only repair; it writes no migration row and
+purges no presence. The operation keys on `app_id` alone and moves every row not
+already in the destination, so both paths also heal split/null historical rows.
+It is a standalone barrel export, not a
 `CaseStore` method, so the single-tenant invariant of the bound store
 stays intact; only `cases` carries `project_id`, so it is the whole job.
 

@@ -7,28 +7,23 @@
  * dropped as malformed downstream), and Content-Length reflects the stored
  * bytes, not the row's recorded size.
  *
- * DELETE is a thin wrapper: owner-gate → reference scan → purge. These pin
- * the wrapper's mapping — 204 on a clean delete (purge called with the asset +
- * its extract-sibling key), 409 when an app still references it (purge NOT
- * called), 404 on missing/foreign — with the shared deletion logic + storage +
- * auth mocked at the boundary.
+ * DELETE is a thin wrapper around the authoritative metadata transaction and
+ * post-commit object purge. These pin 204 on a clean delete, 409 when the
+ * transaction re-walk finds a carrier, and 404 on missing/foreign.
  */
 
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import {
-	findAppReferencesToAsset,
-	purgeAssetStorage,
-} from "@/lib/media/assetDeletion";
+import { deleteMediaAssetForActor } from "@/lib/db/mediaDeletion";
+import { purgeAssetStorage } from "@/lib/media/assetDeletion";
 import { DELETE, GET } from "../route";
 
 const {
 	requireSessionMock,
 	userInProjectMock,
 	loadAssetByIdMock,
-	listReferencingAppIdsMock,
-	findAppReferencesToAssetMock,
+	deleteMediaAssetForActorMock,
 	purgeAssetStorageMock,
 	streamAssetMock,
 	getStoredObjectSizeMock,
@@ -36,9 +31,11 @@ const {
 	requireSessionMock: vi.fn(),
 	userInProjectMock: vi.fn(() => Promise.resolve(true)),
 	loadAssetByIdMock: vi.fn(),
-	listReferencingAppIdsMock: vi.fn(() => Promise.resolve<string[]>([])),
-	findAppReferencesToAssetMock: vi.fn(() => Promise.resolve([] as string[])),
-	purgeAssetStorageMock: vi.fn(() => Promise.resolve()),
+	deleteMediaAssetForActorMock: vi.fn(),
+	purgeAssetStorageMock: vi.fn(
+		async (_asset: unknown, opts?: { deleteRow?: () => Promise<boolean> }) =>
+			opts?.deleteRow ? opts.deleteRow() : true,
+	),
 	streamAssetMock: vi.fn(),
 	getStoredObjectSizeMock: vi.fn(() => Promise.resolve<number | null>(null)),
 }));
@@ -47,10 +44,11 @@ vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
 vi.mock("@/lib/db/appAccess", () => ({ userInProject: userInProjectMock }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetById: loadAssetByIdMock,
-	listReferencingAppIds: listReferencingAppIdsMock,
+}));
+vi.mock("@/lib/db/mediaDeletion", () => ({
+	deleteMediaAssetForActor: deleteMediaAssetForActorMock,
 }));
 vi.mock("@/lib/media/assetDeletion", () => ({
-	findAppReferencesToAsset: findAppReferencesToAssetMock,
 	purgeAssetStorage: purgeAssetStorageMock,
 }));
 // `extractObjectKeyForAsset` comes from the real (pure, mammoth-free)
@@ -92,9 +90,14 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 	userInProjectMock.mockResolvedValue(true);
-	listReferencingAppIdsMock.mockResolvedValue(["app-x"]);
-	findAppReferencesToAssetMock.mockResolvedValue([]);
-	purgeAssetStorageMock.mockResolvedValue(undefined);
+	deleteMediaAssetForActorMock.mockResolvedValue({
+		kind: "deleted",
+		asset: docAsset(),
+	});
+	purgeAssetStorageMock.mockImplementation(
+		async (_asset: unknown, opts?: { deleteRow?: () => Promise<boolean> }) =>
+			opts?.deleteRow ? opts.deleteRow() : true,
+	);
 	getStoredObjectSizeMock.mockResolvedValue(100);
 	streamAssetMock.mockImplementation(() => Readable.from(Buffer.from("bytes")));
 });
@@ -174,32 +177,38 @@ describe("DELETE media asset", () => {
 
 		const res = await DELETE(req(), ctx());
 		expect(res.status).toBe(204);
-		// The guard is scoped to the asset's PROJECT (not the caller), and gets the
-		// asset's reverse index as the candidate set — that's the whole index
-		// optimization. A regression that passed the caller id, or dropped the 3rd
-		// arg (back to the full project-wide scan), is caught here.
-		expect(findAppReferencesToAsset).toHaveBeenCalledWith(
-			"project-1",
-			"asset-1",
-			["app-x"],
-		);
+		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
+			assetId: "asset-1",
+			actorUserId: "user-1",
+			expectedProjectId: "project-1",
+		});
 		// alsoDelete carries the document's real extract-sibling key (computed
 		// from the asset's content hash + the current extractor version).
 		expect(purgeAssetStorage).toHaveBeenCalledWith(
 			expect.objectContaining({ id: "asset-1" }),
-			{ alsoDelete: [expect.stringContaining(".extract.v")] },
+			expect.objectContaining({
+				alsoDeleteForAsset: expect.any(Function),
+				deleteRow: expect.any(Function),
+			}),
+		);
+		const purgeOptions = purgeAssetStorageMock.mock.calls[0]?.[1] as {
+			alsoDeleteForAsset?: (asset: MediaAssetRecord) => Array<string | null>;
+		};
+		expect(purgeOptions.alsoDeleteForAsset?.(docAsset())[0]).toContain(
+			".extract.v",
 		);
 	});
 
-	it("refuses with 409 when an app still references it (no purge)", async () => {
+	it("refuses with 409 when the authoritative transaction finds a reference", async () => {
 		loadAssetByIdMock.mockResolvedValue(docAsset());
-		findAppReferencesToAssetMock.mockResolvedValue([
-			'"My App" (app-1) on the app logo',
-		]);
+		deleteMediaAssetForActorMock.mockResolvedValue({
+			kind: "referenced",
+			references: ['"My App" (app-1) on the app logo'],
+		});
 
 		const res = await DELETE(req(), ctx());
 		expect(res.status).toBe(409);
-		expect(purgeAssetStorage).not.toHaveBeenCalled();
+		expect(deleteMediaAssetForActor).toHaveBeenCalledOnce();
 		await drainBody(res);
 	});
 
@@ -207,7 +216,7 @@ describe("DELETE media asset", () => {
 		loadAssetByIdMock.mockResolvedValue(null);
 		const res = await DELETE(req(), ctx());
 		expect(res.status).toBe(404);
-		expect(findAppReferencesToAsset).not.toHaveBeenCalled();
+		expect(deleteMediaAssetForActor).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
 

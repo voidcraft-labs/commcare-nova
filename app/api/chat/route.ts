@@ -1104,7 +1104,12 @@ export async function POST(req: Request) {
 				 */
 				const persistBailedHistory = async (): Promise<void> => {
 					try {
-						await mergeThreadTurnMessages({ appId, threadId, messages });
+						await mergeThreadTurnMessages({
+							appId,
+							threadId,
+							messages,
+							expectedProjectId: projectId,
+						});
 					} catch (err) {
 						log.error("[chat] bail-path history merge failed", err, {
 							appId,
@@ -1487,6 +1492,7 @@ export async function POST(req: Request) {
 						holderNonce,
 						threadType: appReady ? "edit" : "build",
 						messages,
+						expectedProjectId: projectId,
 					});
 				} catch (err) {
 					if (err instanceof RunHolderLostError) {

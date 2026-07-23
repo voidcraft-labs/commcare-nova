@@ -142,11 +142,13 @@ export async function resolveAppScopeInTransaction(
 ): Promise<TransactionalAppScope> {
 	const app = await tx
 		.selectFrom("apps")
-		.select(["project_id", "mutation_seq"])
+		.select(["project_id", "mutation_seq", "deleted_at"])
 		.where("id", "=", appId)
 		.forShare()
 		.executeTakeFirst();
-	if (!app?.project_id) throw new AppAccessError("not_found");
+	if (!app?.project_id || app.deleted_at !== null) {
+		throw new AppAccessError("not_found");
+	}
 
 	const role = await projectRoleForInTransaction(tx, userId, app.project_id);
 	assertCapability(role, required);

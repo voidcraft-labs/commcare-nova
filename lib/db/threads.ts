@@ -32,13 +32,22 @@
  * Action, so no client-callable RPC surface exists.
  */
 import type { UIMessage } from "ai";
-import { sql } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
+import {
+	collectThreadAttachmentAssetIds,
+	preserveStoredThreadAttachments,
+} from "@/lib/chat/threadAttachments";
+import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { log } from "@/lib/logger";
 import { appHeldLive } from "./apps";
 import { RunHolderLostError } from "./commitGuard";
 import { LEASE_COLUMNS, leaseView } from "./leaseView";
-import { getAppDb, withAppTx } from "./pg";
+import {
+	addReferencingAppInTransaction,
+	getAssetsInTransaction,
+} from "./mediaAssets";
+import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
 import { exactRunHolderMatches } from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
@@ -87,6 +96,58 @@ function summarize(messages: UIMessage[]): string {
  *  parts count for the richer-version tiebreak. */
 type StoredMessage = { id?: string; parts?: unknown[] };
 
+export class ThreadAttachmentUnavailableError extends Error {
+	readonly name = "ThreadAttachmentUnavailableError";
+	constructor() {
+		super(
+			"A conversation attachment is no longer available in this Project. Choose it again and retry.",
+		);
+	}
+}
+
+/**
+ * Admit newly persisted conversation attachments in the same app transaction.
+ * The asset rows stay share-locked through the thread write, serializing the
+ * attach against authoritative metadata deletion, and the reverse edges make
+ * the complete-carrier deletion scan safe to narrow after its audited backfill.
+ */
+async function admitIntroducedThreadAttachments(
+	tx: Transaction<AppDatabase>,
+	args: {
+		appId: string;
+		projectId: string | null;
+		previousMessages: readonly unknown[];
+		candidateMessages: readonly unknown[];
+	},
+): Promise<void> {
+	const previous = new Set(
+		collectThreadAttachmentAssetIds(args.previousMessages).filter(
+			(assetId) => !isBuiltinIconRef(assetId),
+		),
+	);
+	const introduced = [
+		...new Set(
+			collectThreadAttachmentAssetIds(args.candidateMessages).filter(
+				(assetId) => !isBuiltinIconRef(assetId) && !previous.has(assetId),
+			),
+		),
+	].sort();
+	if (introduced.length === 0) return;
+	if (args.projectId === null) throw new ThreadAttachmentUnavailableError();
+	const assets = await getAssetsInTransaction(tx, introduced);
+	for (const assetId of introduced) {
+		const asset = assets.get(assetId);
+		if (
+			asset === undefined ||
+			asset.project_id !== args.projectId ||
+			asset.status !== "ready"
+		) {
+			throw new ThreadAttachmentUnavailableError();
+		}
+	}
+	await addReferencingAppInTransaction(tx, introduced, args.appId);
+}
+
 /**
  * Merge an incoming transcript into the stored one — the write rule that
  * keeps a stale client from durably ERASING turns other sessions added.
@@ -113,9 +174,9 @@ export function mergeTranscript(
 	const merged: StoredMessage[] = stored.map((msg) => {
 		const update = msg.id ? incomingById.get(msg.id) : undefined;
 		if (!update) return msg;
-		return (update.parts?.length ?? 0) >= (msg.parts?.length ?? 0)
-			? update
-			: msg;
+		const candidate =
+			(update.parts?.length ?? 0) >= (msg.parts?.length ?? 0) ? update : msg;
+		return preserveStoredThreadAttachments(msg, candidate) as StoredMessage;
 	});
 	const storedIds = new Set(stored.map((m) => m.id).filter(Boolean));
 	for (const msg of incoming) {
@@ -150,6 +211,8 @@ export async function upsertThreadTurn(args: {
 	holderNonce?: string;
 	threadType: "build" | "edit";
 	messages: UIMessage[];
+	/** Project captured by chat admission; omitted only by legacy fixtures. */
+	expectedProjectId?: string;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	const result = await withAppTx(async (tx) => {
@@ -158,10 +221,16 @@ export async function upsertThreadTurn(args: {
 		// competing thread writer queues on the thread row here.
 		const app = await tx
 			.selectFrom("apps")
-			.select(LEASE_COLUMNS)
+			.select([...LEASE_COLUMNS, "project_id"])
 			.where("id", "=", args.appId)
 			.forUpdate()
 			.executeTakeFirst();
+		if (
+			args.expectedProjectId !== undefined &&
+			app?.project_id !== args.expectedProjectId
+		) {
+			throw new RunHolderLostError("released");
+		}
 		let holderLost: "superseded" | "released" | null = "released";
 		if (app) {
 			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
@@ -192,6 +261,12 @@ export async function upsertThreadTurn(args: {
 					(existing.messages ?? []) as StoredMessage[],
 					args.messages,
 				);
+				await admitIntroducedThreadAttachments(tx, {
+					appId: args.appId,
+					projectId: app?.project_id ?? null,
+					previousMessages: (existing.messages ?? []) as StoredMessage[],
+					candidateMessages: merged,
+				});
 				await tx
 					.updateTable("threads")
 					.set({ updated_at: now, messages: JSON.stringify(merged) })
@@ -205,6 +280,12 @@ export async function upsertThreadTurn(args: {
 			return false;
 		}
 		if (!existing) {
+			await admitIntroducedThreadAttachments(tx, {
+				appId: args.appId,
+				projectId: app?.project_id ?? null,
+				previousMessages: [],
+				candidateMessages: args.messages,
+			});
 			await tx
 				.insertInto("threads")
 				.values({
@@ -226,6 +307,12 @@ export async function upsertThreadTurn(args: {
 			(existing.messages ?? []) as StoredMessage[],
 			args.messages,
 		);
+		await admitIntroducedThreadAttachments(tx, {
+			appId: args.appId,
+			projectId: app?.project_id ?? null,
+			previousMessages: (existing.messages ?? []) as StoredMessage[],
+			candidateMessages: merged,
+		});
 		await tx
 			.updateTable("threads")
 			.set({
@@ -263,26 +350,47 @@ export async function mergeThreadTurnMessages(args: {
 	appId: string;
 	threadId: string;
 	messages: UIMessage[];
-}): Promise<void> {
+	expectedProjectId?: string;
+}): Promise<boolean> {
 	const now = new Date().toISOString();
-	await withAppTx(async (tx) => {
+	return await withAppTx(async (tx) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select("project_id")
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (
+			!app ||
+			(args.expectedProjectId !== undefined &&
+				app.project_id !== args.expectedProjectId)
+		) {
+			return false;
+		}
 		const existing = await tx
 			.selectFrom("threads")
 			.select(["app_id", "messages"])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirst();
-		if (!existing || existing.app_id !== args.appId) return;
+		if (!existing || existing.app_id !== args.appId) return false;
 		const merged = mergeTranscript(
 			(existing.messages ?? []) as StoredMessage[],
 			args.messages,
 		);
+		await admitIntroducedThreadAttachments(tx, {
+			appId: args.appId,
+			projectId: app.project_id,
+			previousMessages: (existing.messages ?? []) as StoredMessage[],
+			candidateMessages: merged,
+		});
 		await tx
 			.updateTable("threads")
 			.set({ updated_at: now, messages: JSON.stringify(merged) })
 			.where("thread_id", "=", args.threadId)
 			.where("app_id", "=", args.appId)
 			.execute();
+		return true;
 	});
 }
 
@@ -313,6 +421,13 @@ export async function appendThreadResponse(args: {
 }): Promise<void> {
 	const now = new Date().toISOString();
 	await withAppTx(async (tx) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select(["id", "project_id"])
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (!app) return;
 		const row = await tx
 			.selectFrom("threads")
 			.select(["messages", "active_stream_id", "active_holder_nonce"])
@@ -328,6 +443,14 @@ export async function appendThreadResponse(args: {
 					args.responseMessage,
 				])
 			: undefined;
+		if (merged) {
+			await admitIntroducedThreadAttachments(tx, {
+				appId: args.appId,
+				projectId: app.project_id,
+				previousMessages: (row.messages ?? []) as StoredMessage[],
+				candidateMessages: merged,
+			});
+		}
 		await tx
 			.updateTable("threads")
 			.set({

@@ -204,11 +204,12 @@ export async function applyMediaBucketCors(origins: string[]): Promise<void> {
 }
 
 /**
- * Upload a byte buffer directly to GCS from the server. The browser
- * flow never needs this — it PUTs to a signed URL — but the MCP
- * `upload_media_asset` tool decodes base64 bytes inline (Claude Code
- * et al can't run the hash → signed-PUT → confirm dance), so the
- * server holds the bytes and writes them itself.
+ * Upload a byte buffer directly to GCS from the server. The MCP
+ * `upload_media_asset` tool uses this for its decoded base64 payload
+ * (Claude Code et al can't run the signed-PUT flow). Browser confirm also
+ * uses it after downloading and validating the pending object: writing that
+ * exact buffer, rather than copying the still-mutable signed-PUT key, keeps
+ * the final content-addressed object byte-identical to what validation saw.
  *
  * `resumable: false` forces a single multipart write rather than GCS's
  * resumable-session protocol: the payloads here are small (bounded by
@@ -229,13 +230,12 @@ export async function uploadAssetBytes(args: {
 }
 
 /**
- * Copy a validated pending object to its final storage key.
+ * Copy an already-validated immutable object to another storage key.
  *
- * Browser signed-PUT uploads land at a per-attempt pending key so stale
- * signed URLs cannot overwrite a ready content-hash object. Confirm-time
- * validation calls this after the bytes have passed the hash/MIME/parser
- * checks, promoting the object to the deduped final key that ready rows
- * serve.
+ * Cross-Project asset moves use this for ready objects and ready document
+ * extracts. Browser confirm deliberately does not: its signed pending key
+ * remains mutable after validation, so confirm uploads the exact validated
+ * buffer to the content-addressed final key instead.
  */
 export async function copyAssetObject(
 	sourceGcsObjectKey: string,

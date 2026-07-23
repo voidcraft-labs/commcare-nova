@@ -238,6 +238,48 @@ function makeStore(
 	});
 }
 
+describe("PostgresCaseStore — standalone schema authorization fence", () => {
+	it("runs before apply, drop, and compensation unpark work in each transaction", async () => {
+		const observed: Array<{ appId: string; schemaPresent: boolean }> = [];
+		const store = new PostgresCaseStore({
+			projectId: null,
+			actorUserId: null,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: new HeuristicCaseGenerator(),
+			authorizeSchemaMutation: async (tx, args) => {
+				const schema = await tx
+					.selectFrom("case_type_schemas")
+					.select("app_id")
+					.where("app_id", "=", args.appId)
+					.where("case_type", "=", "household")
+					.executeTakeFirst();
+				observed.push({
+					appId: args.appId,
+					schemaPresent: schema !== undefined,
+				});
+			},
+		});
+		const caseType: CaseType = { name: "household", properties: [] };
+
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: caseType.name,
+			caseTypeSchemas: buildSchemaMap(caseType),
+		});
+		await store.dropSchema({ appId: APP_ID, caseType: caseType.name });
+		await store.unparkValues({
+			appId: APP_ID,
+			ids: [crypto.randomUUID()],
+		});
+
+		expect(observed).toEqual([
+			{ appId: APP_ID, schemaPresent: false },
+			{ appId: APP_ID, schemaPresent: true },
+			{ appId: APP_ID, schemaPresent: false },
+		]);
+	});
+});
+
 describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 	// -----------------------------------------------------------
 	// Property-by-data-type — the per-arm DDL shape verifications

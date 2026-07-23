@@ -21,30 +21,41 @@
  * After a clean validation the tool dedups against the Project library
  * (same `(project_id, contentHash)` probe the HTTP path uses): a re-upload of
  * bytes already present returns the existing `ready` asset's id without
- * re-storing. On a miss it writes the GCS object, creates the asset row,
- * and flips it to `ready` with the validated dimensions / duration —
- * collapsing the HTTP flow's two phases (initiate + confirm) into one
- * server-side pass, since there's no client round trip to gate.
+ * re-storing. On a miss it writes the content-addressed GCS object and publishes
+ * the complete `ready` row in one metadata transaction — there is no invisible
+ * pending row whose id can be lost on a crash. The caller allocates the asset id
+ * before storage, so an ambiguous commit response is reconciled under the same
+ * content lock: the exact committed row is returned, another ready winner is
+ * deduplicated, or a truly unclaimed object is deleted. A hard process crash
+ * before metadata leaves only the deterministic content key, which a retry
+ * safely overwrites and adopts instead of creating another stranded object.
  *
  * MCP-only tool: hand-registered via the `register*(server, ctx)` facade,
  * not the shared adapter — it neither operates on a `BlueprintDoc` nor
  * targets an app id, so it doesn't fit the shared-tool contract.
  */
 
+import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import {
-	confirmAssetReady,
-	createPendingAsset,
 	findReadyAssetByProjectAndHash,
+	hasAssetForGcsObjectKey,
+	insertReadyAsset,
 } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
+	asAssetId,
 	gcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
+import { log } from "@/lib/logger";
 import { validateMediaBytes } from "@/lib/media/validate";
-import { uploadAssetBytes } from "@/lib/storage/media";
+import {
+	deleteAsset as deleteStoredAsset,
+	uploadAssetBytes,
+} from "@/lib/storage/media";
+import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -161,63 +172,151 @@ export function registerUploadMediaAsset(
 				 * `ensurePersonalProject`). */
 				const project = await ensurePersonalProject(ctx.userId);
 
-				/* Dedup against the Project library on the validated content
-				 * hash. A re-upload of bytes already present as a `ready`
-				 * asset returns that asset's id and skips the store entirely
-				 * — same dedup the HTTP initiate route does, just after
-				 * validation instead of before (the MCP path has no
-				 * client-computed hash to probe with up front). */
-				const existing = await findReadyAssetByProjectAndHash(
-					project,
-					validated.contentHash,
-				);
-				if (existing) {
-					return successResult(existing.id, validated.kind, true);
-				}
-
-				/* New blob. Write the GCS object first, then the asset row,
-				 * then flip it `ready` with the validated dimensions /
-				 * duration. The HTTP flow splits store (signed PUT) from
-				 * confirm (re-validate); here there's no client round trip,
-				 * so both collapse into one server-side pass against the
-				 * already-validated bytes. */
 				const gcsObjectKey = gcsObjectKeyFor(
 					project,
 					validated.contentHash,
 					validated.extension,
 				);
-				await uploadAssetBytes({
-					gcsObjectKey,
-					bytes,
-					contentType: validated.mimeType,
-				});
-				const pending = await createPendingAsset({
-					owner: ctx.userId,
-					project_id: project,
-					contentHash: validated.contentHash,
-					mimeType: validated.mimeType,
-					kind: validated.kind,
-					extension: validated.extension,
-					sizeBytes: validated.sizeBytes,
-					gcsObjectKey,
-					originalFilename: args.filename,
-				});
-				await confirmAssetReady({
-					assetId: pending.assetId,
-					...(validated.dimensions !== undefined && {
-						dimensions: validated.dimensions,
-					}),
-					...(validated.durationMs !== undefined && {
-						durationMs: validated.durationMs,
-					}),
-				});
+				const attemptAssetId = asAssetId(randomUUID());
+				let finalObjectMayNeedCleanup = false;
+				let publication:
+					| { kind: "deduplicated"; assetId: string }
+					| { kind: "published"; assetId: string };
+				try {
+					publication = await withMediaObjectKeyLock(
+						gcsObjectKey,
+						async (lockedDb) => {
+							/* Re-check dedup while holding the same canonical-key lock as
+							 * browser confirm, Project-copy publication, and
+							 * last-reference cleanup. Exactly one same-content publisher
+							 * stores bytes and commits ready metadata; every waiter
+							 * observes that winner. */
+							const existing = await findReadyAssetByProjectAndHash(
+								project,
+								validated.contentHash,
+								lockedDb,
+							);
+							if (existing) {
+								return {
+									kind: "deduplicated" as const,
+									assetId: existing.id,
+								};
+							}
 
-				return successResult(pending.assetId, validated.kind, false);
+							/* Mark before GCS I/O because a failed storage request can
+							 * have committed remotely. The flag remains set until the lock
+							 * body and its advisory unlock both finish successfully. */
+							finalObjectMayNeedCleanup = true;
+							await uploadAssetBytes({
+								gcsObjectKey,
+								bytes,
+								contentType: validated.mimeType,
+							});
+							const published = await insertReadyAsset(
+								{
+									assetId: attemptAssetId,
+									owner: ctx.userId,
+									project_id: project,
+									contentHash: validated.contentHash,
+									mimeType: validated.mimeType,
+									kind: validated.kind,
+									extension: validated.extension,
+									sizeBytes: validated.sizeBytes,
+									gcsObjectKey,
+									originalFilename: args.filename,
+									...(validated.dimensions !== undefined && {
+										dimensions: validated.dimensions,
+									}),
+									...(validated.durationMs !== undefined && {
+										durationMs: validated.durationMs,
+									}),
+								},
+								lockedDb,
+							);
+							return {
+								kind: "published" as const,
+								assetId: published.id,
+							};
+						},
+					);
+					finalObjectMayNeedCleanup = false;
+				} catch (error) {
+					if (finalObjectMayNeedCleanup) {
+						const recovered = await recoverFailedMcpPublication({
+							gcsObjectKey,
+							projectId: project,
+							contentHash: validated.contentHash,
+						}).catch((cleanupError: unknown) => {
+							log.error(
+								"[mcp:upload-media] lost-publication recovery failed",
+								cleanupError,
+								{
+									gcsObjectKey,
+									projectId: project,
+									attemptAssetId,
+								},
+							);
+							return null;
+						});
+						if (recovered !== null) {
+							return successResult(
+								recovered.assetId,
+								validated.kind,
+								recovered.assetId !== attemptAssetId,
+							);
+						}
+					}
+					throw error;
+				}
+
+				return successResult(
+					publication.assetId,
+					validated.kind,
+					publication.kind === "deduplicated",
+				);
 			} catch (err) {
 				return toMcpErrorResult(err, { userId: ctx.userId });
 			}
 		},
 	);
+}
+
+async function recoverFailedMcpPublication(args: {
+	gcsObjectKey: string;
+	projectId: string;
+	contentHash: string;
+}): Promise<{ assetId: string } | null> {
+	return withMediaObjectKeyLock(args.gcsObjectKey, async (lockedDb) => {
+		/* A transaction commit can succeed even when its acknowledgement is lost.
+		 * Re-read the serialized Project/hash result before treating the object as
+		 * unpublished. If it is our preallocated id, the insert committed; if a
+		 * waiter published after our rollback, that row is the canonical dedup
+		 * result. Identical bytes can validate under different extensions, so a
+		 * ready hash winner does not necessarily claim this attempt's exact key. */
+		const ready = await findReadyAssetByProjectAndHash(
+			args.projectId,
+			args.contentHash,
+			lockedDb,
+		);
+		if (ready !== null) {
+			if (ready.gcsObjectKey !== args.gcsObjectKey) {
+				const attemptedKeyIsClaimed = await hasAssetForGcsObjectKey(
+					args.gcsObjectKey,
+					lockedDb,
+				);
+				if (!attemptedKeyIsClaimed) {
+					await deleteStoredAsset(args.gcsObjectKey);
+				}
+			}
+			return { assetId: ready.id };
+		}
+		const published = await hasAssetForGcsObjectKey(
+			args.gcsObjectKey,
+			lockedDb,
+		);
+		if (!published) await deleteStoredAsset(args.gcsObjectKey);
+		return null;
+	});
 }
 
 /**
