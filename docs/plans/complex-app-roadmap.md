@@ -4,9 +4,7 @@
 > Nova `97d6bb89` (PR #312). S01 through S05b are shipped, including all of
 > S02. S05's domain/wire decisions are pinned below; local CCZ export now
 > emits the preservable lookup wire.
-> S05c remains decision-blocked. S22 remains closed on
-> `agent/s22-form-links` pending the
-> explicit cutover choice recorded in its slice. This file owns execution order,
+> S05c and S22 await their readiness audits. This file owns execution order,
 > product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
@@ -26,7 +24,7 @@ changing a slice to `ready`, the supervisor must:
 2. re-check its wire claims against the current relevant Dimagi source;
 3. resolve every product or UX choice that changes persisted state or exported
    behavior;
-4. name its migration, rolling-deploy, multiplayer, and authorization behavior;
+4. name its migration, multiplayer, and authorization behavior;
 5. state user-visible acceptance and proportionate verification; and
 6. record any dependency or scope change here.
 
@@ -160,17 +158,22 @@ Project moves, and reference-edge writes, then proves the seeded
 introduction-versus-delete race without activating a carrier. S05 repeats both
 winner orders with the first real carriers before their writers activate.
 
-### Validity, activation, and rolling deploys
+### Validity, activation, and delivery
 
 Adding a schema arm does not automatically activate it. Every new term,
 operation, mutation discriminator, or carrier remains unconstructible or
 commit-gated until all committed-state consumers are total: persistence,
-replay, validation, preview, wire, SA, MCP, and rolling-version receivers.
+replay, validation, preview, wire, SA, MCP, and stream receivers.
 
 New mutations follow the compatibility rules in `lib/doc/CLAUDE.md`. Persisted
-mutation history must remain replayable across the deployment window. Prefer an
-old-kind semantic extension or read-time compatibility projection when that
-preserves intent; otherwise stage schema acceptance before writers activate.
+mutation history must always replay; when a stored shape changes, the same
+change migrates stored history to the final shape.
+
+Every slice ships its end state and nothing else. A slice never adds staged
+releases, temporary projections, or handoff code between its own PRs; work may
+split across PRs for review, but no PR carries code that exists only because of
+the split. Data migrations reach the final shape in the minimal number of
+steps, and a deploy may briefly interrupt the service.
 
 ### Case operations and submissions
 
@@ -340,10 +343,9 @@ S06 -> S15 users/personas -> S16 organization/location store
 S02 through S05b are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
 pinned and the local lookup wire is live in ccz export. S05c is the next
-slice and remains blocked on a fresh owner decision before
-any production cutover or nonzero compatibility floor. S11-S14 and S15-S21 may
-overlap only when their worktrees do not share subsystem ownership. S22 readiness
-is complete but implementation remains blocked on its owner cutover decision.
+slice and needs only its readiness audit. S11-S14 and S15-S21 may
+overlap only when their worktrees do not share subsystem ownership. S22 needs a
+readiness rebaseline before delegation.
 Compiler verification stays serialized across wire slices.
 
 ## Slice ledger
@@ -357,7 +359,7 @@ Compiler verification stays serialized across wire slices.
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
-| S05c | Lookup carrier cutover and edge preparation | S05b + owner cutover decision | blocked | PR-01/03, F5 |
+| S05c | Lookup carrier cutover and edge preparation | S05b | planned | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
@@ -374,7 +376,7 @@ Compiler verification stays serialized across wire slices.
 | S19 | Deployment records, preflight, retry model, and artifact | S05c/S17/S18 | blocked | PR-11 |
 | S20 | Table/location/user push and provisioning drivers | S19 | blocked | PR-11 |
 | S21 | App setup UI, SA, MCP, and docs | S17/S18/S20 | blocked | PR-12 |
-| S22 | Exclusive form links and form sections | S03/S04 | blocked | PR-13, F7 |
+| S22 | Exclusive form links and form sections | S03/S04 | planned | PR-13, F7 |
 | S23 | Nested menus and linked-form reuse | S22 | blocked | PR-13, F7 |
 | S24 | Session endpoints and deep links | S19/S23 | blocked | PR-14, F7 |
 | S25 | Multi-select, related-case pulls, and profile extensions | S04/S07 | blocked | PR-15, F4 |
@@ -608,7 +610,7 @@ revalidates before replacing anything. Any error or drift writes nothing and
 emits no revision. Full replacement mints fresh row UUIDv7s and balanced keys in
 file order; it never guesses identity from content or position.
 
-#### Realtime, Project lifecycle, and rollout
+#### Realtime and Project lifecycle
 
 S01a defines and emits `nova_lookup_stream` with payload
 `{"projectId":"...","revision":"17"}` to the one process-wide dedicated
@@ -721,9 +723,9 @@ cleanup. S05 still owns the aggregate embedded-fixture budget.
 S02 is infrastructure-only. It adds no constructible lookup carrier, table
 expression, itemset, fixture emission, SA/MCP vocabulary, or public destructive
 operation. S05 owns the first carrier schemas and wire foundations; S07 owns
-runtime activation after preview and SQL execution are total. Until S07's rollout
-gate opens, carrier commits, true cross-Project moves, and destructive
-lookup-schema actions remain unavailable.
+runtime activation after preview and SQL execution are total. Until S07's
+activation gate opens, carrier commits, true cross-Project moves, and
+destructive lookup-schema actions remain unavailable.
 
 S02a shipped as PR #298 at squash `07c45ef6`: Cloud Build
 `99ae1f72-048b-4515-8652-1f3caa669b99` ran migration execution
@@ -935,7 +937,7 @@ applicable edges and remain runtime-disabled until S07 activation:
 S02b implements those operations only as package-private governance. Its
 production wrapper declares shared writer v0, locks the compatibility row
 `FOR SHARE`, and fails closed while the activation flag is false; it never
-smuggles a local writer-v1 override past the rollout floor. The transaction core
+smuggles a local writer-v1 override past the compatibility floor. The transaction core
 is integration-tested under explicit writer v1 plus enabled compatibility.
 Column removal advances both definition and rows revisions because it changes
 schema and row JSON. Blocker diagnostics return exact app ids only; the
@@ -948,8 +950,8 @@ one exact rows-free snapshot, and returns that snapshot with prepared resources
 so S05 emission cannot read a different definition generation. Operational
 definition-read failures propagate and stop before expansion, compilation, or
 HQ import; they are never recast as unavailable-context findings. Local CCZ may
-gain embedded fixtures in S05, while HQ JSON/upload remain blocked until their
-later rollout contract permits them.
+gain embedded fixtures in S05, while HQ JSON/upload remain blocked until S20's
+resource-push contract permits them.
 
 #### Cross-Project moves and transport
 
@@ -1151,7 +1153,7 @@ destination editor/viewer, source-only, same-Project migration, transient
 failure, downgrade/upgrade with retained pending edits, and one-EventSource
 ownership.
 
-#### Rolling capability and rollback floor
+#### Receiver capabilities and rollback floor
 
 Receiver capabilities are cumulative and separate from writer/runtime versions:
 
@@ -1239,7 +1241,7 @@ failure, pause/heartbeat, recovery, and reaper writes. Reaper scans and queues
 carry the concrete holder they observed instead of a bare app id, and credit
 reapers roll ledger changes back if the admitted app-row write affects zero
 rows. A missing run id remains corrupt; a concrete run id with null nonce is a
-legacy v0 holder that remains census-visible and reapable during the rollout.
+legacy v0 holder that remains census-visible and reapable.
 `recover-app` has no direct app writer: a present holder requires explicit
 matching mode, run-id, and UUID nonce flags, and the database service re-proves
 that exact generation under lock and in SQL.
@@ -1358,10 +1360,9 @@ forced-refresh no-loop path.
 
 The already-landed runtime traffic-epoch and holder-census primitives remain
 dormant database safety inputs; S02c performs no runtime-floor prepare or raise.
-Nova does not build a reusable traffic controller merely to exercise them. If a
-future feature genuinely requires an irreversible nonzero floor, that change
-must make a fresh product decision between a maintenance cutover and additional
-rollout machinery based on then-current traffic and downtime requirements.
+Nova does not build a reusable traffic controller merely to exercise them. A
+future feature that requires an irreversible nonzero floor raises it directly
+in its own release.
 
 Add persistent lookup-reference compatibility state with monotonic
 `minimum_writer_version`, `minimum_stream_receiver_version`, and
@@ -1575,7 +1576,7 @@ policy remains responsive-rendering behavior, and `SESSION_CONTEXT_FIELDS`
 continues to exclude `window_width`.
 
 This is an additive document change with no data migration and no runtime flag:
-older docs omit both optional slots. Rolling compatibility depends only on the
+older docs omit both optional slots. Stored-document compatibility depends only on the
 existing document/event preservation contract; no writer activates before S08/
 S10. Focused schema, simplifier, validator, reference-index/rewrite/retirement,
 session-instance, emitter, expander/compiler, canonical producer-placement and
@@ -1617,7 +1618,7 @@ named findings. Operation/retype/link case types apply Core's identifier grammar
 255-character cap; link identifiers apply XML grammar, per-operation uniqueness, and
 HQ's 255-character index-column cap.
 
-The mutation/reference unit uses the rolling-compatible
+The mutation/reference unit uses the history-compatible
 `updateForm.caseOperationChange` extension for add/update/remove/move, preserves
 cleared order through diff/replay, and blocks removal or dependency-inverting
 moves. Physical wire order is now an explicit contract: the singular operations
@@ -1705,9 +1706,9 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
 **Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b shipped in PR #312 at
-`97d6bb89`; S05c is blocked on a fresh owner decision.
+`97d6bb89`; S05c awaits its readiness audit.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
-rolling-compatible mutations, persistence/replay, reference ownership, and
+history-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. S05b adds
 the local wire: ccz export lowers preservable carriers and emits
 suite-embedded fixtures, while UI, SA/MCP vocabulary, preview/SQL activation,
@@ -1769,7 +1770,7 @@ carrier or deliberately reject it through the commit gate: hydration,
 persistence, replay, diffing, AST walks/rewrites/simplification, validation and
 type checking, reference extraction, preview evaluation, case-store SQL, schema
 materialization, wire/CSQL emission, instance accumulation, summaries, and every
-web/MCP compiler guard and rolling receiver. S05 makes schema acceptance and wire
+web/MCP compiler guard and stream receiver. S05 makes schema acceptance and wire
 preparation internal-only; the carrier commit gate remains closed because S07
 still owns preview and SQL execution.
 
@@ -1777,8 +1778,7 @@ Builder mutation inputs and controls remain carrier-blind until S09. SA tool
 schemas, MCP schemas, and model vocabulary remain carrier-blind until S10.
 Existing generic mutation schemas must explicitly omit or reject carrier keys
 until the owning surface activates. Use existing mutation discriminators with
-optional semantic extensions and origin-compatible fallbacks; do not add a
-discriminator in the rolling window.
+optional semantic extensions so accepted history replays unchanged.
 
 Table lookup returns the first match by `(order_key, row UUID)` and lowers with an
 explicit positional first-row predicate; no match is missing, not empty text.
@@ -1881,10 +1881,11 @@ Implementation remains split into independently reviewed units:
    accumulation; the one-snapshot multi-table reader; deterministic fixture
    serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
    JSON/upload and authoring remain closed.
-3. **S05c — carrier cutover and edge preparation (decision-blocked):** only
-   after S05b and a fresh owner decision, perform the chosen compatibility or
-   maintenance cutover and leave carrier commits runtime-disabled for S07. No
-   nonzero floor is authorized by S05a or S05b.
+3. **S05c — carrier cutover and edge preparation (planned):** ship the final
+   edge state in one release — the read-only structural-versus-stored scan, the
+   explicit edge migration under each app lock with a clean rescan, and the
+   final floor and activation values — and leave carrier commits
+   runtime-disabled for S07. No nonzero floor is authorized by S05a or S05b.
 
 #### S05a execution checkpoint — 2026-07-23
 
@@ -2081,28 +2082,17 @@ form surfaces; and the new `lookup-row-escaped-column` arm of
 unrepresentable shape, a comparison whose relation rewrite would carry a
 table-column term out of its fixture-row scope.
 
-The following activation sequence is the previously specified zero-downtime
-alternative, not an approved S05c implementation plan. At the S05c checkpoint,
-present it against a maintenance cutover with then-current traffic, downtime,
-temporary/permanent work, and effort estimates. Do not implement or execute any
-step until the owner chooses:
-
-1. require the S05a/S05b writer-v1, receiver-v2 revisions at 100% traffic while
-   carrier writers, destructive schema actions, and true moves remain disabled
-   and every database floor remains zero;
-2. raise the stream
-   receiver floor to v2 with every feature flag still disabled, wait the full
-   request cap plus grace, and require no unexpired receiver below v2;
-3. run the read-only structural-versus-stored scan, then the explicit edge
-   migration under each app lock, and require a clean rescan;
-4. establish S05 as the edge-maintenance writer floor, not the runtime reader
-   floor;
-5. atomically raise `minimum_writer_version` to 1 while carrier commits,
-   destructive schema actions, and true moves remain runtime-disabled.
+S05c ships the final edge state in one release: the read-only
+structural-versus-stored scan, the explicit edge migration under each app lock
+with a clean rescan, and `minimum_writer_version` at 1 with S05 as the
+edge-maintenance writer floor, not the runtime reader floor. Carrier commits,
+destructive schema actions, and true moves remain runtime-disabled for S07. Its
+readiness audit names the exact mechanics and deletes any machinery the direct
+release leaves without a purpose.
 
 S05's closed-gate verification uses real carriers to replace edges
 transactionally and repeat both production race orders. It adds carrier schema/
-context matrices, reference-index fuzz, history/mixed-version replay, every
+context matrices, reference-index fuzz, history replay, every
 carrier's edges, stale optimistic versus fresh server context, foreign opacity,
 projection rename safety, snapshot consistency, deterministic fixture bytes,
 exact aggregate-budget bounds including many small tables, and the full web/MCP
@@ -2205,7 +2195,7 @@ does not appear as an app-content tree child.
 Expose the shipped vocabulary through both camelCase chat tools and snake_case
 MCP projection, preserving OpenAI Responses strict-schema normalization, cache
 stability, schema size, and API acceptance. Update public authoring docs and all
-nearest subsystem guidance. Run one integrated dogfood flow.
+nearest subsystem guidance. Run one integrated end-to-end flow.
 
 ### S11 — tile contracts and wire
 
@@ -2302,36 +2292,20 @@ the legacy Manage Tables endpoint, whose tag-length check is narrower than HQ's
 Build URL-owned Users & Personas, Organization, Automations, and Deployment
 sections with responsive navigation, permissions, conflict/recovery states,
 deployment progress/retry, and honest target prerequisites. Complete tools,
-public docs, and the cross-facility owner/restore dogfood scenario.
+public docs, and the cross-facility owner/restore walkthrough scenario.
 
 ### S22 — exclusive form links and sections
 
-**Status:** blocked; `agent/s22-form-links` owns readiness rebaselining only.
-The 2026-07-23 read-only production census found zero current form links and zero
-historical form-link mutations across 404 apps, but the existing strict anonymous
-shape still makes durable UUID/order identity a protocol cutover. Implementation
-remains closed until the owner chooses between the mixed-version path and a
-maintenance cutover; do not infer that choice. Repeat the census after writes
-are quiesced before either path commits. The first review unit then stays limited
-to durable identity plus exclusive link projection and validation across local
-suite and production HQ JSON emission. Sections, preview behavior, and UI remain
-a separate unit.
-
-The audited choice is:
-
-- zero downtime adds old-shape projections, writer gating, floor operations,
-  and at least two staged releases plus a 65-minute receiver epoch; estimate
-  5–8 engineering days and 1–2 reviewer-days beyond the core correction;
-- a maintenance cutover uses one release and is recommended for the current
-  empty dogfood corpus; estimate 20–30 minutes unavailable with a hard write
-  fence and old-stream eviction, or 75–90 minutes if existing leases only expire
-  passively.
-
-The maintenance path saves an estimated 2–4 engineering days, about one
-reviewer-day, and one review/deploy stage (roughly 35–45% of
-compatibility-specific work). If the repeated census is nonzero, stop and add an
-idempotent current-entity plus accepted-history converter and forward-fold
-oracle before revisiting either estimate.
+**Status:** planned; `agent/s22-form-links` owns readiness rebaselining.
+The 2026-07-23 read-only production census found zero current form links and
+zero historical form-link mutations across 404 apps. Ship the durable
+UUID/order identity shape directly in one release. Repeat the census after
+writes are quiesced before the identity change commits; if it is nonzero, add
+an idempotent current-entity plus accepted-history converter and forward-fold
+oracle so one migration still reaches the final shape. The first review unit
+stays limited to durable identity plus exclusive link projection and validation
+across local suite and production HQ JSON emission. Sections, preview behavior,
+and UI remain a separate unit.
 
 First fix the existing `first matching link wins` wire bug and reject links after
 an unconditional branch. A terminal unconditional link is the exhaustive `else`:
@@ -2387,8 +2361,7 @@ grows; keep every HQ JSON/compiler projection identical.
   suite-embedded fixtures from one REPEATABLE READ snapshot under the exact
   aggregate budgets; carrier commits, authoring surfaces, preview/SQL
   execution, HQ JSON/upload, database floors, and feature flags remain closed
-  or zero/off. S05c is the next slice and stays blocked on the owner's
-  cutover decision.
+  or zero/off. S05c is the next slice.
 - **2026-07-23 — S05b readiness closed / implementation owned:** The local-wire
   audit re-verified the export-boundary, emitter-rejection, instance-
   accumulation, and lookup-reader seams against deployed `06a6ee4f`, and the
