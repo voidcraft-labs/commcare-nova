@@ -553,10 +553,11 @@ async function convergePrivilegesInTransaction(
 	await sql`
 		GRANT USAGE, CREATE ON SCHEMA public TO ${sql.id(config.migrationRole)}
 	`.execute(tx);
-	// PostgreSQL requires table ownership plus schema CREATE for CREATE INDEX
-	// CONCURRENTLY. This is the one temporary runtime DDL exception.
+	// Indexes always live in their parent table's schema and CREATE INDEX is an
+	// ownership operation. Runtime owns only `cases`; schema CREATE would let a
+	// compromised serving process manufacture arbitrary public-schema objects.
 	await sql`
-		GRANT USAGE, CREATE ON SCHEMA public TO ${sql.id(config.runtimeRole)}
+		GRANT USAGE ON SCHEMA public TO ${sql.id(config.runtimeRole)}
 	`.execute(tx);
 	await sql`
 		GRANT USAGE ON SCHEMA public TO ${sql.id(config.rolloutRole)}

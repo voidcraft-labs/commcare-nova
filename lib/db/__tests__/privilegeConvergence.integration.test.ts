@@ -116,13 +116,18 @@ describe("database privilege convergence", () => {
 				await sql`INSERT INTO public.auth_user (id) VALUES ('runtime-user')`.execute(
 					tx,
 				);
-				await sql`ALTER TABLE public.cases ADD COLUMN privilege_probe boolean`.execute(
+				await sql`CREATE INDEX privilege_probe_idx ON public.cases (case_id)`.execute(
 					tx,
 				);
-				await sql`ALTER TABLE public.cases DROP COLUMN privilege_probe`.execute(
-					tx,
-				);
+				await sql`DROP INDEX public.privilege_probe_idx`.execute(tx);
 			});
+			await expect(
+				asRole(h.db, config.runtimeRole, async (tx) => {
+					await sql`CREATE TABLE public.forbidden_runtime_table (id integer)`.execute(
+						tx,
+					);
+				}),
+			).rejects.toMatchObject({ code: "42501" });
 			await expect(
 				asRole(h.db, config.runtimeRole, async (tx) => {
 					await sql`ALTER TABLE public.apps ADD COLUMN forbidden_probe boolean`.execute(
