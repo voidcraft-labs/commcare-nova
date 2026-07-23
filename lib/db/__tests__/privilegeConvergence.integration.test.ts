@@ -375,6 +375,9 @@ describe("database privilege convergence", () => {
 				`CREATE TABLE ${quoteIdentifier(bootstrapSchema)}.owned_probe (id integer)`,
 			);
 			await bootstrapClient.query(
+				`GRANT USAGE ON SCHEMA ${quoteIdentifier(bootstrapSchema)} TO ${quoteIdentifier(config.runtimeRole)}`,
+			);
+			await bootstrapClient.query(
 				`ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO ${quoteIdentifier(config.runtimeRole)}`,
 			);
 			const freshBootstrap = await executeDatabaseOwnerBootstrap(
