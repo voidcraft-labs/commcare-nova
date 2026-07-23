@@ -26,6 +26,10 @@
 import { z } from "zod";
 import { deleteMediaAssetForChatRun } from "@/lib/db/apps";
 import { listReferencingAppIds, loadAssetById } from "@/lib/db/mediaAssets";
+import {
+	deleteMediaAssetForActor,
+	MediaAssetStillReferencedError,
+} from "@/lib/db/mediaDeletion";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
@@ -118,21 +122,44 @@ export const removeMediaAssetTool = {
 		// No live references — purge the row, the bytes, and the document-extract
 		// sibling (if any), keeping shared bytes intact.
 		const chatRunHolder = ctx.chatRunHolder;
-		const deleted = await purgeAssetStorage(asset, {
-			alsoDelete: [extractObjectKeyForAsset(asset)],
-			...(chatRunHolder
-				? {
-						deleteRow: () =>
-							deleteMediaAssetForChatRun({
-								appId: ctx.appId,
-								assetId,
-								actorUserId: ctx.userId,
-								expectedProjectId: projectId,
-								holder: chatRunHolder,
-							}),
+		let deleted: boolean;
+		try {
+			deleted = await purgeAssetStorage(asset, {
+				alsoDeleteForAsset: (deletedAsset) => [
+					extractObjectKeyForAsset(deletedAsset),
+				],
+				deleteRow: async () => {
+					if (chatRunHolder) {
+						return deleteMediaAssetForChatRun({
+							appId: ctx.appId,
+							assetId,
+							actorUserId: ctx.userId,
+							expectedProjectId: projectId,
+							holder: chatRunHolder,
+						});
 					}
-				: {}),
-		});
+					const result = await deleteMediaAssetForActor({
+						assetId,
+						actorUserId: ctx.userId,
+						expectedProjectId: projectId,
+					});
+					if (result.kind === "referenced") {
+						throw new MediaAssetStillReferencedError(result.references);
+					}
+					return result.kind === "deleted" ? result.asset : false;
+				},
+			});
+		} catch (error) {
+			if (error instanceof MediaAssetStillReferencedError) {
+				return {
+					kind: "read" as const,
+					data: {
+						error: `Can't delete media asset "${input.assetId}" — a live app started using it: ${error.references.join("; ")}. Clear those references before deleting the asset.`,
+					},
+				};
+			}
+			throw error;
+		}
 		if (!deleted) {
 			return {
 				kind: "read" as const,

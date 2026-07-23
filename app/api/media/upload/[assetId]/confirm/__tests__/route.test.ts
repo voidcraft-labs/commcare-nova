@@ -19,6 +19,7 @@ import {
 	loadAssetById,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
+import { asAssetId } from "@/lib/domain/multimedia";
 import { validateMediaBytes } from "@/lib/media/validate";
 import {
 	copyAssetObject,
@@ -43,6 +44,7 @@ const {
 	downloadAssetBytesMock,
 	getStoredObjectSizeMock,
 	validateMediaBytesMock,
+	withMediaObjectKeyLockMock,
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	userInProjectMock: vi.fn(),
@@ -56,6 +58,10 @@ const {
 	downloadAssetBytesMock: vi.fn(),
 	getStoredObjectSizeMock: vi.fn(),
 	validateMediaBytesMock: vi.fn(),
+	withMediaObjectKeyLockMock: vi.fn(
+		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
+			body({ pinned: true }),
+	),
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
@@ -84,6 +90,9 @@ vi.mock("@/lib/storage/media", () => ({
 }));
 vi.mock("@/lib/media/validate", () => ({
 	validateMediaBytes: validateMediaBytesMock,
+}));
+vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
+	withMediaObjectKeyLock: withMediaObjectKeyLockMock,
 }));
 
 function pendingAsset(
@@ -146,21 +155,34 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 			"pending/project-1/asset-1.png",
 			`projects/project-1/${HASH}.png`,
 		);
-		expect(confirmAssetReady).toHaveBeenCalledWith({
-			assetId: "asset-1",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
-			// The confirm step writes the validator's authoritative
-			// mimeType/extension (refines a document's create-time guess;
-			// a no-op for media).
-			mimeType: "image/png",
-			extension: ".png",
-			dimensions: { width: 1, height: 1 },
-			durationMs: undefined,
-		});
+		expect(confirmAssetReady).toHaveBeenCalledWith(
+			{
+				assetId: "asset-1",
+				gcsObjectKey: `projects/project-1/${HASH}.png`,
+				// The confirm step writes the validator's authoritative
+				// mimeType/extension (refines a document's create-time guess;
+				// a no-op for media).
+				mimeType: "image/png",
+				extension: ".png",
+				dimensions: { width: 1, height: 1 },
+				durationMs: undefined,
+			},
+			expect.anything(),
+		);
 		expect(deleteGcsObject).toHaveBeenCalledWith(
 			"pending/project-1/asset-1.png",
 		);
 		expect(body.asset.gcsObjectKey).toBe(`projects/project-1/${HASH}.png`);
+		expect(withMediaObjectKeyLockMock).toHaveBeenNthCalledWith(
+			1,
+			`projects/project-1/${HASH}.png`,
+			expect.any(Function),
+		);
+		expect(withMediaObjectKeyLockMock).toHaveBeenNthCalledWith(
+			2,
+			"pending/project-1/asset-1.png",
+			expect.any(Function),
+		);
 	});
 
 	it("does not delete a validation-failed object when another row shares it", async () => {
@@ -180,5 +202,26 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		expect(res.status).toBe(400);
 		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1");
 		expect(deleteGcsObject).not.toHaveBeenCalled();
+	});
+
+	it("collapses a confirm race under the final-key lock and cleans only the losing pending object", async () => {
+		const sibling = pendingAsset({
+			id: asAssetId("asset-winner"),
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		});
+		vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(sibling);
+
+		const res = await callConfirm();
+		const body = (await res.json()) as { asset: { id: string } };
+
+		expect(res.status).toBe(200);
+		expect(body.asset.id).toBe("asset-winner");
+		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1", expect.anything());
+		expect(copyAssetObject).not.toHaveBeenCalled();
+		expect(confirmAssetReady).not.toHaveBeenCalled();
+		expect(deleteGcsObject).toHaveBeenCalledWith(
+			"pending/project-1/asset-1.png",
+		);
 	});
 });

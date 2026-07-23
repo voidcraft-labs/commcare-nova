@@ -290,6 +290,11 @@ export interface MediaAssetRefsTable {
 	app_id: string;
 }
 
+export interface MediaReferenceIndexStateTable {
+	singleton: boolean;
+	audited_complete_at: ColumnType<Date | null, Date | null, Date | null>;
+}
+
 export interface LookupProjectStateTable {
 	project_id: string;
 	/** Project-wide invalidation clock; never coerce to a JavaScript number. */
@@ -430,6 +435,7 @@ export interface AppDatabase {
 	credit_grants: CreditGrantsTable;
 	media_assets: MediaAssetsTable;
 	media_asset_refs: MediaAssetRefsTable;
+	media_reference_index_state: MediaReferenceIndexStateTable;
 	lookup_project_state: LookupProjectStateTable;
 	lookup_tables: LookupTablesTable;
 	lookup_columns: LookupColumnsTable;

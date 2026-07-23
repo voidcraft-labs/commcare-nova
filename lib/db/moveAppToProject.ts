@@ -164,8 +164,7 @@ export async function moveAppToProject(args: {
 
 			// Step A — copy referenced media into the destination Project.
 			const assetIdMap = await copyAssetsIntoProject({
-				appId: args.appId,
-				assetIds: refs,
+				requiredAssetIds: refs,
 				fromProjectId: args.fromProjectId,
 				toProjectId: args.toProjectId,
 				actorUserId: args.actorUserId,

@@ -19,16 +19,18 @@ import "server-only";
 import {
 	createReadyAsset,
 	findReadyAssetByProjectAndHash,
+	installCopiedReadyExtract,
 	loadAssetsByIds,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import {
+	extractGcsObjectKeyFor,
+	extractObjectKeyForAsset,
 	gcsObjectKeyFor,
-	isMediaKind,
-	type MediaKind,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { copyAssetObject } from "@/lib/storage/media";
+import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { partitionAssetRefs } from "./builtinIconAssets";
 
@@ -68,13 +70,14 @@ export class MediaCopyFailedError extends Error {
  * each source asset id to its destination id — the input the move's blueprint
  * repoint (`remapAssetRefs`) consumes.
  *
- * Built-in `nova-icon:` refs are dropped up front: they carry no `media_assets` row
- * and one shared deployment-bundled copy serves every Project, so they're
- * Project-agnostic and never appear in the returned map (the repoint leaves them
- * as-is). A referenced row that isn't a `ready` media asset (a still-uploading
- * `pending` upload, a foreign-Project ref `loadAssetsByIds` silently drops) is
- * skipped — it was already broken/pending in the source, and the destination
- * inherits that same state rather than the move papering over it.
+ * Built-in `nova-icon:` refs are dropped up front: they carry no `media_assets`
+ * row and one shared deployment-bundled copy serves every Project, so they're
+ * Project-agnostic and never appear in the returned map. Every required
+ * blueprint ref must resolve to a source-Project `ready` row or the move aborts.
+ * Historical chat attachments are deliberately softer: a missing, foreign, or
+ * unready old attachment remains unavailable in the transcript and does not
+ * block the move. Ready historical documents copy their current extraction
+ * metadata and ready extract object along with the source bytes.
  *
  * A `ready` asset that CANNOT be copied (its GCS object is missing, or a sustained
  * outage outlasts the per-asset retries) throws {@link MediaCopyFailedError},
@@ -83,27 +86,73 @@ export class MediaCopyFailedError extends Error {
  * "couldn't move — a media file couldn't be copied" and nothing has moved.
  */
 export async function copyAssetsIntoProject(args: {
-	appId: string;
-	assetIds: readonly string[];
+	/** Blueprint carriers: every real id must resolve to a ready source asset. */
+	requiredAssetIds: readonly string[];
+	/** Historical chat attachments: broken old references remain unavailable. */
+	historicalAssetIds?: readonly string[];
 	fromProjectId: string;
 	toProjectId: string;
 	actorUserId: string;
 }): Promise<Map<string, string>> {
-	const { realIds } = partitionAssetRefs(args.assetIds);
-	if (realIds.length === 0) return new Map();
-
-	const rows = (await loadAssetsByIds(realIds, args.fromProjectId)).filter(
-		(row): row is MediaAssetRecord & { kind: MediaKind } =>
-			row.status === "ready" && isMediaKind(row.kind),
+	const { realIds: requiredIds } = partitionAssetRefs(args.requiredAssetIds);
+	const { realIds: historicalIds } = partitionAssetRefs(
+		args.historicalAssetIds ?? [],
 	);
+	const allIds = [...new Set([...requiredIds, ...historicalIds])].sort();
+	if (allIds.length === 0) return new Map();
+
+	const loaded = await loadAssetsByIds(allIds, args.fromProjectId);
+	const byId = new Map<string, MediaAssetRecord>(
+		loaded.map((row) => [row.id, row]),
+	);
+	for (const assetId of requiredIds) {
+		const row = byId.get(assetId);
+		if (row === undefined || row.status !== "ready") {
+			throw new MediaCopyFailedError(assetId, {
+				cause: new Error(
+					"The required source asset is missing, foreign to the source Project, or not ready.",
+				),
+			});
+		}
+	}
+	const rows = allIds
+		.map((id) => byId.get(id))
+		.filter(
+			(row): row is MediaAssetRecord =>
+				row !== undefined && row.status === "ready",
+		);
+	const requiredIdSet = new Set(requiredIds);
 
 	const entries = await mapWithConcurrency(
 		rows,
 		MEDIA_COPY_CONCURRENCY,
-		(row) => copyOneAsset(row, args),
+		async (row) => {
+			try {
+				return await copyOneAsset(row, args);
+			} catch (error) {
+				if (requiredIdSet.has(row.id)) throw error;
+				// A historical-only attachment may be deleted after the initial
+				// closure scan. Re-read after the failed copy: if its source row no
+				// longer resolves as ready in the source Project, preserve the
+				// transcript's unavailable reference instead of blocking the move.
+				// A still-present row with missing bytes or an operational copy
+				// failure remains fatal; silently skipping that would conceal damage.
+				const fresh = await loadAssetsByIds([row.id], args.fromProjectId);
+				if (
+					!fresh.some(
+						(asset) => asset.id === row.id && asset.status === "ready",
+					)
+				) {
+					return null;
+				}
+				throw error;
+			}
+		},
 	);
 
-	return new Map(entries);
+	return new Map(
+		entries.filter((entry): entry is [string, string] => entry !== null),
+	);
 }
 
 /**
@@ -113,9 +162,8 @@ export async function copyAssetsIntoProject(args: {
  * the move never completes with a half-copied, silently-broken media set).
  */
 async function copyOneAsset(
-	row: MediaAssetRecord & { kind: MediaKind },
+	row: MediaAssetRecord,
 	args: {
-		appId: string;
 		fromProjectId: string;
 		toProjectId: string;
 		actorUserId: string;
@@ -124,38 +172,46 @@ async function copyOneAsset(
 	let lastErr: unknown;
 	for (let attempt = 1; attempt <= MAX_COPY_ATTEMPTS; attempt++) {
 		try {
-			// Dedup: an identical-bytes asset already in the destination (a prior
-			// move, or another app uploaded the file there) is reused — no copy.
-			const existing = await findReadyAssetByProjectAndHash(
-				args.toProjectId,
-				row.contentHash,
-			);
-			if (existing) return [row.id, existing.id];
-
 			const destKey = gcsObjectKeyFor(
 				args.toProjectId,
 				row.contentHash,
 				row.extension,
 			);
-			await copyAssetObject(row.gcsObjectKey, destKey);
-			const { assetId } = await createReadyAsset({
-				owner: args.actorUserId,
-				project_id: args.toProjectId,
-				contentHash: row.contentHash,
-				mimeType: row.mimeType,
-				kind: row.kind,
-				extension: row.extension,
-				sizeBytes: row.sizeBytes,
-				gcsObjectKey: destKey,
-				originalFilename: row.originalFilename,
-				displayName: row.displayName,
-				dimensions: row.dimensions,
-				durationMs: row.durationMs,
-				// Born referencing the moving app so the deletion guard protects it
-				// even if a crash kills the post-commit syncMediaReferences.
-				referencingAppIds: [args.appId],
+			return await withMediaObjectKeyLock(destKey, async (lockedDb) => {
+				// Re-check dedup under the key lock. A browser/MCP upload or another
+				// move can have published between the pre-copy scan and this asset.
+				const existing = await findReadyAssetByProjectAndHash(
+					args.toProjectId,
+					row.contentHash,
+					lockedDb,
+				);
+				if (existing) {
+					await copyReadyExtractToExisting(row, existing, lockedDb);
+					return [row.id, existing.id];
+				}
+
+				await copyAssetObject(row.gcsObjectKey, destKey);
+				await copyReadyExtractObject(row, args.toProjectId);
+				const { assetId } = await createReadyAsset(
+					{
+						owner: args.actorUserId,
+						project_id: args.toProjectId,
+						contentHash: row.contentHash,
+						mimeType: row.mimeType,
+						kind: row.kind,
+						extension: row.extension,
+						sizeBytes: row.sizeBytes,
+						gcsObjectKey: destKey,
+						originalFilename: row.originalFilename,
+						displayName: row.displayName,
+						dimensions: row.dimensions,
+						durationMs: row.durationMs,
+						extract: row.extract,
+					},
+					lockedDb,
+				);
+				return [row.id, assetId];
 			});
-			return [row.id, assetId];
 		} catch (err) {
 			lastErr = err;
 			if (attempt < MAX_COPY_ATTEMPTS) {
@@ -175,4 +231,42 @@ async function copyOneAsset(
 		},
 	);
 	throw new MediaCopyFailedError(row.id, { cause: lastErr });
+}
+
+async function copyReadyExtractObject(
+	source: MediaAssetRecord,
+	toProjectId: string,
+): Promise<void> {
+	if (source.extract?.status !== "ready") return;
+	const sourceKey = extractObjectKeyForAsset(source);
+	if (sourceKey === null) return;
+	const destinationKey = extractGcsObjectKeyFor(
+		toProjectId,
+		source.contentHash,
+		source.extract.version,
+	);
+	await copyAssetObject(sourceKey, destinationKey);
+}
+
+async function copyReadyExtractToExisting(
+	source: MediaAssetRecord,
+	destination: MediaAssetRecord,
+	lockedDb: Parameters<typeof installCopiedReadyExtract>[1],
+): Promise<void> {
+	const sourceExtract = source.extract;
+	if (sourceExtract?.status !== "ready") return;
+	if (
+		destination.extract?.status === "ready" &&
+		destination.extract.version > sourceExtract.version
+	) {
+		return;
+	}
+	await copyReadyExtractObject(source, destination.project_id);
+	await installCopiedReadyExtract(
+		{
+			assetId: destination.id,
+			extract: sourceExtract,
+		},
+		lockedDb,
+	);
 }

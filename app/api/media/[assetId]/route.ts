@@ -21,13 +21,11 @@ import type { NextRequest } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
-import { listReferencingAppIds, loadAssetById } from "@/lib/db/mediaAssets";
+import { loadAssetById } from "@/lib/db/mediaAssets";
+import { deleteMediaAssetForActor } from "@/lib/db/mediaDeletion";
 import { asAssetId, extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import {
-	findAppReferencesToAsset,
-	purgeAssetStorage,
-} from "@/lib/media/assetDeletion";
+import { purgeAssetStorage } from "@/lib/media/assetDeletion";
 import { getStoredObjectSize, streamAsset } from "@/lib/storage/media";
 
 export async function GET(
@@ -145,25 +143,31 @@ export async function DELETE(
 			);
 		}
 
-		// Reference guard: refuse if any live app in the asset's PROJECT still uses
-		// it. `listReferencingAppIds` reads the `media_asset_refs` reverse index —
-		// the candidate set the guard re-walks, so it loads 0–2 apps instead of the
-		// Project's whole app list.
-		const references = await findAppReferencesToAsset(
-			asset.project_id,
-			assetId,
-			await listReferencingAppIds(assetId),
-		);
-		if (references.length > 0) {
+		const deleted = await purgeAssetStorage(asset, {
+			alsoDeleteForAsset: (deletedAsset) => [
+				extractObjectKeyForAsset(deletedAsset),
+			],
+			deleteRow: async () => {
+				const result = await deleteMediaAssetForActor({
+					assetId,
+					actorUserId: session.user.id,
+					expectedProjectId: asset.project_id,
+				});
+				if (result.kind === "referenced") {
+					throw new ApiError(
+						`Can't delete this file — it's still used by ${result.references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
+						409,
+					);
+				}
+				return result.kind === "deleted" ? result.asset : false;
+			},
+		});
+		if (!deleted) {
 			throw new ApiError(
-				`Can't delete this file — it's still used by ${references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
-				409,
+				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
+				404,
 			);
 		}
-
-		await purgeAssetStorage(asset, {
-			alsoDelete: [extractObjectKeyForAsset(asset)],
-		});
 
 		return new Response(null, { status: 204 });
 	} catch (err) {

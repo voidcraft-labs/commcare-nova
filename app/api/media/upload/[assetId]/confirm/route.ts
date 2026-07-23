@@ -27,7 +27,6 @@ import {
 	confirmAssetReady,
 	deleteAsset as deleteAssetRow,
 	findReadyAssetByProjectAndHash,
-	hasOtherAssetForGcsObjectKey,
 	loadAssetById,
 	type MediaAssetRecord,
 	toWireMediaAsset,
@@ -38,13 +37,14 @@ import {
 	gcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
+import { cleanupReleasedAssetStorage } from "@/lib/media/assetDeletion";
 import { validateMediaBytes } from "@/lib/media/validate";
 import {
 	copyAssetObject,
-	deleteAsset as deleteGcsObject,
 	downloadAssetBytes,
 	getStoredObjectSize,
 } from "@/lib/storage/media";
+import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 
 export async function POST(
 	req: NextRequest,
@@ -123,22 +123,6 @@ export async function POST(
 			throw new ApiError(result.message, 400);
 		}
 
-		// Collapse a dedup race. Two concurrent uploads of identical
-		// bytes both miss the initiate-time dedup probe (neither is
-		// `ready` yet). If a sibling already flipped to `ready`, drop
-		// this pending row and return the sibling, so the library never
-		// shows the same asset twice. Simultaneous double-confirm can
-		// still leave two ready rows, but both point at identical final
-		// bytes and the deletion path checks for shared object keys.
-		const sibling = await findReadyAssetByProjectAndHash(
-			asset.project_id,
-			asset.contentHash,
-		);
-		if (sibling && sibling.id !== assetId) {
-			await deleteRejectedUpload(asset);
-			return NextResponse.json({ ok: true, asset: toWireMediaAsset(sibling) });
-		}
-
 		// Key the final object off the VALIDATED mimeType/extension, not the
 		// pending row's. For media the two agree, but a document's browser
 		// MIME is unreliable: a `.md` initiated as `text/plain` lands with a
@@ -150,25 +134,57 @@ export async function POST(
 			result.validated.contentHash,
 			result.validated.extension,
 		);
-		let pendingObjectToDelete: string | null = null;
-		if (asset.gcsObjectKey !== finalGcsObjectKey) {
-			await copyAssetObject(asset.gcsObjectKey, finalGcsObjectKey);
-			pendingObjectToDelete = asset.gcsObjectKey;
+		const publication = await withMediaObjectKeyLock(
+			finalGcsObjectKey,
+			async (lockedDb) => {
+				// Re-check dedup while holding the same key lock every publisher and
+				// last-reference cleanup uses. Exactly one simultaneous confirm wins.
+				const sibling = await findReadyAssetByProjectAndHash(
+					asset.project_id,
+					asset.contentHash,
+					lockedDb,
+				);
+				if (sibling && sibling.id !== assetId) {
+					// Commit the losing pending-row deletion while the winning ready
+					// metadata is protected by the canonical key lock. Its old object is
+					// cleaned only after this lock is released below, avoiding recursive
+					// acquisition when a legacy pending row already used the final key.
+					await deleteAssetRow(asset.id, lockedDb);
+					return { kind: "deduped" as const, sibling };
+				}
+				if (asset.gcsObjectKey !== finalGcsObjectKey) {
+					await copyAssetObject(asset.gcsObjectKey, finalGcsObjectKey);
+				}
+				await confirmAssetReady(
+					{
+						assetId,
+						gcsObjectKey: finalGcsObjectKey,
+						mimeType: result.validated.mimeType,
+						extension: result.validated.extension,
+						dimensions: result.validated.dimensions,
+						durationMs: result.validated.durationMs,
+					},
+					lockedDb,
+				);
+				return { kind: "published" as const };
+			},
+		);
+		if (publication.kind === "deduped") {
+			await cleanupReleasedAssetStorage(asset).catch((err: unknown) => {
+				log.error("[media:confirm] deduped-object cleanup failed", err, {
+					assetId,
+					gcsObjectKey: asset.gcsObjectKey,
+				});
+			});
+			return NextResponse.json({
+				ok: true,
+				asset: toWireMediaAsset(publication.sibling),
+			});
 		}
-
-		await confirmAssetReady({
-			assetId,
-			gcsObjectKey: finalGcsObjectKey,
-			// The validator may refine mimeType/extension from the pending
-			// row's create-time guess (see above) — write the authoritative
-			// values so the row matches the stored bytes.
-			mimeType: result.validated.mimeType,
-			extension: result.validated.extension,
-			dimensions: result.validated.dimensions,
-			durationMs: result.validated.durationMs,
-		});
+		const pendingObjectToDelete =
+			asset.gcsObjectKey === finalGcsObjectKey ? null : asset.gcsObjectKey;
 		if (pendingObjectToDelete) {
-			await deleteGcsObject(pendingObjectToDelete).catch((err: unknown) => {
+			await cleanupReleasedAssetStorage(asset).catch((err: unknown) => {
 				log.error("[media:confirm] pending-object cleanup failed", err, {
 					assetId,
 					gcsObjectKey: pendingObjectToDelete,
@@ -211,19 +227,11 @@ export async function POST(
  * intact for the sibling.
  */
 async function deleteRejectedUpload(asset: MediaAssetRecord): Promise<void> {
-	const shared = await hasOtherAssetForGcsObjectKey(
-		asset.gcsObjectKey,
-		asset.id,
-	).catch((err: unknown) => {
-		log.error("[media:confirm] shared-object check failed", err, {
+	await deleteAssetRow(asset.id);
+	await cleanupReleasedAssetStorage(asset).catch((err: unknown) => {
+		log.error("[media:confirm] rejected-object cleanup failed", err, {
 			assetId: asset.id,
 			gcsObjectKey: asset.gcsObjectKey,
 		});
-		// Fail closed on bytes deletion: if we cannot prove the object is
-		// unshared, leave it behind and delete only the invalid row.
-		return true;
 	});
-	const deletions: Promise<unknown>[] = [deleteAssetRow(asset.id)];
-	if (!shared) deletions.push(deleteGcsObject(asset.gcsObjectKey));
-	await Promise.allSettled(deletions);
 }

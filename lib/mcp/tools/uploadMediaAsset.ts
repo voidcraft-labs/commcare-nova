@@ -45,6 +45,7 @@ import {
 } from "@/lib/domain/multimedia";
 import { validateMediaBytes } from "@/lib/media/validate";
 import { uploadAssetBytes } from "@/lib/storage/media";
+import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -161,58 +162,70 @@ export function registerUploadMediaAsset(
 				 * `ensurePersonalProject`). */
 				const project = await ensurePersonalProject(ctx.userId);
 
-				/* Dedup against the Project library on the validated content
-				 * hash. A re-upload of bytes already present as a `ready`
-				 * asset returns that asset's id and skips the store entirely
-				 * — same dedup the HTTP initiate route does, just after
-				 * validation instead of before (the MCP path has no
-				 * client-computed hash to probe with up front). */
-				const existing = await findReadyAssetByProjectAndHash(
-					project,
-					validated.contentHash,
-				);
-				if (existing) {
-					return successResult(existing.id, validated.kind, true);
-				}
-
-				/* New blob. Write the GCS object first, then the asset row,
-				 * then flip it `ready` with the validated dimensions /
-				 * duration. The HTTP flow splits store (signed PUT) from
-				 * confirm (re-validate); here there's no client round trip,
-				 * so both collapse into one server-side pass against the
-				 * already-validated bytes. */
 				const gcsObjectKey = gcsObjectKeyFor(
 					project,
 					validated.contentHash,
 					validated.extension,
 				);
-				await uploadAssetBytes({
+				const publication = await withMediaObjectKeyLock(
 					gcsObjectKey,
-					bytes,
-					contentType: validated.mimeType,
-				});
-				const pending = await createPendingAsset({
-					owner: ctx.userId,
-					project_id: project,
-					contentHash: validated.contentHash,
-					mimeType: validated.mimeType,
-					kind: validated.kind,
-					extension: validated.extension,
-					sizeBytes: validated.sizeBytes,
-					gcsObjectKey,
-					originalFilename: args.filename,
-				});
-				await confirmAssetReady({
-					assetId: pending.assetId,
-					...(validated.dimensions !== undefined && {
-						dimensions: validated.dimensions,
-					}),
-					...(validated.durationMs !== undefined && {
-						durationMs: validated.durationMs,
-					}),
-				});
+					async (lockedDb) => {
+						/* Re-check dedup while holding the same canonical-key lock as
+						 * browser confirm, Project-copy publication, and last-reference
+						 * cleanup. Exactly one same-content publisher stores bytes and
+						 * commits ready metadata; every waiter observes that winner. */
+						const existing = await findReadyAssetByProjectAndHash(
+							project,
+							validated.contentHash,
+							lockedDb,
+						);
+						if (existing) {
+							return { kind: "deduplicated" as const, assetId: existing.id };
+						}
 
-				return successResult(pending.assetId, validated.kind, false);
+						/* The lock spans object publication through the committed ready
+						 * row. A cleanup for this key can run only before both (and the
+						 * upload restores the bytes) or after both (and sees metadata). */
+						await uploadAssetBytes({
+							gcsObjectKey,
+							bytes,
+							contentType: validated.mimeType,
+						});
+						const pending = await createPendingAsset(
+							{
+								owner: ctx.userId,
+								project_id: project,
+								contentHash: validated.contentHash,
+								mimeType: validated.mimeType,
+								kind: validated.kind,
+								extension: validated.extension,
+								sizeBytes: validated.sizeBytes,
+								gcsObjectKey,
+								originalFilename: args.filename,
+							},
+							lockedDb,
+						);
+						await confirmAssetReady(
+							{
+								assetId: pending.assetId,
+								...(validated.dimensions !== undefined && {
+									dimensions: validated.dimensions,
+								}),
+								...(validated.durationMs !== undefined && {
+									durationMs: validated.durationMs,
+								}),
+							},
+							lockedDb,
+						);
+						return { kind: "published" as const, assetId: pending.assetId };
+					},
+				);
+
+				return successResult(
+					publication.assetId,
+					validated.kind,
+					publication.kind === "deduplicated",
+				);
 			} catch (err) {
 				return toMcpErrorResult(err, { userId: ctx.userId });
 			}

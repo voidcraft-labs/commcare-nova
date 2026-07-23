@@ -519,12 +519,25 @@ edit holder; a replacement or reap is a clean no-op.
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required
 `expectedProjectId` → reauth against the fresh row (owner fallback for
-null-Project apps) → media expectations re-checked against
-rows read `FOR SHARE` → assemble + hydrate the fresh doc →
+null-Project apps) → assemble + hydrate the fresh doc →
 `batchTargetsMissing` → re-run verdict → literal `seq + 1` → entity-row diff
 write + the permanent stream row + the in-commit NOTIFY. The per-commit edit
 lease refresh rides the same transaction when the committing run owns the
-lock.
+lock. Before any blueprint write, it computes newly introduced real media refs,
+locks their rows sorted `FOR SHARE`, rechecks Project/readiness plus explicit
+slot expectations, and inserts exact `media_asset_refs` edges in that SAME
+transaction. Atomic creation and `appendSyntheticBatch` apply the identical
+admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
+
+**Media deletion is one authoritative transaction.**
+`mediaDeletion.ts` takes the shared membership gate, freshly proves Project
+`edit`, locks the asset `FOR UPDATE`, then re-walks live persisted carriers
+without taking app locks and deletes metadata only when the result is empty.
+Until `media_reference_index_state.audited_complete_at` is stamped by an audited
+backfill, it scans every live app in the asset Project; afterward the exact index
+may narrow candidates. This lock conflicts with the introduced-ref share lock,
+so attach/delete has two safe winner orders. Object cleanup is post-commit and
+serialized with every publisher by the canonical GCS-key session advisory lock.
 
 ## Period leaf
 

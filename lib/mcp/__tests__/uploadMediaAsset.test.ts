@@ -28,6 +28,7 @@ const {
 	confirmAssetReady,
 	uploadAssetBytes,
 	ensurePersonalProject,
+	withMediaObjectKeyLock,
 } = vi.hoisted(() => ({
 	validateMediaBytes: vi.fn(),
 	findReadyAssetByProjectAndHash: vi.fn(),
@@ -36,6 +37,10 @@ const {
 	uploadAssetBytes: vi.fn(() => Promise.resolve()),
 	// The MCP upload is app-less — it lands in the caller's personal Project.
 	ensurePersonalProject: vi.fn(() => Promise.resolve("project-1")),
+	withMediaObjectKeyLock: vi.fn(
+		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
+			body({ pinned: true }),
+	),
 }));
 
 vi.mock("@/lib/media/validate", () => ({
@@ -51,6 +56,9 @@ vi.mock("@/lib/storage/media", () => ({
 }));
 vi.mock("@/lib/auth/provisionProject", () => ({
 	ensurePersonalProject,
+}));
+vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
+	withMediaObjectKeyLock,
 }));
 
 const toolCtx: ToolContext = {
@@ -104,10 +112,17 @@ describe("uploadMediaAsset", () => {
 		expect(payload.kind).toBe("image");
 		expect(payload.deduplicated).toBe(false);
 		expect(uploadAssetBytes).toHaveBeenCalledOnce();
-		expect(confirmAssetReady).toHaveBeenCalledWith({
-			assetId: "new-asset-id",
-			dimensions: { width: 10, height: 10 },
-		});
+		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
+			"projects/project-1/deadbeef.png",
+			expect.any(Function),
+		);
+		expect(confirmAssetReady).toHaveBeenCalledWith(
+			{
+				assetId: "new-asset-id",
+				dimensions: { width: 10, height: 10 },
+			},
+			expect.anything(),
+		);
 	});
 
 	it("returns the existing asset on a content-hash dedup hit", async () => {

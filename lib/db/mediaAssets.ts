@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { type Selectable, sql, type Transaction } from "kysely";
+import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import {
 	type AssetId,
 	type AssetKind,
@@ -43,7 +43,9 @@ import {
 export type MediaAssetRecord = MediaAssetDoc & { id: AssetId };
 
 /** Assemble a `media_assets` row into the in-memory `MediaAssetRecord`. */
-function toRecord(row: Selectable<MediaAssetsTable>): MediaAssetRecord {
+export function mediaAssetRecordFromRow(
+	row: Selectable<MediaAssetsTable>,
+): MediaAssetRecord {
 	return {
 		id: asAssetId(row.id),
 		project_id: row.project_id,
@@ -161,24 +163,30 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
  * referenced by no app (no `media_asset_refs` rows), so the deletion guard
  * reads an empty candidate set from the start.
  */
-export async function createPendingAsset(args: {
-	owner: string;
-	/** The Project the asset belongs to (the tenant) — the app's Project for an
-	 *  app upload, else the uploader's active Project. Gates every later read. */
-	project_id: string;
-	contentHash: string;
-	mimeType: AssetMimeType;
-	kind: AssetKind;
-	extension: string;
-	sizeBytes: number;
-	gcsObjectKey?: string;
-	originalFilename: string;
-}): Promise<{ assetId: AssetId; gcsObjectKey: string }> {
+export async function createPendingAsset(
+	args: {
+		owner: string;
+		/** The Project the asset belongs to (the tenant) — the app's Project for an
+		 *  app upload, else the uploader's active Project. Gates every later read. */
+		project_id: string;
+		contentHash: string;
+		mimeType: AssetMimeType;
+		kind: AssetKind;
+		extension: string;
+		sizeBytes: number;
+		gcsObjectKey?: string;
+		originalFilename: string;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<{
+	assetId: AssetId;
+	gcsObjectKey: string;
+}> {
 	const assetId = asAssetId(randomUUID());
 	const gcsObjectKey =
 		args.gcsObjectKey ??
 		pendingGcsObjectKeyFor(args.project_id, assetId, args.extension);
-	const db = await getAppDb();
+	const db = lockedDb ?? (await getAppDb());
 	await db
 		.insertInto("media_assets")
 		.values({
@@ -216,15 +224,18 @@ export async function createPendingAsset(args: {
  * harmless no-op. `sizeBytes` is the one field that can't change — the validator
  * hard-rejects any byte-length mismatch against the claim before this runs.
  */
-export async function confirmAssetReady(args: {
-	assetId: AssetId;
-	gcsObjectKey?: string;
-	mimeType?: AssetMimeType;
-	extension?: string;
-	dimensions?: { width: number; height: number };
-	durationMs?: number;
-}): Promise<void> {
-	const db = await getAppDb();
+export async function confirmAssetReady(
+	args: {
+		assetId: AssetId;
+		gcsObjectKey?: string;
+		mimeType?: AssetMimeType;
+		extension?: string;
+		dimensions?: { width: number; height: number };
+		durationMs?: number;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<void> {
+	const db = lockedDb ?? (await getAppDb());
 	const result = await db
 		.updateTable("media_assets")
 		.set({
@@ -262,30 +273,30 @@ export async function confirmAssetReady(args: {
  * validated (they are a server-side GCS copy of an existing `ready` asset), so
  * this skips the pending→confirm dance browser uploads need and writes the
  * final row directly: no lingering `pending` intermediate to strand on a crash.
- * The caller passes `referencingAppIds` (the moving app) so the copy is born
- * already reverse-indexed — if the process dies after the flip commits but
- * before the post-commit `syncMediaReferences`, the copy still reads as
- * referenced and the deletion guard protects it (an empty ref set would let a
- * co-member delete a live-referenced copy). The row + its ref edges commit in
- * one transaction. Returns the new `assetId`.
+ * This pre-copy step deliberately creates no app reference; the final app-move
+ * transaction revalidates the destination row and inserts the exact edge only
+ * when the blueprint/thread remap and Project flip commit. Returns the new id.
  */
-export async function createReadyAsset(args: {
-	owner: string;
-	project_id: string;
-	contentHash: string;
-	mimeType: AssetMimeType;
-	kind: AssetKind;
-	extension: string;
-	sizeBytes: number;
-	gcsObjectKey: string;
-	originalFilename: string;
-	displayName?: string;
-	dimensions?: { width: number; height: number };
-	durationMs?: number;
-	referencingAppIds?: readonly string[];
-}): Promise<{ assetId: AssetId }> {
+export async function createReadyAsset(
+	args: {
+		owner: string;
+		project_id: string;
+		contentHash: string;
+		mimeType: AssetMimeType;
+		kind: AssetKind;
+		extension: string;
+		sizeBytes: number;
+		gcsObjectKey: string;
+		originalFilename: string;
+		displayName?: string;
+		dimensions?: { width: number; height: number };
+		durationMs?: number;
+		extract?: MediaAssetExtract;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<{ assetId: AssetId }> {
 	const assetId = asAssetId(randomUUID());
-	await withAppTx(async (tx) => {
+	const insert = async (tx: Transaction<AppDatabase>) => {
 		await tx
 			.insertInto("media_assets")
 			.values({
@@ -304,20 +315,72 @@ export async function createReadyAsset(args: {
 					dimensions: JSON.stringify(args.dimensions),
 				}),
 				...(args.durationMs !== undefined && { duration_ms: args.durationMs }),
+				...(args.extract !== undefined && {
+					extract: JSON.stringify(args.extract),
+				}),
 				status: "ready",
 				created_at: new Date(),
 			})
 			.execute();
-		const appIds = [...new Set(args.referencingAppIds ?? [])];
-		if (appIds.length > 0) {
-			await tx
-				.insertInto("media_asset_refs")
-				.values(appIds.map((appId) => ({ asset_id: assetId, app_id: appId })))
-				.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
-				.execute();
-		}
-	});
+	};
+	if (lockedDb) {
+		await lockedDb.transaction().execute(insert);
+	} else {
+		await withAppTx(insert);
+	}
 	return { assetId };
+}
+
+/**
+ * Publish a copied ready document extract onto an existing deduplicated asset.
+ * The caller has already copied the content-addressed extract object while
+ * holding the destination asset's canonical object-key lock. Preserve an
+ * existing ready extract at the same/newer version; otherwise make the copied
+ * ready metadata visible in the same critical section.
+ */
+export async function installCopiedReadyExtract(
+	args: {
+		assetId: AssetId;
+		extract: MediaAssetExtract;
+	},
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<void> {
+	if (args.extract.status !== "ready") {
+		throw new Error(
+			"[installCopiedReadyExtract] only a ready source extract may be published.",
+		);
+	}
+	const install = async (tx: Transaction<AppDatabase>) => {
+		const row = await tx
+			.selectFrom("media_assets")
+			.select("extract")
+			.where("id", "=", args.assetId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) {
+			throw new Error(
+				`[installCopiedReadyExtract] destination asset row missing for assetId=${args.assetId}.`,
+			);
+		}
+		const current =
+			row.extract === null ? null : mediaAssetExtractSchema.parse(row.extract);
+		if (
+			current?.status === "ready" &&
+			current.version >= args.extract.version
+		) {
+			return;
+		}
+		await tx
+			.updateTable("media_assets")
+			.set({ extract: JSON.stringify(args.extract) })
+			.where("id", "=", args.assetId)
+			.execute();
+	};
+	if (lockedDb) {
+		await lockedDb.transaction().execute(install);
+	} else {
+		await withAppTx(install);
+	}
 }
 
 /**
@@ -409,19 +472,19 @@ export async function claimExtractionIfIdle(
  * storage, so a row delete must not blindly remove the object out from under a
  * sibling.
  *
- * This closes the common shared-bytes case, not a transactional one: a delete
- * racing a same-bytes re-upload that promotes to the final key AFTER this check
- * can still leave the new row pointing at deleted bytes (no Postgres↔GCS
- * transaction spans the two layers). The window is narrow and the broken
- * reference is recoverable by re-upload; callers fail closed — a query throw is
- * treated as "shared" so bytes are retained — which keeps the conservative
- * choice the default.
+ * Correct callers invoke this only while holding the canonical object-key
+ * session advisory lock, after the deleted metadata committed. Every publisher
+ * holds that same lock across object publication and committed ready metadata,
+ * so the re-read is the serialized last-reference decision even though GCS and
+ * Postgres do not share a transaction. A query failure still fails closed:
+ * retain bytes rather than risk another row's object.
  */
 export async function hasOtherAssetForGcsObjectKey(
 	gcsObjectKey: string,
 	excludeAssetId: AssetId,
+	lockedDb?: Kysely<AppDatabase>,
 ): Promise<boolean> {
-	const db = await getAppDb();
+	const db = lockedDb ?? (await getAppDb());
 	const row = await db
 		.selectFrom("media_assets")
 		.select("id")
@@ -445,8 +508,9 @@ export async function hasOtherAssetForGcsObjectKey(
 export async function findReadyAssetByProjectAndHash(
 	projectId: string,
 	contentHash: string,
+	lockedDb?: Kysely<AppDatabase>,
 ): Promise<MediaAssetRecord | null> {
-	const db = await getAppDb();
+	const db = lockedDb ?? (await getAppDb());
 	const row = await db
 		.selectFrom("media_assets")
 		.selectAll()
@@ -455,7 +519,7 @@ export async function findReadyAssetByProjectAndHash(
 		.where("status", "=", "ready")
 		.limit(1)
 		.executeTakeFirst();
-	return row ? toRecord(row) : null;
+	return row ? mediaAssetRecordFromRow(row) : null;
 }
 
 /**
@@ -473,7 +537,7 @@ export async function loadAssetById(
 		.selectAll()
 		.where("id", "=", assetId)
 		.executeTakeFirst();
-	return row ? toRecord(row) : null;
+	return row ? mediaAssetRecordFromRow(row) : null;
 }
 
 /**
@@ -504,7 +568,7 @@ export async function loadAssetsByIds(
 		.execute();
 	return rows
 		.filter((row) => row.project_id === projectId)
-		.map((row) => toRecord(row));
+		.map((row) => mediaAssetRecordFromRow(row));
 }
 
 /**
@@ -529,9 +593,10 @@ export async function getAssetsInTransaction(
 		.selectFrom("media_assets")
 		.selectAll()
 		.where("id", "in", unique)
+		.orderBy("id")
 		.forShare()
 		.execute();
-	for (const row of rows) out.set(row.id, toRecord(row));
+	for (const row of rows) out.set(row.id, mediaAssetRecordFromRow(row));
 	return out;
 }
 
@@ -603,7 +668,7 @@ export async function listReadyAssetsForProject(
 		);
 	}
 	const rows = await query.execute();
-	const assets = rows.map((row) => toRecord(row));
+	const assets = rows.map((row) => mediaAssetRecordFromRow(row));
 	const last = rows[rows.length - 1];
 	const nextCursor =
 		rows.length === LIBRARY_PAGE_SIZE && last
@@ -715,6 +780,26 @@ export async function addReferencingApp(
 }
 
 /**
+ * Persist newly introduced reverse edges on the authoritative app-write
+ * transaction. Callers must already hold every named asset `FOR SHARE` and
+ * have validated its Project/readiness; an FK failure therefore aborts the app
+ * write instead of silently leaving the completeness protocol behind.
+ */
+export async function addReferencingAppInTransaction(
+	tx: Transaction<AppDatabase>,
+	assetIds: readonly string[],
+	appId: string,
+): Promise<void> {
+	const unique = [...new Set(assetIds)].sort();
+	if (unique.length === 0) return;
+	await tx
+		.insertInto("media_asset_refs")
+		.values(unique.map((assetId) => ({ asset_id: assetId, app_id: appId })))
+		.onConflict((oc) => oc.columns(["asset_id", "app_id"]).doNothing())
+		.execute();
+}
+
+/**
  * The apps whose persisted blueprint has EVER referenced `assetId` — the asset's
  * reverse-index candidate set (`media_asset_refs`), read by the deletion guard
  * so it re-walks only the 0–2 candidates instead of the Project's whole app
@@ -739,7 +824,10 @@ export async function listReferencingAppIds(
  * refuses to call this if any reference is found. The `media_asset_refs` edges
  * cascade on the row delete.
  */
-export async function deleteAsset(assetId: AssetId): Promise<void> {
-	const db = await getAppDb();
+export async function deleteAsset(
+	assetId: AssetId,
+	lockedDb?: Kysely<AppDatabase>,
+): Promise<void> {
+	const db = lockedDb ?? (await getAppDb());
 	await db.deleteFrom("media_assets").where("id", "=", assetId).execute();
 }

@@ -108,7 +108,16 @@ import {
 	replaceLookupReferenceEdges,
 } from "./lookupReferenceEdges";
 import { declareLookupReferenceWriter } from "./lookupReferenceWriter";
-import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
+import {
+	addReferencingApp,
+	addReferencingAppInTransaction,
+	getAssetsInTransaction,
+	type MediaAssetRecord,
+} from "./mediaAssets";
+import {
+	deleteMediaAssetMetadataInTransaction,
+	MediaAssetStillReferencedError,
+} from "./mediaDeletion";
 import { getCurrentPeriod } from "./period";
 import {
 	type AppDatabase,
@@ -351,6 +360,65 @@ async function syncMediaReferences(
 	}
 }
 
+/**
+ * Lock, validate, and reverse-index every real asset reference a candidate
+ * newly introduces. The asset locks are sorted and held through the blueprint
+ * commit; deletion takes the conflicting `FOR UPDATE`, so exactly one side of
+ * attach-vs-delete wins and the loser re-evaluates fresh state.
+ */
+async function admitIntroducedMediaReferences(
+	tx: Transaction<AppDatabase>,
+	args: {
+		appId: string;
+		projectId: string | null;
+		previousDoc: BlueprintDoc | PersistableDoc;
+		candidateDoc: BlueprintDoc | PersistableDoc;
+		expectations?: readonly MediaAttachExpectation[];
+	},
+): Promise<void> {
+	const previous = new Set(
+		collectRealAssetRefs(asWalkableDoc(args.previousDoc)),
+	);
+	const candidate = collectRealAssetRefs(asWalkableDoc(args.candidateDoc));
+	const introduced = [
+		...new Set(candidate.filter((id) => !previous.has(id))),
+	].sort();
+	const idsToLock = [
+		...new Set([
+			...introduced,
+			...(args.expectations ?? []).map((entry) => entry.assetId),
+		]),
+	].sort();
+	if (idsToLock.length === 0) return;
+	if (args.projectId === null) {
+		throw new BlueprintCommitRejectedError(
+			"This app has no Project, so its media can't be verified. Reload and try again.",
+		);
+	}
+	const assets = await getAssetsInTransaction(tx, idsToLock);
+	if (args.expectations && args.expectations.length > 0) {
+		const failure = describeMediaExpectationFailures(
+			args.expectations,
+			assets,
+			args.projectId,
+		);
+		if (failure !== null) throw new BlueprintCommitRejectedError(failure);
+	}
+	for (const assetId of introduced) {
+		const asset = assets.get(assetId);
+		if (
+			asset === undefined ||
+			asset.project_id !== args.projectId ||
+			asset.status !== "ready"
+		) {
+			throw new BlueprintCommitRejectedError(
+				"A media file this change attaches is no longer available in this Project. Choose it again and retry.",
+			);
+		}
+	}
+	await addReferencingAppInTransaction(tx, introduced, args.appId);
+}
+
 function hasLookupReferenceTargets(targets: LookupReferenceTargetSet): boolean {
 	return targets.tableIds.length > 0 || targets.columnTargets.length > 0;
 }
@@ -505,10 +573,9 @@ export async function withAuthorizedAppEditSideEffect<T>(
 /**
  * Delete one media metadata row for a live chat run under the same app-row,
  * authorization, Project, and holder fence used by blueprint side effects.
- * The reference scan remains an optimistic preflight (S02c3 owns its complete
- * attach/delete race protocol); this boundary guarantees only that an SA
- * process which lost its run cannot perform the irreversible row delete.
- * Object-store cleanup happens after this transaction commits.
+ * After the app/holder fence, the shared deletion core locks the asset,
+ * re-walks every relevant persisted carrier, and deletes metadata on this same
+ * transaction. Object-store cleanup happens only after commit.
  */
 export async function deleteMediaAssetForChatRun(args: {
 	appId: string;
@@ -516,7 +583,7 @@ export async function deleteMediaAssetForChatRun(args: {
 	actorUserId: string;
 	expectedProjectId: string;
 	holder: ChatRunHolderCapability;
-}): Promise<boolean> {
+}): Promise<MediaAssetRecord | false> {
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, args.appId);
 		if (!fresh) throw new CommitReauthError("App not found.");
@@ -535,12 +602,15 @@ export async function deleteMediaAssetForChatRun(args: {
 		) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
 		}
-		const result = await tx
-			.deleteFrom("media_assets")
-			.where("id", "=", args.assetId)
-			.where("project_id", "=", args.expectedProjectId)
-			.executeTakeFirst();
-		return result.numDeletedRows === BigInt(1);
+		const result = await deleteMediaAssetMetadataInTransaction(tx, {
+			assetId: args.assetId,
+			actorUserId: args.actorUserId,
+			expectedProjectId: args.expectedProjectId,
+		});
+		if (result.kind === "referenced") {
+			throw new MediaAssetStillReferencedError(result.references);
+		}
+		return result.kind === "deleted" ? result.asset : false;
 	});
 }
 
@@ -781,6 +851,12 @@ export async function createApp(
 				);
 			}
 		}
+		await admitIntroducedMediaReferences(tx, {
+			appId,
+			projectId,
+			previousDoc: emptyDoc,
+			candidateDoc: verdict.nextDoc,
+		});
 		await replaceLookupReferenceEdges(tx, {
 			appId,
 			projectId,
@@ -1085,25 +1161,6 @@ export async function commitGuardedBatch(
 					deduped: true,
 				};
 			}
-			// Media-attach expectations re-check — the asset rows are read FOR
-			// SHARE so a racing delete serializes against this commit.
-			if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
-				if (!fresh.project_id) {
-					throw new BlueprintCommitRejectedError(
-						"This app has no Project, so its media can't be verified. Reload and try again.",
-					);
-				}
-				const rows = await getAssetsInTransaction(
-					tx,
-					mediaExpectations.map((e) => e.assetId),
-				);
-				const failure = describeMediaExpectationFailures(
-					mediaExpectations,
-					rows,
-					fresh.project_id,
-				);
-				if (failure !== null) throw new BlueprintCommitRejectedError(failure);
-			}
 			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
 			const freshDoc = hydratePersistedBlueprint(freshPersistable);
 			assertDeterministicPersistedMutations(mutations);
@@ -1192,6 +1249,13 @@ export async function commitGuardedBatch(
 			}
 			const seq = Number(fresh.mutation_seq) + 1;
 			const persistable = toPersistableDoc(verdict.nextDoc);
+			await admitIntroducedMediaReferences(tx, {
+				appId,
+				projectId: fresh.project_id,
+				previousDoc: freshDoc,
+				candidateDoc: verdict.nextDoc,
+				expectations: mediaExpectations,
+			});
 			/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
 			 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
 			 * the edit lock (through the one liveness reader). */
@@ -1425,6 +1489,12 @@ export async function appendSyntheticBatch(
 		}
 		const persistable = toPersistableDoc(verdict.nextDoc);
 		const seq = Number(fresh.mutation_seq) + 1;
+		await admitIntroducedMediaReferences(tx, {
+			appId: args.appId,
+			projectId: fresh.project_id,
+			previousDoc,
+			candidateDoc: verdict.nextDoc,
+		});
 		await replaceLookupReferenceEdges(tx, {
 			appId: args.appId,
 			projectId: fresh.project_id,

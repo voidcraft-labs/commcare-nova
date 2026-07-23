@@ -31,6 +31,8 @@ const {
 	loadApp,
 	loadAppProjectId,
 	deleteMediaAssetForChatRun,
+	deleteMediaAssetForActor,
+	withMediaObjectKeyLock,
 } = vi.hoisted(() => ({
 	loadAssetById: vi.fn(),
 	listReferencingAppIds: vi.fn<() => Promise<string[]>>(() =>
@@ -45,6 +47,11 @@ const {
 	loadApp: vi.fn(),
 	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
 	deleteMediaAssetForChatRun: vi.fn(() => Promise.resolve(true)),
+	deleteMediaAssetForActor: vi.fn(),
+	withMediaObjectKeyLock: vi.fn(
+		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
+			body({ pinned: true }),
+	),
 }));
 
 vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
@@ -63,8 +70,15 @@ vi.mock("@/lib/db/apps", () => ({
 	loadAppProjectId,
 	deleteMediaAssetForChatRun,
 }));
+vi.mock("@/lib/db/mediaDeletion", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/mediaDeletion")>()),
+	deleteMediaAssetForActor,
+}));
 vi.mock("@/lib/storage/media", () => ({
 	deleteAsset: deleteGcsObject,
+}));
+vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
+	withMediaObjectKeyLock,
 }));
 
 beforeEach(() => {
@@ -75,6 +89,10 @@ beforeEach(() => {
 	// on the asset row — default to no other referencing app.
 	listReferencingAppIds.mockResolvedValue([]);
 	deleteMediaAssetForChatRun.mockResolvedValue(true);
+	deleteMediaAssetForActor.mockImplementation(async ({ assetId }) => ({
+		kind: "deleted",
+		asset: ownedAsset(assetId),
+	}));
 });
 
 /** Minimal owned asset row for the load mock. */
@@ -125,11 +143,17 @@ describe("removeMediaAsset", () => {
 		expect(hasOtherAssetForGcsObjectKey).toHaveBeenCalledWith(
 			"projects/project-1/free-asset.png",
 			"free-asset",
+			expect.anything(),
 		);
 		expect(deleteGcsObject).toHaveBeenCalledWith(
 			"projects/project-1/free-asset.png",
 		);
-		expect(deleteAssetRow).toHaveBeenCalledWith("free-asset");
+		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
+			assetId: "free-asset",
+			actorUserId: ctx.userId,
+			expectedProjectId: "project-1",
+		});
+		expect(deleteAssetRow).not.toHaveBeenCalled();
 	});
 
 	it("deletes only the row when another asset shares the same GCS object", async () => {
@@ -146,7 +170,12 @@ describe("removeMediaAsset", () => {
 		if ("error" in result.data) {
 			throw new Error(`unexpected error: ${result.data.error}`);
 		}
-		expect(deleteAssetRow).toHaveBeenCalledWith("shared-asset");
+		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
+			assetId: "shared-asset",
+			actorUserId: ctx.userId,
+			expectedProjectId: "project-1",
+		});
+		expect(deleteAssetRow).not.toHaveBeenCalled();
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
@@ -256,6 +285,26 @@ describe("removeMediaAsset", () => {
 		expect(loadApp).toHaveBeenCalledWith("other-app");
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 		expect(deleteAssetRow).not.toHaveBeenCalled();
+	});
+
+	it("refuses when the authoritative delete re-walk catches a late attach", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		loadAssetById.mockResolvedValue(ownedAsset("raced-asset"));
+		deleteMediaAssetForActor.mockResolvedValue({
+			kind: "referenced",
+			references: ['"Racing App" (app-2) on the app logo'],
+		});
+
+		const result = await removeMediaAssetTool.execute(
+			{ assetId: "raced-asset" },
+			ctx,
+			doc,
+		);
+
+		expect(result.data).toMatchObject({
+			error: expect.stringContaining("Racing App"),
+		});
+		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
 	it("returns a not-found message for a missing asset", async () => {
