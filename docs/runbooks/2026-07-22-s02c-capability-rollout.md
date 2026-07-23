@@ -277,6 +277,103 @@ interrupt case endpoints while `cases` moves schemas. Fix forward if the new
 revision fails; no old revision is falsely advertised as a database-compatible
 rollback after ownership convergence.
 
+### One-time maintenance execution
+
+This dogfood cutover accepts a short case-endpoint outage; it does not contain a
+traffic-drain switch. Do not improvise an IAM or load-balancer deny rule: the
+public service sits behind the existing load balancer, and changing invocation
+policy without separately verified topology can block both users and Cloud
+Build's public probes. Schedule the merge, tell dogfood users not to start or
+edit apps during the window, and keep the window open until the triggered build
+and its public verification complete.
+
+Before merging, require both provisioning commands and the bootstrap above to
+exit zero. The bootstrap's final JSON must show:
+
+- `databaseOwner` = `nova-migrate@commcare-nova.iam`;
+- `publicSchemaOwner` = `pg_database_owner` (the database owner is its current
+  implicit member);
+- `migrationCanUseRuntime` = `true`;
+- `runtimeCanUseMigration` = `false`; and
+- `currentUserCanUseMigration` = `false` after the temporary administrator's
+  grant is removed.
+
+Record the current revision, merge during the announced window, then identify
+and stream the regional trigger build:
+
+```bash
+gcloud run services describe commcare-nova \
+  --project=commcare-nova \
+  --region=us-central1 \
+  --format='value(status.latestReadyRevisionName,status.traffic)'
+
+gcloud builds list \
+  --project=commcare-nova \
+  --region=us-central1 \
+  --sort-by='~createTime' \
+  --limit=5
+gcloud builds log BUILD_ID \
+  --project=commcare-nova \
+  --region=us-central1 \
+  --stream
+```
+
+The expected order is image push → successful `commcare-nova-migrate`
+execution → Ready new revision and standard traffic move → successful public
+main/docs/MCP probes. Between migration commit and the new revision taking
+traffic, the old revision does not know the second search-path schema; case
+requests may fail during precisely that accepted interval.
+
+After Cloud Build succeeds, run this read-only catalog check in Cloud SQL
+Studio and require the shown shape before ending maintenance:
+
+```sql
+SELECT namespace.nspname AS schema_name,
+       class.relname AS relation_name,
+       pg_catalog.pg_get_userbyid(class.relowner) AS owner
+FROM pg_catalog.pg_class AS class
+JOIN pg_catalog.pg_namespace AS namespace
+  ON namespace.oid = class.relnamespace
+WHERE class.relname IN ('cases', 'apps', 'auth_member',
+                        'deployment_rollouts')
+ORDER BY schema_name, relation_name;
+
+SELECT
+  pg_catalog.has_schema_privilege(
+    'commcare-nova@commcare-nova.iam', 'public', 'CREATE'
+  ) AS runtime_can_create_public,
+  pg_catalog.has_schema_privilege(
+    'commcare-nova@commcare-nova.iam',
+    'nova_case_runtime',
+    'CREATE'
+  ) AS runtime_can_create_case_schema;
+```
+
+`cases` must be the sole table in `nova_case_runtime` and owned by runtime;
+`apps`, `auth_member`, and `deployment_rollouts` must remain in `public` and be
+owned by migration. The two booleans must be `false, true`. Finally, require
+HTTP 200 from `https://commcare.app/` and `https://docs.commcare.app/`, plus the
+OAuth discovery 401 from the MCP probe already encoded in `cloudbuild.yaml`.
+
+Failure handling is deliberately small:
+
+- If the migration Job fails, its convergence transaction rolls back, including
+  the schema move. Fix the cause and rerun the same commit's regional trigger.
+- If migration succeeds but deploy or verification fails, maintenance remains
+  open and the old revision is not a valid rollback. Fix forward by rerunning
+  the same SHA (or landing a corrective SHA):
+
+  ```bash
+  gcloud builds triggers run 8d269c82-7de7-4b9f-a435-30b173f597b2 \
+    --project=commcare-nova \
+    --region=us-central1 \
+    --sha=MERGED_COMMIT_SHA
+  ```
+
+  Privilege convergence is idempotent after `cases` has moved. Do not manually
+  move it back or restore runtime `CREATE` on `public`; that would recreate the
+  owner-everything boundary this cutover removes.
+
 ## Safe verification
 
 These commands are read-only and require no Cloud access:

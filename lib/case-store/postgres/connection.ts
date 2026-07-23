@@ -111,6 +111,21 @@ export const POOL_MAX_PER_INSTANCE = 3;
 export const LISTENER_CONNECTIONS_PER_INSTANCE = 1;
 
 /**
+ * The one schema where the serving role may create objects. `cases` needs to
+ * remain runtime-owned because Phase B creates and drops indexes concurrently;
+ * isolating it keeps that unavoidable CREATE capability away from fixed,
+ * auth, and control objects in `public`.
+ *
+ * `public` stays first so migrations and Better Auth continue to create fixed
+ * objects there. After privilege convergence moves `cases`, existing
+ * unqualified queries resolve it from the second schema. Local databases skip
+ * convergence, leave `cases` in `public`, and use the same path.
+ */
+export const CASE_RUNTIME_SCHEMA = "nova_case_runtime";
+export const DATABASE_SEARCH_PATH = `public,${CASE_RUNTIME_SCHEMA}`;
+export const DATABASE_CONNECTION_OPTIONS = `-c search_path=${DATABASE_SEARCH_PATH}`;
+
+/**
  * Cap on how long a query waits to ACQUIRE a pooled connection before erroring.
  * Without it `pg.Pool` queues indefinitely; since the auth migration funnels a
  * per-request `isUserActive` read onto this small shared pool (which also serves
@@ -302,6 +317,7 @@ export function buildPoolConfig(
 		stream: clientOpts.stream,
 		user: env.NOVA_DB_USER,
 		database: env.NOVA_DB_NAME,
+		options: DATABASE_CONNECTION_OPTIONS,
 		max: POOL_MAX_PER_INSTANCE,
 		connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 	};
@@ -353,6 +369,7 @@ async function initialize(): Promise<CaseStoreHandles> {
 	if (localUrl !== undefined && localUrl.length > 0) {
 		const pool = new Pool({
 			connectionString: localUrl,
+			options: DATABASE_CONNECTION_OPTIONS,
 			max: POOL_MAX_PER_INSTANCE,
 			connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 		});
@@ -435,7 +452,10 @@ export async function getCaseStorePool(): Promise<Pool> {
 export async function buildDedicatedClientConfig(): Promise<ClientConfig> {
 	const localUrl = process.env.NOVA_DB_LOCAL_URL;
 	if (localUrl !== undefined && localUrl.length > 0) {
-		return { connectionString: localUrl };
+		return {
+			connectionString: localUrl,
+			options: DATABASE_CONNECTION_OPTIONS,
+		};
 	}
 	const { connector } = await getHandles();
 	if (connector === null) {
@@ -456,6 +476,7 @@ export async function buildDedicatedClientConfig(): Promise<ClientConfig> {
 		stream: clientOpts.stream,
 		user: env.NOVA_DB_USER,
 		database: env.NOVA_DB_NAME,
+		options: DATABASE_CONNECTION_OPTIONS,
 	};
 }
 

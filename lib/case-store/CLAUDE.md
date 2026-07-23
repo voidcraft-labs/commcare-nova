@@ -607,6 +607,19 @@ stall. Build per-property/large-table indexes through the runtime
 `applySchemaChange` Phase-B path (`CREATE INDEX CONCURRENTLY`, no outer
 transaction), NOT a migration. Migrations are for the fixed base schema.
 
+Production privilege convergence moves `cases` (and its indexes) into the
+isolated `nova_case_runtime` schema. Every Nova connection uses search path
+`public,nova_case_runtime`, so existing unqualified queries remain valid while
+fixed/auth/control objects continue to resolve and be created in `public`.
+Runtime owns `cases` and has `CREATE` only on the isolated schema—the minimum
+PostgreSQL requires for Phase-B concurrent indexes. It never receives `CREATE`
+on `public`; migration owns that schema and every fixed object. Because
+PostgreSQL cannot grant index-only `CREATE`, convergence audits the schema's
+generic dependency inventory and rejects every persistent object except
+`cases`, its attached indexes and constraints, and its implicit row/array
+types. Local development skips role convergence, keeps `cases` in `public`, and
+the same search path still resolves it.
+
 ### Migration modules are immutable once applied
 
 Kysely's ledger records migration NAMES, not content hashes. So **never
@@ -631,11 +644,30 @@ node-only.
 Docker build (the Next standalone runner has no full node_modules, so
 kysely + pg + the Cloud SQL connector are inlined into one file). The
 Job reuses the app image with a `--command=node --args=migrate.cjs`
-override and mirrors the service's identity + network. It calls
+override under a dedicated migration identity on the service's network. It calls
 `getCaseStoreDatabase()`, so it connects through the SAME
-`@google-cloud/cloud-sql-connector` + IAM path the runtime uses — its
-env therefore wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME`
-/ `NOVA_DB_NAME` (the connector's inputs).
+`@google-cloud/cloud-sql-connector` + IAM path the runtime uses. Its connector
+env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
+`NOVA_DB_NAME`; privilege convergence additionally requires exactly
+`NOVA_MIGRATION_DB_USER` and `NOVA_RUNTIME_DB_USER`.
+
+The one-time bootstrap happens outside Nova: create both non-administrative
+database roles, make migration a member of runtime (never the reverse), and
+make the migration identity owner of the database before running this
+entrypoint. `public` remains owned by PostgreSQL's `pg_database_owner`, whose
+current member is the database owner, so migration is its effective owner
+without replacing that built-in role. Existing legacy objects must also be
+maintainable by migration; the one-way runtime membership covers the
+runtime-owned tables. Convergence deliberately does not create roles or
+transfer the database ownership it needs to authorize its own `REVOKE`,
+`GRANT`, and ownership changes.
+
+The first schema split is a maintenance cutover, not a rolling migration. The
+migration transaction moves `public.cases` before the new revision starts; an
+old revision without the two-schema search path cannot serve during that gap.
+Pause traffic for that one execution, verify convergence, then deploy the new
+runtime. There is no bridge, compatibility view, or database cutover journal;
+later deploys rerun the idempotent convergence normally.
 
 The same entrypoint also owns the **auth** schema: after the case-store
 migrations it runs Better Auth's own migrator (`getMigrations(...)
@@ -684,12 +716,11 @@ runtime verification gate — missing extensions surface as `function
 does not exist` failures at the first compiler-emitted query against
 them.
 
-`CREATE EXTENSION` requires `cloudsqlsuperuser` on production, and
-the migrate Job connects as the IAM-authenticated runtime SA which
-does not have superuser. So extensions install once at provisioning
-time under the `postgres` superuser, and schema migrations apply per
-deploy under the runtime SA. The testcontainer harness mirrors the
-same split.
+`CREATE EXTENSION` requires `cloudsqlsuperuser` on production, and the
+IAM-authenticated migration identity is intentionally non-administrative. So
+extensions install once at provisioning time under the `postgres` superuser,
+and schema migrations apply per deploy under the migration identity. The
+testcontainer harness mirrors the same split.
 
 ## Testcontainers harness
 

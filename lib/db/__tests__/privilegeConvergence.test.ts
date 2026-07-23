@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
 	assertDatabaseRolePolicy,
 	auditPublicTableInventory,
+	auditRuntimeCaseTableInventory,
 	classifyPublicTable,
 	type DatabasePrivilegeRoleConfig,
 	type DatabaseRoleFact,
@@ -12,7 +13,6 @@ import {
 const config: DatabasePrivilegeRoleConfig = {
 	migrationRole: "nova-migrate@commcare-nova.iam",
 	runtimeRole: "nova-runtime@commcare-nova.iam",
-	rolloutRole: "nova-rollout@commcare-nova.iam",
 };
 
 function role(name: string, patch: Partial<DatabaseRoleFact> = {}) {
@@ -30,9 +30,6 @@ const safeMembership = {
 	currentCanUseMigration: true,
 	migrationCanUseRuntime: true,
 	runtimeCanUseMigration: false,
-	runtimeCanUseRollout: false,
-	rolloutCanUseMigration: false,
-	rolloutCanUseRuntime: false,
 };
 
 describe("database privilege convergence contract", () => {
@@ -54,9 +51,14 @@ describe("database privilege convergence contract", () => {
 			readDatabasePrivilegeRoleConfig({
 				NOVA_MIGRATION_DB_USER: config.migrationRole,
 				NOVA_RUNTIME_DB_USER: config.runtimeRole,
-				NOVA_ROLLOUT_DB_USER: config.rolloutRole,
 			}),
 		).toEqual(config);
+		expect(() =>
+			readDatabasePrivilegeRoleConfig({
+				NOVA_MIGRATION_DB_USER: config.runtimeRole,
+				NOVA_RUNTIME_DB_USER: config.runtimeRole,
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_config_invalid" }));
 	});
 
 	test("classifies every migrated table and rejects unknown or missing tables", () => {
@@ -64,7 +66,7 @@ describe("database privilege convergence contract", () => {
 			...REQUIRED_PUBLIC_TABLES,
 			"atlas_schema_revisions",
 		]);
-		expect(audited).toContainEqual({
+		expect(auditRuntimeCaseTableInventory(["cases"])).toContainEqual({
 			name: "cases",
 			classification: "application",
 		});
@@ -80,18 +82,23 @@ describe("database privilege convergence contract", () => {
 			]),
 		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
 		expect(() =>
+			auditPublicTableInventory([...REQUIRED_PUBLIC_TABLES, "cases"]),
+		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
+		expect(() =>
 			auditPublicTableInventory(
 				REQUIRED_PUBLIC_TABLES.filter((name) => name !== "auth_member"),
 			),
 		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
+		expect(() => auditRuntimeCaseTableInventory([])).toThrowError(
+			expect.objectContaining({ code: "schema_inventory_drift" }),
+		);
+		expect(() =>
+			auditRuntimeCaseTableInventory(["cases", "runtime_shadow"]),
+		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
 	});
 
-	test("requires non-administrative, non-inheriting serving roles", () => {
-		const roles = [
-			role(config.migrationRole),
-			role(config.runtimeRole),
-			role(config.rolloutRole),
-		];
+	test("requires non-administrative roles with one-way migration membership", () => {
+		const roles = [role(config.migrationRole), role(config.runtimeRole)];
 		assertDatabaseRolePolicy(config, roles, safeMembership);
 		expect(() =>
 			assertDatabaseRolePolicy(
@@ -107,7 +114,13 @@ describe("database privilege convergence contract", () => {
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
-				rolloutCanUseRuntime: true,
+				runtimeCanUseMigration: true,
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				migrationCanUseRuntime: false,
 			}),
 		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
 	});

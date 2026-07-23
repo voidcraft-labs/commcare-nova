@@ -62,7 +62,7 @@ async function main(): Promise<void> {
 	// Migrations create objects before they can be classified. Re-audit and
 	// converge ownership/grants only after every schema owner has finished.
 	// Local dev opts out explicitly via NOVA_DB_LOCAL_URL; production missing
-	// any of the three stage identities fails the migration job closed.
+	// either the migration or runtime identity fails the migration job closed.
 	const privilegeRoles = readDatabasePrivilegeRoleConfig();
 	if (privilegeRoles === null) {
 		console.log(

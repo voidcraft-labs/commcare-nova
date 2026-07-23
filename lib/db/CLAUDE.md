@@ -123,9 +123,15 @@ lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
 advisory gate (ordinary table locks still apply). Existing-app protocols lock
 the app first, while creation is the only shared-gate-first exception. This serializes
 missing rows and zero-row DML without a tuple/advisory deadlock. While runtime
-and migrations share their current database-owner principal, the TRUNCATE
-trigger is an operational barrier rather than a privilege boundary; S02c2 owns
-runtime/migration role separation and the runtime privilege revoke. All
+and migrations use separate database roles, the migration role owns the
+database, `public`, and every fixed/auth/control object. Runtime receives
+ordinary application DML but owns none of those objects, has no `TRUNCATE` on
+them, and cannot create in `public`, so the trigger is backed by a privilege
+boundary.
+Migration is a one-way member of runtime solely to maintain runtime-owned
+`nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
+`CREATE` only in that isolated case schema for concurrent index DDL and receives
+read-only access to compatibility state, not control-table mutation. All
 destructive-schema,
 carrier-commit, and true Project-move flags remain false.
 
