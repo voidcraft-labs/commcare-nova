@@ -84,8 +84,8 @@ export async function POST(
 		// body. Rejecting on the stored object's actual size here
 		// keeps an oversized upload from OOMing the instance at
 		// `downloadAssetBytes`. A missing object is not-found unless a
-		// concurrent confirm already published this exact row and cleaned up
-		// the pending key.
+		// concurrent confirm already published this row or canonicalized it to
+		// a ready same-Project/hash sibling and cleaned up the pending key.
 		const storedSize = await getStoredObjectSize(asset.gcsObjectKey);
 		if (storedSize === null) {
 			const ready = await loadConcurrentReadyAsset(asset, session.user.id);
@@ -211,6 +211,22 @@ export async function POST(
 							lockedDb,
 						);
 						if (released.kind === "not_found") {
+							// Another confirm of this same pending id can win the
+							// sibling dedupe, delete the row, and release its pending
+							// bytes before this request gets here. `not_found` also
+							// covers lost authority, so freshly re-prove edit access
+							// before returning the canonical sibling.
+							const authorizedSibling = await authorizeReadyCandidate(
+								sibling,
+								asset,
+								session.user.id,
+							);
+							if (authorizedSibling) {
+								return {
+									asset: authorizedSibling,
+									releasedPending: null,
+								};
+							}
 							throw new ApiError(
 								"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
 								404,
@@ -326,26 +342,42 @@ export async function POST(
 /**
  * Re-read the row after this request loses access to its pending object.
  *
- * A concurrent confirm publishes the same row before deleting the pending
- * bytes, so a lagging metadata/read operation can observe a storage 404 even
- * though the upload succeeded. Return only that exact row's terminal state,
- * under a fresh Project edit check; a genuinely missing/pending row remains a
- * not-found failure.
+ * A concurrent confirm may publish the same row, or delete it after
+ * canonicalizing the upload to an already-ready same-Project/hash sibling,
+ * before releasing the pending bytes. A lagging metadata/read operation then
+ * observes a storage 404 even though the upload succeeded. Return only the
+ * authoritative ready result under a fresh Project edit check; no ready match
+ * remains a not-found failure.
  */
 async function loadConcurrentReadyAsset(
 	attempt: MediaAssetRecord,
 	actorUserId: string,
 ): Promise<MediaAssetRecord | null> {
 	const current = await loadAssetById(attempt.id);
+	if (current?.status === "ready") {
+		return authorizeReadyCandidate(current, attempt, actorUserId);
+	}
+	const sibling = await findReadyAssetByProjectAndHash(
+		attempt.project_id,
+		attempt.contentHash,
+	);
+	return authorizeReadyCandidate(sibling, attempt, actorUserId);
+}
+
+async function authorizeReadyCandidate(
+	candidate: MediaAssetRecord | null,
+	attempt: MediaAssetRecord,
+	actorUserId: string,
+): Promise<MediaAssetRecord | null> {
 	if (
-		!current ||
-		current.project_id !== attempt.project_id ||
-		current.status !== "ready"
+		candidate?.status !== "ready" ||
+		candidate.project_id !== attempt.project_id ||
+		candidate.contentHash !== attempt.contentHash
 	) {
 		return null;
 	}
-	return (await userInProject(actorUserId, current.project_id, "edit"))
-		? current
+	return (await userInProject(actorUserId, candidate.project_id, "edit"))
+		? candidate
 		: null;
 }
 

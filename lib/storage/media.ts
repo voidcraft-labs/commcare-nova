@@ -204,11 +204,12 @@ export async function applyMediaBucketCors(origins: string[]): Promise<void> {
 }
 
 /**
- * Upload a byte buffer directly to GCS from the server. The browser
- * flow never needs this — it PUTs to a signed URL — but the MCP
- * `upload_media_asset` tool decodes base64 bytes inline (Claude Code
- * et al can't run the hash → signed-PUT → confirm dance), so the
- * server holds the bytes and writes them itself.
+ * Upload a byte buffer directly to GCS from the server. The MCP
+ * `upload_media_asset` tool uses this for its decoded base64 payload
+ * (Claude Code et al can't run the signed-PUT flow). Browser confirm also
+ * uses it after downloading and validating the pending object: writing that
+ * exact buffer, rather than copying the still-mutable signed-PUT key, keeps
+ * the final content-addressed object byte-identical to what validation saw.
  *
  * `resumable: false` forces a single multipart write rather than GCS's
  * resumable-session protocol: the payloads here are small (bounded by

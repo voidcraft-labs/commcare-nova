@@ -269,6 +269,42 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		expect(publishPendingAssetForActor).not.toHaveBeenCalled();
 	});
 
+	it("returns the canonical sibling when winner cleanup removes the pending bytes and row", async () => {
+		const sibling = pendingAsset({
+			id: asAssetId("asset-canonical"),
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		});
+		let loadCount = 0;
+		vi.mocked(loadAssetById).mockImplementation(async () => {
+			loadCount += 1;
+			return loadCount === 1 ? pendingAsset() : null;
+		});
+		vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(sibling);
+		vi.mocked(downloadAssetBytes).mockRejectedValue(
+			Object.assign(new Error("No such object"), { code: 404 }),
+		);
+
+		const res = await callConfirm();
+		const body = (await res.json()) as {
+			asset: { id: string; status: string; gcsObjectKey: string };
+		};
+
+		expect(res.status).toBe(200);
+		expect(body.asset).toEqual({
+			id: "asset-canonical",
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		});
+		expect(findReadyAssetByProjectAndHash).toHaveBeenCalledWith(
+			"project-1",
+			HASH,
+		);
+		expect(userInProject).toHaveBeenCalledTimes(2);
+		expect(validateMediaBytes).not.toHaveBeenCalled();
+		expect(deletePendingAssetForActor).not.toHaveBeenCalled();
+	});
+
 	it("deletes only a freshly-locked pending row after validation fails", async () => {
 		vi.mocked(loadAssetById).mockResolvedValue(
 			pendingAsset({ gcsObjectKey: `projects/project-1/${HASH}.png` }),
@@ -348,6 +384,58 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 				gcsObjectKey: "pending/project-1/asset-1.png",
 			}),
 		);
+	});
+
+	it("returns the canonical sibling when another confirm of the same pending ID already released its row", async () => {
+		const sibling = pendingAsset({
+			id: asAssetId("asset-canonical"),
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		});
+		vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(sibling);
+		vi.mocked(deletePendingAssetForActor).mockResolvedValue({
+			kind: "not_found",
+		});
+
+		const res = await callConfirm();
+		const body = (await res.json()) as {
+			asset: { id: string; status: string; gcsObjectKey: string };
+		};
+
+		expect(res.status).toBe(200);
+		expect(body.asset).toEqual({
+			id: "asset-canonical",
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		});
+		expect(deletePendingAssetForActor).toHaveBeenCalledOnce();
+		expect(userInProject).toHaveBeenCalledTimes(2);
+		expect(uploadAssetBytes).not.toHaveBeenCalled();
+		expect(cleanupReleasedAssetStorage).not.toHaveBeenCalled();
+	});
+
+	it("does not return a canonical sibling after fresh edit authority is lost", async () => {
+		const sibling = pendingAsset({
+			id: asAssetId("asset-canonical"),
+			status: "ready",
+			gcsObjectKey: `projects/project-1/${HASH}.png`,
+		});
+		let authorizationCount = 0;
+		vi.mocked(userInProject).mockImplementation(async () => {
+			authorizationCount += 1;
+			return authorizationCount === 1;
+		});
+		vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(sibling);
+		vi.mocked(deletePendingAssetForActor).mockResolvedValue({
+			kind: "not_found",
+		});
+
+		const res = await callConfirm();
+		await res.json();
+
+		expect(res.status).toBe(404);
+		expect(userInProject).toHaveBeenCalledTimes(2);
+		expect(cleanupReleasedAssetStorage).not.toHaveBeenCalled();
 	});
 
 	it("returns the same ready asset when a same-ID confirm loses under the final-key lock", async () => {
