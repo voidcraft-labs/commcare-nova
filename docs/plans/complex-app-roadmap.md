@@ -1048,10 +1048,15 @@ move to the destination Project. The move's media closure is therefore the union
 of blueprint references and canonical
 `threads.messages[*].metadata.attachments[*].assetId` references, not the
 blueprint alone. Pre-copy includes present, ready source-Project chat assets of
-every media kind, including documents and their current extraction object/status;
-a historical attachment that is already missing, deleted, or foreign remains an
-unavailable transcript reference and does not block the move. In the final
-app-locked transaction, lock the app's threads in deterministic `thread_id`
+every media kind. A document carries only a published `ready` extraction
+object/metadata pair — never an `extracting`/`failed` status that has no
+destination job — and an equal/newer destination extract state wins over an
+older copy. Move-copy verifies the destination's versioned object before
+adopting ready sibling metadata; if those bytes are absent, it repairs the pair
+from the source and synchronizes all non-newer duplicate rows. A historical
+attachment that is already missing, deleted, or foreign
+remains an unavailable transcript reference and does not block the move. In the
+final app-locked transaction, lock the app's threads in deterministic `thread_id`
 order, re-walk their canonical attachment references, revalidate every required
 destination copy, and rewrite only each attachment's `assetId` through the same
 deterministic source-to-destination map used by the blueprint. Preserve message
@@ -1073,6 +1078,7 @@ the existing post-commit sync may clean removals but is no longer a correctness
 boundary. Both browser and SA media deletion paths share one transaction
 containing the shared membership gate, fresh Project `edit` authorization,
 asset `FOR UPDATE`, a re-walk of every persisted app carrier in that Project,
+including soft-deleted app rows whose exact blueprint may be restored,
 and metadata deletion, so delete-versus-attach/move is serialized. SA
 working-document state never exempts its persisted app from that re-walk. The
 deletion path never acquires app locks after taking the asset lock; app writers
@@ -1080,11 +1086,22 @@ serialize against it through their introduced-asset `FOR SHARE` locks. The
 reverse index may narrow candidates only after an audited backfill plus durable
 completeness marker proves it authoritative; until then deletion never trusts
 it as a complete set. GCS byte cleanup remains post-commit but obtains a dedicated
-session advisory lock derived from the canonical object key, rechecks for sibling
-metadata under that lock, and deletes only when none exists. Upload, copy, and
-ready-finalization hold the same key lock across object publication and the
-committed ready metadata, preventing a new ready row from pointing at bytes a
-concurrent cleanup removes. Same-Project repair takes the app lock,
+session advisory lock derived from the extension-independent Project/content
+hash, rechecks exact base-object and `(Project, hash, extract version)` sibling
+metadata separately under that lock, and deletes each only when unshared.
+Upload, copy, and ready-finalization hold the same content lock across object
+publication and committed ready metadata, preventing a new ready row from
+pointing at bytes a concurrent cleanup removes. Document extraction terminal
+publication rechecks its exact `(version, model, extractedAt)` claim under the
+row lock before writing GCS, and claim admission refuses to overwrite any
+higher-version state from a newer server. A committed ready
+`(Project, hash, version)` pair is canonical: duplicate/cross-extension rows and
+Project-copy adopt its object plus exact metadata instead of overwriting it, and
+the first publisher synchronizes all non-newer duplicate-row states before
+commit. Thus delete-first cannot recreate an orphan, copied equal/newer state
+fences a stale model job, and a rejected metadata transaction removes its
+unpublished object unless a committed deduplicated sibling already names that
+Project/hash/version. Same-Project repair takes the app lock,
 derives and matches the fresh app Project rather than trusting a caller value,
 and repairs case tenancy only: it writes no migration row and purges no presence.
 Cover case/presence/media writer-wins and move-wins, notification visibility only
@@ -1454,7 +1471,8 @@ role/owner/membership/run-lease matrices, membership/case/presence races,
 TRUNCATE rejection without advisory waiting, media-delete/move winner orders,
 concurrent case-patch preservation, atomic parked replacement/dismissal,
 transactional introduced-media references, complete deletion re-walks, and
-object-key cleanup/upload winner orders, transactional notification visibility,
+object-key cleanup/upload/extraction/move winner orders, transactional
+notification visibility,
 compatible/incompatible stream leases,
 registration/admission winner orders, stream teardown/expiry, runtime-holder
 new-identity/same-identity/supersede/heartbeat/finalize/reap behavior,

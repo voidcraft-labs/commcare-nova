@@ -111,17 +111,16 @@ export async function GET(
 /**
  * DELETE /api/media/[assetId] — remove an asset from the owner's library.
  *
- * Project-gated (404 on missing OR non-member, so ids stay non-enumerable). Refuses
- * with a 409 — naming the carriers — if any of the owner's live apps still
- * reference the asset, so a delete can't silently orphan a reference the
- * export boundary gate would later reject. On success it purges the asset
- * row, the GCS bytes, and the document-extract sibling (keeping shared bytes
- * intact), then returns 204. The deletion mechanics are shared with the SA's
+ * Project-gated (404 on missing OR non-member, so ids stay non-enumerable).
+ * Refuses with a 409 — naming the carriers — if any persisted app (including a
+ * recoverable soft-deleted app) still references the asset, so delete cannot
+ * corrupt an exact later restore. On success it purges the asset row, the GCS
+ * bytes, and the document-extract sibling (keeping shared bytes intact), then
+ * returns 204. The deletion mechanics are shared with the SA's
  * `remove_media_asset` tool via `lib/media/assetDeletion`.
  *
  * Conversation attachments are persisted carriers too. The authoritative
- * deletion transaction scans thread history alongside the blueprint and
- * refuses deletion while any live app still names the asset.
+ * deletion transaction scans thread history alongside the blueprint.
  */
 export async function DELETE(
 	req: NextRequest,

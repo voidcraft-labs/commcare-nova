@@ -6,16 +6,22 @@ import { copyAssetsIntoProject, MediaCopyFailedError } from "../moveMedia";
 const {
 	createReadyAsset,
 	findReadyAssetByProjectAndHash,
+	findReadyExtractForProjectAndHash,
 	installCopiedReadyExtract,
 	loadAssetsByIds,
 	copyAssetObject,
+	getStoredObjectSize,
 	withMediaObjectKeyLock,
 } = vi.hoisted(() => ({
 	createReadyAsset: vi.fn(),
 	findReadyAssetByProjectAndHash: vi.fn(),
+	findReadyExtractForProjectAndHash: vi.fn(),
 	installCopiedReadyExtract: vi.fn(() => Promise.resolve()),
 	loadAssetsByIds: vi.fn(),
 	copyAssetObject: vi.fn(() => Promise.resolve()),
+	getStoredObjectSize: vi.fn<() => Promise<number | null>>(() =>
+		Promise.resolve(100),
+	),
 	withMediaObjectKeyLock: vi.fn(
 		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
 			body({ pinned: true }),
@@ -25,10 +31,14 @@ const {
 vi.mock("@/lib/db/mediaAssets", () => ({
 	createReadyAsset,
 	findReadyAssetByProjectAndHash,
+	findReadyExtractForProjectAndHash,
 	installCopiedReadyExtract,
 	loadAssetsByIds,
 }));
-vi.mock("@/lib/storage/media", () => ({ copyAssetObject }));
+vi.mock("@/lib/storage/media", () => ({
+	copyAssetObject,
+	getStoredObjectSize,
+}));
 vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
 	withMediaObjectKeyLock,
 }));
@@ -60,6 +70,8 @@ function asset(
 beforeEach(() => {
 	vi.clearAllMocks();
 	findReadyAssetByProjectAndHash.mockResolvedValue(null);
+	findReadyExtractForProjectAndHash.mockResolvedValue(null);
+	getStoredObjectSize.mockResolvedValue(100);
 	let copy = 0;
 	createReadyAsset.mockImplementation(async () => ({
 		assetId: asAssetId(`destination-${++copy}`),
@@ -191,6 +203,125 @@ describe("copyAssetsIntoProject", () => {
 		);
 	});
 
+	it("adopts a ready duplicate-row extract instead of overwriting the shared object", async () => {
+		const source = asset("document-source", {
+			contentHash: "3".repeat(64),
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "source-model",
+				truncated: false,
+				charCount: 10,
+				extractedAt: 123,
+			},
+		});
+		const selectedDestination = asset("selected-destination", {
+			project_id: TO,
+			contentHash: source.contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "failed",
+				version: 2,
+				model: "failed-model",
+				truncated: false,
+				charCount: 0,
+				extractedAt: 200,
+			},
+		});
+		const sharedReady = {
+			status: "ready" as const,
+			version: 2,
+			model: "destination-winner",
+			truncated: true,
+			charCount: 30,
+			extractedAt: 300,
+			title: "Destination winner",
+		};
+		loadAssetsByIds.mockResolvedValue([source]);
+		findReadyAssetByProjectAndHash.mockResolvedValue(selectedDestination);
+		findReadyExtractForProjectAndHash.mockResolvedValue(sharedReady);
+
+		const result = await copyAssetsIntoProject({
+			requiredAssetIds: [source.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+
+		expect(result.get(source.id)).toBe(selectedDestination.id);
+		expect(copyAssetObject).not.toHaveBeenCalled();
+		expect(installCopiedReadyExtract).toHaveBeenCalledWith(
+			{
+				assetId: selectedDestination.id,
+				extract: sharedReady,
+			},
+			expect.anything(),
+		);
+	});
+
+	it("repairs missing shared extract bytes from the source and canonicalizes metadata", async () => {
+		const source = asset("document-source", {
+			contentHash: "4".repeat(64),
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "source-model",
+				truncated: false,
+				charCount: 10,
+				extractedAt: 123,
+			},
+		});
+		const selectedDestination = asset("selected-destination", {
+			project_id: TO,
+			contentHash: source.contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: undefined,
+		});
+		const brokenSharedMetadata = {
+			status: "ready" as const,
+			version: 2,
+			model: "missing-object-model",
+			truncated: true,
+			charCount: 30,
+			extractedAt: 300,
+		};
+		loadAssetsByIds.mockResolvedValue([source]);
+		findReadyAssetByProjectAndHash.mockResolvedValue(selectedDestination);
+		findReadyExtractForProjectAndHash.mockResolvedValue(brokenSharedMetadata);
+		getStoredObjectSize.mockResolvedValue(null);
+
+		await copyAssetsIntoProject({
+			requiredAssetIds: [source.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+
+		expect(copyAssetObject).toHaveBeenCalledWith(
+			`projects/${FROM}/${"4".repeat(64)}.extract.v2.md`,
+			`projects/${TO}/${"4".repeat(64)}.extract.v2.md`,
+		);
+		expect(installCopiedReadyExtract).toHaveBeenCalledWith(
+			{
+				assetId: selectedDestination.id,
+				extract: source.extract,
+			},
+			expect.anything(),
+		);
+	});
+
 	it("preserves an equal-version destination extract and its matching object", async () => {
 		const source = asset("document-source", {
 			contentHash: "f".repeat(64),
@@ -225,6 +356,61 @@ describe("copyAssetsIntoProject", () => {
 		});
 		loadAssetsByIds.mockResolvedValue([source]);
 		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
+		findReadyExtractForProjectAndHash.mockResolvedValue(existing.extract);
+
+		const result = await copyAssetsIntoProject({
+			requiredAssetIds: [source.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+
+		expect(result.get(source.id)).toBe(existing.id);
+		expect(copyAssetObject).not.toHaveBeenCalled();
+		expect(installCopiedReadyExtract).toHaveBeenCalledWith(
+			{
+				assetId: existing.id,
+				extract: existing.extract,
+			},
+			expect.anything(),
+		);
+		expect(createReadyAsset).not.toHaveBeenCalled();
+	});
+
+	it("preserves a newer in-flight destination extract instead of copying an older ready version", async () => {
+		const source = asset("document-source", {
+			contentHash: "1".repeat(64),
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "ready",
+				version: 2,
+				model: "source-model",
+				truncated: false,
+				charCount: 20,
+				extractedAt: 200,
+			},
+		});
+		const existing = asset("existing-destination", {
+			project_id: TO,
+			contentHash: source.contentHash,
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "extracting",
+				version: 3,
+				model: "destination-model",
+				truncated: false,
+				charCount: 0,
+				extractedAt: 300,
+			},
+		});
+		loadAssetsByIds.mockResolvedValue([source]);
+		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
+		findReadyExtractForProjectAndHash.mockResolvedValue(existing.extract);
 
 		const result = await copyAssetsIntoProject({
 			requiredAssetIds: [source.id],
@@ -237,7 +423,38 @@ describe("copyAssetsIntoProject", () => {
 		expect(result.get(source.id)).toBe(existing.id);
 		expect(copyAssetObject).not.toHaveBeenCalled();
 		expect(installCopiedReadyExtract).not.toHaveBeenCalled();
-		expect(createReadyAsset).not.toHaveBeenCalled();
+	});
+
+	it("does not strand a copied destination with an in-flight source claim", async () => {
+		const source = asset("document-source", {
+			contentHash: "2".repeat(64),
+			mimeType: "application/pdf",
+			kind: "pdf",
+			extension: ".pdf",
+			extract: {
+				status: "extracting",
+				version: 2,
+				model: "source-model",
+				truncated: false,
+				charCount: 0,
+				extractedAt: 200,
+			},
+		});
+		loadAssetsByIds.mockResolvedValue([source]);
+
+		await copyAssetsIntoProject({
+			requiredAssetIds: [source.id],
+			historicalAssetIds: [],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+
+		expect(copyAssetObject).toHaveBeenCalledTimes(1);
+		expect(createReadyAsset).toHaveBeenCalledWith(
+			expect.objectContaining({ extract: undefined }),
+			expect.anything(),
+		);
 	});
 
 	it("does not block when a historical-only attachment is deleted during pre-copy", async () => {

@@ -13,9 +13,24 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { asAssetId, MEDIA_EXTRACT_STATUSES } from "@/lib/domain/multimedia";
+import type { MediaAssetExtract } from "../types";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("media_record_");
+
+function extract(
+	status: MediaAssetExtract["status"],
+	version: number,
+): MediaAssetExtract {
+	return {
+		status,
+		version,
+		model: "extract-model",
+		truncated: false,
+		charCount: 0,
+		extractedAt: 123,
+	};
+}
 
 interface RowOverrides {
 	mime_type?: string;
@@ -137,5 +152,262 @@ describe("toRecord mapping (via loadAssetById)", () => {
 	it("returns null for a missing id", async () => {
 		const record = await loadAssetById(asAssetId(crypto.randomUUID()));
 		expect(record).toBeNull();
+	});
+
+	it("does not let an older extractor claim over higher-version state", async () => {
+		const newer = extract("ready", 4);
+		const id = await seedRow({ kind: "document", extract: newer });
+		const { claimExtractionIfIdle } = await import("../mediaAssets");
+
+		await expect(
+			claimExtractionIfIdle(asAssetId(id), {
+				now: 1_700_000_100_000,
+				staleMs: 300_000,
+				currentVersion: 3,
+				model: "older-model",
+			}),
+		).resolves.toEqual({ kind: "superseded", extract: newer });
+		expect((await loadAssetById(asAssetId(id)))?.extract).toEqual(newer);
+	});
+
+	it("canonicalizes copied extract metadata across duplicates while preserving higher state", async () => {
+		const canonical: MediaAssetExtract = {
+			...extract("ready", 2),
+			model: "source-pair",
+			charCount: 42,
+			extractedAt: 500,
+		};
+		const selectedId = await seedRow({
+			kind: "pdf",
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			dimensions: null,
+		});
+		const equalId = await seedRow({
+			kind: "pdf",
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			dimensions: null,
+			extract: {
+				...extract("ready", 2),
+				model: "stale-equal-metadata",
+			},
+		});
+		const higher = extract("extracting", 3);
+		const higherId = await seedRow({
+			kind: "pdf",
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			dimensions: null,
+			extract: higher,
+		});
+		const { installCopiedReadyExtract, loadAssetById } = await import(
+			"../mediaAssets"
+		);
+
+		await installCopiedReadyExtract(
+			{ assetId: asAssetId(selectedId), extract: canonical },
+			h.db(),
+		);
+
+		expect((await loadAssetById(asAssetId(selectedId)))?.extract).toEqual(
+			canonical,
+		);
+		expect((await loadAssetById(asAssetId(equalId)))?.extract).toEqual(
+			canonical,
+		);
+		expect((await loadAssetById(asAssetId(higherId)))?.extract).toEqual(higher);
+	});
+
+	it("does not publish after an equal-version ready copy supersedes the claim", async () => {
+		const copiedReady: MediaAssetExtract = {
+			...extract("ready", 3),
+			model: "copied-model",
+			charCount: 42,
+			extractedAt: 456,
+		};
+		const id = await seedRow({
+			kind: "pdf",
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			dimensions: null,
+			extract: copiedReady,
+		});
+		const { loadAssetById, publishClaimedAssetExtract } = await import(
+			"../mediaAssets"
+		);
+		let publishCallbackRan = false;
+
+		const result = await publishClaimedAssetExtract(
+			{
+				assetId: asAssetId(id),
+				claim: {
+					version: 3,
+					model: "stale-model",
+					extractedAt: 123,
+				},
+				extract: {
+					status: "ready",
+					version: 3,
+					model: "stale-model",
+					truncated: false,
+					charCount: 99,
+				},
+				publishReadyObject: async () => {
+					publishCallbackRan = true;
+				},
+			},
+			h.db(),
+		);
+
+		expect(result).toEqual({
+			kind: "superseded",
+			extract: copiedReady,
+		});
+		expect(publishCallbackRan).toBe(false);
+		expect((await loadAssetById(asAssetId(id)))?.extract).toEqual(copiedReady);
+	});
+
+	it("does not publish after a newer exact claim supersedes the stale job", async () => {
+		const newerClaim: MediaAssetExtract = {
+			...extract("extracting", 3),
+			model: "same-model",
+			extractedAt: 456,
+		};
+		const id = await seedRow({
+			kind: "pdf",
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			dimensions: null,
+			extract: newerClaim,
+		});
+		const { loadAssetById, publishClaimedAssetExtract } = await import(
+			"../mediaAssets"
+		);
+		let publishCallbackRan = false;
+
+		const result = await publishClaimedAssetExtract(
+			{
+				assetId: asAssetId(id),
+				claim: {
+					version: 3,
+					model: "same-model",
+					extractedAt: 123,
+				},
+				extract: {
+					status: "ready",
+					version: 3,
+					model: "same-model",
+					truncated: false,
+					charCount: 99,
+				},
+				publishReadyObject: async () => {
+					publishCallbackRan = true;
+				},
+			},
+			h.db(),
+		);
+
+		expect(result).toEqual({
+			kind: "superseded",
+			extract: newerClaim,
+		});
+		expect(publishCallbackRan).toBe(false);
+		expect((await loadAssetById(asAssetId(id)))?.extract).toEqual(newerClaim);
+	});
+
+	it("makes the first duplicate-row publisher canonical for the shared extract", async () => {
+		const firstClaim = {
+			version: 3,
+			model: "first-model",
+			extractedAt: 123,
+		};
+		const secondClaim = {
+			version: 3,
+			model: "second-model",
+			extractedAt: 456,
+		};
+		const firstId = await seedRow({
+			kind: "pdf",
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			dimensions: null,
+			extract: {
+				status: "extracting",
+				...firstClaim,
+				truncated: false,
+				charCount: 0,
+			},
+		});
+		const secondId = await seedRow({
+			kind: "pdf",
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			dimensions: null,
+			extract: {
+				status: "extracting",
+				...secondClaim,
+				truncated: false,
+				charCount: 0,
+			},
+		});
+		const { loadAssetById, publishClaimedAssetExtract } = await import(
+			"../mediaAssets"
+		);
+		let firstObjectWrites = 0;
+		let secondObjectWrites = 0;
+
+		const first = await publishClaimedAssetExtract(
+			{
+				assetId: asAssetId(firstId),
+				claim: firstClaim,
+				extract: {
+					status: "ready",
+					version: 3,
+					model: "first-model",
+					truncated: true,
+					charCount: 42,
+					title: "First committed result",
+				},
+				publishReadyObject: async () => {
+					firstObjectWrites++;
+				},
+			},
+			h.db(),
+		);
+		expect(first.kind).toBe("published");
+		if (first.kind !== "published") throw new Error("expected publication");
+
+		const second = await publishClaimedAssetExtract(
+			{
+				assetId: asAssetId(secondId),
+				claim: secondClaim,
+				extract: {
+					status: "ready",
+					version: 3,
+					model: "second-model",
+					truncated: false,
+					charCount: 99,
+					title: "Second result must not overwrite",
+				},
+				publishReadyObject: async () => {
+					secondObjectWrites++;
+				},
+			},
+			h.db(),
+		);
+
+		expect(second).toEqual({
+			kind: "superseded",
+			extract: first.extract,
+		});
+		expect(firstObjectWrites).toBe(1);
+		expect(secondObjectWrites).toBe(0);
+		expect((await loadAssetById(asAssetId(firstId)))?.extract).toEqual(
+			first.extract,
+		);
+		expect((await loadAssetById(asAssetId(secondId)))?.extract).toEqual(
+			first.extract,
+		);
 	});
 });

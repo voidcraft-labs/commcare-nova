@@ -129,6 +129,30 @@ describe("validateMediaBytes — happy path", () => {
 		});
 		expect(result.ok).toBe(true);
 	});
+
+	it("accepts identical UTF-8 bytes as txt or markdown with one content hash", async () => {
+		const bytes = Buffer.from("# Shared requirements\n\nCollect a name.");
+		const plain = await validateMediaBytes({
+			bytes,
+			claimedMimeType: "text/plain",
+			claimedSizeBytes: bytes.length,
+			originalFilename: "requirements.txt",
+		});
+		const markdown = await validateMediaBytes({
+			bytes,
+			claimedMimeType: "text/markdown",
+			claimedSizeBytes: bytes.length,
+			originalFilename: "requirements.md",
+		});
+
+		expect(plain.ok).toBe(true);
+		expect(markdown.ok).toBe(true);
+		if (plain.ok && markdown.ok) {
+			expect(plain.validated.extension).toBe(".txt");
+			expect(markdown.validated.extension).toBe(".md");
+			expect(plain.validated.contentHash).toBe(markdown.validated.contentHash);
+		}
+	});
 });
 
 describe("validateMediaBytes — rejection paths", () => {

@@ -18,8 +18,10 @@
  */
 
 import type { Kysely } from "kysely";
+import { Client } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { createPerTestAppDb } from "@/lib/db/__tests__/perTestAppDb";
 import type { AppDatabase } from "@/lib/db/pg";
 
 const { requireSessionMock } = vi.hoisted(() => ({
@@ -31,6 +33,8 @@ vi.mock("@/lib/auth-utils", () => ({
 }));
 
 const { POST, DELETE } = await import("../route");
+const { commitAppProjectMoveInTransaction } = await import("@/lib/db/apps");
+const { setTransactionWriterVersion } = await import("@/lib/db/pg");
 
 /** Per-tab session ids are shape-pinned to UUIDs. */
 const SESS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -38,6 +42,7 @@ const SESS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 const USER = "user-1";
 const PROJECT = "project-1";
+const DESTINATION = "project-2";
 
 const h = setupAppStateTestDb("presence_route_");
 
@@ -52,6 +57,47 @@ async function freshAppId(): Promise<string> {
 	await h.seedApp({ id: appId, owner: USER, project_id: PROJECT });
 	await h.seedProjectMember(USER, PROJECT, "editor");
 	return appId;
+}
+
+async function enableMoves(): Promise<void> {
+	await h
+		.db()
+		.updateTable("lookup_reference_compatibility")
+		.set({
+			minimum_writer_version: 1,
+			minimum_stream_receiver_version: 1,
+			project_moves_enabled: true,
+		})
+		.where("id", "=", 1)
+		.execute();
+}
+
+async function commitMove(
+	db: Kysely<AppDatabase>,
+	appId: string,
+	insideTransaction?: () => Promise<void>,
+) {
+	return db.transaction().execute(async (tx) => {
+		await setTransactionWriterVersion(tx, 1);
+		const result = await commitAppProjectMoveInTransaction(
+			tx,
+			{
+				appId,
+				expectedFromProjectId: PROJECT,
+				toProjectId: DESTINATION,
+				actorUserId: USER,
+				assetIdMap: new Map(),
+				attemptedRealIds: new Set(),
+			},
+			{
+				batchId: crypto.randomUUID(),
+				declaredWriterVersion: 1,
+				streamReceiverVersion: 1,
+			},
+		);
+		await insideTransaction?.();
+		return result;
+	});
 }
 
 function postReq(appId: string, body: unknown): Request {
@@ -104,6 +150,25 @@ async function readPresence(appId: string, userId: string, sessionId: string) {
 		.where("user_id", "=", userId)
 		.where("session_id", "=", sessionId)
 		.executeTakeFirst();
+}
+
+async function waitForBlockedLocks(
+	observer: Client,
+	minimum: number,
+): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	while (Date.now() < deadline) {
+		const result = await observer.query<{ count: string }>(`
+			SELECT count(*)::text AS count
+			FROM pg_locks AS locks
+			JOIN pg_stat_activity AS activity ON activity.pid = locks.pid
+			WHERE activity.datname = current_database()
+			  AND NOT locks.granted
+		`);
+		if (Number(result.rows[0]?.count ?? 0) >= minimum) return;
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	throw new Error(`Timed out waiting for ${minimum} blocked database lock(s).`);
 }
 
 beforeEach(async () => {
@@ -236,6 +301,117 @@ describe("/presence route (Postgres)", () => {
 		// The expired ghost was swept; only the fresh (future-`expire_at`) row survives.
 		expect(rows.map((r) => r.session_id)).toEqual([SESS_A]);
 	});
+
+	it("presence-writer-first commits before a Project move purges the stale roster", async () => {
+		const appId = await freshAppId();
+		await h.seedProjectMember(USER, PROJECT, "owner");
+		await h.seedProjectMember(USER, DESTINATION, "owner");
+		await enableMoves();
+		const moverDb = createPerTestAppDb(h.uri());
+		const gateKey = 7_311_201;
+		const gate = new Client({ connectionString: h.uri() });
+		await gate.connect();
+		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+		await gate.query(`
+			CREATE FUNCTION test_pause_presence_writer_first() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			BEGIN
+				PERFORM pg_advisory_xact_lock(${gateKey});
+				RETURN NEW;
+			END
+			$$;
+			CREATE TRIGGER test_pause_presence_writer_first_trigger
+				BEFORE INSERT ON presence
+				FOR EACH ROW EXECUTE FUNCTION test_pause_presence_writer_first();
+		`);
+
+		const post = call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		let gateHeld = true;
+		let move: Promise<unknown> | undefined;
+		try {
+			await waitForBlockedLocks(gate, 1);
+			move = commitMove(moverDb.appDb, appId);
+			// Presence already holds `apps FOR SHARE`; the move queues behind it,
+			// then removes that now-stale source-placement row in its own commit.
+			await waitForBlockedLocks(gate, 2);
+			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
+			gateHeld = false;
+
+			await expect(post).resolves.toBe(200);
+			await expect(move).resolves.toEqual({ kind: "moved" });
+		} finally {
+			if (gateHeld) {
+				await gate
+					.query("SELECT pg_advisory_unlock($1)", [gateKey])
+					.catch(() => {});
+			}
+			await Promise.allSettled([post, ...(move ? [move] : [])]);
+			await gate.end().catch(() => {});
+			await moverDb.destroy();
+		}
+
+		expect(await readPresence(appId, USER, SESS_A)).toBeUndefined();
+		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
+	}, 15_000);
+
+	it("move-first lets a waiting presence heartbeat reauthorize and recreate a fresh row", async () => {
+		const appId = await freshAppId();
+		await h.seedProjectMember(USER, PROJECT, "owner");
+		await h.seedProjectMember(USER, DESTINATION, "owner");
+		await enableMoves();
+		const moverDb = createPerTestAppDb(h.uri());
+		const observer = new Client({ connectionString: h.uri() });
+		await observer.connect();
+		let markMoveInside!: () => void;
+		const moveInside = new Promise<void>((resolve) => {
+			markMoveInside = resolve;
+		});
+		let allowMoveCommit!: () => void;
+		const moveCommitAllowed = new Promise<void>((resolve) => {
+			allowMoveCommit = resolve;
+		});
+
+		const move = commitMove(moverDb.appDb, appId, async () => {
+			markMoveInside();
+			await moveCommitAllowed;
+		});
+		let post: Promise<number> | undefined;
+		try {
+			await moveInside;
+			post = call(
+				POST,
+				postReq(appId, {
+					sessionId: SESS_A,
+					name: "Ada",
+					color: "#abcdef",
+					location: { kind: "home" },
+				}),
+				appId,
+			);
+			await waitForBlockedLocks(observer, 1);
+			allowMoveCommit();
+
+			await expect(move).resolves.toEqual({ kind: "moved" });
+			await expect(post).resolves.toBe(200);
+		} finally {
+			allowMoveCommit();
+			await Promise.allSettled([move, ...(post ? [post] : [])]);
+			await observer.end().catch(() => {});
+			await moverDb.destroy();
+		}
+
+		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
+		expect(await readPresence(appId, USER, SESS_A)).toBeDefined();
+	}, 15_000);
 
 	it("POST 404s when scope resolution denies (IDOR-safe)", async () => {
 		const appId = await freshAppId();

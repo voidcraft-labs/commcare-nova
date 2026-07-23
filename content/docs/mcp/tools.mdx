@@ -99,7 +99,7 @@ You can attach images, audio, and video to parts of an app — a field's label o
 |---|---|
 | `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Audio must be `.mp3` or `.wav` and video `.mp4` — CommCare HQ can't accept `.m4a` or `.ogg`. |
 | `list_media_assets` | List your uploaded files and their asset ids — how your agent finds the ids the attach tools need. |
-| `remove_media_asset` | Delete a file from your library. Refuses if any live app still uses it. |
+| `remove_media_asset` | Delete a file from your library. Refuses if any app still uses it, including an app in its restore window. |
 | `attach_field_media` | Set or clear the image/audio/video on field labels, hints, help, or validation messages — one call batches attachments across fields and forms. |
 | `attach_option_media` | Set or clear the media on dropdown choices (single- or multi-select) — a whole picture-choice field in one call. |
 | `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles — any mix of both, the whole app's menu in one call. |

@@ -13,7 +13,10 @@ import {
 	prepareAppProjectMoveInTransaction,
 	repairAppCaseTenancy,
 } from "../apps";
-import { authorizeSystemSchemaMutationInTransaction } from "../caseMutationAuthorization";
+import {
+	authorizeCaseMutationInTransaction,
+	authorizeSystemSchemaMutationInTransaction,
+} from "../caseMutationAuthorization";
 import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
@@ -207,12 +210,38 @@ function makeSystemSchemaStore(
 	});
 }
 
+function makeActorCaseStore(db: Kysely<Database>): PostgresCaseStore {
+	return new PostgresCaseStore({
+		projectId: SOURCE,
+		actorUserId: ACTOR,
+		db,
+		sampleGenerator: new HeuristicCaseGenerator(),
+		authorizeMutation: authorizeCaseMutationInTransaction,
+	});
+}
+
 function applyHouseholdSchema(store: PostgresCaseStore, appId: string) {
 	const caseType: CaseType = { name: "household", properties: [] };
 	return store.applySchemaChange({
 		appId,
 		caseType: caseType.name,
 		caseTypeSchemas: new Map([[caseType.name, caseType]]),
+	});
+}
+
+function insertHousehold(
+	store: PostgresCaseStore,
+	appId: string,
+	name: string,
+) {
+	return store.insert({
+		appId,
+		row: {
+			case_type: "household",
+			case_name: name,
+			status: "open",
+			properties: {},
+		},
 	});
 }
 
@@ -343,6 +372,132 @@ describe("dormant atomic Project move", () => {
 
 		expect(observedProjects).toEqual([DESTINATION]);
 		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
+	}, 15_000);
+
+	it("case-writer-first commits in the source placement before the move rehomes its row", async () => {
+		const appId = await h.seedApp({
+			id: "app-case-writer-first",
+			owner: ACTOR,
+			project_id: SOURCE,
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		await enableMoves();
+		await applyHouseholdSchema(makeSystemSchemaStore([]), appId);
+		const writerDb = createPerTestAppDb(h.uri());
+		const store = makeActorCaseStore(
+			writerDb.appDb as unknown as Kysely<Database>,
+		);
+		const gateKey = 9_081_203;
+		const gate = new Client({ connectionString: h.uri() });
+		await gate.connect();
+		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+		await gate.query(`
+			CREATE FUNCTION test_pause_case_writer_first() RETURNS trigger
+			LANGUAGE plpgsql AS $$
+			BEGIN
+				PERFORM pg_advisory_xact_lock(${gateKey});
+				RETURN NEW;
+			END
+			$$;
+			CREATE TRIGGER test_pause_case_writer_first_trigger
+				BEFORE INSERT ON cases
+				FOR EACH ROW EXECUTE FUNCTION test_pause_case_writer_first();
+		`);
+
+		const write = insertHousehold(store, appId, "Writer first");
+		let gateHeld = true;
+		let move: Promise<unknown> | undefined;
+		try {
+			await waitForBlockedLocks(gate, 1);
+			move = commitMove(appId);
+			// The writer already reauthorized and holds `apps FOR SHARE`; the move
+			// must wait for that source-bound transaction to commit.
+			await waitForBlockedLocks(gate, 2);
+			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
+			gateHeld = false;
+
+			await expect(write).resolves.toMatchObject({
+				caseId: expect.any(String),
+			});
+			await expect(move).resolves.toEqual({ kind: "moved" });
+		} finally {
+			if (gateHeld) {
+				await gate
+					.query("SELECT pg_advisory_unlock($1)", [gateKey])
+					.catch(() => {});
+			}
+			await Promise.allSettled([write, ...(move ? [move] : [])]);
+			await gate.end().catch(() => {});
+			await writerDb.destroy();
+		}
+
+		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
+		const cases = await h
+			.pool()
+			.query<{ project_id: string }>(
+				"SELECT project_id FROM cases WHERE app_id = $1",
+				[appId],
+			);
+		expect(cases.rows).toEqual([{ project_id: DESTINATION }]);
+	}, 15_000);
+
+	it("move-first makes a waiting source-bound case writer reject without a stray row", async () => {
+		const appId = await h.seedApp({
+			id: "app-move-first-case-writer",
+			owner: ACTOR,
+			project_id: SOURCE,
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		await enableMoves();
+		await applyHouseholdSchema(makeSystemSchemaStore([]), appId);
+		const writerDb = createPerTestAppDb(h.uri());
+		const store = makeActorCaseStore(
+			writerDb.appDb as unknown as Kysely<Database>,
+		);
+		const observer = new Client({ connectionString: h.uri() });
+		await observer.connect();
+		let markMoveInside!: () => void;
+		const moveInside = new Promise<void>((resolve) => {
+			markMoveInside = resolve;
+		});
+		let allowMoveCommit!: () => void;
+		const moveCommitAllowed = new Promise<void>((resolve) => {
+			allowMoveCommit = resolve;
+		});
+
+		const move = commitMove(appId, {
+			insideTransaction: async () => {
+				markMoveInside();
+				await moveCommitAllowed;
+			},
+		});
+		let write: Promise<unknown> | undefined;
+		try {
+			await moveInside;
+			write = insertHousehold(store, appId, "Too late");
+			await waitForBlockedLocks(observer, 1);
+			allowMoveCommit();
+
+			await expect(move).resolves.toEqual({ kind: "moved" });
+			await expect(write).rejects.toMatchObject({
+				name: "AppAccessError",
+				reason: "not_found",
+			});
+		} finally {
+			allowMoveCommit();
+			await Promise.allSettled([move, ...(write ? [write] : [])]);
+			await observer.end().catch(() => {});
+			await writerDb.destroy();
+		}
+
+		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
+		const cases = await h
+			.pool()
+			.query<{ count: string }>(
+				"SELECT count(*)::text AS count FROM cases WHERE app_id = $1",
+				[appId],
+			);
+		expect(cases.rows[0]?.count).toBe("0");
 	}, 15_000);
 
 	it("moves the complete tenant closure atomically and preserves transcript metadata", async () => {

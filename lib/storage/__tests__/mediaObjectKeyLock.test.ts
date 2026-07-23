@@ -9,10 +9,12 @@ vi.mock("@/lib/case-store/postgres/connection", () => ({
 	POOL_MAX_PER_INSTANCE: 3,
 }));
 
-const { withMediaObjectKeyLock } = await import("../mediaObjectKeyLock");
+const { mediaObjectLockIdentity, withMediaObjectKeyLock } = await import(
+	"../mediaObjectKeyLock"
+);
 
 function fakeClient(assetId = "asset-1") {
-	const query = vi.fn(async (statement: string) => {
+	const query = vi.fn(async (statement: string, _params?: unknown[]) => {
 		if (statement.includes("pg_advisory_unlock")) {
 			return { command: "SELECT", rowCount: 1, rows: [{ unlocked: true }] };
 		}
@@ -36,6 +38,22 @@ beforeEach(() => {
 });
 
 describe("withMediaObjectKeyLock", () => {
+	it("collapses cross-extension final objects to one Project/hash identity", () => {
+		const hash = "a".repeat(64);
+		expect(mediaObjectLockIdentity(`projects/project-1/${hash}.txt`)).toBe(
+			`projects/project-1/${hash}`,
+		);
+		expect(mediaObjectLockIdentity(`projects/project-1/${hash}.md`)).toBe(
+			`projects/project-1/${hash}`,
+		);
+		expect(
+			mediaObjectLockIdentity(`projects/project-1/${hash}.extract.v2.md`),
+		).toBe(`projects/project-1/${hash}`);
+		expect(mediaObjectLockIdentity("pending/project-1/attempt.txt")).toBe(
+			"pending/project-1/attempt.txt",
+		);
+	});
+
 	it("runs metadata SQL on the same checked-out session as the advisory lock", async () => {
 		const client = fakeClient("same-session-asset");
 		const connect = vi.fn(async () => client);
@@ -58,6 +76,35 @@ describe("withMediaObjectKeyLock", () => {
 		expect(client.query.mock.calls[1]?.[0]).toContain('from "media_assets"');
 		expect(client.query.mock.calls[2]?.[0]).toContain("pg_advisory_unlock");
 		expect(client.release).toHaveBeenCalledOnce();
+	});
+
+	it("passes the same advisory identity for identical bytes with different extensions", async () => {
+		const hash = "b".repeat(64);
+		const clients = [fakeClient("txt"), fakeClient("markdown")];
+		let nextClient = 0;
+		getCaseStorePool.mockResolvedValue({
+			connect: vi.fn(async () => clients[nextClient++]),
+			options: {},
+		});
+
+		await Promise.all([
+			withMediaObjectKeyLock(
+				`projects/project-1/${hash}.txt`,
+				async () => undefined,
+			),
+			withMediaObjectKeyLock(
+				`projects/project-1/${hash}.md`,
+				async () => undefined,
+			),
+		]);
+
+		const lockIdentities = clients.map(
+			(client) => client.query.mock.calls[0]?.[1]?.[0],
+		);
+		expect(lockIdentities).toEqual([
+			`projects/project-1/${hash}`,
+			`projects/project-1/${hash}`,
+		]);
 	});
 
 	it("leaves one connection of the three-slot pool available", async () => {

@@ -308,11 +308,12 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * Serialize the small set of operations that create, replace, or change
-	 * parent relationships within one app + Project. `case_indices` cannot use
-	 * a conventional FK because it also models CommCare relationship semantics,
-	 * so reset and relationship writers share this transaction-level advisory
-	 * lock instead. Unrelated, parentless case writes remain concurrent.
+	 * Serialize operations that create, replace, or change cases within one app
+	 * + Project. `case_indices` cannot use a conventional FK because it also
+	 * models CommCare relationship semantics, so reset and every relationship-
+	 * capable writer take the same transaction-level advisory lock even when one
+	 * particular row is parentless. Writes for unrelated apps/Projects remain
+	 * concurrent.
 	 */
 	private async lockRelationshipWrites(
 		trx: Transaction<Database>,

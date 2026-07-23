@@ -59,7 +59,26 @@ function databasePinnedToClient(
 }
 
 /**
- * Serialize publication and last-reference cleanup for one canonical GCS key.
+ * The advisory-lock identity for a media object.
+ *
+ * Validated final objects use `projects/<project>/<sha256><extension>`, while a
+ * document extract uses the same Project/hash without the source extension.
+ * The identical UTF-8 bytes can validly arrive as either `.txt` or `.md`, so
+ * locking the full base-object key would let those rows race on their shared
+ * extract object. Collapse every valid content-addressed final/extract key to
+ * the extension-independent Project/hash identity. Pending upload keys stay
+ * per-attempt and therefore retain their exact identity.
+ */
+export function mediaObjectLockIdentity(gcsObjectKey: string): string {
+	const match = /^(projects\/[^/]+\/[0-9a-f]{64})(?:\..+)$/.exec(gcsObjectKey);
+	return match?.[1] ?? gcsObjectKey;
+}
+
+/**
+ * Serialize publication and last-reference cleanup for one canonical media
+ * content identity. Final base objects with different extensions but the same
+ * Project/hash deliberately share this lock because they also share an extract
+ * object.
  *
  * This deliberately uses a dedicated checked-out session: session advisory
  * locks outlive SQL transactions, which lets the critical section span GCS and
@@ -72,6 +91,7 @@ export async function withMediaObjectKeyLock<T>(
 ): Promise<T> {
 	await acquireLocalKeyLockPermit();
 	try {
+		const lockIdentity = mediaObjectLockIdentity(gcsObjectKey);
 		const pool = await getCaseStorePool();
 		const client = await pool.connect();
 		let acquired = false;
@@ -84,7 +104,7 @@ export async function withMediaObjectKeyLock<T>(
 			try {
 				await client.query(
 					"SELECT pg_advisory_lock(hashtextextended($1, 0::bigint))",
-					[gcsObjectKey],
+					[lockIdentity],
 				);
 				acquired = true;
 				lockedDb = databasePinnedToClient(client, pool.options);
@@ -105,11 +125,11 @@ export async function withMediaObjectKeyLock<T>(
 				try {
 					const result = await client.query<{ unlocked: boolean }>(
 						"SELECT pg_advisory_unlock(hashtextextended($1, 0::bigint)) AS unlocked",
-						[gcsObjectKey],
+						[lockIdentity],
 					);
 					if (result.rows[0]?.unlocked !== true) {
 						throw new Error(
-							`Media object-key advisory unlock reported no held lock for ${gcsObjectKey}.`,
+							`Media content advisory unlock reported no held lock for ${lockIdentity}.`,
 						);
 					}
 				} catch (error) {

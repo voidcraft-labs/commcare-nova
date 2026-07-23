@@ -19,6 +19,7 @@ import "server-only";
 import {
 	createReadyAsset,
 	findReadyAssetByProjectAndHash,
+	findReadyExtractForProjectAndHash,
 	installCopiedReadyExtract,
 	loadAssetsByIds,
 	type MediaAssetRecord,
@@ -29,7 +30,7 @@ import {
 	gcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import { copyAssetObject } from "@/lib/storage/media";
+import { copyAssetObject, getStoredObjectSize } from "@/lib/storage/media";
 import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { partitionAssetRefs } from "./builtinIconAssets";
@@ -177,6 +178,8 @@ async function copyOneAsset(
 				row.contentHash,
 				row.extension,
 			);
+			const readyExtract =
+				row.extract?.status === "ready" ? row.extract : undefined;
 			return await withMediaObjectKeyLock(destKey, async (lockedDb) => {
 				// Re-check dedup under the key lock. A browser/MCP upload or another
 				// move can have published between the pre-copy scan and this asset.
@@ -206,7 +209,7 @@ async function copyOneAsset(
 						displayName: row.displayName,
 						dimensions: row.dimensions,
 						durationMs: row.durationMs,
-						extract: row.extract,
+						extract: readyExtract,
 					},
 					lockedDb,
 				);
@@ -251,14 +254,38 @@ async function copyReadyExtractObject(
 async function copyReadyExtractToExisting(
 	source: MediaAssetRecord,
 	destination: MediaAssetRecord,
-	lockedDb: Parameters<typeof installCopiedReadyExtract>[1],
+	lockedDb: NonNullable<Parameters<typeof installCopiedReadyExtract>[1]>,
 ): Promise<void> {
 	const sourceExtract = source.extract;
 	if (sourceExtract?.status !== "ready") return;
 	if (
-		destination.extract?.status === "ready" &&
-		destination.extract.version >= sourceExtract.version
+		destination.extract !== undefined &&
+		destination.extract.version > sourceExtract.version
 	) {
+		return;
+	}
+	const destinationKey = extractGcsObjectKeyFor(
+		destination.project_id,
+		destination.contentHash,
+		sourceExtract.version,
+	);
+	const sharedReadyExtract = await findReadyExtractForProjectAndHash(
+		destination.project_id,
+		destination.contentHash,
+		sourceExtract.version,
+		lockedDb,
+	);
+	if (
+		sharedReadyExtract !== null &&
+		(await getStoredObjectSize(destinationKey)) !== null
+	) {
+		await installCopiedReadyExtract(
+			{
+				assetId: destination.id,
+				extract: sharedReadyExtract,
+			},
+			lockedDb,
+		);
 		return;
 	}
 	await copyReadyExtractObject(source, destination.project_id);

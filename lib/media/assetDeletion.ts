@@ -22,6 +22,7 @@ import {
 	deleteAsset as deleteAssetRow,
 	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
+	hasReadyExtractForProjectAndHash,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -30,6 +31,10 @@ import {
 	describeCarrier,
 	walkAssetRefs,
 } from "@/lib/domain/mediaRefs";
+import {
+	EXTRACTOR_VERSION,
+	extractObjectKeyForAsset,
+} from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { deleteAsset as deleteGcsObject } from "@/lib/storage/media";
 import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
@@ -71,9 +76,10 @@ async function describeAppReference(
 	assetId: string,
 ): Promise<string | null> {
 	const app = await loadApp(appId);
-	// Guard against a deleted app or a list/load Project skew — only a live app in
-	// the asset's Project should block a delete (owner is irrelevant: every member
-	// of the Project shares the asset, so any in-Project app's reference counts).
+	// This fast UX preflight skips list-hidden deleted apps and guards a list/load
+	// Project skew. The authoritative transaction re-walks persisted recoverable
+	// apps too, so skipping one here can delay the refusal but never authorize a
+	// destructive delete. Owner is irrelevant: every Project member shares media.
 	if (!app || app.project_id !== projectId || app.deleted_at !== null) {
 		return null;
 	}
@@ -128,11 +134,12 @@ export async function findAppReferencesToAsset(
  * Remove the asset's storage: drop the asset row FIRST (so a storage-cleanup
  * failure can only orphan a blob, never leave a `ready` row pointing at missing
  * bytes), then delete the GCS bytes and any `alsoDelete` siblings — but only when
- * no other asset row shares the bytes. The bytes object is content-hash keyed, so
- * a same-bytes sibling (a duplicate-upload row) shares both the bytes AND every
- * content-addressed sibling (a document's extract); retaining all of them when
- * the object is shared keeps the sibling alive. A failed shared-bytes probe fails
- * closed (retain), so we never delete bytes another row still points at.
+ * no other asset row shares each object. Base bytes are extension-qualified, so
+ * their last-reference probe is the exact GCS key. Document extracts omit the
+ * source extension, so their probe is `(Project, content hash, version)`; this
+ * keeps a shared extract alive when identical text bytes have both `.txt` and
+ * `.md` rows. A failed probe fails closed (retain), so we never delete an object
+ * another row still points at.
  *
  * Callers are responsible for supplying an authoritative metadata-delete
  * callback when the operation is actor-facing. `alsoDelete` carries content-addressed sibling keys (e.g.
@@ -184,12 +191,13 @@ export async function cleanupReleasedAssetStorage(
 	asset: MediaAssetRecord,
 	opts: { alsoDelete?: ReadonlyArray<string | null> } = {},
 ): Promise<void> {
-	// Metadata commits before object cleanup. Under the canonical-key session
-	// lock, re-read siblings AFTER that commit; a publisher of the same key holds
-	// this lock across bytes + ready-row publication, so either its row is visible
-	// and bytes stay, or it publishes only after this cleanup finishes.
+	// Metadata commits before object cleanup. Under the canonical Project/hash
+	// lock, re-read siblings AFTER that commit; a publisher of the same content
+	// (including a different source extension) holds this lock across bytes +
+	// ready-row publication, so either its row is visible and shared objects stay,
+	// or it publishes only after this cleanup finishes.
 	await withMediaObjectKeyLock(asset.gcsObjectKey, async (lockedDb) => {
-		const sharedObject = await hasOtherAssetForGcsObjectKey(
+		const sharedBaseObject = await hasOtherAssetForGcsObjectKey(
 			asset.gcsObjectKey,
 			asset.id,
 			lockedDb,
@@ -200,11 +208,36 @@ export async function cleanupReleasedAssetStorage(
 			});
 			return true;
 		});
-		if (!sharedObject) {
+		if (!sharedBaseObject) {
 			await deleteGcsObject(asset.gcsObjectKey);
-			for (const key of opts.alsoDelete ?? []) {
-				if (key) await deleteGcsObject(key);
-			}
+		}
+
+		const extractKey = extractObjectKeyForAsset(asset);
+		const deletesExtract = (opts.alsoDelete ?? []).some(
+			(key) => key !== null && key === extractKey,
+		);
+		const extractVersion = asset.extract?.version ?? EXTRACTOR_VERSION;
+		const sharedReadyExtract = deletesExtract
+			? await hasReadyExtractForProjectAndHash(
+					asset.project_id,
+					asset.contentHash,
+					extractVersion,
+					lockedDb,
+				).catch((err: unknown) => {
+					log.error("[asset-deletion] shared-extract check failed", err, {
+						assetId: asset.id,
+						projectId: asset.project_id,
+						contentHash: asset.contentHash,
+						version: extractVersion,
+					});
+					return true;
+				})
+			: false;
+
+		for (const key of opts.alsoDelete ?? []) {
+			if (!key) continue;
+			const shared = key === extractKey ? sharedReadyExtract : sharedBaseObject;
+			if (!shared) await deleteGcsObject(key);
 		}
 	});
 }

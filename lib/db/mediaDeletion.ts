@@ -150,8 +150,7 @@ async function persistedAppReferencesInTransaction(
 					.orderBy("thread.thread_id"),
 			).as("threads"),
 		])
-		.where("app.project_id", "=", args.projectId)
-		.where("app.deleted_at", "is", null);
+		.where("app.project_id", "=", args.projectId);
 	if (candidateIds !== undefined) {
 		appQuery = appQuery.where("app.id", "in", [...new Set(candidateIds)]);
 	}
@@ -215,6 +214,6 @@ async function persistedAppReferencesInTransaction(
 export class MediaAssetStillReferencedError extends Error {
 	readonly name = "MediaAssetStillReferencedError";
 	constructor(readonly references: readonly string[]) {
-		super("The media asset is still referenced by a live app.");
+		super("The media asset is still referenced by a persisted app.");
 	}
 }

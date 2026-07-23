@@ -19,8 +19,11 @@ import { createPerTestAppDb } from "./perTestAppDb";
 
 const { commitGuardedBatch, loadApp } = await import("../apps");
 const { BlueprintCommitRejectedError } = await import("../commitGuard");
-const { deletePendingAssetForActor, publishPendingAssetForActor } =
-	await import("../mediaAssets");
+const {
+	deletePendingAssetForActor,
+	publishClaimedAssetExtract,
+	publishPendingAssetForActor,
+} = await import("../mediaAssets");
 const { deleteMediaAssetForActor, deleteMediaAssetMetadataInTransaction } =
 	await import("../mediaDeletion");
 
@@ -76,6 +79,44 @@ async function seedPendingAsset(id = crypto.randomUUID()): Promise<string> {
 		})
 		.execute();
 	return id;
+}
+
+async function seedExtractingDocumentAsset(id = crypto.randomUUID()): Promise<{
+	id: string;
+	claim: { version: number; model: string; extractedAt: number };
+}> {
+	const claim = {
+		version: 3,
+		model: "extract-model",
+		extractedAt: 1_700_000_000_000,
+	};
+	await h
+		.db()
+		.insertInto("media_assets")
+		.values({
+			id,
+			project_id: PROJECT,
+			owner: ACTOR,
+			content_hash: id.replaceAll("-", "").padEnd(64, "c").slice(0, 64),
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			size_bytes: 100,
+			dimensions: null,
+			duration_ms: null,
+			kind: "pdf",
+			gcs_object_key: `projects/${PROJECT}/${id}.pdf`,
+			original_filename: "requirements.pdf",
+			display_name: "Requirements",
+			status: "ready",
+			extract: JSON.stringify({
+				status: "extracting",
+				...claim,
+				truncated: false,
+				charCount: 0,
+			}),
+		})
+		.execute();
+	return { id, claim };
 }
 
 async function seedApp(): Promise<{
@@ -218,6 +259,221 @@ describe("transactional media deletion", () => {
 				.executeTakeFirst(),
 		).toEqual({ id: assetId });
 	});
+
+	it("keeps media carried by a recoverable soft-deleted app so restore stays exact", async () => {
+		const { appId } = await seedApp();
+		const assetId = await seedReadyAsset();
+		// Simulate a recoverable app deleted before the reverse-index backfill. Its
+		// blueprint is still the exact state restore will revive, so that dormant
+		// carrier remains authoritative even though ordinary app lists hide it.
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				logo: assetId,
+				status: "deleted",
+				deleted_at: new Date(),
+				recoverable_until: new Date(Date.now() + 24 * 60 * 60_000),
+			})
+			.where("id", "=", appId)
+			.execute();
+
+		const result = await deleteMediaAssetForActor({
+			assetId,
+			actorUserId: ACTOR,
+			expectedProjectId: PROJECT,
+		});
+
+		expect(result).toMatchObject({ kind: "referenced" });
+		if (result.kind !== "referenced") throw new Error("expected reference");
+		expect(result.references[0]).toContain("the app logo");
+		expect(
+			await h
+				.db()
+				.selectFrom("media_assets")
+				.select("id")
+				.where("id", "=", assetId)
+				.executeTakeFirst(),
+		).toEqual({ id: assetId });
+	});
+
+	it("keeps media carried by a persisted tombstone until its restore lifecycle is purged", async () => {
+		const { appId } = await seedApp();
+		const assetId = await seedReadyAsset();
+		// App rows currently persist past their displayed recovery deadline, and
+		// restore does not yet own an audited deadline/purge fence. Treat the row
+		// as authoritative until that lifecycle removes it, or deletion could make
+		// a later restore produce a broken live app.
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				logo: assetId,
+				status: "deleted",
+				deleted_at: new Date(Date.now() - 48 * 60 * 60_000),
+				recoverable_until: new Date(Date.now() - 24 * 60 * 60_000),
+			})
+			.where("id", "=", appId)
+			.execute();
+
+		const result = await deleteMediaAssetForActor({
+			assetId,
+			actorUserId: ACTOR,
+			expectedProjectId: PROJECT,
+		});
+
+		expect(result).toMatchObject({ kind: "referenced" });
+		expect(
+			await h
+				.db()
+				.selectFrom("media_assets")
+				.select("id")
+				.where("id", "=", assetId)
+				.executeTakeFirst(),
+		).toEqual({ id: assetId });
+	});
+
+	it("publication winner commits its extract pair before metadata deletion proceeds", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const asset = await seedExtractingDocumentAsset();
+		const publisherDb = createPerTestAppDb(h.uri());
+		const deleterDb = createPerTestAppDb(h.uri());
+		const observer = new Client({ connectionString: h.uri() });
+		await observer.connect();
+		let enteredPublication!: () => void;
+		const publicationEntered = new Promise<void>((resolve) => {
+			enteredPublication = resolve;
+		});
+		let allowPublication!: () => void;
+		const publicationAllowed = new Promise<void>((resolve) => {
+			allowPublication = resolve;
+		});
+		let objectPublished = false;
+
+		const publication = publishClaimedAssetExtract(
+			{
+				assetId: asAssetId(asset.id),
+				claim: asset.claim,
+				extract: {
+					status: "ready",
+					version: asset.claim.version,
+					model: asset.claim.model,
+					truncated: false,
+					charCount: 12,
+				},
+				publishReadyObject: async () => {
+					enteredPublication();
+					await publicationAllowed;
+					objectPublished = true;
+				},
+			},
+			publisherDb.appDb,
+		);
+		let deletion: Promise<unknown> | undefined;
+		try {
+			await publicationEntered;
+			deletion = deleterDb.appDb.transaction().execute((tx) =>
+				deleteMediaAssetMetadataInTransaction(tx, {
+					assetId: asset.id,
+					actorUserId: ACTOR,
+					expectedProjectId: PROJECT,
+				}),
+			);
+			await waitForBlockedLocks(observer, 1);
+			allowPublication();
+
+			await expect(publication).resolves.toMatchObject({ kind: "published" });
+			await expect(deletion).resolves.toMatchObject({ kind: "deleted" });
+		} finally {
+			allowPublication();
+			await Promise.allSettled([publication, ...(deletion ? [deletion] : [])]);
+			await observer.end().catch(() => {});
+			await Promise.all([publisherDb.destroy(), deleterDb.destroy()]);
+		}
+
+		expect(objectPublished).toBe(true);
+		expect(
+			await h
+				.db()
+				.selectFrom("media_assets")
+				.select("id")
+				.where("id", "=", asset.id)
+				.executeTakeFirst(),
+		).toBeUndefined();
+	}, 15_000);
+
+	it("delete winner makes a waiting extraction publication a no-op before GCS is touched", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const asset = await seedExtractingDocumentAsset();
+		const publisherDb = createPerTestAppDb(h.uri());
+		const deleterDb = createPerTestAppDb(h.uri());
+		const observer = new Client({ connectionString: h.uri() });
+		await observer.connect();
+		let deletedInsideTransaction!: () => void;
+		const deletionExecuted = new Promise<void>((resolve) => {
+			deletedInsideTransaction = resolve;
+		});
+		let allowDeleteCommit!: () => void;
+		const deleteCommitAllowed = new Promise<void>((resolve) => {
+			allowDeleteCommit = resolve;
+		});
+		let publishCallbackRan = false;
+
+		const deletion = deleterDb.appDb.transaction().execute(async (tx) => {
+			const result = await deleteMediaAssetMetadataInTransaction(tx, {
+				assetId: asset.id,
+				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+			});
+			deletedInsideTransaction();
+			await deleteCommitAllowed;
+			return result;
+		});
+		let publication: Promise<unknown> | undefined;
+		try {
+			await deletionExecuted;
+			publication = publishClaimedAssetExtract(
+				{
+					assetId: asAssetId(asset.id),
+					claim: asset.claim,
+					extract: {
+						status: "ready",
+						version: asset.claim.version,
+						model: asset.claim.model,
+						truncated: false,
+						charCount: 12,
+					},
+					publishReadyObject: async () => {
+						publishCallbackRan = true;
+					},
+				},
+				publisherDb.appDb,
+			);
+			await waitForBlockedLocks(observer, 1);
+			allowDeleteCommit();
+
+			await expect(deletion).resolves.toMatchObject({ kind: "deleted" });
+			await expect(publication).resolves.toMatchObject({ kind: "not_found" });
+		} finally {
+			allowDeleteCommit();
+			await Promise.allSettled([
+				deletion,
+				...(publication ? [publication] : []),
+			]);
+			await observer.end().catch(() => {});
+			await Promise.all([publisherDb.destroy(), deleterDb.destroy()]);
+		}
+
+		expect(publishCallbackRan).toBe(false);
+		expect(
+			await h
+				.db()
+				.selectFrom("media_assets")
+				.select("id")
+				.where("id", "=", asset.id)
+				.executeTakeFirst(),
+		).toBeUndefined();
+	}, 15_000);
 
 	it("cannot miss an asset atomically relocated from a normalized entity to the app root", async () => {
 		const assetId = await seedReadyAsset();

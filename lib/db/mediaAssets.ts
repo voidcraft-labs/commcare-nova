@@ -44,6 +44,30 @@ import {
  */
 export type MediaAssetRecord = MediaAssetDoc & { id: AssetId };
 
+/** Identity of one extraction claim. `extractedAt` is the row-stored fencing
+ * token, not merely display metadata: a stale job may publish only while this
+ * exact claim still owns the asset's extract slot. */
+export interface AssetExtractionClaim {
+	readonly version: number;
+	readonly model: string;
+	readonly extractedAt: number;
+}
+
+export type AssetExtractionClaimResult =
+	| { readonly kind: "claimed"; readonly claim: AssetExtractionClaim }
+	| { readonly kind: "in_flight" }
+	| { readonly kind: "superseded"; readonly extract: MediaAssetExtract }
+	| { readonly kind: "not_found" };
+
+export type ClaimedExtractPublicationResult =
+	| { readonly kind: "published"; readonly extract: MediaAssetExtract }
+	| { readonly kind: "adopted"; readonly extract: MediaAssetExtract }
+	| {
+			readonly kind: "superseded";
+			readonly extract: MediaAssetExtract | null;
+	  }
+	| { readonly kind: "not_found" };
+
 /** Assemble a `media_assets` row into the in-memory `MediaAssetRecord`. */
 export function mediaAssetRecordFromRow(
 	row: Selectable<MediaAssetsTable>,
@@ -460,11 +484,11 @@ export async function createReadyAsset(
 }
 
 /**
- * Publish a copied ready document extract onto an existing deduplicated asset.
- * The caller has already copied the content-addressed extract object while
- * holding the destination asset's canonical object-key lock. Preserve an
- * existing ready extract at the same/newer version; otherwise make the copied
- * ready metadata visible in the same critical section.
+ * Publish a verified ready document extract pair across duplicate asset rows.
+ * The caller holds the Project/hash content lock and has either verified the
+ * destination object paired with `extract`, or just copied that exact source
+ * object there. Lock every duplicate row in asset-id order, preserve strictly
+ * higher versions, and make all other ready rows name this one canonical pair.
  */
 export async function installCopiedReadyExtract(
 	args: {
@@ -472,75 +496,185 @@ export async function installCopiedReadyExtract(
 		extract: MediaAssetExtract;
 	},
 	lockedDb?: Kysely<AppDatabase>,
-): Promise<void> {
+): Promise<MediaAssetExtract> {
 	if (args.extract.status !== "ready") {
 		throw new Error(
 			"[installCopiedReadyExtract] only a ready source extract may be published.",
 		);
 	}
 	const install = async (tx: Transaction<AppDatabase>) => {
-		const row = await tx
+		const snapshot = await tx
 			.selectFrom("media_assets")
-			.select("extract")
+			.select(["project_id", "content_hash"])
 			.where("id", "=", args.assetId)
-			.forUpdate()
 			.executeTakeFirst();
-		if (row === undefined) {
+		if (snapshot === undefined) {
 			throw new Error(
 				`[installCopiedReadyExtract] destination asset row missing for assetId=${args.assetId}.`,
 			);
 		}
-		const current =
-			row.extract === null ? null : mediaAssetExtractSchema.parse(row.extract);
-		if (
-			current?.status === "ready" &&
-			current.version >= args.extract.version
-		) {
-			return;
-		}
-		await tx
-			.updateTable("media_assets")
-			.set({ extract: JSON.stringify(args.extract) })
-			.where("id", "=", args.assetId)
+		const contentRows = await tx
+			.selectFrom("media_assets")
+			.select(["id", "status", "extract"])
+			.where("project_id", "=", snapshot.project_id)
+			.where("content_hash", "=", snapshot.content_hash)
+			.orderBy("id")
+			.forUpdate()
 			.execute();
+		const target = contentRows.find((row) => row.id === args.assetId);
+		if (target === undefined || target.status !== "ready") {
+			throw new Error(
+				`[installCopiedReadyExtract] destination asset is missing or not ready for assetId=${args.assetId}.`,
+			);
+		}
+		const eligibleIds = contentRows
+			.filter((row) => {
+				if (row.status !== "ready") return false;
+				if (row.extract === null) return true;
+				return (
+					mediaAssetExtractSchema.parse(row.extract).version <=
+					args.extract.version
+				);
+			})
+			.map((row) => asAssetId(row.id));
+		if (eligibleIds.length > 0) {
+			await tx
+				.updateTable("media_assets")
+				.set({ extract: JSON.stringify(args.extract) })
+				.where("id", "in", eligibleIds)
+				.execute();
+		}
+		if (eligibleIds.includes(args.assetId)) return args.extract;
+		if (target.extract === null) {
+			throw new Error(
+				`[installCopiedReadyExtract] target unexpectedly lacked an eligible extract for assetId=${args.assetId}.`,
+			);
+		}
+		return mediaAssetExtractSchema.parse(target.extract);
 	};
 	if (lockedDb) {
-		await lockedDb.transaction().execute(install);
-	} else {
-		await withAppTx(install);
+		return lockedDb.transaction().execute(install);
 	}
+	return withAppTx(install);
 }
 
 /**
- * Write the document-extract subobject in one shot, stamping `extractedAt` as
- * epoch ms. The extract is a self-contained jsonb object, so a plain
- * `set({ extract })` replaces the whole subobject on every state transition
- * (`extracting` → `ready`/`failed`) — no dot-path merge, no stale leftover
- * field. `failureReason` is passed only on the `failed` transition; an absent
- * optional simply isn't a key on the object. The extract TEXT is written to GCS
- * separately (see `writeTextObject`); this only tracks status + the metadata
- * the UI and chat resolve step read.
+ * Publish one claimed extraction while the caller holds the asset's canonical
+ * extension-independent Project/hash content session lock.
+ *
+ * Lock order is canonical content -> asset row. Deletion takes the asset row
+ * only for its metadata transaction, commits, and acquires the content lock
+ * afterward for byte cleanup, so there is no row/key cycle. The exact claim
+ * comparison fences a stale model job: Project-copy publication, a newer claim,
+ * or deletion may win while the model runs, and none can be overwritten when
+ * the old job eventually returns.
+ *
+ * For a ready result, `publishReadyObject` runs after the row is locked and the
+ * claim is proven, but before ready metadata is committed. Thus a delete winner
+ * yields `not_found` without recreating an extract object; a publication winner
+ * makes its GCS object and matching metadata visible as one serialized pair.
  */
-export async function setAssetExtractStatus(
-	assetId: AssetId,
-	extract: Omit<MediaAssetExtract, "extractedAt">,
-): Promise<void> {
-	const db = await getAppDb();
-	const result = await db
-		.updateTable("media_assets")
-		.set({
-			extract: JSON.stringify({ ...extract, extractedAt: Date.now() }),
-		})
-		.where("id", "=", assetId)
-		.executeTakeFirst();
-	/* A deleted-mid-extraction asset must surface here (the extraction store
-	 * treats a thrown status write as the job failing), not read as a recorded
-	 * status on a row that no longer exists. */
-	if (Number(result.numUpdatedRows) === 0) {
-		throw new Error(
-			`[setAssetExtractStatus] asset row missing for assetId=${assetId} — it was deleted while its document was being extracted.`,
-		);
-	}
+export async function publishClaimedAssetExtract(
+	args: {
+		readonly assetId: AssetId;
+		readonly claim: AssetExtractionClaim;
+		readonly extract: Omit<MediaAssetExtract, "extractedAt" | "status"> & {
+			readonly status: "ready" | "failed";
+		};
+		readonly publishReadyObject?: () => Promise<void>;
+		/** A committed same-content pair whose object the caller verified while
+		 * holding the content lock. Adopt it instead of overwriting the shared
+		 * object with this job's independently generated output. */
+		readonly sharedReadyExtract?: MediaAssetExtract;
+	},
+	lockedDb: Kysely<AppDatabase>,
+): Promise<ClaimedExtractPublicationResult> {
+	return lockedDb.transaction().execute(async (tx) => {
+		const snapshot = await tx
+			.selectFrom("media_assets")
+			.select(["project_id", "content_hash"])
+			.where("id", "=", args.assetId)
+			.executeTakeFirst();
+		if (snapshot === undefined) return { kind: "not_found" };
+
+		// Extraction metadata is content-scoped even though callers address one
+		// asset id. Lock every duplicate row in global asset-id order from the
+		// outset: app writers use the same sorted order for their `FOR SHARE`
+		// admission locks, so starting with an arbitrary current row and then a
+		// lower-id sibling would introduce a row-lock cycle.
+		const contentRows = await tx
+			.selectFrom("media_assets")
+			.select(["id", "status", "extract"])
+			.where("project_id", "=", snapshot.project_id)
+			.where("content_hash", "=", snapshot.content_hash)
+			.orderBy("id")
+			.forUpdate()
+			.execute();
+		const row = contentRows.find((candidate) => candidate.id === args.assetId);
+		if (row === undefined) return { kind: "not_found" };
+
+		const current =
+			row.extract === null ? null : mediaAssetExtractSchema.parse(row.extract);
+		const ownsClaim =
+			current?.status === "extracting" &&
+			current.version === args.claim.version &&
+			current.model === args.claim.model &&
+			current.extractedAt === args.claim.extractedAt;
+		if (!ownsClaim) return { kind: "superseded", extract: current };
+
+		if (args.sharedReadyExtract !== undefined) {
+			if (
+				args.sharedReadyExtract.status !== "ready" ||
+				args.sharedReadyExtract.version !== args.claim.version
+			) {
+				throw new Error(
+					"[publishClaimedAssetExtract] shared extract must be ready at the claim version.",
+				);
+			}
+			await tx
+				.updateTable("media_assets")
+				.set({ extract: JSON.stringify(args.sharedReadyExtract) })
+				.where("id", "=", args.assetId)
+				.execute();
+			return { kind: "adopted", extract: args.sharedReadyExtract };
+		}
+
+		if (args.extract.status === "ready") {
+			if (args.publishReadyObject === undefined) {
+				throw new Error(
+					"[publishClaimedAssetExtract] ready publication requires its GCS object callback.",
+				);
+			}
+			await args.publishReadyObject();
+		}
+		const extract = mediaAssetExtractSchema.parse({
+			...args.extract,
+			extractedAt: Date.now(),
+		});
+
+		let synchronizedAssetIds = [args.assetId];
+		if (extract.status === "ready" && row.status === "ready") {
+			// Every ready asset row for this Project/hash/version points at ONE
+			// shared extract object. Advance every non-newer state in the already
+			// sorted/locked content set to the same metadata, so two rows that
+			// claimed concurrently cannot leave one object paired with two model
+			// summaries/truncation records. A higher version always wins.
+			synchronizedAssetIds = contentRows
+				.filter((sibling) => {
+					if (sibling.status !== "ready") return false;
+					if (sibling.extract === null) return true;
+					const siblingExtract = mediaAssetExtractSchema.parse(sibling.extract);
+					return siblingExtract.version <= extract.version;
+				})
+				.map((sibling) => asAssetId(sibling.id));
+		}
+		await tx
+			.updateTable("media_assets")
+			.set({ extract: JSON.stringify(extract) })
+			.where("id", "in", synchronizedAssetIds)
+			.execute();
+		return { kind: "published", extract };
+	});
 }
 
 /**
@@ -548,9 +682,11 @@ export async function setAssetExtractStatus(
  * extract status under a row lock and write `extracting` only if no LIVE current
  * job already holds it — a job is live iff its status is `extracting`, at
  * `currentVersion`, and younger than `staleMs` (a dead process leaves a stale
- * `extracting` record that is reclaimable). Returns `true` when THIS caller
- * acquired the claim (and should run the model), `false` when a live job already
- * owns it (the caller should wait or report in-flight).
+ * `extracting` record that is reclaimable). A higher-version state always
+ * supersedes an older binary's request, regardless of status, so a rolling
+ * server fleet cannot regress ready metadata. Returns the exact fencing claim
+ * when this caller acquired it, `in_flight` for a live same-version job,
+ * `superseded` for any higher-version state, or `not_found` when deletion won.
  *
  * This is the lock that stops two concurrent eager extractions from both running
  * the model: the plain read-decide-then-write it backs let both pass the check
@@ -561,7 +697,7 @@ export async function setAssetExtractStatus(
 export async function claimExtractionIfIdle(
 	assetId: AssetId,
 	opts: { now: number; staleMs: number; currentVersion: number; model: string },
-): Promise<boolean> {
+): Promise<AssetExtractionClaimResult> {
 	return withAppTx(async (tx) => {
 		const row = await tx
 			.selectFrom("media_assets")
@@ -569,28 +705,38 @@ export async function claimExtractionIfIdle(
 			.where("id", "=", assetId)
 			.forUpdate()
 			.executeTakeFirst();
-		const extract = row?.extract as MediaAssetExtract | null | undefined;
+		if (row === undefined) return { kind: "not_found" };
+		const extract =
+			row.extract === null ? null : mediaAssetExtractSchema.parse(row.extract);
+		if (extract !== null && extract.version > opts.currentVersion) {
+			return { kind: "superseded", extract };
+		}
 		const liveJob =
 			extract?.status === "extracting" &&
 			extract.version === opts.currentVersion &&
 			typeof extract.extractedAt === "number" &&
 			opts.now - extract.extractedAt < opts.staleMs;
-		if (liveJob) return false;
+		if (liveJob) return { kind: "in_flight" };
+		const claim: AssetExtractionClaim = {
+			version: opts.currentVersion,
+			model: opts.model,
+			extractedAt: opts.now,
+		};
 		await tx
 			.updateTable("media_assets")
 			.set({
 				extract: JSON.stringify({
 					status: "extracting",
-					version: opts.currentVersion,
-					model: opts.model,
+					version: claim.version,
+					model: claim.model,
 					truncated: false,
 					charCount: 0,
-					extractedAt: Date.now(),
+					extractedAt: claim.extractedAt,
 				}),
 			})
 			.where("id", "=", assetId)
 			.execute();
-		return true;
+		return { kind: "claimed", claim };
 	});
 }
 
@@ -641,6 +787,57 @@ export async function hasAssetForGcsObjectKey(
 		.limit(1)
 		.executeTakeFirst();
 	return row !== undefined;
+}
+
+/**
+ * Whether any committed asset row for this content names a ready extract at
+ * `version`. Failed ready-publication cleanup calls this while holding the
+ * canonical Project/hash content lock: retain the shared extract object if a deduplicated
+ * sibling already published the same version.
+ */
+export async function hasReadyExtractForProjectAndHash(
+	projectId: string,
+	contentHash: string,
+	version: number,
+	lockedDb: Kysely<AppDatabase>,
+): Promise<boolean> {
+	return (
+		(await findReadyExtractForProjectAndHash(
+			projectId,
+			contentHash,
+			version,
+			lockedDb,
+		)) !== null
+	);
+}
+
+/**
+ * The canonical committed ready metadata for one shared extract object, if any.
+ * Callers pair this with a read of the versioned object while holding the
+ * Project/hash content lock before adopting it onto another duplicate row.
+ */
+export async function findReadyExtractForProjectAndHash(
+	projectId: string,
+	contentHash: string,
+	version: number,
+	lockedDb: Kysely<AppDatabase>,
+): Promise<MediaAssetExtract | null> {
+	const rows = await lockedDb
+		.selectFrom("media_assets")
+		.select(["id", "extract"])
+		.where("project_id", "=", projectId)
+		.where("content_hash", "=", contentHash)
+		.where("status", "=", "ready")
+		.orderBy("id")
+		.execute();
+	for (const row of rows) {
+		if (row.extract === null) continue;
+		const extract = mediaAssetExtractSchema.parse(row.extract);
+		if (extract.status === "ready" && extract.version === version) {
+			return extract;
+		}
+	}
+	return null;
 }
 
 /**
