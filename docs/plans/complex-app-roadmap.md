@@ -1703,7 +1703,7 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
-**Status:** S05a in progress (foundation checkpoint `7f5737d9`); S05b blocked
+**Status:** S05a in progress (implementation checkpoint `7d471bcf`); S05b blocked
 on S05a; S05c blocked on S05b and a fresh owner decision between maintenance
 and additional rollout machinery.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
@@ -1879,9 +1879,9 @@ Implementation remains split into independently reviewed units:
 
 #### S05a execution checkpoint — 2026-07-23
 
-Commits `fe0a7027` through `7f5737d9` on `agent/s05a-lookup-carriers`
-are a verified internal foundation, not a merge-ready S05a result. They now
-own:
+Commits `fe0a7027` through `7d471bcf` on `agent/s05a-lookup-carriers`
+form a reviewed internal implementation checkpoint, not a contract-complete or
+merge-ready S05a result. They now own:
 
 - the three dormant domain carriers and their stable table/column identities;
 - required inline select fallbacks plus the rolling-compatible top-level
@@ -1895,13 +1895,15 @@ own:
   fallbacks, including inline-only duplication of a receiver-preserved select;
   and
 - deliberate rejection or incompatibility results at the existing preview,
-  case-store SQL, on-device XPath, CSQL, suite, and instance boundaries.
+  case-store SQL, on-device XPath, CSQL, suite, and instance boundaries,
+  including terminal rejection before lookup-row predicates are misread as case
+  predicates.
 
-The checkpoint passes TypeScript plus a 12-file, 310-test core matrix covering
-carrier schemas, mutation compatibility, reference-index totality and fuzz,
-case-type retirement, AST transforms, and builder round trips. Follow-up
-targeted suites cover JSON-schema generation, carrier-blind duplication,
-diagnostic paths, and the direct XForm and preview rejection boundaries.
+The checkpoint passes TypeScript plus a 21-file, 515-test focused matrix
+covering carrier schemas, mutation compatibility, reference-index totality and
+fuzz, case-type retirement, AST transforms, builder round trips, JSON-schema
+generation, carrier-blind duplication, diagnostic paths, and the direct XForm,
+preview, CSQL, and instance-accumulation rejection boundaries.
 
 The following work remains in S05a and must land before a PR is called
 merge-ready:
@@ -1920,12 +1922,16 @@ merge-ready:
    option-filter field reads to a validation-only dependency-cycle graph that
    also covers the existing `default_value` slot without activating preview
    evaluation;
-4. keep SA and MCP recursive input schemas, generated model vocabulary,
+4. split canonical replay schemas from carrier-blind authoring and rolling
+   mutation envelopes so dormant table ASTs cannot enter through any legacy
+   mutation discriminator that a pre-S05 receiver would reject;
+5. keep SA and MCP recursive input schemas, generated model vocabulary,
    read-tool projections, and generic builder controls carrier-blind at every
    nesting depth, with runtime-rejection and generated-grammar regression tests;
-5. extend the frozen-receiver, raw-SSE, JSONB/hydration/log, authoritative-writer
-   race, removal, and export short-circuit test matrices using real carriers;
-   then run independent review, CI, and the normal merge/deploy verification.
+6. extend the actual frozen pre-S05 reducer, raw-SSE,
+   JSONB/hydration/log, authoritative-writer race, removal, and export
+   short-circuit test matrices using real carriers; then run independent
+   review, CI, and the normal merge/deploy verification.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,
