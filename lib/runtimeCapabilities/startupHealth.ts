@@ -7,7 +7,7 @@ import {
 	RUNTIME_BUILD_ID_ENV_KEY,
 	RUNTIME_BUILD_ID_FILE_PATH,
 	requireRuntimeBuildId,
-} from "@/lib/runtimeCapabilities/core.mjs";
+} from "@/lib/runtimeCapabilities/core.mts";
 import { runtimeCapabilityEnvironment } from "@/lib/runtimeCapabilities/server";
 
 /** Keep the DB wait below Cloud Run's ten-second per-attempt probe timeout. */

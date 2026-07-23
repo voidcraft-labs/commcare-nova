@@ -3,7 +3,7 @@ import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 import {
 	RUNTIME_BUILD_ID_ENV_KEY,
 	RUNTIME_CAPABILITY_ENV_KEYS,
-} from "@/lib/runtimeCapabilities/core.mjs";
+} from "@/lib/runtimeCapabilities/core.mts";
 import { runtimeCapabilityEnvironment } from "@/lib/runtimeCapabilities/server";
 import {
 	assertRuntimeStartupHealth,
