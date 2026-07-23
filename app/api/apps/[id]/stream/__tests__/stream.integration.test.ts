@@ -61,12 +61,21 @@ import {
 } from "vitest";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { createReconciler, type MutationFrame } from "@/lib/collab/reconciler";
 import {
 	createPerTestAppDb,
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
 import { RETENTION_COUNT } from "@/lib/db/constants";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import { createBlueprintDocStore } from "@/lib/doc/store";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	asUuid,
+	type LookupOptionsSource,
+	lookupOptionsSourceSchema,
+	type PersistableDoc,
+} from "@/lib/domain";
 
 // ── Auth mocks (no Better Auth / membership tables for the relay) ──────────
 const {
@@ -141,6 +150,23 @@ const USER = "user-1";
 const OTHER_USER = "user-2";
 const PROJECT = "project-1";
 const OTHER_PROJECT = "project-2";
+const LOOKUP_MODULE = asUuid("10000000-0000-4000-8000-000000000000");
+const LOOKUP_FORM = asUuid("20000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
+const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
+	kind: "lookup-table",
+	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
+	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
+	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
+});
+const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
+	kind: "lookup-table",
+	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
+	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
+	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
+});
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -192,7 +218,11 @@ async function seedApp(head: number): Promise<string> {
 async function writeEntry(
 	appId: string,
 	seq: number,
-	opts: { kind?: "autosave" | "chat" | "migration"; runId?: string } = {},
+	opts: {
+		kind?: "autosave" | "chat" | "migration";
+		runId?: string;
+		mutations?: readonly Mutation[];
+	} = {},
 ): Promise<void> {
 	const kind = opts.kind ?? "autosave";
 	await appDb
@@ -204,9 +234,74 @@ async function writeEntry(
 			run_id: opts.runId ?? null,
 			actor_id: USER,
 			kind,
-			mutations: JSON.stringify([{ kind: "setAppName", name: `v${seq}` }]),
+			mutations: JSON.stringify(
+				opts.mutations ?? [{ kind: "setAppName", name: `v${seq}` }],
+			),
 		})
 		.execute();
+}
+
+function lookupSourceMutation(
+	optionsSource: LookupOptionsSource | null,
+): Mutation {
+	return {
+		kind: "updateField",
+		uuid: LOOKUP_FIELD,
+		targetKind: "single_select",
+		patch: {},
+		optionsSource,
+	};
+}
+
+function lookupReceiverDoc(appId: string): PersistableDoc {
+	return {
+		appId,
+		appName: "Lookup receiver",
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[LOOKUP_MODULE]: {
+				uuid: LOOKUP_MODULE,
+				id: "lookups",
+				name: "Lookups",
+			},
+		},
+		forms: {
+			[LOOKUP_FORM]: {
+				uuid: LOOKUP_FORM,
+				id: "intake",
+				name: "Intake",
+				type: "survey",
+			},
+		},
+		fields: {
+			[LOOKUP_FIELD]: {
+				uuid: LOOKUP_FIELD,
+				id: "status",
+				kind: "single_select",
+				label: "Status",
+				options: [
+					{
+						uuid: LOOKUP_OPTION_A,
+						value: "active",
+						label: "Active",
+					},
+					{
+						uuid: LOOKUP_OPTION_B,
+						value: "closed",
+						label: "Closed",
+					},
+				],
+			},
+		},
+		moduleOrder: [LOOKUP_MODULE],
+		formOrder: { [LOOKUP_MODULE]: [LOOKUP_FORM] },
+		fieldOrder: { [LOOKUP_FORM]: [LOOKUP_FIELD] },
+	};
+}
+
+function owns(value: object, key: PropertyKey): boolean {
+	return Object.hasOwn(value, key);
 }
 
 /** Insert one `presence` row directly. */
@@ -442,6 +537,122 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const first = mutations[0];
 		if (!first) throw new Error("no mutation frames were replayed");
 		expect((first.data as { seq: number }).seq).toBe(1);
+	});
+
+	it("replays lookup-source set, replace, and explicit-null clear through Postgres and raw HTTP SSE", async () => {
+		const appId = await seedApp(3);
+		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
+		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
+		const clearSource = lookupSourceMutation(null);
+
+		/* The clear starts as an own, top-level null. `undefined` would disappear
+		 * at the first JSON.stringify and silently turn the clear into a no-op. */
+		expect(owns(clearSource, "optionsSource")).toBe(true);
+		expect(clearSource).toHaveProperty("optionsSource", null);
+
+		await writeEntry(appId, 1, { mutations: [setSource] });
+		await writeEntry(appId, 2, { mutations: [replaceSource] });
+		await writeEntry(appId, 3, { mutations: [clearSource] });
+
+		/* Hop 1: the accepted_mutations jsonb value has survived the writer-side
+		 * JSON.stringify plus Postgres' jsonb decode with the explicit null
+		 * intact and still at the rolling-compatible top level. */
+		const persistedClearRow = await appDb
+			.selectFrom("accepted_mutations")
+			.select("mutations")
+			.where("app_id", "=", appId)
+			.where("seq", "=", 3)
+			.executeTakeFirstOrThrow();
+		const persistedClear = (
+			persistedClearRow.mutations as unknown as Record<string, unknown>[]
+		)[0];
+		if (!persistedClear) throw new Error("persisted clear mutation is missing");
+		expect(owns(persistedClear, "optionsSource")).toBe(true);
+		expect(persistedClear.optionsSource).toBeNull();
+		expect(persistedClear.patch).toEqual({});
+		expect(persistedClear.patch).not.toHaveProperty("optionsSource");
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) =>
+				current.filter((frame) => frame.event === "mutation").length >= 3,
+		});
+		const mutationFrames = frames.filter((frame) => frame.event === "mutation");
+		expect(mutationFrames.map((frame) => frame.id)).toEqual(["1", "2", "3"]);
+
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(lookupReceiverDoc(appId));
+		docStore.getState().startTracking();
+		const reconciler = createReconciler(
+			docStore,
+			{
+				appId,
+				baseSeq: 0,
+				baseDoc: docStore.getState(),
+				/* A different user makes these historical frames remote, matching a
+				 * normal reconnecting collaborator rather than a pending self-echo. */
+				userId: "reconnecting-receiver",
+			},
+			{
+				put: async () => ({ ok: true, seq: 4 }),
+				canEdit: () => true,
+				reload: async () => {
+					throw new Error("contiguous replay must not reload");
+				},
+				resubscribe: () => {},
+				scheduleRetry: () => () => {},
+			},
+		);
+
+		try {
+			for (const [index, expectedSource] of [
+				LOOKUP_SOURCE_A,
+				LOOKUP_SOURCE_B,
+				null,
+			].entries()) {
+				const rawFrame = mutationFrames[index]?.data as
+					| MutationFrame
+					| undefined;
+				if (!rawFrame) throw new Error(`missing mutation frame ${index + 1}`);
+				const rawMutation = rawFrame.mutations[0] as
+					| Record<string, unknown>
+					| undefined;
+				if (!rawMutation)
+					throw new Error(`missing mutation payload ${index + 1}`);
+
+				/* Hop 2: the route's JSON.stringify and the raw SSE parser's
+				 * JSON.parse preserve the semantic extension. The strict nested
+				 * fallback remains carrier-blind for an origin receiver. */
+				expect(owns(rawMutation, "optionsSource")).toBe(true);
+				expect(rawMutation.optionsSource).toEqual(expectedSource);
+				expect(rawMutation.patch).toEqual({});
+				expect(rawMutation.patch).not.toHaveProperty("optionsSource");
+
+				reconciler.onFrame(rawFrame);
+				const field = docStore.getState().fields[LOOKUP_FIELD];
+				if (field?.kind !== "single_select") {
+					throw new Error("lookup receiver field is missing");
+				}
+				expect(field.optionsSource).toEqual(expectedSource ?? undefined);
+				expect(
+					field.options.map(({ value, label }) => ({ value, label })),
+				).toEqual([
+					{ value: "active", label: "Active" },
+					{ value: "closed", label: "Closed" },
+				]);
+			}
+
+			const rawClear = mutationFrames[2]?.data as MutationFrame | undefined;
+			const rawClearMutation = rawClear?.mutations[0] as
+				| Record<string, unknown>
+				| undefined;
+			if (!rawClearMutation) throw new Error("raw clear mutation is missing");
+			expect(owns(rawClearMutation, "optionsSource")).toBe(true);
+			expect(rawClearMutation.optionsSource).toBeNull();
+			expect(reconciler.getSnapshot().baseSeq).toBe(3);
+		} finally {
+			reconciler.dispose();
+		}
 	});
 
 	it("delivers a live commit after the stream is open (real NOTIFY end-to-end)", async () => {

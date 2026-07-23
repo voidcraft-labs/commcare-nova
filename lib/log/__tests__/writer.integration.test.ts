@@ -12,12 +12,32 @@
  */
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	asUuid,
+	type LookupOptionsSource,
+	lookupOptionsSourceSchema,
+} from "@/lib/domain";
+import { readEvents } from "../reader";
 import type { Event } from "../types";
 import { LogWriter } from "../writer";
 
 const h = setupAppStateTestDb("log_writer_");
 
 const APP = "app-writer-int";
+const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
+	kind: "lookup-table",
+	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
+	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
+	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
+});
+const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
+	kind: "lookup-table",
+	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
+	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
+	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
+});
 
 function mutationEvent(seq: number, runId = "run-1"): Event {
 	return {
@@ -41,6 +61,38 @@ function conversationEvent(seq: number, runId = "run-1"): Event {
 		source: "chat",
 		payload: { type: "user-message", text: "hi" },
 	};
+}
+
+function lookupSourceMutation(
+	optionsSource: LookupOptionsSource | null,
+): Mutation {
+	return {
+		kind: "updateField",
+		uuid: LOOKUP_FIELD,
+		targetKind: "single_select",
+		patch: {},
+		optionsSource,
+	};
+}
+
+function lookupMutationEvent(
+	seq: number,
+	optionsSource: LookupOptionsSource | null,
+): Event {
+	return {
+		kind: "mutation",
+		runId: "run-lookup-carriers",
+		ts: 2_000 + seq,
+		seq,
+		source: "chat",
+		actor: "agent",
+		stage: "lookup",
+		mutation: lookupSourceMutation(optionsSource),
+	};
+}
+
+function owns(value: object, key: PropertyKey): boolean {
+	return Object.hasOwn(value, key);
 }
 
 describe("LogWriter default pgSink", () => {
@@ -103,5 +155,80 @@ describe("LogWriter default pgSink", () => {
 
 		expect(row.source).toBe("mcp");
 		expect((row.event as { source: string }).source).toBe("mcp");
+	});
+
+	it("round-trips lookup-source set, replace, and explicit-null clear through the Postgres writer and reader", async () => {
+		const carrierEvents = [
+			lookupMutationEvent(0, LOOKUP_SOURCE_A),
+			lookupMutationEvent(1, LOOKUP_SOURCE_B),
+			lookupMutationEvent(2, null),
+		];
+		const inputClear = carrierEvents[2];
+		if (inputClear?.kind !== "mutation") {
+			throw new Error("input clear event is missing");
+		}
+		expect(owns(inputClear.mutation, "optionsSource")).toBe(true);
+		expect(inputClear.mutation).toHaveProperty("optionsSource", null);
+
+		const writer = new LogWriter(APP, "chat");
+		for (const event of carrierEvents) writer.logEvent(event);
+		await writer.flush();
+
+		/* The writer's JSON.stringify → jsonb hop preserves all three top-level
+		 * extensions, especially the clear's own null property. */
+		const storedRows = await h
+			.db()
+			.selectFrom("events")
+			.select("event")
+			.where("app_id", "=", APP)
+			.where("run_id", "=", "run-lookup-carriers")
+			.orderBy("seq")
+			.execute();
+		expect(storedRows).toHaveLength(3);
+		const storedMutations = storedRows.map((row) => {
+			const event = row.event as {
+				kind?: string;
+				mutation?: Record<string, unknown>;
+			};
+			if (event.kind !== "mutation" || !event.mutation) {
+				throw new Error("stored carrier MutationEvent is malformed");
+			}
+			return event.mutation;
+		});
+		expect(storedMutations.map((mutation) => mutation.optionsSource)).toEqual([
+			LOOKUP_SOURCE_A,
+			LOOKUP_SOURCE_B,
+			null,
+		]);
+		expect(owns(storedMutations[2] ?? {}, "optionsSource")).toBe(true);
+		expect(storedMutations[2]?.optionsSource).toBeNull();
+		expect(storedMutations[2]?.patch).toEqual({});
+		expect(storedMutations[2]?.patch).not.toHaveProperty("optionsSource");
+
+		/* readEvents performs the production jsonb decode plus
+		 * canonicalMutationSchema validation. A skipped clear would make the
+		 * persisted run stream partial, so assert both the count and exact shape. */
+		const read = await readEvents(APP, "run-lookup-carriers");
+		expect(read.skipped).toBe(0);
+		expect(read.events).toHaveLength(3);
+		const decodedMutations = read.events.map((event) => {
+			if (event.kind !== "mutation") {
+				throw new Error("decoded carrier event is not a mutation");
+			}
+			return event.mutation;
+		});
+		expect(
+			decodedMutations.map((mutation) =>
+				"optionsSource" in mutation ? mutation.optionsSource : undefined,
+			),
+		).toEqual([LOOKUP_SOURCE_A, LOOKUP_SOURCE_B, null]);
+		const decodedClear = decodedMutations[2];
+		if (decodedClear?.kind !== "updateField") {
+			throw new Error("decoded clear updateField mutation is missing");
+		}
+		expect(owns(decodedClear, "optionsSource")).toBe(true);
+		expect(decodedClear).toHaveProperty("optionsSource", null);
+		expect(decodedClear.patch).toEqual({});
+		expect(decodedClear.patch).not.toHaveProperty("optionsSource");
 	});
 });
