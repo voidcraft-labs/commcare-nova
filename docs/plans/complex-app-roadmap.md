@@ -2,8 +2,9 @@
 
 > **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
 > Nova `81e5ad8b` (PR #300). S01, S02a, S02b, and S02c1 are shipped;
-> S02c2 and S02c3 are in review on `agent/s02c2-simple` and `agent/s02c3`,
-> S03 is in review on `agent/s03`, and S04 is in progress on `agent/s04`.
+> S02c2 is review-approved on `agent/s02c2-simple`, S02c3 is in final re-review
+> on `agent/s02c3`, S03 is review-approved on `agent/s03-clean`, and S04 is in
+> progress on `agent/s04`.
 > This file
 > owns execution order, product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -735,10 +736,10 @@ shipped in PR #300 at squash `81e5ad8b`, including authorization serialization,
 runtime capability and stream admission, authoritative reload, and dormant
 holder-generation safety; healthy 100%-traffic revision
 `commcare-nova-00354-dq4` passed app/docs/MCP probes and its production error
-check. S02c2 is in whole-branch review on `agent/s02c2-simple`; S02c3's
-implementation is frozen for independent review on `agent/s02c3`. S02 remains
-`in progress` until both units separately pass review, CI, deployment
-verification, and cleanup.
+check. S02c2 passed independent whole-branch review on
+`agent/s02c2-simple`; S02c3's six review findings are fixed at `796e5d15` and
+the branch is in final independent re-review. S02 remains `in progress` until
+both units separately pass review, CI, deployment verification, and cleanup.
 
 #### Identity, context, and extraction
 
@@ -1474,8 +1475,9 @@ scan-before-migrate/rescan tool later; it never repairs data.
 
 ### S03 — display conditions: domain and wire
 
-**Status:** implementation complete on `agent/s03`; review fixes and independent
-approval remain before integration.
+**Status:** implementation and review fixes are independently approved on the
+clean `agent/s03-clean` branch; publication, CI, deployment verification, and
+cleanup remain.
 
 Add typed condition carriers only where evaluation context is defined. Preserve
 the current expression-admission policy: global/module contexts cannot gain row
