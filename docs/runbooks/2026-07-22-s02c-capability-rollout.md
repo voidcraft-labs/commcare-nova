@@ -272,10 +272,12 @@ password:
 set -euo pipefail
 NOVA_BOOTSTRAP_PASSWORD="$(openssl rand -base64 48)"
 cleanup_bootstrap_user_best_effort() {
-  gcloud sql users delete nova-deployment-bootstrap \
+  if ! gcloud sql users delete nova-deployment-bootstrap \
     --project=commcare-nova \
     --instance=nova-cases \
-    --quiet >/dev/null 2>&1 || true
+    --quiet; then
+    echo 'temporary administrator remains; rotate its password and retry the same bootstrap user' >&2
+  fi
   unset NOVA_BOOTSTRAP_PASSWORD
 }
 trap cleanup_bootstrap_user_best_effort EXIT
@@ -346,15 +348,21 @@ unset NOVA_BOOTSTRAP_PASSWORD NOVA_SQL_USERS
 trap - EXIT
 ```
 
-If the bootstrap command fails, delete the temporary administrator before doing
-anything else. The ownership statements and post-audit run in one transaction,
-so a SQL or lock failure rolls back the whole transfer; rerun with a new
-temporary administrator after fixing the cause. If ownership commits but the
-legacy Cloud SQL deletion fails, leave maintenance open, fix that deletion, and
-continue—the role is already privilege-free. Case-endpoint availability is not
-expected to recover until the split-identity migration and deployment finish.
-Fix forward if the new revision fails; no old revision is falsely advertised as
-a database-compatible rollback after ownership convergence.
+The ownership statements and post-audit run in one transaction, so a SQL or
+lock failure rolls back the whole transfer. In the current production cutover,
+the extensions predate this temporary administrator, so the EXIT cleanup should
+delete it after a failed bootstrap; verify that deletion before retrying with a
+new administrator. On a fresh instance, the same temporary administrator first
+creates the extensions and still owns them after a rolled-back bootstrap. Its
+cleanup deletion will correctly fail: do not create a second administrator.
+Rotate the existing user's password with `gcloud sql users set-password`,
+reassign its bounded roles if necessary, and retry the transfer with that same
+user; delete it only after a successful post-audit. If ownership commits but
+the legacy Cloud SQL deletion fails, leave maintenance open, fix that deletion,
+and continue—the role is already privilege-free. Case-endpoint availability is
+not expected to recover until the split-identity migration and deployment
+finish. Fix forward if the new revision fails; no old revision is falsely
+advertised as a database-compatible rollback after ownership convergence.
 
 Before merging, require both provisioning commands and the bootstrap above to
 exit zero, and require `gcloud sql users list` to contain neither the legacy nor
