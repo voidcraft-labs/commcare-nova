@@ -39,6 +39,7 @@ import {
 	walkPredicateExpressionNodes,
 } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import type { LookupTypeIndex } from "../../lookupTypeContext";
 import {
 	collectModuleWireSlotFindings,
 	type ModuleWireSlotIdentity,
@@ -57,8 +58,9 @@ export function dateAddOnDeviceCompatibility(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
-	const ctx = moduleTypeContext(mod, doc);
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
 
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
 		calculatedColumns: "runtime",

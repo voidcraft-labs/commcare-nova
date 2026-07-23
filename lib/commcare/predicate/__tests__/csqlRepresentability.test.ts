@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asUuid } from "@/lib/doc/types";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain";
 import {
 	actingUser,
 	ancestorPath,
@@ -41,6 +42,8 @@ import {
 	subcasePath,
 	switchCase,
 	switchExpr,
+	tableColumn,
+	tableLookup,
 	term,
 	today,
 	unowned,
@@ -55,8 +58,33 @@ import {
 
 const PATIENT = "patient";
 const field = (name: string) => prop(PATIENT, name);
+const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+const FILTER_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
 
 describe("checkCsqlRepresentability", () => {
+	it("rejects a dormant table lookup without checking its row filter as a case query", () => {
+		expect(
+			checkCsqlRepresentability(
+				eq(
+					field("status"),
+					tableLookup(
+						TABLE,
+						VALUE_COLUMN,
+						eq(tableColumn(TABLE, FILTER_COLUMN), literal("enabled")),
+					),
+				),
+			),
+		).toEqual([
+			{
+				reason: "lookup-table-not-active",
+				path: ["right"],
+				message:
+					"Lookup-table expressions are not active in case search yet. Remove this lookup until lookup fixture emission is available.",
+			},
+		]);
+	});
+
 	it("rejects form-submission identity leaves from remote case search", () => {
 		const uuid = asUuid("11111111-1111-4111-8111-111111111111");
 		for (const value of [

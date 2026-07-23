@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { asUuid } from "@/lib/doc/types";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	actingUser,
 	ancestorPath,
@@ -20,6 +21,7 @@ import {
 	relationStep,
 	selfPath,
 	sessionUser,
+	tableLookup,
 	unowned,
 } from "@/lib/domain/predicate";
 import {
@@ -45,6 +47,13 @@ function validateModule(condition: Predicate) {
 }
 
 function validateForm(
+	condition: Predicate,
+	formType: "followup" | "survey" = "followup",
+) {
+	return validateFormFindings(condition, formType).map((error) => error.code);
+}
+
+function validateFormFindings(
 	condition: Predicate,
 	formType: "followup" | "survey" = "followup",
 ) {
@@ -80,9 +89,7 @@ function validateForm(
 	});
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
-	return formDisplayCondition(doc, formUuid, moduleUuid).map(
-		(error) => error.code,
-	);
+	return formDisplayCondition(doc, formUuid, moduleUuid);
 }
 
 const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
@@ -172,6 +179,18 @@ describe("form display-condition validation", () => {
 		expect(
 			validateForm(match(prop("patient", "status"), literal("open"), "fuzzy")),
 		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");
+	});
+
+	it("reports dormant table lookups as lookup emission gaps", () => {
+		const tableId = "00000000-0000-7000-8000-000000000001" as LookupTableId;
+		const columnId = "10000000-0000-7000-8000-000000000001" as LookupColumnId;
+		const finding = validateFormFindings(
+			eq(tableLookup(tableId, columnId, matchAll()), literal("North")),
+		).find((error) => error.code === "DISPLAY_CONDITION_NOT_ON_DEVICE");
+
+		expect(finding?.message).toBe(
+			'Form "Visit" in module "Visits" uses a table lookup, but lookup-table expressions are dormant until fixture emission lands and cannot run in an on-device navigation condition.',
+		);
 	});
 
 	it("reports type errors independently of context availability", () => {

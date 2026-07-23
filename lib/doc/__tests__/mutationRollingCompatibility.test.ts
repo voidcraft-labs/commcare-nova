@@ -26,8 +26,14 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type Column,
+	type Field,
+	type LookupOptionsSource,
 	type Module,
+	mediaSchema,
 	type SearchInputDef,
+	selectOptionSchema,
+	uuidSchema,
+	xpathExpressionSchema,
 } from "@/lib/domain";
 import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 import { type Mutation, mutationSchema } from "../types";
@@ -36,10 +42,39 @@ const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
 const COLUMN = asUuid("20000000-0000-4000-8000-000000000000");
 const ADDED_COLUMN = asUuid("30000000-0000-4000-8000-000000000000");
 const INPUT = asUuid("35000000-0000-4000-8000-000000000000");
+const FORM = asUuid("60000000-0000-4000-8000-000000000000");
+const FIELD = asUuid("70000000-0000-4000-8000-000000000000");
+const OPTION_A = asUuid("80000000-0000-4000-8000-000000000000");
+const OPTION_B = asUuid("90000000-0000-4000-8000-000000000000");
+const TABLE_A = "018f3e8a-7b2c-7def-8abc-1234567890ab";
+const TABLE_B = "018f3e8a-7b2c-7def-8abc-1234567890ac";
+const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad";
+const LABEL_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae";
 const OWNER_RULE = {
 	kind: "term" as const,
 	term: { kind: "literal" as const, value: "owner-a" },
 };
+const SOURCE_A = {
+	kind: "lookup-table",
+	tableId: TABLE_A,
+	valueColumnId: VALUE_COLUMN,
+	labelColumnId: LABEL_COLUMN,
+} as LookupOptionsSource;
+const SOURCE_B = {
+	...SOURCE_A,
+	tableId: TABLE_B,
+	filter: {
+		kind: "eq",
+		left: {
+			kind: "term",
+			term: { kind: "literal", value: "enabled" },
+		},
+		right: {
+			kind: "term",
+			term: { kind: "literal", value: "enabled" },
+		},
+	},
+} as LookupOptionsSource;
 
 /**
  * Frozen origin/main-compatible subset used by every payload in this matrix.
@@ -107,6 +142,97 @@ const legacyModuleSchema = z
 	})
 	.strict();
 
+/**
+ * Exact single- and multi-select arms from the last pre-S05 commit
+ * (`83de483f`). Keeping the full input base matters: a reduced proxy can
+ * accidentally certify a payload that the deployed parser would reject (or
+ * reject a valid field slot that parser accepted).
+ */
+const legacyStructuralFieldBase = z
+	.object({
+		uuid: uuidSchema,
+		id: z.string(),
+		order: z.string().optional(),
+	})
+	.strict();
+const legacyFieldBaseSchema = legacyStructuralFieldBase.extend({
+	label: z.string(),
+	label_media: mediaSchema.optional(),
+});
+const legacyInputFieldBaseSchema = legacyFieldBaseSchema.extend({
+	hint: z.string().optional(),
+	hint_media: mediaSchema.optional(),
+	help: z.string().optional(),
+	help_media: mediaSchema.optional(),
+	required: xpathExpressionSchema.optional(),
+	relevant: xpathExpressionSchema.optional(),
+	case_property_on: z.string().optional(),
+});
+const legacySingleSelectFieldSchema = legacyInputFieldBaseSchema.extend({
+	kind: z.literal("single_select"),
+	options: z.array(selectOptionSchema).min(2),
+	validate: xpathExpressionSchema.optional(),
+	validate_msg: z.string().optional(),
+	validate_msg_media: mediaSchema.optional(),
+	default_value: xpathExpressionSchema.optional(),
+});
+const legacyMultiSelectFieldSchema = legacyInputFieldBaseSchema.extend({
+	kind: z.literal("multi_select"),
+	options: z.array(selectOptionSchema).min(2),
+	validate: xpathExpressionSchema.optional(),
+	validate_msg: z.string().optional(),
+	validate_msg_media: mediaSchema.optional(),
+	default_value: xpathExpressionSchema.optional(),
+});
+const legacySelectFieldSchema = z.discriminatedUnion("kind", [
+	legacySingleSelectFieldSchema,
+	legacyMultiSelectFieldSchema,
+]);
+
+/**
+ * Frozen copy of pre-S05 `partialOf`: mutation patches omit immutable
+ * identity/discriminant slots, accept any subset of the remaining exact field
+ * schema, and represent a clear as explicit JSON-stable null.
+ */
+function legacyPartialOf<
+	S extends { uuid: z.ZodTypeAny; kind: z.ZodTypeAny } & z.ZodRawShape,
+>(
+	schema: z.ZodObject<S>,
+): z.ZodObject<{
+	[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<z.ZodNullable<S[K]>>;
+}> {
+	const omitted = schema.omit({
+		uuid: true,
+		kind: true,
+	} as unknown as Parameters<typeof schema.omit>[0]);
+	const nullableShape = Object.fromEntries(
+		Object.entries(omitted.shape).map(([key, value]) => [
+			key,
+			(value as z.ZodTypeAny).nullable(),
+		]),
+	);
+	return z.object(nullableShape).partial() as unknown as z.ZodObject<{
+		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<
+			z.ZodNullable<S[K]>
+		>;
+	}>;
+}
+
+const legacyUpdateFieldSchema = z.discriminatedUnion("targetKind", [
+	z.object({
+		kind: z.literal("updateField"),
+		uuid: uuidSchema,
+		targetKind: z.literal("single_select"),
+		patch: legacyPartialOf(legacySingleSelectFieldSchema).default(() => ({})),
+	}),
+	z.object({
+		kind: z.literal("updateField"),
+		uuid: uuidSchema,
+		targetKind: z.literal("multi_select"),
+		patch: legacyPartialOf(legacyMultiSelectFieldSchema).default(() => ({})),
+	}),
+]);
+
 const legacyMutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("addModule"),
@@ -146,6 +272,13 @@ const legacyMutationSchema = z.discriminatedUnion("kind", [
 		uuid: z.string(),
 		searchInput: legacySearchInputSchema,
 	}),
+	z.object({
+		kind: z.literal("addField"),
+		parentUuid: uuidSchema,
+		field: legacySelectFieldSchema,
+		index: z.number().int().nonnegative().optional(),
+	}),
+	legacyUpdateFieldSchema,
 ]);
 
 type LegacyMutation = z.infer<typeof legacyMutationSchema>;
@@ -202,6 +335,78 @@ function docWithInput(): BlueprintDoc {
 	});
 }
 
+type LookupSelectField = Extract<Field, { kind: "single_select" }>;
+
+function lookupSelectField(
+	optionsSource?: LookupOptionsSource,
+): LookupSelectField {
+	return {
+		uuid: FIELD,
+		id: "status",
+		kind: "single_select",
+		label: "Status",
+		order: "field-a",
+		options: [
+			{
+				uuid: OPTION_A,
+				order: "option-a",
+				value: "active",
+				label: "Active",
+			},
+			{
+				uuid: OPTION_B,
+				order: "option-b",
+				value: "closed",
+				label: "Closed",
+			},
+		],
+		...(optionsSource !== undefined && { optionsSource }),
+	};
+}
+
+function docWithLookupSelect(
+	optionsSource?: LookupOptionsSource,
+): BlueprintDoc {
+	return {
+		appId: "rolling-compat",
+		appName: "Rolling compatibility",
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[MODULE]: {
+				uuid: MODULE,
+				id: "patients",
+				name: "Patients",
+				order: "module-a",
+			},
+		},
+		forms: {
+			[FORM]: {
+				uuid: FORM,
+				id: "intake",
+				name: "Intake",
+				type: "survey",
+				order: "form-a",
+			},
+		},
+		fields: { [FIELD]: lookupSelectField(optionsSource) },
+		moduleOrder: [MODULE],
+		formOrder: { [MODULE]: [FORM] },
+		fieldOrder: { [FORM]: [FIELD] },
+		fieldParent: { [FIELD]: FORM },
+	};
+}
+
+function docWithoutLookupSelect(): BlueprintDoc {
+	const doc = docWithLookupSelect();
+	return {
+		...doc,
+		fields: {},
+		fieldOrder: { [FORM]: [] },
+		fieldParent: {},
+	};
+}
+
 function applyCurrent(
 	doc: BlueprintDoc,
 	batch: readonly Mutation[],
@@ -211,7 +416,12 @@ function applyCurrent(
 	});
 }
 
-/** Exact origin reducer behavior for the five established kinds above. */
+/**
+ * Exact origin reducer behavior for the established matrix kinds. The field
+ * cases mirror `83de483f` for the select arms exercised here; their
+ * case-property catalog branch is inert because these frozen fixtures have no
+ * `case_property_on`.
+ */
 function applyLegacy(
 	doc: BlueprintDoc,
 	batch: readonly LegacyMutation[],
@@ -282,6 +492,35 @@ function applyLegacy(
 					};
 					break;
 				}
+				case "addField": {
+					const parentUuid = asUuid(mutation.parentUuid);
+					const parentExists =
+						draft.forms[parentUuid] !== undefined ||
+						draft.fields[parentUuid] !== undefined;
+					if (!parentExists) break;
+					const field = mutation.field as unknown as Field;
+					const order = draft.fieldOrder[parentUuid] ?? [];
+					const index = mutation.index ?? order.length;
+					const clamped = Math.max(0, Math.min(index, order.length));
+					order.splice(clamped, 0, field.uuid);
+					draft.fieldOrder[parentUuid] = order;
+					draft.fields[field.uuid] = field;
+					break;
+				}
+				case "updateField": {
+					const uuid = asUuid(mutation.uuid);
+					const field = draft.fields[uuid];
+					if (!field || field.kind !== mutation.targetKind) break;
+					const spread: Record<string, unknown> = { ...field };
+					for (const [key, value] of Object.entries(mutation.patch)) {
+						if (value === null || value === undefined) delete spread[key];
+						else spread[key] = value;
+					}
+					const result = legacySelectFieldSchema.safeParse(spread);
+					if (!result.success) break;
+					draft.fields[uuid] = result.data;
+					break;
+				}
 			}
 		}
 	});
@@ -304,6 +543,17 @@ function onlyBatchMutation(batch: readonly Mutation[]): Mutation {
 	return batch[0] as Mutation;
 }
 
+function onlyLookupCarrierMutation(
+	before: BlueprintDoc,
+	after: BlueprintDoc,
+): Mutation {
+	const mutations = diffDocsToMutations(before, after).filter(
+		(mutation) =>
+			mutation.kind === "addField" || mutation.kind === "updateField",
+	);
+	return onlyBatchMutation(mutations);
+}
+
 function payloads(): {
 	ensure: Mutation;
 	add: Mutation;
@@ -322,6 +572,10 @@ function payloads(): {
 	addModuleOwnerOnly: Mutation;
 	searchSetting: Mutation;
 	renameInput: Mutation;
+	lookupAdd: Mutation;
+	lookupSet: Mutation;
+	lookupReplace: Mutation;
+	lookupClear: Mutation;
 } {
 	const current = baseColumn();
 	const module = docWithConfig([current]).modules[MODULE];
@@ -437,10 +691,35 @@ function payloads(): {
 				property: "case_name",
 			},
 		),
+		lookupAdd: onlyLookupCarrierMutation(
+			docWithoutLookupSelect(),
+			docWithLookupSelect(SOURCE_A),
+		),
+		lookupSet: onlyLookupCarrierMutation(
+			docWithLookupSelect(),
+			docWithLookupSelect(SOURCE_A),
+		),
+		lookupReplace: onlyLookupCarrierMutation(
+			docWithLookupSelect(SOURCE_A),
+			docWithLookupSelect(SOURCE_B),
+		),
+		lookupClear: onlyLookupCarrierMutation(
+			docWithLookupSelect(SOURCE_A),
+			docWithLookupSelect(),
+		),
 	};
 }
 
 function legacyStartFor(name: keyof ReturnType<typeof payloads>): BlueprintDoc {
+	if (name === "lookupAdd") return docWithoutLookupSelect();
+	if (
+		name === "lookupSet" ||
+		name === "lookupReplace" ||
+		name === "lookupClear"
+	) {
+		// A pre-S05 client hydrates the inline fallback, not the carrier.
+		return docWithLookupSelect();
+	}
 	if (name === "ensure") return docWithConfig(undefined);
 	if (name === "addModule" || name === "addModuleOwnerOnly") {
 		return docWithConfig([baseColumn()]);
@@ -463,6 +742,8 @@ describe("mutation rolling compatibility", () => {
 				"updateColumn",
 				"moveColumn",
 				"updateSearchInput",
+				"addField",
+				"updateField",
 			]).toContain(payload.kind);
 			expect(legacyMutationSchema.safeParse(payload).success, name).toBe(true);
 		}
@@ -478,6 +759,10 @@ describe("mutation rolling compatibility", () => {
 			addModuleOwnerOnly,
 			searchSetting,
 			renameInput,
+			lookupAdd,
+			lookupSet,
+			lookupReplace,
+			lookupClear,
 		} = payloads();
 		expect(add).not.toHaveProperty("column.listOrder");
 		expect(add).not.toHaveProperty("column.detailOrder");
@@ -526,6 +811,31 @@ describe("mutation rolling compatibility", () => {
 		);
 		expect(renameInput).toHaveProperty("searchInput.name", "old_name");
 		expect(renameInput).toHaveProperty("renamedTo", "new_name");
+		expect(lookupAdd).toMatchObject({
+			kind: "addField",
+			field: lookupSelectField(),
+			optionsSource: SOURCE_A,
+		});
+		expect(lookupAdd).not.toHaveProperty("field.optionsSource");
+		for (const [payload, expected] of [
+			[lookupSet, SOURCE_A],
+			[lookupReplace, SOURCE_B],
+			[lookupClear, null],
+		] as const) {
+			expect(payload).toMatchObject({
+				kind: "updateField",
+				uuid: FIELD,
+				targetKind: "single_select",
+				patch: {},
+				optionsSource: expected,
+			});
+			expect(payload).not.toHaveProperty("patch.optionsSource");
+		}
+
+		const roundTrippedClear = mutationSchema.parse(
+			JSON.parse(JSON.stringify(lookupClear)),
+		);
+		expect(roundTrippedClear).toHaveProperty("optionsSource", null);
 	});
 
 	it("new payload -> frozen origin parser strips extensions and the legacy reducer applies a safe fallback", () => {
@@ -543,6 +853,7 @@ describe("mutation rolling compatibility", () => {
 			expect(parsed).not.toHaveProperty("preserveSort");
 			expect(parsed).not.toHaveProperty("sortPatch");
 			expect(parsed).not.toHaveProperty("renamedTo");
+			expect(parsed).not.toHaveProperty("optionsSource");
 			expect(() => applyLegacy(legacyStartFor(name), [parsed])).not.toThrow();
 		}
 
@@ -623,6 +934,28 @@ describe("mutation rolling compatibility", () => {
 		expect(
 			legacyOwnerModule.caseSearchConfig?.searchButtonDisplayCondition,
 		).toEqual({ kind: "match-none" });
+
+		const parsedLookupAdd = legacyMutationSchema.parse(payloads().lookupAdd);
+		expect(
+			applyLegacy(docWithoutLookupSelect(), [parsedLookupAdd]).fields[FIELD],
+		).toEqual(lookupSelectField());
+
+		for (const name of ["lookupSet", "lookupReplace", "lookupClear"] as const) {
+			const parsed = legacyMutationSchema.parse(payloads()[name]);
+			expect(parsed).toEqual({
+				kind: "updateField",
+				uuid: FIELD,
+				targetKind: "single_select",
+				patch: {},
+			});
+			const fallback = applyLegacy(docWithLookupSelect(), [parsed]).fields[
+				FIELD
+			];
+			expect(fallback).toEqual(lookupSelectField());
+			expect(
+				fallback && "options" in fallback ? fallback.options : undefined,
+			).toEqual(lookupSelectField().options);
+		}
 	});
 
 	it("raw new-server events dispatch through legacy reducers without an unknown-kind failure", () => {
@@ -786,6 +1119,23 @@ describe("mutation rolling compatibility", () => {
 			name: "new_name",
 			label: "Renamed name",
 		});
+
+		expect(
+			applyCurrent(docWithoutLookupSelect(), [all.lookupAdd]).fields[FIELD],
+		).toEqual(lookupSelectField(SOURCE_A));
+		expect(
+			applyCurrent(docWithLookupSelect(), [all.lookupSet]).fields[FIELD],
+		).toEqual(lookupSelectField(SOURCE_A));
+		expect(
+			applyCurrent(docWithLookupSelect(SOURCE_A), [all.lookupReplace]).fields[
+				FIELD
+			],
+		).toEqual(lookupSelectField(SOURCE_B));
+		expect(
+			applyCurrent(docWithLookupSelect(SOURCE_A), [all.lookupClear]).fields[
+				FIELD
+			],
+		).toEqual(lookupSelectField());
 	});
 
 	it("the frozen origin parser rejects current-only keys when nested by mistake", () => {

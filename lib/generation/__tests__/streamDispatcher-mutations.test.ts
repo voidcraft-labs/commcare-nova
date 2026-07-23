@@ -22,11 +22,16 @@ import { createReconciler } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid } from "@/lib/domain";
+import {
+	asUuid,
+	type LookupOptionsSource,
+	lookupOptionsSourceSchema,
+	type PersistableDoc,
+} from "@/lib/domain";
 import type { MutationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { applyStreamEvent } from "../streamDispatcher";
-import { createWiredStores } from "./testHelpers";
+import { createWiredStores, hydrateDoc } from "./testHelpers";
 
 /** Build MutationEvent envelopes for each mutation, stamping the
  *  optional stage tag — mirrors what `GenerationContext.emitMutations`
@@ -42,6 +47,114 @@ function envelopes(mutations: Mutation[], stage?: string): MutationEvent[] {
 		...(stage && { stage }),
 		mutation,
 	}));
+}
+
+const LOOKUP_MODULE = asUuid("10000000-0000-4000-8000-000000000000");
+const LOOKUP_FORM = asUuid("20000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
+const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
+	kind: "lookup-table",
+	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
+	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
+	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
+});
+const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
+	kind: "lookup-table",
+	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
+	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
+	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
+});
+
+function lookupSourceMutation(
+	optionsSource: LookupOptionsSource | null,
+): Mutation {
+	return {
+		kind: "updateField",
+		uuid: LOOKUP_FIELD,
+		targetKind: "single_select",
+		patch: {},
+		optionsSource,
+	};
+}
+
+function lookupReceiverDoc(): PersistableDoc {
+	return {
+		appId: "lookup-dispatch",
+		appName: "Lookup dispatch",
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[LOOKUP_MODULE]: {
+				uuid: LOOKUP_MODULE,
+				id: "lookups",
+				name: "Lookups",
+			},
+		},
+		forms: {
+			[LOOKUP_FORM]: {
+				uuid: LOOKUP_FORM,
+				id: "intake",
+				name: "Intake",
+				type: "survey",
+			},
+		},
+		fields: {
+			[LOOKUP_FIELD]: {
+				uuid: LOOKUP_FIELD,
+				id: "status",
+				kind: "single_select",
+				label: "Status",
+				options: [
+					{
+						uuid: LOOKUP_OPTION_A,
+						value: "active",
+						label: "Active",
+					},
+					{
+						uuid: LOOKUP_OPTION_B,
+						value: "closed",
+						label: "Closed",
+					},
+				],
+			},
+		},
+		moduleOrder: [LOOKUP_MODULE],
+		formOrder: { [LOOKUP_MODULE]: [LOOKUP_FORM] },
+		fieldOrder: { [LOOKUP_FORM]: [LOOKUP_FIELD] },
+	};
+}
+
+/** Mirror the generation SSE payload's JSON encode/decode before onData calls
+ * `applyStreamEvent`. */
+function rawLookupPayload(
+	mutation: Mutation,
+	seq: number,
+): Record<string, unknown> {
+	const event: MutationEvent = {
+		kind: "mutation",
+		runId: "lookup-run",
+		ts: 1_000 + seq,
+		seq,
+		source: "chat",
+		actor: "agent",
+		stage: "lookup",
+		mutation,
+	};
+	return JSON.parse(
+		JSON.stringify({
+			mutations: [mutation],
+			events: [event],
+			seq: seq + 1,
+			batchId: `lookup-batch-${seq}`,
+			stage: "lookup",
+		}),
+	) as Record<string, unknown>;
+}
+
+function owns(value: object, key: PropertyKey): boolean {
+	return Object.hasOwn(value, key);
 }
 
 // ── Test suite ──────────────────────────────────────────────────────────
@@ -181,6 +294,92 @@ describe("applyStreamEvent — data-mutations", () => {
 		expect(bufferEvent?.kind === "mutation" && bufferEvent.stage).toBe(
 			"scaffold",
 		);
+	});
+
+	it("replays lookup-source set, replace, and explicit-null clear from raw generation SSE payloads", () => {
+		hydrateDoc(docStore, lookupReceiverDoc());
+		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
+		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
+		const clearSource = lookupSourceMutation(null);
+
+		expect(owns(clearSource, "optionsSource")).toBe(true);
+		expect(clearSource).toHaveProperty("optionsSource", null);
+
+		const payloads = [setSource, replaceSource, clearSource].map(
+			rawLookupPayload,
+		);
+		for (const [index, expectedSource] of [
+			LOOKUP_SOURCE_A,
+			LOOKUP_SOURCE_B,
+			null,
+		].entries()) {
+			const payload = payloads[index];
+			if (!payload) throw new Error(`missing raw lookup payload ${index}`);
+			const rawMutation = (
+				payload.mutations as Record<string, unknown>[] | undefined
+			)?.[0];
+			const rawEvent = (
+				payload.events as
+					| Array<{ mutation?: Record<string, unknown> }>
+					| undefined
+			)?.[0];
+			if (!rawMutation || !rawEvent?.mutation) {
+				throw new Error(`malformed raw lookup payload ${index}`);
+			}
+
+			/* Both copies in the SSE payload survive JSON whole. The origin-shape
+			 * nested patch stays empty/carrier-blind; only the current receiver
+			 * consumes the top-level semantic extension. */
+			expect(owns(rawMutation, "optionsSource")).toBe(true);
+			expect(rawMutation.optionsSource).toEqual(expectedSource);
+			expect(rawMutation.patch).toEqual({});
+			expect(rawMutation.patch).not.toHaveProperty("optionsSource");
+			expect(owns(rawEvent.mutation, "optionsSource")).toBe(true);
+			expect(rawEvent.mutation.optionsSource).toEqual(expectedSource);
+
+			applyStreamEvent(
+				"data-mutations",
+				payload,
+				docStore,
+				sessionStore,
+				null,
+				"lookup-run",
+			);
+
+			const field = docStore.getState().fields[LOOKUP_FIELD];
+			if (field?.kind !== "single_select") {
+				throw new Error("lookup receiver field is missing");
+			}
+			expect(field.optionsSource).toEqual(expectedSource ?? undefined);
+			expect(
+				field.options.map(({ value, label }) => ({ value, label })),
+			).toEqual([
+				{ value: "active", label: "Active" },
+				{ value: "closed", label: "Closed" },
+			]);
+		}
+
+		const rawClear = payloads[2]?.mutations as
+			| Record<string, unknown>[]
+			| undefined;
+		const rawClearEvent = payloads[2]?.events as
+			| Array<{ mutation?: Record<string, unknown> }>
+			| undefined;
+		expect(owns(rawClear?.[0] ?? {}, "optionsSource")).toBe(true);
+		expect(rawClear?.[0]?.optionsSource).toBeNull();
+		expect(owns(rawClearEvent?.[0]?.mutation ?? {}, "optionsSource")).toBe(
+			true,
+		);
+		expect(rawClearEvent?.[0]?.mutation?.optionsSource).toBeNull();
+
+		const bufferedClear = sessionStore.getState().events.at(-1);
+		expect(bufferedClear?.kind).toBe("mutation");
+		if (bufferedClear?.kind !== "mutation") {
+			throw new Error("clear MutationEvent was not buffered");
+		}
+		expect(owns(bufferedClear.mutation, "optionsSource")).toBe(true);
+		expect(bufferedClear.mutation).toHaveProperty("optionsSource", null);
+		expect(sessionStore.getState().events).toHaveLength(3);
 	});
 
 	// The end-to-end echo-vs-register race across the two transports. The chat

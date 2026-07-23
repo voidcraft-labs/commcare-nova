@@ -25,12 +25,17 @@
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
+import { collectDormantLookupCarriers } from "@/lib/doc/dormantLookupCarriers";
 import type {
 	LookupReferenceExtractorRegistry,
 	LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { ValidationError, ValidationErrorCode } from "./errors";
+import {
+	type ValidationError,
+	type ValidationErrorCode,
+	validationError,
+} from "./errors";
 import type { ValidationScope } from "./index";
 import { type RunValidationOptions, runValidation } from "./runner";
 
@@ -232,6 +237,10 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	EMPTY_REPEAT_COUNT: "soundness",
 	EMPTY_IDS_QUERY: "soundness",
 	FIXTURE_REFERENCE_NOT_MODELED: "soundness",
+	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
+	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",
+	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: "soundness",
+	LOOKUP_SELECT_FILTER_TYPE_ERROR: "soundness",
 	// ── XForm parse-time oracle ──────────────────────────────────────
 	XFORM_PARSE_ERROR: "oracle",
 	XFORM_NO_INSTANCE: "oracle",
@@ -344,6 +353,8 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_TABLE_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
+	LOOKUP_CARRIER_COMMIT_NOT_ACTIVE: "soundness",
+	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: "soundness",
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: "soundness",
 	UNKNOWN_FUNCTION: "soundness",
@@ -592,6 +603,20 @@ export function errorIdentity(err: ValidationError): string {
 		case "FIXTURE_REFERENCE_NOT_MODELED":
 			parts.push(part("q", loc.fieldUuid), part("fixture", det?.fixtureId));
 			break;
+		case "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED":
+			parts.push(
+				part("q", loc.fieldUuid),
+				part("reason", det?.reason),
+				part("target", det?.target),
+			);
+			break;
+		case "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER":
+		case "LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE":
+			parts.push(
+				part("q", loc.fieldUuid),
+				part("ref", det?.referencedFieldUuid),
+			);
+			break;
 
 		// Media asset-context findings (boundary-only): the slot anchor
 		// (uuids + location.field via the default parts) plus the asset and,
@@ -615,6 +640,18 @@ export function errorIdentity(err: ValidationError): string {
 				part("subpath", det?.subpath),
 				part("table", det?.tableId),
 				part("column", det?.columnId),
+			);
+			break;
+		case "LOOKUP_CARRIER_COMMIT_NOT_ACTIVE":
+		case "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE":
+			parts.push(
+				part("owner", det?.carrierOwnerUuid),
+				part("slot", det?.carrierSlot),
+				part("subpath", det?.carrierSubpath),
+				part("fingerprint", det?.carrierFingerprint),
+				...(err.code === "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
+					? [part("mode", det?.exportMode)]
+					: []),
 			);
 			break;
 
@@ -714,6 +751,11 @@ export type CommitVerdict =
  * when keys embed scope-deciding uuids — point (2) is what makes same-key
  * imply same-scope, and holding both runs to one scope keeps the
  * comparison aligned with it.
+ *
+ * Dormant lookup-carrier policy findings are deliberately a full-doc inventory
+ * on BOTH sides, independent of the ordinary validation scope. Their identity
+ * embeds the stable carrier owner and slot, so the same aligned-diff argument
+ * applies without dropping an out-of-scope carrier edit.
  */
 export function evaluateCommit({
 	prevDoc,
@@ -731,8 +773,14 @@ export function evaluateCommit({
 						lookupReferenceExtractors,
 					}),
 				};
-	const prev = runValidation(prevDoc, lookupContext, options);
-	const next = runValidation(nextDoc, lookupContext, options);
+	const prev = [
+		...runValidation(prevDoc, lookupContext, options),
+		...dormantLookupCarrierCommitFindings(prevDoc),
+	];
+	const next = [
+		...runValidation(nextDoc, lookupContext, options),
+		...dormantLookupCarrierCommitFindings(nextDoc),
+	];
 
 	const gating = diffIntroduced(prev, next).filter((err) => {
 		const cls = classifyError(err.code);
@@ -740,6 +788,33 @@ export function evaluateCommit({
 	});
 
 	return gating.length === 0 ? { ok: true } : { ok: false, introduced: gating };
+}
+
+/**
+ * Temporary support-only policy: carrier-shaped historical docs remain
+ * repairable, but no commit may add or semantically change a carrier before
+ * the runtime evaluator is active. Keeping this outside `runValidation`
+ * prevents the absolute export boundary from returning both a commit-policy
+ * finding and its own mode-specific export finding.
+ */
+function dormantLookupCarrierCommitFindings(
+	doc: BlueprintDoc,
+): ValidationError[] {
+	return collectDormantLookupCarriers(doc).map((carrier) =>
+		validationError(
+			"LOOKUP_CARRIER_COMMIT_NOT_ACTIVE",
+			carrier.location.scope,
+			"Lookup-powered choices and calculations are preserved internally, but editing their lookup behavior is not active yet. Keep the existing lookup setup unchanged or remove it.",
+			carrier.location,
+			{
+				carrierOwnerUuid: carrier.ownerUuid,
+				carrierOwnerKind: carrier.ownerKind,
+				carrierSlot: carrier.slot,
+				carrierSubpath: carrier.subpath,
+				carrierFingerprint: carrier.fingerprint,
+			},
+		),
+	);
 }
 
 // ── Boundary gate ──────────────────────────────────────────────────

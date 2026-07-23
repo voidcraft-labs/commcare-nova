@@ -27,21 +27,26 @@
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { checkPredicate } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../../lookupTypeContext";
 import { formatPath, moduleTypeContext } from "./shared";
 
 export function filterTypeCheck(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const filter = mod.caseListConfig?.filter;
 	if (!filter) return [];
 
-	const ctx = moduleTypeContext(mod, doc);
-	const result = checkPredicate(filter, ctx);
-	if (result.ok) return [];
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
+	const errors = semanticCheckErrors(checkPredicate(filter, ctx));
+	if (errors.length === 0) return [];
 
-	return result.errors.map((err) => {
+	return errors.map((err) => {
 		const at = formatPath(err.path);
 		// Suffix the AST path when present — the path locates the
 		// offending node inside the predicate (e.g. `eq.left` for the

@@ -516,6 +516,15 @@ function visitExpression(
 				);
 			}
 			return;
+		case "table-lookup":
+			visitPredicate(
+				expr.where,
+				joinPath(path, "table-lookup.where"),
+				gated,
+				mode,
+				out,
+			);
+			return;
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(

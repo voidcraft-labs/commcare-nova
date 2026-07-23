@@ -154,7 +154,42 @@ Validator rules anchoring the wire contract:
 - `caseSearchConfigRequiresCaseType` — `<remote-request>` carries a mandatory `case_type` slot.
 - `ancestorExistsCannotNestSubcase` — runs after shared relation canonicalization and CSQL relation-read adaptation. A canonical `any-relation(parent)` whose selected case type proves one graph direction is first narrowed to that ancestor or child direction, preserving filters CCHQ can faithfully express. Recursive, custom-index, and otherwise ambiguous `any-relation` paths retain both arms and are ancestor-bearing because CSQL emits an ancestor arm. CCHQ rejects ancestor-exists with subcase-exists or subcase-count nested in the filter argument.
 
-Lookup-aware validation takes a required `LookupValidationContext` on every runner, commit, readiness, and boundary call. `available` carries one rows-free Project definition snapshot; `unavailable` is an explicit state, never an empty available registry or a reason to skip rules. The structural extractor registry in `lib/doc/lookupReferences.ts` is immutable and empty in S02, so ordinary current documents remain clean with unavailable context. Synthetic tests inject their extractor registry explicitly. Once carriers land, each exact occurrence validates independently: unavailable context, absent table, absent column, and incompatible column type use stable `LOOKUP_*` codes whose identity includes carrier uuid, registry slot, canonical nested subpath, table id, and column id. Missing and foreign definitions are deliberately indistinguishable. Commit validation gives previous and candidate docs the exact same context object; operational definition-read failures belong to the caller and must throw before writing or emitting rather than becoming findings.
+Lookup-aware validation takes a required `LookupValidationContext` on every runner, commit, readiness, and boundary call. `available` carries one rows-free Project definition snapshot; `unavailable` is an explicit state, never an empty available registry or a reason to skip rules. S05a registers the immutable production structural extractors in `lib/doc/lookupReferences.ts`; ordinary carrier-free documents remain clean with unavailable context, while every persisted carrier occurrence is visible to the shared validator and edge writers. Synthetic tests may still inject a purpose-built extractor registry. Each exact occurrence validates independently: unavailable context, absent table, absent column, and incompatible column type use stable `LOOKUP_*` codes whose identity includes carrier uuid, registry slot, canonical nested subpath, table id, and column id. Missing and foreign definitions are deliberately indistinguishable. Commit validation gives previous and candidate docs the exact same context object; operational definition-read failures belong to the caller and must throw before writing or emitting rather than becoming findings.
+
+The runner also materializes one rows-free table→column→type index from that
+same snapshot and threads it through every Predicate/ValueExpression type-check
+surface (module, form, case operation, and lookup-backed selects). Structural
+extractors remain the sole owner of missing/unavailable table or column
+findings; containing-slot type rules filter those checker codes so one broken
+identity does not become a second generic type error. Lookup-backed select
+filters have an additional row-scope contract: only columns from the source
+table, literals, session values, and value-bearing answers earlier in effective
+`(order, uuid)` DFS are available; a repeated answer must come from the current
+or an enclosing repeat. Case/Search reads, later fields, child/sibling repeat
+answers, other-table columns, and nested table lookups reject. The restriction
+is leaf-based, so generic expression operators (including temporal and composed
+values) remain legal over admitted leaves, and the real answer type—including
+`multi_select`—continues into operator compatibility rather than being erased
+by the row-scope policy. Semantic walking covers reachable forms only; the
+structural extractor deliberately continues scanning the complete normalized
+maps so detached persisted carriers cannot hide.
+
+Case-operation lookup filters have their own form-completion correlation rule,
+without relaxing ordinary operation expressions. A singular operation may read
+root answers only. An operation running over repeat R may read root answers and
+answers from R or any enclosing repeat; child, sibling, and unrelated repeats
+reject. Ordinary operation terms remain exact-repeat-only because their current
+wire bindings cannot safely address an enclosing repeat from a nested
+operation.
+
+S05a's support-only carrier policy is deliberately split from those structural
+rules. `evaluateCommit` adds delta-based `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE`
+findings whose identity is stable owner + authored slot + canonical whole-slot
+fingerprint: an unchanged historical carrier survives unrelated or inline-
+fallback edits, but add/replace and nested filter/operator/literal changes are
+new findings. The finding stays outside the ordinary runner so the absolute
+export boundary can return its one mode-aware carrier verdict instead of a
+duplicate commit-policy error.
 
 Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions even for an empty target set, passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media resources. Emitters consume that returned generation and never perform a second definition read; operational lookup failures stop before expansion, compilation, or HQ import.
 

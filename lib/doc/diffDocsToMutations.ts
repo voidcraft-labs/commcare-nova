@@ -183,6 +183,10 @@ const FIELD_PATCH_SKIP = new Set<string>([
 	...FIELD_MEDIA_KEYS,
 	"order",
 	"options",
+	// Lookup source intent uses the top-level rolling-compatible
+	// addField/updateField extension; the nested fallback remains the strict
+	// inline-options shape understood by pre-S05 receivers.
+	"optionsSource",
 ]);
 
 // ── Entity-set deltas ────────────────────────────────────────────────
@@ -592,12 +596,22 @@ export function diffDocsToMutations(
 		if (fieldTree.crossParentMoved.has(uuid) && !("id" in patch)) {
 			patch.id = nField.id;
 		}
-		if (Object.keys(patch).length > 0) {
+		const previousOptionsSource =
+			"optionsSource" in pField ? pField.optionsSource : undefined;
+		const nextOptionsSource =
+			"optionsSource" in nField ? nField.optionsSource : undefined;
+		const optionsSourceChanged =
+			(nField.kind === "single_select" || nField.kind === "multi_select") &&
+			!deepEqual(previousOptionsSource, nextOptionsSource);
+		if (Object.keys(patch).length > 0 || optionsSourceChanged) {
 			updates.push({
 				kind: "updateField",
 				uuid,
 				targetKind: nField.kind,
 				patch,
+				...(optionsSourceChanged && {
+					optionsSource: nextOptionsSource ?? null,
+				}),
 			} as Mutation);
 		}
 
@@ -952,11 +966,18 @@ function reconcileFieldTree(
 	for (const parentUuid of nextParentsTopDown(next)) {
 		for (const uuid of orderedFieldUuids(next, parentUuid)) {
 			if (!addedFieldSet.has(uuid)) continue;
+			const field = cloneEntity(next.fields[uuid]) as Field;
+			const optionsSource =
+				"optionsSource" in field ? field.optionsSource : undefined;
+			if ("optionsSource" in field) {
+				delete (field as unknown as Record<string, unknown>).optionsSource;
+			}
 			adds.push({
 				kind: "addField",
 				parentUuid,
-				field: cloneEntity(next.fields[uuid]),
-			});
+				field,
+				...(optionsSource !== undefined && { optionsSource }),
+			} as Mutation);
 		}
 	}
 

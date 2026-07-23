@@ -3,6 +3,7 @@ import {
 	type Field,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
+import { walkTerms } from "@/lib/domain/predicate";
 import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
 import { stripIndices } from "./instancePaths";
@@ -255,9 +256,67 @@ export class TriggerDag {
 	}
 
 	/**
-	 * Report all cycles without modifying the graph.
+	 * Add authoring-time-only edges for field defaults and lookup option
+	 * filters. This runs exclusively while `reportCycles` has swapped in its
+	 * temporary maps, so Preview's runtime `build` / `rebuild` topology remains
+	 * byte-for-byte the topology produced before these validation surfaces
+	 * joined the cycle proof.
+	 */
+	private collectValidationOnlyDependencies(
+		tree: readonly FieldTreeNode[],
+		prefix: string,
+		fieldPaths: ReadonlyMap<string, string>,
+	): void {
+		const register = (dependencyPath: string, dependentPath: string): void => {
+			if (dependencyPath === dependentPath) return;
+			let deps = this.dependedOnBy.get(dependencyPath);
+			if (!deps) {
+				deps = new Set();
+				this.dependedOnBy.set(dependencyPath, deps);
+			}
+			deps.add(dependentPath);
+		};
+
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			let hasValidationDependency = false;
+
+			const defaultValue = expressionSource(field, "default_value", this.doc);
+			if (defaultValue !== undefined) {
+				for (const ref of extractPathRefs(defaultValue)) {
+					register(ref, path);
+					hasValidationDependency = true;
+				}
+			}
+
+			if (
+				(field.kind === "single_select" || field.kind === "multi_select") &&
+				field.optionsSource?.filter !== undefined
+			) {
+				walkTerms(field.optionsSource.filter, (term) => {
+					if (term.kind !== "field") return;
+					const dependencyPath = fieldPaths.get(term.uuid);
+					if (dependencyPath === undefined) return;
+					register(dependencyPath, path);
+					hasValidationDependency = true;
+				});
+			}
+
+			if (hasValidationDependency && !this.nodes.has(path)) {
+				this.nodes.set(path, { path, expressions: [] });
+			}
+			if (node.children !== undefined) {
+				this.collectValidationOnlyDependencies(node.children, path, fieldPaths);
+			}
+		}
+	}
+
+	/**
+	 * Report all cycles without modifying the runtime graph. Builds a temporary
+	 * superset topology that includes authoring-only defaults and lookup
+	 * filters, then restores the instance maps before walking that snapshot.
 	 * Returns an array of cycle paths (e.g. ['/data/a', '/data/b', '/data/a']).
-	 * Must be called after collectExpressions() and before detectAndBreakCycles().
 	 */
 	reportCycles(
 		tree: FieldTreeNode[],
@@ -276,10 +335,26 @@ export class TriggerDag {
 		this.nodes = nodes;
 		this.dependedOnBy = dependedOnBy;
 		this.repeatPaths = new Set();
-		this.collectExpressions(tree, prefix);
-		this.nodes = savedNodes;
-		this.dependedOnBy = savedDeps;
-		this.repeatPaths = savedRepeats;
+		try {
+			const fieldPaths = new Map<string, string>();
+			const collectFieldPaths = (
+				nodesToVisit: readonly FieldTreeNode[],
+				parentPath: string,
+			): void => {
+				for (const node of nodesToVisit) {
+					const path = `${parentPath}/${node.field.id}`;
+					fieldPaths.set(node.field.uuid, path);
+					if (node.children) collectFieldPaths(node.children, path);
+				}
+			};
+			collectFieldPaths(tree, prefix);
+			this.collectExpressions(tree, prefix);
+			this.collectValidationOnlyDependencies(tree, prefix, fieldPaths);
+		} finally {
+			this.nodes = savedNodes;
+			this.dependedOnBy = savedDeps;
+			this.repeatPaths = savedRepeats;
+		}
 
 		const WHITE = 0,
 			GRAY = 1,

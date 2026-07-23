@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { LookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
 import { asUuid } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	actingUser,
 	concat,
@@ -16,6 +18,7 @@ import {
 	literal,
 	prop,
 	subcasePath,
+	tableLookup,
 	term,
 	today,
 	unowned,
@@ -34,6 +37,15 @@ const REPEAT_B = asUuid("88888888-8888-4888-8888-888888888888");
 const REPEAT_B_TEXT = asUuid("99999999-9999-4999-8999-999999999999");
 const HIDDEN_ID = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const MULTI = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+const REPEAT_CHILD = asUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+const REPEAT_CHILD_TEXT = asUuid("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+const REPEAT_SIBLING = asUuid("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+const REPEAT_SIBLING_TEXT = asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
+const LOOKUP_TABLE = "00000000-0000-7000-8000-0000000000a1" as LookupTableId;
+const LOOKUP_COLUMN = "10000000-0000-7000-8000-0000000000a1" as LookupColumnId;
+const LOOKUP_TYPES: LookupTypeIndex = new Map([
+	[LOOKUP_TABLE, new Map([[LOOKUP_COLUMN, "text"]])],
+]);
 
 interface Fixture {
 	readonly doc: BlueprintDoc;
@@ -147,6 +159,85 @@ function fixture(
 										kind: "text",
 										id: "row_b_text",
 										label: "Row B text",
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	return { doc, moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
+}
+
+function nestedRepeatFixture(): Fixture {
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						name: "Edit",
+						type: "followup",
+						fields: [
+							f({ uuid: TEXT, kind: "text", id: "root", label: "Root" }),
+							f({
+								uuid: REPEAT_A,
+								kind: "repeat",
+								id: "outer",
+								label: "Outer",
+								children: [
+									f({
+										uuid: REPEAT_A_TEXT,
+										kind: "text",
+										id: "outer_text",
+										label: "Outer text",
+									}),
+									f({
+										uuid: REPEAT_B,
+										kind: "repeat",
+										id: "inner",
+										label: "Inner",
+										children: [
+											f({
+												uuid: REPEAT_B_TEXT,
+												kind: "text",
+												id: "inner_text",
+												label: "Inner text",
+											}),
+											f({
+												uuid: REPEAT_CHILD,
+												kind: "repeat",
+												id: "child",
+												label: "Child",
+												children: [
+													f({
+														uuid: REPEAT_CHILD_TEXT,
+														kind: "text",
+														id: "child_text",
+														label: "Child text",
+													}),
+												],
+											}),
+										],
+									}),
+									f({
+										uuid: REPEAT_SIBLING,
+										kind: "repeat",
+										id: "sibling",
+										label: "Sibling",
+										children: [
+											f({
+												uuid: REPEAT_SIBLING_TEXT,
+												kind: "text",
+												id: "sibling_text",
+												label: "Sibling text",
+											}),
+										],
 									}),
 								],
 							}),
@@ -965,6 +1056,109 @@ describe("case-operation target and dependency safety", () => {
 				forEach: { repeat: REPEAT_A },
 			}),
 		]);
+	});
+
+	it("correlates table-lookup filters with the operation repeat ancestry only", () => {
+		const built = nestedRepeatFixture();
+		const repeatCodes = (
+			fieldUuid: Uuid,
+			mode: "repeated" | "singular" = "repeated",
+		): ValidationErrorCode[] => {
+			(built.doc.forms[built.formUuid] as Form).caseOperations = [
+				update({
+					...(mode === "repeated" && {
+						forEach: { repeat: REPEAT_B },
+					}),
+					owner: tableLookup(
+						LOOKUP_TABLE,
+						LOOKUP_COLUMN,
+						eq(formField(fieldUuid), literal("eligible")),
+					),
+				}),
+			];
+			return validateCaseOperations(
+				built.doc,
+				built.formUuid,
+				built.moduleUuid,
+				LOOKUP_TYPES,
+			).map((error) => error.code);
+		};
+
+		for (const validField of [TEXT, REPEAT_A_TEXT, REPEAT_B_TEXT]) {
+			const codes = repeatCodes(validField);
+			expect(codes, validField).not.toContain(
+				"CASE_OPERATION_AMBIGUOUS_REFERENCE",
+			);
+			expect(codes, validField).not.toContain(
+				"CASE_OPERATION_REPEAT_CORRELATION",
+			);
+		}
+		for (const invalidField of [REPEAT_CHILD_TEXT, REPEAT_SIBLING_TEXT]) {
+			expect(repeatCodes(invalidField), invalidField).toContain(
+				"CASE_OPERATION_REPEAT_CORRELATION",
+			);
+		}
+		expect(repeatCodes(REPEAT_A_TEXT, "singular")).toContain(
+			"CASE_OPERATION_AMBIGUOUS_REFERENCE",
+		);
+
+		const predicateCodes = (fieldUuid: Uuid): ValidationErrorCode[] => {
+			(built.doc.forms[built.formUuid] as Form).caseOperations = [
+				update({
+					forEach: { repeat: REPEAT_B },
+					condition: eq(
+						tableLookup(
+							LOOKUP_TABLE,
+							LOOKUP_COLUMN,
+							eq(formField(fieldUuid), literal("eligible")),
+						),
+						literal("matched"),
+					),
+				}),
+			];
+			return validateCaseOperations(
+				built.doc,
+				built.formUuid,
+				built.moduleUuid,
+				LOOKUP_TYPES,
+			).map((error) => error.code);
+		};
+		expect(predicateCodes(REPEAT_A_TEXT)).not.toContain(
+			"CASE_OPERATION_REPEAT_CORRELATION",
+		);
+		expect(predicateCodes(REPEAT_CHILD_TEXT)).toContain(
+			"CASE_OPERATION_REPEAT_CORRELATION",
+		);
+
+		(built.doc.forms[built.formUuid] as Form).caseOperations = [
+			update({
+				forEach: { repeat: REPEAT_B },
+				owner: term(formField(REPEAT_A_TEXT)),
+			}),
+		];
+		expect(
+			validateCaseOperations(
+				built.doc,
+				built.formUuid,
+				built.moduleUuid,
+				LOOKUP_TYPES,
+			).map((error) => error.code),
+		).toContain("CASE_OPERATION_REPEAT_CORRELATION");
+
+		(built.doc.forms[built.formUuid] as Form).caseOperations = [
+			update({
+				forEach: { repeat: REPEAT_B },
+				condition: eq(formField(REPEAT_A_TEXT), literal("ordinary")),
+			}),
+		];
+		expect(
+			validateCaseOperations(
+				built.doc,
+				built.formUuid,
+				built.moduleUuid,
+				LOOKUP_TYPES,
+			).map((error) => error.code),
+		).toContain("CASE_OPERATION_REPEAT_CORRELATION");
 	});
 
 	it("type-checks runtime targets and every value slot", () => {

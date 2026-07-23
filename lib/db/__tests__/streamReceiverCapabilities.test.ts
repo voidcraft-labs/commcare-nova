@@ -7,8 +7,8 @@ import {
 } from "@/lib/db/streamReceiverCapabilities";
 import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 
-const DEPLOYED_RECEIVER_V1 = Object.freeze({
-	NOVA_STREAM_RECEIVER_VERSION: "1",
+const DEPLOYED_RECEIVER_V2 = Object.freeze({
+	NOVA_STREAM_RECEIVER_VERSION: "2",
 	NOVA_STREAM_REGISTRY_VERSION: "1",
 });
 
@@ -19,22 +19,22 @@ function receiverQuery(...values: string[]): URLSearchParams {
 }
 
 describe("stream receiver capability admission", () => {
-	it("freezes the S02c1 compiled and deployed receiver contract at v1", () => {
-		expect(RUNTIME_CAPABILITIES.streamReceiverVersion).toBe(1);
+	it("declares the S05a compiled and deployed receiver contract at v2", () => {
+		expect(RUNTIME_CAPABILITIES.streamReceiverVersion).toBe(2);
 		expect(RUNTIME_CAPABILITIES.streamRegistryVersion).toBe(1);
-		expect(resolveDeployedStreamReceiverVersion(DEPLOYED_RECEIVER_V1)).toBe(1);
+		expect(resolveDeployedStreamReceiverVersion(DEPLOYED_RECEIVER_V2)).toBe(2);
+		expect(
+			resolveEffectiveStreamReceiverVersion(
+				receiverQuery("2"),
+				DEPLOYED_RECEIVER_V2,
+			),
+		).toBe(2);
 		expect(
 			resolveEffectiveStreamReceiverVersion(
 				receiverQuery("1"),
-				DEPLOYED_RECEIVER_V1,
+				DEPLOYED_RECEIVER_V2,
 			),
 		).toBe(1);
-		expect(
-			resolveEffectiveStreamReceiverVersion(
-				receiverQuery("0"),
-				DEPLOYED_RECEIVER_V1,
-			),
-		).toBe(0);
 	});
 
 	it.each([
@@ -182,7 +182,7 @@ describe("stream receiver capability admission", () => {
 				NOVA_STREAM_RECEIVER_VERSION: "99",
 				NOVA_STREAM_REGISTRY_VERSION: "1",
 			}),
-		).toBe(1);
+		).toBe(2);
 		expect(
 			resolveEffectiveStreamReceiverVersion(receiverQuery("bad"), {
 				NOVA_STREAM_RECEIVER_VERSION: "1",

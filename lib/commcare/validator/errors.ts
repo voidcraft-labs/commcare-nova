@@ -138,6 +138,10 @@ export type ValidationErrorCode =
 	| "EMPTY_REPEAT_COUNT"
 	| "EMPTY_IDS_QUERY"
 	| "FIXTURE_REFERENCE_NOT_MODELED"
+	| "LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED"
+	| "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER"
+	| "LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE"
+	| "LOOKUP_SELECT_FILTER_TYPE_ERROR"
 	// XForm output (post-expansion) — the parse-time oracle's FATAL contract.
 	| "XFORM_PARSE_ERROR"
 	| "XFORM_NO_INSTANCE"
@@ -288,6 +292,11 @@ export type ValidationErrorCode =
 	| "LOOKUP_TABLE_NOT_AVAILABLE"
 	| "LOOKUP_COLUMN_NOT_AVAILABLE"
 	| "LOOKUP_COLUMN_TYPE_MISMATCH"
+	// Dormant lookup-carrier policy. The commit code is produced only by the
+	// delta gate; the export code is produced only by the mode-aware Nova
+	// export boundary.
+	| "LOOKUP_CARRIER_COMMIT_NOT_ACTIVE"
+	| "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
 	// memory at once, so the total count + bytes are bounded before any

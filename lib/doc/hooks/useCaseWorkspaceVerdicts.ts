@@ -4,6 +4,7 @@ import {
 	type CaseWorkspaceBoundaryVerdicts,
 	caseWorkspaceBoundaryVerdicts,
 } from "../commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 import type { Uuid } from "../types";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 
@@ -28,7 +29,12 @@ export function useCaseWorkspaceBoundaryVerdicts(
 	moduleUuid: Uuid,
 ): CaseWorkspaceBoundaryVerdicts {
 	return useBlueprintDocEq(
-		(doc) => caseWorkspaceBoundaryVerdicts(doc, moduleUuid),
+		(doc) =>
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				moduleUuid,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
 		equalVerdicts,
 	);
 }

@@ -1,20 +1,21 @@
 /**
  * Structural lookup-reference extraction.
  *
- * Lookup rows live outside `BlueprintDoc`, but future domain carriers will
- * store stable lookup table/column identities in the doc. This module is the
+ * Lookup rows live outside `BlueprintDoc`, while domain carriers store stable
+ * lookup table/column identities in the doc. This module is the
  * client-safe seam between those structural carriers, validation, and the
- * normalized reference-edge writer. S02 deliberately registers no production
- * carrier: S05 adds the first extractor together with the schema it walks.
+ * normalized reference-edge writer. S05a registers the first production
+ * carriers after the dormant schemas and rolling envelope can preserve them.
  *
- * Extractors are explicit immutable values. Tests inject a synthetic registry;
- * production validation imports the frozen empty registry below. There is no
+ * Extractors are explicit immutable values. Tests may inject a synthetic
+ * registry; production validation imports the frozen registry below. There is no
  * mutable global registration API, so test order, module evaluation order, and
  * long-lived server instances cannot change what a document means.
  */
 
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import type {
 	LookupDataType,
 	LookupRevision,
@@ -121,11 +122,535 @@ export type LookupReferenceExtractorRegistry =
 	readonly LookupReferenceExtractor[];
 
 /**
- * S02 production registry: intentionally and immutably empty. S05 replaces
- * this value with a new frozen array when the first carrier schema lands.
+ * Collect the two lookup identity node kinds from one known Predicate /
+ * ValueExpression carrier. The path is the literal typed-AST object path, not
+ * a traversal counter, so edits in a sibling branch cannot rename an existing
+ * occurrence. A caller may prefix that path with a semantic member anchor for
+ * an array member that has no UUID. Walking object structure inside a
+ * schema-owned AST also means a new recursive operator arm cannot silently
+ * hide nested lookup identities.
+ */
+function extractAstLookupReferences(input: {
+	readonly carrierUuid: Uuid;
+	readonly ast: Predicate | ValueExpression;
+	readonly subpath?: readonly LookupReferencePathSegment[];
+	readonly location: LookupReferenceValidationLocation;
+}): ExtractedLookupReference[] {
+	const references: ExtractedLookupReference[] = [];
+
+	const walk = (
+		node: unknown,
+		path: readonly LookupReferencePathSegment[],
+	): void => {
+		if (node === null || typeof node !== "object") return;
+		if (Array.isArray(node)) {
+			for (let index = 0; index < node.length; index++) {
+				walk(node[index], [...path, index]);
+			}
+			return;
+		}
+
+		const record = node as Readonly<Record<string, unknown>>;
+		if (record.kind === "table-column") {
+			const term = record as unknown as {
+				readonly tableId: LookupTableId;
+				readonly columnId: LookupColumnId;
+			};
+			references.push({
+				carrierUuid: input.carrierUuid,
+				subpath: [...path, "columnId"],
+				tableId: term.tableId,
+				columnId: term.columnId,
+				location: input.location,
+			});
+			return;
+		}
+
+		if (record.kind === "table-lookup") {
+			const expression = record as unknown as {
+				readonly tableId: LookupTableId;
+				readonly resultColumnId: LookupColumnId;
+			};
+			references.push({
+				carrierUuid: input.carrierUuid,
+				subpath: [...path, "resultColumnId"],
+				tableId: expression.tableId,
+				columnId: expression.resultColumnId,
+				location: input.location,
+			});
+		}
+
+		for (const [key, value] of Object.entries(record)) {
+			if (
+				key === "kind" ||
+				key === "tableId" ||
+				key === "columnId" ||
+				key === "resultColumnId"
+			) {
+				continue;
+			}
+			walk(value, [...path, key]);
+		}
+	};
+
+	walk(input.ast, input.subpath ?? []);
+	return references;
+}
+
+function byUuid<T extends { readonly uuid: Uuid }>(left: T, right: T): number {
+	return left.uuid.localeCompare(right.uuid);
+}
+
+function sortedModules(doc: BlueprintDoc): Module[] {
+	return Object.values(doc.modules).sort(byUuid);
+}
+
+function sortedForms(doc: BlueprintDoc): Form[] {
+	return Object.values(doc.forms).sort(byUuid);
+}
+
+function sortedFields(doc: BlueprintDoc): Field[] {
+	return Object.values(doc.fields).sort(byUuid);
+}
+
+function moduleLocation(module: Module): LookupReferenceValidationLocation {
+	return {
+		scope: "module",
+		moduleUuid: module.uuid,
+		moduleName: module.name,
+	};
+}
+
+function owningModule(doc: BlueprintDoc, formUuid: Uuid): Module | undefined {
+	for (const moduleUuid of Object.keys(doc.formOrder).sort()) {
+		if (!doc.formOrder[moduleUuid]?.includes(formUuid)) continue;
+		return doc.modules[moduleUuid];
+	}
+	return undefined;
+}
+
+function formLocation(
+	doc: BlueprintDoc,
+	form: Form,
+): LookupReferenceValidationLocation {
+	const module = owningModule(doc, form.uuid);
+	return {
+		scope: "form",
+		...(module !== undefined && {
+			moduleUuid: module.uuid,
+			moduleName: module.name,
+		}),
+		formUuid: form.uuid,
+		formName: form.name,
+	};
+}
+
+function parentByField(doc: BlueprintDoc): ReadonlyMap<Uuid, Uuid> {
+	const parents = new Map<Uuid, Uuid>();
+	for (const parentUuid of Object.keys(doc.fieldOrder).sort()) {
+		for (const childUuid of doc.fieldOrder[parentUuid] ?? []) {
+			if (!parents.has(childUuid)) parents.set(childUuid, parentUuid as Uuid);
+		}
+	}
+	return parents;
+}
+
+function owningForm(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+	parents: ReadonlyMap<Uuid, Uuid>,
+): Form | undefined {
+	const visited = new Set<Uuid>();
+	let current = fieldUuid;
+	while (!visited.has(current)) {
+		visited.add(current);
+		const parent = parents.get(current);
+		if (parent === undefined) return undefined;
+		const form = doc.forms[parent];
+		if (form !== undefined) return form;
+		current = parent;
+	}
+	return undefined;
+}
+
+function fieldLocation(
+	doc: BlueprintDoc,
+	field: Field,
+	parents: ReadonlyMap<Uuid, Uuid>,
+): LookupReferenceValidationLocation {
+	const form = owningForm(doc, field.uuid, parents);
+	const module = form === undefined ? undefined : owningModule(doc, form.uuid);
+	return {
+		scope: "field",
+		...(module !== undefined && {
+			moduleUuid: module.uuid,
+			moduleName: module.name,
+		}),
+		...(form !== undefined && {
+			formUuid: form.uuid,
+			formName: form.name,
+		}),
+		fieldUuid: field.uuid,
+		fieldId: field.id,
+		field: "optionsSource",
+	};
+}
+
+function extractLookupOptionsSources(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	const references: ExtractedLookupReference[] = [];
+	const parents = parentByField(doc);
+
+	for (const field of sortedFields(doc)) {
+		if (field.kind !== "single_select" && field.kind !== "multi_select") {
+			continue;
+		}
+		const source = field.optionsSource;
+		if (source === undefined) continue;
+		const location = fieldLocation(doc, field, parents);
+		references.push(
+			{
+				carrierUuid: field.uuid,
+				subpath: ["valueColumnId"],
+				tableId: source.tableId,
+				columnId: source.valueColumnId,
+				location,
+			},
+			{
+				carrierUuid: field.uuid,
+				subpath: ["labelColumnId"],
+				tableId: source.tableId,
+				columnId: source.labelColumnId,
+				location,
+			},
+		);
+		if (source.filter !== undefined) {
+			references.push(
+				...extractAstLookupReferences({
+					carrierUuid: field.uuid,
+					ast: source.filter,
+					subpath: ["filter"],
+					location,
+				}),
+			);
+		}
+	}
+
+	return references;
+}
+
+function extractModuleDisplayConditions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) =>
+		module.displayCondition === undefined
+			? []
+			: extractAstLookupReferences({
+					carrierUuid: module.uuid,
+					ast: module.displayCondition,
+					location: moduleLocation(module),
+				}),
+	);
+}
+
+function extractFormDisplayConditions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		form.displayCondition === undefined
+			? []
+			: extractAstLookupReferences({
+					carrierUuid: form.uuid,
+					ast: form.displayCondition,
+					location: formLocation(doc, form),
+				}),
+	);
+}
+
+function extractCalculatedColumnExpressions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) =>
+		(module.caseListConfig?.columns ?? []).flatMap((column) =>
+			column.kind !== "calculated"
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: column.uuid,
+						ast: column.expression,
+						location: moduleLocation(module),
+					}),
+		),
+	);
+}
+
+function extractCaseListFilters(doc: BlueprintDoc): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) => {
+		const filter = module.caseListConfig?.filter;
+		return filter === undefined
+			? []
+			: extractAstLookupReferences({
+					carrierUuid: module.uuid,
+					ast: filter,
+					location: moduleLocation(module),
+				});
+	});
+}
+
+function extractSearchInputDefaults(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) =>
+		(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+			input.default === undefined
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: input.uuid,
+						ast: input.default,
+						location: moduleLocation(module),
+					}),
+		),
+	);
+}
+
+function extractSearchInputPredicates(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) =>
+		(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+			input.kind !== "advanced"
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: input.uuid,
+						ast: input.predicate,
+						location: moduleLocation(module),
+					}),
+		),
+	);
+}
+
+function extractSearchButtonDisplayConditions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) => {
+		const condition = module.caseSearchConfig?.searchButtonDisplayCondition;
+		return condition === undefined
+			? []
+			: extractAstLookupReferences({
+					carrierUuid: module.uuid,
+					ast: condition,
+					location: moduleLocation(module),
+				});
+	});
+}
+
+function extractExcludedOwnerIds(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) => {
+		const expression = module.caseSearchConfig?.excludedOwnerIds;
+		return expression === undefined
+			? []
+			: extractAstLookupReferences({
+					carrierUuid: module.uuid,
+					ast: expression,
+					location: moduleLocation(module),
+				});
+	});
+}
+
+function extractCaseOperationTargetExpressions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			operation.target.kind !== "expression"
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: operation.uuid,
+						ast: operation.target.expr,
+						location: formLocation(doc, form),
+					}),
+		),
+	);
+}
+
+function extractCaseOperationConditions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			operation.condition === undefined
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: operation.uuid,
+						ast: operation.condition,
+						location: formLocation(doc, form),
+					}),
+		),
+	);
+}
+
+function extractCaseOperationNames(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			operation.name === undefined
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: operation.uuid,
+						ast: operation.name,
+						location: formLocation(doc, form),
+					}),
+		),
+	);
+}
+
+function extractCaseOperationOwners(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			operation.owner === undefined
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: operation.uuid,
+						ast: operation.owner,
+						location: formLocation(doc, form),
+					}),
+		),
+	);
+}
+
+function extractCaseOperationRenames(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			operation.rename === undefined
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: operation.uuid,
+						ast: operation.rename,
+						location: formLocation(doc, form),
+					}),
+		),
+	);
+}
+
+function extractCaseOperationWriteValues(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			(operation.writes ?? []).flatMap((write) =>
+				extractAstLookupReferences({
+					carrierUuid: operation.uuid,
+					ast: write.value,
+					subpath: ["property", write.property],
+					location: formLocation(doc, form),
+				}),
+			),
+		),
+	);
+}
+
+function extractCaseOperationWriteConditions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			(operation.writes ?? []).flatMap((write) =>
+				write.condition === undefined
+					? []
+					: extractAstLookupReferences({
+							carrierUuid: operation.uuid,
+							ast: write.condition,
+							subpath: ["property", write.property],
+							location: formLocation(doc, form),
+						}),
+			),
+		),
+	);
+}
+
+function extractCaseOperationLinkTargetExpressions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		(form.caseOperations ?? []).flatMap((operation) =>
+			(operation.links ?? []).flatMap((link) =>
+				link.target?.kind !== "expression"
+					? []
+					: extractAstLookupReferences({
+							carrierUuid: operation.uuid,
+							ast: link.target.expr,
+							subpath: ["identifier", link.identifier],
+							location: formLocation(doc, form),
+						}),
+			),
+		),
+	);
+}
+
+function productionExtractor(
+	registrySlot: string,
+	extract: LookupReferenceExtractor["extract"],
+): LookupReferenceExtractor {
+	return Object.freeze({ registrySlot, extract });
+}
+
+/**
+ * S05a production registry. Each entry names one immutable domain slot; array
+ * members without their own UUID (operation writes/links) retain the owning
+ * operation UUID and use their validator-enforced unique property/identifier
+ * as a semantic member anchor below the slot.
  */
 export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorRegistry =
-	Object.freeze([]);
+	Object.freeze([
+		productionExtractor("lookup_options_source", extractLookupOptionsSources),
+		productionExtractor(
+			"module_display_condition",
+			extractModuleDisplayConditions,
+		),
+		productionExtractor("form_display_condition", extractFormDisplayConditions),
+		productionExtractor(
+			"case_list_column_expression",
+			extractCalculatedColumnExpressions,
+		),
+		productionExtractor("case_list_filter", extractCaseListFilters),
+		productionExtractor("search_input_default", extractSearchInputDefaults),
+		productionExtractor("search_input_predicate", extractSearchInputPredicates),
+		productionExtractor(
+			"search_button_display_condition",
+			extractSearchButtonDisplayConditions,
+		),
+		productionExtractor("excluded_owner_ids", extractExcludedOwnerIds),
+		productionExtractor(
+			"case_operation_target_expression",
+			extractCaseOperationTargetExpressions,
+		),
+		productionExtractor(
+			"case_operation_condition",
+			extractCaseOperationConditions,
+		),
+		productionExtractor("case_operation_name", extractCaseOperationNames),
+		productionExtractor("case_operation_owner", extractCaseOperationOwners),
+		productionExtractor("case_operation_rename", extractCaseOperationRenames),
+		productionExtractor(
+			"case_operation_write_value",
+			extractCaseOperationWriteValues,
+		),
+		productionExtractor(
+			"case_operation_write_condition",
+			extractCaseOperationWriteConditions,
+		),
+		productionExtractor(
+			"case_operation_link_target_expression",
+			extractCaseOperationLinkTargetExpressions,
+		),
+	]);
 
 const LOOKUP_DATA_TYPE_ORDER: Readonly<Record<LookupDataType, number>> = {
 	text: 0,
@@ -301,8 +826,8 @@ export function lookupReferenceTargetsFromOccurrences(
 
 /**
  * Extract the complete normalized target set for one doc. Production callers
- * omit the registry and therefore use the immutable empty S02 registry;
- * synthetic tests/races pass their registry explicitly.
+ * omit the registry and therefore use the immutable production registry;
+ * synthetic tests/races may pass an explicit registry.
  */
 export function extractLookupReferenceTargets(
 	doc: BlueprintDoc,

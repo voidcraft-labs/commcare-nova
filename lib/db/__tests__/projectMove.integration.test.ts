@@ -22,7 +22,6 @@ import {
 	CommitReauthError,
 } from "../commitGuard";
 import { setTransactionWriterVersion } from "../pg";
-import { ProjectMoveCompatibilityError } from "../projectMoveAdmission";
 import { mergeThreadTurnMessages } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
@@ -795,7 +794,7 @@ describe("dormant atomic Project move", () => {
 		});
 	});
 
-	it("keeps the production capability wrapper dormant at writer v0", async () => {
+	it("uses the shared production capability after the test explicitly enables moves", async () => {
 		const appId = await h.seedApp({
 			id: "app-production-dormant",
 			owner: ACTOR,
@@ -812,7 +811,11 @@ describe("dormant atomic Project move", () => {
 				toProjectId: DESTINATION,
 				actorUserId: ACTOR,
 			}),
-		).rejects.toBeInstanceOf(ProjectMoveCompatibilityError);
+		).resolves.toEqual({
+			kind: "ready",
+			requiredAssetIds: [],
+			historicalAssetIds: [],
+		});
 	});
 
 	it("same-Project repair follows the fresh app Project on both sides of a true move", async () => {

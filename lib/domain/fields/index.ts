@@ -109,6 +109,21 @@ export const fieldKinds = [
 export type FieldKind = (typeof fieldKinds)[number];
 
 /**
+ * The pre-lookup select shapes retained at rolling and authoring boundaries.
+ *
+ * `optionsSource` is persisted on the current field schema, but it must travel
+ * outside the established nested field/patch payloads while older receivers
+ * are still supported. These projections are also the schema-level primitive
+ * used by carrier-blind builder/SA/MCP inputs until their owning slices open.
+ */
+const carrierBlindSingleSelectFieldSchema = singleSelectFieldSchema.omit({
+	optionsSource: true,
+});
+const carrierBlindMultiSelectFieldSchema = multiSelectFieldSchema.omit({
+	optionsSource: true,
+});
+
+/**
  * Two-arm union over all field kinds. The first arm is a fast
  * `discriminatedUnion("kind", ...)` over every kind EXCEPT repeat; the
  * second arm is `repeatFieldSchema`, itself a `discriminatedUnion` on
@@ -156,7 +171,32 @@ export const fieldSchema = z.union([
 	repeatFieldSchema,
 ]);
 
+export const carrierBlindFieldSchema = z.union([
+	z.discriminatedUnion("kind", [
+		textFieldSchema,
+		intFieldSchema,
+		decimalFieldSchema,
+		dateFieldSchema,
+		timeFieldSchema,
+		datetimeFieldSchema,
+		carrierBlindSingleSelectFieldSchema,
+		carrierBlindMultiSelectFieldSchema,
+		geopointFieldSchema,
+		imageFieldSchema,
+		audioFieldSchema,
+		videoFieldSchema,
+		barcodeFieldSchema,
+		signatureFieldSchema,
+		labelFieldSchema,
+		hiddenFieldSchema,
+		secretFieldSchema,
+		groupFieldSchema,
+	]),
+	repeatFieldSchema,
+]);
+
 export type Field = z.infer<typeof fieldSchema>;
+export type CarrierBlindField = z.infer<typeof carrierBlindFieldSchema>;
 
 export type ContainerField = Extract<Field, { kind: "group" | "repeat" }>;
 
@@ -572,6 +612,18 @@ export const fieldPatchSchemaByKind = {
 } as const satisfies { [K in FieldKind]: z.ZodTypeAny };
 
 /**
+ * Rolling-compatible nested patch shapes. Lookup-source intent uses the
+ * top-level `updateField.optionsSource` extension; keeping the established
+ * nested patch carrier-blind lets a pre-S05 receiver parse and apply the
+ * inline-option fallback.
+ */
+export const carrierBlindFieldPatchSchemaByKind = {
+	...fieldPatchSchemaByKind,
+	single_select: partialOf(carrierBlindSingleSelectFieldSchema).strict(),
+	multi_select: partialOf(carrierBlindMultiSelectFieldSchema).strict(),
+} as const satisfies { [K in FieldKind]: z.ZodTypeAny };
+
+/**
  * Type-level shape of an `updateField` mutation's `patch` slot for a
  * field of kind `K` — the mutable, schema-declared properties of the
  * variant minus the immutable identity (`uuid`) and discriminant
@@ -588,8 +640,11 @@ export const fieldPatchSchemaByKind = {
  * a generic field whose kind is narrowed downstream.
  */
 export type FieldPatchFor<K extends FieldKind> = {
-	[P in keyof Omit<Extract<Field, { kind: K }>, "uuid" | "kind">]?:
-		| Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P]
+	[P in keyof Omit<
+		Extract<Field, { kind: K }>,
+		"uuid" | "kind" | "optionsSource"
+	>]?:
+		| Omit<Extract<Field, { kind: K }>, "uuid" | "kind" | "optionsSource">[P]
 		| null;
 };
 

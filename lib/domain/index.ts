@@ -20,6 +20,7 @@ export * from "./forms";
 export * from "./hashtagSegments";
 export * from "./idSlug";
 export * from "./kinds";
+export * from "./lookupCarriers";
 export * from "./lookupIds";
 export * from "./modules";
 export * from "./multimedia";

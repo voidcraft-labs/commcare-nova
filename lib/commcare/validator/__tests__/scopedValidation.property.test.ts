@@ -31,11 +31,13 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type Field, type Uuid } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { eq, formField, literal } from "@/lib/domain/predicate";
 import { blueprintDocArbitrary } from "../../__tests__/xformDocArbitrary";
 import { errorIdentity } from "../gate";
 import { scopeHasForm, validateBlueprintDeep } from "../index";
@@ -239,6 +241,117 @@ const docAndBatchesArb = blueprintDocArbitrary.chain((doc) =>
 );
 
 describe("scoped validation ≡ full validation filtered to scope", () => {
+	it("holds for a lookup-backed select with a default/options dependency cycle", () => {
+		const sourceUuid = asUuid("20000000-0000-7000-8000-0000000000a1");
+		const selectUuid = asUuid("20000000-0000-7000-8000-0000000000b1");
+		const lookupTable = "30000000-0000-7000-8000-0000000000a1" as LookupTableId;
+		const lookupColumn =
+			"40000000-0000-7000-8000-0000000000a1" as LookupColumnId;
+		const doc = buildDoc({
+			appName: "Scoped lookup validation",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Lookup form",
+							type: "survey",
+							fields: [
+								f({
+									uuid: sourceUuid,
+									kind: "text",
+									id: "source",
+									label: "Source",
+									default_value: "/data/choice",
+								}),
+								f({
+									uuid: selectUuid,
+									kind: "single_select",
+									id: "choice",
+									label: "Choice",
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
+									optionsSource: {
+										kind: "lookup-table",
+										tableId: lookupTable,
+										valueColumnId: lookupColumn,
+										labelColumnId: lookupColumn,
+										filter: eq(formField(sourceUuid), literal("yes")),
+									},
+								}),
+							],
+						},
+						{
+							name: "Out of scope",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "broken",
+									label: "Broken",
+									relevant: "if(",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const [lookupFormUuid, outsideFormUuid] = doc.formOrder[moduleUuid];
+		const scope = { formUuids: new Set([lookupFormUuid]) };
+
+		const full = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		const scoped = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { scope });
+		expect(scoped).toEqual(
+			full.filter((finding) => errorWithinScope(finding, scope)),
+		);
+		expect(scoped).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "CYCLE",
+					location: expect.objectContaining({ formUuid: lookupFormUuid }),
+				}),
+				expect.objectContaining({
+					code: "LOOKUP_CONTEXT_UNAVAILABLE",
+					location: expect.objectContaining({ fieldUuid: selectUuid }),
+				}),
+			]),
+		);
+		expect(
+			full.some(
+				(finding) =>
+					finding.location.formUuid === outsideFormUuid &&
+					finding.code === "XPATH_SYNTAX",
+			),
+		).toBe(true);
+		expect(
+			scoped.some((finding) => finding.location.formUuid === outsideFormUuid),
+		).toBe(false);
+
+		const fullDeep = validateBlueprintDeep(doc);
+		const scopedDeep = validateBlueprintDeep(doc, scope);
+		expect(scopedDeep).toEqual(
+			fullDeep.filter((finding) =>
+				scopeHasForm(scope, finding.moduleUuid, finding.formUuid),
+			),
+		);
+		expect(scopedDeep).toContainEqual(
+			expect.objectContaining({
+				kind: "cycle",
+				formUuid: lookupFormUuid,
+			}),
+		);
+		expect(
+			fullDeep.some((finding) => finding.formUuid === outsideFormUuid),
+		).toBe(true);
+		expect(
+			scopedDeep.some((finding) => finding.formUuid === outsideFormUuid),
+		).toBe(false);
+	});
+
 	it(
 		"holds for generated docs under generated mutation batches, and scopes are sound",
 		() => {

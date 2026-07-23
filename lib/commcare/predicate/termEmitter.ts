@@ -303,6 +303,10 @@ export function emitTerm(
 		}
 		case "literal":
 			return emitOnDeviceLiteralValue(term.value);
+		case "table-column":
+			throw new Error(
+				"emitTerm: lookup-table column terms are dormant until fixture emission lands; validation should reject them before on-device XPath emission.",
+			);
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(`emitTerm: unhandled term kind ${String(_exhaustive)}`);
@@ -468,6 +472,10 @@ export function emitTermSegment(t: Term): TermEmission {
 			);
 		case "literal":
 			return emitCsqlLiteralSegment(t.value);
+		case "table-column":
+			throw new Error(
+				"emitTermSegment: lookup-table column terms are dormant until fixture emission lands; validation should reject them before CSQL emission.",
+			);
 		default: {
 			const _exhaustive: never = t;
 			throw new Error(

@@ -172,20 +172,39 @@ export function applyFieldMutation(
 				draft.forms[mut.parentUuid] !== undefined ||
 				draft.fields[mut.parentUuid] !== undefined;
 			if (!parentExists) return;
+			// Preserve the long-lived reducer path byte-for-byte when there is no
+			// semantic extension. Accepted history can bypass the current mutation
+			// schema, so re-parsing every legacy field here would turn previously
+			// applicable events into silent no-ops.
+			let field = mut.field;
+			if (mut.optionsSource !== undefined) {
+				const parsedField = fieldSchema.safeParse({
+					...mut.field,
+					optionsSource: mut.optionsSource,
+				});
+				if (!parsedField.success) {
+					console.warn(
+						`addField: the lookup-source extension for ${mut.field.uuid} didn't fit the field's schema and was skipped.`,
+						{ issues: parsedField.error.issues },
+					);
+					return;
+				}
+				field = parsedField.data;
+			}
 			const order = draft.fieldOrder[mut.parentUuid] ?? [];
 			const index = mut.index ?? order.length;
 			const clamped = Math.max(0, Math.min(index, order.length));
-			order.splice(clamped, 0, mut.field.uuid);
+			order.splice(clamped, 0, field.uuid);
 			draft.fieldOrder[mut.parentUuid] = order;
-			draft.fields[mut.field.uuid] = mut.field;
+			draft.fields[field.uuid] = field;
 			// If the new field is a group/repeat, pre-seed its order slot
 			// so child insertions have a valid parent to target immediately.
-			if (mut.field.kind === "group" || mut.field.kind === "repeat") {
-				draft.fieldOrder[mut.field.uuid] ??= [];
+			if (field.kind === "group" || field.kind === "repeat") {
+				draft.fieldOrder[field.uuid] ??= [];
 			}
 			// A landed case-property writer declares its property — sync
 			// the catalog (see `ensureCatalogProperty`).
-			ensureCatalogProperty(draft as unknown as BlueprintDoc, mut.field);
+			ensureCatalogProperty(draft as unknown as BlueprintDoc, field);
 			return;
 		}
 		case "updateField": {
@@ -232,6 +251,16 @@ export function applyFieldMutation(
 					delete spread[key];
 				} else {
 					spread[key] = value;
+				}
+			}
+			// Lookup-backed options are a rolling-compatible semantic extension:
+			// the nested patch stays in the strict pre-S05 shape for old
+			// receivers, while current receivers apply set/replace/clear here.
+			if (mut.optionsSource !== undefined) {
+				if (mut.optionsSource === null) {
+					delete spread.optionsSource;
+				} else {
+					spread.optionsSource = mut.optionsSource;
 				}
 			}
 			// Filter the result through `pickFieldKeysForKind` before
@@ -629,6 +658,16 @@ export function applyFieldMutation(
 
 			// Install all cloned entities into the draft.
 			for (const [uuid, f] of Object.entries(clonedF)) {
+				// Duplication is a generic builder gesture and stays
+				// carrier-blind until S09. A receiver-preserved lookup-backed
+				// select duplicates as its complete inline fallback rather than
+				// silently minting a second dormant carrier.
+				if (
+					(f.kind === "single_select" || f.kind === "multi_select") &&
+					f.optionsSource !== undefined
+				) {
+					delete f.optionsSource;
+				}
 				draft.fields[uuid as Uuid] = f;
 			}
 			for (const [parentUuid, order] of Object.entries(clonedO)) {

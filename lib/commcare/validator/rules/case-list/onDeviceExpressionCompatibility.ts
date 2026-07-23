@@ -45,6 +45,7 @@ import {
 	RelationEvaluationScopeError,
 } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { type ValidationError, validationError } from "../../errors";
+import type { LookupTypeIndex } from "../../lookupTypeContext";
 import {
 	collectModuleWireSlotFindings,
 	type ModuleWireSlotIdentity,
@@ -74,8 +75,9 @@ export function onDeviceExpressionCompatibility(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
-	const ctx = moduleTypeContext(mod, doc);
+	const ctx = moduleTypeContext(mod, doc, lookupTables);
 
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
 		calculatedColumns: "all-definitions",
@@ -301,6 +303,9 @@ function walkPredicateCarriersInExpression(
 			return;
 		case "count":
 			if (expression.where !== undefined) visit(expression.where);
+			return;
+		case "table-lookup":
+			visit(expression.where);
 			return;
 		default: {
 			const _exhaustive: never = expression;
@@ -554,6 +559,12 @@ function firstNestedMultiCaseCountInExpression(
 						descendOnDeviceCaseAnchor(anchor, relation.via),
 					);
 		}
+		case "table-lookup":
+			return firstNestedMultiCaseCountInPredicate(
+				expression.where,
+				context,
+				anchor,
+			);
 		default: {
 			const _exhaustive: never = expression;
 			throw new Error(
@@ -572,6 +583,8 @@ function buildError(
 		switch (issue.reason) {
 			case "unwrap-list":
 				return `Module "${args.mod.name}" turns stored list text into several values in ${args.slotLabel}, but that setting runs in an app screen that can only use one value. Replace it with a single-value calculation.`;
+			case "table-lookup":
+				return `Module "${args.mod.name}" uses a lookup-table expression in ${args.slotLabel}, but lookup execution is not active yet. Remove the lookup until lookup-table support is available.`;
 			case "multi-valued-relation-read":
 				return `Module "${args.mod.name}" reads case property "${issue.property.property}" through a relationship that can return several cases in ${args.slotLabel}, but that setting needs one value. Use an explicit related-case count or move the check into a related-case condition.`;
 			case "mixed-property-scopes":

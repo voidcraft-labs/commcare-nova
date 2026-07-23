@@ -1,7 +1,7 @@
-// Live-Postgres coverage for S02b's package-private schema-governance seam.
-// The production wrapper deliberately remains a v0 closed gate. Successful
-// destructive operations enter only through the transaction core after the
-// test has explicitly declared writer v1 and enabled the compatibility row.
+// Live-Postgres coverage for the package-private schema-governance seam.
+// Production now declares lookup writer v1; the database floor and destructive
+// action flag remain closed by default. Tests explicitly enable compatibility
+// before exercising either the production wrapper or transaction core.
 
 import { sql } from "kysely";
 import { Client, type Notification } from "pg";
@@ -193,7 +193,7 @@ async function waitUntilBlockedBy(
 }
 
 describe("lookup schema governance", () => {
-	it("keeps the production v0 wrapper write-free before and after floor-1 activation", async () => {
+	it("keeps production write-free while disabled and uses shared writer v1 after explicit enablement", async () => {
 		const table = await createTable();
 		const created = await createLookupRow(ROW_WRITER, {
 			tableId: table.id,
@@ -233,11 +233,15 @@ describe("lookup schema governance", () => {
 		);
 		expect(denied.message).toBe(missing.message);
 		expect(deniedCore.message).toBe(missing.message);
-		await expectGovernanceError(
+		await expect(
 			applyLookupSchemaGovernance(GOVERNOR, operation),
-			"schema_actions_disabled",
+		).resolves.toMatchObject({
+			kind: "remove-column",
+			columnId: table.columns[1].id,
+		});
+		expect((await getLookupTable(GOVERNOR, table.id)).columnCount).toBe(
+			before.columnCount - 1,
 		);
-		expect(await getLookupTable(GOVERNOR, table.id)).toEqual(before);
 	});
 
 	it("reports only exact blocking app ids and ignores edges to another column", async () => {

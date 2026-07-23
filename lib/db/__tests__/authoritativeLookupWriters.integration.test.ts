@@ -1,23 +1,29 @@
 /**
  * S02b authoritative app-writer matrix against the shared Postgres harness.
  *
- * Production has no lookup carrier yet, so this suite injects structural target
- * sets at the one production extractor seam. Everything after extraction is the
- * real protocol: app row lock, table `FOR KEY SHARE`, fresh definition snapshot,
- * exact edge replacement, writer-version declaration, app/entity/log write.
+ * Historical lookup carriers are seeded through the same jsonb entity rows an
+ * old deployment would have left behind. Authoritative writes must hydrate
+ * those rows, run the frozen production extractor, and replace exact lookup
+ * edges before the app/entity/log write commits.
  */
 
 import { Client } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { setTransactionWriterVersion } from "@/lib/db/pg";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
+	extractLookupReferenceTargets,
 	type LookupReferenceTargetSet,
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import { blankAppMutations } from "@/lib/doc/scaffolds";
+import { asUuid, type LookupOptionsSource, type Uuid } from "@/lib/domain";
 import {
+	type LookupColumnId,
 	type LookupTableId,
+	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { applyLookupSchemaGovernanceInTransaction } from "@/lib/lookup/schemaGovernance";
@@ -30,20 +36,6 @@ import {
 } from "../lookupReferenceEdges";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
-
-const { extractLookupReferenceTargetsMock } = vi.hoisted(() => ({
-	extractLookupReferenceTargetsMock: vi.fn(),
-}));
-
-vi.mock("@/lib/doc/lookupReferences", async () => {
-	const actual = (await vi.importActual(
-		"@/lib/doc/lookupReferences",
-	)) as Record<string, unknown>;
-	return {
-		...actual,
-		extractLookupReferenceTargets: extractLookupReferenceTargetsMock,
-	};
-});
 
 vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleFor: vi.fn(async () => "owner"),
@@ -67,6 +59,9 @@ const PROJECT_A = "lookup-writer-project-a";
 const PROJECT_B = "lookup-writer-project-b";
 const MISSING_TABLE_ID = lookupTableIdSchema.parse(
 	"018f0f43-7b7c-7abc-8def-0123456789ab",
+);
+const MISSING_COLUMN_ID = lookupColumnIdSchema.parse(
+	"018f0f43-7b7c-7abc-8def-0123456789ac",
 );
 const WRITER_RACE_ADVISORY_KEY = 20_260_722;
 const DELETE_RACE_ADVISORY_KEY = 20_260_723;
@@ -215,26 +210,83 @@ function tableTargets(tableId: LookupTableId): LookupReferenceTargetSet {
 	return normalizeLookupReferenceTargetSet({ tableIds: [tableId] });
 }
 
-function setExtractionPair(
-	previous: LookupReferenceTargetSet,
-	candidate: LookupReferenceTargetSet,
-): void {
-	extractLookupReferenceTargetsMock
-		.mockReset()
-		.mockReturnValue(EMPTY_LOOKUP_REFERENCE_TARGETS)
-		.mockReturnValueOnce(previous)
-		.mockReturnValueOnce(candidate);
+interface HistoricalLookupCarrier {
+	readonly appId: string;
+	readonly fieldUuid: Uuid;
+	readonly optionsSource: LookupOptionsSource;
+	readonly targets: LookupReferenceTargetSet;
+}
+
+function lookupCarrierFixture(
+	tableId: LookupTableId,
+	columnId: LookupColumnId,
+): Omit<HistoricalLookupCarrier, "appId"> & {
+	readonly doc: ReturnType<typeof buildDoc>;
+} {
+	const fieldUuid = asUuid(crypto.randomUUID());
+	const optionsSource: LookupOptionsSource = {
+		kind: "lookup-table",
+		tableId,
+		valueColumnId: columnId,
+		labelColumnId: columnId,
+	};
+	const doc = buildDoc({
+		appName: "Historical lookup carrier",
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Survey",
+						type: "survey",
+						fields: [
+							{
+								uuid: fieldUuid,
+								kind: "single_select",
+								id: "choice",
+								label: "Choice",
+								options: [
+									{ value: "a", label: "A" },
+									{ value: "b", label: "B" },
+								],
+								optionsSource,
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	return {
+		doc,
+		fieldUuid,
+		optionsSource,
+		targets: normalizeLookupReferenceTargetSet({
+			columnTargets: [{ tableId, columnId }],
+		}),
+	};
+}
+
+async function seedHistoricalLookupCarrier(
+	tableId: LookupTableId,
+	columnId: LookupColumnId,
+	projectId = PROJECT_A,
+): Promise<HistoricalLookupCarrier> {
+	const fixture = lookupCarrierFixture(tableId, columnId);
+	const appId = await h.seedAppWithBlueprint(fixture.doc, {
+		owner: ACTOR,
+		projectId,
+	});
+	await clearWriterProbe();
+	return { appId, ...fixture };
 }
 
 beforeEach(async () => {
-	extractLookupReferenceTargetsMock
-		.mockReset()
-		.mockReturnValue(EMPTY_LOOKUP_REFERENCE_TARGETS);
 	await installWriterProbe();
 });
 
 describe("atomic creation", () => {
-	it("runs the seed callback once, declares writer v0, and commits the prepared app atomically", async () => {
+	it("runs the seed callback once, declares writer v1, and commits the prepared app atomically", async () => {
 		let seedCalls = 0;
 		const appId = await createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
 			appName: "Blank app",
@@ -249,7 +301,7 @@ describe("atomic creation", () => {
 		expect((await loadApp(appId))?.blueprint.moduleOrder).toHaveLength(1);
 		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
 		expect(await writerProbeRows(appId)).toEqual([
-			{ operation: "INSERT", writer_version: "0" },
+			{ operation: "INSERT", writer_version: "1" },
 		]);
 	});
 
@@ -305,7 +357,7 @@ describe("atomic creation", () => {
 });
 
 describe("guarded and synthetic writers", () => {
-	it("declares writer v0, replaces stale edges exactly, and persists deterministic synthetic mutations", async () => {
+	it("declares writer v1, replaces stale edges exactly, and persists deterministic synthetic mutations", async () => {
 		const table = await createTable(PROJECT_A, "Stale edge");
 		const appId = await createEmptyApp();
 		await materializeTargets(appId, PROJECT_A, tableTargets(table.id));
@@ -321,7 +373,7 @@ describe("guarded and synthetic writers", () => {
 		});
 		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
 		expect(await writerProbeRows(appId)).toEqual([
-			{ operation: "UPDATE", writer_version: "0" },
+			{ operation: "UPDATE", writer_version: "1" },
 		]);
 
 		const current = await loadApp(appId);
@@ -340,8 +392,8 @@ describe("guarded and synthetic writers", () => {
 			},
 		});
 		expect(await writerProbeRows(appId)).toEqual([
-			{ operation: "UPDATE", writer_version: "0" },
-			{ operation: "UPDATE", writer_version: "0" },
+			{ operation: "UPDATE", writer_version: "1" },
+			{ operation: "UPDATE", writer_version: "1" },
 		]);
 		const stream = await h
 			.db()
@@ -486,12 +538,23 @@ describe("guarded and synthetic writers", () => {
 	});
 });
 
-describe("lookup introduction versus resource deletion", () => {
-	it("app-writer-first materializes the exact edge and makes the later table delete lose", async () => {
+describe("lookup materialization versus resource deletion", () => {
+	it("backfills exact edges from a hydrated historical carrier and clears them when the carrier is removed", async () => {
 		const table = await createTable(PROJECT_A, "Writer first");
-		const appId = await createEmptyApp();
-		const targets = tableTargets(table.id);
-		setExtractionPair(EMPTY_LOOKUP_REFERENCE_TARGETS, targets);
+		const column = table.columns[0];
+		if (column === undefined) throw new Error("lookup table has no column");
+		const { appId, fieldUuid, optionsSource, targets } =
+			await seedHistoricalLookupCarrier(table.id, column.id);
+
+		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
+		const hydrated = await loadApp(appId);
+		if (!hydrated) throw new Error("historical app disappeared");
+		const hydratedDoc = hydratePersistedBlueprint(hydrated.blueprint);
+		expect(hydratedDoc.fields[fieldUuid]).toMatchObject({
+			kind: "single_select",
+			optionsSource,
+		});
+		expect(extractLookupReferenceTargets(hydratedDoc)).toEqual(targets);
 
 		await commitGuardedBatch({
 			appId,
@@ -512,23 +575,40 @@ describe("lookup introduction versus resource deletion", () => {
 				.execute(),
 		).rejects.toMatchObject({ code: "23001" });
 
-		setExtractionPair(targets, EMPTY_LOOKUP_REFERENCE_TARGETS);
 		await commitGuardedBatch({
 			appId,
 			expectedProjectId: PROJECT_A,
 			batchId: crypto.randomUUID(),
-			mutations: [{ kind: "setAppName", name: "Reference removed" }],
+			mutations: [
+				{
+					kind: "updateField",
+					uuid: fieldUuid,
+					targetKind: "single_select",
+					patch: {},
+					optionsSource: null,
+				},
+			],
 			actorUserId: ACTOR,
 			kind: "autosave",
 		});
 		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
+		const repaired = await loadApp(appId);
+		if (!repaired) throw new Error("repaired app disappeared");
+		const repairedDoc = hydratePersistedBlueprint(repaired.blueprint);
+		expect(repairedDoc.fields[fieldUuid]).not.toHaveProperty("optionsSource");
+		expect(extractLookupReferenceTargets(repairedDoc)).toBe(
+			EMPTY_LOOKUP_REFERENCE_TARGETS,
+		);
 	});
 
 	it("holds table admission through commit so a concurrent delete blocks, then loses", async () => {
 		const table = await createTable(PROJECT_A, "Serialized writer first");
-		const appId = await createEmptyApp();
-		const targets = tableTargets(table.id);
-		setExtractionPair(EMPTY_LOOKUP_REFERENCE_TARGETS, targets);
+		const column = table.columns[0];
+		if (column === undefined) throw new Error("lookup table has no column");
+		const { appId, targets } = await seedHistoricalLookupCarrier(
+			table.id,
+			column.id,
+		);
 		await h.pool().query(`
 			CREATE FUNCTION wait_authoritative_writer_race() RETURNS trigger
 			LANGUAGE plpgsql AS $function$
@@ -609,9 +689,11 @@ describe("lookup introduction versus resource deletion", () => {
 		}
 	});
 
-	it("lets an admitted resource delete commit first, then rejects the waiting app introduction", async () => {
+	it("lets an admitted resource delete commit first, then rejects waiting historical-carrier materialization", async () => {
 		const table = await createTable(PROJECT_A, "Serialized delete first");
-		const appId = await createEmptyApp();
+		const column = table.columns[0];
+		if (column === undefined) throw new Error("lookup table has no column");
+		const { appId } = await seedHistoricalLookupCarrier(table.id, column.id);
 		await h
 			.db()
 			.updateTable("lookup_reference_compatibility")
@@ -681,7 +763,6 @@ describe("lookup introduction versus resource deletion", () => {
 				blockerPid,
 			);
 
-			setExtractionPair(EMPTY_LOOKUP_REFERENCE_TARGETS, tableTargets(table.id));
 			const writer = commitGuardedBatch({
 				appId,
 				expectedProjectId: PROJECT_A,
@@ -716,7 +797,9 @@ describe("lookup introduction versus resource deletion", () => {
 					"One or more lookup tables used by this app are no longer available in its Project. Remove or replace those references, then try again.",
 			});
 			expect(await readSeq(appId)).toBe(0);
-			expect((await loadApp(appId))?.app_name).toBe("Writer test");
+			expect((await loadApp(appId))?.app_name).toBe(
+				"Historical lookup carrier",
+			);
 			expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
 			const deletedTable = await h
 				.db()
@@ -739,10 +822,16 @@ describe("lookup introduction versus resource deletion", () => {
 
 	it("makes missing and foreign targets the same typed, no-write rejection", async () => {
 		const foreign = await createTable(PROJECT_B, "Foreign");
+		const foreignColumn = foreign.columns[0];
+		if (foreignColumn === undefined) {
+			throw new Error("foreign lookup table has no column");
+		}
 		const errors: Error[] = [];
-		for (const tableId of [MISSING_TABLE_ID, foreign.id]) {
-			const appId = await createEmptyApp();
-			setExtractionPair(EMPTY_LOOKUP_REFERENCE_TARGETS, tableTargets(tableId));
+		for (const [tableId, columnId] of [
+			[MISSING_TABLE_ID, MISSING_COLUMN_ID],
+			[foreign.id, foreignColumn.id],
+		] as const) {
+			const { appId } = await seedHistoricalLookupCarrier(tableId, columnId);
 			const error = await commitGuardedBatch({
 				appId,
 				expectedProjectId: PROJECT_A,
@@ -760,10 +849,14 @@ describe("lookup introduction versus resource deletion", () => {
 });
 
 describe("dormant Project move", () => {
-	it("stays closed at production writer v0 and requires exact empty targets in the seeded v1 core", async () => {
+	it("uses production writer v1 while still requiring an exact empty lookup closure", async () => {
 		const table = await createTable(PROJECT_A, "Move blocker");
-		const targets = tableTargets(table.id);
-		const appId = await createEmptyApp();
+		const column = table.columns[0];
+		if (column === undefined) throw new Error("lookup table has no column");
+		const { appId, fieldUuid, targets } = await seedHistoricalLookupCarrier(
+			table.id,
+			column.id,
+		);
 		await h.seedProjectMember(ACTOR, PROJECT_A, "owner");
 		await h.seedProjectMember(ACTOR, PROJECT_B, "owner");
 		await materializeTargets(appId, PROJECT_A, targets);
@@ -811,23 +904,34 @@ describe("dormant Project move", () => {
 				assetIdMap: new Map(),
 				attemptedRealIds: new Set(),
 			}),
-		).rejects.toMatchObject({
-			name: "ProjectMoveCompatibilityError",
-			code: "disabled",
-		});
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 
 		await expect(moveV1()).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect((await h.readAppRow(appId))?.project_id).toBe(PROJECT_A);
 		expect(await readTargets(appId)).toEqual(targets);
 
 		await materializeTargets(appId, PROJECT_A, EMPTY_LOOKUP_REFERENCE_TARGETS);
-		setExtractionPair(targets, targets);
 		await expect(moveV1()).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect((await h.readAppRow(appId))?.project_id).toBe(PROJECT_A);
 
-		extractLookupReferenceTargetsMock
-			.mockReset()
-			.mockReturnValue(EMPTY_LOOKUP_REFERENCE_TARGETS);
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT_A,
+			batchId: crypto.randomUUID(),
+			mutations: [
+				{
+					kind: "updateField",
+					uuid: fieldUuid,
+					targetKind: "single_select",
+					patch: {},
+					optionsSource: null,
+				},
+			],
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
+		await clearWriterProbe();
 		await expect(moveV1()).resolves.toEqual({ kind: "moved" });
 		expect((await h.readAppRow(appId))?.project_id).toBe(PROJECT_B);
 		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);

@@ -36,7 +36,10 @@
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
+import {
+	carrierBlindPredicateSchema,
+	type Predicate,
+} from "@/lib/domain/predicate";
 import { resolveModuleUuid } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -48,12 +51,18 @@ import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProp
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult } from "./shared";
 
+// Predicate builders return the canonical union even when a concrete value
+// contains no dormant arm. Preserve that caller-facing type while the actual
+// Zod node remains structurally carrier-blind for parsing and JSON emission.
+const carrierBlindPredicateInputSchema =
+	carrierBlindPredicateSchema as z.ZodType<Predicate>;
+
 export const setCaseListFilterInputSchema = z
 	.object({
 		moduleIndex: z
 			.number()
 			.describe("0-based module index whose case list filter to set"),
-		filter: predicateSchema
+		filter: carrierBlindPredicateInputSchema
 			.nullable()
 			.describe(
 				"Replacement Predicate, or null to clear the filter and show every case of the module's type.",

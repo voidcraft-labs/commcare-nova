@@ -806,6 +806,14 @@ function buildFieldParts(
 	assets: AssetManifest | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
+	if (
+		(field.kind === "single_select" || field.kind === "multi_select") &&
+		field.optionsSource !== undefined
+	) {
+		throw new Error(
+			"buildXForm: lookup-backed select options are dormant until itemset emission lands; validation should reject them before XForm emission.",
+		);
+	}
 	const nodePath = parentPath.child(field.id);
 	// Form-unique itext key, built forward from the field-id ancestry (see the
 	// `itextKeyPrefix` paragraph above). Every `<text id>` definition and every

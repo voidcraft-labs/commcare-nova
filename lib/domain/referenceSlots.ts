@@ -66,6 +66,10 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *     (`Predicate`, `ValueExpression`, or `RelationPath`); references
  *     live on typed leaves (`PropertyRef`, relation steps' case-type
  *     hints) and are walked structurally, never as strings.
+ *   - `lookup-carrier` — the whole identity-bearing lookup source. Its
+ *     table/column identities belong to the lookup-reference registry,
+ *     while its optional predicate is also walked by the ordinary
+ *     blueprint reference index for form/case dependencies.
  *   - `entity-uuid` — names an entity (module/form/field) by stable
  *     uuid.
  *   - `case-property-ref` — names a case property by bare name; the
@@ -77,6 +81,7 @@ const REFERENCE_SURFACE_KINDS = [
 	"xpath-ast",
 	"prose",
 	"predicate-ast",
+	"lookup-carrier",
 	"entity-uuid",
 	"case-property-ref",
 	"case-type-ref",
@@ -342,6 +347,13 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "option_label",
 		path: "options[].label",
 		kind: "prose",
+		appliesTo: SELECT_KINDS,
+	},
+	{
+		entity: "field",
+		slot: "lookup_options_source",
+		path: "optionsSource",
+		kind: "lookup-carrier",
 		appliesTo: SELECT_KINDS,
 	},
 	{

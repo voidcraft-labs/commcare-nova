@@ -256,8 +256,8 @@ describe("lookup reference edge materialization", () => {
 });
 
 describe("lookup reference writer declaration", () => {
-	it("declares version zero transaction-locally and resets it on the pinned connection", async () => {
-		expect(CURRENT_LOOKUP_REFERENCE_WRITER_VERSION).toBe(0);
+	it("declares version one transaction-locally and resets it on the pinned connection", async () => {
+		expect(CURRENT_LOOKUP_REFERENCE_WRITER_VERSION).toBe(1);
 
 		await h
 			.db()
@@ -278,7 +278,7 @@ describe("lookup reference writer declaration", () => {
 				expect(await readDeclaredVersion(connection)).toBeNull();
 				await connection.transaction().execute(async (tx) => {
 					await declareLookupReferenceWriter(tx);
-					expect(await readDeclaredVersion(tx)).toBe("0");
+					expect(await readDeclaredVersion(tx)).toBe("1");
 				});
 				expect(await readDeclaredVersion(connection)).toBeNull();
 			});

@@ -35,17 +35,24 @@ import {
 	checkPredicate,
 	checkValueAssignmentExpression,
 	checkValueExpression,
+	type PredicateAstPath,
 	type Term,
 	type TypeContext,
 	type ValueExpression,
 	walkExpressionNodes,
 	walkExpressionPredicateNodes,
 	walkExpressionTerms,
+	walkExpressionTermsWithPaths,
 	walkPredicateExpressionNodes,
 	walkPredicateNodes,
 	walkTerms,
+	walkTermsWithPaths,
 } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../errors";
+import {
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../lookupTypeContext";
 
 const RESERVED_OPERATION_CASE_TYPES: ReadonlySet<string> = new Set([
 	"commcare-user",
@@ -62,20 +69,21 @@ const RESERVED_OPERATION_PROPERTIES: ReadonlySet<string> = new Set([
 	"state",
 ]);
 
+interface OperationFieldContext {
+	readonly dataType: ReturnType<typeof caseDataTypeForFieldKind>;
+	readonly repeat: Uuid | undefined;
+	/** Repeat ancestry, outermost first. Root fields carry `[]`. */
+	readonly repeatPath: readonly Uuid[];
+	readonly kind: string;
+}
+
 interface OperationRuleContext {
 	readonly doc: BlueprintDoc;
 	readonly form: Form;
 	readonly module: Module;
 	readonly formUuid: Uuid;
 	readonly moduleUuid: Uuid;
-	readonly fields: ReadonlyMap<
-		Uuid,
-		{
-			readonly dataType: ReturnType<typeof caseDataTypeForFieldKind>;
-			readonly repeat: Uuid | undefined;
-			readonly kind: string;
-		}
-	>;
+	readonly fields: ReadonlyMap<Uuid, OperationFieldContext>;
 	readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
 	readonly caseTypesByName: ReadonlyMap<
 		string,
@@ -83,12 +91,14 @@ interface OperationRuleContext {
 	>;
 	readonly caseFirst: boolean;
 	readonly writerTypes: ReturnType<typeof concreteCasePropertyWriterTypes>;
+	readonly lookupTables?: LookupTypeIndex;
 }
 
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	moduleUuid: Uuid,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
 	const module = doc.modules[moduleUuid];
@@ -113,6 +123,7 @@ export function validateCaseOperations(
 		),
 		caseFirst: isCaseFirstModule(formTypes, module.caseType !== undefined),
 		writerTypes: concreteCasePropertyWriterTypes(doc),
+		lookupTables,
 	};
 	const errors: ValidationError[] = [
 		opError(
@@ -659,16 +670,17 @@ function validateExpressionSlot(
 					typeContext,
 					expectation.storageTypes,
 				);
-	if (!result.ok) {
+	const typeErrors = semanticCheckErrors(result);
+	if (typeErrors.length > 0) {
 		errors.push(
 			opError(
 				ctx,
 				operation,
 				"CASE_OPERATION_EXPRESSION_TYPE",
-				`An expression in case operation "${operation.id}" is not valid here: ${result.errors.map((error) => error.message).join("; ")}`,
+				`An expression in case operation "${operation.id}" is not valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
 			),
 		);
-	} else {
+	} else if (result.ok) {
 		validateOnDeviceExpression(ctx, operation, expression, typeContext, errors);
 	}
 	validateCaseSnapshotUse(
@@ -682,8 +694,8 @@ function validateExpressionSlot(
 			validateIdOfReference(ctx, operation, node.opUuid, typeContext, errors);
 		}
 	});
-	walkExpressionTerms(expression, (term) => {
-		validateOperationTerm(ctx, operation, term, errors);
+	walkExpressionTermsWithPaths(expression, (term, path) => {
+		validateOperationTerm(ctx, operation, term, path, errors);
 	});
 }
 
@@ -729,16 +741,17 @@ function validatePredicateSlot(
 ): void {
 	if (predicate === undefined) return;
 	const result = checkPredicate(predicate, typeContext);
-	if (!result.ok) {
+	const typeErrors = semanticCheckErrors(result);
+	if (typeErrors.length > 0) {
 		errors.push(
 			opError(
 				ctx,
 				operation,
 				"CASE_OPERATION_EXPRESSION_TYPE",
-				`A condition in case operation "${operation.id}" is not valid here: ${result.errors.map((error) => error.message).join("; ")}`,
+				`A condition in case operation "${operation.id}" is not valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
 			),
 		);
-	} else {
+	} else if (result.ok) {
 		validateOnDevicePredicate(ctx, operation, predicate, typeContext, errors);
 	}
 	validateCaseSnapshotUse(
@@ -752,8 +765,8 @@ function validatePredicateSlot(
 			validateIdOfReference(ctx, operation, node.opUuid, typeContext, errors);
 		}
 	});
-	walkTerms(predicate, (term) => {
-		validateOperationTerm(ctx, operation, term, errors);
+	walkTermsWithPaths(predicate, (term, path) => {
+		validateOperationTerm(ctx, operation, term, path, errors);
 	});
 }
 
@@ -825,10 +838,18 @@ function validateOperationTerm(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	term: Term,
+	path: PredicateAstPath,
 	errors: ValidationError[],
 ): void {
 	if (term.kind !== "field") return;
-	const fieldRepeat = ctx.fields.get(term.uuid)?.repeat;
+	const field = ctx.fields.get(term.uuid);
+	if (field === undefined) return;
+	if (isInsideTableLookupWhere(path)) {
+		validateLookupFilterFieldCorrelation(ctx, operation, field, errors);
+		return;
+	}
+
+	const fieldRepeat = field.repeat;
 	if (fieldRepeat === undefined) return;
 	const operationRepeat = operation.forEach?.repeat;
 	if (operationRepeat === undefined) {
@@ -852,6 +873,70 @@ function validateOperationTerm(
 			),
 		);
 	}
+}
+
+function isInsideTableLookupWhere(path: PredicateAstPath): boolean {
+	for (let index = 0; index + 1 < path.length; index++) {
+		if (path[index] === "table-lookup" && path[index + 1] === "where") {
+			return true;
+		}
+	}
+	return false;
+}
+
+function repeatPathIsPrefix(
+	prefix: readonly Uuid[],
+	value: readonly Uuid[],
+): boolean {
+	return (
+		prefix.length <= value.length &&
+		prefix.every((repeatUuid, index) => value[index] === repeatUuid)
+	);
+}
+
+/**
+ * A table lookup is resolved after the form is complete, so its row filter may
+ * read a root answer or an answer correlated to the operation's current or an
+ * enclosing repeat. This is deliberately narrower than changing ordinary
+ * operation terms: the current case-operation wire can bind those safely only
+ * from the exact repeat, while lookup execution owns its own row-filter
+ * correlation boundary.
+ */
+function validateLookupFilterFieldCorrelation(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	field: OperationFieldContext,
+	errors: ValidationError[],
+): void {
+	if (field.repeatPath.length === 0) return;
+	const operationRepeat = operation.forEach?.repeat;
+	if (operationRepeat === undefined) {
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_AMBIGUOUS_REFERENCE",
+				"A singular operation cannot use a repeated form answer in a lookup-table filter.",
+			),
+		);
+		return;
+	}
+
+	const operationRepeatPath = ctx.fields.get(operationRepeat)?.repeatPath;
+	if (
+		operationRepeatPath === undefined ||
+		repeatPathIsPrefix(field.repeatPath, operationRepeatPath)
+	) {
+		return;
+	}
+	errors.push(
+		opError(
+			ctx,
+			operation,
+			"CASE_OPERATION_REPEAT_CORRELATION",
+			"A lookup-table filter in a repeated operation may read root answers plus answers from the operation's current or an enclosing repeat, but not a child, sibling, or unrelated repeat.",
+		),
+	);
 }
 
 function validateCaseSnapshotUse(
@@ -976,6 +1061,9 @@ function expressionContext(
 		),
 		operationIds: new Set(priorCreates.keys()),
 		caseOperationValues: true,
+		...(ctx.lookupTables !== undefined && {
+			lookupTables: ctx.lookupTables,
+		}),
 	};
 }
 
@@ -1018,23 +1106,26 @@ function collectFormFields(
 		{
 			dataType: ReturnType<typeof caseDataTypeForFieldKind>;
 			repeat: Uuid | undefined;
+			repeatPath: readonly Uuid[];
 			kind: string;
 		}
 	>();
-	const walk = (parent: Uuid, repeat: Uuid | undefined) => {
+	const walk = (parent: Uuid, repeatPath: readonly Uuid[]) => {
 		for (const uuid of doc.fieldOrder[parent] ?? []) {
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
-			const fieldRepeat = field.kind === "repeat" ? field.uuid : repeat;
+			const fieldRepeatPath =
+				field.kind === "repeat" ? [...repeatPath, field.uuid] : repeatPath;
 			result.set(uuid, {
 				dataType: caseDataTypeForFieldKind(field.kind),
-				repeat: fieldRepeat,
+				repeat: fieldRepeatPath.at(-1),
+				repeatPath: fieldRepeatPath,
 				kind: field.kind,
 			});
-			walk(uuid, fieldRepeat);
+			walk(uuid, fieldRepeatPath);
 		}
 	};
-	walk(formUuid, undefined);
+	walk(formUuid, []);
 	return result;
 }
 

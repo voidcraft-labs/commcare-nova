@@ -8,6 +8,7 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { literal, matchAll, tableLookup, term } from "@/lib/domain/predicate";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { errorIdentity, evaluateCommit } from "../gate";
 import { validateLookupReferences } from "../lookupReferences";
@@ -179,6 +180,69 @@ describe("lookup-aware commit delta", () => {
 		doc.appName.startsWith("Lookup") ? [BASE_OCCURRENCE] : [],
 	);
 
+	function operationCarrierDoc(): BlueprintDoc {
+		const formUuid = asUuid("form-operation-member-identity");
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "plain", label: "Plain" },
+						{ name: "lookup_value", label: "Lookup value" },
+						{ name: "lookup_value_2", label: "Second lookup value" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: formUuid,
+							name: "Update",
+							type: "survey",
+						},
+					],
+				},
+			],
+		});
+		doc.forms[formUuid].caseOperations = [
+			{
+				uuid: asUuid("operation-member-identity"),
+				id: "update_patient",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				writes: [
+					{ property: "plain", value: term(literal("plain")) },
+					{
+						property: "lookup_value",
+						value: tableLookup(tableId("10"), columnId("101"), matchAll()),
+					},
+				],
+				links: [
+					{
+						identifier: "plain_link",
+						targetType: "patient",
+						target: null,
+						relationship: "child",
+					},
+					{
+						identifier: "lookup_link",
+						targetType: "patient",
+						target: {
+							kind: "expression",
+							expr: tableLookup(tableId("20"), columnId("201"), matchAll()),
+						},
+						relationship: "child",
+					},
+				],
+			},
+		];
+		return doc;
+	}
+
 	it("allows unrelated edits beside one existing lookup finding", () => {
 		const prevDoc = buildDoc({ appName: "Lookup app" });
 		const nextDoc = { ...prevDoc, appName: "Lookup app renamed" };
@@ -212,5 +276,75 @@ describe("lookup-aware commit delta", () => {
 				"LOOKUP_CONTEXT_UNAVAILABLE",
 			]);
 		}
+	});
+
+	it("anchors operation-member lookup identities to property and identifier, not sibling position", () => {
+		const prevDoc = operationCarrierDoc();
+		const nextDoc = structuredClone(prevDoc);
+		const reordered = Object.values(nextDoc.forms)[0].caseOperations?.[0];
+		if (reordered?.writes === undefined || reordered.links === undefined) {
+			throw new Error("expected operation members");
+		}
+		reordered.writes.reverse();
+		reordered.links.reverse();
+
+		expect(
+			evaluateCommit({
+				prevDoc,
+				nextDoc,
+				scope: "full",
+				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+			}),
+		).toEqual({ ok: true });
+
+		const assertIntroducedLookup = (
+			next: BlueprintDoc,
+			expectedSubpath: string,
+		) => {
+			const verdict = evaluateCommit({
+				prevDoc,
+				nextDoc: next,
+				scope: "full",
+				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+			});
+			expect(verdict.ok).toBe(false);
+			if (verdict.ok) throw new Error("expected a rejected lookup addition");
+			expect(
+				verdict.introduced.some(
+					(finding) =>
+						finding.code === "LOOKUP_CONTEXT_UNAVAILABLE" &&
+						finding.details?.subpath === expectedSubpath,
+				),
+			).toBe(true);
+		};
+
+		const withWrite = structuredClone(prevDoc);
+		withWrite.forms[
+			Object.keys(withWrite.forms)[0]
+		].caseOperations?.[0].writes?.push({
+			property: "lookup_value_2",
+			value: tableLookup(tableId("30"), columnId("301"), matchAll()),
+		});
+		assertIntroducedLookup(
+			withWrite,
+			"/k:property/k:lookup_value_2/k:resultColumnId",
+		);
+
+		const withLink = structuredClone(prevDoc);
+		withLink.forms[
+			Object.keys(withLink.forms)[0]
+		].caseOperations?.[0].links?.push({
+			identifier: "lookup_link_2",
+			targetType: "patient",
+			target: {
+				kind: "expression",
+				expr: tableLookup(tableId("40"), columnId("401"), matchAll()),
+			},
+			relationship: "child",
+		});
+		assertIntroducedLookup(
+			withLink,
+			"/k:identifier/k:lookup_link_2/k:resultColumnId",
+		);
 	});
 });

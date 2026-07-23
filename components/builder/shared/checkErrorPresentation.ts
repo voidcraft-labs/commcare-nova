@@ -72,6 +72,9 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 		"Choose a value available in this part of the app",
 	"unknown-case-type": () =>
 		"Choose information from an available kind of case",
+	"unknown-lookup-table": () => "Choose an available lookup table",
+	"unknown-lookup-column": () => "Choose an available lookup table column",
+	"lookup-table-scope": () => "Choose a column from the lookup table used here",
 	"property-scope": () => "Choose information from the related case shown here",
 	"incompatible-values": () =>
 		"Choose values that use compatible kinds of information",

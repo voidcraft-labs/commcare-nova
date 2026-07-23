@@ -563,10 +563,10 @@ async function retypeColumn(
 }
 
 /**
- * Package-private production wrapper. It deliberately declares the shared S02
- * writer version (v0), so the database's floor-1 activation constraint keeps
- * this path fail-closed even if the feature flag changes. No route, action, or
- * public lookup barrel imports this module.
+ * Package-private production wrapper. It declares the one shared runtime
+ * writer capability; the database floor and destructive-action flag remain
+ * the admission authority. No route, action, or public lookup barrel imports
+ * this module.
  */
 export async function applyLookupSchemaGovernance(
 	scope: LookupScope,

@@ -33,7 +33,9 @@ import {
 	type Predicate,
 	type Term,
 	type ValueExpression,
+	walkExpressionNodes,
 	walkExpressionTerms,
+	walkPredicateExpressionNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
 
@@ -70,9 +72,11 @@ export function instanceSourceFor(instanceId: string): string {
  * Collect every CCHQ wire instance id reachable from a Predicate.
  * The returned set is the union of per-Term instance refs; an empty
  * predicate (or one composed entirely of literals) returns the
- * empty set.
+ * empty set. Dormant lookup-table expressions reject before
+ * accumulation, including when their row filter contains no Terms.
  */
 export function collectPredicateInstances(predicate: Predicate): Set<string> {
+	walkPredicateExpressionNodes(predicate, rejectDormantTableLookup);
 	const instances = new Set<string>();
 	walkTerms(predicate, (term) => addTermInstance(term, instances));
 	return instances;
@@ -86,9 +90,17 @@ export function collectPredicateInstances(predicate: Predicate): Set<string> {
 export function collectExpressionInstances(
 	expression: ValueExpression,
 ): Set<string> {
+	walkExpressionNodes(expression, rejectDormantTableLookup);
 	const instances = new Set<string>();
 	walkExpressionTerms(expression, (term) => addTermInstance(term, instances));
 	return instances;
+}
+
+function rejectDormantTableLookup(expression: ValueExpression): void {
+	if (expression.kind !== "table-lookup") return;
+	throw new Error(
+		"collectAstInstances: lookup-table expressions are dormant until fixture emission lands; validation should reject them before suite instance collection.",
+	);
 }
 
 function addTermInstance(term: Term, instances: Set<string>): void {
@@ -106,6 +118,10 @@ function addTermInstance(term: Term, instances: Set<string>): void {
 		case "literal":
 		case "field":
 			return;
+		case "table-column":
+			throw new Error(
+				"collectAstInstances: lookup-table column terms are dormant until fixture emission lands; validation should reject them before suite instance collection.",
+			);
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(

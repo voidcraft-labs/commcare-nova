@@ -1,11 +1,11 @@
 /**
  * SA tool: `getForm` — read a form and its full nested field tree.
  *
- * Pure read — no mutations, no SSE emission. Returns the form entity
- * itself (domain shape verbatim — `closeCondition`, `postSubmit`,
- * `formLinks`, `connect`) augmented with the ordered field tree, so the
- * SA can audit a form's contents before emitting edit mutations without
- * stitching together form metadata and fields from separate calls.
+ * Pure read — no mutations, no SSE emission. Returns the form entity in
+ * domain vocabulary (`closeCondition`, `postSubmit`, `formLinks`, `connect`)
+ * augmented with the ordered field tree. The shared dormant-carrier
+ * projection hides S05a lookup-only carriers without changing the canonical
+ * document.
  */
 
 import { z } from "zod";

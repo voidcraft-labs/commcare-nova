@@ -1,10 +1,13 @@
 # Complex app roadmap
 
-> **Authoritative living plan.** Last rebaselined 2026-07-22 against deployed
-> Nova `97591f10` (PR #304). S01 through S03 are shipped, including all of S02;
-> S04 is review-ready on `agent/s04`.
-> This file
-> owns execution order, product decisions, slice status, and
+> **Authoritative living plan.** Last rebaselined 2026-07-23 against deployed
+> Nova `85b2fe3b` (PR #303). S01 through S04 are shipped, including all of S02.
+> S05's domain/wire decisions are pinned below and S05a, its dormant
+> compatibility unit, is implementation-complete and under final review in
+> draft PR #311; S05c's production cutover remains decision-blocked. S22
+> remains closed on `agent/s22-form-links` pending the
+> explicit cutover choice recorded in its slice. This file owns execution order,
+> product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
 > and PR plans remain evidence and design-rationale archives; they are not
 > executable instructions.
@@ -47,7 +50,7 @@ The source snapshots visible during this rebaseline were:
 
 | Repository | Commit | Use |
 |---|---|---|
-| CommCare Nova | `97591f10abc814576be32bdead557be7de2ea935` | Current deployed integration baseline |
+| CommCare Nova | `85b2fe3b8267e5be866969ebe42b7a1a364ce2b1` | Current deployed integration baseline |
 | CommCare HQ | `0fa01e0e8aea95ed9013d564145ad6cffeb91371` | HQ JSON, app build, APIs, fixtures |
 | CommCare Core | `130df00962a289381a8e0936c3ea5d3f53d96f73` | suite/runtime parsing |
 | Formplayer | `ef9096c6109ce3cca5cc3c5e3ef9f4c6a80b01b7` | Web Apps execution |
@@ -313,10 +316,10 @@ when it changes what authors see or do.
 S00 -> S01 -> S02
 
 S02c1 -> {S03 display conditions, S04 case operations}
-S02 -> S05 table expressions
-{S03, S04, S05} -> S06 atomic submission/resolved preview identity -> S07 preview
+{S02, S04} -> S05a dormant carriers/compatibility -> S05b local wire -> S05c carrier cutover
+{S03, S04, S05c} -> S06 atomic submission/resolved preview identity -> S07 preview
 {S03, S04, S07} -> S08 conditions/operations authoring
-{S05, S07} -> S09 Project data authoring
+{S05c, S07} -> S09 Project data authoring
 {S08, S09} -> S10 wave-one SA/MCP/docs
 
 {S02, S04} -> S11 tile contracts/wire -> S12 tile query/preview/authoring
@@ -326,7 +329,7 @@ S06 -> S13 capture/storage
 S06 -> S15 users/personas -> S16 organization/location store
 {S07, S16} -> S17 usercase/restore/wire
 {S15, S16} -> S18 automations
-{S05, S17, S18} -> S19 deployment core/artifact -> S20 push/provisioning
+{S05c, S17, S18} -> S19 deployment core/artifact -> S20 push/provisioning
 {S17, S18, S20} -> S21 App setup UI/SA/docs
 
 {S03, S04} -> S22 form-link correctness/sections -> S23 nesting/reuse
@@ -334,12 +337,15 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S02 and S03 are shipped. S04's domain/wire files do not depend on the dormant
-tenant-move protocol, and its review branch is rebased onto the latest deployed
-`main`. S05's S02 dependency is satisfied, but its ledger status remains
-unchanged pending a separate readiness decision. S11-S14 and S15-S21 may overlap
-only when their worktrees do not share subsystem ownership. S22 may begin after
-S03 and S04, but compiler verification remains serialized with other wire slices.
+S02 through S04 are shipped. S05's exported-value, select-fallback,
+filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
+pinned. S05a's dormant carrier-compatibility implementation is under final
+review in draft PR #311. S05b remains blocked until S05a ships; S05c remains
+blocked on S05b and a fresh owner decision before
+any production cutover or nonzero compatibility floor. S11-S14 and S15-S21 may
+overlap only when their worktrees do not share subsystem ownership. S22 readiness
+is complete but implementation remains blocked on its owner cutover decision.
+Compiler verification stays serialized across wire slices.
 
 ## Slice ledger
 
@@ -349,12 +355,14 @@ S03 and S04, but compiler verification remains serialized with other wire slices
 | S01 | Lookup persistence and realtime | S00 | shipped | PR-02, F5 |
 | S02 | External validation context and exact references | S01 | shipped | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
-| S04 | Case operations: domain and wire | S02c1 | review | PR-01/03, F4 |
-| S05 | Lookup carriers, expressions, and wire foundations | S02 | blocked | PR-01/03, F5 |
-| S06 | Atomic submission envelope and resolved preview identity | S03-S05 | blocked | PR-04, F1/F4 |
+| S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
+| S05a | Dormant lookup carriers and compatibility | S02/S04 | in review (PR #311) | PR-01/03, F5 |
+| S05b | Lookup expression, itemset, and local-fixture wire | S05a | blocked | PR-01/03, F5 |
+| S05c | Lookup carrier cutover and edge preparation | S05b + owner cutover decision | blocked | PR-01/03, F5 |
+| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
-| S09 | Project data tables workspace and options authoring | S05/S07 | blocked | PR-05 |
+| S09 | Project data tables workspace and options authoring | S05c/S07 | blocked | PR-05 |
 | S10 | Wave-one SA, MCP, docs, and closure | S08/S09 | blocked | PR-06 |
 | S11 | Tile contracts and wire | S02/S04 | blocked | PR-07 |
 | S12 | Group-aware tile query, preview, and authoring | S11 | blocked | PR-07 |
@@ -364,7 +372,7 @@ S03 and S04, but compiler verification remains serialized with other wire slices
 | S16 | Organization model and locations store | S15 | blocked | PR-09/10, F3 |
 | S17 | Usercase, owner sets, restore scope, and location wire | S07/S16 | blocked | PR-10/11, F2/F3 |
 | S18 | Representable automations and setup guidance | S15/S16 | blocked | PR-09/12, F6 |
-| S19 | Deployment records, preflight, retry model, and artifact | S05/S17/S18 | blocked | PR-11 |
+| S19 | Deployment records, preflight, retry model, and artifact | S05c/S17/S18 | blocked | PR-11 |
 | S20 | Table/location/user push and provisioning drivers | S19 | blocked | PR-11 |
 | S21 | App setup UI, SA, MCP, and docs | S17/S18/S20 | blocked | PR-12 |
 | S22 | Exclusive form links and form sections | S03/S04 | blocked | PR-13, F7 |
@@ -1578,8 +1586,11 @@ follow-through.
 
 ### S04 — case operations: domain and wire
 
-**Status:** review-ready on `agent/s04`, rebased onto the deployed PR #304
-baseline.
+**Status:** shipped in PR #303 at squash `85b2fe3b`. Cloud Build
+`cefd6e18-49ac-4809-a600-fbfbe7c10708` ran migration execution
+`commcare-nova-migrate-bp46g` successfully and deployed healthy 100%-traffic
+revision `commcare-nova-00359-8d7`. Main/docs probes, the MCP authorization
+boundary, and revision error logs all passed.
 
 Define operation UUIDs, authored create ids, typed targets, links, repeat
 correlation, remove/retype semantics, ordering, property-writer participation,
@@ -1592,8 +1603,8 @@ ambiguous singular references, cross-repeat references, target-type mismatch,
 foreign-tenant ids, unsafe retypes, and removing/reordering an operation under a
 dependent reference.
 
-The review stack is owned in `agent/s04` on production baseline `97591f10`; its
-original implementation began from `b0e3f48e`. The domain now carries stable
+The shipped implementation began from `b0e3f48e`, was rebased onto production
+baseline `97591f10`, and landed at `85b2fe3b`. The domain now carries stable
 operation UUIDs, authored create ids, typed new/operation/session/expression
 targets, explicit repeat correlation, typed writes and links, and the
 round-trip-only `field` / `id-of` identity leaves plus explicit `acting-user` /
@@ -1694,11 +1705,65 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
+**Status:** S05a in final review (draft PR #311; implementation checkpoint
+`a94e1fda`); S05b blocked on S05a; S05c blocked on S05b and a fresh owner
+decision.
+Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
+rolling-compatible mutations, persistence/replay, reference ownership, and
+validation with every carrier commit and export gate still closed. It does not
+add UI, SA/MCP vocabulary, preview/SQL activation, HQ JSON, or HQ upload. Local
+CCZ may emit dormant carriers only after S05b. HQ JSON and upload reject them
+until S20 owns resource push/mapping.
+
 S05 introduces the first production UUID-backed lookup carriers: table-backed
 select sources with value/label column ids, table-lookup expressions with a
 result-column id, and table-column predicate terms. Column ids always travel with
 their table id. Any approved XPath bridge stores UUID identity rather than tag or
 wire-name text; table-column terms are legal only inside an explicit table scope.
+
+```ts
+type LookupOptionsSource = {
+  kind: "lookup-table";
+  tableId: LookupTableId;
+  valueColumnId: LookupColumnId;
+  labelColumnId: LookupColumnId;
+  filter?: Predicate;
+};
+
+type TableColumnTerm = {
+  kind: "table-column";
+  tableId: LookupTableId;
+  columnId: LookupColumnId;
+};
+
+type TableLookupExpression = {
+  kind: "table-lookup";
+  tableId: LookupTableId;
+  resultColumnId: LookupColumnId;
+  where: Predicate;
+};
+```
+
+Both select kinds keep `options` structurally required and gain an optional
+`optionsSource`. When a source is present, current consumers use it and retain
+the authored inline options only as an origin-compatible fallback. No layer
+synthesizes fallback options from table rows or inserts sentinel choices. S09's
+source-mode switch preserves the authored inline list. XForm emission produces
+either the static `<item>` children or one `<itemset>`, never both.
+
+The current nested field schemas are strict, so inline fallback content alone
+does not make a carrier mutation safe for an old receiver. `addField` and
+`updateField` carry the source through optional top-level semantic extensions on
+those existing discriminators; their nested field/patch stays in the old strict
+shape. The exact extension contract is
+`addField.optionsSource?: LookupOptionsSource` and
+`updateField.optionsSource?: LookupOptionsSource | null`: absence means no
+source edit, a source means set or replace, and explicit `null` means clear while
+preserving the inline options. A current reducer reconstructs or merges the
+source while an old reducer safely applies only the inline fallback. Diffing,
+JSON round trips, current replay, old-parser/reducer fallback, and raw SSE
+dispatch must cover set, replace, and clear. This is a receiver-floor bridge,
+not permission to run an old binary after carrier writers activate.
 
 Before carrier commits activate, every exhaustive consumer must implement the
 carrier or deliberately reject it through the commit gate: hydration,
@@ -1718,35 +1783,189 @@ discriminator in the rolling window.
 
 Table lookup returns the first match by `(order_key, row UUID)` and lowers with an
 explicit positional first-row predicate; no match is missing, not empty text.
-Pin preview/wire parity for missing keys versus stored empty strings, scalar
-types, blank or duplicate option values, answer-dependent filters, repeat scope,
-dependency cycles, and first-match behavior without changing S01 persistence.
+A matched row with an absent result key and a matched row with stored empty text
+both emit blank text at the fixture boundary; S01 still preserves that
+distinction in storage. Text and temporal values retain their stored lexical
+form, ints emit canonical signed base-10, and decimals emit the canonical finite
+JSON-number string. Whitespace is never generally trimmed or normalized.
 
-Compilation resolves definitions plus complete ordered rows from one repeatable
-snapshot. Local CCZ may embed deterministic global fixtures and every required
-instance; HQ JSON and upload remain blocked across all web/MCP paths until S20
-pushes and maps the resources. The shared Project-resource boundary owns this
-matrix.
+For a table-column operand, `is-null` is unrepresentable and rejected;
+`is-blank` means absent or present-empty. A select source rejects a missing label
+or one whose lexicalized value has `String.prototype.trim().length === 0`; this
+check does not alter the emitted label. It also rejects a missing or empty value
+and any value containing XML whitespace (`U+0009`, `U+000A`, `U+000D`, or
+`U+0020`). It rejects duplicate values across the complete source table after
+scalar lexicalization, not merely the filtered result. Equality is exact
+code-point equality: no trim, case folding, or Unicode normalization. Duplicate
+labels remain valid when their values differ. Any scalar column type may provide
+the value or label through the same lexicalization contract. Tests include
+ASCII whitespace, non-ASCII trim whitespace, and nonblank labels whose
+surrounding whitespace remains unchanged.
 
-Define wire/expression behavior for S01's already-frozen stored blank/missing/null
-cells and scalar types, plus duplicate or blank option values, no-match reads,
-answer-dependent filters, repeat scope, dependency cycles, and definition-plus-row
-snapshot consistency. S05 may reject an unrepresentable use at validation/export,
-but cannot change S01 import coercion or reinterpret stored rows.
+Select filters admit same-table column terms, literals, the existing
+on-device-safe session/user terms, and form-field terms. They reject case
+properties, search inputs, other-table columns, nested table lookups, and any
+field reference that is not earlier in effective depth-first form order. Outside
+a repeat, a repeated answer is invalid. Inside a repeat, the filter may read
+root-level singular fields plus earlier fields in the current or an ancestor
+repeat; child, sibling, cousin, and otherwise unrelated repeat contexts are
+invalid. Root references print absolute paths; repeat-correlated references
+print relative to the question through `current()`.
+
+A `table-lookup.where` uses the same scoped predicate machinery but does not
+invent one global outer-term whitelist. Same-table columns are row-relative.
+Every non-column term must already be legal in the containing expression slot
+and retains that slot's case, form, session, and user context while the fixture
+row is current. Other-table columns and nested table lookups are always rejected.
+Where a containing form slot admits form-field terms, their ordering,
+singular/repeated ancestry, absolute-root printing, and `current()` correlation
+follow the select-filter rules above. Validation and emitter tests cover table
+lookups inside display conditions, calculated expressions, and case-operation
+expressions rather than proving only the select-filter case.
+
+Options dependencies join the shared field dependency graph used by relevance,
+calculate, and default expressions. The validator rejects cycles spanning any
+of those slots. If a dependency change removes the selected value from the
+current choices, the answer becomes unselected; required validation then treats
+it as unanswered, with no automatic replacement choice.
+
+Compilation resolves definitions plus complete ordered rows for all distinct
+referenced tables in one read-only `REPEATABLE READ` transaction. It must not
+loop over `getLookupTable`, whose per-call snapshots could mix generations.
+Tables are counted and loaded once even when several carriers reference them;
+complete ordered rows count even when an authored filter would select fewer.
+Local CCZ may embed deterministic global fixtures and every required instance;
+HQ JSON and upload remain blocked across all web/MCP paths until S20 pushes and
+maps the resources. The shared Project-resource boundary owns this matrix.
 
 S05 also owns the aggregate embedded-fixture budget across every table an app
-references. Before the slice becomes `ready`, pin a row-and-byte limit against
-current compile/request/runtime constraints, reject over-budget artifacts before
-emission with person-readable remediation, and test the exact boundary plus a
-many-small-tables case. The per-table storage cap from S01 is not a substitute
-for this compiled-artifact budget.
+references:
 
-Activation preparation is ordered:
+- at most 10,000 complete rows;
+- at most 100,000 cells, computed as the sum of each table's
+  `rowCount * columnCount`, including absent stored keys because the wire emits
+  every defined field; and
+- at most 16 MiB of exact UTF-8 fixture bytes.
 
-1. deploy carrier parsers/preservation/replay/validation/emission and the v2
-   stream receiver while carrier writers, destructive schema actions, and true
-   moves remain disabled;
-2. after 100% traffic reaches those registry-capable servers, raise the stream
+The byte measurement covers the deterministic serialized `<fixture>` blocks,
+including wrappers, names, attributes, escaping, and blank elements, before
+archive compression. A byte-only limit is insufficient because the unindexed
+runtime materializes XML elements and attributes as object-heavy `TreeElement`
+nodes; the cell cap bounds that cardinality. Reject before emission with actual
+and allowed totals, the largest contributing tables, and person-readable
+remediation. Tests pin one-below/exactly-at/one-above for all three axes,
+missing-cell inflation, escape-byte inflation, distinct-table de-duplication,
+and many small tables. S01's per-table storage cap is not a substitute for this
+compiled-artifact budget.
+
+Implementation remains split into independently reviewed units:
+
+1. **S05a — dormant carriers and compatibility (in final review):** add every carrier and
+   AST schema/identity, top-level mutation extension,
+   hydration/persistence/replay/diff behavior, exhaustive walks/rewrites and
+   reference extraction, validation/type checking, explicit downstream
+   rejection behavior, and receiver-v2 compatibility while commit and export
+   gates remain closed. The immutable production extractor and the one shared
+   capability manifest's writer-v1 / stream-receiver-v2 declarations land as
+   one support checkpoint, with every authoritative writer still using its
+   shared declaration helper. Every database floor and feature flag remains
+   zero/off.
+2. **S05b — local wire (blocked on S05a):** add lowering/emission for the
+   already-preservable table expressions, predicates, and itemsets; instance
+   accumulation; the one-snapshot multi-table reader; deterministic fixture
+   serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
+   JSON/upload and authoring remain closed.
+3. **S05c — carrier cutover and edge preparation (decision-blocked):** only
+   after S05b and a fresh owner decision, perform the chosen compatibility or
+   maintenance cutover and leave carrier commits runtime-disabled for S07. No
+   nonzero floor is authorized by S05a or S05b.
+
+#### S05a execution checkpoint — 2026-07-23
+
+Commits `fe0a7027` through `a94e1fda` on `agent/s05a-lookup-carriers`
+form the implementation-complete S05a review candidate. They own:
+
+- the three dormant domain carriers and their stable table/column identities;
+- required inline select fallbacks plus the rolling-compatible top-level
+  `addField` / `updateField` extension, exact set/replace/clear diff and replay;
+- carrier-aware predicate walks, simplification, relation normalization,
+  reference-slot traversal, type resolution, nested-lookup rejection, and the
+  `is-null` versus `is-blank` table-column distinction;
+- JSON-Schema-representable UUIDv7 normalization for the lookup identities now
+  embedded in the recursive Predicate and ValueExpression definitions;
+- carrier-blind builder field-add inputs and non-authorable generic expression
+  fallbacks, including inline-only duplication of a receiver-preserved select;
+- a structural, recursively carrier-blind Predicate / ValueExpression family
+  for the rolling mutation envelope and all nine SA/MCP write tools, while a
+  separate canonical mutation schema preserves the full vocabulary for reducer
+  and durable-log replay;
+- carrier-blind `getField`, `getForm`, and `getModule` projections shared by
+  chat and MCP, which omit the smallest unsafe slot or entry without mutating
+  the canonical document or discarding safe siblings; and
+- deliberate rejection or incompatibility results at the existing preview,
+  case-store SQL, on-device XPath, CSQL, suite, and instance boundaries,
+  including terminal rejection before lookup-row predicates are misread as case
+  predicates;
+- the immutable 17-slot production extractor over complete normalized entity
+  maps, with stable semantic operation anchors and exact nested occurrences;
+- writer-v1 and stream-receiver-v2 declarations in the shared capability
+  manifest while all database floors and feature flags remain zero/off;
+- commit-only fingerprinted dormant-carrier findings that permit unrelated
+  repairs to historical documents but reject every new or changed carrier; and
+- mode-aware `ccz`, `hq-json`, and `hq-upload` export rejection before media
+  resolution or emission, plus real JSONB carrier coverage through hydration,
+  production extraction, authoritative edge backfill/removal, both deletion
+  race orders, and Project-move closure.
+
+The foundation checkpoint passed its 21-file, 515-test matrix. The boundary
+slice passed a 20-file, 382-test matrix covering canonical replay,
+rolling envelopes, misplaced-carrier rejection, all nine SA/MCP write schemas,
+chat/MCP prompt grammar, raw MCP registration, all three read projections, and
+legacy fallbacks. TypeScript and scoped Biome pass, and independent review
+closed the replay/schema-generation defects it found before returning no
+remaining findings. The extractor/gate checkpoint then passed a fresh 4-file,
+41-test focused matrix, TypeScript, scoped Biome, manifest/build-wiring
+validation, and diff hygiene; independent integrated review returned no
+Critical, Important, or Minor findings after the real-carrier writer matrix
+closed its only Important coverage gap.
+
+The final S05a units are now implemented:
+
+- the rows-free lookup type index is threaded through validation; select filters
+  and containing expression slots enforce table, field-order, and repeat-ancestry
+  policy without duplicate structural diagnostics; options-source and default
+  reads join the validation-only dependency graph without changing preview
+  topology; and case-workspace verdicts require explicit lookup context without
+  fetching or activating runtime behavior;
+- raw HTTP SSE set/replace/clear, generation-stream dispatch replay, and the
+  Postgres log writer-to-reader path preserve carrier events and explicit
+  top-level `null`; and
+- the add-field reducer reparses only when the semantic extension is present, so
+  accepted legacy history without a carrier retains its existing replay
+  semantics.
+
+The validation tranche passed 50 files / 624 tests, TypeScript, scoped Biome,
+and independent review with no Critical, Important, or Minor findings. A fresh
+supervisor matrix passed 6 files / 177 tests. The transport tranche passed 3
+files / 46 tests both normally and under the async-leak detector and received a
+clean independent review. The two failures in the earlier draft-checkpoint CI
+were reproduced, fixed in `9517a221`, and their four-file / 87-test regression
+matrix now passes. The consolidated contract audit then found one terminal
+predicate-instance boundary gap and two minor diagnostic/rendering robustness
+issues; `a94e1fda` closes all three, its 6-file / 109-test matrix and 3-file /
+34-test async-leak matrix pass, and independent follow-up review is clean. Fresh
+PR CI is the final merge gate.
+
+The following activation sequence is the previously specified zero-downtime
+alternative, not an approved S05c implementation plan. At the S05c checkpoint,
+present it against a maintenance cutover with then-current traffic, downtime,
+temporary/permanent work, and effort estimates. Do not implement or execute any
+step until the owner chooses:
+
+1. require the S05a/S05b writer-v1, receiver-v2 revisions at 100% traffic while
+   carrier writers, destructive schema actions, and true moves remain disabled
+   and every database floor remains zero;
+2. raise the stream
    receiver floor to v2 with every feature flag still disabled, wait the full
    request cap plus grace, and require no unexpired receiver below v2;
 3. run the read-only structural-versus-stored scan, then the explicit edge
@@ -1962,11 +2181,46 @@ public docs, and the cross-facility owner/restore dogfood scenario.
 
 ### S22 — exclusive form links and sections
 
+**Status:** blocked; `agent/s22-form-links` owns readiness rebaselining only.
+The 2026-07-23 read-only production census found zero current form links and zero
+historical form-link mutations across 404 apps, but the existing strict anonymous
+shape still makes durable UUID/order identity a protocol cutover. Implementation
+remains closed until the owner chooses between the mixed-version path and a
+maintenance cutover; do not infer that choice. Repeat the census after writes
+are quiesced before either path commits. The first review unit then stays limited
+to durable identity plus exclusive link projection and validation across local
+suite and production HQ JSON emission. Sections, preview behavior, and UI remain
+a separate unit.
+
+The audited choice is:
+
+- zero downtime adds old-shape projections, writer gating, floor operations,
+  and at least two staged releases plus a 65-minute receiver epoch; estimate
+  5–8 engineering days and 1–2 reviewer-days beyond the core correction;
+- a maintenance cutover uses one release and is recommended for the current
+  empty dogfood corpus; estimate 20–30 minutes unavailable with a hard write
+  fence and old-stream eviction, or 75–90 minutes if existing leases only expire
+  passively.
+
+The maintenance path saves an estimated 2–4 engineering days, about one
+reviewer-day, and one review/deploy stage (roughly 35–45% of
+compatibility-specific work). If the repeated census is nonzero, stop and add an
+idempotent current-entity plus accepted-history converter and forward-fold
+oracle before revisiting either estimate.
+
 First fix the existing `first matching link wins` wire bug and reject links after
-an unconditional branch. Then add form sections with fractional order and staged
-mutation compatibility. Define relevance skipping, Next/Back validation,
-earliest-invalid Submit routing, mutation re-anchoring, preview persistence, and
-accessibility before UI implementation.
+an unconditional branch. A terminal unconditional link is the exhaustive `else`:
+its emitted guard is the negation of every prior condition, it suppresses the
+`postSubmit` fallback, and the form is valid without a separate `postSubmit`
+target. An expression that prints to empty XPath is unconditional. One shared
+projector owns these guards for local suite emission and the HQ JSON expander;
+tests cover both paths. Links must gain durable UUID/order identity under the
+roadmap's closed identity contract; any legacy-array-order bridge is transitional
+compatibility for existing documents, never the resulting identity model. Then
+add form sections with fractional order and staged mutation
+compatibility. Define relevance skipping, Next/Back validation, earliest-invalid
+Submit routing, mutation re-anchoring, preview persistence, and accessibility
+before UI implementation.
 
 ### S23 — nested menus and linked-form reuse
 
@@ -1995,6 +2249,52 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-23 — S05a implementation complete / final review:** Draft PR #311
+  now includes the rows-free lookup type and scope policies, validation-only
+  dependency-cycle integration, explicit lookup-context case-workspace
+  verdicts, and the raw HTTP SSE, generation dispatcher, and Postgres log replay
+  matrix through commit `a94e1fda`. The validation and transport tranches each
+  completed independent review with no remaining findings. The prior draft CI's
+  two add-field replay regressions were reproduced and fixed without changing
+  carrier behavior. Consolidated audit then found and closed a predicate-rooted
+  instance-accumulation bypass, inaccurate dormant-lookup diagnostic copy, and
+  a malformed-input editor crash; focused normal and async-leak verification plus
+  independent follow-up review are green. Fresh PR CI is the remaining merge
+  gate. Every carrier commit and export gate remains closed, every database
+  floor and feature flag remains zero/off, and no UI, runtime evaluation, SQL
+  execution, wire emission, or authoring surface is activated.
+- **2026-07-23 — S05a extractor/gate checkpoint reviewed:** Draft PR #311 at
+  commit `c27217b6` registers all 17 production carrier extractors, declares
+  writer v1 and stream receiver v2 with every database floor and feature flag
+  unchanged, and closes commit plus all export boundaries around dormant
+  carriers. Canonical
+  fingerprints distinguish carrier changes from unrelated historical repairs.
+  Real JSONB carriers now exercise authoritative edge backfill/removal, both
+  deletion race orders, missing/foreign parity, and Project-move closure without
+  mocking the extractor. Independent integrated review is clean. Rows-free type
+  policy/dependency validation and the remaining raw-SSE/dispatcher/log
+  compatibility cases are the two unfinished S05a units.
+- **2026-07-23 — S05a ready / S22 census complete:** S05 domain/wire readiness
+  now pins the inline select fallback, mutation compatibility, fixture lexical
+  semantics, option validity, answer/repeat/dependency rules, one-snapshot
+  reader, and aggregate limits of 10,000 rows, 100,000 cells, and 16 MiB exact
+  fixture bytes. S05a is ready with all carrier and export gates closed; S05b
+  remains dependency-blocked and S05c remains owner-decision-blocked before any
+  production cutover or nonzero floor. S22's production read-only census found
+  no current or historical form links across 404 apps; its identity
+  implementation remains blocked on the explicit
+  mixed-version-versus-maintenance cutover choice.
+- **2026-07-23 — S04 shipped / S22 form-link readiness started:** PR #303
+  shipped dormant case-operation domain and wire support at squash `85b2fe3b`
+  through successful Cloud Build `cefd6e18-49ac-4809-a600-fbfbe7c10708`,
+  migration execution `commcare-nova-migrate-bp46g`, and healthy 100%-traffic
+  revision `commcare-nova-00359-8d7`. Production probes and revision error logs
+  passed. S22's form-link readiness rebaseline now owns
+  `agent/s22-form-links`; implementation remains blocked pending the migration
+  and rolling contract for durable link UUID/order identity. S05 remains blocked
+  on its recorded exported-value, fallback, filter-scope, and aggregate-budget
+  decisions and now explicitly depends on S04's shared predicate/expression
+  baseline.
 - **2026-07-22 — S02c3 shipped / S04 review-ready:** PR #304 shipped the
   tenant-safe dormant move and exact media protocol at squash `97591f10`
   through successful Cloud Build `c0b35218-5c0f-4d68-ab7e-0932d000aa13`,

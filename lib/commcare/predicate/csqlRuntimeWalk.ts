@@ -155,6 +155,7 @@ function walkServerOperand(
 		case "if":
 		case "switch":
 		case "format-date":
+		case "table-lookup":
 			// Guarded by `isNativeCsqlValueExpression`; retaining these arms
 			// makes a whitelist change a compile-visible decision here.
 			throw new Error(

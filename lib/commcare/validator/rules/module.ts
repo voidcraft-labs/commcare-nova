@@ -9,6 +9,7 @@
 import { CASE_TYPE_REGEX, MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
@@ -190,7 +191,14 @@ function missingCaseListColumns(
 	];
 }
 
-export const MODULE_RULES = [
+type ModuleRule = (
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
+) => ValidationError[];
+
+export const MODULE_RULES: readonly ModuleRule[] = [
 	caseFormsNoCaseType,
 	caseListOnlyHasForms,
 	caseListOnlyNoCaseType,

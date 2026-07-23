@@ -8,7 +8,7 @@
  *   - creates the reconciler once per mount (`createReconciler`), wiring the
  *     real PUT / reload-GET / resubscribe / retry side effects as deps;
  *   - opens ONE `EventSource` to
- *     `/api/apps/{appId}/stream?since=<baseSeq>&receiverVersion=1` and
+ *     `/api/apps/{appId}/stream?since=<baseSeq>&receiverVersion=<manifest>` and
  *     routes `mutation` / `reload` / `revoked` frames into the reconciler and
  *     `presence` frames to `subscribePresence` subscribers and seq-less full
  *     lookup manifests to `subscribeLookupManifest` subscribers;
