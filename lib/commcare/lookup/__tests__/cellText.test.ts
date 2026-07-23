@@ -43,12 +43,17 @@ describe("lookupFixtureCellText", () => {
 		expect(lookupFixtureCellText("int", 2147483647)).toBe("2147483647");
 	});
 
-	it("renders a decimal cell as its canonical JS number spelling", () => {
+	it("renders a decimal cell as an exponent-free plain decimal", () => {
 		expect(lookupFixtureCellText("decimal", 0)).toBe("0");
 		expect(lookupFixtureCellText("decimal", 0.1)).toBe("0.1");
 		expect(lookupFixtureCellText("decimal", -2.5)).toBe("-2.5");
-		// String(1e21) uses exponential notation — pin the actual spelling.
-		expect(lookupFixtureCellText("decimal", 1e21)).toBe("1e+21");
+		// `String(1e21)` would be "1e+21", which Core's numeric coercion
+		// rejects as NaN; the wire spelling expands the exponent away and
+		// matches every predicate literal's formatNumeric spelling.
+		expect(lookupFixtureCellText("decimal", 1e21)).toBe(
+			"1000000000000000000000",
+		);
+		expect(lookupFixtureCellText("decimal", 1e-7)).toBe("0.0000001");
 	});
 
 	it("throws a reader-bug error when a text column stores a number", () => {

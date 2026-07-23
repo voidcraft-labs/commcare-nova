@@ -418,4 +418,69 @@ describe("prepareExportBoundary", () => {
 		expect(wire?.fixtures.totalRows).toBe(2);
 		expect(wire?.fixtures.totalCells).toBe(4);
 	});
+
+	it("rejects a ccz export whose select-source rows are invalid", async () => {
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...CARRIER_SNAPSHOT,
+			rowsByTable: new Map([
+				[
+					CARRIER_TABLE,
+					[
+						{
+							id: "018f3e8a-7b2c-7def-8abc-123456789200" as LookupRowId,
+							values: {
+								[CARRIER_VALUE_COLUMN]: "has space",
+								[CARRIER_LABEL_COLUMN]: "   ",
+							},
+						},
+					],
+				],
+			]),
+		} as never);
+
+		const result = await prepareExportBoundary({
+			mode: "ccz",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 16,
+		});
+
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected ccz row-validity rejection");
+		const codes = result.violations.map((violation) => violation.code);
+		expect(codes).toContain("LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE");
+		expect(codes).toContain("LOOKUP_SELECT_SOURCE_LABEL_BLANK");
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
+	});
+
+	it("rejects a ccz export whose embedded fixtures exceed the aggregate row budget", async () => {
+		const rows = Array.from({ length: 10_001 }, (_, index) => ({
+			id: `018f3e8a-7b2c-7def-8abc-${String(index).padStart(12, "0")}` as LookupRowId,
+			values: {
+				[CARRIER_VALUE_COLUMN]: `v${index}`,
+				[CARRIER_LABEL_COLUMN]: `Label ${index}`,
+			},
+		}));
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...CARRIER_SNAPSHOT,
+			rowsByTable: new Map([[CARRIER_TABLE, rows]]),
+		} as never);
+
+		const result = await prepareExportBoundary({
+			mode: "ccz",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 17,
+		});
+
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected ccz budget rejection");
+		const finding = result.violations.find(
+			(violation) => violation.code === "LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
+		);
+		expect(finding?.details).toMatchObject({
+			rowsActual: "10001",
+			rowsAllowed: "10000",
+		});
+	});
 });

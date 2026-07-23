@@ -12,6 +12,7 @@ import {
 	type SearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	anyRelationPath,
@@ -26,6 +27,8 @@ import {
 	prop,
 	relationStep,
 	subcasePath,
+	tableColumn,
+	tableLookup,
 	term,
 	unwrapList,
 } from "@/lib/domain/predicate";
@@ -418,5 +421,67 @@ describe("onDeviceExpressionCompatibility", () => {
 			],
 		});
 		expect(classifyError(finding.code)).toBe("soundness");
+	});
+});
+
+describe("lookup-row escaped column", () => {
+	const TABLE = "018f3e8a-7b2c-7def-8abc-00000000c0a1" as LookupTableId;
+	const VALUE = "018f3e8a-7b2c-7def-8abc-00000000c0b1" as LookupColumnId;
+	const NAME = "018f3e8a-7b2c-7def-8abc-00000000c0b2" as LookupColumnId;
+
+	it("rejects a where comparing a lookup column with a related case's property", () => {
+		const findings = findingsFor({
+			filter: eq(
+				tableLookup(
+					TABLE,
+					NAME,
+					eq(
+						term(tableColumn(TABLE, VALUE)),
+						term(
+							prop("patient", "district", ancestorPath(relationStep("parent"))),
+						),
+					),
+				),
+				literal("North"),
+			),
+		});
+		expect(findings).toHaveLength(1);
+		expect(findings[0].message).toContain(
+			"compares a lookup column with a related case's information",
+		);
+	});
+
+	it("rejects a lookup column read inside an authored related-case condition", () => {
+		const findings = findingsFor({
+			filter: eq(
+				tableLookup(
+					TABLE,
+					NAME,
+					exists(
+						subcasePath("parent", "visit"),
+						eq(term(tableColumn(TABLE, VALUE)), literal("x")),
+					),
+				),
+				literal("North"),
+			),
+		});
+		expect(findings).toHaveLength(1);
+	});
+
+	it("accepts a related-case presence check beside a row-relative column read", () => {
+		const findings = findingsFor({
+			filter: eq(
+				tableLookup(
+					TABLE,
+					NAME,
+					eq(
+						term(tableColumn(TABLE, VALUE)),
+						term(prop("patient", "case_name")),
+					),
+				),
+				literal("North"),
+			),
+		});
+		expect(findings).toHaveLength(0);
 	});
 });

@@ -5,13 +5,16 @@ import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitt
 import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
+	ancestorPath,
 	and,
+	count,
 	eq,
 	exists,
 	literal,
 	matchAll,
 	matchNone,
 	prop,
+	relationStep,
 	sessionUser,
 	subcasePath,
 	tableColumn,
@@ -163,6 +166,11 @@ describe("emitCaseListFilter — table-lookup in a case-list filter", () => {
 			"instance('casedb')/casedb/case[@case_type='visit' and (outcome = 'open')]/index/parent",
 		);
 		expect(lowered).not.toContain("current()/outcome");
+		/* Inside the fixture predicate '.' is the fixture row, which has no
+		 * @case_id — the presence test must name the case through current(). */
+		expect(lowered).toContain("count(current()/@case_id) > 0");
+		expect(lowered).toContain(", current()/@case_id)");
+		expect(lowered).not.toContain("count(@case_id)");
 	});
 });
 
@@ -226,5 +234,71 @@ describe("table-lookup lowering guardrails", () => {
 				withNaming,
 			),
 		).toThrow(/cross-table/i);
+	});
+});
+
+describe("relation anchors inside a fixture-row where", () => {
+	it("anchors an ancestor count on the case through current()", () => {
+		const lowered = emitOnDeviceExpression(
+			tableLookup(
+				REGIONS,
+				NAME,
+				eq(
+					count(ancestorPath(relationStep("parent", "household"))),
+					literal(1),
+				),
+			),
+			"casedb",
+			{ currentCaseType: "patient" },
+			ROOT_ON_DEVICE_CASE_ANCHOR,
+			withNaming,
+		);
+		/* The immediate index read must resolve the case first — a bare
+		 * `index/parent` would read the fixture row. */
+		expect(lowered).toContain(
+			"instance('casedb')/casedb/case[@case_id=current()/@case_id]/index/parent",
+		);
+		expect(lowered).not.toContain("count(index/parent)");
+	});
+
+	it("anchors presence tests on the session case id on form surfaces", () => {
+		const sessionCaseId = "instance('commcaresession')/session/data/case_id";
+		const lowered = emitOnDeviceExpression(
+			tableLookup(
+				REGIONS,
+				NAME,
+				and(
+					eq(tableColumn(REGIONS, VALUE), literal("north")),
+					exists(subcasePath("parent", "visit")),
+				),
+			),
+			"casedb",
+			{ currentCaseType: "patient" },
+			ROOT_ON_DEVICE_CASE_ANCHOR,
+			{ ...withNaming, rootCaseId: sessionCaseId },
+		);
+		/* On a form surface current() is the bind node; the presence test
+		 * anchors on the session-selected case instead. */
+		expect(lowered).toContain(`count(${sessionCaseId}) > 0`);
+		expect(lowered).toContain(`, ${sessionCaseId})`);
+		expect(lowered).not.toContain("current()/@case_id");
+	});
+
+	it("re-anchors a form-surface self property through the session case", () => {
+		const sessionCaseId = "instance('commcaresession')/session/data/case_id";
+		const lowered = emitOnDeviceExpression(
+			tableLookup(
+				REGIONS,
+				NAME,
+				eq(tableColumn(REGIONS, VALUE), prop("patient", "village")),
+			),
+			"casedb",
+			{ currentCaseType: "patient" },
+			ROOT_ON_DEVICE_CASE_ANCHOR,
+			{ ...withNaming, rootCaseId: sessionCaseId },
+		);
+		expect(lowered).toBe(
+			`instance('item-list:regions')/regions_list/regions[value = instance('casedb')/casedb/case[@case_id=${sessionCaseId}]/village][1]/name`,
+		);
 	});
 });

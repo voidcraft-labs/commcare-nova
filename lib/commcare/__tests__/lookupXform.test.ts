@@ -216,6 +216,9 @@ describe("buildXForm — lookup itemset filters", () => {
 		expect(getAttributeValue(itemset, "nodeset")).toBe(
 			"instance('item-list:regions')/regions_list/regions[value = /data/province]",
 		);
+		/* The predicated nodeset must satisfy the itemset oracle contract —
+		 * predicates are allowed in the nodeset, and only there. */
+		expect(validateXForm(xml, "Visit", "Survey")).toEqual([]);
 	});
 
 	it("prints a same-repeat form-field filter through current()/..", () => {

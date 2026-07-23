@@ -192,9 +192,19 @@ export const DEFAULT_INSTANCE_ROOT: InstanceRoot = "casedb";
 export function buildAncestorJoinNodeset(
 	via: ReadonlyArray<RelationStep>,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+	originCaseId?: string,
 ): string {
+	/* The default first hop reads `current()/index/<rel>` — correct wherever
+	 * `current()` names the evaluated case. A form-submission surface passes
+	 * its session-anchored case id instead, because `current()` there is the
+	 * bind node; the origin is a case-ID expression, so the hop resolves the
+	 * origin case first and reads its index. */
+	const firstHopAnchor =
+		originCaseId === undefined
+			? `current()/index/${via[0].identifier}`
+			: `${buildCaseByIdNodeset(originCaseId, undefined, root)}/index/${via[0].identifier}`;
 	let nodeset = buildCaseByIdNodeset(
-		`current()/index/${via[0].identifier}`,
+		firstHopAnchor,
 		via[0].throughCaseType,
 		root,
 	);
@@ -317,13 +327,17 @@ export function emitTerm(
 			) {
 				/* The fixture row is the predicate context, so the ordinary bare
 				 * self leaf would read the fixture row. Re-anchor on the case the
-				 * containing slot evaluates. */
+				 * containing slot evaluates: through `current()` where it names
+				 * that case, or through the form surface's session-anchored case
+				 * id where `current()` is the bind node. */
 				const leaf = emitCasePropertyWirePath(term.property);
 				switch (rowScope.caseAnchor.kind) {
 					case "root":
-						return `current()/${leaf}`;
+						return context.rootCaseId === undefined
+							? `current()/${leaf}`
+							: `${buildCaseByIdNodeset(context.rootCaseId, undefined, root)}/${leaf}`;
 					case "ancestor":
-						return `${buildAncestorJoinNodeset(rowScope.caseAnchor.via, root)}/${leaf}`;
+						return `${buildAncestorJoinNodeset(rowScope.caseAnchor.via, root, context.rootCaseId)}/${leaf}`;
 					case "unaddressable":
 						throw new Error(
 							`emitTerm: case property '${term.property}' is read inside a lookup-row filter within a scope whose case cannot be addressed from current(). Validation should reject this shape before emission.`,

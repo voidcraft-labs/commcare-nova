@@ -1785,8 +1785,15 @@ explicit positional first-row predicate; no match is missing, not empty text.
 A matched row with an absent result key and a matched row with stored empty text
 both emit blank text at the fixture boundary; S01 still preserves that
 distinction in storage. Text and temporal values retain their stored lexical
-form, ints emit canonical signed base-10, and decimals emit the canonical finite
-JSON-number string. Whitespace is never generally trimmed or normalized.
+form; ints and decimals emit the exponent-free plain-decimal spelling shared
+with predicate literals (`formatNumeric`). The earlier canonical-JSON-number
+wording was corrected during S05b review: `String(1e-7)` is `"1e-7"`, and
+CommCare Core's numeric coercion
+(`FunctionUtils.checkForInvalidNumericOrDatestringCharacters`) rejects
+exponent notation as NaN, so a cell would never compare equal to its own
+literal. Storage keeps S01's canonical JSON numbers; only the wire text
+projection expands the exponent. Whitespace is never generally trimmed or
+normalized.
 
 For a table-column operand, `is-null` is unrepresentable and rejected;
 `is-blank` means absent or present-empty. A select source rejects a missing label
@@ -2056,9 +2063,23 @@ decisions above:
   retained.
 
 The five error codes added for the ccz verdicts are `environment`-class and
-carry `legacyFindingRepairs` judgments. The existing fuzz arbitraries remain
-carrier-free; itemset/fixture totality is carried by the focused emission
-suites and the oracle extensions rather than the generic doc fuzzers.
+deliberately carry no `legacyFindingRepairs` judgments — that table is
+gating-classes-only. The existing fuzz arbitraries remain carrier-free;
+itemset/fixture totality is carried by the focused emission suites and the
+oracle extensions rather than the generic doc fuzzers.
+
+Independent adversarial review (four dimension finders, every finding
+adversarially verified twice) confirmed and drove five pre-merge corrections,
+each now regression-pinned: decimal fixture cells emit `formatNumeric`'s
+exponent-free spelling (Core's numeric coercion rejects exponent text);
+relation presence tests and ancestor counts inside a fixture-row `where`
+anchor on the containing slot's case (`current()/@case_id`, the ancestor join
+chain, or the form surface's session-anchored id) instead of reading the
+fixture row; the fixture-row self-property re-anchor honors `rootCaseId` on
+form surfaces; and the new `lookup-row-escaped-column` arm of
+`CASE_LIST_EXPRESSION_NOT_ON_DEVICE` rejects the one validated-but-
+unrepresentable shape, a comparison whose relation rewrite would carry a
+table-column term out of its fixture-row scope.
 
 The following activation sequence is the previously specified zero-downtime
 alternative, not an approved S05c implementation plan. At the S05c checkpoint,

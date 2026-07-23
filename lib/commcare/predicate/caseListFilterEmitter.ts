@@ -109,6 +109,7 @@ import {
 	emitImmediateRelationPresence,
 	type OnDeviceCaseAnchor,
 	ROOT_ON_DEVICE_CASE_ANCHOR,
+	relationPresenceOrigin,
 } from "./relationPresenceEmitter";
 import { formatNumeric } from "./stringQuoting";
 import {
@@ -640,7 +641,7 @@ function emitExistsOrMissing(
 				relation.via,
 				whereText,
 				root,
-				anchor.kind === "root" ? termContext.rootCaseId : undefined,
+				relationPresenceOrigin(anchor, root, termContext),
 			);
 			return kind === "exists" ? presence : `not(${presence})`;
 		}

@@ -4,6 +4,7 @@ import {
 	buildAncestorJoinNodeset,
 	DEFAULT_INSTANCE_ROOT,
 	type InstanceRoot,
+	type OnDeviceTermEmissionContext,
 } from "./termEmitter";
 
 type DirectedRelation = Exclude<RelationPath, { kind: "self" }>;
@@ -39,16 +40,22 @@ export function descendOnDeviceCaseAnchor(
 	};
 }
 
-/** XPath selecting the singleton anchor's case id, when one is nameable. */
+/**
+ * XPath selecting the singleton anchor's case id, when one is nameable.
+ * `originCaseId` replaces the `current()`-based root reading on surfaces
+ * where `current()` does not name the evaluated case (a form bind supplies
+ * its session-anchored case id).
+ */
 export function onDeviceAnchorCaseId(
 	anchor: OnDeviceCaseAnchor,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+	originCaseId?: string,
 ): string | undefined {
 	switch (anchor.kind) {
 		case "root":
-			return "current()/@case_id";
+			return originCaseId ?? "current()/@case_id";
 		case "ancestor":
-			return `${buildAncestorJoinNodeset(anchor.via, root)}/@case_id`;
+			return `${buildAncestorJoinNodeset(anchor.via, root, originCaseId)}/@case_id`;
 		case "unaddressable":
 			return undefined;
 		default: {
@@ -56,6 +63,35 @@ export function onDeviceAnchorCaseId(
 			return _exhaustive;
 		}
 	}
+}
+
+/**
+ * The explicit origin-case-id expression a relation presence test (or count)
+ * must anchor on, or `undefined` when the immediate candidate-relative
+ * reading (`@case_id`, `index/<rel>`) is correct.
+ *
+ * Outside a fixture-row scope the candidate-relative reading is right except
+ * on form surfaces, whose `rootCaseId` replaces `current()`-rooted readings.
+ * Inside a fixture-row scope `.` is the fixture row — it has no `@case_id`
+ * attribute and no `index` children — so the test must name the case the
+ * containing slot evaluates: the form surface's session-anchored id, or the
+ * captured case anchor read from `current()` (which Core preserves from the
+ * first predicate).
+ */
+export function relationPresenceOrigin(
+	anchor: OnDeviceCaseAnchor,
+	root: InstanceRoot,
+	termContext: OnDeviceTermEmissionContext,
+): string | undefined {
+	const rowScope = termContext.lookup?.rowScope;
+	if (rowScope !== undefined) {
+		return onDeviceAnchorCaseId(
+			rowScope.caseAnchor,
+			root,
+			termContext.rootCaseId,
+		);
+	}
+	return anchor.kind === "root" ? termContext.rootCaseId : undefined;
 }
 
 /**

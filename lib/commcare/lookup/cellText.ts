@@ -5,13 +5,18 @@
  * its wire lexical form and may not reinterpret it. Text and temporal cells
  * are stored as their canonical strings and pass through byte-identically.
  * Int and decimal cells are stored as JS numbers; their wire form is the
- * canonical JS number-to-string spelling, which for the stored canonical
- * values equals the JSON-number serialization. A missing cell and a stored
- * empty text cell both project to blank text — the wire emits every defined
- * column, so absence is only distinguishable in storage.
+ * exponent-free plain-decimal spelling `formatNumeric` produces — the same
+ * spelling every predicate literal emits. `String(1e-7)` would emit `"1e-7"`,
+ * which CommCare Core's numeric coercion rejects as NaN
+ * (`FunctionUtils.checkForInvalidNumericOrDatestringCharacters` admits only
+ * `[-.0-9]`), so a cell and its own literal would silently never compare
+ * equal. A missing cell and a stored empty text cell both project to blank
+ * text — the wire emits every defined column, so absence is only
+ * distinguishable in storage.
  */
 
 import type { LookupCellValue, LookupDataType } from "@/lib/lookup/types";
+import { formatNumeric } from "../predicate/stringQuoting";
 
 export function lookupFixtureCellText(
 	dataType: LookupDataType,
@@ -37,7 +42,7 @@ export function lookupFixtureCellText(
 					`lookupFixtureCellText: a '${dataType}' cell holds a non-numeric stored value, which the storage layer never writes for that type. The definitions and rows in this snapshot disagree — this is a reader bug, not an authoring state.`,
 				);
 			}
-			return String(value);
+			return formatNumeric(value);
 		}
 		default: {
 			const _exhaustive: never = dataType;

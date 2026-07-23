@@ -108,6 +108,7 @@ import {
 	type OnDeviceCaseAnchor,
 	onDeviceAnchorCaseId,
 	ROOT_ON_DEVICE_CASE_ANCHOR,
+	relationPresenceOrigin,
 } from "../predicate/relationPresenceEmitter";
 import { quoteLiteral } from "../predicate/stringQuoting";
 import {
@@ -530,13 +531,12 @@ function emitCount(
 							whereTermContext,
 						),
 				root,
-				anchor.kind === "root" ? termContext.rootCaseId : undefined,
+				relationPresenceOrigin(anchor, root, termContext),
 			)}, 1, 0)`;
 		case "subcase": {
 			const anchorCaseId =
-				anchor.kind === "root" && termContext.rootCaseId !== undefined
-					? termContext.rootCaseId
-					: onDeviceAnchorCaseId(anchor, root);
+				relationPresenceOrigin(anchor, root, termContext) ??
+				onDeviceAnchorCaseId(anchor, root);
 			if (anchorCaseId === undefined) {
 				throw new Error(
 					"emitOnDeviceExpression: a child-case count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",
@@ -588,12 +588,11 @@ function emitCount(
 							whereTermContext,
 						),
 				root,
-				anchor.kind === "root" ? termContext.rootCaseId : undefined,
+				relationPresenceOrigin(anchor, root, termContext),
 			)}, 1, 0)`;
 			const anchorCaseId =
-				anchor.kind === "root" && termContext.rootCaseId !== undefined
-					? termContext.rootCaseId
-					: onDeviceAnchorCaseId(anchor, root);
+				relationPresenceOrigin(anchor, root, termContext) ??
+				onDeviceAnchorCaseId(anchor, root);
 			if (anchorCaseId === undefined) {
 				throw new Error(
 					"emitOnDeviceExpression: an any-relation count is nested under a relation scope that CommCare Core cannot name. Validation should reject it before wire emission.",
