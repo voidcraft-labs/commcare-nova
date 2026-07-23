@@ -9,7 +9,7 @@
  *   3. runs the validation pipeline against the stored bytes
  *   4. on failure: freshly locks the row; deletes only if it is still pending,
  *      otherwise returns the concurrently-published ready asset idempotently
- *   5. on success: promotes the bytes to the content-hash final key,
+ *   5. on success: writes the exact validated bytes to the content-hash final key,
  *      writes validated metadata, flips status to `ready`
  *
  * The validator's hash check catches GCS-side tampering between the
@@ -43,9 +43,9 @@ import {
 } from "@/lib/media/assetDeletion";
 import { validateMediaBytes } from "@/lib/media/validate";
 import {
-	copyAssetObject,
 	downloadAssetBytes,
 	getStoredObjectSize,
+	uploadAssetBytes,
 } from "@/lib/storage/media";
 import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 
@@ -83,10 +83,18 @@ export async function POST(
 		// initiate with a small claimed size and then PUT a huge
 		// body. Rejecting on the stored object's actual size here
 		// keeps an oversized upload from OOMing the instance at
-		// `downloadAssetBytes`. Missing object → the upload never
-		// landed; treat as not-found.
+		// `downloadAssetBytes`. A missing object is not-found unless a
+		// concurrent confirm already published this exact row and cleaned up
+		// the pending key.
 		const storedSize = await getStoredObjectSize(asset.gcsObjectKey);
 		if (storedSize === null) {
+			const ready = await loadConcurrentReadyAsset(asset, session.user.id);
+			if (ready) {
+				return NextResponse.json({
+					ok: true,
+					asset: toWireMediaAsset(ready),
+				});
+			}
 			throw new ApiError(
 				"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed — try uploading again.",
 				404,
@@ -113,10 +121,28 @@ export async function POST(
 		// `getStoredObjectSize` early-exit above): a signed PUT URL stays
 		// usable for its TTL, so the stored object could have been
 		// overwritten with a larger body since that metadata check.
-		const bytes = await downloadAssetBytes(
-			asset.gcsObjectKey,
-			ASSET_SIZE_CAPS_BYTES[asset.kind],
-		);
+		let bytes: Buffer;
+		try {
+			bytes = await downloadAssetBytes(
+				asset.gcsObjectKey,
+				ASSET_SIZE_CAPS_BYTES[asset.kind],
+			);
+		} catch (error) {
+			if (isStorageNotFound(error)) {
+				const ready = await loadConcurrentReadyAsset(asset, session.user.id);
+				if (ready) {
+					return NextResponse.json({
+						ok: true,
+						asset: toWireMediaAsset(ready),
+					});
+				}
+				throw new ApiError(
+					"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed — try uploading again.",
+					404,
+				);
+			}
+			throw error;
+		}
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: asset.mimeType,
@@ -165,6 +191,13 @@ export async function POST(
 						asset.contentHash,
 						lockedDb,
 					);
+					if (sibling?.id === assetId) {
+						// A same-id confirm published while this request was validating.
+						// Ready is terminal: return the row protected by this key lock
+						// without rewriting its final bytes or trying to clean the
+						// winner's already-released pending object.
+						return { asset: sibling, releasedPending: null };
+					}
 					if (sibling && sibling.id !== assetId) {
 						// Delete only a FRESHLY-confirmed pending loser. If another request
 						// already made this exact row ready, ready is terminal and wins over
@@ -205,7 +238,15 @@ export async function POST(
 					// only after this key lock is released and rechecks ALL rows for the key.
 					finalObjectMayNeedCleanup = true;
 					if (asset.gcsObjectKey !== finalGcsObjectKey) {
-						await copyAssetObject(asset.gcsObjectKey, finalGcsObjectKey);
+						// The pending key remains writable for the signed URL's whole
+						// lifetime. Never copy it after validation: it may now hold a
+						// different generation. Publish the exact bounded buffer that
+						// produced `result.validated` instead.
+						await uploadAssetBytes({
+							gcsObjectKey: finalGcsObjectKey,
+							bytes,
+							contentType: result.validated.mimeType,
+						});
 					}
 					const published = await publishPendingAssetForActor(
 						{
@@ -225,6 +266,9 @@ export async function POST(
 							"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
 							404,
 						);
+					}
+					if (published.kind === "already_ready") {
+						return { asset: published.asset, releasedPending: null };
 					}
 					return {
 						asset: published.asset,
@@ -277,6 +321,36 @@ export async function POST(
 			err instanceof Error ? err : new ApiError("Confirm failed", 500),
 		);
 	}
+}
+
+/**
+ * Re-read the row after this request loses access to its pending object.
+ *
+ * A concurrent confirm publishes the same row before deleting the pending
+ * bytes, so a lagging metadata/read operation can observe a storage 404 even
+ * though the upload succeeded. Return only that exact row's terminal state,
+ * under a fresh Project edit check; a genuinely missing/pending row remains a
+ * not-found failure.
+ */
+async function loadConcurrentReadyAsset(
+	attempt: MediaAssetRecord,
+	actorUserId: string,
+): Promise<MediaAssetRecord | null> {
+	const current = await loadAssetById(attempt.id);
+	if (
+		!current ||
+		current.project_id !== attempt.project_id ||
+		current.status !== "ready"
+	) {
+		return null;
+	}
+	return (await userInProject(actorUserId, current.project_id, "edit"))
+		? current
+		: null;
+}
+
+function isStorageNotFound(error: unknown): boolean {
+	return (error as { code?: number } | null)?.code === 404;
 }
 
 /**

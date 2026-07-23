@@ -229,13 +229,12 @@ export async function uploadAssetBytes(args: {
 }
 
 /**
- * Copy a validated pending object to its final storage key.
+ * Copy an already-validated immutable object to another storage key.
  *
- * Browser signed-PUT uploads land at a per-attempt pending key so stale
- * signed URLs cannot overwrite a ready content-hash object. Confirm-time
- * validation calls this after the bytes have passed the hash/MIME/parser
- * checks, promoting the object to the deduped final key that ready rows
- * serve.
+ * Cross-Project asset moves use this for ready objects and ready document
+ * extracts. Browser confirm deliberately does not: its signed pending key
+ * remains mutable after validation, so confirm uploads the exact validated
+ * buffer to the content-addressed final key instead.
  */
 export async function copyAssetObject(
 	sourceGcsObjectKey: string,
