@@ -57,6 +57,7 @@ import {
 	type FormEngineInput,
 } from "./formEngine";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
+import type { PreviewLookupData } from "./lookupEvaluation";
 import { type FieldState, fieldStatesEqual } from "./types";
 
 // ── Runtime store types ─────────────────────────────────────────────────
@@ -187,6 +188,7 @@ function classifyChange(
 	| "label_refs"
 	| "id_rename"
 	| "default_value"
+	| "options_source"
 	| "kind_change" {
 	// Checked FIRST — before the id-first short-circuit and the
 	// expression/label fall-through. A `convertField` keeps the field's uuid
@@ -232,6 +234,19 @@ function classifyChange(
 		cur.validate !== prev.validate
 	) {
 		return "expression";
+	}
+
+	// Lookup-backed options source (select kinds only). Reference compare,
+	// same rationale as the AST slots above: a commit installs a fresh
+	// object, so identity diff ≡ "this slot was written". Static inline
+	// `options` edits stay "none" — the renderer reads them off the doc.
+	// Checked BEFORE default_value: a single commit writing both slots
+	// must reach the options_source dispatch (which also reapplies the
+	// default) or the choices list would keep the previous source.
+	const curSelect = cur as Field & { optionsSource?: unknown };
+	const prevSelect = prev as Field & { optionsSource?: unknown };
+	if (curSelect.optionsSource !== prevSelect.optionsSource) {
+		return "options_source";
 	}
 
 	if (cur.default_value !== prev.default_value) return "default_value";
@@ -287,6 +302,14 @@ export class EngineController {
 	 *  `deactivate()`, which is a per-form lifecycle. */
 	private previewIdentity: ResolvedPreviewIdentity | null = null;
 
+	/** The builder session's lookup fixture snapshot. Session-scoped like
+	 *  the identity — engines CAPTURE it at activation (per-form-session
+	 *  choice stability), so a refreshed snapshot ordinarily reaches the
+	 *  NEXT activation; an arrival rebuilds the active engine only while
+	 *  its capture fails to COVER the form's carriers (cold load, or a
+	 *  valid rebind the capture predates), with touched values restored. */
+	private lookupData: PreviewLookupData | null = null;
+
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
 	}
@@ -333,6 +356,32 @@ export class EngineController {
 		}
 	}
 
+	/**
+	 * Install the builder session's lookup fixture snapshot. See the
+	 * field's contract: capture-at-activation, first-arrival rebuild
+	 * only. A `null` install (Project scope reset) never tears an active
+	 * engine down here — the reset boundary deactivates separately.
+	 */
+	setLookupData(data: PreviewLookupData | null): void {
+		this.lookupData = data;
+		if (data === null) return;
+		const formUuid = this.activeFormUuid;
+		if (formUuid === undefined || this.engine === undefined) return;
+		/* Rebuild only when the active engine's CAPTURED snapshot fails to
+		 * cover the form's carriers — the cold-load first arrival and the
+		 * valid mid-session rebind to a table/column the capture predates.
+		 * A covered engine keeps its capture (per-form-session choice
+		 * stability); touched values restore through the shared snapshot
+		 * contract. */
+		if (this.engine.lookupDataCoversForm()) return;
+		const restoreSnapshot = this.engine.getValueSnapshot();
+		this.activateForm(formUuid, this.activeCaseData);
+		if (this.engine !== undefined) {
+			this.engine.restoreValues(restoreSnapshot);
+			this.syncAllToStore();
+		}
+	}
+
 	// ── Lifecycle ────────────────────────────────────────────────────
 
 	/**
@@ -369,6 +418,7 @@ export class EngineController {
 			mod?.caseType,
 			caseData,
 			this.previewIdentity,
+			this.lookupData,
 		);
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
@@ -602,6 +652,28 @@ export class EngineController {
 						case "default_value":
 							this.onDefaultValueChanged(uuid, current as Field);
 							return;
+						case "options_source": {
+							/* A combined write may also carry a default change; apply
+							 * the default FIRST (it evaluates directly, no DAG needed)
+							 * so the expression handler's rebuild + field-and-dependents
+							 * re-evaluation then recomputes choices AND retention
+							 * against the freshly defaulted value. */
+							const curDefault = (
+								current as Field & { default_value?: unknown }
+							).default_value;
+							const prevDefault = (
+								previous as Field & { default_value?: unknown }
+							).default_value;
+							if (curDefault !== prevDefault) {
+								this.onDefaultValueChanged(uuid, current as Field);
+							}
+							/* The choices node's edges and expression live in the DAG,
+							 * so the expression handler's rebuild + field-and-dependents
+							 * re-evaluation covers a filter/table/column change — the
+							 * choices arm recomputes and unselects dropped values. */
+							this.onExpressionChanged(uuid);
+							return;
+						}
 					}
 				},
 			);

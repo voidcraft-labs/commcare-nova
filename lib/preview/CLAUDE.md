@@ -65,17 +65,66 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
 - **Evaluation binds to the instance.** `createEvalContext` rebases every read — `#form/` hashtags and absolute `/data/` paths — onto the evaluating node's own repeat instance by longest-common-repeat-prefix (`rebaseOntoContext`), CommCare's relative-reference semantic. A reference from OUTSIDE a repeat to a child inside one is not rebased and reads blank — the wire's nodeset semantics (sum over instances, indexed predicates) are not modeled.
 - **The TriggerDag topology is index-free; queries materialize.** Nodes and edges are keyed by generic paths, and `getAffected` / `getAllPaths` fan each generic node out over the live instance counts (a `RepeatCountResolver` the engine supplies). Repeat add/remove therefore needs NO DAG bookkeeping; both cardinality changes re-evaluate EVERY instance (`position()`/`last()` shift both ways) plus outside dependents, and `addRepeat` runs defaults-then-evaluate for the new instance, the same order as form load.
 - **Authoring cycle proof is a strict superset of runtime triggers.**
-  `TriggerDag.reportCycles` temporarily adds field-default and lookup-choice
-  filter dependencies so validation can reject loops across those surfaces.
-  `build` / `rebuild` intentionally exclude both: defaults apply once during
-  initialization and lookup filtering is not a Preview incremental expression.
-  Never expose those validation-only edges through `getAffected`,
-  `getExpressions`, or `getAllPaths`.
+  `TriggerDag.reportCycles` temporarily adds field-DEFAULT dependencies so
+  validation can reject loops through defaults; `build` / `rebuild` exclude
+  them because defaults apply once during initialization. Lookup-choice
+  filter dependencies are RUNTIME edges (the `choices` expression below) —
+  the proof sees them through the ordinary collection, not the swap.
 - **Instance counts are explicit.** `DataInstance` tracks cardinality in its own map, keyed by concrete repeat path — never derived from which value keys happen to exist (a repeat with only structural children still counts 1). `set` auto-extends counts from indexed path segments so restore/rename flows stay consistent. A new instance seeds the AUTHORED template shape — nested repeats restart at one instance, matching what the deployed form's `jr:template` produces — not `[0]`'s live shape.
 - **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
 - **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / renamed / retyped / expression edited during live preview) route through the engine's instance-aware ops — `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves values/states in one batch (materialize-before-move, since renaming a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
 
 In render paths, read repeat instance counts from `state.repeatCount` (via the engine-state hooks), not from `controller.getRepeatCount(uuid)` — the latter is a non-reactive method call. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
+
+## Lookup carriers — one printing path, one snapshot
+
+Carrier evaluation never grows a second AST interpreter: every surface prints
+the authored AST through the SAME on-device predicate emitter the wire uses
+and evaluates the printed XPath with the preview evaluator
+(`lookupEvaluation.ts`). A lookup-backed select's row filter emits ONCE with
+the fixture-row scope — same-table columns print as bare wire names the
+per-row `EvalContext` resolves against the row's lexicalized cells — and a
+`table-lookup` folds bottom-up to a plain text literal: exact Core parity,
+because a string literal and a node read unpack identically under every
+scalar operator, and a no-match folds to `""` (Core's empty-node-set unpack;
+missing and stored-empty cells both read blank, the fixture boundary's
+semantics). The `item-list:` instance vocabulary never enters the browser.
+
+Data is ONE Project fixture snapshot (definitions + complete ordered rows for
+the doc's referenced tables): `PreviewLookupDataProvider` fetches it
+generation-keyed on the reconciler scope epoch, refreshes per-table on the
+Project lookup clock, and installs it on the `EngineController` like the
+preview identity. **COVERAGE, not presence, decides evaluability**: the
+snapshot covers only the tables referenced at fetch time, so every surface
+asks the coverage predicates (`lookupOptionsSourceCovered` /
+`predicateLookupsCovered` / `expressionLookupsCovered`) first and treats a
+miss as its loading state — a validly committed edit referencing a
+new table/column degrades gracefully while the refetch lands, and the
+`requireTable`/`requireColumn` throws fire only on a genuinely bypassed
+validator. An engine CAPTURES the snapshot at activation — choices stay
+stable within a form session (the wire's install/upgrade fixture semantic)
+and the next activation picks up the refreshed cache; an arrival rebuilds the
+active engine only while its capture fails to COVER the form's carriers
+(cold load, or a valid rebind the capture predates), with touched values
+restored. Choices are engine values: the DAG's `choices` expression
+re-filters on any filter-answer change (the device's prompt-rebuild), and a
+selected value the rebuilt choices no longer offer is unselected (token-wise
+for multi-select), cascading through the ordinary topo pass.
+`FieldState.choices === undefined` is the typed loading state, and each
+choice carries its source row id as display identity (lookup rows guarantee
+neither unique nor non-blank values).
+
+Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
+render through the same printing path: module conditions gate the home
+screen's module list; form conditions gate the case-list screen's
+post-selection form menu + single-form auto-continue (against the selected
+row's projection, self reads printed as `#case/` hashtags) and the module
+screen's forms-first list. Raw absent-node semantics hold — absent
+string-unpacks to `""`, numeric ordering yields NaN, no presence guards.
+Visibility is three-valued: a carrier-bearing condition without loaded data
+is `pending` (placeholder, never a guess); hidden items surface through the
+ghosted "Hidden items (N)" reveal with `summarizeFilter` summaries; edit
+mode never hides.
 
 ## Value persistence across engine recreation
 

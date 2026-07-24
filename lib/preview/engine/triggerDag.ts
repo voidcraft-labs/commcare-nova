@@ -14,7 +14,8 @@ type ExpressionType =
 	| "calculate"
 	| "required"
 	| "validation"
-	| "output";
+	| "output"
+	| "choices";
 
 interface DagNode {
 	path: string;
@@ -25,6 +26,23 @@ interface DagNode {
  *  The engine passes its `DataInstance.getRepeatCount` — the DAG itself
  *  stays a pure topology with no runtime state. */
 export type RepeatCountResolver = (repeatPath: string) => number;
+
+/** uuid → generic index-free path over a field tree. */
+function collectFieldPaths(
+	tree: readonly FieldTreeNode[],
+	prefix: string,
+): Map<string, string> {
+	const fieldPaths = new Map<string, string>();
+	const walk = (nodes: readonly FieldTreeNode[], parentPath: string): void => {
+		for (const node of nodes) {
+			const path = `${parentPath}/${node.field.id}`;
+			fieldPaths.set(node.field.uuid, path);
+			if (node.children) walk(node.children, path);
+		}
+	};
+	walk(tree, prefix);
+	return fieldPaths;
+}
 
 /**
  * Directed acyclic graph mapping field paths to dependent expressions.
@@ -57,6 +75,11 @@ export class TriggerDag {
 	/** Doc surface the expression reads print against — AST slots
 	 *  resolve identity leaves through it. Set by `build`. */
 	private doc: XPathPrintableDoc = { forms: {}, fields: {}, fieldOrder: {} };
+	/** uuid → generic path over the tree being collected — the
+	 *  resolution surface for lookup-choice filter `field` terms, which
+	 *  reference by uuid rather than printed path. Rebuilt alongside the
+	 *  nodes by `build` / `reportCycles`. */
+	private fieldPaths = new Map<string, string>();
 
 	/** Build the DAG from a field tree. `doc` is the surface the
 	 *  tree's fields live on (the engine's input slice / the
@@ -66,6 +89,7 @@ export class TriggerDag {
 		this.nodes.clear();
 		this.dependedOnBy.clear();
 		this.repeatPaths.clear();
+		this.fieldPaths = collectFieldPaths(tree, prefix);
 		this.collectExpressions(tree, prefix);
 		this.detectAndBreakCycles();
 		this.sortedPaths = this.topologicalSort();
@@ -236,6 +260,32 @@ export class TriggerDag {
 			for (const ref of allLabelRefs) allDepExprs.push(ref);
 		}
 
+		// A lookup-backed select's choice list is a real runtime value:
+		// its filter's form-answer references are runtime dependency
+		// edges (uuid-resolved — the filter AST references identity, not
+		// printed paths), and the `choices` expression recomputes the
+		// list on any of them changing, mirroring the device's
+		// prompt-rebuild re-filter of its embedded fixture.
+		if (
+			(f.kind === "single_select" || f.kind === "multi_select") &&
+			f.optionsSource !== undefined
+		) {
+			expressions.push({ type: "choices", expr: "" });
+			if (f.optionsSource.filter !== undefined) {
+				walkTerms(f.optionsSource.filter, (term) => {
+					if (term.kind !== "field") return;
+					const dependencyPath = this.fieldPaths.get(term.uuid);
+					if (dependencyPath === undefined || dependencyPath === path) return;
+					let deps = this.dependedOnBy.get(dependencyPath);
+					if (!deps) {
+						deps = new Set();
+						this.dependedOnBy.set(dependencyPath, deps);
+					}
+					deps.add(path);
+				});
+			}
+		}
+
 		if (expressions.length === 0) return;
 
 		this.nodes.set(path, { path, expressions });
@@ -256,16 +306,16 @@ export class TriggerDag {
 	}
 
 	/**
-	 * Add authoring-time-only edges for field defaults and lookup option
-	 * filters. This runs exclusively while `reportCycles` has swapped in its
-	 * temporary maps, so Preview's runtime `build` / `rebuild` topology remains
-	 * byte-for-byte the topology produced before these validation surfaces
-	 * joined the cycle proof.
+	 * Add authoring-time-only edges for field defaults. This runs
+	 * exclusively while `reportCycles` has swapped in its temporary maps —
+	 * defaults apply once during initialization, so their references are
+	 * cycle-proof surfaces, never runtime triggers. (Lookup-choice filter
+	 * dependencies are RUNTIME edges since S07 — `registerExpressions`
+	 * owns them for build and cycle proof alike.)
 	 */
 	private collectValidationOnlyDependencies(
 		tree: readonly FieldTreeNode[],
 		prefix: string,
-		fieldPaths: ReadonlyMap<string, string>,
 	): void {
 		const register = (dependencyPath: string, dependentPath: string): void => {
 			if (dependencyPath === dependentPath) return;
@@ -290,32 +340,20 @@ export class TriggerDag {
 				}
 			}
 
-			if (
-				(field.kind === "single_select" || field.kind === "multi_select") &&
-				field.optionsSource?.filter !== undefined
-			) {
-				walkTerms(field.optionsSource.filter, (term) => {
-					if (term.kind !== "field") return;
-					const dependencyPath = fieldPaths.get(term.uuid);
-					if (dependencyPath === undefined) return;
-					register(dependencyPath, path);
-					hasValidationDependency = true;
-				});
-			}
-
 			if (hasValidationDependency && !this.nodes.has(path)) {
 				this.nodes.set(path, { path, expressions: [] });
 			}
 			if (node.children !== undefined) {
-				this.collectValidationOnlyDependencies(node.children, path, fieldPaths);
+				this.collectValidationOnlyDependencies(node.children, path);
 			}
 		}
 	}
 
 	/**
 	 * Report all cycles without modifying the runtime graph. Builds a temporary
-	 * superset topology that includes authoring-only defaults and lookup
-	 * filters, then restores the instance maps before walking that snapshot.
+	 * superset topology that adds authoring-only default edges on top of the
+	 * full runtime topology (which already includes lookup-choice filter
+	 * edges), then restores the instance maps before walking that snapshot.
 	 * Returns an array of cycle paths (e.g. ['/data/a', '/data/b', '/data/a']).
 	 */
 	reportCycles(
@@ -332,28 +370,19 @@ export class TriggerDag {
 		const savedNodes = this.nodes;
 		const savedDeps = this.dependedOnBy;
 		const savedRepeats = this.repeatPaths;
+		const savedFieldPaths = this.fieldPaths;
 		this.nodes = nodes;
 		this.dependedOnBy = dependedOnBy;
 		this.repeatPaths = new Set();
 		try {
-			const fieldPaths = new Map<string, string>();
-			const collectFieldPaths = (
-				nodesToVisit: readonly FieldTreeNode[],
-				parentPath: string,
-			): void => {
-				for (const node of nodesToVisit) {
-					const path = `${parentPath}/${node.field.id}`;
-					fieldPaths.set(node.field.uuid, path);
-					if (node.children) collectFieldPaths(node.children, path);
-				}
-			};
-			collectFieldPaths(tree, prefix);
+			this.fieldPaths = collectFieldPaths(tree, prefix);
 			this.collectExpressions(tree, prefix);
-			this.collectValidationOnlyDependencies(tree, prefix, fieldPaths);
+			this.collectValidationOnlyDependencies(tree, prefix);
 		} finally {
 			this.nodes = savedNodes;
 			this.dependedOnBy = savedDeps;
 			this.repeatPaths = savedRepeats;
+			this.fieldPaths = savedFieldPaths;
 		}
 
 		const WHITE = 0,

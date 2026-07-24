@@ -1,10 +1,12 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-24 against deployed
-> Nova `62ffaff0` (PR #316). All of S01 through S05 is shipped: the lookup
+> Nova `62ffaff0` (PR #316). All of S01 through S06 is shipped: the lookup
 > maintenance floors hold their final values, local CCZ export emits the
-> preservable lookup wire, and S05's domain/wire decisions are pinned below.
-> S06 is `ready` — its readiness closure is recorded below. S22 awaits its
+> preservable lookup wire, case identity is opaque text end to end, preview
+> reads the real signed-in worker, and every submission lands through the
+> atomic envelope. S07 is `in progress` under its recorded readiness
+> closure on `agent/s07-preview-execution`. S22 awaits its
 > readiness rebaseline. This file
 > owns execution order,
 > product decisions, slice status, and
@@ -350,11 +352,12 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S02 through S05 are shipped. S05's exported-value, select-fallback,
+S02 through S06 are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are
 pinned, the local lookup wire is live in ccz export, and the maintenance
-floors hold their final values in production. S06 is `ready` under its
-recorded closure.
+floors hold their final values in production. S06's storage widening,
+identity contract, and atomic envelope are live, and its clean production
+rescan — S07's activation precondition — is recorded.
 S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 needs a
 readiness rebaseline before delegation.
@@ -372,8 +375,8 @@ Compiler verification stays serialized across wire slices.
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b | shipped | PR-01/03, F5 |
-| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | in progress | PR-04, F1/F4 |
-| S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
+| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | shipped | PR-04, F1/F4 |
+| S07 | Preview execution and carrier activation | S06 | in progress | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
 | S09 | Project data tables workspace and options authoring | S05c/S07 | blocked | PR-05 |
 | S10 | Wave-one SA, MCP, docs, and closure | S08/S09 | blocked | PR-06 |
@@ -2480,6 +2483,236 @@ compatibility-state transaction enable carrier commits, zero-reference schema
 actions, and zero-reference moves. Builder inputs remain closed until S09 and
 SA/MCP inputs until S10.
 
+#### S07 readiness closure — 2026-07-24
+
+Drafted blind against merged `main` (`7b0c7a15`) with three structural maps of
+the preview engine, the case-operations gate, and the activation machinery,
+then adjudicated against claim extraction from PR-04, the F1/F4/F5 memo
+sections, and the ACA research memo (114 claims, harvested in a separate
+context). The activation half of the draft stands unchallenged — the legacy
+documents contain no compatibility-floor, drain, or traffic-check claims at
+all. Three extracted claims correct the blind draft and are adopted:
+
+- **The running preview needs the hidden-items reveal.** Under "Preview as
+  me" the signed-in worker has no custom user data until S15, so the
+  dominant real-world gating pattern (`session/user/data/can_*` flags) would
+  hide items the author cannot reach. The running preview hides by default
+  (runtime-faithful) and offers a "hidden items (N)" reveal affordance with
+  ghosted entries and a person-readable condition summary; the summary
+  printer is display-only and forks no predicate semantics. Authoring
+  surfaces (canvas, tree, flipbook) never hide conditioned items.
+- **The form-condition evaluation locus is the case list.** A case-first
+  module's form menu renders inside the case-list screen after selection
+  (including the single-form auto-continue, which a false condition must
+  also suppress); the module screen's form list is a gating site only for
+  the forms-first flow, where the validator already rejects `prop` reads.
+- **Choice rows hold stable within one form session.** A lookup-row edit
+  mid-entry appears on the next form entry — the wire's install/upgrade
+  fixture semantic — while the builder-session cache refreshes on the
+  Project realtime clock between sessions.
+
+Six legacy claim families were retired as stale by primary evidence: the
+no-persona author-omniscient mode (superseded by the recorded
+no-session-persona decision — identity is always the signed-in worker);
+PR-04's SQL-residue menu-condition model with its one-batched-action render,
+client-supplied catalog slice, and case-count store entry point (its driver
+was the case-count/data arms, which the shipped S03 validator rejects —
+`rules/displayConditions.ts` refuses counts, `exists`/`missing`, and
+non-self reads, and the client evaluator over the selected row's projection
+is the shipped device-parity path the form engine already uses for
+`#<type>/<prop>` reads); client-side folding of session-user terms into
+operation descriptors (S06's shipped contract resolves identity server-side
+at the action boundary — a client-folded literal would be client-asserted
+identity); server-side choice resolution (superseded by device parity —
+the device filters its embedded fixture locally and re-filters on prompt
+rebuild — plus the S01 caps of 5,000 rows / 8 MiB per table bounding the
+client load, and the single-client-evaluator argument its own field-level
+table-read model implies); the `window_width` persona arm (the recorded S03
+correction); and the catalog-driven subcase relationship fix (already
+adjudicated stale in the S06 closure — the hardcoded `child` subcase edge
+stays because only operation links carry authored relationships).
+
+One genuinely new wire question surfaced and was verified in source: the
+platform's extension-close cascade (`submission_post.py:481` →
+`casexml/apps/case/xform.py::close_extension_cases` →
+`get_all_extensions_to_close`) runs only when
+`toggles.EXTENSION_CASES_SYNC_ENABLED` is on — a frozen per-domain toggle,
+off by default (`corehq/toggles/__init__.py:907`). A default HQ domain
+performs no cascade at submission processing, so the envelope closing only
+its target case IS the faithful parity, and S07 adds no cascade. Otherwise
+S07 emits no new wire; the parity targets are the recorded S03 (raw
+absent-node menu semantics), S05 (itemset first-match/blank/unselected
+semantics), and S04/S06 (operation execution, one-transaction submission)
+facts.
+
+The audit narrows the slice. Complete and unconsumed on `main`: the S06
+storage executor with its in-transaction reauthorization and resolved-
+sequence proof (the `operations` arm of `ApplySubmissionArgs` has no
+production supplier); the S04 doc analyses the program builder needs
+(`orderedCaseOperations`, `caseOperationMultiplicityScopes`,
+`caseOperationConditionalGuardUuids`,
+`caseOperationExpressionSnapshotTypes`); the S04/S05b wire; and the
+activation machinery — compatibility singleton at `(writer 1, receiver 2,
+reader 0, flags false)` with DB CHECKs already demanding receiver ≥ 3 and
+reader ≥ 1 for carrier commits, the cutover-gate advisory lock and
+statement triggers, both floor-raise transactions, the epoch/census
+primitives, the emergency flag-disable path, the lease admission and
+upgrade-refresh no-loop client path, and the revision label vocabulary.
+Missing, exactly: display-condition evaluation; lookup choices (the
+renderer throws today); SQL compiler `table-lookup`/`table-column` arms;
+the doc→`CaseOperationProgram` builder; a `SubmissionRejectedError` client
+arm; the session-form cutover controller; any Cloud Run traffic/capability
+reader (deploys attach no capability labels today); and any production
+reader of the activation flags.
+
+Mechanics, resolved:
+
+- **Flag-conditioned admission is the end state.** "Deploying code alone
+  never activates vocabulary" and the emergency disable path both require
+  data switches with real readers, so the two unconditional doc-layer
+  commit gates become compatibility-conditioned: the
+  `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` findings are emitted only while
+  `carrier_commits_enabled` is false, and `CASE_OPERATIONS_NOT_ACTIVE`
+  only while a new fourth flag `case_operations_enabled` is false — one
+  replay-idempotent migration adds the column plus its CHECK (enabled ⇒
+  receiver ≥ 3 and reader ≥ 1) and extends the emergency-disable union.
+  Operations need the same v3 cutoff as carriers: a v2 bundle submits an
+  operation-bearing form ordinary-only, which is silent non-execution. The
+  server re-verdict reads flags in-transaction (the commit path already
+  FOR-SHAREs the singleton through the writer guard — no new lock edge);
+  client optimistic verdicts read a server snapshot riding the existing
+  external-context projection, and the server wins. CCZ export of
+  operation/carrier-bearing docs passes once the flags are on;
+  `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE` on hq-json/hq-upload stays until S20.
+- **Table choices are client-evaluated over loaded rows.** One Server
+  Action returns definitions plus complete ordered rows for the app's
+  referenced tables through the existing REPEATABLE READ reader
+  (`getLookupFixtureData`), Project-membership-authorized, generation-keyed
+  in the builder session and joined to the reconciler reset registry (the
+  recorded "S05 definition cache joins the registry" obligation). The
+  engine evaluates itemset filters per row client-side — bind
+  form-field/session/user terms, fold, evaluate residual same-table column
+  comparisons — with the fixture boundary's blank semantics, and evaluates
+  `table-lookup` expressions in every client-evaluated slot (calculates,
+  defaults, display conditions) over the same snapshot; wire vocabulary
+  (`item-list:`) never enters the preview. Choices become a real engine
+  expression: S05's validation-only `optionsSource.filter` field edges
+  promote to runtime DAG edges (`reportCycles` already proves the superset
+  acyclic), the dependency-change re-query mirrors the device's
+  prompt-rebuild re-filter, and a selected value no longer in the choices
+  becomes unselected. `FieldRenderer` consumes engine state instead of
+  throwing.
+- **SQL residue.** The AST→Kysely compiler gains `table-lookup` (correlated
+  first-match scalar subquery over the Project's lookup rows by
+  `(order_key, row uuid)`, typed result-column extraction) and
+  `table-column` (row-relative, legal only inside the enclosing lookup's
+  `where`). This serves case-list filters, calculated columns, and sort
+  keys — and the envelope's operation expressions, where Postgres-resident
+  lookup data never round-trips to the client.
+- **Display conditions evaluate client-side at navigation render.** Module
+  conditions over session/user identity values gate the home screen's
+  module list; form conditions additionally over the selected case row
+  (direct self reads only — the shipped validator closes the contexts)
+  gate the case-list screen's post-selection form menu and auto-continue,
+  and the module screen's forms-first list. Raw absent-node semantics are
+  preserved (absent string-unpacks to `""`, numeric ordering yields NaN;
+  no presence guards), matching the emitted menu wire. An evaluation error
+  fails loudly — checker-gated conditions make it a bug surface, never a
+  silently-shown item. The selected row arrives through the existing
+  membership-gated case reads; no new read path.
+- **The program builder is server-side; the client supplies answers only.**
+  `SubmissionMutation` gains plain-JSON per-scope iteration bindings (root
+  bindings plus per-repeat arrays of complete `fieldUuid → value` maps —
+  arrays, not Maps, for the WAF; live instance counts cover all three
+  repeat modes). The server is the structural authority: it loads the
+  committed doc, derives operations, guards, snapshot types, and scope
+  order from the S04 analyses, consumes only the client's answer values
+  and iteration counts, populates `ordinary.caseType` for the rolling
+  proof, and attaches `sessionUser`/`sessionContext`/`viewerTimeZone` from
+  the server-resolved identity. No operations or flag off → the arm stays
+  absent. `mapSubmitFormError` gains the `SubmissionRejectedError` arm
+  with person-readable per-rejection copy; whole-envelope rollback already
+  matches the device's atomic transaction failure.
+- **Activation is a post-deploy operator controller, not a migration.** The
+  deploy-blocking Job runs before the new revision takes traffic, so a
+  Job-time receiver raise would revoke every open tab into possibly-stale
+  bundles; S05c's Job-borne raise was safe only because every serving
+  revision already declared its floors. The manifest bumps
+  `streamReceiverVersion` 2→3 in the release that makes the browser total;
+  `cloudbuild.yaml`'s deploy step gains `--labels` from
+  `runtimeCapabilityRevisionLabels` so revisions carry capability labels,
+  and the controller implements `ReadReceivingRevisionCapabilities` over
+  `gcloud run services describe` plus `parseRevisionCapabilityLabels`. The
+  durable phased controller under `scripts/rollout/` (dry-run default,
+  resumable, migration identity via the impersonated-SA recipe — the
+  control tables are SELECT-only for the runtime role): session-form
+  cutover lock on one dedicated connection (new session variant of
+  `deploymentCutoverGate`; the xact variants stack on the same session by
+  design) → fresh traffic/capability read →
+  `reconcileReceivingRevisionCapabilities` →
+  `prepareRuntimeReaderTrafficEpoch(1)` → after epoch age ≥ 3,600 s, ONE
+  transaction raising receiver→3 and reader→1 with every flag still false
+  → a 3,900 s drain (stream cap plus grace, covering requests) → verify no
+  unexpired lease below v3 (the `floor_drain` index), a census clean of
+  below-v1 and null-nonce holders, clean
+  `scan-lookup-reference-edges --prod` and `scan-case-id-storage --prod`
+  (consuming the S06 scan; the script is removed after this run), and a
+  fresh capability/floor preflight → the SECOND transaction enabling
+  `carrier_commits_enabled`, `destructive_schema_actions_enabled`,
+  `project_moves_enabled`, `case_operations_enabled`, and
+  `run_holder_nonce_enforced` (S02c's "later total-consumer activation
+  unit" is this one; the switch's reader-floor precondition is satisfied
+  by the raise).
+- **Moves activate with disclosure.** `moveAppToProject` reads the flags at
+  the action boundary and threads enablement into `appProjectMovePolicy`;
+  `lockProjectMoveCompatibility` stays the in-transaction authority, and
+  `assertMoveLookupClosureEmpty` keeps lookup-referencing apps unmovable
+  with person-readable copy. The site move dialog gains real cross-Project
+  destination selection plus the disclosure that conversation history and
+  chat-attached files move with the app; the Projects guide's
+  staged/unavailable notice becomes the final workflow. S07 owns the first
+  desktop/compact Playwright move/reload journey through the actually
+  enabled path, run in its real env-gated mode.
+- **Schema actions open inert.** `destructive_schema_actions_enabled` flips
+  in the second transaction; `applyLookupSchemaGovernance` stays
+  package-private with no user surface until S09 owns the confirmation UX.
+
+Implementation splits into three independently reviewed units:
+
+1. **S07a — preview totality, read side:** display-condition execution with
+   the hidden-items reveal; lookup choices end-to-end (rows action,
+   reset-registry cache, DAG edge promotion, renderer); the SQL compiler's
+   `table-lookup`/`table-column` arms.
+2. **S07b — preview totality, write side:** the submission bindings and
+   server-side program builder with `ordinary.caseType`; the
+   `SubmissionRejectedError` mapping and failure-parity copy; the
+   flag-conditioned gates and the `case_operations_enabled` migration; the
+   receiver-v3 manifest bump; the absent-value matrix and effect-ordering
+   acceptance.
+3. **S07c — activation:** deploy labels and the capability reader; the
+   session-lock controller; move policy/UI/docs and the Playwright
+   journey; production execution of the phased raises, drain, and flag
+   enable; post-activation verification (singleton reads
+   `(1, 3, 1)` with the nonce switch and all four flags true, clean
+   rescans, standard probes); scan-script cleanup and the roadmap
+   execution checkpoint.
+
+A user observes: the running preview hides display-conditioned modules and
+forms exactly as a device would, with the reveal affordance for gated
+items, while authoring surfaces keep showing everything; lookup-backed
+selects render live filtered choices; submissions on operation-bearing
+docs execute atomically with typed person-readable failures; cross-Project
+moves become genuinely available with the history/attachments disclosure;
+and the public docs describe all of it. Verification: unit and per-test-
+database integration suites per surface (the evaluator fold matrix
+including absent-key semantics; choices filter binding, dependency
+re-query, ordering, and the unselect-on-removal rule; program-builder
+guard/snapshot/scope derivation pinned against the S04 analyses; the
+flag-conditioned gate matrix on both editors' verdict paths); the
+multiplayer, leak, and smoke suites; the Playwright move journey; the
+recorded activation runbook outputs; and the post-activation production
+state reads. S22 still awaits its separate readiness rebaseline.
+
 ### S08 — conditions and operations authoring
 
 Build URL-owned, responsive authoring surfaces using the current editor policy
@@ -2652,6 +2885,35 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-24 — S07 readiness closed:** The audit ran under the recorded
+  discipline: a blind draft from merged `main` (`7b0c7a15`) grounded in
+  three structural maps (preview engine, case-operations gate, activation
+  machinery), with PR-04, the F1/F4/F5 memo sections, and the ACA memo
+  harvested as 114 source-anchored claims in a separate context. Three
+  claims corrected the draft (the hidden-items reveal affordance, the
+  case-list-screen form-condition locus including auto-continue gating,
+  and per-form-session choice-row stability); six legacy families were
+  retired by primary evidence (the no-persona omniscient mode, the
+  SQL-residue menu-condition model with its batched action and case-count
+  entry point, client-folded identity terms, server-side choice
+  resolution, the `window_width` arm, and the subcase-relationship fix);
+  and the one new wire question was verified in source — the platform's
+  extension-close cascade is a frozen default-off domain toggle, so the
+  envelope's target-only close IS device parity and no cascade lands in
+  S07. The closure resolves the flag-conditioned admission end state
+  (including the new `case_operations_enabled` flag), the client-evaluated
+  choices model, the SQL-residue compiler arms, the server-side program
+  builder, the post-deploy activation controller, and the S07a/b/c unit
+  split. S07 flips to `in progress` on `agent/s07-preview-execution`.
+- **2026-07-24 — S06 shipped:** PR #323 merged (`7b0c7a15`) and
+  deployed; the migration Job execution succeeded (no schema change),
+  revision `commcare-nova-00373-t82` serves 100% with all three hosts
+  healthy and zero new-revision errors. That closes the slice: storage
+  activation (PR #321), the resolved preview identity (PR #322), and
+  the atomic submission envelope (PR #323) are all production-verified,
+  and the ledger row flips to `shipped`. S07's activation
+  precondition — the clean production rescan — was recorded with
+  PR #321.
 - **2026-07-24 — S06 atomic submission envelope (last of three units):**
   `agent/s06-atomic-envelope` extends the CaseStore contract with
   `applySubmission` — one tenant-bound transaction for the whole

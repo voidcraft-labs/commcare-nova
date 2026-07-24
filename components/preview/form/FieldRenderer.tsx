@@ -70,11 +70,6 @@ export function FieldRenderer({
 				/>
 			);
 		case "single_select":
-			if (field.optionsSource !== undefined) {
-				throw new Error(
-					"FieldRenderer: lookup-backed select options are dormant until preview lookup execution lands.",
-				);
-			}
 			return (
 				<SelectOneField
 					field={field}
@@ -84,11 +79,6 @@ export function FieldRenderer({
 				/>
 			);
 		case "multi_select":
-			if (field.optionsSource !== undefined) {
-				throw new Error(
-					"FieldRenderer: lookup-backed select options are dormant until preview lookup execution lands.",
-				);
-			}
 			return (
 				<SelectMultiField
 					field={field}

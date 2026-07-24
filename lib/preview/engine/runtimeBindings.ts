@@ -21,10 +21,9 @@ import {
 	type SearchInputType,
 } from "@/lib/domain";
 import type {
+	AstMapHooks,
 	Predicate,
 	PropertyRef,
-	SwitchCase,
-	Term,
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -33,6 +32,8 @@ import {
 	eq,
 	exactDateSearchPredicate,
 	literal,
+	mapExpressionAst,
+	mapPredicateAst,
 	match,
 	multiSelectAll,
 	multiSelectAny,
@@ -491,504 +492,77 @@ function searchInputRuntimeValueTypes(
 	);
 }
 
-// Recursive substitution over `Predicate` / `ValueExpression` /
-// `Term`. The rewriter rebuilds every operator envelope fresh and
-// shares only literal-only / discriminator-only / non-substituting
-// Term slots by reference. It never mutates a shared reference, so
-// the input AST stays observable to its other consumers (Postgres
-// persistence, zundo history) unchanged.
+// Input substitution over `Predicate` / `ValueExpression`. Implemented
+// as hooks over the shared structure-preserving mapper
+// (`lib/domain/predicate/mapAst.ts`): an `input` term matching the
+// target becomes a typed literal, and a matching `when-input-present`
+// gate resolves to the same two wire outcomes the search-input
+// instance produces (answered -> inner clause, unanswered -> match-all
+// no-op). The mapper shares untouched subtrees by reference and
+// descends through every recursive slot — including a
+// `table-lookup`'s row-filter `where`, whose `table-column` terms
+// simply pass through — so the input AST stays observable to its
+// other consumers (Postgres persistence, zundo history) unchanged.
+
+function substitutionHooks(
+	target: RuntimeInputBinding,
+	value: string,
+	resolvePresence: boolean,
+): AstMapHooks {
+	const hooks: AstMapHooks = {
+		mapTerm: (node) => {
+			if (node.kind !== "input" || node.name !== target.name) {
+				return undefined;
+			}
+			const replacement =
+				target.runtimeValueType === undefined ||
+				target.runtimeValueType === "text"
+					? literal(value)
+					: qualifiedLiteral(value, target.runtimeValueType);
+			return { kind: "term", term: replacement };
+		},
+		mapPredicate: (predicate) => {
+			if (
+				!resolvePresence ||
+				predicate.kind !== "when-input-present" ||
+				predicate.input.name !== target.name
+			) {
+				// A gate for another input stays structural during this pass. The
+				// binding pass for that declared name resolves it from its own
+				// value; an unknown name remains intact for validation to reject.
+				return undefined;
+			}
+			/* Preview has no search-input XML instance at query/evaluation time.
+			 * Resolve the structural gate directly to the same two wire outcomes:
+			 * answered -> inner clause; unanswered -> match-all no-op. */
+			return value === ""
+				? { kind: "match-all" }
+				: mapPredicateAst(predicate.clause, hooks);
+		},
+	};
+	return hooks;
+}
 
 function substituteInputInPredicate(
 	predicate: Predicate,
-	targetName: RuntimeInputBinding,
+	target: RuntimeInputBinding,
 	value: string,
 	resolvePresence = false,
 ): Predicate {
-	switch (predicate.kind) {
-		case "match-all":
-		case "match-none":
-			return predicate;
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-			return {
-				kind: predicate.kind,
-				left: substituteInputInExpression(
-					predicate.left,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				right: substituteInputInExpression(
-					predicate.right,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "in":
-			return {
-				kind: "in",
-				left: substituteInputInExpression(
-					predicate.left,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				values: predicate.values,
-			};
-		case "within-distance":
-			return {
-				kind: "within-distance",
-				property: predicate.property,
-				center: substituteInputInExpression(
-					predicate.center,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				distance: predicate.distance,
-				unit: predicate.unit,
-			};
-		case "match":
-			return {
-				kind: "match",
-				property: predicate.property,
-				value: substituteInputInExpression(
-					predicate.value,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				mode: predicate.mode,
-			};
-		case "multi-select-contains":
-			return {
-				kind: "multi-select-contains",
-				property: predicate.property,
-				values: predicate.values,
-				quantifier: predicate.quantifier,
-			};
-		case "between": {
-			// Conditional-property-add preserves absent-not-undefined
-			// (Zod's `.optional()` strips absent keys on parse).
-			const next: Extract<Predicate, { kind: "between" }> = {
-				kind: "between",
-				left: substituteInputInExpression(
-					predicate.left,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				lowerInclusive: predicate.lowerInclusive,
-				upperInclusive: predicate.upperInclusive,
-			};
-			if (predicate.lower !== undefined) {
-				next.lower = substituteInputInExpression(
-					predicate.lower,
-					targetName,
-					value,
-					resolvePresence,
-				);
-			}
-			if (predicate.upper !== undefined) {
-				next.upper = substituteInputInExpression(
-					predicate.upper,
-					targetName,
-					value,
-					resolvePresence,
-				);
-			}
-			return next;
-		}
-		case "is-null":
-			return {
-				kind: "is-null",
-				left: substituteInputInExpression(
-					predicate.left,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "is-blank":
-			return {
-				kind: "is-blank",
-				left: substituteInputInExpression(
-					predicate.left,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "and":
-			return {
-				kind: "and",
-				clauses: predicate.clauses.map((c) =>
-					substituteInputInPredicate(c, targetName, value, resolvePresence),
-				) as [Predicate, ...Predicate[]],
-			};
-		case "or":
-			return {
-				kind: "or",
-				clauses: predicate.clauses.map((c) =>
-					substituteInputInPredicate(c, targetName, value, resolvePresence),
-				) as [Predicate, ...Predicate[]],
-			};
-		case "not":
-			return {
-				kind: "not",
-				clause: substituteInputInPredicate(
-					predicate.clause,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "when-input-present":
-			if (resolvePresence && predicate.input.name === targetName.name) {
-				/* Preview has no search-input XML instance at query/evaluation time.
-				 * Resolve the structural gate directly to the same two wire outcomes:
-				 * answered -> inner clause; unanswered -> match-all no-op. */
-				return value === ""
-					? { kind: "match-all" }
-					: substituteInputInPredicate(
-							predicate.clause,
-							targetName,
-							value,
-							resolvePresence,
-						);
-			}
-			// A gate for another input stays structural during this pass. The
-			// binding pass for that declared name resolves it from its own value;
-			// an unknown name remains intact for validation to reject.
-			return {
-				kind: "when-input-present",
-				input: predicate.input,
-				clause: substituteInputInPredicate(
-					predicate.clause,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "exists":
-			return predicate.where === undefined
-				? { kind: "exists", via: predicate.via }
-				: {
-						kind: "exists",
-						via: predicate.via,
-						where: substituteInputInPredicate(
-							predicate.where,
-							targetName,
-							value,
-							resolvePresence,
-						),
-					};
-		case "missing":
-			return predicate.where === undefined
-				? { kind: "missing", via: predicate.via }
-				: {
-						kind: "missing",
-						via: predicate.via,
-						where: substituteInputInPredicate(
-							predicate.where,
-							targetName,
-							value,
-							resolvePresence,
-						),
-					};
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(
-				unhandledKindMessage({
-					where: "substituteInputInPredicate",
-					family: "Predicate",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"match-all",
-						"match-none",
-						"and",
-						"or",
-						"not",
-						"eq",
-						"neq",
-						"gt",
-						"gte",
-						"lt",
-						"lte",
-						"in",
-						"between",
-						"multi-select-contains",
-						"match",
-						"within-distance",
-						"is-null",
-						"is-blank",
-						"when-input-present",
-						"exists",
-						"missing",
-					],
-				}),
-			);
-		}
-	}
+	return mapPredicateAst(
+		predicate,
+		substitutionHooks(target, value, resolvePresence),
+	);
 }
 
 function substituteInputInExpression(
 	expr: ValueExpression,
-	targetName: RuntimeInputBinding,
+	target: RuntimeInputBinding,
 	value: string,
 	resolvePresence = false,
 ): ValueExpression {
-	switch (expr.kind) {
-		case "term":
-			return substituteInputInTerm(expr.term, targetName, value);
-		case "today":
-		case "now":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			return expr;
-		case "date-add":
-			return {
-				kind: "date-add",
-				date: substituteInputInExpression(
-					expr.date,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				interval: expr.interval,
-				quantity: substituteInputInExpression(
-					expr.quantity,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "date-coerce":
-			return {
-				kind: "date-coerce",
-				value: substituteInputInExpression(
-					expr.value,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "datetime-coerce":
-			return {
-				kind: "datetime-coerce",
-				value: substituteInputInExpression(
-					expr.value,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "double":
-			return {
-				kind: "double",
-				value: substituteInputInExpression(
-					expr.value,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "arith":
-			return {
-				kind: "arith",
-				op: expr.op,
-				left: substituteInputInExpression(
-					expr.left,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				right: substituteInputInExpression(
-					expr.right,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "concat": {
-			const parts = expr.parts.map((part) =>
-				substituteInputInExpression(part, targetName, value, resolvePresence),
-			) as [ValueExpression, ...ValueExpression[]];
-			return { kind: "concat", parts };
-		}
-		case "coalesce": {
-			const values = expr.values.map((v) =>
-				substituteInputInExpression(v, targetName, value, resolvePresence),
-			) as [ValueExpression, ...ValueExpression[]];
-			return { kind: "coalesce", values };
-		}
-		case "if":
-			return {
-				kind: "if",
-				cond: substituteInputInPredicate(
-					expr.cond,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; `then` holds a ValueExpression object, never a callable. Full thenable-hazard analysis lives on `ifSchema` in `lib/domain/predicate/types.ts`.
-				then: substituteInputInExpression(
-					expr.then,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				else: substituteInputInExpression(
-					expr.else,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "switch": {
-			const cases = expr.cases.map((c) => ({
-				when: c.when,
-				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `switchCaseSchema`; `then` holds a ValueExpression object, never a callable.
-				then: substituteInputInExpression(
-					c.then,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			})) as [SwitchCase, ...SwitchCase[]];
-			return {
-				kind: "switch",
-				on: substituteInputInExpression(
-					expr.on,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				cases,
-				fallback: substituteInputInExpression(
-					expr.fallback,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		}
-		case "count":
-			return expr.where === undefined
-				? { kind: "count", via: expr.via }
-				: {
-						kind: "count",
-						via: expr.via,
-						where: substituteInputInPredicate(
-							expr.where,
-							targetName,
-							value,
-							resolvePresence,
-						),
-					};
-		case "unwrap-list":
-			return {
-				kind: "unwrap-list",
-				value: substituteInputInExpression(
-					expr.value,
-					targetName,
-					value,
-					resolvePresence,
-				),
-			};
-		case "format-date":
-			return {
-				kind: "format-date",
-				date: substituteInputInExpression(
-					expr.date,
-					targetName,
-					value,
-					resolvePresence,
-				),
-				pattern: expr.pattern,
-			};
-		case "table-lookup":
-			throw new Error(
-				"substituteInputInExpression: lookup-table expressions are dormant until preview lookup execution lands; validation should reject them before runtime binding.",
-			);
-		default: {
-			const _exhaustive: never = expr;
-			throw new Error(
-				unhandledKindMessage({
-					where: "substituteInputInExpression",
-					family: "ValueExpression",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"term",
-						"today",
-						"now",
-						"date-add",
-						"date-coerce",
-						"datetime-coerce",
-						"double",
-						"arith",
-						"concat",
-						"coalesce",
-						"if",
-						"switch",
-						"count",
-						"unwrap-list",
-						"format-date",
-					],
-				}),
-			);
-		}
-	}
-}
-
-function substituteInputInTerm(
-	node: Term,
-	targetName: RuntimeInputBinding,
-	value: string,
-): ValueExpression {
-	switch (node.kind) {
-		case "input":
-			if (node.name === targetName.name) {
-				const replacement =
-					targetName.runtimeValueType === undefined ||
-					targetName.runtimeValueType === "text"
-						? literal(value)
-						: qualifiedLiteral(value, targetName.runtimeValueType);
-				return { kind: "term", term: replacement };
-			}
-			return { kind: "term", term: node };
-		case "prop":
-		case "session-user":
-		case "session-context":
-		case "field":
-		case "literal":
-			return { kind: "term", term: node };
-		case "table-column":
-			throw new Error(
-				"substituteInputInTerm: lookup-table column terms are dormant until preview lookup execution lands; validation should reject them before runtime binding.",
-			);
-		default: {
-			const _exhaustive: never = node;
-			throw new Error(
-				unhandledKindMessage({
-					where: "substituteInputInTerm",
-					family: "Term",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"prop",
-						"input",
-						"session-user",
-						"session-context",
-						"literal",
-					],
-				}),
-			);
-		}
-	}
+	return mapExpressionAst(
+		expr,
+		substitutionHooks(target, value, resolvePresence),
+	);
 }

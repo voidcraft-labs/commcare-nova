@@ -243,8 +243,11 @@ cross-checks embedded fixtures (`SUITE_FIXTURE_INVALID`: id required/unique,
 single body element, no `user_id`, every declared `jr://fixture/` src
 delivered) and the XForm oracle checks itemset shape
 (`XFORM_ITEMSET_INVALID`). Validator dry-runs use `inertLookupWireNaming` so
-portability checks stay total without real definitions. Preview, case-store
-SQL, CSQL, and the case-search `_xpath_query` path keep rejecting carriers.
+portability checks stay total without real definitions. Preview and
+case-store SQL evaluate carriers since S07a (the preview reuses these
+emitters row-scoped over its loaded fixture snapshot — see
+`lib/preview/CLAUDE.md`); CSQL and the case-search `_xpath_query` path keep
+rejecting them.
 
 `compileForPlatform.ts` is the pure decision tree from authored content + `PlatformContext` to a three-flag `WireShape`. Author intent is unambiguous on every input — Android always emits list-first / inline-results; web with an effective Search action, an effective filter, and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; web fallback is list-first. The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. The HQ JSON projection supplies a match-all default property for the explicit zero-input/manual shape because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 

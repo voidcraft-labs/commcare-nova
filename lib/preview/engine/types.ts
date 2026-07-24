@@ -1,3 +1,13 @@
+/** One rendered choice of a lookup-backed select, in authored row order.
+ *  `key` is the source row's stable id — lookup rows, unlike static
+ *  options, guarantee neither unique nor non-blank values, so display
+ *  identity (React keys, DOM ids) must never derive from `value`. */
+export interface LookupChoice {
+	readonly key: string;
+	readonly value: string;
+	readonly label: string;
+}
+
 /** Per-field reactive state tracked by the form engine. */
 export interface FieldState {
 	path: string;
@@ -19,6 +29,28 @@ export interface FieldState {
 	 *  UUID-keyed runtime store doesn't track, so the repeat's own state
 	 *  reference is the only signal Zustand subscribers can observe. */
 	repeatCount?: number;
+	/** Live filtered choices of a lookup-backed select — an engine value
+	 *  (the `choices` DAG expression), recomputed when a filter dependency
+	 *  changes, mirroring the device's prompt-rebuild re-filter. Only set
+	 *  on `single_select` / `multi_select` fields with an `optionsSource`;
+	 *  static-option selects keep reading options off the doc entity. */
+	choices?: readonly LookupChoice[];
+}
+
+/** Value-equality over the ordered choice list of two states. */
+export function lookupChoicesEqual(
+	a: readonly LookupChoice[] | undefined,
+	b: readonly LookupChoice[] | undefined,
+): boolean {
+	if (a === b) return true;
+	if (a === undefined || b === undefined) return false;
+	return (
+		a.length === b.length &&
+		a.every(
+			(c, i) =>
+				c.key === b[i].key && c.value === b[i].value && c.label === b[i].label,
+		)
+	);
 }
 
 /**
@@ -44,7 +76,8 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.errorMessage === b.errorMessage &&
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&
-		a.repeatCount === b.repeatCount
+		a.repeatCount === b.repeatCount &&
+		lookupChoicesEqual(a.choices, b.choices)
 	);
 }
 

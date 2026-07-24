@@ -5,6 +5,7 @@ import type { MultiSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
+import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
 
 interface SelectMultiFieldProps {
@@ -28,9 +29,22 @@ export function SelectMultiField({
 	onChange,
 	onBlur,
 }: SelectMultiFieldProps) {
-	// DISPLAY order (`sort-by-(order, uuid)`, matching the wire `<item>` order),
-	// not `options` array position.
-	const options = [...(field.options ?? [])].sort(bySortKey);
+	// Static options render in DISPLAY order (`sort-by-(order, uuid)`,
+	// matching the wire `<item>` order), never `options` array position; a
+	// lookup-backed select reads the ENGINE's live filtered choices — see
+	// the single-select twin for the loading contract.
+	const lookupBacked = field.optionsSource !== undefined;
+	// `key` is display identity — see the single-select twin.
+	const options: ReadonlyArray<{
+		key: string;
+		value: string;
+		label: string;
+		media?: (typeof field.options)[number]["media"];
+	}> = lookupBacked
+		? (state.choices ?? [])
+		: [...(field.options ?? [])]
+				.sort(bySortKey)
+				.map((opt) => ({ ...opt, key: opt.value }));
 	const selected = new Set(state.value ? state.value.split(" ") : []);
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
@@ -42,15 +56,22 @@ export function SelectMultiField({
 		onChange([...next].join(" "));
 	};
 
+	if (lookupBacked && state.choices === undefined) {
+		return <LookupChoicesLoading />;
+	}
 	return (
 		<fieldset className="m-0 border-none p-0" onBlur={onBlur}>
 			<div className="space-y-1.5">
+				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {
-					const checked = selected.has(opt.value);
-					const inputId = `${state.path}-${opt.value}`;
+					/* Blank values can never be "checked": "" splits to no tokens.
+					 * The DOM id derives from the stable key, never the value —
+					 * duplicate lookup values would otherwise cross-wire labels. */
+					const checked = opt.value !== "" && selected.has(opt.value);
+					const inputId = `${state.path}-${opt.key}`;
 					return (
 						<label
-							key={opt.value}
+							key={opt.key}
 							htmlFor={inputId}
 							className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
 								checked

@@ -31,6 +31,10 @@ export type {
 	ExpressionCompileContext,
 } from "./compileExpression";
 export { compileExpression } from "./compileExpression";
+export type {
+	LookupRowScope,
+	LookupTableSchemas,
+} from "./compileLookup";
 export type { PredicateCompileContext } from "./compilePredicate";
 export { compilePredicate, expressionContextFor } from "./compilePredicate";
 export type {

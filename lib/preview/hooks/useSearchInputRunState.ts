@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SearchInputDef } from "@/lib/domain";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
+import type { PreviewLookupData } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
 
@@ -44,10 +45,20 @@ export function useSearchInputRunState(args: {
 	readonly scopeKey: string;
 	readonly searchInputs: readonly SearchInputDef[];
 	readonly session: PreviewSearchSessionValues;
+	/** The builder session's lookup snapshot — defaults carrying lookup
+	 *  carriers fold over it; while it is absent they stay unresolved
+	 *  and land through the ordinary untouched-prompt refresh. */
+	readonly lookupData?: PreviewLookupData;
 }): SearchInputRunState {
 	const desired = useMemo(
-		() => buildDesiredState(args.scopeKey, args.searchInputs, args.session),
-		[args.scopeKey, args.searchInputs, args.session],
+		() =>
+			buildDesiredState(
+				args.scopeKey,
+				args.searchInputs,
+				args.session,
+				args.lookupData,
+			),
+		[args.scopeKey, args.searchInputs, args.session, args.lookupData],
 	);
 	const [stored, setStored] = useState<SearchRunState>(desired);
 
@@ -103,6 +114,7 @@ function buildDesiredState(
 	scopeKey: string,
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
+	lookupData?: PreviewLookupData,
 ): SearchRunState {
 	const allowedKeys = new Set<string>();
 	const keyShapes = new Map<string, string>();
@@ -120,7 +132,11 @@ function buildDesiredState(
 			keyShapes.set(input.name, shape);
 		}
 	}
-	const defaults = resolveSearchInputDefaults(searchInputs, session);
+	const defaults = resolveSearchInputDefaults(
+		searchInputs,
+		session,
+		lookupData,
+	);
 	const revision = JSON.stringify({
 		shapes: [...keyShapes].sort(([left], [right]) => left.localeCompare(right)),
 		defaults: [...defaults].sort(([left], [right]) =>

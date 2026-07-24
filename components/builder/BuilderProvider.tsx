@@ -40,6 +40,7 @@ import {
 } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
+import { PreviewLookupDataProvider } from "@/lib/preview/engine/useLookupPreviewData";
 import { useCanEdit } from "@/lib/session/hooks";
 import {
 	BuilderSessionContext,
@@ -145,8 +146,10 @@ function BuilderProviderInner({
 					<BuilderFormEngineProvider>
 						<SyncBridge />
 						<LocationRecoveryEffect />
-						{initialDoc ? <LoadAppHydrator /> : null}
-						{children}
+						<PreviewLookupDataProvider>
+							{initialDoc ? <LoadAppHydrator /> : null}
+							{children}
+						</PreviewLookupDataProvider>
 					</BuilderFormEngineProvider>
 				</CaseListWorkspaceProvider>
 			</EditGuardProvider>

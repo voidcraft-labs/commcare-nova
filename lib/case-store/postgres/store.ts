@@ -356,6 +356,7 @@ export class PostgresCaseStore implements CaseStore {
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
+			lookupTableSchemas: args.lookupTableSchemas,
 			bindings: args.bindings ?? {},
 		});
 		const exprCtx = expressionContextFor(ctx);
@@ -591,6 +592,7 @@ export class PostgresCaseStore implements CaseStore {
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
+			lookupTableSchemas: args.lookupTableSchemas,
 			bindings: args.bindings ?? {},
 		});
 
@@ -3006,7 +3008,7 @@ export class PostgresCaseStore implements CaseStore {
 		const cache = new Map<string, ValidateFunction<unknown> | null>();
 		return {
 			classify: (caseType, property, value) => {
-				const key = `${caseType} ${property}`;
+				const key = `${caseType}\u0000${property}`;
 				let validate = cache.get(key);
 				if (validate === undefined) {
 					const propSchema = propsByType.get(caseType)?.[property];
@@ -3148,6 +3150,7 @@ export class PostgresCaseStore implements CaseStore {
 		appId: string;
 		caseType: string;
 		schemas: ReadonlyMap<string, CaseType>;
+		lookupTableSchemas?: PredicateCompileContext["lookupTableSchemas"];
 		bindings: PredicateCompileContext["bindings"];
 	}): PredicateCompileContext {
 		return {
@@ -3157,6 +3160,9 @@ export class PostgresCaseStore implements CaseStore {
 			anchorAlias: "c",
 			currentCaseType: args.caseType,
 			caseTypeSchemas: args.schemas,
+			...(args.lookupTableSchemas === undefined
+				? {}
+				: { lookupTableSchemas: args.lookupTableSchemas }),
 			bindings: args.bindings,
 		};
 	}

@@ -30,6 +30,7 @@ import type {
 	CaseType,
 	Field,
 	Form,
+	LookupOptionsSource,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -48,15 +49,26 @@ import type { EvalContext } from "../xpath/types";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
-import type { ResolvedPreviewIdentity } from "./identity";
+import { previewSessionValues, type ResolvedPreviewIdentity } from "./identity";
 import {
 	rebaseOntoContext,
 	remapInstancePath,
 	stripIndices,
 } from "./instancePaths";
 import { resolveLabel } from "./labelRefs";
+import {
+	evaluateLookupChoices,
+	lookupOptionsSourceCovered,
+	type PreviewLookupData,
+} from "./lookupEvaluation";
+import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { TriggerDag } from "./triggerDag";
-import { type FieldState, fieldStatesEqual } from "./types";
+import {
+	type FieldState,
+	fieldStatesEqual,
+	type LookupChoice,
+	lookupChoicesEqual,
+} from "./types";
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
@@ -109,6 +121,27 @@ function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
 	};
 }
 
+/**
+ * Drop a select's answer tokens that are no longer among its live
+ * choices — the device unselects a value its rebuilt choice list no
+ * longer offers. Single-select clears wholesale; multi-select keeps
+ * the surviving space-joined tokens in their original order.
+ */
+function retainSelection(
+	kind: "single_select" | "multi_select",
+	value: string,
+	choices: readonly LookupChoice[],
+): string {
+	if (value === "") return value;
+	const offered = new Set(choices.map((c) => c.value));
+	if (kind === "single_select") {
+		return offered.has(value) ? value : "";
+	}
+	const kept = value.split(" ").filter((token) => token && offered.has(token));
+	const joined = kept.join(" ");
+	return joined === value ? value : joined;
+}
+
 export class FormEngine {
 	/** Zustand store holding per-path FieldState. Components subscribe
 	 *  via `useStore(engine.store, s => s[path])` for surgical reactivity. */
@@ -139,6 +172,17 @@ export class FormEngine {
 	 *  from an ancestor's row as if it were the bound case. */
 	private caseDataOwnType: string | undefined;
 	private formType: string;
+	/** One Project lookup fixture snapshot captured for the engine's
+	 *  LIFETIME — lookup-backed choices stay stable within a form
+	 *  session (the wire's install/upgrade fixture semantic); the next
+	 *  activation captures the builder session's refreshed cache.
+	 *  `null` when the caller supplied none — evaluating a lookup
+	 *  carrier then throws the validation-bypass invariant. */
+	private lookupData: PreviewLookupData | null;
+	/** uuid → generic path cache for lookup-filter `formFields` bindings,
+	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
+	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
+	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
@@ -149,8 +193,10 @@ export class FormEngine {
 		moduleCaseType?: string,
 		caseData?: CaseDataByType,
 		previewIdentity?: ResolvedPreviewIdentity | null,
+		lookupData?: PreviewLookupData | null,
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
+		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;
 		this.moduleCaseType = moduleCaseType;
 		this.caseDataOwnType = moduleCaseType;
@@ -1244,6 +1290,7 @@ export class FormEngine {
 		let value = current.value;
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
+		let choices = current.choices;
 		let hasValidation = false;
 
 		for (const { type, expr } of expressions) {
@@ -1299,6 +1346,38 @@ export class FormEngine {
 					}
 					break;
 				}
+				case "choices": {
+					const f = this.findField(path);
+					if (
+						f !== undefined &&
+						(f.kind === "single_select" || f.kind === "multi_select") &&
+						f.optionsSource !== undefined
+					) {
+						const next = this.computeLookupChoices(f.optionsSource, ctx);
+						/* `undefined` is the typed loading state: no snapshot captured
+						 * yet (the cold-load race before the builder session's fetch
+						 * settles). The renderer shows loading, and the controller's
+						 * first-arrival rebuild recomputes; nothing is unselected on
+						 * unknown — unknown is not empty. */
+						if (next === undefined) break;
+						if (!lookupChoicesEqual(next, choices)) {
+							choices = next;
+							changed = true;
+						}
+						/* Unselect-on-removal: a selected value no longer among the
+						 * filtered choices is dropped (multi-select token-wise). The
+						 * DAG cascade already covers downstream readers — the seed's
+						 * BFS closure includes this field's own dependents, and topo
+						 * order evaluates them after this write lands. */
+						const retained = retainSelection(f.kind, value, next);
+						if (retained !== value) {
+							this.instance.set(path, retained);
+							value = retained;
+							changed = true;
+						}
+					}
+					break;
+				}
 			}
 		}
 
@@ -1310,6 +1389,7 @@ export class FormEngine {
 				value,
 				resolvedLabel,
 				resolvedHint,
+				choices,
 			};
 		}
 
@@ -1538,6 +1618,119 @@ export class FormEngine {
 			position,
 			size,
 		};
+	}
+
+	// ── Private: lookup-carrier evaluation ───────────────────────────
+
+	/** Whether any field in the active tree carries a lookup-backed
+	 *  options source — the signal the controller uses to decide if a
+	 *  late-arriving lookup snapshot warrants a rebuild. */
+	usesLookupData(): boolean {
+		let found = false;
+		const walk = (nodes: FieldTreeNode[]): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				if (
+					(f.kind === "single_select" || f.kind === "multi_select") &&
+					f.optionsSource !== undefined
+				) {
+					found = true;
+					return;
+				}
+				if (node.children) walk(node.children);
+				if (found) return;
+			}
+		};
+		walk(this.tree);
+		return found;
+	}
+
+	/** Whether this engine captured a lookup snapshot at construction. */
+	hasLookupData(): boolean {
+		return this.lookupData !== null;
+	}
+
+	/** Does the CAPTURED snapshot cover every lookup identity this
+	 *  form's carriers reference? False when none was captured or when
+	 *  a validly committed edit outran the captured referenced set —
+	 *  the controller's rebuild-on-arrival heal keys on it, so ordinary
+	 *  data refreshes (covered) preserve per-form-session stability
+	 *  while an identity gap rebuilds the moment fresh data lands. */
+	lookupDataCoversForm(): boolean {
+		let covered = true;
+		const walk = (nodes: FieldTreeNode[]): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				if (
+					(f.kind === "single_select" || f.kind === "multi_select") &&
+					f.optionsSource !== undefined &&
+					!lookupOptionsSourceCovered(
+						f.optionsSource,
+						this.lookupData ?? undefined,
+					)
+				) {
+					covered = false;
+					return;
+				}
+				if (node.children) walk(node.children);
+				if (!covered) return;
+			}
+		};
+		walk(this.tree);
+		return covered;
+	}
+
+	/** `undefined` while the captured snapshot doesn't cover this
+	 *  source's identities — no snapshot at all, or a validly committed
+	 *  edit referencing a table/column the snapshot predates. Both are
+	 *  the typed loading state the renderer presents; the controller's
+	 *  coverage-keyed rebuild resolves them when fresh data arrives.
+	 *  Only a COVERED snapshot evaluates, so `evaluateLookupChoices`'s
+	 *  identity throws stay a genuine validation-bypass surface. */
+	private computeLookupChoices(
+		source: LookupOptionsSource,
+		ctx: EvalContext,
+	): readonly LookupChoice[] | undefined {
+		const data = this.lookupData;
+		if (data === null || !lookupOptionsSourceCovered(source, data)) {
+			return undefined;
+		}
+		return evaluateLookupChoices(source, data, {
+			outer: this.lookupOuterContext(ctx),
+			formFields: this.fieldPathsByUuid(),
+		});
+	}
+
+	/** The engine's eval context extended with the session-instance path
+	 *  spellings the on-device emitters print for session/user terms —
+	 *  a lookup filter's non-row reads resolve here. */
+	private lookupOuterContext(base: EvalContext): EvalContext {
+		const session = previewSessionValues(this.previewIdentity);
+		return {
+			...base,
+			getValue: (p) => sessionInstancePathValue(p, session) ?? base.getValue(p),
+		};
+	}
+
+	/** uuid → generic path over the live tree, cached per tree identity —
+	 *  the `formFields` binding surface lookup filters emit against
+	 *  (generic paths; the outer context's rebasing read materializes the
+	 *  evaluating node's own instance). */
+	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
+		if (this.fieldPathsCacheTree !== this.tree) {
+			const paths = new Map<Uuid, string>();
+			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
+				for (const node of nodes) {
+					const nodePath = `${prefix}/${node.field.id}`;
+					paths.set(node.field.uuid, nodePath);
+					if (node.children) walk(node.children, nodePath);
+				}
+			};
+			walk(this.tree, "/data");
+			this.fieldPathsCache = paths;
+			this.fieldPathsCacheTree = this.tree;
+		}
+		return this.fieldPathsCache;
 	}
 
 	private findField(path: string): Field | undefined {

@@ -31,6 +31,7 @@ import type {
 	CaseRow,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
+	LookupTableSchemas,
 	TermBindings,
 } from "@/lib/case-store";
 import { withProjectContext } from "@/lib/case-store";
@@ -48,7 +49,9 @@ import {
 	type Column,
 	caseListColumnHasRuntimeRole,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import { mapExpressionAst, mapPredicateAst } from "@/lib/domain/predicate";
 import {
 	ancestorPath,
 	eq,
@@ -64,6 +67,11 @@ import {
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
 import { log } from "@/lib/logger";
+import {
+	getLookupDefinitions,
+	getLookupFixtureData,
+} from "@/lib/lookup/service";
+import type { LookupScope } from "@/lib/lookup/types";
 import type {
 	CaseQueryConstraintSource,
 	LoadCaseDataResult,
@@ -73,6 +81,7 @@ import type {
 	SubmissionMutation,
 } from "./caseDataBindingTypes";
 import { previewAsMe, type ResolvedPreviewIdentity } from "./identity";
+import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 import {
 	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
@@ -144,6 +153,12 @@ export async function readCases(
 		caseListConfig?: CaseListConfig;
 		inputValues?: SearchInputValues;
 		bindings?: TermBindings;
+		/** Rows-free lookup definition types for the compiler's
+		 * `table-lookup`/`table-column` arms — required whenever the
+		 * composed predicate / calc columns carry a lookup carrier
+		 * (`collectConfigLookupTableIds` + `loadLookupTableSchemas`
+		 * derive it at the action boundary). */
+		lookupTableSchemas?: LookupTableSchemas;
 		excludedOwnerIds?: readonly string[];
 		authoredExcludedOwnerIds?: readonly string[];
 		page?: { offset: number; limit: number };
@@ -163,6 +178,7 @@ export async function readCases(
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
 		predicate: composedQuery.predicate,
 	};
 	let totalCount =
@@ -191,6 +207,7 @@ export async function readCases(
 			caseType: args.caseType,
 			caseTypeSchemas: args.caseTypeSchemas,
 			bindings: args.bindings,
+			lookupTableSchemas: args.lookupTableSchemas,
 			predicate: composedQuery.predicate,
 			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 			calculated: args.caseListConfig?.columns.filter(
@@ -277,6 +294,7 @@ async function countAuthoredCasePopulation(
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly caseListConfig?: CaseListConfig;
 		readonly bindings?: TermBindings;
+		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
 	},
 ): Promise<number> {
@@ -293,6 +311,7 @@ async function countAuthoredCasePopulation(
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
 		predicate: authoredQuery.predicate,
 	});
 }
@@ -509,6 +528,7 @@ export async function readFilterPreview(
 		caseTypeSchemas: ReadonlyMap<string, CaseType>;
 		caseListConfig: CaseListConfig;
 		bindings?: TermBindings;
+		lookupTableSchemas?: LookupTableSchemas;
 		excludedOwnerIds?: readonly string[];
 		limit?: number;
 	},
@@ -536,6 +556,7 @@ export async function readFilterPreview(
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
 		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
 		predicate,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
@@ -549,6 +570,7 @@ export async function readFilterPreview(
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
 		predicate,
 	});
 
@@ -683,6 +705,7 @@ export async function readCaseData(
 		caseListConfig?: CaseListConfig;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
+		lookupTableSchemas?: LookupTableSchemas;
 		/** The review surface's View case dialog reads a HELD case by
 		 * design; running-app callers leave this unset and inherit the
 		 * hold (a held case reads as `missing`, like its list absence). */
@@ -694,6 +717,7 @@ export async function readCaseData(
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
 		predicate: eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
@@ -1043,14 +1067,111 @@ export async function gatedCaseStore(
 	identity: ResolvedPreviewIdentity,
 	required: AppCapability,
 ): Promise<CaseStore> {
-	const { projectId } = await resolveAppScope(
+	return (await gatedCaseStoreWithScope(appId, identity, required)).store;
+}
+
+/**
+ * `gatedCaseStore` plus the resolved Project scope — for actions that
+ * additionally read Project-scoped lookup definitions with the SAME
+ * membership authorization the store resolution proved.
+ */
+export async function gatedCaseStoreWithScope(
+	appId: string,
+	identity: ResolvedPreviewIdentity,
+	required: AppCapability,
+): Promise<{ store: CaseStore; scope: LookupScope }> {
+	const { projectId, role } = await resolveAppScope(
 		appId,
 		identity.ownerId,
 		required,
 	);
-	return schemaHealingCaseStore(
-		await withProjectContext(projectId, identity.ownerId),
-		{ appId },
+	return {
+		store: schemaHealingCaseStore(
+			await withProjectContext(projectId, identity.ownerId),
+			{ appId },
+		),
+		scope: { projectId, actorId: identity.ownerId, role },
+	};
+}
+
+/**
+ * Every lookup table the config's SQL-bound slots reference: the
+ * always-on filter, calculated columns, and advanced search-input
+ * predicates all compose into `store.query`'s predicate/projection,
+ * so any `table-lookup` inside them needs the compiler's definitions
+ * snapshot. Extra expressions (the excluded-owner value) join the
+ * same sweep so one call covers an action's whole payload.
+ */
+export function collectConfigLookupTableIds(
+	caseListConfig: CaseListConfig | undefined,
+	extraExpressions: readonly ValueExpression[] = [],
+): readonly LookupTableId[] {
+	const ids = new Set<LookupTableId>();
+	const hooks = {
+		mapExpression: (expr: ValueExpression) => {
+			if (expr.kind === "table-lookup") ids.add(expr.tableId);
+			// Returning undefined descends — a nested lookup inside a
+			// `where` is collected by the same hook.
+			return undefined;
+		},
+	};
+	if (caseListConfig !== undefined) {
+		if (caseListConfig.filter !== undefined) {
+			mapPredicateAst(caseListConfig.filter, hooks);
+		}
+		for (const column of caseListConfig.columns) {
+			if (column.kind === "calculated") {
+				mapExpressionAst(column.expression, hooks);
+			}
+		}
+		for (const input of caseListConfig.searchInputs) {
+			if (input.kind === "advanced") {
+				mapPredicateAst(input.predicate, hooks);
+			}
+		}
+	}
+	for (const expression of extraExpressions) {
+		mapExpressionAst(expression, hooks);
+	}
+	return [...ids].sort();
+}
+
+/**
+ * Rows-free lookup definition types for the SQL compiler, from one
+ * Project-scoped snapshot. Missing/foreign ids are silently absent —
+ * the compiler's `requireLookupColumnType` invariant owns the loud
+ * failure if a carrier then compiles against a gap.
+ */
+/**
+ * Fixture data (definitions + complete ordered rows) for the lookup
+ * tables ONE scalar-evaluated expression references — the fold input
+ * for the excluded-owner value, which resolves server-side rather
+ * than compiling to SQL. `undefined` when the expression is absent or
+ * carrier-free, so the common path loads nothing.
+ */
+export async function loadExpressionLookupData(
+	scope: LookupScope,
+	expression: ValueExpression | undefined,
+): Promise<PreviewLookupData | undefined> {
+	if (expression === undefined) return undefined;
+	const tableIds = collectConfigLookupTableIds(undefined, [expression]);
+	if (tableIds.length === 0) return undefined;
+	return previewLookupData(await getLookupFixtureData(scope, tableIds));
+}
+
+export async function loadLookupTableSchemas(
+	scope: LookupScope,
+	tableIds: readonly LookupTableId[],
+): Promise<LookupTableSchemas | undefined> {
+	if (tableIds.length === 0) return undefined;
+	const snapshot = await getLookupDefinitions(scope, tableIds);
+	return new Map(
+		snapshot.definitions.map((table) => [
+			table.id as string,
+			new Map(
+				table.columns.map((column) => [column.id as string, column.dataType]),
+			),
+		]),
 	);
 }
 
