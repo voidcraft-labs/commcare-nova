@@ -580,19 +580,29 @@ export async function readFilterPreview(
  *     ORDER BY against identical expressions, so the runtime cost
  *     is one evaluation per row.
  *
- * `caseListConfig === undefined` (the running-app raw-rows path)
- * returns an empty array — the caller's downstream `query` call
- * falls through to the case-store's default insertion order.
+ * When no authored sort applies (`caseListConfig === undefined`, or
+ * no column carries `sort`) the keys are the store's default
+ * ordering fact spelled explicitly: `date_opened` (creation time),
+ * then the id tie-break.
  */
 function buildCaseStoreSortKeys(
 	caseListConfig: CaseListConfig | undefined,
 	caseType: string,
 ): CaseStoreSortKey[] {
+	// Offset pagination needs a total order. Authored keys can tie;
+	// the id is unique and deterministic. It carries NO time order —
+	// authored opaque ids sort lexically — which is why the unsorted
+	// arms lead with `date_opened` rather than leaning on the id.
 	const stablePageTieBreaker: CaseStoreSortKey = {
 		direction: "asc",
 		expression: term(prop(caseType, "case_id")),
 	};
-	if (caseListConfig === undefined) return [stablePageTieBreaker];
+	const creationOrder: CaseStoreSortKey = {
+		direction: "asc",
+		expression: term(prop(caseType, "date_opened")),
+	};
+	if (caseListConfig === undefined)
+		return [creationOrder, stablePageTieBreaker];
 
 	type Survivor = { readonly column: Column; readonly index: number };
 	const survivors: Survivor[] = [];
@@ -605,7 +615,7 @@ function buildCaseStoreSortKeys(
 		if (column.sort === undefined) continue;
 		survivors.push({ column, index: i });
 	}
-	if (survivors.length === 0) return [stablePageTieBreaker];
+	if (survivors.length === 0) return [creationOrder, stablePageTieBreaker];
 
 	const sorted = [...survivors].sort((a, b) => {
 		const ap = a.column.sort?.priority ?? 0;
@@ -628,27 +638,17 @@ function buildCaseStoreSortKeys(
 					: term(prop(caseType, column.field));
 			return [{ direction: sortConfig.direction, expression }];
 		}),
-		// Offset pagination needs a total order. Authored keys can tie; UUIDv7
-		// case identity is deterministic and preserves insertion order for the
-		// otherwise-unsorted list without exposing another setting.
 		stablePageTieBreaker,
 	];
 }
 
 /**
- * UUID 8-4-4-4-12. Matches every Postgres-accepted form (v4 / v7
- * / nil). Authored here rather than imported because the only
- * consumer is `readCaseData`'s caller-id validation.
- */
-const UUID_PATTERN =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Read a single case row by id. `missing` covers absent-id,
- * cross-tenant (equivalent under the case-store contract), AND
- * syntactically invalid UUIDs — the running-app view occasionally
- * inherits a stale link from a deleted case, and surfacing
- * malformed ids as missing keeps the upstream flow structural.
+ * Read a single case row by id. Case ids are opaque text — any
+ * string is a syntactically valid identity — so `missing` covers
+ * exactly absent-id and cross-tenant (equivalent under the
+ * case-store contract); the running-app view occasionally inherits
+ * a stale link from a deleted case, and surfacing it as missing
+ * keeps the upstream flow structural.
  *
  * The `row` arm also carries the case's ANCESTOR chain
  * (nearest-first: parent, grandparent, …) so the form engine can
@@ -690,10 +690,6 @@ export async function readCaseData(
 		includeHeld?: boolean;
 	},
 ): Promise<LoadCaseDataResult> {
-	// Postgres rejects malformed UUIDs at the parameter cast (the
-	// column is `uuid`-typed). The early-return covers the
-	// syntactic-invalid arm before the SQL runs.
-	if (!UUID_PATTERN.test(args.caseId)) return { kind: "missing" };
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,

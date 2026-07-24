@@ -115,7 +115,7 @@ const dbHandle = setupPerTestDatabase({
 //
 // The contract harness exercises every method on the live
 // database. All four case-store tables (`cases`,
-// `case_type_schemas`, `case_indices`, `cases_quarantine`) must
+// `case_type_schemas`, `case_indices`, `parked_case_values`) must
 // exist before the first method call — `runCaseStoreMigrations` is
 // the canonical path that creates them.
 //

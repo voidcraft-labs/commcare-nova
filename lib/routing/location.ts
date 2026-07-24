@@ -54,8 +54,11 @@ export function serializePath(loc: Location): string[] {
 		case "module":
 			return [loc.moduleUuid];
 		case "cases":
+			/* Case ids are opaque text — `/`, `%`, `:`, and spaces are all
+			 * legal — so the segment is percent-encoded on write and decoded
+			 * in `parsePathToLocation`, keeping the round-trip symmetric. */
 			return loc.caseId !== undefined
-				? [loc.moduleUuid, "cases", loc.caseId]
+				? [loc.moduleUuid, "cases", encodeURIComponent(loc.caseId)]
 				: [loc.moduleUuid, "results"];
 		case "search-config":
 			return [loc.moduleUuid, "search"];
@@ -71,6 +74,20 @@ export function serializePath(loc: Location): string[] {
 			return loc.selectedUuid !== undefined
 				? [loc.selectedUuid]
 				: [loc.formUuid];
+	}
+}
+
+/**
+ * Decode one percent-encoded path segment. A raw `%` that is not part
+ * of a valid escape (a hand-typed or pre-encoding URL) throws in
+ * `decodeURIComponent`; the segment is then taken verbatim — for a
+ * case id that at worst reads as a missing case, never a crash.
+ */
+function decodePathSegment(segment: string): string {
+	try {
+		return decodeURIComponent(segment);
+	} catch {
+		return segment;
 	}
 }
 
@@ -207,8 +224,13 @@ export function parsePathToLocation(
 		if (segments.length === 2) {
 			return { kind: "cases", moduleUuid: first };
 		}
-		/* segments.length >= 3 — the third segment is the caseId. */
-		return { kind: "cases", moduleUuid: first, caseId: segments[2] };
+		/* segments.length >= 3 — the third segment is the caseId,
+		 * percent-encoded by `serializePath`. */
+		return {
+			kind: "cases",
+			moduleUuid: first,
+			caseId: decodePathSegment(segments[2]),
+		};
 	}
 
 	if (second === "search" || second === "search-config") {

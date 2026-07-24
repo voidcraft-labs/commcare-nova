@@ -476,6 +476,12 @@ export class PostgresCaseStore implements CaseStore {
 				const expr = compileExpression(key.expression, exprCtx);
 				qb = qb.orderBy(expr, key.direction);
 			}
+		} else {
+			// The durable default ordering fact: creation time, then the
+			// id purely as a deterministic total-order key. Authored
+			// opaque ids carry no timestamp, so heap order and id order
+			// are both wrong as an "insertion order" claim.
+			qb = qb.orderBy("c.opened_on", "asc").orderBy("c.case_id", "asc");
 		}
 
 		if (args.limit !== undefined) {
@@ -744,8 +750,8 @@ export class PostgresCaseStore implements CaseStore {
 			}
 			// Primary id generated up-front so child `parent_case_id`
 			// resolves before the bulk-insert lands. UUID v7's
-			// timestamp prefix matches `DEFAULT uuidv7()`'s B-tree
-			// clustering shape.
+			// timestamp prefix matches `DEFAULT uuidv7()::text`'s
+			// B-tree clustering shape.
 			const primaryCaseId = args.primary.case_id ?? uuidv7();
 
 			const primaryProperties = parseJsonbInput(args.primary.properties);
@@ -1229,7 +1235,7 @@ export class PostgresCaseStore implements CaseStore {
 				.select(sql<string>`count(DISTINCT held.case_id)`.as("held"))
 				.where("held.app_id", "=", args.appId)
 				.where("held.dismissed_at", "is", null)
-				.where(sql<boolean>`held.case_id = ANY(${failingCaseIds}::uuid[])`)
+				.where(sql<boolean>`held.case_id = ANY(${failingCaseIds}::text[])`)
 				.executeTakeFirstOrThrow();
 			alreadyHeld = Number(heldRow.held);
 		}
@@ -2455,7 +2461,7 @@ export class PostgresCaseStore implements CaseStore {
 		// a typed JSONB value.
 		const entries = args.rows.map(
 			({ caseId, newProperties }) =>
-				sql`(${caseId}::uuid, ${JSON.stringify(newProperties)}::jsonb)`,
+				sql`(${caseId}::text, ${JSON.stringify(newProperties)}::jsonb)`,
 		);
 		await sql`
 			UPDATE cases

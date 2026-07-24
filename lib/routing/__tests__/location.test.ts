@@ -38,6 +38,21 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([modUuid, "cases", "abc123"]);
 	});
 
+	it("percent-encodes a URL-significant opaque caseId into one segment", () => {
+		const loc: Location = {
+			kind: "cases",
+			moduleUuid: modUuid,
+			caseId: "nova-case-v1:9ac52723:external/1 %x+y",
+		};
+		const segments = serializePath(loc);
+		expect(segments).toHaveLength(3);
+		// One segment — the raw `/` must not split the path — and no
+		// raw reserved characters survive encoding.
+		expect(segments[2]).toBe(
+			"nova-case-v1%3A9ac52723%3Aexternal%2F1%20%25x%2By",
+		);
+	});
+
 	it("returns [moduleUuid, 'search'] for the case-search authoring kind", () => {
 		// Internal discriminants stay stable while visible URLs use the
 		// workspace's friendly Search / Results / Details nouns.
@@ -175,6 +190,32 @@ describe("parsePathToLocation", () => {
 			kind: "cases",
 			moduleUuid: modUuid,
 			caseId: "abc",
+		});
+	});
+
+	it("round-trips a URL-significant opaque caseId through serialize + parse", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		const loc: Location = {
+			kind: "cases",
+			moduleUuid: modUuid,
+			caseId: "nova-case-v1:9ac52723:external/1 %x+y",
+		};
+		expect(parsePathToLocation(serializePath(loc), doc)).toEqual(loc);
+	});
+
+	it("takes an undecodable caseId segment verbatim instead of throwing", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		// A raw `%` not part of a valid escape — a hand-typed or
+		// pre-encoding URL — must degrade to a (missing) identity,
+		// never a crash.
+		expect(parsePathToLocation([modUuid, "cases", "100%legit"], doc)).toEqual({
+			kind: "cases",
+			moduleUuid: modUuid,
+			caseId: "100%legit",
 		});
 	});
 

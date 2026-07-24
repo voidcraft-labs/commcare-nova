@@ -372,7 +372,7 @@ Compiler verification stays serialized across wire slices.
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b | shipped | PR-01/03, F5 |
-| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | ready | PR-04, F1/F4 |
+| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | in progress | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
 | S09 | Project data tables workspace and options authoring | S05c/S07 | blocked | PR-05 |
@@ -2652,6 +2652,19 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-24 — S06 storage activation (first of three units):**
+  `agent/s06-opaque-ids` widens the identity family to `text` per the
+  closure — the schema-resolving, replay-guarded `opaque_case_ids`
+  migration with `uuidv7()::text` retained as the generated-id default;
+  both `::uuid` casts and `readCaseData`'s UUID gate deleted; the
+  `(opened_on, case_id)` ordering fact emitted explicitly by the store's
+  unsorted query and led by `date_opened` in the preview sort-key builder;
+  the builder URL's case-id segment percent-encoded/decoded symmetrically;
+  and `scripts/scan-case-id-storage.ts` as the durable pre/post scan.
+  Acceptance suites pin URL-significant authored ids through CRUD, edge
+  derivation, parking/cascade, retenancy, ordering, and the routing
+  round-trip. The identity contract and the atomic envelope follow as the
+  slice's remaining units.
 - **2026-07-24 — S06 readiness closed:** The audit ran under the recorded
   discipline: a blind draft derived from merged `main` (`9a959e89`) and the
   CommCare checkouts, with PR-04, F1/F4, and the ACA memo harvested as

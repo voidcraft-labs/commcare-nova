@@ -417,6 +417,9 @@ describe("readCases", () => {
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
+		// The unsorted list orders by the durable `(opened_on, case_id)`
+		// fact — creation time first, id purely as tie-break — so ids are
+		// deliberately OUT of id order while `opened_on` fixes the pages.
 		const caseIds = [
 			"10000000-0000-0000-0000-000000000003",
 			"10000000-0000-0000-0000-000000000001",
@@ -430,6 +433,7 @@ describe("readCases", () => {
 					case_type: "patient",
 					case_name: `Patient ${index + 1}`,
 					status: "open",
+					opened_on: new Date(Date.UTC(2026, 0, index + 1)),
 					properties: { name: `Patient ${index + 1}`, age: 20 + index },
 				},
 			});
@@ -448,7 +452,7 @@ describe("readCases", () => {
 		});
 		if (firstPage.kind !== "rows") return;
 		expect(firstPage.rows.map((row) => row.case_id)).toEqual(
-			[...caseIds].sort().slice(0, 2),
+			caseIds.slice(0, 2),
 		);
 
 		const staleFinalPage = await readCases(store, {
@@ -463,9 +467,7 @@ describe("readCases", () => {
 			pageSize: 2,
 		});
 		if (staleFinalPage.kind !== "rows") return;
-		expect(staleFinalPage.rows.map((row) => row.case_id)).toEqual([
-			[...caseIds].sort()[2],
-		]);
+		expect(staleFinalPage.rows.map((row) => row.case_id)).toEqual([caseIds[2]]);
 	});
 
 	it("recounts and retries once when a delete empties the counted page", async () => {
