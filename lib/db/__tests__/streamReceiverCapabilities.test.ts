@@ -14,13 +14,16 @@ function receiverQuery(...values: string[]): URLSearchParams {
 
 describe("stream receiver capability admission", () => {
 	it("serves the compiled manifest's receiver capability", () => {
-		expect(RUNTIME_CAPABILITIES.streamReceiverVersion).toBe(2);
+		expect(RUNTIME_CAPABILITIES.streamReceiverVersion).toBe(3);
 		expect(RUNTIME_CAPABILITIES.streamRegistryVersion).toBe(1);
 		// The baked image environment is deliberately not consulted: the startup
 		// probe proves it identical to the compiled manifest before an instance
 		// serves, and environments with no baked declaration (local dev, CI)
 		// must not fail closed to v0 under a nonzero admission floor.
-		expect(resolveServingStreamReceiverVersion()).toBe(2);
+		expect(resolveServingStreamReceiverVersion()).toBe(3);
+		expect(resolveEffectiveStreamReceiverVersion(receiverQuery("3"))).toBe(3);
+		/* The min-of-browser-and-manifest clamp: an old bundle still declares
+		 * its own lower version and stays admitted above the DB floor. */
 		expect(resolveEffectiveStreamReceiverVersion(receiverQuery("2"))).toBe(2);
 		expect(resolveEffectiveStreamReceiverVersion(receiverQuery("1"))).toBe(1);
 	});

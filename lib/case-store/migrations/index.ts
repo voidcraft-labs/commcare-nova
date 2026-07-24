@@ -36,6 +36,7 @@ import * as mediaReferenceIndexState from "./20260722140000_media_reference_inde
 import * as mediaUploadAliases from "./20260722203000_media_upload_aliases";
 import * as lookupReferenceFloors from "./20260723120000_lookup_reference_floors";
 import * as opaqueCaseIds from "./20260724030000_opaque_case_ids";
+import * as caseOperationsFlag from "./20260724130000_case_operations_flag";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -62,6 +63,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260722203000_media_upload_aliases": mediaUploadAliases,
 	"20260723120000_lookup_reference_floors": lookupReferenceFloors,
 	"20260724030000_opaque_case_ids": opaqueCaseIds,
+	"20260724130000_case_operations_flag": caseOperationsFlag,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

@@ -27,6 +27,7 @@ export interface LookupReferenceCompatibilityState {
 	readonly carrierCommitsEnabled: boolean;
 	readonly destructiveSchemaActionsEnabled: boolean;
 	readonly projectMovesEnabled: boolean;
+	readonly caseOperationsEnabled: boolean;
 	readonly updatedAt: Date;
 }
 
@@ -65,7 +66,8 @@ export interface RolloutCompatibilityStatus {
 export type LookupReferenceActivationFlag =
 	| "carrier_commits_enabled"
 	| "destructive_schema_actions_enabled"
-	| "project_moves_enabled";
+	| "project_moves_enabled"
+	| "case_operations_enabled";
 
 /**
  * Perform a fresh read of the exact effective Cloud Run traffic split when
@@ -141,6 +143,7 @@ type CompatibilityRow = {
 	readonly carrier_commits_enabled: boolean;
 	readonly destructive_schema_actions_enabled: boolean;
 	readonly project_moves_enabled: boolean;
+	readonly case_operations_enabled: boolean;
 	readonly updated_at: Date;
 };
 
@@ -155,6 +158,7 @@ function compatibilityState(
 		carrierCommitsEnabled: row.carrier_commits_enabled,
 		destructiveSchemaActionsEnabled: row.destructive_schema_actions_enabled,
 		projectMovesEnabled: row.project_moves_enabled,
+		caseOperationsEnabled: row.case_operations_enabled,
 		updatedAt: row.updated_at,
 	};
 }
@@ -173,6 +177,7 @@ async function readCompatibilityRow(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.where("id", "=", 1);
@@ -512,6 +517,7 @@ export async function raiseMinimumRuntimeReaderVersionInTransaction(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.executeTakeFirstOrThrow();
@@ -558,6 +564,7 @@ export async function raiseMinimumStreamReceiverVersionInTransaction(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.executeTakeFirstOrThrow();
@@ -588,6 +595,8 @@ export async function disableLookupReferenceActivationFlagInTransaction(
 		update = update.set({ carrier_commits_enabled: false });
 	} else if (flag === "destructive_schema_actions_enabled") {
 		update = update.set({ destructive_schema_actions_enabled: false });
+	} else if (flag === "case_operations_enabled") {
+		update = update.set({ case_operations_enabled: false });
 	} else {
 		update = update.set({ project_moves_enabled: false });
 	}
@@ -602,6 +611,7 @@ export async function disableLookupReferenceActivationFlagInTransaction(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.executeTakeFirstOrThrow();
