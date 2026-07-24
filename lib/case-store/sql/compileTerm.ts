@@ -49,6 +49,11 @@ import {
 import { canonicalizeRelationPath } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
 import { compileLiteral } from "./compileLiteral";
+import {
+	compileLookupColumnTerm,
+	type LookupRowScope,
+	type LookupTableSchemas,
+} from "./compileLookup";
 import { compileRelationPath } from "./compileRelationPath";
 import type { Database } from "./database";
 import {
@@ -172,6 +177,20 @@ export interface TermCompileContext {
 	 * term compiler throws rather than emit ambiguous SQL.
 	 */
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	/**
+	 * Rows-free lookup-table definitions (table id → column id →
+	 * declared data type) for the S05 lookup carriers. Optional —
+	 * compile sites whose slots the validator keeps carrier-free omit
+	 * it, and a carrier reaching such a site throws a missing-context
+	 * invariant instead of guessing a cast.
+	 */
+	lookupTableSchemas?: LookupTableSchemas;
+	/**
+	 * The enclosing `table-lookup`'s row scope. Set by
+	 * `compileTableLookup` around its `where` compilation only —
+	 * `table-column` terms are legal nowhere else.
+	 */
+	lookupRowScope?: LookupRowScope;
 	bindings: TermBindings;
 }
 
@@ -221,9 +240,7 @@ export function compileTerm(
 				`form field '${term.uuid}'`,
 			);
 		case "table-column":
-			throw new Error(
-				"compileTerm: lookup-table column terms are dormant until lookup execution lands; validation should reject them before case-store SQL compilation.",
-			);
+			return compileLookupColumnTerm(term, ctx);
 		default: {
 			const _exhaustive: never = term;
 			throw new Error(

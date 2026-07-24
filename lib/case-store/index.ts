@@ -43,6 +43,7 @@ export { withProjectContext, withSchemaContext } from "./projectContext";
 // Cross-tenant case re-tenant — the case-store half of moving an app between
 // Projects. The db-injectable `*On` twin stays package-private (harness only).
 export { retenantAppCases } from "./retenant";
+export type { LookupTableSchemas } from "./sql/compileLookup";
 export type {
 	FormFieldBindingValue,
 	TermBindings,

@@ -74,6 +74,7 @@ import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain/standardCaseProperties";
+import { compileTableLookup } from "./compileLookup";
 import { compileRelationPath } from "./compileRelationPath";
 import {
 	compileBoundRef,
@@ -188,9 +189,7 @@ export function compileExpression(
 		case "format-date":
 			return compileFormatDate(expr.date, expr.pattern, ctx);
 		case "table-lookup":
-			throw new Error(
-				"compileExpression: lookup-table expressions are dormant until lookup execution lands; validation should reject them before case-store SQL compilation.",
-			);
+			return compileTableLookup(expr, ctx);
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(

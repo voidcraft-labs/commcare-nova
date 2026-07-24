@@ -38,6 +38,7 @@ import type {
 	RelationPath,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { TermBindings } from "./sql/compileTerm";
 import type {
 	CasesTable,
@@ -161,6 +162,15 @@ export interface QueryArgs {
 	appId: string;
 	caseType: string;
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+	/**
+	 * Rows-free lookup definitions (table id → column id → data type)
+	 * for predicates, sort keys, or calculated projections carrying the
+	 * S05 lookup carriers. Required exactly when the ASTs reference a
+	 * lookup table — a carrier compiling without it throws the
+	 * missing-context invariant. Project the same definitions snapshot
+	 * validation used so casts match the type checker.
+	 */
+	lookupTableSchemas?: LookupTableSchemas;
 	/** Runtime values for input/session terms used by predicates, sort keys, or calculated projections. */
 	bindings?: TermBindings;
 	predicate?: Predicate;
@@ -198,6 +208,8 @@ export interface CountArgs {
 	appId: string;
 	caseType: string;
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+	/** Same contract as `QueryArgs.lookupTableSchemas`. */
+	lookupTableSchemas?: LookupTableSchemas;
 	/** Runtime values for input/session terms used by the predicate. */
 	bindings?: TermBindings;
 	predicate?: Predicate;

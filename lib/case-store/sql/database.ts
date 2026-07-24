@@ -38,6 +38,7 @@
 // 'key'`, `properties->>'key' IS NULL`, `= ''`).
 
 import type { ColumnType, JSONColumnType } from "kysely";
+import type { LookupRowsTable } from "@/lib/db/pg";
 
 // Standard recursive JSON-value union. Read-side shape of every
 // JSONB column; the dialect's serializer turns this tree into a
@@ -288,10 +289,19 @@ export interface ParkedCaseValuesTable {
 	created_at: ColumnType<Date, Date | string | undefined, Date | string>;
 }
 
-/** Complete Kysely Database type. The runtime instance is constructed elsewhere. */
+/**
+ * Complete Kysely Database type. The runtime instance is constructed
+ * elsewhere. `lookup_rows` is `lib/lookup`'s Project-scoped row
+ * storage, present here READ-ONLY for `compileTableLookup`'s
+ * first-match subqueries — the authoritative shape and every writer
+ * live in `lib/db` (the type import keeps the two universes'
+ * intersection on the shared pool compatible); the case store never
+ * writes these rows.
+ */
 export interface Database {
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
 	case_indices: CaseIndicesTable;
 	parked_case_values: ParkedCaseValuesTable;
+	lookup_rows: LookupRowsTable;
 }
