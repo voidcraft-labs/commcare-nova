@@ -146,6 +146,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# sharp's prebuilt libvips (@img/sharp-libvips-*) is loaded via dlopen from
+# the binding's RPATH, never require()d, so Next's standalone file tracing
+# cannot see it and the traced node_modules ships the binding without the
+# shared library it needs. Copy the platform's @img tree explicitly.
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
+
 # Self-contained migration entrypoint. The `commcare-nova-migrate` Cloud Run
 # Job reuses THIS image with a `node migrate.cjs` command override, so the
 # bundled migrator (kysely + pg + Cloud SQL connector, inlined by esbuild in
