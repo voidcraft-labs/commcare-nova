@@ -17,13 +17,13 @@ import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import { loadApp, loadAppInTransaction, loadAppProjectId } from "./apps";
+import { readLookupActivationForShare } from "./lookupActivation";
 import type { AppDatabase } from "./pg";
 import { withAppTx } from "./pg";
 import {
 	projectRoleFor,
 	projectRoleForInTransaction,
 } from "./projectMembership";
-import { readLookupActivationForShare } from "./rolloutCompatibility";
 import type { AppDoc } from "./types";
 
 export type AppAccessReason = "not_found" | "not_member" | "insufficient_role";

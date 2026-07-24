@@ -14,7 +14,7 @@
  * loads every external validation resource before any wire emitter runs.
  */
 
-import { readLookupActivationFlags } from "@/lib/db/rolloutCompatibility";
+import { readLookupActivationFlags } from "@/lib/db/lookupActivation";
 import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import "server-only";
 

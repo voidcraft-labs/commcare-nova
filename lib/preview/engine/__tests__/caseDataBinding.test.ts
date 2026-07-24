@@ -177,7 +177,7 @@ vi.mock("@/lib/db/appAccess", async () => {
 const { activationFlagsMock } = vi.hoisted(() => ({
 	activationFlagsMock: vi.fn(),
 }));
-vi.mock("@/lib/db/rolloutCompatibility", () => ({
+vi.mock("@/lib/db/lookupActivation", () => ({
 	readLookupActivationFlags: activationFlagsMock,
 	readLookupActivationForShare: vi.fn(),
 }));

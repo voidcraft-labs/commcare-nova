@@ -109,6 +109,7 @@ import {
 	rowReservation,
 	rowRunLock,
 } from "./leaseView";
+import { readLookupActivationForShare } from "./lookupActivation";
 import {
 	LookupReferenceWriteError,
 	lockLookupTablesForReferenceWrite,
@@ -143,7 +144,6 @@ import {
 	lockProjectMoveCompatibility,
 	lockProjectMoveMemberships,
 } from "./projectMoveAdmission";
-import { readLookupActivationForShare } from "./rolloutCompatibility";
 import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
 import {
 	type ExactRunHolderIdentity,

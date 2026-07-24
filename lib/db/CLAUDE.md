@@ -309,6 +309,13 @@ must never use the 10/15-minute renewable liveness horizons as total drain
 bounds.
 
 `rolloutCompatibility.ts` is the only named compatibility-operation service.
+The activation-FLAG reads (`readLookupActivationForShare` /
+`readLookupActivationFlags`) live in the marker-free `lookupActivation.ts`
+leaf instead: `apps.ts`/`appAccess.ts` import them on the commit path, and the
+tsx-run smoke seeds + inspect scripts import `apps.ts`, so the leaf must load
+under plain Node — adding `server-only` there (or importing the operational
+service from the commit path) breaks every one of those entry points at
+import time, the same trade `threads.ts` documents.
 Its status read is one repeatable-read snapshot. Traffic reconciliation and
 runtime-epoch preparation invoke their control-plane snapshot callback only
 after taking the fixed deployment-cutover gate; that callback must perform a

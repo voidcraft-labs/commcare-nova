@@ -42,8 +42,8 @@ import {
 } from "@/lib/case-store/errors";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
+import { readLookupActivationFlags } from "@/lib/db/lookupActivation";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
-import { readLookupActivationFlags } from "@/lib/db/rolloutCompatibility";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
