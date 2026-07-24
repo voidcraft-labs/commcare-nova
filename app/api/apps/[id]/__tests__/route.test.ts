@@ -93,6 +93,10 @@ describe("GET /api/apps/[id]", () => {
 			projectId: "project-1",
 			role: "viewer",
 			canEdit: false,
+			activation: {
+				carrierCommitsEnabled: false,
+				caseOperationsEnabled: false,
+			},
 			blueprint: BLUEPRINT,
 			baseSeq: 42,
 			app_name: "Nutrition visits",
