@@ -94,17 +94,25 @@ Data is ONE Project fixture snapshot (definitions + complete ordered rows for
 the doc's referenced tables): `PreviewLookupDataProvider` fetches it
 generation-keyed on the reconciler scope epoch, refreshes per-table on the
 Project lookup clock, and installs it on the `EngineController` like the
-preview identity. An engine CAPTURES the snapshot at activation — choices
-stay stable within a form session (the wire's install/upgrade fixture
-semantic) and the next activation picks up the refreshed cache; only the
-FIRST arrival rebuilds an active carrier-bearing engine that had none
-(touched values restored). Choices are engine values: the DAG's `choices`
-expression re-filters on any filter-answer change (the device's
-prompt-rebuild), and a selected value the rebuilt choices no longer offer is
-unselected (token-wise for multi-select), cascading through the ordinary topo
-pass. `FieldState.choices === undefined` is the typed loading state; with a
-loaded snapshot, an unavailable table/column identity throws the
-validation-bypass invariant.
+preview identity. **COVERAGE, not presence, decides evaluability**: the
+snapshot covers only the tables referenced at fetch time, so every surface
+asks the coverage predicates (`lookupOptionsSourceCovered` /
+`predicateLookupsCovered` / `expressionLookupsCovered`) first and treats a
+miss as its loading state — a validly committed edit referencing a
+new table/column degrades gracefully while the refetch lands, and the
+`requireTable`/`requireColumn` throws fire only on a genuinely bypassed
+validator. An engine CAPTURES the snapshot at activation — choices stay
+stable within a form session (the wire's install/upgrade fixture semantic)
+and the next activation picks up the refreshed cache; an arrival rebuilds the
+active engine only while its capture fails to COVER the form's carriers
+(cold load, or a valid rebind the capture predates), with touched values
+restored. Choices are engine values: the DAG's `choices` expression
+re-filters on any filter-answer change (the device's prompt-rebuild), and a
+selected value the rebuilt choices no longer offer is unselected (token-wise
+for multi-select), cascading through the ordinary topo pass.
+`FieldState.choices === undefined` is the typed loading state, and each
+choice carries its source row id as display identity (lookup rows guarantee
+neither unique nor non-blank values).
 
 Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
 render through the same printing path: module conditions gate the home
