@@ -30,6 +30,7 @@ import {
 	createPerTestAppDb,
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
+import { declareLookupReferenceWriter } from "@/lib/db/lookupReferenceWriter";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { declareRuntimeReader } from "@/lib/db/runtimeReaderVersion";
 
@@ -365,36 +366,39 @@ async function chunkRows(streamId: string) {
 }
 
 async function seedSerializeWaitEdit() {
-	await appDb
-		.insertInto("apps")
-		.values({
-			id: WAIT_APP,
-			owner: USER,
-			project_id: PROJECT,
-			app_name: "Waited edit app",
-			app_name_lower: "waited edit app",
-			connect_type: null,
-			case_types: null,
-			logo: null,
-			module_count: 0,
-			form_count: 0,
-			mutation_seq: 0,
-			status: "complete",
-			awaiting_input: false,
-			error_type: null,
-			deleted_at: null,
-			recoverable_until: null,
-			run_id: null,
-			res_period: null,
-			res_reserved: null,
-			res_settled: null,
-			res_user_id: null,
-			res_run_id: null,
-			lock_run_id: null,
-			lock_actor_user_id: null,
-			lock_expire_at: null,
-		})
-		.execute();
+	await appDb.transaction().execute(async (tx) => {
+		await declareLookupReferenceWriter(tx);
+		await tx
+			.insertInto("apps")
+			.values({
+				id: WAIT_APP,
+				owner: USER,
+				project_id: PROJECT,
+				app_name: "Waited edit app",
+				app_name_lower: "waited edit app",
+				connect_type: null,
+				case_types: null,
+				logo: null,
+				module_count: 0,
+				form_count: 0,
+				mutation_seq: 0,
+				status: "complete",
+				awaiting_input: false,
+				error_type: null,
+				deleted_at: null,
+				recoverable_until: null,
+				run_id: null,
+				res_period: null,
+				res_reserved: null,
+				res_settled: null,
+				res_user_id: null,
+				res_run_id: null,
+				lock_run_id: null,
+				lock_actor_user_id: null,
+				lock_expire_at: null,
+			})
+			.execute();
+	});
 
 	const { loadApp, RunConflictError } = await import("@/lib/db/apps");
 	const app = await loadApp(WAIT_APP);
@@ -767,36 +771,39 @@ describe("pause-stamp ownership admission", () => {
 
 describe("free-continuation resume admission", () => {
 	it("fails closed on an unexpected re-acquire error without touching the holder or its credits", async () => {
-		await appDb
-			.insertInto("apps")
-			.values({
-				id: RESUME_APP,
-				owner: USER,
-				project_id: PROJECT,
-				app_name: "Paused app",
-				app_name_lower: "paused app",
-				connect_type: null,
-				case_types: null,
-				logo: null,
-				module_count: 1,
-				form_count: 0,
-				mutation_seq: 0,
-				status: "complete",
-				awaiting_input: true,
-				error_type: null,
-				deleted_at: null,
-				recoverable_until: null,
-				run_id: RESUME_RUN,
-				res_period: RESERVATION_PERIOD,
-				res_reserved: 5,
-				res_settled: false,
-				res_user_id: USER,
-				res_run_id: RESUME_RUN,
-				lock_run_id: RESUME_RUN,
-				lock_actor_user_id: USER,
-				lock_expire_at: new Date(Date.now() + 60_000),
-			})
-			.execute();
+		await appDb.transaction().execute(async (tx) => {
+			await declareLookupReferenceWriter(tx);
+			await tx
+				.insertInto("apps")
+				.values({
+					id: RESUME_APP,
+					owner: USER,
+					project_id: PROJECT,
+					app_name: "Paused app",
+					app_name_lower: "paused app",
+					connect_type: null,
+					case_types: null,
+					logo: null,
+					module_count: 1,
+					form_count: 0,
+					mutation_seq: 0,
+					status: "complete",
+					awaiting_input: true,
+					error_type: null,
+					deleted_at: null,
+					recoverable_until: null,
+					run_id: RESUME_RUN,
+					res_period: RESERVATION_PERIOD,
+					res_reserved: 5,
+					res_settled: false,
+					res_user_id: USER,
+					res_run_id: RESUME_RUN,
+					lock_run_id: RESUME_RUN,
+					lock_actor_user_id: USER,
+					lock_expire_at: new Date(Date.now() + 60_000),
+				})
+				.execute();
+		});
 		await appDb
 			.insertInto("credit_months")
 			.values({

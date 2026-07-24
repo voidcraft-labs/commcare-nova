@@ -36,16 +36,40 @@ async function expectSqlState(
 	expect((error as { code?: string } | undefined)?.code).toBe(expectedCode);
 }
 
+/**
+ * Run one fixture write as writer v1, then restore the caller's declaration.
+ * The deployed floor guards every fixture table, so undeclared seeding fails
+ * closed; save-and-restore keeps guard-behavior tests in control of the GUC.
+ */
+async function withWriterV1<T>(
+	client: PoolClient,
+	run: () => Promise<T>,
+): Promise<T> {
+	const prior = await client.query<{ v: string | null }>(
+		"SELECT current_setting('nova.writer_version', true) AS v",
+	);
+	await client.query("SELECT set_config('nova.writer_version', '1', true)");
+	try {
+		return await run();
+	} finally {
+		await client.query("SELECT set_config('nova.writer_version', $1, true)", [
+			prior.rows[0]?.v ?? "",
+		]);
+	}
+}
+
 async function insertApp(
 	client: PoolClient,
 	projectId: string,
 	appId = `app-${crypto.randomUUID()}`,
 ): Promise<string> {
-	await client.query(
-		`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
-		 VALUES ($1, $2, $3, 'Reference test', 'reference test')`,
-		[appId, ACTOR, projectId],
-	);
+	await withWriterV1(client, async () => {
+		await client.query(
+			`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+			 VALUES ($1, $2, $3, 'Reference test', 'reference test')`,
+			[appId, ACTOR, projectId],
+		);
+	});
 	return appId;
 }
 
@@ -91,12 +115,14 @@ async function insertEntity(
 	appId: string,
 	uuid = `module-${crypto.randomUUID()}`,
 ): Promise<string> {
-	await client.query(
-		`INSERT INTO blueprint_entities
-			(app_id, uuid, kind, parent_uuid, ordinal, data)
-		 VALUES ($1, $2, 'module', NULL, 0, '{}'::jsonb)`,
-		[appId, uuid],
-	);
+	await withWriterV1(client, async () => {
+		await client.query(
+			`INSERT INTO blueprint_entities
+				(app_id, uuid, kind, parent_uuid, ordinal, data)
+			 VALUES ($1, $2, 'module', NULL, 0, '{}'::jsonb)`,
+			[appId, uuid],
+		);
+	});
 	return uuid;
 }
 
@@ -105,12 +131,14 @@ async function insertAcceptedMutation(
 	appId: string,
 	seq = 1,
 ): Promise<void> {
-	await client.query(
-		`INSERT INTO accepted_mutations
-			(app_id, seq, batch_id, actor_id, kind, mutations)
-		 VALUES ($1, $2, $3, $4, 'human', '[]'::jsonb)`,
-		[appId, seq, crypto.randomUUID(), ACTOR],
-	);
+	await withWriterV1(client, async () => {
+		await client.query(
+			`INSERT INTO accepted_mutations
+				(app_id, seq, batch_id, actor_id, kind, mutations)
+			 VALUES ($1, $2, $3, $4, 'human', '[]'::jsonb)`,
+			[appId, seq, crypto.randomUUID(), ACTOR],
+		);
+	});
 }
 
 describe("lookup-reference infrastructure migration", () => {
@@ -137,10 +165,9 @@ describe("lookup-reference infrastructure migration", () => {
 			};
 		const compatibility = {
 			id: 1,
-			minimum_writer_version: 0,
-			minimum_stream_receiver_version: 0,
+			minimum_writer_version: 1,
+			minimum_stream_receiver_version: 2,
 			minimum_runtime_reader_version: 0,
-			continuous_registry_traffic_since: null,
 			run_holder_nonce_enforced: false,
 			carrier_commits_enabled: false,
 			destructive_schema_actions_enabled: false,
@@ -293,6 +320,10 @@ describe("lookup-reference infrastructure migration", () => {
 	test("enforces composite tenancy, implied table edges, restricts, and cascades", async ({
 		pgClient,
 	}) => {
+		// Constraint semantics under test sit behind the deployed writer floor;
+		// declare v1 so the guard admits each statement and the FK/RESTRICT
+		// verdicts are what this test observes.
+		await pgClient.query("SELECT set_config('nova.writer_version', '1', true)");
 		const projectA = `project-a-${crypto.randomUUID()}`;
 		const projectB = `project-b-${crypto.randomUUID()}`;
 		const appA = await insertApp(pgClient, projectA);
@@ -479,8 +510,8 @@ describe("lookup-reference infrastructure migration", () => {
 		expect(initial.rows).toHaveLength(1);
 		expect(initial.rows[0]).toMatchObject({
 			id: 1,
-			minimum_writer_version: 0,
-			minimum_stream_receiver_version: 0,
+			minimum_writer_version: 1,
+			minimum_stream_receiver_version: 2,
 			minimum_runtime_reader_version: 0,
 			carrier_commits_enabled: false,
 			destructive_schema_actions_enabled: false,
@@ -504,31 +535,20 @@ describe("lookup-reference infrastructure migration", () => {
 			);
 		}
 
-		for (const flag of [
-			"carrier_commits_enabled",
-			"destructive_schema_actions_enabled",
-			"project_moves_enabled",
-		]) {
-			await expectSqlState(
-				pgClient,
-				"23514",
-				`UPDATE lookup_reference_compatibility SET ${flag} = true WHERE id = 1`,
-			);
-		}
-
-		await pgClient.query(
-			`UPDATE lookup_reference_compatibility
-			 SET minimum_writer_version = 1,
-				 minimum_stream_receiver_version = 1,
-				 destructive_schema_actions_enabled = true,
-				 project_moves_enabled = true
-			 WHERE id = 1`,
-		);
+		// Carrier activation still lacks its stream/runtime floors; the schema
+		// and move flags have theirs, so only the caller-less service stands
+		// between them and production.
 		await expectSqlState(
 			pgClient,
 			"23514",
 			`UPDATE lookup_reference_compatibility
 			 SET carrier_commits_enabled = true WHERE id = 1`,
+		);
+		await pgClient.query(
+			`UPDATE lookup_reference_compatibility
+			 SET destructive_schema_actions_enabled = true,
+				 project_moves_enabled = true
+			 WHERE id = 1`,
 		);
 		await pgClient.query(
 			`UPDATE lookup_reference_compatibility
@@ -581,49 +601,10 @@ describe("lookup-reference infrastructure migration", () => {
 		);
 	});
 
-	test("defaults unset writers to version zero and guards every target at a raised floor", async ({
+	test("defaults unset writers to version zero and guards every target at the deployed floor", async ({
 		pgClient,
 		db,
 	}) => {
-		const legacyProject = `legacy-project-${crypto.randomUUID()}`;
-		const legacyApp = await insertApp(pgClient, legacyProject);
-		await pgClient.query(
-			"UPDATE apps SET mutation_seq = 1, project_id = $1 WHERE id = $2",
-			[`${legacyProject}-moved`, legacyApp],
-		);
-		const legacyEntity = await insertEntity(pgClient, legacyApp);
-		await pgClient.query(
-			"UPDATE blueprint_entities SET data = '{\"updated\":true}'::jsonb WHERE app_id = $1 AND uuid = $2",
-			[legacyApp, legacyEntity],
-		);
-		await pgClient.query(
-			"DELETE FROM blueprint_entities WHERE app_id = $1 AND uuid = $2",
-			[legacyApp, legacyEntity],
-		);
-		await insertAcceptedMutation(pgClient, legacyApp);
-
-		const legacyDeleteApp = await insertApp(pgClient, legacyProject);
-		await pgClient.query("DELETE FROM apps WHERE id = $1", [legacyDeleteApp]);
-		const legacyTable = await insertLookupTable(pgClient, legacyProject);
-		const legacyColumn = await insertLookupColumn(
-			pgClient,
-			legacyProject,
-			legacyTable,
-		);
-		await pgClient.query(
-			`UPDATE lookup_columns SET data_type = 'int'
-			 WHERE project_id = $1 AND table_id = $2 AND id = $3`,
-			[legacyProject, legacyTable, legacyColumn],
-		);
-		await pgClient.query(
-			"DELETE FROM lookup_columns WHERE project_id = $1 AND table_id = $2 AND id = $3",
-			[legacyProject, legacyTable, legacyColumn],
-		);
-		await pgClient.query(
-			"DELETE FROM lookup_tables WHERE project_id = $1 AND id = $2",
-			[legacyProject, legacyTable],
-		);
-
 		const guardedProject = `guarded-project-${crypto.randomUUID()}`;
 		const updateApp = await insertApp(pgClient, guardedProject);
 		const deleteApp = await insertApp(pgClient, guardedProject);
@@ -643,11 +624,6 @@ describe("lookup-reference infrastructure migration", () => {
 			pgClient,
 			guardedProject,
 			retypeTable,
-		);
-
-		await pgClient.query(
-			`UPDATE lookup_reference_compatibility
-			 SET minimum_writer_version = 1 WHERE id = 1`,
 		);
 
 		// The cutoff is deliberately narrow: ordinary projections that cannot
@@ -792,11 +768,6 @@ describe("lookup-reference infrastructure migration", () => {
 		pgClient,
 		db,
 	}) => {
-		await pgClient.query(
-			`UPDATE lookup_reference_compatibility
-			 SET minimum_writer_version = 1 WHERE id = 1`,
-		);
-
 		for (const malformed of ["-1", "01", "1.0", " 1", "bogus", "2147483648"]) {
 			await pgClient.query("SAVEPOINT malformed_writer_version");
 			await pgClient.query(
@@ -828,7 +799,13 @@ describe("lookup-reference infrastructure migration", () => {
 			db as unknown as Transaction<AppDatabase>,
 			1,
 		);
-		await insertApp(pgClient, "local-project", "local-setting-pass");
+		// A raw insert, not the self-declaring helper: the pass must come from
+		// the declaration above so the savepoint rollback provably resets it.
+		await pgClient.query(
+			`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+			 VALUES ('local-setting-pass', $1, 'local-project', 'Local', 'local')`,
+			[ACTOR],
+		);
 		await pgClient.query("ROLLBACK TO SAVEPOINT local_writer_version");
 		await pgClient.query("RELEASE SAVEPOINT local_writer_version");
 		await expectSqlState(

@@ -21,7 +21,13 @@
 // handle inside test bodies (`h.db()` / `h.pool()` throw outside a test, the
 // same guard `setupPerTestDatabase` imposes).
 
-import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
+import {
+	Kysely,
+	PostgresDialect,
+	type PostgresPool,
+	sql,
+	type Transaction,
+} from "kysely";
 import type { Pool } from "pg";
 import { afterEach, beforeEach } from "vitest";
 import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
@@ -29,6 +35,7 @@ import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { UNTITLED_APP_NAME } from "@/lib/db/apps";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
+import { declareLookupReferenceWriter } from "@/lib/db/lookupReferenceWriter";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppReservation, AppRunLock } from "@/lib/db/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -67,6 +74,15 @@ export interface AppStateTestDb {
 	pool(): Pool;
 	/** The per-test database URI (for a second connection in contention tests). */
 	uri(): string;
+	/**
+	 * One transaction with the lookup writer version declared — the way any
+	 * direct fixture write to a guarded table (`apps`, `blueprint_entities`,
+	 * `accepted_mutations`, destructive lookup DDL) must run at the deployed
+	 * writer floor.
+	 */
+	withDeclaredWriter<T>(
+		body: (tx: Transaction<AppDatabase>) => Promise<T>,
+	): Promise<T>;
 	/** Insert an `apps` row at a controlled run/credit state; returns its id. */
 	seedApp(opts?: SeedAppOptions): Promise<string>;
 	/**
@@ -152,6 +168,17 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		return injected;
 	};
 
+	async function withDeclaredWriter<T>(
+		body: (tx: Transaction<AppDatabase>) => Promise<T>,
+	): Promise<T> {
+		return db()
+			.transaction()
+			.execute(async (tx) => {
+				await declareLookupReferenceWriter(tx);
+				return body(tx);
+			});
+	}
+
 	async function seedApp(opts: SeedAppOptions = {}): Promise<string> {
 		const id = opts.id ?? DEFAULT_APP_ID;
 		const appName = opts.app_name ?? "";
@@ -168,7 +195,9 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			.execute(async (tx) => {
 				// Direct fixture writes deliberately bypass the app API. Declare the
 				// nonce-aware reader in the same transaction so the production holder
-				// trigger stamps rather than downgrades an active fixture to v0.
+				// trigger stamps rather than downgrades an active fixture to v0, and
+				// the writer version so the raised database floor admits the insert.
+				await declareLookupReferenceWriter(tx);
 				const runtimeReaderVersion = opts.run_holder_nonce ? "1" : "0";
 				await sql`SELECT set_config('nova.runtime_reader_version', ${runtimeReaderVersion}, true)`.execute(
 					tx,
@@ -226,49 +255,56 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			(sum, m) => sum + (persistable.formOrder[m]?.length ?? 0),
 			0,
 		);
+		// One declared transaction: the raised writer floor guards both the app
+		// insert and the entity rows.
 		await db()
-			.insertInto("apps")
-			.values({
-				id,
-				owner,
-				project_id: projectId,
-				app_name: persistable.appName,
-				app_name_lower: (
-					persistable.appName || UNTITLED_APP_NAME
-				).toLowerCase(),
-				connect_type: persistable.connectType ?? null,
-				case_types:
-					persistable.caseTypes === null
-						? null
-						: JSON.stringify(persistable.caseTypes),
-				logo: persistable.logo ?? null,
-				module_count: persistable.moduleOrder.length,
-				form_count: formCount,
-				mutation_seq: 0,
-				status: "complete",
-				awaiting_input: false,
-				error_type: null,
-				deleted_at: null,
-				recoverable_until: null,
-				run_id: null,
-			})
-			.execute();
-		const rows = decomposeBlueprint(persistable);
-		if (rows.length > 0) {
-			await db()
-				.insertInto("blueprint_entities")
-				.values(
-					rows.map((r) => ({
-						app_id: id,
-						uuid: r.uuid,
-						kind: r.kind,
-						parent_uuid: r.parent_uuid,
-						ordinal: r.ordinal,
-						data: JSON.stringify(r.data),
-					})),
-				)
-				.execute();
-		}
+			.transaction()
+			.execute(async (tx) => {
+				await declareLookupReferenceWriter(tx);
+				await tx
+					.insertInto("apps")
+					.values({
+						id,
+						owner,
+						project_id: projectId,
+						app_name: persistable.appName,
+						app_name_lower: (
+							persistable.appName || UNTITLED_APP_NAME
+						).toLowerCase(),
+						connect_type: persistable.connectType ?? null,
+						case_types:
+							persistable.caseTypes === null
+								? null
+								: JSON.stringify(persistable.caseTypes),
+						logo: persistable.logo ?? null,
+						module_count: persistable.moduleOrder.length,
+						form_count: formCount,
+						mutation_seq: 0,
+						status: "complete",
+						awaiting_input: false,
+						error_type: null,
+						deleted_at: null,
+						recoverable_until: null,
+						run_id: null,
+					})
+					.execute();
+				const rows = decomposeBlueprint(persistable);
+				if (rows.length > 0) {
+					await tx
+						.insertInto("blueprint_entities")
+						.values(
+							rows.map((r) => ({
+								app_id: id,
+								uuid: r.uuid,
+								kind: r.kind,
+								parent_uuid: r.parent_uuid,
+								ordinal: r.ordinal,
+								data: JSON.stringify(r.data),
+							})),
+						)
+						.execute();
+				}
+			});
 		return id;
 	}
 
@@ -369,6 +405,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		db,
 		pool: () => handle.pool,
 		uri: () => handle.uri,
+		withDeclaredWriter,
 		seedApp,
 		seedAppWithBlueprint,
 		seedProjectMember,

@@ -584,7 +584,7 @@ describe("database privilege convergence", () => {
 				asRole(h.db, config.runtimeRole, async (tx) => {
 					await sql`
 						UPDATE public.lookup_reference_compatibility
-						SET continuous_registry_traffic_since = clock_timestamp()
+						SET updated_at = clock_timestamp()
 						WHERE id = 1
 					`.execute(tx);
 				}),

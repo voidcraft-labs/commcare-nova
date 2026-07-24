@@ -33,14 +33,11 @@ const SOURCE = "project-source";
 const DESTINATION = "project-destination";
 
 async function enableMoves(): Promise<void> {
+	// The migrated floors already satisfy the move-activation CHECK.
 	await h
 		.db()
 		.updateTable("lookup_reference_compatibility")
-		.set({
-			minimum_writer_version: 1,
-			minimum_stream_receiver_version: 1,
-			project_moves_enabled: true,
-		})
+		.set({ project_moves_enabled: true })
 		.where("id", "=", 1)
 		.execute();
 }
@@ -60,7 +57,7 @@ async function prepareMove(appId: string, actorUserId = ACTOR) {
 					actorUserId,
 				},
 				1,
-				1,
+				2,
 			);
 		});
 }
@@ -91,7 +88,7 @@ async function commitMove(
 				{
 					batchId: crypto.randomUUID(),
 					declaredWriterVersion: 1,
-					streamReceiverVersion: 1,
+					streamReceiverVersion: 2,
 				},
 			);
 			await options.insideTransaction?.();

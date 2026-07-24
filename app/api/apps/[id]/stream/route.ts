@@ -177,7 +177,6 @@ export async function GET(
 		const cursor = parseCursor(req);
 		const receiverVersion = resolveEffectiveStreamReceiverVersion(
 			new URL(req.url).searchParams,
-			process.env,
 		);
 
 		/* The transaction re-authorizes view BEFORE reading the compatibility floor.

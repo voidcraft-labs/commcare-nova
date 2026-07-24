@@ -408,11 +408,6 @@ export interface LookupReferenceCompatibilityTable {
 		number | undefined,
 		number
 	>;
-	continuous_registry_traffic_since: ColumnType<
-		Date | null,
-		Date | string | null | undefined,
-		Date | string | null
-	>;
 	run_holder_nonce_enforced: ColumnType<boolean, boolean | undefined, boolean>;
 	carrier_commits_enabled: ColumnType<boolean, boolean | undefined, boolean>;
 	destructive_schema_actions_enabled: ColumnType<

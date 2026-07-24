@@ -563,9 +563,12 @@ only; a deployed compatibility change always fixes forward in a new migration.
 
 The forward-only runtime-reader rollout migrations add the nullable holder
 stamp, server-minted `apps.run_holder_nonce`, actor-bound
-`threads.active_holder_nonce`, the compatibility row's continuous-registry
-timestamp + irreversible `run_holder_nonce_enforced` switch, and one
-`runtime_reader_traffic_epochs` row per explicitly prepared target. The holder
+`threads.active_holder_nonce`, the compatibility row's irreversible
+`run_holder_nonce_enforced` switch, and one
+`runtime_reader_traffic_epochs` row per explicitly prepared target. The later
+`lookup_reference_floors` migration holds the writer floor at 1 and the
+stream-receiver floor at 2, so direct DML against guarded tables must declare
+writer v1 (`setTransactionWriterVersion`) in every environment, tests included. The holder
 trigger derives `(mode, runId, nonce)` from the run columns and locks the
 compatibility singleton for every transition with a holder on either side; only
 an at-rest→at-rest write bypasses that lock. A v1 declaration identifies the

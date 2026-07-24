@@ -59,6 +59,7 @@ async function withLockedApp<T>(
 		.db()
 		.transaction()
 		.execute(async (tx) => {
+			await declareLookupReferenceWriter(tx);
 			await tx
 				.selectFrom("apps")
 				.select("id")
@@ -203,12 +204,13 @@ describe("lookup reference edge materialization", () => {
 	it("allows a null-Project app to clear edges but fails closed before a nonempty write", async () => {
 		const table = await createTable(PROJECT_A, "Null Scope");
 		await h.seedApp({ id: APP_ID, project_id: PROJECT_A });
-		await h
-			.db()
-			.updateTable("apps")
-			.set({ project_id: null })
-			.where("id", "=", APP_ID)
-			.execute();
+		await h.withDeclaredWriter((tx) =>
+			tx
+				.updateTable("apps")
+				.set({ project_id: null })
+				.where("id", "=", APP_ID)
+				.execute(),
+		);
 
 		await withLockedApp(APP_ID, (tx) =>
 			replaceLookupReferenceEdges(tx, {

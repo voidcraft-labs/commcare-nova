@@ -90,7 +90,7 @@ remain allowed while referenced and do not rewrite edges.
 
 This infrastructure does not activate lookup carriers, public destructive
 operations, or cross-Project moves. Stream-capability leases and the singleton
-compatibility floors live alongside app-state tables for rolling-deploy safety;
+compatibility floors live alongside app-state tables;
 they are not Project lookup resources and must not be exposed through this
 package's table/row APIs.
 

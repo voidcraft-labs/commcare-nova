@@ -21,6 +21,10 @@ const NONCE_C = "33333333-3333-4333-8333-333333333333";
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(h.db);
+	// This suite exercises the RUNTIME-reader trigger; the separate writer
+	// floor guards every apps insert, so declare writer v1 for the per-test
+	// database's single connection rather than per statement.
+	await h.pool.query("SELECT set_config('nova.writer_version', '1', false)");
 });
 
 async function expectSqlState(
@@ -31,6 +35,10 @@ async function expectSqlState(
 	await expect(h.pool.query(statement, [...params])).rejects.toMatchObject({
 		code,
 	});
+	// pool.query destroys a client whose statement errored, so the next query
+	// gets a fresh connection; re-establish the suite's session writer
+	// declaration on it.
+	await h.pool.query("SELECT set_config('nova.writer_version', '1', false)");
 }
 
 async function runtimeStamp(appId: string): Promise<number | null> {
@@ -57,17 +65,13 @@ describe("runtime-reader rollout migration", () => {
 					)
 					OR (
 						table_name = 'lookup_reference_compatibility'
-						AND column_name IN (
-							'continuous_registry_traffic_since',
-							'run_holder_nonce_enforced'
-						)
+						AND column_name = 'run_holder_nonce_enforced'
 					)
 				)
 			 ORDER BY column_name`,
 		);
 		expect(columns.rows.map((row) => row.column_name)).toEqual([
 			"active_holder_nonce",
-			"continuous_registry_traffic_since",
 			"run_holder_nonce",
 			"run_holder_nonce_enforced",
 			"run_runtime_reader_version",

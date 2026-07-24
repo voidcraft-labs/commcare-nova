@@ -63,6 +63,13 @@ describe("runtime-reader claim/floor cutoff", () => {
 			| undefined;
 		await Promise.all([holder.connect(), floor.connect(), observer.connect()]);
 		try {
+			// The separate writer floor guards the apps inserts below; declare v1
+			// session-wide on both writing clients. The runtime-reader claims under
+			// test set (or omit) their own nova.runtime_reader_version GUC.
+			await holder.query(
+				"SELECT set_config('nova.writer_version', '1', false)",
+			);
+			await floor.query("SELECT set_config('nova.writer_version', '1', false)");
 			await floor.query(
 				`INSERT INTO runtime_reader_traffic_epochs
 					(target_version, continuous_traffic_since)
@@ -247,7 +254,6 @@ describe("runtime-reader claim/floor cutoff", () => {
 						{
 							revision: "candidate",
 							runtimeReaderVersion: 1,
-							streamRegistryVersion: 1,
 						},
 					];
 				},
