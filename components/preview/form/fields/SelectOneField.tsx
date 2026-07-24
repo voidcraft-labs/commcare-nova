@@ -5,6 +5,7 @@ import type { SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
+import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
 
 interface SelectOneFieldProps {
@@ -27,15 +28,30 @@ export function SelectOneField({
 	onChange,
 	onBlur,
 }: SelectOneFieldProps) {
-	// DISPLAY order (`sort-by-(order, uuid)`, the same sequence the wire XForm
-	// emits its `<item>`s in), not `options` array position.
-	const options = [...(field.options ?? [])].sort(bySortKey);
+	// Static options render in DISPLAY order (`sort-by-(order, uuid)`, the
+	// same sequence the wire XForm emits its `<item>`s in), never `options`
+	// array position. A lookup-backed select instead reads the ENGINE's
+	// live filtered choices (already in authored row order); while the
+	// fixture snapshot is still loading they are undefined and the list
+	// shows its loading state.
+	const lookupBacked = field.optionsSource !== undefined;
+	const options: ReadonlyArray<{
+		value: string;
+		label: string;
+		media?: (typeof field.options)[number]["media"];
+	}> = lookupBacked
+		? (state.choices ?? [])
+		: [...(field.options ?? [])].sort(bySortKey);
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
 
+	if (lookupBacked && state.choices === undefined) {
+		return <LookupChoicesLoading />;
+	}
 	return (
 		<fieldset className="m-0 border-none p-0" onBlur={onBlur}>
 			<div className="space-y-1.5">
+				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => (
 					<label
 						key={opt.value}
