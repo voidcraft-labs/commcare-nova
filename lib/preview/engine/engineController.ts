@@ -57,6 +57,7 @@ import {
 	type FormEngineInput,
 } from "./formEngine";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
+import type { PreviewLookupData } from "./lookupEvaluation";
 import { type FieldState, fieldStatesEqual } from "./types";
 
 // ── Runtime store types ─────────────────────────────────────────────────
@@ -187,6 +188,7 @@ function classifyChange(
 	| "label_refs"
 	| "id_rename"
 	| "default_value"
+	| "options_source"
 	| "kind_change" {
 	// Checked FIRST — before the id-first short-circuit and the
 	// expression/label fall-through. A `convertField` keeps the field's uuid
@@ -235,6 +237,16 @@ function classifyChange(
 	}
 
 	if (cur.default_value !== prev.default_value) return "default_value";
+
+	// Lookup-backed options source (select kinds only). Reference compare,
+	// same rationale as the AST slots above: a commit installs a fresh
+	// object, so identity diff ≡ "this slot was written". Static inline
+	// `options` edits stay "none" — the renderer reads them off the doc.
+	const curSelect = cur as Field & { optionsSource?: unknown };
+	const prevSelect = prev as Field & { optionsSource?: unknown };
+	if (curSelect.optionsSource !== prevSelect.optionsSource) {
+		return "options_source";
+	}
 
 	const labelChanged = cur.label !== prev.label;
 	const hintChanged = cur.hint !== prev.hint;
@@ -287,6 +299,14 @@ export class EngineController {
 	 *  `deactivate()`, which is a per-form lifecycle. */
 	private previewIdentity: ResolvedPreviewIdentity | null = null;
 
+	/** The builder session's lookup fixture snapshot. Session-scoped like
+	 *  the identity — engines CAPTURE it at activation (per-form-session
+	 *  choice stability), so a refreshed snapshot reaches the NEXT
+	 *  activation; only the first arrival rebuilds an active
+	 *  carrier-bearing engine that had none (the cold-load race), with
+	 *  user-touched values restored. */
+	private lookupData: PreviewLookupData | null = null;
+
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
 	}
@@ -333,6 +353,33 @@ export class EngineController {
 		}
 	}
 
+	/**
+	 * Install the builder session's lookup fixture snapshot. See the
+	 * field's contract: capture-at-activation, first-arrival rebuild
+	 * only. A `null` install (Project scope reset) never tears an active
+	 * engine down here — the reset boundary deactivates separately.
+	 */
+	setLookupData(data: PreviewLookupData | null): void {
+		const arrived = this.lookupData === null && data !== null;
+		this.lookupData = data;
+		if (!arrived) return;
+		const formUuid = this.activeFormUuid;
+		if (
+			formUuid === undefined ||
+			this.engine === undefined ||
+			this.engine.hasLookupData() ||
+			!this.engine.usesLookupData()
+		) {
+			return;
+		}
+		const restoreSnapshot = this.engine.getValueSnapshot();
+		this.activateForm(formUuid, this.activeCaseData);
+		if (this.engine !== undefined) {
+			this.engine.restoreValues(restoreSnapshot);
+			this.syncAllToStore();
+		}
+	}
+
 	// ── Lifecycle ────────────────────────────────────────────────────
 
 	/**
@@ -369,6 +416,7 @@ export class EngineController {
 			mod?.caseType,
 			caseData,
 			this.previewIdentity,
+			this.lookupData,
 		);
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
@@ -601,6 +649,13 @@ export class EngineController {
 							return;
 						case "default_value":
 							this.onDefaultValueChanged(uuid, current as Field);
+							return;
+						case "options_source":
+							/* The choices node's edges and expression live in the DAG,
+							 * so the expression handler's rebuild + field-and-dependents
+							 * re-evaluation covers a filter/table/column change — the
+							 * choices arm recomputes and unselects dropped values. */
+							this.onExpressionChanged(uuid);
 							return;
 					}
 				},

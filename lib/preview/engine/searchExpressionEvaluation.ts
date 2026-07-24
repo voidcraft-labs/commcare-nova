@@ -89,12 +89,20 @@ function evaluatePreviewSearchXPath(
 		contextPath: "",
 		position: 1,
 		size: 1,
-		getValue: (path) => sessionPathValue(path, session),
+		getValue: (path) => sessionInstancePathValue(path, session),
 		resolveHashtag: () => "",
 	});
 }
 
-function sessionPathValue(
+/**
+ * Resolve the session-instance path spellings the on-device emitters
+ * print (`instance('commcaresession')/session/...` — the evaluator
+ * drops the instance step, leaving `/session/...`). Shared with every
+ * preview surface that evaluates emitted predicates outside a form
+ * context; non-session paths return `undefined` so callers can chain
+ * their own resolution.
+ */
+export function sessionInstancePathValue(
 	path: string,
 	session: PreviewSearchSessionValues,
 ): string | undefined {
