@@ -60,14 +60,11 @@ async function freshAppId(): Promise<string> {
 }
 
 async function enableMoves(): Promise<void> {
+	// The migrated floors already satisfy the move-activation CHECK.
 	await h
 		.db()
 		.updateTable("lookup_reference_compatibility")
-		.set({
-			minimum_writer_version: 1,
-			minimum_stream_receiver_version: 1,
-			project_moves_enabled: true,
-		})
+		.set({ project_moves_enabled: true })
 		.where("id", "=", 1)
 		.execute();
 }
@@ -92,7 +89,7 @@ async function commitMove(
 			{
 				batchId: crypto.randomUUID(),
 				declaredWriterVersion: 1,
-				streamReceiverVersion: 1,
+				streamReceiverVersion: 2,
 			},
 		);
 		await insideTransaction?.();

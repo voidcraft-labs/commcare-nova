@@ -49,6 +49,7 @@ const {
 	commitGuardedBatch,
 	createApp,
 	loadApp,
+	repairLookupReferenceEdges,
 } = await import("../apps");
 const { BlueprintCommitRejectedError } = await import("../commitGuard");
 
@@ -567,12 +568,13 @@ describe("lookup materialization versus resource deletion", () => {
 		expect(await readTargets(appId)).toEqual(targets);
 
 		await expect(
-			h
-				.db()
-				.deleteFrom("lookup_tables")
-				.where("project_id", "=", PROJECT_A)
-				.where("id", "=", table.id)
-				.execute(),
+			h.withDeclaredWriter((tx) =>
+				tx
+					.deleteFrom("lookup_tables")
+					.where("project_id", "=", PROJECT_A)
+					.where("id", "=", table.id)
+					.execute(),
+			),
 		).rejects.toMatchObject({ code: "23001" });
 
 		await commitGuardedBatch({
@@ -655,6 +657,11 @@ describe("lookup materialization versus resource deletion", () => {
 			pending.push(writer);
 			const writerPid = await waitUntilBackendBlockedBy(observer, blockerPid);
 
+			// Declare v1 so the destructive delete passes the writer floor and the
+			// FOR KEY SHARE table lock is what blocks it behind the admitted writer.
+			await deleter.query(
+				"SELECT set_config('nova.writer_version', '1', false)",
+			);
 			const deleterPid = await backendPid(deleter);
 			const deletion = deleter
 				.query("DELETE FROM lookup_tables WHERE project_id = $1 AND id = $2", [
@@ -861,14 +868,11 @@ describe("dormant Project move", () => {
 		await h.seedProjectMember(ACTOR, PROJECT_B, "owner");
 		await materializeTargets(appId, PROJECT_A, targets);
 		await clearWriterProbe();
+		// The migrated floors already satisfy the move-activation CHECK.
 		await h
 			.db()
 			.updateTable("lookup_reference_compatibility")
-			.set({
-				minimum_writer_version: 1,
-				minimum_stream_receiver_version: 1,
-				project_moves_enabled: true,
-			})
+			.set({ project_moves_enabled: true })
 			.where("id", "=", 1)
 			.execute();
 
@@ -891,7 +895,7 @@ describe("dormant Project move", () => {
 						{
 							batchId: crypto.randomUUID(),
 							declaredWriterVersion: 1,
-							streamReceiverVersion: 1,
+							streamReceiverVersion: 2,
 						},
 					);
 				});
@@ -938,5 +942,60 @@ describe("dormant Project move", () => {
 		expect(await writerProbeRows(appId)).toEqual([
 			{ operation: "UPDATE", writer_version: "1" },
 		]);
+	});
+});
+
+describe("edge repair maintenance writer", () => {
+	it("rederives structural edges from the committed blueprint without history or sequence", async () => {
+		const table = await createTable(PROJECT_A, "Repair target");
+		const stale = await createTable(PROJECT_A, "Repair stale");
+		const column = table.columns[0];
+		if (column === undefined) throw new Error("lookup table has no column");
+		const { appId, targets } = await seedHistoricalLookupCarrier(
+			table.id,
+			column.id,
+		);
+		// A stored edge to a table the blueprint never references, plus the
+		// missing real carrier edges, is exactly the scan's mismatch shape.
+		await materializeTargets(appId, PROJECT_A, tableTargets(stale.id));
+
+		const seqBefore = await readSeq(appId);
+		expect(await repairLookupReferenceEdges(appId)).toEqual({
+			kind: "repaired",
+		});
+		expect(await readTargets(appId)).toEqual(targets);
+		expect(await repairLookupReferenceEdges(appId)).toEqual({
+			kind: "unchanged",
+		});
+		expect(await readSeq(appId)).toBe(seqBefore);
+		const history = await h
+			.db()
+			.selectFrom("accepted_mutations")
+			.select("seq")
+			.where("app_id", "=", appId)
+			.execute();
+		expect(history).toEqual([]);
+	});
+
+	it("fails closed on a missing app and on a null-Project app with structural targets", async () => {
+		await expect(repairLookupReferenceEdges("missing-app")).rejects.toThrow(
+			"app row is unavailable",
+		);
+
+		const table = await createTable(PROJECT_A, "Repair null scope");
+		const column = table.columns[0];
+		if (column === undefined) throw new Error("lookup table has no column");
+		const { appId } = await seedHistoricalLookupCarrier(table.id, column.id);
+		await h.withDeclaredWriter((tx) =>
+			tx
+				.updateTable("apps")
+				.set({ project_id: null })
+				.where("id", "=", appId)
+				.execute(),
+		);
+		await expect(repairLookupReferenceEdges(appId)).rejects.toMatchObject({
+			name: "LookupReferenceWriteError",
+			code: "mismatch",
+		});
 	});
 });

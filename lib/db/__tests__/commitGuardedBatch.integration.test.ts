@@ -130,54 +130,54 @@ async function seedApp(
 		(s, m) => s + (p.formOrder[m]?.length ?? 0),
 		0,
 	);
-	await h
-		.db()
-		.insertInto("apps")
-		.values({
-			id: appId,
-			owner: opts.owner ?? OWNER,
-			project_id: opts.projectId,
-			app_name: p.appName,
-			app_name_lower: (p.appName || UNTITLED_APP_NAME).toLowerCase(),
-			connect_type: p.connectType ?? null,
-			case_types: p.caseTypes === null ? null : JSON.stringify(p.caseTypes),
-			logo: p.logo ?? null,
-			module_count: p.moduleOrder.length,
-			form_count: formCount,
-			mutation_seq: 0,
-			status: "complete",
-			awaiting_input: false,
-			error_type: null,
-			deleted_at: null,
-			recoverable_until: null,
-			run_id: null,
-			res_period: null,
-			res_reserved: null,
-			res_settled: null,
-			res_user_id: null,
-			res_run_id: null,
-			lock_run_id: null,
-			lock_actor_user_id: null,
-			lock_expire_at: null,
-		})
-		.execute();
-	const rows = decomposeBlueprint(p);
-	if (rows.length > 0) {
-		await h
-			.db()
-			.insertInto("blueprint_entities")
-			.values(
-				rows.map((r) => ({
-					app_id: appId,
-					uuid: r.uuid,
-					kind: r.kind,
-					parent_uuid: r.parent_uuid,
-					ordinal: r.ordinal,
-					data: JSON.stringify(r.data),
-				})),
-			)
+	await h.withDeclaredWriter(async (tx) => {
+		await tx
+			.insertInto("apps")
+			.values({
+				id: appId,
+				owner: opts.owner ?? OWNER,
+				project_id: opts.projectId,
+				app_name: p.appName,
+				app_name_lower: (p.appName || UNTITLED_APP_NAME).toLowerCase(),
+				connect_type: p.connectType ?? null,
+				case_types: p.caseTypes === null ? null : JSON.stringify(p.caseTypes),
+				logo: p.logo ?? null,
+				module_count: p.moduleOrder.length,
+				form_count: formCount,
+				mutation_seq: 0,
+				status: "complete",
+				awaiting_input: false,
+				error_type: null,
+				deleted_at: null,
+				recoverable_until: null,
+				run_id: null,
+				res_period: null,
+				res_reserved: null,
+				res_settled: null,
+				res_user_id: null,
+				res_run_id: null,
+				lock_run_id: null,
+				lock_actor_user_id: null,
+				lock_expire_at: null,
+			})
 			.execute();
-	}
+		const rows = decomposeBlueprint(p);
+		if (rows.length > 0) {
+			await tx
+				.insertInto("blueprint_entities")
+				.values(
+					rows.map((r) => ({
+						app_id: appId,
+						uuid: r.uuid,
+						kind: r.kind,
+						parent_uuid: r.parent_uuid,
+						ordinal: r.ordinal,
+						data: JSON.stringify(r.data),
+					})),
+				)
+				.execute();
+		}
+	});
 	return appId;
 }
 
@@ -710,12 +710,13 @@ describe("commitGuardedBatch (Postgres)", () => {
 	it("rejects when the app moved away from the caller's expected Project", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
-		await h
-			.db()
-			.updateTable("apps")
-			.set({ project_id: "project-moved" })
-			.where("id", "=", appId)
-			.execute();
+		await h.withDeclaredWriter((tx) =>
+			tx
+				.updateTable("apps")
+				.set({ project_id: "project-moved" })
+				.where("id", "=", appId)
+				.execute(),
+		);
 
 		await expect(
 			commitGuardedBatch({

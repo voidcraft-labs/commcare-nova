@@ -1,20 +1,13 @@
 import "server-only";
 
 import {
-	parseRuntimeCapabilityEnvironment,
 	parseRuntimeCapabilityVersion,
 	RUNTIME_CAPABILITIES,
-	type RuntimeCapabilityVersions,
 } from "@/lib/runtimeCapabilities";
 
 export const STREAM_RECEIVER_VERSION_QUERY_PARAM = "receiverVersion";
 
 const STREAM_REGISTRY_VERSION_REQUIRED_FOR_RECEIVERS = 1;
-
-type StreamReceiverCapabilityDeclaration = Pick<
-	RuntimeCapabilityVersions,
-	"streamReceiverVersion" | "streamRegistryVersion"
->;
 
 /**
  * Read the browser bundle's receiver declaration from an EventSource URL.
@@ -30,46 +23,30 @@ export function parseClientStreamReceiverVersion(
 }
 
 /**
- * A serving revision supports only what both its compiled code and deployed
- * environment declare. Receivers are unusable unless both halves also declare
- * the stream registry introduced with receiver v1.
+ * The serving revision's receiver capability is its compiled manifest,
+ * receiver-usable only with the stream registry it ships. The baked image
+ * environment is deliberately not consulted here: the startup probe already
+ * refuses to serve an instance whose environment differs from the compiled
+ * declaration, so a second runtime clamp could disagree only in environments
+ * with no baked declaration at all (local dev, CI), where it would wrongly
+ * fail closed and revoke every stream at a nonzero floor.
  */
-export function resolveServingStreamReceiverVersion(
-	compiled: StreamReceiverCapabilityDeclaration,
-	deployed: StreamReceiverCapabilityDeclaration,
-): number {
+export function resolveServingStreamReceiverVersion(): number {
 	if (
-		compiled.streamRegistryVersion <
-			STREAM_REGISTRY_VERSION_REQUIRED_FOR_RECEIVERS ||
-		deployed.streamRegistryVersion <
-			STREAM_REGISTRY_VERSION_REQUIRED_FOR_RECEIVERS
+		RUNTIME_CAPABILITIES.streamRegistryVersion <
+		STREAM_REGISTRY_VERSION_REQUIRED_FOR_RECEIVERS
 	) {
 		return 0;
 	}
-
-	return Math.min(
-		compiled.streamReceiverVersion,
-		deployed.streamReceiverVersion,
-	);
-}
-
-/** Resolve this serving revision's fail-closed receiver capability. */
-export function resolveDeployedStreamReceiverVersion(
-	environment: unknown,
-): number {
-	return resolveServingStreamReceiverVersion(
-		RUNTIME_CAPABILITIES,
-		parseRuntimeCapabilityEnvironment(environment),
-	);
+	return RUNTIME_CAPABILITIES.streamReceiverVersion;
 }
 
 /** Resolve the capability that may be admitted for one browser connection. */
 export function resolveEffectiveStreamReceiverVersion(
 	searchParams: URLSearchParams,
-	environment: unknown,
 ): number {
 	return Math.min(
 		parseClientStreamReceiverVersion(searchParams),
-		resolveDeployedStreamReceiverVersion(environment),
+		resolveServingStreamReceiverVersion(),
 	);
 }

@@ -370,7 +370,7 @@ Compiler verification stays serialized across wire slices.
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
-| S05c | Lookup carrier cutover and edge preparation | S05b | in progress | PR-01/03, F5 |
+| S05c | Lookup carrier cutover and edge preparation | S05b | review | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
@@ -2182,6 +2182,53 @@ floor, migration replay idempotence, receiver-1 rejection versus receiver-2
 admission with mid-stream lease survival, and the carrier commit gate still
 closed at the final floors; standard deploy probes complete the list. No
 Playwright journey — nothing user-reachable changes.
+
+#### S05c implementation checkpoint — 2026-07-23
+
+The implementation on `agent/s05c-lookup-cutover` delivers, per the closure:
+
+- `lib/case-store/migrations/20260723120000_lookup_reference_floors.ts`: the
+  deploy-blocking monotonic raise to writer 1 / stream-receiver 2 and the
+  `continuous_registry_traffic_since` drop, replay-idempotent for the
+  ledger-erase replay;
+- `lib/db/rolloutCompatibility.ts` stripped of the stranded initial-cutoff
+  choreography — the registry-epoch branch with its two error codes, the
+  registry-interval half of revision reconciliation, and the
+  `streamRegistryVersion` field on receiving-revision capabilities — while
+  the runtime-epoch machinery stays for S07;
+- `lib/db/apps.ts::repairLookupReferenceEdges`, the app-locked server-only
+  edge-repair writer (no entity, history, or sequence writes), plus the
+  paired one-off `scripts/migrate-lookup-reference-edges.ts` (dry-run by
+  default, scan-identical collection, converges to a clean rescan or fails);
+- the durable scan's stale header corrected and the `lib/db`,
+  `lib/case-store`, and `lib/lookup` docs moved to the final-floor state;
+- the test fleet moved to the deployed floors: direct fixture writes declare
+  writer v1 (a shared `withDeclaredWriter` harness helper), stream suites
+  admit at receiver 2 and race the 2-to-3 cutoff, migration suites pin the
+  migrated `(1, 2, 0)` baseline with every flag false, and the repair writer
+  gains repaired/unchanged/fail-closed coverage.
+
+The closure's verification list caught one production-critical defect beyond
+the plan: stream admission clamped the compiled receiver capability to a
+strictly parsed copy of the deployed environment, and that parse silently
+resolved to v0 both in production (`process.env` is a host object whose
+prototype fails a plain-record test on the deployed Node) and in every
+environment with no baked declaration at all (local dev, CI smoke — where
+the raised floor revoked every builder stream into the refresh-required
+screen). The clamp itself was purposeless: the startup probe already refuses
+to serve an instance whose environment differs from the compiled manifest,
+so the serving capability now comes from the compiled manifest alone and the
+caller-less environment parser is deleted.
+
+Independent adversarial review (four dimension finders, every finding
+verified twice by independent verifiers) raised three findings; two were
+refuted and one was confirmed unanimously and fixed pre-merge: the migration
+originally raised the floors before dropping the column, and an old-revision
+writer-guard `FOR SHARE` read wedged between the two statements formed a
+tuple-then-table lock cycle whose deadlock victim could be the
+deploy-blocking Job. The column drop now precedes the raise, so guard reads
+queue behind the ALTER's table lock. The pre-merge read-only production scan
+passed: 404/404 persisted apps compared clean.
 
 S05's closed-gate verification uses real carriers to replace edges
 transactionally and repeat both production race orders. It adds carrier schema/

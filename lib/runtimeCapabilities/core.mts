@@ -306,12 +306,6 @@ export function parseRevisionCapabilityLabels(
 	return declarationsFromKeys(input, RUNTIME_CAPABILITY_LABEL_KEYS);
 }
 
-export function parseRuntimeCapabilityEnvironment(
-	input: unknown,
-): RuntimeCapabilityVersions {
-	return declarationsFromKeys(input, RUNTIME_CAPABILITY_ENV_KEYS);
-}
-
 function requireManifestHash(manifestHash: string): string {
 	if (!/^[a-f0-9]{64}$/.test(manifestHash)) {
 		throw new Error("manifestHash must be one lowercase SHA-256 hex digest");

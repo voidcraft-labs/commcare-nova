@@ -28,15 +28,6 @@ async function seedAuthorizedApp(): Promise<string> {
 	return h.seedApp({ owner: USER, project_id: PROJECT });
 }
 
-async function setReceiverFloor(version: number): Promise<void> {
-	await h
-		.db()
-		.updateTable("lookup_reference_compatibility")
-		.set({ minimum_stream_receiver_version: version })
-		.where("id", "=", 1)
-		.executeTakeFirstOrThrow();
-}
-
 async function backendPid(client: Client): Promise<number> {
 	const result = await client.query<{ pid: number }>(
 		"SELECT pg_backend_pid() AS pid",
@@ -86,7 +77,6 @@ async function waitUntilAnyBackendIsBlockedBy(
 describe("stream capability leases", () => {
 	it("authenticates before a below-floor verdict and inserts no lease on either denial", async () => {
 		const appId = await seedAuthorizedApp();
-		await setReceiverFloor(1);
 		await sql`
 			DELETE FROM auth_member
 			WHERE "userId" = ${USER} AND "organizationId" = ${PROJECT}
@@ -96,7 +86,7 @@ describe("stream capability leases", () => {
 			registerStreamCapabilityLease({
 				appId,
 				userId: USER,
-				receiverVersion: 0,
+				receiverVersion: 1,
 			}),
 		).rejects.toMatchObject({
 			name: "AppAccessError",
@@ -108,12 +98,12 @@ describe("stream capability leases", () => {
 			registerStreamCapabilityLease({
 				appId,
 				userId: USER,
-				receiverVersion: 0,
+				receiverVersion: 1,
 			}),
 		).resolves.toEqual({
 			kind: "receiver-below-floor",
-			receiverVersion: 0,
-			minimumStreamReceiverVersion: 1,
+			receiverVersion: 1,
+			minimumStreamReceiverVersion: 2,
 		});
 
 		const leases = await h
@@ -142,7 +132,7 @@ describe("stream capability leases", () => {
 			registration = registerStreamCapabilityLease({
 				appId,
 				userId: USER,
-				receiverVersion: 1,
+				receiverVersion: 2,
 			});
 			await waitUntilAnyBackendIsBlockedBy(observer, blockerPid);
 			const releaseClock = await observer.query<{ observed_at: Date }>(
@@ -155,7 +145,7 @@ describe("stream capability leases", () => {
 
 			const result = await registration;
 			if (result.kind !== "registered") {
-				throw new Error("authorized v1 registration was rejected");
+				throw new Error("authorized v2 registration was rejected");
 			}
 			expect(result.connectionId).toMatch(
 				/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -187,12 +177,12 @@ describe("stream capability leases", () => {
 		const first = await registerStreamCapabilityLease({
 			appId,
 			userId: USER,
-			receiverVersion: 1,
+			receiverVersion: 2,
 		});
 		const second = await registerStreamCapabilityLease({
 			appId,
 			userId: USER,
-			receiverVersion: 1,
+			receiverVersion: 2,
 		});
 		if (first.kind !== "registered" || second.kind !== "registered") {
 			throw new Error("authorized registrations were rejected");
@@ -262,7 +252,7 @@ describe("stream capability leases", () => {
 		);
 	});
 
-	it("lets a registered v0 lease commit before a concurrent floor cutoff", async () => {
+	it("lets a floor-admitted lease commit before a concurrent higher cutoff", async () => {
 		const appId = await seedAuthorizedApp();
 		const cutoff = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
@@ -279,13 +269,13 @@ describe("stream capability leases", () => {
 						{
 							appId,
 							userId: USER,
-							receiverVersion: 0,
+							receiverVersion: 2,
 						},
 					);
 					cutoffWrite = cutoff
 						.query(
 							`UPDATE lookup_reference_compatibility
-						 SET minimum_stream_receiver_version = 1
+						 SET minimum_stream_receiver_version = 3
 						 WHERE id = 1`,
 						)
 						.then(() => undefined);
@@ -297,7 +287,7 @@ describe("stream capability leases", () => {
 
 			expect(registration).toMatchObject({
 				kind: "registered",
-				receiverVersion: 0,
+				receiverVersion: 2,
 			});
 			const status = await h
 				.db()
@@ -305,14 +295,14 @@ describe("stream capability leases", () => {
 				.select("minimum_stream_receiver_version")
 				.where("id", "=", 1)
 				.executeTakeFirstOrThrow();
-			expect(status.minimum_stream_receiver_version).toBe(1);
+			expect(status.minimum_stream_receiver_version).toBe(3);
 			const leases = await h
 				.db()
 				.selectFrom("lookup_stream_capability_leases")
 				.select("receiver_version")
 				.where("app_id", "=", appId)
 				.execute();
-			expect(leases.map((row) => row.receiver_version)).toEqual([0]);
+			expect(leases.map((row) => row.receiver_version)).toEqual([2]);
 		} finally {
 			if (cutoffWrite !== undefined) {
 				await Promise.allSettled([cutoffWrite]);
@@ -321,7 +311,7 @@ describe("stream capability leases", () => {
 		}
 	});
 
-	it("rejects a v0 registration when the concurrent floor cutoff commits first", async () => {
+	it("rejects a floor-level registration when the concurrent higher cutoff commits first", async () => {
 		const appId = await seedAuthorizedApp();
 		const cutoff = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
@@ -334,14 +324,14 @@ describe("stream capability leases", () => {
 			await cutoff.query("BEGIN");
 			await cutoff.query(
 				`UPDATE lookup_reference_compatibility
-				 SET minimum_stream_receiver_version = 1
+				 SET minimum_stream_receiver_version = 3
 				 WHERE id = 1`,
 			);
 			const cutoffPid = await backendPid(cutoff);
 			registration = registerStreamCapabilityLease({
 				appId,
 				userId: USER,
-				receiverVersion: 0,
+				receiverVersion: 2,
 			});
 			await waitUntilAnyBackendIsBlockedBy(observer, cutoffPid);
 			await cutoff.query("COMMIT");
@@ -349,8 +339,8 @@ describe("stream capability leases", () => {
 
 			await expect(registration).resolves.toEqual({
 				kind: "receiver-below-floor",
-				receiverVersion: 0,
-				minimumStreamReceiverVersion: 1,
+				receiverVersion: 2,
+				minimumStreamReceiverVersion: 3,
 			});
 			const leases = await h
 				.db()

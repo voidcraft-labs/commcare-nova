@@ -12,7 +12,6 @@ import {
 import {
 	canonicalRuntimeCapabilityManifest,
 	parseRevisionCapabilityLabels,
-	parseRuntimeCapabilityEnvironment,
 	parseRuntimeCapabilityManifest,
 	parseRuntimeCapabilityVersion,
 	RUNTIME_BUILD_ID_ENV_KEY,
@@ -128,7 +127,7 @@ describe("runtime capability manifest", () => {
 		expect(parseRuntimeCapabilityVersion(value)).toBe(0);
 	});
 
-	it("parses missing and malformed label/env declarations independently as v0", () => {
+	it("parses missing and malformed label declarations independently as v0", () => {
 		expect(parseRevisionCapabilityLabels(undefined)).toEqual({
 			writerVersion: 0,
 			streamReceiverVersion: 0,
@@ -147,19 +146,6 @@ describe("runtime capability manifest", () => {
 			streamReceiverVersion: 2,
 			runtimeReaderVersion: 0,
 			streamRegistryVersion: 0,
-		});
-		expect(
-			parseRuntimeCapabilityEnvironment({
-				NOVA_WRITER_VERSION: "0",
-				NOVA_STREAM_RECEIVER_VERSION: "1",
-				NOVA_RUNTIME_READER_VERSION: "bad",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			}),
-		).toEqual({
-			writerVersion: 0,
-			streamReceiverVersion: 1,
-			runtimeReaderVersion: 0,
-			streamRegistryVersion: 1,
 		});
 	});
 

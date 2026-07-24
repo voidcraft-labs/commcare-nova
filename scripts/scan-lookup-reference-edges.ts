@@ -5,8 +5,8 @@
  * This is the scan side of the lookup-carrier scan-then-migrate workflow. It
  * intentionally walks every app row, including soft-deleted/restorable apps,
  * because those apps retain edges until physical deletion. Structural targets
- * come from the production extractor registry; the registry is empty in S02b
- * and gains real carriers in S05 without this inspector changing.
+ * come from the production extractor registry, so a registry change is
+ * automatically visible to this durable inspector.
  *
  * The script never repairs or mutates. Any mismatch, unassemblable blueprint,
  * extractor failure, or stored-edge read failure makes the process nonzero.
