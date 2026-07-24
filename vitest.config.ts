@@ -23,18 +23,13 @@ export default defineConfig({
 		// `lib/case-store/sql/__tests__/globalSetup.ts` for the
 		// container-per-run + per-test BEGIN/ROLLBACK contract.
 		globalSetup: ["./lib/case-store/sql/__tests__/globalSetup.ts"],
-		// Files whose change must force the WHOLE suite to run under the
-		// CI async-leak gate. That gate (`.github/workflows/ci.yml`) runs
-		// `vitest --changed`, which otherwise restricts the run to test
-		// files whose module import graph the PR touched — sound for leaks,
-		// since the detector attributes every leaked resource to the single
-		// test file that created it (no cross-file leak), so an unchanged
-		// graph yields a byte-identical run. The inputs below sit OUTSIDE
-		// every test's import graph yet change how all of them execute
+		// Files whose change must force a `--changed` run (the fast local
+		// loop, `npm run test:changed`) to re-run the WHOLE suite: they sit
+		// OUTSIDE every test's import graph yet change how all tests execute
 		// (installed deps — including a lockfile-only bump that leaves
 		// package.json untouched — this config, the global logger/motion
-		// stubs, the shared Postgres container), so a change to any one
-		// invalidates that optimization and must re-sweep everything.
+		// stubs, the shared Postgres container). CI never scopes: both CI
+		// suites (plain and async-leak) run every test file, sharded.
 		// Patterns match the absolute paths `vitest --changed` feeds
 		// picomatch; note the no-trailing-`/**` form — vitest's own default
 		// trigger appends `/**`, which silently fails to match a bare config
