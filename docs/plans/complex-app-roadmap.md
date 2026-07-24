@@ -2905,6 +2905,30 @@ grows; keep every HQ JSON/compiler projection identical.
   choices model, the SQL-residue compiler arms, the server-side program
   builder, the post-deploy activation controller, and the S07a/b/c unit
   split. S07 flips to `in progress` on `agent/s07-preview-execution`.
+- **2026-07-24 — S07a shipped (preview totality, read side):** PR #328
+  merged (squash `5a11aae5`) and deployed — deployment
+  `8246057d-69e8-4275-abba-12a2ba0ca1bf` serves all three hosts healthy
+  (no schema change, so the migration Job was a no-op). The running
+  preview now executes lookup-backed choices and navigation display
+  conditions through ONE printing path (the shared on-device predicate
+  emitter, fixture-row scoped, evaluated per loaded row by the preview
+  evaluator — `item-list:` vocabulary never enters the browser), with
+  `table-lookup` folding to plain text literals under Core's
+  empty-node-set unpack parity. Choices are engine values on promoted
+  runtime DAG edges with unselect-on-removal; display conditions gate
+  the home module list, the forms-first menu, and the case-first
+  post-selection menu + auto-continue against the selected row, with
+  the hidden-items reveal and per-form-session snapshot stability. The
+  SQL compiler's lookup arms gained their production suppliers
+  (per-request `lookupTableSchemas` for config slots; server-side
+  fixture folding for the excluded-owner expression). The high-effort
+  review's central finding shaped the final model: decidability keys
+  on snapshot COVERAGE, not presence — an uncovered carrier is the
+  loading state everywhere and the controller heals the active engine
+  when covering data arrives, leaving the requireTable/requireColumn
+  throws a genuine validator-bypass surface. Remaining S07 units:
+  S07b (write side) on `agent/s07b-write-side`, then S07c
+  (activation).
 - **2026-07-24 — S06 shipped:** PR #323 merged (`7b0c7a15`) and
   deployed; the migration Job execution succeeded (no schema change),
   revision `commcare-nova-00373-t82` serves 100% with all three hosts
