@@ -21,6 +21,7 @@
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import {
 	type LookupReferenceExtractorRegistry,
 	type LookupValidationContext,
@@ -72,6 +73,12 @@ export interface RunValidationOptions {
 	 * it and use the immutable S05a production registry.
 	 */
 	readonly lookupReferenceExtractors?: LookupReferenceExtractorRegistry;
+	/**
+	 * Activation flags conditioning the dormant-vocabulary gates
+	 * (`CASE_OPERATIONS_NOT_ACTIVE` here; the carrier commit finding in
+	 * `evaluateCommit`). Omitted = inactive — every gate emits.
+	 */
+	readonly activation?: LookupActivationState;
 }
 
 /**
@@ -186,7 +193,15 @@ export function runValidation(
 			if (!inModuleScope && !(scope?.formUuids?.has(formUuid) ?? false)) {
 				continue;
 			}
-			errors.push(...runFormRules(doc, formUuid, moduleUuid, lookupTables));
+			errors.push(
+				...runFormRules(
+					doc,
+					formUuid,
+					moduleUuid,
+					lookupTables,
+					options?.activation,
+				),
+			);
 			const order = doc.fieldOrder[formUuid] ?? [];
 			if (order.length > 0) {
 				errors.push(

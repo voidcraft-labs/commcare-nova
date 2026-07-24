@@ -33,6 +33,7 @@ import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegi
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import {
 	BlueprintDocContext,
 	BlueprintDocProvider,
@@ -55,6 +56,9 @@ export interface InitialBuilderAccess {
 	readonly role: string;
 	readonly canEdit: boolean;
 	readonly baseSeq: number;
+	/** Dormant-vocabulary activation flags from the same server
+	 *  transaction; absent for `/build/new` (fail-closed default). */
+	readonly activation?: LookupActivationState;
 }
 
 // ── Provider ────────────────────────────────────────────────────────────
@@ -134,6 +138,7 @@ function BuilderProviderInner({
 		 * missing test/embedding data fail-closed instead of manufacturing edit
 		 * authority on the client. */
 		canEdit: initialAccess?.canEdit ?? false,
+		activation: initialAccess?.activation,
 	}))[0];
 
 	/* The builder provider stack below the two stores, wrapped in

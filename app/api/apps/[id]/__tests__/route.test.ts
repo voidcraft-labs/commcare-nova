@@ -51,6 +51,10 @@ beforeEach(() => {
 		canEdit: false,
 		baseSeq: 42,
 		actorUserId: "user-1",
+		activation: {
+			carrierCommitsEnabled: false,
+			caseOperationsEnabled: false,
+		},
 		app: {
 			owner: "owner-1",
 			project_id: "project-1",

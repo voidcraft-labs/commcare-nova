@@ -143,6 +143,7 @@ import {
 	lockProjectMoveCompatibility,
 	lockProjectMoveMemberships,
 } from "./projectMoveAdmission";
+import { readLookupActivationForShare } from "./rolloutCompatibility";
 import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
 import {
 	type ExactRunHolderIdentity,
@@ -842,10 +843,12 @@ export async function createApp(
 			projectId,
 			candidateTargets,
 		);
+		const activation = await readLookupActivationForShare(tx);
 		const verdict = evaluatePreparedMutationCandidate(
 			emptyDoc,
 			prepared,
 			lookupContext,
+			activation,
 		);
 		if (!verdict.ok) {
 			throw new Error(
@@ -1207,10 +1210,12 @@ export async function commitGuardedBatch(
 				fresh.project_id,
 				lookupTargets,
 			);
+			const activation = await readLookupActivationForShare(tx);
 			const verdict = evaluatePreparedMutationCandidate(
 				freshDoc,
 				prepared,
 				lookupContext,
+				activation,
 			);
 			if (!verdict.ok) {
 				throw new BlueprintCommitRejectedError(
@@ -1493,10 +1498,12 @@ export async function appendSyntheticBatch(
 			fresh.project_id,
 			lookupTargets,
 		);
+		const activation = await readLookupActivationForShare(tx);
 		const verdict = evaluatePreparedMutationCandidate(
 			previousDoc,
 			prepared,
 			lookupContext,
+			activation,
 		);
 		if (!verdict.ok) {
 			throw new BlueprintCommitRejectedError(
@@ -1971,10 +1978,12 @@ export async function commitAppProjectMoveInTransaction(
 		args.toProjectId,
 		EMPTY_LOOKUP_REFERENCE_TARGETS,
 	);
+	const activation = await readLookupActivationForShare(tx);
 	const verdict = evaluatePreparedMutationCandidate(
 		previousDoc,
 		prepared,
 		destinationContext,
+		activation,
 	);
 	if (!verdict.ok) {
 		throw new BlueprintCommitRejectedError(

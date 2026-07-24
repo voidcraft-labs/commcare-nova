@@ -65,6 +65,7 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type BlueprintDocStoreApi, isDocDataKey } from "@/lib/doc/store";
@@ -167,6 +168,10 @@ export interface AuthorizedAccessSnapshot {
 	readonly projectId: string;
 	readonly role: string;
 	readonly canEdit: boolean;
+	/** Dormant-vocabulary activation flags from the same transaction;
+	 *  absent on older payloads (the session keeps its fail-closed
+	 *  default). */
+	readonly activation?: LookupActivationState;
 }
 
 /** The authoritative outcome of the reload GET. PUT responses never prove

@@ -102,6 +102,7 @@ import {
 	type Module,
 	type SelectOption,
 } from "@/lib/domain";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 
 /**
  * Outcome of an entity-adding dispatch: the minted uuid on success, the
@@ -520,6 +521,10 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 	 * even if its control wasn't individually hidden. The agent-stream / replay
 	 * writers bypass this hook and stay unaffected — a viewer triggers neither. */
 	const canEdit = useContext(BlueprintEditableContext);
+	/* Imperative handle: activation is read at DISPATCH time (freshest
+	 * server snapshot), never captured at hook construction. Null outside
+	 * the builder session provider (tests, replay) — fail-closed default. */
+	const sessionApi = useOptionalBuilderSessionApi();
 
 	// Memoize against the store instance so the returned action object is
 	// reference-stable across re-renders. A consumer storing this in a
@@ -570,6 +575,9 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					get(),
 					mutations,
 					LOOKUP_CONTEXT_UNAVAILABLE,
+					/* The session's server-provided activation snapshot — advisory;
+					 * the authoritative commit re-reads in-transaction and wins. */
+					sessionApi?.getState().activation,
 				);
 				if (!verdict.ok) {
 					// Render to the concise BUILDER copy once — both the toast
@@ -1251,5 +1259,5 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		};
 
 		return { ...makeApi(true), inline: makeApi(false) };
-	}, [store, canEdit]);
+	}, [store, canEdit, sessionApi]);
 }

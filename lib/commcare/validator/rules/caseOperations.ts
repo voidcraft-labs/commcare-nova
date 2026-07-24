@@ -16,6 +16,7 @@ import {
 	caseOperationWireOrderViolationDetails,
 	sameCaseOperationTargetIdentity,
 } from "@/lib/doc/caseOperationOrder";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -100,6 +101,7 @@ export function validateCaseOperations(
 	formUuid: Uuid,
 	moduleUuid: Uuid,
 	lookupTables?: LookupTypeIndex,
+	activation?: LookupActivationState,
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
 	const module = doc.modules[moduleUuid];
@@ -126,14 +128,23 @@ export function validateCaseOperations(
 		writerTypes: concreteCasePropertyWriterTypes(doc),
 		lookupTables,
 	};
-	const errors: ValidationError[] = [
-		opError(
-			ctx,
-			operations[0],
-			"CASE_OPERATIONS_NOT_ACTIVE",
-			"Case operations are stored and wire-complete, but their atomic preview/runtime executor is not active yet.",
-		),
-	];
+	/* The dormancy gate: emitted only while `case_operations_enabled` is
+	 * false. Deploying executor code alone never activates the vocabulary —
+	 * the data switch (read in-transaction on every authoritative commit,
+	 * snapshot-projected to the client's optimistic gate) is the sole
+	 * admission, and the emergency-disable path re-closes commits without
+	 * a deploy. */
+	const errors: ValidationError[] =
+		activation?.caseOperationsEnabled === true
+			? []
+			: [
+					opError(
+						ctx,
+						operations[0],
+						"CASE_OPERATIONS_NOT_ACTIVE",
+						"Case operations are stored and wire-complete, but their atomic preview/runtime executor is not active yet.",
+					),
+				];
 
 	const seenUuids = new Set<Uuid>();
 	const seenIds = new Set<string>();
