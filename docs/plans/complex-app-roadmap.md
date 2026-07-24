@@ -2905,6 +2905,34 @@ grows; keep every HQ JSON/compiler projection identical.
   choices model, the SQL-residue compiler arms, the server-side program
   builder, the post-deploy activation controller, and the S07a/b/c unit
   split. S07 flips to `in progress` on `agent/s07-preview-execution`.
+- **2026-07-24 — S07b shipped (preview totality, write side):** PR #330
+  merged (squash `965fc9e1`) and deployed — deployment
+  `06c23670-a34f-4556-afe4-54307fcc78d3` serves all three hosts healthy,
+  and the blocking migration Job applied `20260724130000_case_operations_flag`.
+  The submission write path is complete and dormant:
+  `case_operations_enabled` (default false, CHECK-tied to the v3-receiver/
+  v1-reader floors) joins the emergency-disable union; the manifest's
+  `streamReceiverVersion` bumps to 3 while the DB floor deliberately stays
+  2 (`min(browser, manifest)` admission keeps pre-v3 tabs until S07c's
+  raise-and-drain); `CASE_OPERATIONS_NOT_ACTIVE` /
+  `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` are now flag-conditioned, with the
+  activation snapshot read `FOR SHARE` in the four authoritative commit
+  transactions. `SubmissionMutation` carries the form uuid plus complete
+  per-scope operation answer bags (plain JSON — the edge-WAF rule), and
+  the SERVER builds the `CaseOperationProgram` from the COMMITTED doc via
+  the S04 analyses into the S06 envelope; `SubmissionRejectedError`
+  surfaces as the typed `submission-rejected` arm with whole-rollback
+  copy. The high-effort review's three majors all landed as fixes: the
+  membership gate now precedes the program build (closing a one-bit
+  cross-tenant survey oracle with an ordering-pin test), an
+  answers-absent doc-snapshot skew submits ordinary-only (empty bindings
+  would blank-write, and blank projects to key-absent — silent property
+  deletion), and the rejection joined the Sentry classifier's typed
+  user-domain set. Post-merge CI surfaced one more structural fact: the
+  activation reads must live in the marker-free
+  `lib/db/lookupActivation.ts` leaf because the tsx-run smoke seed and
+  inspect scripts import `apps.ts` (`server-only` throws under plain
+  Node). Remaining S07 unit: S07c (activation).
 - **2026-07-24 — S07a shipped (preview totality, read side):** PR #328
   merged (squash `5a11aae5`) and deployed — deployment
   `8246057d-69e8-4275-abba-12a2ba0ca1bf` serves all three hosts healthy
