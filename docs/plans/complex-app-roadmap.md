@@ -1,11 +1,11 @@
 # Complex app roadmap
 
-> **Authoritative living plan.** Last rebaselined 2026-07-23 against deployed
-> Nova `97d6bb89` (PR #312). S01 through S05b are shipped, including all of
-> S02. S05's domain/wire decisions are pinned below; local CCZ export now
-> emits the preservable lookup wire.
-> S05c's readiness closed 2026-07-23; implementation opens on
-> `agent/s05c-lookup-cutover`. S22 awaits its readiness rebaseline. This file
+> **Authoritative living plan.** Last rebaselined 2026-07-24 against deployed
+> Nova `62ffaff0` (PR #316). All of S01 through S05 is shipped: the lookup
+> maintenance floors hold their final values, local CCZ export emits the
+> preservable lookup wire, and S05's domain/wire decisions are pinned below.
+> S06 is the next slice and needs its readiness audit. S22 awaits its
+> readiness rebaseline. This file
 > owns execution order,
 > product decisions, slice status, and
 > delivery gates for the F1-F7 complex-app program. The dated 2026-07-06 feature
@@ -350,10 +350,11 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S02 through S05b are shipped. S05's exported-value, select-fallback,
-filter-scope, dependency, snapshot, and aggregate-fixture contracts are now
-pinned and the local lookup wire is live in ccz export. S05c's readiness
-closed 2026-07-23; implementation opens on `agent/s05c-lookup-cutover`.
+S02 through S05 are shipped. S05's exported-value, select-fallback,
+filter-scope, dependency, snapshot, and aggregate-fixture contracts are
+pinned, the local lookup wire is live in ccz export, and the maintenance
+floors hold their final values in production. S06 is the next slice and
+needs its readiness audit.
 S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 needs a
 readiness rebaseline before delegation.
@@ -370,8 +371,8 @@ Compiler verification stays serialized across wire slices.
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
-| S05c | Lookup carrier cutover and edge preparation | S05b | review | PR-01/03, F5 |
-| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | blocked | PR-04, F1/F4 |
+| S05c | Lookup carrier cutover and edge preparation | S05b | shipped | PR-01/03, F5 |
+| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | planned | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
 | S09 | Project data tables workspace and options authoring | S05c/S07 | blocked | PR-05 |
@@ -1717,8 +1718,8 @@ SA, or MCP authoring. No public docs change is due while the feature is dormant.
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
 **Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b shipped in PR #312 at
-`97d6bb89`; S05c's readiness closed 2026-07-23 and `agent/s05c-lookup-cutover`
-owns implementation.
+`97d6bb89`; S05c shipped in PR #316 at `62ffaff0` — the maintenance floors
+hold their final values in production.
 Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
 history-compatible mutations, persistence/replay, reference ownership, and
 validation with every carrier commit and export gate still closed. S05b adds
@@ -1893,7 +1894,7 @@ Implementation remains split into independently reviewed units:
    accumulation; the one-snapshot multi-table reader; deterministic fixture
    serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
    JSON/upload and authoring remain closed.
-3. **S05c — carrier cutover and edge preparation (in progress):** ship the final
+3. **S05c — carrier cutover and edge preparation (shipped):** ship the final
    edge state in one release — the read-only structural-versus-stored scan, the
    explicit edge migration under each app lock with a clean rescan, and the
    final floor and activation values — and leave carrier commits
@@ -2488,6 +2489,26 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-24 — S05c shipped:** PR #316 passed the full CI matrix after its
+  Smoke failure exposed the second production-critical find of the slice: the
+  stream admission's deployed-environment clamp resolved to receiver v0
+  anywhere without a baked declaration (and in production via the host-object
+  `process.env` parse), so the raised floor revoked every builder stream in
+  the smoke environment. The clamp was deleted — the compiled manifest is the
+  serving declaration and the startup probe is the sole environment
+  authority — and the local Playwright suite went 25/25 including the
+  four-user multiplayer storm. Adversarial review (four finders, double
+  independent verification) confirmed and fixed one migration lock-ordering
+  hazard pre-merge. Shipped at squash `62ffaff0` through successful Cloud
+  Build `45221f0e-2102-4d27-ac9b-074abd1eac10`, migration execution
+  `commcare-nova-migrate-fgw2p`, and healthy 100%-traffic revision
+  `commcare-nova-00366-9mf`. Main, docs, and MCP metadata probes returned
+  HTTP 200 and the new revision had no error logs. The production singleton
+  reads `(1, 2, 0)` with every activation flag false, the registry-epoch
+  column is gone, and the pre-merge and post-deploy read-only edge scans were
+  both clean at 404/404 apps — zero mismatches, so the one-off
+  `migrate-lookup-reference-edges` script was removed unrun. S06 is the next
+  slice.
 - **2026-07-23 — S05c readiness closed / implementation owned:** The audit ran
   under the now-recorded blind-then-archaeology discipline: the closure was
   drafted from current `main` alone, legacy PR-01/PR-02/PR-03 and F5 were
