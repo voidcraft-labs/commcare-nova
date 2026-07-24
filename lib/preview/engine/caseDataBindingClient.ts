@@ -36,6 +36,7 @@ import {
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
+	SubmissionRejectedError,
 } from "@/lib/case-store/errors";
 // Leaf module for the same client-bundle reason as `errors` above:
 // the alias table is pure data (type-only imports), and the barrel
@@ -331,6 +332,9 @@ export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
  * framework code) collapse to a default message.
  */
 export function mapSubmitFormError(err: unknown): SubmissionResult {
+	if (err instanceof SubmissionRejectedError) {
+		return { kind: "submission-rejected", rejection: err.rejection };
+	}
 	if (err instanceof CaseNotFoundError) {
 		return { kind: "case-not-found", caseId: err.caseId };
 	}

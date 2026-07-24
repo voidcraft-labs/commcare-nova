@@ -39,6 +39,28 @@ export const LOOKUP_CONTEXT_UNAVAILABLE: LookupValidationContext =
 		kind: "unavailable",
 	});
 
+/**
+ * The activation facts the dormant-vocabulary gates condition on — the
+ * client-safe projection of the `lookup_reference_compatibility` flags
+ * deciding whether lookup-carrier commits and case-operation commits
+ * are admitted. Server callers read the singleton in-transaction
+ * (`lib/db/rolloutCompatibility.ts`); client callers consume the
+ * snapshot the app access payload carries. Omitting the state means
+ * INACTIVE — the fail-closed default preserving every historical call
+ * site's behavior — and the server's in-transaction re-verdict always
+ * wins over a stale client value.
+ */
+export interface LookupActivationState {
+	readonly carrierCommitsEnabled: boolean;
+	readonly caseOperationsEnabled: boolean;
+}
+
+/** The fail-closed default: every dormant-vocabulary gate emits. */
+export const LOOKUP_ACTIVATION_INACTIVE: LookupActivationState = Object.freeze({
+	carrierCommitsEnabled: false,
+	caseOperationsEnabled: false,
+});
+
 export type LookupReferenceValidationScope =
 	| "app"
 	| "module"

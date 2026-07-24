@@ -27,6 +27,7 @@
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { collectDormantLookupCarriers } from "@/lib/doc/dormantLookupCarriers";
 import type {
+	LookupActivationState,
 	LookupReferenceExtractorRegistry,
 	LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
@@ -716,6 +717,13 @@ export interface EvaluateCommitArgs {
 	 * `scopeOfMutations(prevDoc, mutations)`, or `"full"`.
 	 */
 	readonly scope: ValidationScope | "full";
+	/**
+	 * Activation flags conditioning the dormant-vocabulary gates. Omitted =
+	 * inactive (every gate emits) — the fail-closed default for callers with
+	 * no server snapshot; the authoritative commit reads the singleton
+	 * in-transaction and the server verdict wins over a stale client value.
+	 */
+	readonly activation?: LookupActivationState;
 }
 
 export type CommitVerdict =
@@ -772,23 +780,35 @@ export function evaluateCommit({
 	lookupContext,
 	lookupReferenceExtractors,
 	scope,
+	activation,
 }: EvaluateCommitArgs): CommitVerdict {
 	const options: RunValidationOptions | undefined =
-		scope === "full" && lookupReferenceExtractors === undefined
+		scope === "full" &&
+		lookupReferenceExtractors === undefined &&
+		activation === undefined
 			? undefined
 			: {
 					...(scope !== "full" && { scope }),
 					...(lookupReferenceExtractors !== undefined && {
 						lookupReferenceExtractors,
 					}),
+					...(activation !== undefined && { activation }),
 				};
+	/* Carrier commits admitted: the dormancy inventory stops minting on
+	 * BOTH sides, so historical carriers stay editable and new ones stop
+	 * being findings — the emergency disable re-mints them on the next
+	 * commit without a deploy. */
+	const carrierFindings = (doc: BlueprintDoc) =>
+		activation?.carrierCommitsEnabled === true
+			? []
+			: dormantLookupCarrierCommitFindings(doc);
 	const prev = [
 		...runValidation(prevDoc, lookupContext, options),
-		...dormantLookupCarrierCommitFindings(prevDoc),
+		...carrierFindings(prevDoc),
 	];
 	const next = [
 		...runValidation(nextDoc, lookupContext, options),
-		...dormantLookupCarrierCommitFindings(nextDoc),
+		...carrierFindings(nextDoc),
 	];
 
 	const gating = diffIntroduced(prev, next).filter((err) => {
@@ -846,11 +866,13 @@ export function evaluateBoundary(
 	manifest: ReadonlyMap<string, MediaAssetRecord>,
 	lookupContext: LookupValidationContext,
 	lookupReferenceExtractors?: LookupReferenceExtractorRegistry,
+	activation?: LookupActivationState,
 ): ValidationError[] {
 	return runValidation(doc, lookupContext, {
 		mediaAssets: manifest,
 		...(lookupReferenceExtractors !== undefined && {
 			lookupReferenceExtractors,
 		}),
+		...(activation !== undefined && { activation }),
 	});
 }

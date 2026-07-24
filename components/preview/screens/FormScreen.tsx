@@ -24,7 +24,10 @@ import {
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
-import { caseRowsToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
+import {
+	caseRowsToFormPreloads,
+	viewerTimeZone,
+} from "@/lib/preview/engine/caseDataBindingClient";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
@@ -90,8 +93,64 @@ function describeSubmitError(result: SubmissionFailure): string {
 			return `Case type '${result.caseType}' is no longer in the blueprint. Refresh the page and try again.`;
 		case "schema-not-synced":
 			return `Case type '${result.caseType}' isn't ready yet. Try again in a moment.`;
+		case "submission-rejected":
+			return describeSubmissionRejection(result.rejection);
 		case "error":
 			return result.message;
+	}
+}
+
+/**
+ * Person-readable copy for the atomic envelope's typed rejections —
+ * the whole submission rolled back, matching the device's transaction
+ * failure. Each sentence says what went wrong and what to look at; the
+ * operation uuid stays out of the prose (it names nothing a worker
+ * recognizes; authors find the operation through the form's automation
+ * settings).
+ */
+function describeSubmissionRejection(
+	rejection: Extract<
+		SubmissionFailure,
+		{ kind: "submission-rejected" }
+	>["rejection"],
+): string {
+	switch (rejection.kind) {
+		case "authored-key":
+			return rejection.reason === "blank"
+				? "Nothing was saved: a case automation on this form needs its identifying answer filled in before it can create or find its case."
+				: `Nothing was saved: a case automation's identifying answer is too long (the limit is ${rejection.maxKeyLength} characters). Shorten it and submit again.`;
+		case "text-value": {
+			const facet =
+				rejection.facet === "owner"
+					? "case owner"
+					: rejection.facet === "rename"
+						? "new case name"
+						: "case name";
+			return rejection.reason === "blank"
+				? `Nothing was saved: a case automation computed an empty ${facet}. Check the answers it builds that value from and submit again.`
+				: `Nothing was saved: a case automation computed a ${facet} that is too long. Shorten the answers it builds that value from and submit again.`;
+		}
+		case "target":
+			return rejection.reason === "not-found-or-out-of-scope"
+				? "Nothing was saved: a case automation points at a case that no longer exists or moved out of reach. Refresh and try again."
+				: "Nothing was saved: a case automation points at a case whose type no longer matches what the automation expects.";
+		case "sequence":
+			return rejection.reason === "case-link-target-is-self"
+				? "Nothing was saved: a case automation tried to connect a case to itself."
+				: "Nothing was saved: this form's case automations disagree about a case's type partway through the submission. Review the automations' order and types.";
+		case "retype-not-portable": {
+			const lines = rejection.failures.map((f) => {
+				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
+				return `${field}: ${f.message}`;
+			});
+			return `Nothing was saved: changing the case to type '${rejection.toCaseType}' would leave saved values that don't fit it:\n${lines.join("\n")}`;
+		}
+		default: {
+			const _exhaustive: never = rejection;
+			return `Nothing was saved: the submission was rejected (${String(
+				(_exhaustive as { kind?: unknown })?.kind,
+			)}).`;
+		}
 	}
 }
 
@@ -454,7 +513,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				caseId: effectiveCaseId,
 				caseTypes,
 			});
-			const result = await submitFormAction(mutation, appId);
+			const result = await submitFormAction(mutation, appId, viewerTimeZone());
 			if (!isCurrent()) return;
 			if (
 				result.kind === "registration" ||

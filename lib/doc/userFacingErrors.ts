@@ -426,7 +426,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CASE_PROPERTY_TOO_LONG: (e) =>
 		`${q(formName(e))} saves to a name that's way too long. Give it a shorter one.`,
 	CASE_OPERATIONS_NOT_ACTIVE: () =>
-		"Case operations are still being connected to the running app. Remove them for now.",
+		"Case operations aren't switched on for this workspace yet. Remove them for now, or try again once they're available.",
 	CASE_OPERATION_DUPLICATE_UUID: () =>
 		"Two case operations have the same identity. Remove one and add it again.",
 	CASE_OPERATION_INVALID_ID: () =>

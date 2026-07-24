@@ -880,6 +880,7 @@ describe("EngineController", () => {
 			});
 			expect(mutation).toEqual({
 				kind: "registration",
+				formUuid: "form-2-uuid",
 				primary: {
 					caseType: "patient",
 					caseName: "Alice",

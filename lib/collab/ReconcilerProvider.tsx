@@ -45,6 +45,7 @@ import {
 	type Reconciler,
 	type ReconcilerDeps,
 } from "@/lib/collab/reconciler";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation, Uuid } from "@/lib/doc/types";
@@ -595,11 +596,17 @@ export function createReconcilerRuntime(
 		) {
 			throw new Error("reload returned an incomplete access snapshot");
 		}
+		/* Optional server-fact rider: the dormant-vocabulary activation
+		 * snapshot. Malformed or absent (older servers) simply omits — the
+		 * session keeps its fail-closed default and the server re-verdict
+		 * wins regardless. */
+		const activation = parseActivationSnapshot(data.activation);
 		return {
 			kind: "authorized" as const,
 			projectId: data.projectId,
 			role: data.role,
 			canEdit: data.canEdit,
+			...(activation !== undefined && { activation }),
 			blueprint: blueprintDocSchema.parse(data.blueprint),
 			seq: data.baseSeq,
 		};
@@ -733,6 +740,23 @@ export function createReconcilerRuntime(
 		presenceSubs,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
+	};
+}
+
+function parseActivationSnapshot(
+	value: unknown,
+): LookupActivationState | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const record = value as Record<string, unknown>;
+	if (
+		typeof record.carrierCommitsEnabled !== "boolean" ||
+		typeof record.caseOperationsEnabled !== "boolean"
+	) {
+		return undefined;
+	}
+	return {
+		carrierCommitsEnabled: record.carrierCommitsEnabled,
+		caseOperationsEnabled: record.caseOperationsEnabled,
 	};
 }
 

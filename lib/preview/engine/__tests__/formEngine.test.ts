@@ -1216,6 +1216,7 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({ caseTypes });
 				expect(mutation).toEqual({
 					kind: "registration",
+					formUuid: "test-form-uuid",
 					primary: {
 						caseType: "patient",
 						caseName: "Alice",
@@ -1473,6 +1474,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-123",
 					patch: {
 						caseName: "Alice",
@@ -1525,6 +1527,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [
@@ -1562,6 +1565,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "close",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-456",
 					patch: { properties: { notes: "discharged" } },
 					children: [
@@ -1606,6 +1610,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "close",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [],
@@ -1620,7 +1625,10 @@ describe("FormEngine", () => {
 
 				engine.setValue("/data/name", "Alice");
 				const mutation = engine.computeSubmissionMutation({ caseTypes });
-				expect(mutation).toEqual({ kind: "survey" });
+				expect(mutation).toEqual({
+					kind: "survey",
+					formUuid: "test-form-uuid",
+				});
 			});
 
 			it("emits the survey marker even when caseId is provided", () => {
@@ -1631,7 +1639,10 @@ describe("FormEngine", () => {
 					caseId: "case-id-1",
 					caseTypes,
 				});
-				expect(mutation).toEqual({ kind: "survey" });
+				expect(mutation).toEqual({
+					kind: "survey",
+					formUuid: "test-form-uuid",
+				});
 			});
 		});
 

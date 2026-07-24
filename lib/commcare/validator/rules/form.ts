@@ -22,6 +22,7 @@ import {
 } from "@/lib/commcare/deriveCaseConfig";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -1186,6 +1187,7 @@ export function runFormRules(
 	formUuid: Uuid,
 	moduleUuid: Uuid,
 	lookupTables?: LookupTypeIndex,
+	activation?: LookupActivationState,
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
 	const mod = doc.modules[moduleUuid];
@@ -1234,7 +1236,13 @@ export function runFormRules(
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
 	errors.push(...childCaseNoNameField(ctx, caseConfig));
 	errors.push(
-		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
+		...validateCaseOperations(
+			doc,
+			formUuid,
+			moduleUuid,
+			lookupTables,
+			activation,
+		),
 	);
 
 	return errors;

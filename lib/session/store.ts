@@ -28,7 +28,11 @@ import { createStore } from "zustand/vanilla";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	LOOKUP_ACTIVATION_INACTIVE,
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupActivationState,
+} from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -104,6 +108,10 @@ export interface BuilderAccessSnapshot {
 	readonly projectId: string | undefined;
 	readonly role: string | undefined;
 	readonly canEdit: boolean;
+	/** Dormant-vocabulary activation flags from the same authorized
+	 *  transaction. Absent (older payloads, creation receipts) keeps the
+	 *  fail-closed INACTIVE default — the server re-verdict wins anyway. */
+	readonly activation?: LookupActivationState;
 }
 
 /** Saved edit-canvas scroll state for one form. The edit canvas
@@ -189,6 +197,9 @@ export interface BuilderSessionState {
 	 *  second capability copy. New builds are pre-seeded from the active Project's
 	 *  server-resolved role while `appId` remains absent until creation. */
 	projectId: string | undefined;
+	/** The optimistic commit gate's activation snapshot — INACTIVE until an
+	 *  authorized payload supplies the server values. */
+	activation: LookupActivationState;
 	role: string | undefined;
 	canEdit: boolean;
 	/** Whether the tuple is authoritative, being refreshed, waiting on a
@@ -583,6 +594,7 @@ export interface SessionStoreInit {
 	projectId?: string;
 	role?: string;
 	canEdit?: boolean;
+	activation?: LookupActivationState;
 }
 
 /** Create a scoped Zustand session store. Called once per BuilderProvider
@@ -623,6 +635,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				projectId: initialAccess.projectId,
 				role: initialAccess.role,
 				canEdit: initialAccess.canEdit,
+				activation: init?.activation ?? LOOKUP_ACTIVATION_INACTIVE,
 				accessPhase: "authorized" as AccessPhase,
 				scopeEpoch: 0,
 				hasWaitingAccessChanges: false,
@@ -732,6 +745,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						projectId: snapshot.projectId,
 						role: snapshot.role,
 						canEdit: snapshot.canEdit,
+						...(snapshot.activation !== undefined && {
+							activation: snapshot.activation,
+						}),
 						accessPhase: "authorized",
 						hasWaitingAccessChanges: false,
 					});
@@ -771,6 +787,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						projectId: snapshot.projectId,
 						role: snapshot.role,
 						canEdit: snapshot.canEdit,
+						...(snapshot.activation !== undefined && {
+							activation: snapshot.activation,
+						}),
 						accessPhase: "authorized",
 						hasWaitingAccessChanges:
 							!snapshot.canEdit && (options?.hasWaitingChanges ?? false),

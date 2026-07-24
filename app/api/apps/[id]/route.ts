@@ -56,6 +56,7 @@ export async function GET(
 				projectId: snapshot.projectId,
 				role: snapshot.role,
 				canEdit: snapshot.canEdit,
+				activation: snapshot.activation,
 				blueprint: app.blueprint,
 				baseSeq: snapshot.baseSeq,
 				app_name: app.app_name,

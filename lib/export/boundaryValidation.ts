@@ -14,6 +14,8 @@
  * loads every external validation resource before any wire emitter runs.
  */
 
+import { readLookupActivationFlags } from "@/lib/db/lookupActivation";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import "server-only";
 
 import {
@@ -127,6 +129,7 @@ async function collectViolationsWithRegistry(
 	lookupReferenceExtractors: LookupReferenceExtractorRegistry,
 	mode?: ExportMode,
 	lookupRows?: LookupRowVerdictInput,
+	activation?: LookupActivationState,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
@@ -156,6 +159,7 @@ async function collectViolationsWithRegistry(
 		mediaAssets,
 		lookupContext,
 		lookupReferenceExtractors,
+		activation,
 	);
 	const budgetError = exportBudgetError(rows);
 	return [
@@ -317,7 +321,11 @@ async function prepareWithRegistry(
 
 	/* This subordinate loader evaluates the complete document gate with both
 	 * the exact lookup context and the Project-filtered media rows. It returns
-	 * findings only; operational media reads continue to throw. */
+	 * findings only; operational media reads continue to throw. The activation
+	 * flags condition the dormant-vocabulary gates: once operations/carriers
+	 * are admitted, a ccz export of a doc carrying them passes (the hq modes'
+	 * carrier rejection below stays unconditional until S20). */
+	const activation = await readLookupActivationFlags();
 	const violations = await collectViolationsWithRegistry(
 		input.doc,
 		input.access.projectId,
@@ -327,6 +335,7 @@ async function prepareWithRegistry(
 		fixtureData === undefined || lookupWire === undefined
 			? undefined
 			: { fixtureData, fixtures: lookupWire.fixtures },
+		activation,
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };

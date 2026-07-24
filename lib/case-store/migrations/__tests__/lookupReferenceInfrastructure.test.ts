@@ -172,6 +172,7 @@ describe("lookup-reference infrastructure migration", () => {
 			carrier_commits_enabled: false,
 			destructive_schema_actions_enabled: false,
 			project_moves_enabled: false,
+			case_operations_enabled: false,
 			updated_at: new Date("2026-07-22T12:00:00Z"),
 		} satisfies Selectable<LookupReferenceCompatibilityTable>;
 

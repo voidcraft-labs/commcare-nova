@@ -15,6 +15,7 @@ import {
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
+	SubmissionRejectedError,
 } from "@/lib/case-store";
 import { log } from "@/lib/logger";
 import { reportUnexpectedActionError } from "../caseDataBindingTelemetry";
@@ -56,6 +57,14 @@ describe("reportUnexpectedActionError", () => {
 			new CaseNotFoundError("c1"),
 			new CaseTypeNotInBlueprintError("app-1", "patient"),
 			new SchemaNotSyncedError("app-1", "patient"),
+			// The envelope's whole-rollback rejection maps to the
+			// `submission-rejected` result arm — expected control flow.
+			new SubmissionRejectedError({
+				kind: "authored-key",
+				operationUuid: "op-1",
+				reason: "blank",
+				maxKeyLength: 205,
+			}),
 		];
 		for (const err of expectedErrors) {
 			expect(

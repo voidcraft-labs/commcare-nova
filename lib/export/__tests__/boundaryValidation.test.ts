@@ -22,6 +22,12 @@ vi.mock("@/lib/lookup/service", () => ({
 	getLookupFixtureData: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
+vi.mock("@/lib/db/lookupActivation", () => ({
+	readLookupActivationFlags: vi.fn(async () => ({
+		carrierCommitsEnabled: false,
+		caseOperationsEnabled: false,
+	})),
+}));
 
 const ACCESS = {
 	projectId: "project-1",

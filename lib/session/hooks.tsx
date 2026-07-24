@@ -12,6 +12,7 @@
 import { useContext, useMemo } from "react";
 import { useStore } from "zustand";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import { docHasData } from "@/lib/doc/predicates";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
@@ -353,6 +354,13 @@ const FALLBACK_SESSION_STORE = createBuilderSessionStore();
 export function useCanEdit(): boolean {
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	return useStore(store, (s) => s.canEdit);
+}
+
+/** The optimistic commit gate's dormant-vocabulary activation snapshot —
+ *  server-provided with each authorized access payload, INACTIVE until
+ *  then. Advisory: the authoritative commit re-reads in-transaction. */
+export function useLookupActivation(): LookupActivationState {
+	return useBuilderSession((s) => s.activation);
 }
 
 /** The lifecycle of the authoritative access tuple. Provider-optional for the

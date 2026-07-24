@@ -416,6 +416,7 @@ export interface LookupReferenceCompatibilityTable {
 		boolean
 	>;
 	project_moves_enabled: ColumnType<boolean, boolean | undefined, boolean>;
+	case_operations_enabled: ColumnType<boolean, boolean | undefined, boolean>;
 	updated_at: Timestamp;
 }
 

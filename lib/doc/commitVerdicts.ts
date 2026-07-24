@@ -53,6 +53,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, MutationResult } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
+import type { LookupActivationState } from "./lookupReferences";
 
 export type PredicateEditVerdict =
 	| { readonly ok: true }
@@ -318,6 +319,7 @@ export function evaluatePreparedMutationCandidate(
 	prevDoc: BlueprintDoc,
 	prepared: PreparedMutationCandidate,
 	lookupContext: LookupValidationContext,
+	activation?: LookupActivationState,
 ): MutationCommitVerdict {
 	if (prepared.mutationCount === 0) {
 		return {
@@ -332,6 +334,7 @@ export function evaluatePreparedMutationCandidate(
 		nextDoc: prepared.nextDoc,
 		scope: prepared.scope,
 		lookupContext,
+		...(activation !== undefined && { activation }),
 	});
 	return verdict.ok
 		? {
@@ -355,11 +358,13 @@ export function mutationCommitVerdict(
 	prevDoc: BlueprintDoc,
 	mutations: readonly Mutation[],
 	lookupContext: LookupValidationContext,
+	activation?: LookupActivationState,
 ): MutationCommitVerdict {
 	return evaluatePreparedMutationCandidate(
 		prevDoc,
 		prepareMutationCandidate(prevDoc, mutations),
 		lookupContext,
+		activation,
 	);
 }
 

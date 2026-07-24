@@ -23,6 +23,7 @@ import {
 	CaseTypeNotInBlueprintError,
 	ParkedValueNotFoundError,
 	SchemaNotSyncedError,
+	SubmissionRejectedError,
 } from "@/lib/case-store";
 import { log } from "@/lib/logger";
 
@@ -46,6 +47,7 @@ export const TYPED_USER_DOMAIN_ERRORS = [
 	CaseTypeNotInBlueprintError,
 	ParkedValueNotFoundError,
 	SchemaNotSyncedError,
+	SubmissionRejectedError,
 ] as const;
 
 /** Context attached to an unexpected-error report. */

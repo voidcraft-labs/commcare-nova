@@ -123,7 +123,7 @@ script-driven, with no route, action, or MCP exposure. The dormant Project move 
 the final transaction but remains production-disabled by its database flag. Its
 test seam requires the enabled compatibility row, compatible writer/receiver
 versions, and no incompatible live stream; the production wrapper declares the
-manifest's writer v1 and receiver v2. Under the app lock it takes the membership gate, locks the actor and all
+manifest's current writer/receiver versions. Under the app lock it takes the membership gate, locks the actor and all
 source-owner membership pairs across both Projects, enforces dual `delete` plus
 owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
@@ -148,9 +148,10 @@ boundary.
 Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
 `CREATE` only in that isolated case schema for concurrent index DDL and receives
-read-only access to compatibility state, not control-table mutation. All
-destructive-schema,
-carrier-commit, and true Project-move flags remain false.
+read-only access to compatibility state, not control-table mutation. All four activation
+flags (destructive-schema, carrier-commit, Project-move, case-operations)
+remain false until S07c's controller enables them; `case_operations_enabled`
+shares the carrier CHECK's v3-receiver/v1-reader floors.
 
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
@@ -208,10 +209,13 @@ declaration seam. All authoritative call sites use
 `config/runtime-capabilities.json` through the validated runtime accessor; it never
 owns a second numeric literal. The database floors hold
 `minimum_writer_version = 1` and `minimum_stream_receiver_version = 2` (the
-`lookup_reference_floors` migration), matching the manifest's writer/receiver
-declarations; the runtime-reader floor stays 0 and every feature flag remains
-false. Direct DML against a guarded table — tests and hand-run SQL included —
-must declare writer v1 or fail closed with SQLSTATE `55000`.
+`lookup_reference_floors` migration). The writer floor matches the manifest;
+the receiver floor deliberately trails the manifest's receiver v3 (the S07b
+bump) — admission takes `min(browser, manifest)`, so pre-v3 tabs stay admitted
+until S07c's raise-and-drain lifts the floor. The runtime-reader floor stays 0
+and every feature flag remains false. Direct DML against a guarded table —
+tests and hand-run SQL included — must declare writer v1 or fail closed with
+SQLSTATE `55000`.
 
 Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
 holder identity: edit is `(edit, lock_run_id, run_holder_nonce)`; build is
@@ -305,6 +309,13 @@ must never use the 10/15-minute renewable liveness horizons as total drain
 bounds.
 
 `rolloutCompatibility.ts` is the only named compatibility-operation service.
+The activation-FLAG reads (`readLookupActivationForShare` /
+`readLookupActivationFlags`) live in the marker-free `lookupActivation.ts`
+leaf instead: `apps.ts`/`appAccess.ts` import them on the commit path, and the
+tsx-run smoke seeds + inspect scripts import `apps.ts`, so the leaf must load
+under plain Node — adding `server-only` there (or importing the operational
+service from the commit path) breaks every one of those entry points at
+import time, the same trade `threads.ts` documents.
 Its status read is one repeatable-read snapshot. Traffic reconciliation and
 runtime-epoch preparation invoke their control-plane snapshot callback only
 after taking the fixed deployment-cutover gate; that callback must perform a

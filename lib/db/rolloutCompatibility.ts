@@ -4,6 +4,7 @@ import { sql, type Transaction } from "kysely";
 import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 import { lockDeploymentCutoverGate } from "./deploymentCutoverGate";
 import { LEASE_COLUMNS, leaseView } from "./leaseView";
+import { RolloutCompatibilityError } from "./lookupActivation";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import { runLeaseState } from "./runLiveness";
 import {
@@ -27,6 +28,7 @@ export interface LookupReferenceCompatibilityState {
 	readonly carrierCommitsEnabled: boolean;
 	readonly destructiveSchemaActionsEnabled: boolean;
 	readonly projectMovesEnabled: boolean;
+	readonly caseOperationsEnabled: boolean;
 	readonly updatedAt: Date;
 }
 
@@ -65,7 +67,8 @@ export interface RolloutCompatibilityStatus {
 export type LookupReferenceActivationFlag =
 	| "carrier_commits_enabled"
 	| "destructive_schema_actions_enabled"
-	| "project_moves_enabled";
+	| "project_moves_enabled"
+	| "case_operations_enabled";
 
 /**
  * Perform a fresh read of the exact effective Cloud Run traffic split when
@@ -76,31 +79,10 @@ export type ReadReceivingRevisionCapabilities = () => Promise<
 	readonly ReceivingRevisionCapability[]
 >;
 
-export type RolloutCompatibilityErrorCode =
-	| "compatibility_state_missing"
-	| "invalid_version"
-	| "receiving_revisions_required"
-	| "receiving_revision_incompatible"
-	| "floor_cannot_decrease"
-	| "runtime_epoch_missing"
-	| "runtime_epoch_too_young"
-	| "runtime_holders_not_drained";
-
-export class RolloutCompatibilityError extends Error {
-	readonly code: RolloutCompatibilityErrorCode;
-	readonly details?: Readonly<Record<string, unknown>>;
-
-	constructor(
-		code: RolloutCompatibilityErrorCode,
-		message: string,
-		details?: Readonly<Record<string, unknown>>,
-	) {
-		super(message);
-		this.name = "RolloutCompatibilityError";
-		this.code = code;
-		this.details = details;
-	}
-}
+export {
+	RolloutCompatibilityError,
+	type RolloutCompatibilityErrorCode,
+} from "./lookupActivation";
 
 function assertVersion(value: number, label: string, positive = false): void {
 	if (
@@ -141,6 +123,7 @@ type CompatibilityRow = {
 	readonly carrier_commits_enabled: boolean;
 	readonly destructive_schema_actions_enabled: boolean;
 	readonly project_moves_enabled: boolean;
+	readonly case_operations_enabled: boolean;
 	readonly updated_at: Date;
 };
 
@@ -155,6 +138,7 @@ function compatibilityState(
 		carrierCommitsEnabled: row.carrier_commits_enabled,
 		destructiveSchemaActionsEnabled: row.destructive_schema_actions_enabled,
 		projectMovesEnabled: row.project_moves_enabled,
+		caseOperationsEnabled: row.case_operations_enabled,
 		updatedAt: row.updated_at,
 	};
 }
@@ -173,6 +157,7 @@ async function readCompatibilityRow(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.where("id", "=", 1);
@@ -512,6 +497,7 @@ export async function raiseMinimumRuntimeReaderVersionInTransaction(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.executeTakeFirstOrThrow();
@@ -558,6 +544,7 @@ export async function raiseMinimumStreamReceiverVersionInTransaction(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.executeTakeFirstOrThrow();
@@ -588,6 +575,8 @@ export async function disableLookupReferenceActivationFlagInTransaction(
 		update = update.set({ carrier_commits_enabled: false });
 	} else if (flag === "destructive_schema_actions_enabled") {
 		update = update.set({ destructive_schema_actions_enabled: false });
+	} else if (flag === "case_operations_enabled") {
+		update = update.set({ case_operations_enabled: false });
 	} else {
 		update = update.set({ project_moves_enabled: false });
 	}
@@ -602,6 +591,7 @@ export async function disableLookupReferenceActivationFlagInTransaction(
 			"carrier_commits_enabled",
 			"destructive_schema_actions_enabled",
 			"project_moves_enabled",
+			"case_operations_enabled",
 			"updated_at",
 		])
 		.executeTakeFirstOrThrow();
