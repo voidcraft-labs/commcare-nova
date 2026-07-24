@@ -89,9 +89,9 @@ function acceptanceDoc(
 			{
 				name: "patient",
 				properties: [
-					{ name: "status", data_type: "text" },
-					{ name: "op_status", data_type: "text" },
-					{ name: "visit_note", data_type: "text" },
+					{ name: "status", label: "Status", data_type: "text" },
+					{ name: "op_status", label: "Op status", data_type: "text" },
+					{ name: "visit_note", label: "Visit note", data_type: "text" },
 				],
 			},
 		],
@@ -298,6 +298,35 @@ describe("engine → builder → executor acceptance", () => {
 		);
 		const row = await loadCase(store, SESSION_CASE);
 		expect(row?.properties.status).toBe("open");
+	});
+
+	it("operations present but no collected answer bags submits ordinary-only (doc-snapshot skew)", async () => {
+		const { doc, formUuid } = acceptanceDoc((ids) => [
+			{
+				uuid: OP_ROOT,
+				id: "op_root",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				writes: [{ property: "op_status", value: term(formField(ids.note)) }],
+			} as CaseOperation,
+		]);
+		const engine = engineFor(doc, formUuid);
+		engine.setValue("/data/note", "collected");
+		const mutation = engine.computeSubmissionMutation({
+			caseId: SESSION_CASE,
+			caseTypes: doc.caseTypes ?? [],
+		});
+		// A client whose doc snapshot predates the operation add sends NO
+		// answer bags; the builder must fall back to ordinary-only, never
+		// run the program with blank bindings (a blank write projects to
+		// key-absent and would silently strip stored properties).
+		const built = buildCaseOperationProgramFromDoc({
+			blueprint: doc,
+			mutation: { ...mutation, operationAnswers: undefined },
+			identity: IDENTITY,
+		});
+		expect(built.program).toBeUndefined();
 	});
 
 	it("a false condition skips the effect and records executed: false", async () => {

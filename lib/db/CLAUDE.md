@@ -123,7 +123,7 @@ script-driven, with no route, action, or MCP exposure. The dormant Project move 
 the final transaction but remains production-disabled by its database flag. Its
 test seam requires the enabled compatibility row, compatible writer/receiver
 versions, and no incompatible live stream; the production wrapper declares the
-manifest's writer v1 and receiver v2. Under the app lock it takes the membership gate, locks the actor and all
+manifest's current writer/receiver versions. Under the app lock it takes the membership gate, locks the actor and all
 source-owner membership pairs across both Projects, enforces dual `delete` plus
 owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
@@ -209,10 +209,13 @@ declaration seam. All authoritative call sites use
 `config/runtime-capabilities.json` through the validated runtime accessor; it never
 owns a second numeric literal. The database floors hold
 `minimum_writer_version = 1` and `minimum_stream_receiver_version = 2` (the
-`lookup_reference_floors` migration), matching the manifest's writer/receiver
-declarations; the runtime-reader floor stays 0 and every feature flag remains
-false. Direct DML against a guarded table — tests and hand-run SQL included —
-must declare writer v1 or fail closed with SQLSTATE `55000`.
+`lookup_reference_floors` migration). The writer floor matches the manifest;
+the receiver floor deliberately trails the manifest's receiver v3 (the S07b
+bump) — admission takes `min(browser, manifest)`, so pre-v3 tabs stay admitted
+until S07c's raise-and-drain lifts the floor. The runtime-reader floor stays 0
+and every feature flag remains false. Direct DML against a guarded table —
+tests and hand-run SQL included — must declare writer v1 or fail closed with
+SQLSTATE `55000`.
 
 Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
 holder identity: edit is `(edit, lock_run_id, run_holder_nonce)`; build is

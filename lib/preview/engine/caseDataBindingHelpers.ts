@@ -904,9 +904,11 @@ export interface BuiltSubmissionOperations {
  * only the client's answer values and iteration counts. Returns an
  * empty result (the `operations` arm stays absent) when the mutation
  * carries no form identity (an older bundle — the receiver-v3 cutoff
- * owns that skew), the doc's form holds no operations, or
- * `case_operations_enabled` is off (the emergency-disable semantics:
- * an operation-bearing doc submits ordinary-only while disabled).
+ * owns that skew), the doc's form holds no operations, the client
+ * collected no answer bags for an operation-bearing form (doc-snapshot
+ * skew — the pure half's guard), or `case_operations_enabled` is off
+ * (the emergency-disable semantics: an operation-bearing doc submits
+ * ordinary-only while disabled).
  *
  * Everything structural derives from the S04 analyses over the
  * committed doc: canonical `(order, uuid)` operation sequence,
@@ -960,6 +962,14 @@ export function buildCaseOperationProgramFromDoc(args: {
 	if (form === undefined) return {};
 	const operations = orderedCaseOperations(form);
 	if (operations.length === 0) return {};
+	/* Operations present but NO collected answers: the client's doc
+	 * snapshot predates a co-editor's operation add (a synced client
+	 * whose form holds operations always sends the bags). Running the
+	 * program with empty bindings would blank-write every field term —
+	 * key-absent projection REMOVES stored properties on update — so
+	 * this skew submits ordinary-only, the same fallback the
+	 * identity-less arm takes. */
+	if (mutation.operationAnswers === undefined) return {};
 
 	const guards = caseOperationConditionalGuardUuids(doc, formUuid, operations);
 	const snapshotTypes = caseOperationExpressionSnapshotTypes(

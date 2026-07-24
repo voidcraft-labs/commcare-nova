@@ -918,6 +918,13 @@ export async function submitFormAction(
 		if (mutation.kind === "survey" && mutation.operationAnswers === undefined) {
 			return { kind: "survey" };
 		}
+		/* Membership BEFORE the program build: the build loads the
+		 * committed doc (an unauthorized read on a foreign appId), and
+		 * the survey short-circuit below reflects that doc's contents —
+		 * distinguishable arms a non-member must never reach, or the
+		 * IDOR-safe not-found collapse leaks whether a foreign form
+		 * carries operations. */
+		const store = await gatedCaseStore(appId, identity, "edit");
 		const built = await buildSubmissionOperationProgram({
 			appId,
 			identity,
@@ -930,7 +937,6 @@ export async function submitFormAction(
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
-		const store = await gatedCaseStore(appId, identity, "edit");
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, appId, built),
 		);

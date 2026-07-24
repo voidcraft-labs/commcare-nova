@@ -54,6 +54,7 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseOperation,
 	type CaseType,
 	calculatedColumn,
 	exactMode,
@@ -61,6 +62,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 	startsWithMode,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	and,
@@ -70,6 +72,7 @@ import {
 	dateLiteral,
 	double,
 	eq,
+	formField,
 	gt,
 	ifExpr,
 	input,
@@ -87,6 +90,7 @@ import {
 	today,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { buildDoc, f } from "../../../__tests__/docHelpers";
 import {
 	caseRowDisplayValue,
 	caseRowsToFormPreloads,
@@ -165,6 +169,18 @@ vi.mock("@/lib/db/appAccess", async () => {
 		);
 	return { ...actual, resolveAppScope: resolveAppScopeMock };
 });
+// The program builder's activation-flag read hits the shared app-state
+// pool; stub it so the flag-gate tests script it per call.
+// `readLookupActivationForShare` is present only because the actual
+// `appAccess` module (spread above) imports it at module scope —
+// nothing here calls it (`resolveAppScope` is stubbed).
+const { activationFlagsMock } = vi.hoisted(() => ({
+	activationFlagsMock: vi.fn(),
+}));
+vi.mock("@/lib/db/rolloutCompatibility", () => ({
+	readLookupActivationFlags: activationFlagsMock,
+	readLookupActivationForShare: vi.fn(),
+}));
 
 // ---------------------------------------------------------------
 // Per-test database lifecycle (mirrors PostgresCaseStore tests)
@@ -3335,6 +3351,174 @@ describe("submitFormAction", () => {
 			caseId: ALICE_CASE_ID,
 			childCaseIds: [VISIT_CASE_ID],
 		});
+	});
+
+	// ---------------------------------------------------------------
+	// The case-operation program path: flag gate + authorization
+	// ordering. The committed doc comes from `loadApp` (stubbed) and
+	// the activation flag from `readLookupActivationFlags` (stubbed)
+	// — the two reads `buildSubmissionOperationProgram` performs.
+	// ---------------------------------------------------------------
+
+	/** A survey form carrying one root create operation. */
+	function operationSurveyDoc() {
+		const doc = buildDoc({
+			appName: "Ops survey",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "visit_note", label: "Visit note", data_type: "text" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = Object.keys(doc.forms)[0] as Uuid;
+		const noteUuid = Object.values(doc.fields).find(
+			(field) => field.id === "note",
+		)?.uuid as Uuid;
+		const form = doc.forms[formUuid];
+		const operation = {
+			uuid: asUuid("70000000-0000-7000-8000-00000000b001"),
+			id: "op_note",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: term(formField(noteUuid)),
+			writes: [{ property: "visit_note", value: term(formField(noteUuid)) }],
+		} as CaseOperation;
+		return {
+			doc: {
+				...doc,
+				forms: {
+					...doc.forms,
+					[formUuid]: { ...form, caseOperations: [operation] },
+				},
+			},
+			formUuid,
+			noteUuid,
+		};
+	}
+
+	function stubCaseStore(
+		applySubmission: CaseStore["applySubmission"] = vi.fn(),
+	): CaseStore {
+		return {
+			query: vi.fn(),
+			count: vi.fn(),
+			insert: vi.fn(),
+			applySubmission,
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
+			conversionImpact: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+	}
+
+	it("authorizes membership but skips the doc read for an answer-carrying survey while the flag is off", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		activationFlagsMock.mockResolvedValue({
+			carrierCommitsEnabled: false,
+			caseOperationsEnabled: false,
+		});
+		const { doc, formUuid, noteUuid } = operationSurveyDoc();
+		loadAppMock.mockResolvedValue({ blueprint: doc });
+		const store = stubCaseStore();
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		const result = await submitFormAction(
+			{
+				kind: "survey",
+				formUuid,
+				operationAnswers: {
+					root: [{ fieldUuid: noteUuid, value: "first" }],
+					repeats: [],
+				},
+			},
+			APP_ID,
+		);
+		expect(result).toEqual({ kind: "survey" });
+		// An answer-carrying survey is post-gate: membership resolved…
+		expect(resolveAppScopeMock).toHaveBeenCalledTimes(1);
+		// …but the emergency-disable flag kept the committed doc unread
+		// and the envelope untouched (ordinary-only semantics).
+		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(store.applySubmission).not.toHaveBeenCalled();
+	});
+
+	it("builds the program only after membership passes and returns the survey arm from an executed program", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		activationFlagsMock.mockResolvedValue({
+			carrierCommitsEnabled: false,
+			caseOperationsEnabled: true,
+		});
+		const { doc, formUuid, noteUuid } = operationSurveyDoc();
+		loadAppMock.mockResolvedValue({ blueprint: doc });
+		const applySubmission = vi.fn().mockResolvedValueOnce({
+			childCaseIds: [],
+			operations: [{ operationUuid: "op", iteration: 0, executed: true }],
+		});
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			stubCaseStore(applySubmission),
+		);
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		const result = await submitFormAction(
+			{
+				kind: "survey",
+				formUuid,
+				operationAnswers: {
+					root: [{ fieldUuid: noteUuid, value: "first" }],
+					repeats: [],
+				},
+			},
+			APP_ID,
+		);
+		// The survey arm returns WITHOUT the primaryCaseId invariant —
+		// an operations-bearing survey has no primary case.
+		expect(result).toEqual({ kind: "survey" });
+		// The envelope carried the server-built program over ordinary "none".
+		const envelope = applySubmission.mock.calls[0]?.[0];
+		expect(envelope.ordinary).toEqual({ kind: "none" });
+		expect(envelope.operations?.formUuid).toBe(formUuid);
+		expect(envelope.operations?.operations).toHaveLength(1);
+		// Authorization-ordering pin: the membership gate resolved BEFORE
+		// the committed doc was read — the build must never touch a
+		// foreign blueprint or decide the survey arm pre-authorization.
+		const gateOrder = resolveAppScopeMock.mock.invocationCallOrder[0];
+		const docReadOrder = loadAppMock.mock.invocationCallOrder[0];
+		expect(gateOrder).toBeLessThan(docReadOrder);
 	});
 });
 
