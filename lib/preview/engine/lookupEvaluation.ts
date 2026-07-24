@@ -44,6 +44,7 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
+import type { AstMapHooks } from "@/lib/domain/predicate";
 import {
 	literal,
 	mapExpressionAst,
@@ -59,6 +60,7 @@ import type {
 import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
+import type { LookupChoice } from "./types";
 
 /**
  * One Project lookup snapshot projected for client evaluation:
@@ -92,11 +94,7 @@ export function previewLookupData(snapshot: {
 	};
 }
 
-/** One rendered choice of a lookup-backed select, in authored row order. */
-export interface LookupChoice {
-	readonly value: string;
-	readonly label: string;
-}
+export type { LookupChoice } from "./types";
 
 /**
  * Non-row bindings for one carrier evaluation. `outer` resolves
@@ -334,32 +332,99 @@ function foldHooks(
 	};
 }
 
-/** Does this predicate carry a `table-lookup` anywhere (nested
- *  `where`s included)? Callers use it to distinguish "needs the
- *  fixture snapshot" from "evaluable now". */
-export function predicateReferencesTableLookup(predicate: Predicate): boolean {
-	let found = false;
-	mapPredicateAst(predicate, {
-		mapExpression: (expr) => {
-			if (expr.kind === "table-lookup") found = true;
-			return undefined;
-		},
-	});
-	return found;
+// ── Snapshot coverage ────────────────────────────────────────────────
+//
+// A snapshot covers only the tables the doc referenced AT FETCH TIME,
+// so "a snapshot exists" is NOT "this carrier is decidable": a validly
+// committed edit can reference a Project table or a fresh column the
+// held snapshot predates. Every evaluation surface asks coverage
+// FIRST and treats a miss as its loading state (the generation-keyed
+// refetch is already in flight); the requireTable/requireColumn
+// throws below then fire only on a genuinely bypassed validator.
+
+interface LookupIdentityCollector {
+	covered: boolean;
+	check: (tableId: LookupTableId, columnId?: LookupColumnId) => void;
 }
 
-/** Expression twin of {@link predicateReferencesTableLookup}. */
-export function expressionReferencesTableLookup(
-	expression: ValueExpression,
-): boolean {
-	let found = false;
-	mapExpressionAst(expression, {
+function identityCollector(
+	data: PreviewLookupData | undefined,
+): LookupIdentityCollector {
+	const collector: LookupIdentityCollector = {
+		covered: true,
+		check: (tableId, columnId) => {
+			const table = data?.tablesById.get(tableId);
+			if (table === undefined) {
+				collector.covered = false;
+				return;
+			}
+			if (
+				columnId !== undefined &&
+				!table.columns.some((column) => column.id === columnId)
+			) {
+				collector.covered = false;
+			}
+		},
+	};
+	return collector;
+}
+
+function coverageHooks(collector: LookupIdentityCollector): AstMapHooks {
+	return {
 		mapExpression: (expr) => {
-			if (expr.kind === "table-lookup") found = true;
+			if (expr.kind === "table-lookup") {
+				collector.check(expr.tableId, expr.resultColumnId);
+			}
+			// Descend — nested `where`s carry the table-column terms.
 			return undefined;
 		},
-	});
-	return found;
+		mapTerm: (node) => {
+			if (node.kind === "table-column") {
+				collector.check(node.tableId, node.columnId);
+			}
+			return undefined;
+		},
+	};
+}
+
+/**
+ * Does the snapshot cover every lookup identity this predicate
+ * references? `undefined` data covers exactly the carrier-free case.
+ */
+export function predicateLookupsCovered(
+	predicate: Predicate,
+	data: PreviewLookupData | undefined,
+): boolean {
+	const collector = identityCollector(data);
+	mapPredicateAst(predicate, coverageHooks(collector));
+	return collector.covered;
+}
+
+/** Expression twin of {@link predicateLookupsCovered}. */
+export function expressionLookupsCovered(
+	expression: ValueExpression,
+	data: PreviewLookupData | undefined,
+): boolean {
+	const collector = identityCollector(data);
+	mapExpressionAst(expression, coverageHooks(collector));
+	return collector.covered;
+}
+
+/**
+ * Does the snapshot cover a lookup-backed select's whole identity —
+ * table, value/label columns, and every carrier in its filter?
+ */
+export function lookupOptionsSourceCovered(
+	source: LookupOptionsSource,
+	data: PreviewLookupData | undefined,
+): boolean {
+	const collector = identityCollector(data);
+	collector.check(source.tableId, source.valueColumnId);
+	collector.check(source.tableId, source.labelColumnId);
+	if (source.filter !== undefined) {
+		mapPredicateAst(source.filter, coverageHooks(collector));
+	}
+	return collector.covered;
 }
 
 /**
@@ -395,6 +460,7 @@ export function evaluateLookupChoices(
 	for (const [index, row] of rows.entries()) {
 		if (!matches(row, index)) continue;
 		choices.push({
+			key: row.id as string,
 			value: lookupFixtureCellText(
 				valueColumn.dataType,
 				row.values[valueColumn.id],

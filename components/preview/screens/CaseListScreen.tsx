@@ -104,7 +104,7 @@ import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
-import { predicateReferencesTableLookup } from "@/lib/preview/engine/lookupEvaluation";
+import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -328,11 +328,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const searchActionIsRelevant =
 		searchConfig !== undefined &&
 		(searchButtonCondition === undefined ||
-			(predicateReferencesTableLookup(searchButtonCondition) &&
-			lookupStatus.kind !== "data"
-				? /* A condition folding over lookup data the session hasn't
-					 * loaded is undecided — keep the Search pane withheld rather
-					 * than flashing a surface the decided value may retract. */
+			(!predicateLookupsCovered(
+				searchButtonCondition,
+				lookupStatus.kind === "data" ? lookupStatus.data : undefined,
+			)
+				? /* A condition whose carriers the held snapshot doesn't cover
+					 * (still loading, or a valid edit the stale snapshot predates)
+					 * is undecided — keep the Search pane withheld rather than
+					 * flashing a surface the decided value may retract. */
 					false
 				: evaluatePreviewSearchPredicate(
 						searchButtonCondition,

@@ -27,7 +27,7 @@ import type { EvalContext } from "../xpath/types";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
 	foldTableLookupsInPredicate,
-	predicateReferencesTableLookup,
+	predicateLookupsCovered,
 } from "./lookupEvaluation";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import type { PreviewLookupStatus } from "./useLookupPreviewData";
@@ -82,14 +82,16 @@ function conditionVisibility(
 	const effective = effectiveDisplayConditionForEmission(args.condition);
 	if (effective === undefined) return "shown";
 
-	/* A carrier-bearing condition is decidable only over loaded data.
-	 * Loading, a failed fetch, and the first-render idle tick all render
-	 * the placeholder — never a guess, never a crash for a transient;
-	 * with loaded data, unavailable identities throw loudly below. */
-	if (
-		args.lookup.kind !== "data" &&
-		predicateReferencesTableLookup(effective)
-	) {
+	/* A carrier-bearing condition is decidable only over a snapshot that
+	 * COVERS its identities — a bare "data exists" test is not enough,
+	 * because the stale-while-revalidate snapshot predates a validly
+	 * committed reference to a new table/column. Loading, a failed
+	 * fetch, the first-render idle tick, and the stale-coverage window
+	 * all render the placeholder — never a guess, never a crash for a
+	 * transient; a COVERED snapshot with a broken identity still throws
+	 * loudly below (a genuine validator bypass). */
+	const data = args.lookup.kind === "data" ? args.lookup.data : undefined;
+	if (!predicateLookupsCovered(effective, data)) {
 		return "pending";
 	}
 
@@ -98,8 +100,8 @@ function conditionVisibility(
 		? (property: { readonly property: string }) => `#case/${property.property}`
 		: undefined;
 	const folded =
-		args.lookup.kind === "data"
-			? foldTableLookupsInPredicate(effective, args.lookup.data, {
+		data !== undefined
+			? foldTableLookupsInPredicate(effective, data, {
 					outer: ctx,
 					...(emitSelfProperty !== undefined && { emitSelfProperty }),
 				})

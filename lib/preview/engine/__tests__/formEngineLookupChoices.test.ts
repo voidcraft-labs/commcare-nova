@@ -144,9 +144,21 @@ describe("lookup-backed choices in the engine", () => {
 			lookupData(),
 		);
 		expect(engine.getState("/data/clinic").choices).toEqual([
-			{ value: "a1", label: "Arua" },
-			{ value: "b2", label: "Bario" },
-			{ value: "c3", label: "Cadu" },
+			{
+				key: "018f0000-0000-7000-8000-0000000000r1",
+				value: "a1",
+				label: "Arua",
+			},
+			{
+				key: "018f0000-0000-7000-8000-0000000000r2",
+				value: "b2",
+				label: "Bario",
+			},
+			{
+				key: "018f0000-0000-7000-8000-0000000000r3",
+				value: "c3",
+				label: "Cadu",
+			},
 		]);
 	});
 
@@ -166,13 +178,25 @@ describe("lookup-backed choices in the engine", () => {
 
 		engine.setValue("/data/region", "south");
 		expect(engine.getState("/data/clinic").choices).toEqual([
-			{ value: "b2", label: "Bario" },
-			{ value: "c3", label: "Cadu" },
+			{
+				key: "018f0000-0000-7000-8000-0000000000r2",
+				value: "b2",
+				label: "Bario",
+			},
+			{
+				key: "018f0000-0000-7000-8000-0000000000r3",
+				value: "c3",
+				label: "Cadu",
+			},
 		]);
 
 		engine.setValue("/data/region", "north");
 		expect(engine.getState("/data/clinic").choices).toEqual([
-			{ value: "a1", label: "Arua" },
+			{
+				key: "018f0000-0000-7000-8000-0000000000r1",
+				value: "a1",
+				label: "Arua",
+			},
 		]);
 	});
 
@@ -246,22 +270,47 @@ describe("lookup-backed choices in the engine", () => {
 		expect(engine.getState("/data/clinic").value).toBe("b2");
 	});
 
-	it("throws the validation-bypass invariant for an unknown table WITH a snapshot", () => {
+	it("a source the snapshot doesn't cover degrades to loading, and coverage reports the gap", () => {
+		/* A validly committed edit can reference a table the captured
+		 * snapshot predates — that is a COVERAGE gap (loading state +
+		 * controller heal), never the validation-bypass throw, which fires
+		 * only from evaluateLookupChoices under a covering snapshot. */
 		const orphanSelect = clinicSelect("single_select", false);
 		orphanSelect.optionsSource = {
 			...(orphanSelect.optionsSource as LookupOptionsSource),
 			tableId: "018f0000-0000-7000-8000-00000000dead" as LookupTableId,
 		};
-		expect(
-			() =>
-				new FormEngine(
-					dTree([orphanSelect]),
-					undefined,
-					undefined,
-					null,
-					lookupData(),
-				),
-		).toThrow(/not in the loaded fixture snapshot/);
+		const engine = new FormEngine(
+			dTree([orphanSelect]),
+			undefined,
+			undefined,
+			null,
+			lookupData(),
+		);
+		expect(engine.getState("/data/clinic").choices).toBeUndefined();
+		expect(engine.lookupDataCoversForm()).toBe(false);
+	});
+
+	it("coverage holds for a covered snapshot and fails without one", () => {
+		const covered = new FormEngine(
+			dTree([
+				{ id: "region", kind: "text", label: "Region" },
+				clinicSelect("single_select", true),
+			]),
+			undefined,
+			undefined,
+			null,
+			lookupData(),
+		);
+		expect(covered.lookupDataCoversForm()).toBe(true);
+		const uncaptured = new FormEngine(
+			dTree([clinicSelect("single_select", false)]),
+		);
+		expect(uncaptured.lookupDataCoversForm()).toBe(false);
+		const carrierFree = new FormEngine(
+			dTree([{ id: "name", kind: "text", label: "Name" }]),
+		);
+		expect(carrierFree.lookupDataCoversForm()).toBe(true);
 	});
 
 	it("a carrier-free form needs no snapshot", () => {

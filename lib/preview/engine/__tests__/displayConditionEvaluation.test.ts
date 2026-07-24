@@ -187,6 +187,28 @@ describe("moduleDisplayVisibility", () => {
 			}),
 		).toBe("pending");
 	});
+
+	it("a loaded snapshot that doesn't COVER the condition's table pends too", () => {
+		/* Stale-while-revalidate: the held snapshot predates a validly
+		 * committed reference to a new table — never a crash, never a
+		 * guess; the generation-keyed refetch decides it. */
+		const otherTable = "018f0000-0000-7000-8000-00000000beef" as LookupTableId;
+		const condition = eq(
+			tableLookup(
+				otherTable,
+				COL_CODE,
+				eq(term(tableColumn(otherTable, COL_REGION)), literal("north")),
+			),
+			literal("a1"),
+		);
+		expect(
+			moduleDisplayVisibility({
+				condition,
+				session: SESSION,
+				lookup: LOOKUP_DATA,
+			}),
+		).toBe("pending");
+	});
 });
 
 describe("formDisplayVisibility", () => {

@@ -1,5 +1,9 @@
-/** One rendered choice of a lookup-backed select, in authored row order. */
+/** One rendered choice of a lookup-backed select, in authored row order.
+ *  `key` is the source row's stable id — lookup rows, unlike static
+ *  options, guarantee neither unique nor non-blank values, so display
+ *  identity (React keys, DOM ids) must never derive from `value`. */
 export interface LookupChoice {
+	readonly key: string;
 	readonly value: string;
 	readonly label: string;
 }
@@ -42,7 +46,10 @@ export function lookupChoicesEqual(
 	if (a === undefined || b === undefined) return false;
 	return (
 		a.length === b.length &&
-		a.every((c, i) => c.value === b[i].value && c.label === b[i].label)
+		a.every(
+			(c, i) =>
+				c.key === b[i].key && c.value === b[i].value && c.label === b[i].label,
+		)
 	);
 }
 

@@ -236,17 +236,20 @@ function classifyChange(
 		return "expression";
 	}
 
-	if (cur.default_value !== prev.default_value) return "default_value";
-
 	// Lookup-backed options source (select kinds only). Reference compare,
 	// same rationale as the AST slots above: a commit installs a fresh
 	// object, so identity diff ≡ "this slot was written". Static inline
 	// `options` edits stay "none" — the renderer reads them off the doc.
+	// Checked BEFORE default_value: a single commit writing both slots
+	// must reach the options_source dispatch (which also reapplies the
+	// default) or the choices list would keep the previous source.
 	const curSelect = cur as Field & { optionsSource?: unknown };
 	const prevSelect = prev as Field & { optionsSource?: unknown };
 	if (curSelect.optionsSource !== prevSelect.optionsSource) {
 		return "options_source";
 	}
+
+	if (cur.default_value !== prev.default_value) return "default_value";
 
 	const labelChanged = cur.label !== prev.label;
 	const hintChanged = cur.hint !== prev.hint;
@@ -301,10 +304,10 @@ export class EngineController {
 
 	/** The builder session's lookup fixture snapshot. Session-scoped like
 	 *  the identity — engines CAPTURE it at activation (per-form-session
-	 *  choice stability), so a refreshed snapshot reaches the NEXT
-	 *  activation; only the first arrival rebuilds an active
-	 *  carrier-bearing engine that had none (the cold-load race), with
-	 *  user-touched values restored. */
+	 *  choice stability), so a refreshed snapshot ordinarily reaches the
+	 *  NEXT activation; an arrival rebuilds the active engine only while
+	 *  its capture fails to COVER the form's carriers (cold load, or a
+	 *  valid rebind the capture predates), with touched values restored. */
 	private lookupData: PreviewLookupData | null = null;
 
 	constructor() {
@@ -360,18 +363,17 @@ export class EngineController {
 	 * engine down here — the reset boundary deactivates separately.
 	 */
 	setLookupData(data: PreviewLookupData | null): void {
-		const arrived = this.lookupData === null && data !== null;
 		this.lookupData = data;
-		if (!arrived) return;
+		if (data === null) return;
 		const formUuid = this.activeFormUuid;
-		if (
-			formUuid === undefined ||
-			this.engine === undefined ||
-			this.engine.hasLookupData() ||
-			!this.engine.usesLookupData()
-		) {
-			return;
-		}
+		if (formUuid === undefined || this.engine === undefined) return;
+		/* Rebuild only when the active engine's CAPTURED snapshot fails to
+		 * cover the form's carriers — the cold-load first arrival and the
+		 * valid mid-session rebind to a table/column the capture predates.
+		 * A covered engine keeps its capture (per-form-session choice
+		 * stability); touched values restore through the shared snapshot
+		 * contract. */
+		if (this.engine.lookupDataCoversForm()) return;
 		const restoreSnapshot = this.engine.getValueSnapshot();
 		this.activateForm(formUuid, this.activeCaseData);
 		if (this.engine !== undefined) {
@@ -650,13 +652,28 @@ export class EngineController {
 						case "default_value":
 							this.onDefaultValueChanged(uuid, current as Field);
 							return;
-						case "options_source":
+						case "options_source": {
+							/* A combined write may also carry a default change; apply
+							 * the default FIRST (it evaluates directly, no DAG needed)
+							 * so the expression handler's rebuild + field-and-dependents
+							 * re-evaluation then recomputes choices AND retention
+							 * against the freshly defaulted value. */
+							const curDefault = (
+								current as Field & { default_value?: unknown }
+							).default_value;
+							const prevDefault = (
+								previous as Field & { default_value?: unknown }
+							).default_value;
+							if (curDefault !== prevDefault) {
+								this.onDefaultValueChanged(uuid, current as Field);
+							}
 							/* The choices node's edges and expression live in the DAG,
 							 * so the expression handler's rebuild + field-and-dependents
 							 * re-evaluation covers a filter/table/column change — the
 							 * choices arm recomputes and unselects dropped values. */
 							this.onExpressionChanged(uuid);
 							return;
+						}
 					}
 				},
 			);

@@ -25,7 +25,7 @@ import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
-	expressionReferencesTableLookup,
+	expressionLookupsCovered,
 	foldTableLookupsInExpression,
 	foldTableLookupsInPredicate,
 	type PreviewLookupData,
@@ -176,14 +176,12 @@ export function resolveSearchInputDefaults(
 	const values = new Map<string, string>();
 	for (const input of [...searchInputs].sort(bySortKey)) {
 		if (input.default === undefined || input.type === "date-range") continue;
-		/* A default folding over lookup data the session hasn't loaded yet
-		 * contributes nothing THIS resolution; the run-state reconciler
-		 * updates untouched prompts when the snapshot lands and the
-		 * defaults revision moves. */
-		if (
-			lookupData === undefined &&
-			expressionReferencesTableLookup(input.default)
-		) {
+		/* A default whose carriers the held snapshot doesn't COVER (not
+		 * loaded yet, or a valid edit the stale-while-revalidate snapshot
+		 * predates) contributes nothing THIS resolution; the run-state
+		 * reconciler updates untouched prompts when the covering snapshot
+		 * lands and the defaults revision moves. */
+		if (!expressionLookupsCovered(input.default, lookupData)) {
 			continue;
 		}
 		const value = evaluatePreviewSearchExpression(

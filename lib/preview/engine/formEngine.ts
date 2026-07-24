@@ -58,6 +58,7 @@ import {
 import { resolveLabel } from "./labelRefs";
 import {
 	evaluateLookupChoices,
+	lookupOptionsSourceCovered,
 	type PreviewLookupData,
 } from "./lookupEvaluation";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
@@ -1649,17 +1650,51 @@ export class FormEngine {
 		return this.lookupData !== null;
 	}
 
-	/** `undefined` while no snapshot is captured — the typed loading
-	 *  state the renderer presents and the controller's first-arrival
-	 *  rebuild resolves. With a snapshot, unavailable table/column
-	 *  identities throw the validation-bypass invariant from
-	 *  `evaluateLookupChoices` — that is the real bypass surface. */
+	/** Does the CAPTURED snapshot cover every lookup identity this
+	 *  form's carriers reference? False when none was captured or when
+	 *  a validly committed edit outran the captured referenced set —
+	 *  the controller's rebuild-on-arrival heal keys on it, so ordinary
+	 *  data refreshes (covered) preserve per-form-session stability
+	 *  while an identity gap rebuilds the moment fresh data lands. */
+	lookupDataCoversForm(): boolean {
+		let covered = true;
+		const walk = (nodes: FieldTreeNode[]): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				if (
+					(f.kind === "single_select" || f.kind === "multi_select") &&
+					f.optionsSource !== undefined &&
+					!lookupOptionsSourceCovered(
+						f.optionsSource,
+						this.lookupData ?? undefined,
+					)
+				) {
+					covered = false;
+					return;
+				}
+				if (node.children) walk(node.children);
+				if (!covered) return;
+			}
+		};
+		walk(this.tree);
+		return covered;
+	}
+
+	/** `undefined` while the captured snapshot doesn't cover this
+	 *  source's identities — no snapshot at all, or a validly committed
+	 *  edit referencing a table/column the snapshot predates. Both are
+	 *  the typed loading state the renderer presents; the controller's
+	 *  coverage-keyed rebuild resolves them when fresh data arrives.
+	 *  Only a COVERED snapshot evaluates, so `evaluateLookupChoices`'s
+	 *  identity throws stay a genuine validation-bypass surface. */
 	private computeLookupChoices(
 		source: LookupOptionsSource,
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
 		const data = this.lookupData;
-		if (data === null) return undefined;
+		if (data === null || !lookupOptionsSourceCovered(source, data)) {
+			return undefined;
+		}
 		return evaluateLookupChoices(source, data, {
 			outer: this.lookupOuterContext(ctx),
 			formFields: this.fieldPathsByUuid(),

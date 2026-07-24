@@ -124,9 +124,17 @@ describe("evaluateLookupChoices", () => {
 			outer: outerContext(),
 		});
 		expect(choices).toEqual([
-			{ value: "a1", label: "Arua Clinic" },
-			{ value: "b2", label: "Bario Health Post" },
-			{ value: "c3", label: "" },
+			{
+				key: "018f0000-0000-7000-8000-0000000000r1",
+				value: "a1",
+				label: "Arua Clinic",
+			},
+			{
+				key: "018f0000-0000-7000-8000-0000000000r2",
+				value: "b2",
+				label: "Bario Health Post",
+			},
+			{ key: "018f0000-0000-7000-8000-0000000000r3", value: "c3", label: "" },
 		]);
 	});
 
@@ -136,7 +144,13 @@ describe("evaluateLookupChoices", () => {
 			data(),
 			{ outer: outerContext() },
 		);
-		expect(choices).toEqual([{ value: "a1", label: "Arua Clinic" }]);
+		expect(choices).toEqual([
+			{
+				key: "018f0000-0000-7000-8000-0000000000r1",
+				value: "a1",
+				label: "Arua Clinic",
+			},
+		]);
 	});
 
 	it("compares int cells numerically", () => {
