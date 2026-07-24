@@ -20,16 +20,17 @@
 //     real Postgres rows — no mocked store, no hand-rolled SQL.
 //   - Registration write-through: `FormScreen`'s submit dispatches
 //     through `submitFormAction` which routes the registration
-//     mutation through `applyRegistrationMutation` against real
-//     rows. The case-list re-render surfaces the new row.
-//   - Followup write-through: a bound case is patched through
-//     `applyFollowupMutation`; the case-list re-render reflects the
-//     patched property value AND the calc cell (`age + 1`) re-
-//     evaluates against the new value.
-//   - Close write-through: a bound case is closed through
-//     `applyCloseMutation`; the case-store stamps `closed_on` to a
-//     non-null timestamp. `applyCloseMutation` passes no `status`
-//     patch, so `status` stays at its pre-close value.
+//     mutation through the atomic submission envelope
+//     (`store.applySubmission(submissionEnvelopeArgs(...))`) against
+//     real rows. The case-list re-render surfaces the new row.
+//   - Followup write-through: a bound case is patched through the
+//     same envelope; the case-list re-render reflects the patched
+//     property value AND the calc cell (`age + 1`) re-evaluates
+//     against the new value.
+//   - Close write-through: a bound case is closed through the
+//     envelope; its close arm lands `closed_on` to a non-null
+//     timestamp and the built-in `status = "closed"` via the store's
+//     close core. The preview supplies no `status` vocabulary.
 //
 // ## Mock strategy — Server Actions delegate to per-test store
 //
@@ -40,10 +41,11 @@
 // `auth-utils` session + Cloud SQL connector graph. The integration
 // test stubs the entire `caseDataBinding` action module with thin
 // delegates that capture the per-test `PostgresCaseStore` in a
-// closure and route directly to the underlying helpers
-// (`readCases`, `applyRegistrationMutation`, etc.) which already
-// accept a `CaseStore` parameter — the helpers were designed for
-// this test-injection contract.
+// closure and route directly to the store's methods and the
+// underlying helpers (`readCases`, `submissionEnvelopeArgs` +
+// `store.applySubmission`, etc.), which already accept a `CaseStore`
+// parameter — the helpers were designed for this test-injection
+// contract.
 //
 // This is the canonical pattern (verified against the helper
 // signatures + the existing unit tests' mock shape); it hits every
@@ -241,14 +243,11 @@ import {
 	submitFormAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import {
-	applyCloseMutation,
-	applyFollowupMutation,
-	applyRegistrationMutation,
-	applySurveyMutation,
 	readCaseData,
 	readCases,
 	resetSampleCases,
 	seedSampleCases,
+	submissionEnvelopeArgs,
 } from "@/lib/preview/engine/caseDataBindingHelpers";
 import { searchInputValuesFromWire } from "@/lib/preview/engine/runtimeBindings";
 
@@ -333,9 +332,9 @@ function buildFixtureDoc(): BlueprintDoc {
 						fields: [
 							// `status` is intentionally NOT a form field — it
 							// is a reserved scalar column (`RESERVED_SCALAR_COLUMNS`)
-							// the case-store sets to `"open"` on every
-							// `insertWithChildren` call, so a registration form
-							// has nothing to write into it.
+							// the case-store sets to `"open"` on every case
+							// insert, so a registration form has nothing to write
+							// into it.
 							f({
 								kind: "text",
 								id: "case_name",
@@ -371,7 +370,7 @@ function buildFixtureDoc(): BlueprintDoc {
 					},
 					{
 						// Close forms commonly carry no field tree — the
-						// case-store's `applyCloseMutation` writes
+						// submission envelope's close arm writes
 						// `status: "closed"` regardless of the form's
 						// contents, so a zero-field close is the canonical
 						// shape. The form-engine's submit dispatch still
@@ -550,40 +549,26 @@ beforeEach(async () => {
 	);
 	vi.mocked(submitFormAction).mockImplementation(
 		async (mutation, appId): Promise<SubmissionResult> => {
-			switch (mutation.kind) {
-				case "registration": {
-					const result = await applyRegistrationMutation(store, {
-						mutation,
-						appId,
-					});
-					return {
-						kind: "registration",
-						caseId: result.caseId,
-						childCaseIds: result.childCaseIds,
-					};
-				}
-				case "followup": {
-					const result = await applyFollowupMutation(store, {
-						mutation,
-						appId,
-					});
-					return {
-						kind: "followup",
-						caseId: result.caseId,
-						childCaseIds: result.childCaseIds,
-					};
-				}
-				case "close": {
-					const result = await applyCloseMutation(store, { mutation, appId });
-					return {
-						kind: "close",
-						caseId: result.caseId,
-						childCaseIds: result.childCaseIds,
-					};
-				}
-				case "survey":
-					return applySurveyMutation();
+			// Survey carries no case effect — the real action short-circuits
+			// before constructing the store.
+			if (mutation.kind === "survey") return { kind: "survey" };
+			// Every case-bearing submission lands through the atomic envelope
+			// (`applySubmission`), exactly as `submitFormAction` does in
+			// production; the envelope result's `primaryCaseId` maps to the
+			// arm's `caseId`.
+			const result = await store.applySubmission(
+				submissionEnvelopeArgs(mutation, appId),
+			);
+			if (result.primaryCaseId === undefined) {
+				throw new Error(
+					"applySubmission returned no primaryCaseId for a case-bearing submission",
+				);
 			}
+			return {
+				kind: mutation.kind,
+				caseId: result.primaryCaseId,
+				childCaseIds: result.childCaseIds,
+			};
 		},
 	);
 });
@@ -720,9 +705,9 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 // 2. Registration form write-through, then case-list re-render.
 //
 // Mount the registration form, fill in the required fields, submit.
-// `submitFormAction`'s delegate runs `applyRegistrationMutation`
-// against the per-test store. Switch the location back to the
-// cases URL + re-render the case list; the new row is present.
+// `submitFormAction`'s delegate runs `store.applySubmission` over the
+// projected envelope against the per-test store. Switch the location
+// back to the cases URL + re-render the case list; the new row is present.
 // =================================================================
 
 describe("FormScreen registration submit — write-through to case list", () => {
@@ -790,9 +775,9 @@ describe("FormScreen registration submit — write-through to case list", () => 
 //
 // Mount the followup form against a pre-seeded case row, patch the
 // `age` field, submit. `submitFormAction`'s delegate runs
-// `applyFollowupMutation` against the per-test store. Switch back
-// to the cases URL + re-render the case list; the patched value
-// surfaces on the row.
+// `store.applySubmission` over the projected envelope against the
+// per-test store. Switch back to the cases URL + re-render the case
+// list; the patched value surfaces on the row.
 // =================================================================
 
 describe("FormScreen followup submit — patch round-trip to case list", () => {
@@ -855,7 +840,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 		});
 		// Confirm the patch actually landed before mutating to the
 		// case-list URL — a race where `submitFormAction` is observed
-		// before its `applyFollowupMutation` finished would otherwise
+		// before its `applySubmission` envelope finished would otherwise
 		// surface as a flaky re-read.
 		await waitFor(async () => {
 			const rows = await store.query({
@@ -902,12 +887,12 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 // =================================================================
 // 4. Close form write-through — `closed_on` stamps to non-null.
 //
-// `applyCloseMutation` writes a `closed_on = now()` timestamp via
-// `CaseStore.close` and passes no `status` patch, so `status` stays
-// at its pre-close value. The end-to-end pin: a zero-field close
-// form's submit dispatches `submitFormAction` with a `close`-kind
-// mutation that lands the timestamp on the bound row. No other
-// test covers this round-trip.
+// The submission envelope's close arm stamps `closed_on = now()` and
+// the built-in `status = "closed"` together via the store's close
+// core; the preview supplies no `status` vocabulary. The end-to-end
+// pin: a zero-field close form's submit dispatches `submitFormAction`
+// with a `close`-kind mutation that lands the timestamp on the bound
+// row. No other test covers this round-trip.
 // =================================================================
 
 describe("FormScreen close submit — closed_on stamps on the bound row", () => {
@@ -954,9 +939,9 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 			expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
 		});
 
-		// `applyCloseMutation` stamps `closed_on = now()` via
-		// `CaseStore.close` and passes no `status` patch, so the test
-		// asserts the timestamp landed while `status` stays untouched.
+		// The envelope's close arm stamps `closed_on = now()` via the
+		// store's close core; the test asserts the timestamp landed on
+		// the bound row.
 		await waitFor(async () => {
 			const rows = await store.query({
 				appId: APP_ID,

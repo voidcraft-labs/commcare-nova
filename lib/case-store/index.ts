@@ -29,7 +29,7 @@ export {
 } from "./caseOperationTargets";
 
 // Typed user-domain errors.
-export type { CasePropertyFailure } from "./errors";
+export type { CasePropertyFailure, SubmissionRejection } from "./errors";
 export {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
@@ -37,6 +37,7 @@ export {
 	ParkedValueNotFoundError,
 	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
+	SubmissionRejectedError,
 } from "./errors";
 export { withProjectContext, withSchemaContext } from "./projectContext";
 // Cross-tenant case re-tenant — the case-store half of moving an app between
@@ -77,3 +78,14 @@ export type {
 	TransactionalSchemaCaseStore,
 } from "./store";
 export { buildCaseTypeMap } from "./store";
+export type {
+	ApplySubmissionArgs,
+	CaseOperationProgram,
+	EnvelopeCaseOperation,
+	OperationEffectRecord,
+	OperationIterationBindings,
+	OperationScopeIterations,
+	OrdinarySubmissionAction,
+	SubmissionCaseSeed,
+	SubmissionEnvelopeResult,
+} from "./submission";

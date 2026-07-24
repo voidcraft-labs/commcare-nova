@@ -8,11 +8,11 @@
 //      computed `SubmissionMutation`. Each FormType (registration /
 //      followup / close / survey) round-trips its own discriminator
 //      through the action call and lands the configured post-submit
-//      navigation. The Server Action delegates to the case-store's
-//      `apply*Mutation` helpers; the screen's contract is that the
-//      mutation reaches the action with the matching `kind` —
-//      property-level walking is covered by the engine's own unit
-//      tests.
+//      navigation. The Server Action lands the mutation through the
+//      case-store's atomic submission envelope; the screen's contract
+//      is that the mutation reaches the action with the matching
+//      `kind` — property-level walking is covered by the engine's own
+//      unit tests.
 //   2. Error arms (`unauthenticated` / `error` / `case-not-found` /
 //      `case-properties-validation` / `missing-case-type` /
 //      `schema-not-synced`) render an inline error below the submit
@@ -528,10 +528,10 @@ describe("FormScreen — survey submit", () => {
 		const submit = await screen.findByRole("button", { name: /^submit$/i });
 		fireEvent.click(submit);
 
-		/* Survey is structurally a no-op at the case-store
-		 *  (`applySurveyMutation` writes nothing), but the action is
-		 *  still invoked so the typed-result loop survives the call.
-		 *  The mutation's `kind` carries `"survey"`. */
+		/* Survey owns no case rows — the action short-circuits before
+		 *  any store call — but the action is still invoked so the
+		 *  typed-result loop survives the call. The mutation's `kind`
+		 *  carries `"survey"`. */
 		await waitFor(() => {
 			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1);
 		});

@@ -45,6 +45,10 @@ import type {
 	JsonObject,
 	JsonValue,
 } from "./sql/database";
+import type {
+	ApplySubmissionArgs,
+	SubmissionEnvelopeResult,
+} from "./submission";
 
 /**
  * Calculated-column projection arm — the `kind: "calculated"` slice of
@@ -681,24 +685,25 @@ export interface CaseStore extends SchemaCaseStore {
 	}>;
 
 	/**
-	 * Insert a primary case + zero or more child cases atomically
-	 * in one Postgres transaction. Children must NOT carry an
-	 * explicit `parent_case_id` — the value is the primary's
-	 * generated id, threaded by the implementation. Each child can
-	 * be a different `case_type`. Returns the primary's id and the
-	 * children's ids in input order.
-	 *
-	 * The empty-`children` case behaves like a single `insert` for
-	 * the primary, still inside one transaction.
+	 * Apply one whole form submission — the ordinary form action
+	 * (registration primary + children, followup update + children,
+	 * close including final writes) plus the advanced case-operation
+	 * program — in ONE Postgres transaction under the store's standard
+	 * lock order and in-transaction reauthorization. Operation
+	 * expressions evaluate through the AST→Kysely compiler against the
+	 * pre-submission snapshot before any DML; targets resolve
+	 * server-side (`new` mints or derives its identity, `op` reads the
+	 * transaction's allocation record, `session` uses the loaded case,
+	 * `expression` reauthorizes through
+	 * `validateCaseOperationTargetDescriptor`); the resolved physical
+	 * sequence re-proves rolling type safety with
+	 * `validateResolvedCaseOperationTypeSequence` before the first
+	 * write. Any failure rolls the entire submission back —
+	 * `SubmissionRejectedError` for operation-contract rejections, the
+	 * standard typed errors otherwise. Partial success is
+	 * unobservable.
 	 */
-	insertWithChildren(args: {
-		appId: string;
-		primary: CaseInsert;
-		children: ReadonlyArray<CaseInsert>;
-	}): Promise<{
-		primaryCaseId: string;
-		childCaseIds: ReadonlyArray<string>;
-	}>;
+	applySubmission(args: ApplySubmissionArgs): Promise<SubmissionEnvelopeResult>;
 
 	/**
 	 * Update a case row. JSONB-merges the patch into `properties`,

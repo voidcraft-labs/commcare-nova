@@ -48,10 +48,6 @@ import {
 	mapSubmitFormError,
 } from "./caseDataBindingClient";
 import {
-	applyCloseMutation,
-	applyFollowupMutation,
-	applyRegistrationMutation,
-	applySurveyMutation,
 	gatedCaseStore,
 	readCaseData,
 	readCases,
@@ -59,6 +55,7 @@ import {
 	resetSampleCases,
 	resolvePreviewIdentity,
 	seedSampleCases,
+	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
@@ -843,19 +840,19 @@ export async function loadFilterPreviewAction(args: {
 }
 
 /**
- * Apply one form submission's case-store mutations. Discriminates
- * on `mutation.kind` and dispatches to the matching helper in
- * `./caseDataBindingHelpers.ts` — registration writes through
- * `caseStore.insertWithChildren` (atomic primary + children);
- * followup / close run a primary `update` followed by per-child
- * `insert`s, and close additionally calls `caseStore.close` last.
- * Survey is a structural no-op.
+ * Apply one form submission through the case-store's atomic envelope.
+ * `submissionEnvelopeArgs` projects the engine's `SubmissionMutation`
+ * onto `CaseStore.applySubmission`, which lands the whole submission —
+ * primary write, every child insert, and close's lifecycle transition
+ * — in ONE Postgres transaction; partial success is unobservable and
+ * the running-app view re-queries one settled state on resolve.
+ * Survey carries no case effect and short-circuits.
  *
- * Caller-supplied `appId` is passed through verbatim to the
- * helpers, matching the shape the other three Server Actions in
- * this file use. The bound `CaseStore` enforces tenant scoping at
- * the SQL layer; the action does not re-check `appId` against
- * `mutation.caseId` for followup / close.
+ * Caller-supplied `appId` is passed through verbatim, matching the
+ * shape the other Server Actions in this file use. The bound
+ * `CaseStore` enforces tenant scoping at the SQL layer; the action
+ * does not re-check `appId` against `mutation.caseId` for
+ * followup / close.
  */
 export async function submitFormAction(
 	mutation: SubmissionMutation,
@@ -864,53 +861,29 @@ export async function submitFormAction(
 	try {
 		const identity = await resolvePreviewIdentity();
 		if (!identity) return { kind: "unauthenticated" };
-		// The schema heal lives INSIDE the store (one heal per individual
-		// store call), never around this dispatch: followup/close run a
-		// primary update plus per-child inserts in separate transactions,
-		// so a dispatch-level retry would re-insert children that already
-		// landed. With the heal at the store call, the one write that threw
-		// retries and the dispatch resumes from where it stopped.
+		if (mutation.kind === "survey") return { kind: "survey" };
+		// The schema heal wraps `applySubmission` at the envelope
+		// boundary: the whole submission is one transaction, so a heal
+		// retry re-runs the whole envelope with nothing partial persisted.
 		const store = await gatedCaseStore(appId, identity, "edit");
-		switch (mutation.kind) {
-			case "registration": {
-				const { caseId, childCaseIds } = await applyRegistrationMutation(
-					store,
-					{ mutation, appId },
-				);
-				return { kind: "registration", caseId, childCaseIds };
-			}
-			case "followup": {
-				const { caseId, childCaseIds } = await applyFollowupMutation(store, {
-					mutation,
-					appId,
-				});
-				return { kind: "followup", caseId, childCaseIds };
-			}
-			case "close": {
-				const { caseId, childCaseIds } = await applyCloseMutation(store, {
-					mutation,
-					appId,
-				});
-				return { kind: "close", caseId, childCaseIds };
-			}
-			case "survey":
-				return applySurveyMutation();
-			default: {
-				// Exhaustive switch — a future `SubmissionMutation` arm
-				// landing without a case here surfaces as the standard
-				// `unhandledKindMessage` shape rather than silently
-				// returning `undefined`.
-				const _exhaustive: never = mutation;
-				throw new Error(
-					unhandledKindMessage({
-						where: "preview.caseDataBinding.submitFormAction",
-						family: "SubmissionMutation",
-						received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-						knownKinds: ["registration", "followup", "close", "survey"],
-					}),
-				);
-			}
+		const result = await store.applySubmission(
+			submissionEnvelopeArgs(mutation, appId),
+		);
+		if (result.primaryCaseId === undefined) {
+			throw new Error(
+				unhandledKindMessage({
+					where: "preview.caseDataBinding.submitFormAction",
+					family: "SubmissionEnvelopeResult",
+					received: "no primaryCaseId on a case-bearing submission",
+					knownKinds: ["registration", "followup", "close"],
+				}),
+			);
 		}
+		return {
+			kind: mutation.kind,
+			caseId: result.primaryCaseId,
+			childCaseIds: result.childCaseIds,
+		};
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found

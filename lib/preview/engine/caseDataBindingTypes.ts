@@ -308,8 +308,8 @@ export type PopulateSampleCasesResult =
  * Per-arm shape:
  * - `registration` — `primary` is the new case the form creates;
  *   `children` are additional cases bucketed by `case_property_on`.
- *   Children carry NO `parentCaseId`; the case-store threads the
- *   primary's generated id at write time via `insertWithChildren`.
+ *   Children carry NO `parentCaseId`; the case-store's submission
+ *   envelope threads the primary's generated id at write time.
  * - `followup` — `caseId` is the bound case the form updates;
  *   `patch.properties` is the JSONB delta. Children carry
  *   `parentCaseId` set to the bound caseId at derivation time.
@@ -317,6 +317,10 @@ export type PopulateSampleCasesResult =
  *   lifecycle transition (`closed_on` + built-in `status = "closed"`)
  *   after the updates land.
  * - `survey` — structural no-op; the form owns no case rows.
+ *
+ * All three case-bearing arms land through `CaseStore.applySubmission`
+ * in ONE Postgres transaction — primary write, every child, and the
+ * close transition together or not at all.
  *
  * `caseName` is a separate slot from `properties` because the
  * case-store routes the case display name to the top-level

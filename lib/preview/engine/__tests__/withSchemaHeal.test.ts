@@ -20,9 +20,10 @@
  *     never a masked genuine validation failure.
  *
  * `schemaHealingCaseStore` scopes that heal to ONE store operation at a
- * time, which is what makes a multi-write submission retry-safe: the
- * partial-sync test below drives a followup whose writes span three
- * separate transactions and proves only the write that threw re-runs.
+ * time. For a form submission that ONE operation is the whole atomic
+ * envelope (`applySubmission`, one Postgres transaction), so the heal
+ * test below proves the retry re-runs the ENTIRE envelope once — nothing
+ * partial can persist and no child can duplicate.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,10 +44,11 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 }));
 
 import {
-	applyFollowupMutation,
 	schemaHealingCaseStore,
+	submissionEnvelopeArgs,
 	withSchemaHeal,
 } from "../caseDataBindingHelpers";
+import type { SubmissionMutation } from "../caseDataBindingTypes";
 
 const ARGS = { appId: "app-1" };
 const BLUEPRINT = { caseTypes: [{ name: "patient", properties: [] }] };
@@ -232,21 +234,21 @@ describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", 
 	});
 });
 
-describe("schemaHealingCaseStore — heal granularity is the individual store write", () => {
+describe("schemaHealingCaseStore — the whole submission envelope is one healed operation", () => {
 	beforeEach(() => {
 		loadAppMock.mockReset();
 		materializeMock.mockReset();
 	});
 
-	it("a followup whose second child hits the partial-sync shape resumes — child #1 is NOT re-inserted", async () => {
-		// The heal's own canonical producer is exactly this: a new case type
-		// whose drain-end materialize failed while the old types stayed
-		// synced. A followup creating children of two types then lands the
-		// primary update and child #1 (synced types, separate transactions),
-		// throws on child #2's validator acquisition (no schema row, nothing
-		// written), heals, and must retry ONLY child #2 — a dispatch-level
-		// re-run would duplicate child #1 as a real row in the user's case
-		// store.
+	it("re-runs the WHOLE envelope on a missing-schema heal, landing each row exactly once", async () => {
+		// The heal's own canonical producer: a followup creating a child of
+		// a case type whose drain-end materialize failed, so its schema row
+		// is missing. Because the whole submission is ONE store operation
+		// (`applySubmission`) and ONE Postgres transaction, the first
+		// attempt throws `SchemaNotSyncedError` with nothing partial
+		// persisted; the heal re-materializes the persisted blueprint and
+		// the retry re-runs the ENTIRE envelope once more. No child can
+		// duplicate — a heal retry never resumes a half-applied envelope.
 		loadAppMock.mockResolvedValue({
 			owner: "user-1",
 			blueprint: { caseTypes: [{ name: "newborn", properties: [] }] },
@@ -254,54 +256,52 @@ describe("schemaHealingCaseStore — heal granularity is the individual store wr
 		});
 		materializeMock.mockResolvedValue(undefined);
 
-		const update = vi.fn().mockResolvedValue(undefined);
-		const insert = vi
+		const applySubmission = vi
 			.fn()
-			.mockResolvedValueOnce({ caseId: "child-1" })
 			.mockRejectedValueOnce(new SchemaNotSyncedError("app-1", "newborn"))
-			.mockResolvedValueOnce({ caseId: "child-2" });
+			.mockResolvedValueOnce({
+				primaryCaseId: "mother-1",
+				childCaseIds: ["child-1"],
+				operations: [],
+			});
 		const store = schemaHealingCaseStore(
-			{ update, insert } as unknown as CaseStore,
+			{ applySubmission } as unknown as CaseStore,
 			ARGS,
 		);
 
-		const result = await applyFollowupMutation(store, {
-			appId: "app-1",
-			mutation: {
-				kind: "followup",
-				caseId: "mother-1",
-				patch: { properties: { visited: "yes" } },
-				children: [
-					{
-						caseType: "visit",
-						caseName: "Visit 1",
-						properties: {},
-						parentCaseId: "mother-1",
-					},
-					{
-						caseType: "newborn",
-						caseName: "Baby 1",
-						properties: {},
-						parentCaseId: "mother-1",
-					},
-				],
-			},
-		});
-
-		// The primary update landed once and was never re-run.
-		expect(update).toHaveBeenCalledTimes(1);
-		// Three inserts total: child #1 once, child #2 twice (throw + healed
-		// retry) — never a duplicate of child #1.
-		expect(insert).toHaveBeenCalledTimes(3);
-		const insertedTypes = insert.mock.calls.map(
-			([args]) => (args as { row: { case_type: string } }).row.case_type,
-		);
-		expect(insertedTypes).toEqual(["visit", "newborn", "newborn"]);
-		expect(materializeMock).toHaveBeenCalledTimes(1);
-		// Partial progress RESUMED: both children report exactly one id each.
-		expect(result).toEqual({
+		const mutation: SubmissionMutation = {
+			kind: "followup",
 			caseId: "mother-1",
-			childCaseIds: ["child-1", "child-2"],
+			patch: { properties: { visited: "yes" } },
+			children: [
+				{
+					caseType: "newborn",
+					caseName: "Baby 1",
+					properties: {},
+					parentCaseId: "mother-1",
+				},
+			],
+		};
+		const envelope = submissionEnvelopeArgs(mutation, "app-1");
+
+		const result = await store.applySubmission(envelope);
+
+		// Exactly two calls: the throw, then the whole-envelope retry — both
+		// with the IDENTICAL envelope, proving nothing partial was resumed.
+		expect(applySubmission).toHaveBeenCalledTimes(2);
+		expect(applySubmission).toHaveBeenNthCalledWith(1, envelope);
+		expect(applySubmission).toHaveBeenNthCalledWith(2, envelope);
+		expect(materializeMock).toHaveBeenCalledTimes(1);
+		expect(materializeMock).toHaveBeenCalledWith({
+			appId: "app-1",
+			blueprint: { caseTypes: [{ name: "newborn", properties: [] }] },
+			syncedSeq: 8,
+		});
+		// The settled result carries the primary and its child exactly once.
+		expect(result).toEqual({
+			primaryCaseId: "mother-1",
+			childCaseIds: ["child-1"],
+			operations: [],
 		});
 	});
 });

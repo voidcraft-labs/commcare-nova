@@ -2652,6 +2652,59 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-24 — S06 atomic submission envelope (last of three units):**
+  `agent/s06-atomic-envelope` extends the CaseStore contract with
+  `applySubmission` — one tenant-bound transaction for the whole
+  submission under the standard lock order, replacing the three-write
+  followup/close sequence (and `insertWithChildren`, which the
+  registration arm subsumes; the method is removed). The executor
+  (`lib/case-store/postgres/submissionEnvelope.ts`) implements the
+  closure's envelope mechanics end to end: physical expansion over the
+  multiplicity scopes (root first, repeats iteration-major),
+  TypeScript-side identity allocation with `deriveAuthoredCaseId`'s
+  blank/over-205 outcomes aborting pre-DML (the pinned TS↔XPath vector
+  runs against the executor), in-transaction evaluation of every
+  condition/value/target through the AST→Kysely compiler against the
+  pre-submission snapshot (`TermBindings.actingUserId` populated from
+  the store's bound actor — `acting-user` is now reachable),
+  server-side target resolution + reauthorization
+  (`validateCaseOperationTargetDescriptor`, hold-excluded expression
+  loads), the resolved rolling-type proof
+  (`validateResolvedCaseOperationTypeSequence`) over the whole physical
+  sequence including the type-sensitive ordinary action as its final
+  implicit consumer, `prepareCaseOperationTextValue` on every
+  name/rename/owner including the default acting-user owner, the
+  wirePortable-only retype (retained document validated against the
+  destination schema; conversion/parking stays dormant),
+  identifier-keyed link CRUD persisting authored `child`/`extension`
+  (a `parent` identifier maintains the denormalized first parent),
+  create-of-existing merges for duplicate authored ids (across and
+  within envelopes), explicit multi-select JSONB serialization, and a
+  typed whole-rollback contract (`SubmissionRejectedError`). The
+  preview submit path routes through the envelope
+  (`submissionEnvelopeArgs`; the schema heal now retries at the
+  envelope boundary), so followup/close submissions land atomically —
+  the user-observable change the closure names. Operations stay
+  unauthorable until S07 opens the gate; the program arm is pinned by
+  the per-test-database suite
+  (`lib/case-store/postgres/__tests__/submissionEnvelope.test.ts`).
+  Adversarial review confirmed three wire-parity defects, all fixed
+  and pinned: a retyping operation now applies its writes, rename, and
+  type change as one destination-typed unit (the wire's single
+  `<update>` block — writes were previously validated and shed under
+  the source schema); a blank-evaluated write projects to key-absent
+  (omitted on create, removed on update) instead of failing typed
+  validation the device would accept; and a link-only operation
+  advances `modified_on` (the per-block `@date_modified` stamp). Two
+  confirmed coverage gaps closed: distinct-per-iteration repeat
+  expansion (per-iteration bindings, correlation, iteration-major
+  records) and the held blank-key failure on a skipped conditional
+  create.
+- **2026-07-24 — S06 resolved preview identity shipped:** PR #322
+  merged (`ec6a4074`) and deployed; migration Job execution succeeded
+  (no schema change), revision healthy across all three hosts with
+  zero new-revision errors. Preview form XPath now reads the real
+  signed-in worker.
 - **2026-07-24 — S06 resolved preview identity (second of three units):**
   `agent/s06-preview-identity` establishes the closure's identity
   contract: `lib/preview/engine/identity.ts` owns

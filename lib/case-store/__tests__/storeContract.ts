@@ -592,10 +592,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		// -----------------------------------------------------------
-		// insertWithChildren — atomic registration shape
+		// applySubmission — the atomic registration shape
 		// -----------------------------------------------------------
 
-		it("insertWithChildren materializes the primary + every child + their case_indices edges atomically", async () => {
+		it("applySubmission materializes the registration primary + every child + their case_indices edges atomically", async () => {
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
 				HOUSEHOLD_CASE_TYPE,
@@ -605,52 +605,54 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "patient");
 
 			// Primary household + two children patients. Children
-			// must NOT carry an explicit `parent_case_id` — the
-			// case-store threads the primary's generated id.
-			const result = await store.insertWithChildren({
+			// carry no parent — the envelope threads the primary's
+			// generated id.
+			const result = await store.applySubmission({
 				appId: APP_ID,
-				primary: {
-					case_type: "household",
-					case_name: "North household",
-					status: "open",
-					properties: makeProperties({ region: "North" }),
+				ordinary: {
+					kind: "registration",
+					primary: {
+						caseType: "household",
+						caseName: "North household",
+						properties: { region: "North" },
+					},
+					children: [
+						{
+							caseType: "patient",
+							caseName: "Alice",
+							properties: { name: "Alice", age: 30 },
+						},
+						{
+							caseType: "patient",
+							caseName: "Bob",
+							properties: { name: "Bob", age: 40 },
+						},
+					],
 				},
-				children: [
-					{
-						case_type: "patient",
-						case_name: "Alice",
-						status: "open",
-						properties: makeProperties({ name: "Alice", age: 30 }),
-					},
-					{
-						case_type: "patient",
-						case_name: "Bob",
-						status: "open",
-						properties: makeProperties({ name: "Bob", age: 40 }),
-					},
-				],
 			});
 			expect(result.primaryCaseId).toBeDefined();
 			expect(result.childCaseIds).toHaveLength(2);
+			const primaryCaseId = result.primaryCaseId ?? "";
 
-			// Primary row landed.
+			// Primary row landed, born open.
 			const households = await store.query({
 				appId: APP_ID,
 				caseType: "household",
 			});
 			expect(households).toHaveLength(1);
-			expect(households[0]?.case_id).toBe(result.primaryCaseId);
+			expect(households[0]?.case_id).toBe(primaryCaseId);
+			expect(households[0]?.status).toBe("open");
 
 			// Children landed and carry the primary's id as their
-			// `parent_case_id` — the implicit threading the
-			// `insertWithChildren` contract pins.
+			// `parent_case_id` — the implicit threading the envelope's
+			// registration contract pins.
 			const patients = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(patients).toHaveLength(2);
 			for (const patient of patients) {
-				expect(patient.parent_case_id).toBe(result.primaryCaseId);
+				expect(patient.parent_case_id).toBe(primaryCaseId);
 			}
 
 			// `traverse` reaches every child from the primary via
@@ -658,7 +660,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// materialized inside the same transaction.
 			const subcases = await store.traverse({
 				appId: APP_ID,
-				caseId: result.primaryCaseId,
+				caseId: primaryCaseId,
 				via: subcasePath("parent", "patient"),
 			});
 			expect(subcases).toHaveLength(2);
@@ -668,7 +670,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			}
 		});
 
-		it("insertWithChildren rolls back the whole batch if any child's payload fails JSON Schema validation", async () => {
+		it("applySubmission rolls the whole registration back if any child's payload fails JSON Schema validation", async () => {
 			// Atomicity contract: a validation failure on any child
 			// rolls back the primary too. Zero rows visible after
 			// the throw, regardless of which row failed.
@@ -681,27 +683,28 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "patient");
 
 			await expect(
-				store.insertWithChildren({
+				store.applySubmission({
 					appId: APP_ID,
-					primary: {
-						case_type: "household",
-						case_name: "North household",
-						status: "open",
-						properties: makeProperties({ region: "North" }),
-					},
-					children: [
-						{
-							case_type: "patient",
-							case_name: "Alice",
-							status: "open",
-							// Schema declares `age` as int; the string
-							// "not-a-number" fails AJV's integer check.
-							properties: makeProperties({
-								name: "Alice",
-								age: "not-a-number",
-							}),
+					ordinary: {
+						kind: "registration",
+						primary: {
+							caseType: "household",
+							caseName: "North household",
+							properties: { region: "North" },
 						},
-					],
+						children: [
+							{
+								caseType: "patient",
+								caseName: "Alice",
+								// Schema declares `age` as int; the string
+								// "not-a-number" fails AJV's integer check.
+								properties: {
+									name: "Alice",
+									age: "not-a-number",
+								},
+							},
+						],
+					},
 				}),
 			).rejects.toThrow();
 
@@ -720,13 +723,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(patients).toHaveLength(0);
 		});
 
-		it("insertWithChildren handles mixed child case types and preserves input order in the returned id list", async () => {
-			// The implementation chunks children by `case_type`
-			// (so the bulk-insert path's hoisted-validator
-			// optimization fetches one validator per chunk) and
-			// reassembles the returned ids back to the caller's
-			// original input order. Pin both the multi-type schema-
-			// fetch contract AND the index-preserving reassembly.
+		it("applySubmission handles mixed child case types and preserves input order in the returned id list", async () => {
+			// Children of several case types land in one envelope and
+			// the returned ids match the caller's input order — the
+			// contract the running-app view reads its confirmation ids
+			// through.
 			const VISIT_CASE_TYPE: CaseType = {
 				name: "visit",
 				parent_type: "household",
@@ -742,41 +743,37 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "patient");
 			await seedSchema(store, blueprint, "visit");
 
-			// Children alternate between two case types so the
-			// chunking logic produces multiple chunks AND the
-			// reassembly has to interleave ids back into the original
-			// order. With three slots — patient, visit, patient — the
-			// chunks-by-type produce two patients in chunk A + one
-			// visit in chunk B; the reassembly must place the patient
-			// from chunk A index 1 at the caller's index 2, NOT 1.
-			const result = await store.insertWithChildren({
+			// Children alternate between two case types — patient,
+			// visit, patient — so an implementation that grouped by
+			// type would have to reassemble; the id list must still
+			// read in the caller's order.
+			const result = await store.applySubmission({
 				appId: APP_ID,
-				primary: {
-					case_type: "household",
-					case_name: "North household",
-					status: "open",
-					properties: makeProperties({ region: "North" }),
+				ordinary: {
+					kind: "registration",
+					primary: {
+						caseType: "household",
+						caseName: "North household",
+						properties: { region: "North" },
+					},
+					children: [
+						{
+							caseType: "patient",
+							caseName: "Alice",
+							properties: { name: "Alice", age: 30 },
+						},
+						{
+							caseType: "visit",
+							caseName: "First visit",
+							properties: { outcome: "complete" },
+						},
+						{
+							caseType: "patient",
+							caseName: "Bob",
+							properties: { name: "Bob", age: 40 },
+						},
+					],
 				},
-				children: [
-					{
-						case_type: "patient",
-						case_name: "Alice",
-						status: "open",
-						properties: makeProperties({ name: "Alice", age: 30 }),
-					},
-					{
-						case_type: "visit",
-						case_name: "First visit",
-						status: "open",
-						properties: makeProperties({ outcome: "complete" }),
-					},
-					{
-						case_type: "patient",
-						case_name: "Bob",
-						status: "open",
-						properties: makeProperties({ name: "Bob", age: 40 }),
-					},
-				],
 			});
 			expect(result.childCaseIds).toHaveLength(3);
 
@@ -793,11 +790,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(visits).toHaveLength(1);
 
-			// Index-preserving reassembly: position 0 in the returned
-			// list refers to the FIRST input row (Alice the patient);
-			// position 1 to the visit; position 2 to Bob the patient.
-			// Look up each row by its returned id and verify the
-			// case-type lines up with the input.
+			// Input-order ids: position 0 is Alice the patient;
+			// position 1 the visit; position 2 Bob the patient. Look
+			// up each row by its returned id and verify the case-type
+			// lines up with the input.
 			const aliceId = result.childCaseIds[0];
 			const visitId = result.childCaseIds[1];
 			const bobId = result.childCaseIds[2];
@@ -816,29 +812,28 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(visitRow?.case_name).toBe("First visit");
 
 			// Every child carries the primary's id as its
-			// `parent_case_id`, regardless of which chunk it shipped
-			// in.
+			// `parent_case_id`, whatever its case type.
 			for (const child of [...patients, ...visits]) {
 				expect(child.parent_case_id).toBe(result.primaryCaseId);
 			}
 		});
 
-		it("insertWithChildren behaves like insert when children is empty", async () => {
-			// The empty-children arm short-circuits the bulk path
-			// and lands just the primary inside one transaction.
+		it("applySubmission lands a child-free registration as just the primary", async () => {
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
-			const result = await store.insertWithChildren({
+			const result = await store.applySubmission({
 				appId: APP_ID,
-				primary: {
-					case_type: "patient",
-					case_name: "Solo",
-					status: "open",
-					properties: makeProperties({ name: "Solo", age: 50 }),
+				ordinary: {
+					kind: "registration",
+					primary: {
+						caseType: "patient",
+						caseName: "Solo",
+						properties: { name: "Solo", age: 50 },
+					},
+					children: [],
 				},
-				children: [],
 			});
 			expect(result.primaryCaseId).toBeDefined();
 			expect(result.childCaseIds).toHaveLength(0);

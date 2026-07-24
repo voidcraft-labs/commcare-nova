@@ -1978,22 +1978,19 @@ describe("PostgresCaseStore — creation stamps", () => {
 			});
 		}
 
-		await store.insertWithChildren({
+		await store.applySubmission({
 			appId: APP_ID,
-			primary: {
-				case_type: "patient",
-				case_name: "Mary",
-				status: "open",
-				properties: {},
+			ordinary: {
+				kind: "registration",
+				primary: { caseType: "patient", caseName: "Mary", properties: {} },
+				children: [
+					{
+						caseType: "medication_order",
+						caseName: "Rifampin",
+						properties: {},
+					},
+				],
 			},
-			children: [
-				{
-					case_type: "medication_order",
-					case_name: "Rifampin",
-					status: "open",
-					properties: {},
-				},
-			],
 		});
 
 		for (const name of ["patient", "medication_order"]) {

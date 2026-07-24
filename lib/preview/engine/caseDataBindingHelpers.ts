@@ -27,11 +27,10 @@ import "server-only";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import type {
-	CaseInsert,
+	ApplySubmissionArgs,
 	CaseRow,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
-	CaseUpdate,
 	TermBindings,
 } from "@/lib/case-store";
 import { withProjectContext } from "@/lib/case-store";
@@ -67,13 +66,11 @@ import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
 import { log } from "@/lib/logger";
 import type {
 	CaseQueryConstraintSource,
-	JsonObject,
 	LoadCaseDataResult,
 	LoadCasesResult,
 	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
 	SubmissionMutation,
-	SubmissionResult,
 } from "./caseDataBindingTypes";
 import { previewAsMe, type ResolvedPreviewIdentity } from "./identity";
 import {
@@ -838,171 +835,63 @@ export async function resetSampleCases(
 }
 
 // ---------------------------------------------------------------
-// Submission-mutation helpers
+// Submission envelope
 // ---------------------------------------------------------------
-//
-// The four `apply*Mutation` helpers consume a `SubmissionMutation`
-// arm and dispatch to the `CaseStore`'s matching write method. Each
-// helper accepts a `CaseStore` parameter (test-injection pattern,
-// same shape as the helpers above). The Server Action in
-// `./caseDataBinding.ts` discriminates on `mutation.kind` and routes
-// to the matching helper; `mapSubmitFormError` translates the
-// case-store's typed errors to typed `SubmissionResult` arms.
-//
-// Atomicity: registration is atomic via
-// `caseStore.insertWithChildren` (primary + every child in one
-// Postgres transaction). Followup/close run a primary `update`
-// followed by per-child `insert`s; close additionally calls
-// `caseStore.close` last. The three writes open separate
-// transactions — partial success is observable to the running-app
-// view, which re-queries after submission per the
-// continuous-validation principle.
-//
-// `case_id` for the primary registration is left to the case-store
-// (its `insertWithChildren` either honors a supplied id or fires
-// the `DEFAULT uuidv7()` column default). Child case ids likewise
-// flow back from each `insert` / `insertWithChildren` call. No
-// helper here generates a UUID.
 
 /**
- * Apply a registration `SubmissionMutation` against the bound
- * store. Construct one `CaseInsert` for the primary plus one per
- * child, then route through `caseStore.insertWithChildren` so the
- * primary + every child land in a single Postgres transaction.
+ * Map a form engine `SubmissionMutation` onto the case-store's
+ * atomic-envelope argument. Pure projection — the engine's four arms
+ * translate 1:1 onto the envelope's ordinary action (`survey` becomes
+ * `none`), and `CaseStore.applySubmission` lands the whole submission
+ * in ONE Postgres transaction: primary write, every child, and the
+ * close lifecycle transition together or not at all. The store's
+ * insert path plucks each row's `caseName` and rejects an absent one
+ * with the canonical compiler-bug invariant (`cases.case_name` is
+ * NOT NULL; a valid blueprint always carries the name leaf).
  *
- * The case-store generates the primary's `case_id` and threads it
- * as each child's `parent_case_id` — children must not carry an
- * explicit `parent_case_id`. `status: "open"` is set on every row
- * because the column has no default.
- *
- * `caseName === undefined` on the primary or any child trips a
- * `compilerBugMessage`: `cases.case_name` is `text NOT NULL` and
- * the engine's walker plucks the field whose `id === "case_name"`
- * into the `caseName` slot for every contentful bucket; reaching
- * the throw means the form's field tree omits the name leaf, an
- * upstream blueprint authoring contract violation.
+ * No advanced-operation program rides this path yet — operations stay
+ * unauthorable until S07 wires the engine's descriptor emission, so
+ * the production envelope is ordinary-only.
  */
-export async function applyRegistrationMutation(
-	store: CaseStore,
-	args: {
-		mutation: Extract<SubmissionMutation, { kind: "registration" }>;
-		appId: string;
-	},
-): Promise<{ caseId: string; childCaseIds: ReadonlyArray<string> }> {
-	const { mutation, appId } = args;
-	if (mutation.primary.caseName === undefined) {
-		throw new Error(
-			compilerBugMessage({
-				where: "preview.caseDataBindingHelpers.applyRegistrationMutation",
-				invariant: `registration form for case type \`${mutation.primary.caseType}\` produced no \`case_name\` value`,
-				detail:
-					"Every registration form must declare a leaf field with `id: \"case_name\"` whose value lands the case's display name in `cases.case_name`. Reaching this throw means the engine's walker emitted a registration mutation whose primary bucket carries no name. Hint: confirm the form's field tree includes a `case_name` leaf bound to the module's case type via `case_property_on`.",
-			}),
-		);
-	}
-
-	const childRows: CaseInsert[] = mutation.children.map((child) => {
-		if (child.caseName === undefined) {
+export function submissionEnvelopeArgs(
+	mutation: SubmissionMutation,
+	appId: string,
+): ApplySubmissionArgs {
+	switch (mutation.kind) {
+		case "registration":
+			return {
+				appId,
+				ordinary: {
+					kind: "registration",
+					primary: mutation.primary,
+					children: mutation.children,
+				},
+			};
+		case "followup":
+		case "close":
+			return {
+				appId,
+				ordinary: {
+					kind: mutation.kind,
+					caseId: mutation.caseId,
+					patch: mutation.patch,
+					children: mutation.children,
+				},
+			};
+		case "survey":
+			return { appId, ordinary: { kind: "none" } };
+		default: {
+			const _exhaustive: never = mutation;
 			throw new Error(
 				compilerBugMessage({
-					where: "preview.caseDataBindingHelpers.applyRegistrationMutation",
-					invariant: `child-case op for case type \`${child.caseType}\` produced no \`case_name\` value`,
+					where: "preview.caseDataBindingHelpers.submissionEnvelopeArgs",
+					invariant: `unknown SubmissionMutation kind \`${String((_exhaustive as { kind?: unknown })?.kind)}\``,
 					detail:
-						'Every case row carries a top-level `case_name`. A form that creates a child case must include a leaf field with `id: "case_name"` bound to the destination case type via `case_property_on`. Reaching this throw means the form\'s field tree omits the name field for that child type.',
+						"The four engine arms map exhaustively onto the envelope's ordinary action; a new arm must decide its envelope shape here.",
 				}),
 			);
 		}
-		return {
-			case_type: child.caseType,
-			case_name: child.caseName,
-			status: "open",
-			properties: child.properties,
-		};
-	});
-
-	const result = await store.insertWithChildren({
-		appId,
-		primary: {
-			case_type: mutation.primary.caseType,
-			case_name: mutation.primary.caseName,
-			status: "open",
-			properties: mutation.primary.properties,
-		},
-		children: childRows,
-	});
-	return {
-		caseId: result.primaryCaseId,
-		childCaseIds: result.childCaseIds,
-	};
-}
-
-/**
- * Apply a followup `SubmissionMutation`: update the bound case's
- * properties (and optionally `case_name`), then insert each child
- * with `parent_case_id` set to the bound case id (already threaded
- * into `child.parentCaseId` at engine derivation time).
- *
- * Empty-patch short-circuit: when the patch carries neither a
- * `caseName` change nor any `properties` write, skip
- * `caseStore.update` entirely. AJV revalidation + a `modified_on`
- * bump for a no-op patch is wasted work.
- *
- * Three transactions land in sequence (one for the primary update,
- * one per child insert). A failure mid-sequence leaves the
- * already-applied writes in place; the running-app view re-queries
- * on resolve, so the user sees whatever landed.
- */
-export async function applyFollowupMutation(
-	store: CaseStore,
-	args: {
-		mutation: Extract<SubmissionMutation, { kind: "followup" }>;
-		appId: string;
-	},
-): Promise<{ caseId: string; childCaseIds: ReadonlyArray<string> }> {
-	const { mutation, appId } = args;
-	await applyPrimaryUpdate(store, { mutation, appId });
-	const childCaseIds = await insertChildren(store, {
-		appId,
-		children: mutation.children,
-	});
-	return { caseId: mutation.caseId, childCaseIds };
-}
-
-/**
- * Apply a close `SubmissionMutation`: same primary update + child
- * inserts as the followup arm, plus a final `caseStore.close` to
- * atomically stamp `closed_on` and the built-in lifecycle
- * `status = "closed"`. Close runs last so the lifecycle transition
- * lands after every property write. `caseStore.close` is idempotent
- * on consistent row state and repairs the status of a previously
- * inconsistent closed row without replacing its closure timestamp.
- */
-export async function applyCloseMutation(
-	store: CaseStore,
-	args: {
-		mutation: Extract<SubmissionMutation, { kind: "close" }>;
-		appId: string;
-	},
-): Promise<{ caseId: string; childCaseIds: ReadonlyArray<string> }> {
-	const { mutation, appId } = args;
-	await applyPrimaryUpdate(store, { mutation, appId });
-	const childCaseIds = await insertChildren(store, {
-		appId,
-		children: mutation.children,
-	});
-	await store.close({ appId, caseId: mutation.caseId });
-	return { caseId: mutation.caseId, childCaseIds };
-}
-
-/**
- * Apply a survey `SubmissionMutation`. Surveys own no case rows;
- * structural no-op. Synchronous because there is no I/O.
- */
-export function applySurveyMutation(): Extract<
-	SubmissionResult,
-	{ kind: "survey" }
-> {
-	return { kind: "survey" };
+	}
 }
 
 /**
@@ -1044,17 +933,18 @@ export function applySurveyMutation(): Extract<
  * re-materialize regenerates the same schema and the retry surfaces the
  * error — correct, since the schema must mirror what is stored.
  *
- * `run` MUST be a single store operation, never a multi-write dispatch —
+ * `run` MUST be a single store operation, never a multi-call dispatch —
  * the granularity is the retry-safety argument. Each store method is
  * atomic (one statement or one Postgres transaction) and throws BOTH of
- * these errors before its own write lands (validator acquisition and
- * JSON Schema validation both precede the INSERT/UPDATE, and a throw
- * rolls the transaction back), so the operation that threw is by
- * definition the one that didn't land and re-running just it is
- * idempotent. Re-running a whole followup/close dispatch would re-insert
- * the child rows that already committed in their own transactions.
- * Production code reaches this through `schemaHealingCaseStore`, which
- * holds that granularity by construction.
+ * these errors before its own transaction commits (validator acquisition
+ * and JSON Schema validation precede the writes, and a throw rolls the
+ * transaction back), so the operation that threw is by definition the
+ * one that didn't land and re-running just it is idempotent. That
+ * includes `applySubmission`: the whole submission is ONE transaction,
+ * so its heal retry re-runs the whole envelope with nothing partial
+ * persisted. Production code reaches this through
+ * `schemaHealingCaseStore`, which holds that granularity by
+ * construction.
  *
  * One retry only: a second failure (or a heal that itself fails —
  * Postgres still down, app gone) rethrows the ORIGINAL error so the
@@ -1167,13 +1057,13 @@ export async function gatedCaseStore(
 /**
  * A `CaseStore` whose every operation self-heals a missing OR stale
  * `case_type_schemas` row via {@link withSchemaHeal} — the heal lives at
- * the INDIVIDUAL store call, so a multi-write flow (a followup/close
- * submission: primary update, then per-child inserts in separate
- * transactions) resumes from the write that threw instead of re-running
- * writes that already landed. The per-case-type validator acquisition
- * (missing row) or JSON Schema validation (stale row) is what throws,
- * before the failing operation's own write commits, so retrying just
- * that operation is idempotent at exactly this granularity.
+ * the INDIVIDUAL store call. Each store operation is atomic (one
+ * statement or one Postgres transaction) and throws the heal's signals
+ * before its own write commits, so retrying just the operation that
+ * threw is idempotent. `applySubmission` is one such operation at the
+ * ENVELOPE boundary: the whole submission lands in a single
+ * transaction, so a heal retry re-runs the whole envelope safely —
+ * nothing partial persisted.
  *
  * `applySchemaChange` / `dropSchema` delegate un-healed: they are the
  * schema-row writers themselves (`applySchemaChange` IS the heal's
@@ -1192,7 +1082,7 @@ export function schemaHealingCaseStore(
 		query: (a) => heal(() => store.query(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),
-		insertWithChildren: (a) => heal(() => store.insertWithChildren(a)),
+		applySubmission: (a) => heal(() => store.applySubmission(a)),
 		update: (a) => heal(() => store.update(a)),
 		close: (a) => heal(() => store.close(a)),
 		traverse: (a) => heal(() => store.traverse(a)),
@@ -1222,75 +1112,4 @@ export function schemaHealingCaseStore(
 		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
 		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
 	};
-}
-
-/**
- * Shared implementation for followup/close primary update so both
- * arms have the same empty-patch skip semantics.
- */
-async function applyPrimaryUpdate(
-	store: CaseStore,
-	args: {
-		mutation: Extract<SubmissionMutation, { kind: "followup" | "close" }>;
-		appId: string;
-	},
-): Promise<void> {
-	const { mutation, appId } = args;
-	const hasPropertyWrites = Object.keys(mutation.patch.properties).length > 0;
-	const hasCaseNameWrite = mutation.patch.caseName !== undefined;
-	if (!hasPropertyWrites && !hasCaseNameWrite) {
-		return;
-	}
-	const patch: CaseUpdate = {
-		...(hasPropertyWrites ? { properties: mutation.patch.properties } : {}),
-		...(hasCaseNameWrite ? { case_name: mutation.patch.caseName } : {}),
-	};
-	await store.update({ appId, caseId: mutation.caseId, patch });
-}
-
-/**
- * Insert each child of a followup / close mutation in encounter
- * order. The child's `parentCaseId` (bound at engine derivation
- * time to the followup/close `caseId`) lands as the row's
- * `parent_case_id`. Returns generated ids in input order.
- *
- * `caseName === undefined` trips a `compilerBugMessage` for the
- * same reason as the registration arm — every case row carries a
- * top-level `case_name`.
- */
-async function insertChildren(
-	store: CaseStore,
-	args: {
-		appId: string;
-		children: ReadonlyArray<{
-			caseType: string;
-			caseName?: string;
-			properties: JsonObject;
-			parentCaseId: string;
-		}>;
-	},
-): Promise<ReadonlyArray<string>> {
-	const ids: string[] = [];
-	for (const child of args.children) {
-		if (child.caseName === undefined) {
-			throw new Error(
-				compilerBugMessage({
-					where: "preview.caseDataBindingHelpers.insertChildren",
-					invariant: `child-case op for case type \`${child.caseType}\` produced no \`case_name\` value`,
-					detail:
-						'Every case row carries a top-level `case_name`. A form that creates a child case must include a leaf field with `id: "case_name"` bound to the destination case type via `case_property_on`. Reaching this throw means the form\'s field tree omits the name field for that child type.',
-				}),
-			);
-		}
-		const row: CaseInsert = {
-			case_type: child.caseType,
-			case_name: child.caseName,
-			status: "open",
-			parent_case_id: child.parentCaseId,
-			properties: child.properties,
-		};
-		const { caseId } = await store.insert({ appId: args.appId, row });
-		ids.push(caseId);
-	}
-	return ids;
 }
