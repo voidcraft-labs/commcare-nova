@@ -56,6 +56,7 @@ import {
 	FormEngine,
 	type FormEngineInput,
 } from "./formEngine";
+import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import { type FieldState, fieldStatesEqual } from "./types";
 
 // ── Runtime store types ─────────────────────────────────────────────────
@@ -280,6 +281,12 @@ export class EngineController {
 	 *  BlueprintDocProvider mounts, cleared on unmount. */
 	private docStore: BlueprintDocStore | undefined;
 
+	/** The resolved identity `#user/*` and future identity-backed reads
+	 *  evaluate against. Session-scoped — installed by the provider from
+	 *  the client auth session and deliberately NOT cleared by
+	 *  `deactivate()`, which is a per-form lifecycle. */
+	private previewIdentity: ResolvedPreviewIdentity | null = null;
+
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
 	}
@@ -287,6 +294,26 @@ export class EngineController {
 	/** Connect to the doc store. Called by SyncBridge when the provider mounts. */
 	setDocStore(docStore: BlueprintDocStore | null): void {
 		this.docStore = docStore ?? undefined;
+	}
+
+	/**
+	 * Install the resolved preview identity. A materially different
+	 * identity rebuilds any active engine so every computed value agrees
+	 * on one evaluation world — identity is engine-lifetime state, not an
+	 * incremental input. A re-derived-but-identical identity (session
+	 * refetches mint new object references) is a no-op, so entered
+	 * preview values survive it.
+	 */
+	setPreviewIdentity(identity: ResolvedPreviewIdentity | null): void {
+		if (samePreviewIdentity(this.previewIdentity, identity)) {
+			this.previewIdentity = identity;
+			return;
+		}
+		this.previewIdentity = identity;
+		const formUuid = this.activeFormUuid;
+		if (formUuid !== undefined) {
+			this.activateForm(formUuid, this.activeCaseData);
+		}
 	}
 
 	// ── Lifecycle ────────────────────────────────────────────────────
@@ -320,7 +347,12 @@ export class EngineController {
 		if (!input) return;
 
 		const mod = s.modules[moduleUuid];
-		this.engine = new FormEngine(input, mod?.caseType, caseData);
+		this.engine = new FormEngine(
+			input,
+			mod?.caseType,
+			caseData,
+			this.previewIdentity,
+		);
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
 		const tree = this.engine.getFieldTree();

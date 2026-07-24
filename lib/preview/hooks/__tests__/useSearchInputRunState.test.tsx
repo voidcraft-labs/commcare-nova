@@ -8,15 +8,20 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { dateLiteral, literal, term } from "@/lib/domain/predicate";
-import { previewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
+import {
+	previewAsMe,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
 import { useSearchInputRunState } from "../useSearchInputRunState";
 
 const INPUT_UUID = asUuid("00000000-0000-4000-8000-000000000201");
-const SESSION = previewSearchSessionValues({
-	id: "worker-1",
-	name: "Worker One",
-	email: "worker@example.org",
-});
+const SESSION = previewSessionValues(
+	previewAsMe({
+		id: "worker-1",
+		name: "Worker One",
+		email: "worker@example.org",
+	}),
+);
 
 function inputWithDefault(value: string) {
 	return simpleSearchInputDef(INPUT_UUID, "name", "Name", "text", "case_name", {

@@ -20,6 +20,7 @@ import {
 	FormEngine,
 	type FormEngineInput,
 } from "../formEngine";
+import { previewAsMe } from "../identity";
 
 /** Case data holding a single case type's property map — the common
  *  single-namespace shape of the engine's per-type case data. */
@@ -1104,6 +1105,45 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/name").resolvedLabel).toBeUndefined();
+		});
+	});
+
+	describe("#user identity resolution", () => {
+		const identity = previewAsMe({
+			id: "worker-7",
+			name: "Amina Diallo",
+			email: "amina@example.org",
+		});
+
+		it("resolves #user/* from the resolved identity", () => {
+			const input = dTree([
+				{ id: "who", kind: "hidden", calculate: "#user/username" },
+				{ id: "first", kind: "hidden", calculate: "#user/first_name" },
+				{ id: "uid", kind: "hidden", calculate: "#user/userid" },
+			]);
+			const engine = new FormEngine(input, undefined, undefined, identity);
+
+			expect(engine.getState("/data/who").value).toBe("amina@example.org");
+			expect(engine.getState("/data/first").value).toBe("Amina");
+			expect(engine.getState("/data/uid").value).toBe("worker-7");
+		});
+
+		it("reads an absent user-data key as blank, never a placeholder", () => {
+			const input = dTree([
+				{ id: "phone", kind: "hidden", calculate: "#user/phone_number" },
+			]);
+			const engine = new FormEngine(input, undefined, undefined, identity);
+
+			expect(engine.getState("/data/phone").value).toBe("");
+		});
+
+		it("reads every user slice as absent without an identity", () => {
+			const input = dTree([
+				{ id: "who", kind: "hidden", calculate: "#user/username" },
+			]);
+			const engine = new FormEngine(input);
+
+			expect(engine.getState("/data/who").value).toBe("");
 		});
 	});
 

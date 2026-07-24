@@ -2652,6 +2652,35 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-24 — S06 resolved preview identity (second of three units):**
+  `agent/s06-preview-identity` establishes the closure's identity
+  contract: `lib/preview/engine/identity.ts` owns
+  `ResolvedPreviewIdentity` with providers as the sole constructors —
+  `previewAsMe` activates "Preview as me" and refuses an unpersisted id
+  (the S15 persona seam; no session-only pseudo-persona, no
+  `window_width`, no case-count arm). The three prior derivations
+  consolidate onto it: every case-data Server Action resolves the
+  identity once (`resolvePreviewIdentity`), `gatedCaseStore` takes the
+  identity instead of a bare user id, the search/session projection is
+  the identity's own, and the form engine's hardcoded `demo_user` map is
+  gone — `#user/*` reads the real signed-in worker (threaded
+  provider → controller → engine, with material-change rebuild and
+  no-op on re-derived identity), while submission identity remains the
+  server-resolved actor that already stamps `owner_id` (the engine emits
+  no meta block — there is no client meta to fix). User-data keys stay
+  absent when the worker has no value. The dormant
+  `TermBindings.actingUserId` stays unpopulated: `acting-user` is valid
+  only inside case operations, so the envelope unit wires it where it
+  becomes reachable. The atomic envelope remains the slice's last unit.
+- **2026-07-24 — S06 storage activation shipped:** PR #321 merged
+  (`6ee9770e`) and deployed; the deploy-blocking Job applied the
+  widening and the production rescan
+  (`scripts/scan-case-id-storage.ts --prod`) came back clean — all five
+  identity columns `text` with zero non-UUID values in the existing
+  rows, the `(uuidv7())::text` default, and the
+  `parked_case_values` FK intact. S07's activation precondition (a
+  clean production rescan) is satisfied; the scan script stays until
+  that activation consumes it.
 - **2026-07-24 — S06 storage activation (first of three units):**
   `agent/s06-opaque-ids` widens the identity family to `text` per the
   closure — the schema-resolving, replay-guarded `opaque_case_ids`

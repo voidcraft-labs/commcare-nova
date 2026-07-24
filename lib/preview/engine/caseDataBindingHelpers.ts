@@ -25,6 +25,7 @@
 import "server-only";
 
 import type { AppCapability } from "@/lib/auth/projectRoles";
+import { getSession } from "@/lib/auth-utils";
 import type {
 	CaseInsert,
 	CaseRow,
@@ -74,6 +75,7 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "./caseDataBindingTypes";
+import { previewAsMe, type ResolvedPreviewIdentity } from "./identity";
 import {
 	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
@@ -1125,16 +1127,41 @@ export async function withSchemaHeal<T>(
  *
  * Read actions pass `"view"`; write actions (sample populate/reset, form submit)
  * pass `"edit"`.
+ *
+ * The actor is a `ResolvedPreviewIdentity`, never a bare user id: the
+ * action boundary resolves the identity once via
+ * {@link resolvePreviewIdentity} and this signature makes an unresolved
+ * actor unrepresentable downstream. `identity.ownerId` is both the
+ * membership actor and the create-time `owner_id` stamp.
  */
+/**
+ * Resolve the acting preview identity from the authenticated session at
+ * the Server Action boundary — the ONE server-side derivation every
+ * case-data action shares. `null` means no authenticated worker (no
+ * session, or the sole provider refused the session's user); callers
+ * collapse it to their typed `unauthenticated` arm. The client never
+ * supplies an identity to an action.
+ */
+export async function resolvePreviewIdentity(): Promise<ResolvedPreviewIdentity | null> {
+	const session = await getSession();
+	if (!session) return null;
+	return previewAsMe(session.user);
+}
+
 export async function gatedCaseStore(
 	appId: string,
-	userId: string,
+	identity: ResolvedPreviewIdentity,
 	required: AppCapability,
 ): Promise<CaseStore> {
-	const { projectId } = await resolveAppScope(appId, userId, required);
-	return schemaHealingCaseStore(await withProjectContext(projectId, userId), {
+	const { projectId } = await resolveAppScope(
 		appId,
-	});
+		identity.ownerId,
+		required,
+	);
+	return schemaHealingCaseStore(
+		await withProjectContext(projectId, identity.ownerId),
+		{ appId },
+	);
 }
 
 /**

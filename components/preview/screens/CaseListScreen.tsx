@@ -96,9 +96,10 @@ import type {
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
-	evaluatePreviewSearchPredicate,
-	previewSearchSessionValues,
-} from "@/lib/preview/engine/searchExpressionEvaluation";
+	previewAsMe,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
+import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
@@ -241,7 +242,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const [authMounted, setAuthMounted] = useState(false);
 	useEffect(() => setAuthMounted(true), []);
 	const searchSession = useMemo(
-		() => previewSearchSessionValues(authMounted ? user : null),
+		() => previewSessionValues(previewAsMe(authMounted ? user : null)),
 		[authMounted, user],
 	);
 	const searchTypeContext = useMemo<TypeContext>(

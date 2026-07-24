@@ -35,9 +35,11 @@ import {
 	useEffect,
 	useState,
 } from "react";
+import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { EngineController } from "./engineController";
+import { previewAsMe } from "./identity";
 
 // ── Context ─────────────────────────────────────────────────────────────
 
@@ -62,6 +64,7 @@ export function BuilderFormEngineProvider({
 }) {
 	const docStore = useContext(BlueprintDocContext);
 	const reconcilerContext = useReconcilerContext();
+	const { user } = useAuth();
 
 	/* Create the controller AND bind the doc store synchronously on first
 	 * render. Child effects (e.g. `useFormEngine.activateForm`) flush
@@ -89,6 +92,15 @@ export function BuilderFormEngineProvider({
 			controller.setDocStore(null);
 		};
 	}, [controller, docStore]);
+
+	/* Resolve "Preview as me" from the client auth session and install it
+	 * on the controller. Effect-only (never during render) so SSR markup
+	 * stays identity-free; the controller's setter treats a
+	 * materially-identical identity as a no-op, so session refetches
+	 * minting new user references don't rebuild an active engine. */
+	useEffect(() => {
+		controller.setPreviewIdentity(previewAsMe(user));
+	}, [controller, user]);
 
 	/* A same-app Project move does not remount this long-lived controller.
 	 * Deactivate synchronously at the reconciler's scope boundary so neither

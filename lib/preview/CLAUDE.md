@@ -75,6 +75,12 @@ In render paths, read repeat instance counts from `state.repeatCount` (via the e
 
 Blueprint mutations in edit mode recreate the engine. The engine hook snapshots live-mode values before recreation and restores **only user-touched values**. Untouched fields pick up the new engine's defaults — this is what makes editing a `default_value` expression in edit mode immediately visible in preview.
 
+## Resolved preview identity
+
+`engine/identity.ts` is the ONE identity contract every preview surface speaks — Search/Results session evaluation, form XPath `#user/*`, the SQL compiler's session bindings, and the acting user behind case writes. Providers are the sole constructors of `ResolvedPreviewIdentity`, and every provider must present a persisted user id: `previewAsMe` (the sole shipped provider, "Preview as me") refuses a blank id, named preview personas later plug in as additional providers producing the same type, and no session-only pseudo-persona is constructible. `ownerId` is both the membership actor and the create-time `owner_id` stamp.
+
+Server side, every case-data Server Action resolves the identity once via `resolvePreviewIdentity()` (helpers) at its own boundary and hands it to `gatedCaseStore` — the store factory takes the identity, never a bare user id, and an action NEVER accepts an identity from the client. Client side, `BuilderFormEngineProvider` installs `previewAsMe(useAuth().user)` on the `EngineController`; identity is engine-lifetime state, so a materially different identity rebuilds any active engine (one evaluation world) while a re-derived-but-identical identity is a no-op that preserves entered values (`samePreviewIdentity`). `#user/<prop>` resolves from the identity's sparse user map — keys are ABSENT when the worker has no value (never coerced to empty), and an absent key reads blank at evaluation, matching the device's missing worker-data field. The signed-out projection (`previewSessionValues(null)`) carries device context only.
+
 ## Case data resolution
 
 The nav stack carries only `caseId`. Case data is looked up by id at the point of use, not stored in navigation state. Swapping the data source (dummy → real API) only requires changing the lookup functions.

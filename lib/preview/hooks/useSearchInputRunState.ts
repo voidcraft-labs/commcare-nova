@@ -10,11 +10,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SearchInputDef } from "@/lib/domain";
+import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
-import {
-	type PreviewSearchSessionValues,
-	resolveSearchInputDefaults,
-} from "@/lib/preview/engine/searchExpressionEvaluation";
+import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
 
 interface SearchRunState {
 	readonly scopeKey: string;

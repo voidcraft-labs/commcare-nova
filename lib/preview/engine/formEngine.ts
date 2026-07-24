@@ -48,6 +48,7 @@ import type { EvalContext } from "../xpath/types";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
+import type { ResolvedPreviewIdentity } from "./identity";
 import {
 	rebaseOntoContext,
 	remapInstancePath,
@@ -123,6 +124,11 @@ export class FormEngine {
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
 	private caseData: CaseDataByType;
+	/** The resolved identity `#user/*` reads — fixed for the engine's
+	 *  lifetime; an identity change rebuilds the engine so every computed
+	 *  value agrees on one evaluation world. `null` (signed-out client
+	 *  paint) reads every user slice as absent. */
+	private previewIdentity: ResolvedPreviewIdentity | null;
 	private moduleCaseType: string | undefined;
 	/** The module case type `caseData` was SUPPLIED under — the type
 	 *  whose entry is the bound row. Stamped only where a fresh
@@ -142,8 +148,10 @@ export class FormEngine {
 		input: FormEngineInput,
 		moduleCaseType?: string,
 		caseData?: CaseDataByType,
+		previewIdentity?: ResolvedPreviewIdentity | null,
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
+		this.previewIdentity = previewIdentity ?? null;
 		this.moduleCaseType = moduleCaseType;
 		this.caseDataOwnType = moduleCaseType;
 		this.formType = input.form.type;
@@ -1497,15 +1505,12 @@ export class FormEngine {
 					const fieldId = ref.slice(6);
 					return read(`/data/${fieldId}`) ?? "";
 				}
+				/* Open-namespace user data from the resolved identity. An
+				 * absent key reads blank — the device exposes a missing
+				 * worker-data field as an empty node. */
 				if (ref.startsWith("#user/")) {
 					const prop = ref.slice(6);
-					const userDefaults: Record<string, string> = {
-						username: "demo_user",
-						first_name: "Demo",
-						last_name: "User",
-						phone_number: "+1234567890",
-					};
-					return userDefaults[prop] ?? `[user:${prop}]`;
+					return this.previewIdentity?.session.user[prop] ?? "";
 				}
 				// Case references. The authoring vocabulary is per-case-type —
 				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) —
