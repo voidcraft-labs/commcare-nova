@@ -2,11 +2,15 @@
 import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import { motion } from "motion/react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
+import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Badge } from "@/components/shadcn/badge";
+import { Skeleton } from "@/components/shadcn/skeleton";
+import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
@@ -16,6 +20,12 @@ import {
 	useCaseFirstModuleUuids,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
+import { moduleDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import {
+	previewAsMe,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
+import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
@@ -36,6 +46,56 @@ export function HomeScreen() {
 	 * not a form menu — the running app hoists the shared case selection. */
 	const caseFirstModules = useCaseFirstModuleUuids();
 	const logo = useAppLogo();
+	const lookup = usePreviewLookupStatus();
+	const { user } = useAuth();
+	// Better Auth resolves a cached session synchronously on the browser's
+	// first paint while SSR has none — keep the first render identity-free
+	// (the shared hydration rule) and apply session gating after mount.
+	const [authMounted, setAuthMounted] = useState(false);
+	useEffect(() => setAuthMounted(true), []);
+	const session = useMemo(
+		() => previewSessionValues(previewAsMe(authMounted ? user : null)),
+		[authMounted, user],
+	);
+
+	/* The running preview gates the module list exactly as a device would
+	 * (`<menu relevant>`); edit mode ("authoring surfaces never hide")
+	 * shows everything. Hidden modules stay reachable through the reveal
+	 * affordance below — ghosted, with each condition's summary. */
+	const moduleVisibility = useMemo(
+		() =>
+			new Map(
+				modules.map((mod) => [
+					mod.uuid,
+					mode === "edit"
+						? ("shown" as const)
+						: moduleDisplayVisibility({
+								condition: mod.displayCondition,
+								session,
+								...(mod.caseType !== undefined && {
+									currentCaseType: mod.caseType,
+								}),
+								lookup,
+							}),
+				]),
+			),
+		[modules, mode, session, lookup],
+	);
+	const hiddenModules = useMemo(
+		() =>
+			modules
+				.filter((mod) => moduleVisibility.get(mod.uuid) === "hidden")
+				.map((mod) => ({
+					key: mod.uuid,
+					name: mod.name,
+					summary: summarizeFilter(mod.displayCondition, {
+						...(mod.caseType !== undefined && {
+							currentCaseType: mod.caseType,
+						}),
+					}),
+				})),
+		[modules, moduleVisibility],
+	);
 
 	/* Forward the gated dispatch's outcome — a refused rename keeps the
 	 * editor open with the draft and surfaces the finding inline; the
@@ -77,6 +137,13 @@ export function HomeScreen() {
 			</div>
 			<div className="grid gap-3">
 				{modules.map((mod, mIdx) => {
+					const visibility = moduleVisibility.get(mod.uuid) ?? "shown";
+					if (visibility === "hidden") return null;
+					if (visibility === "pending") {
+						return (
+							<Skeleton key={mod.uuid} className="h-[74px] w-full rounded-xl" />
+						);
+					}
 					const formCount = formOrder[mod.uuid]?.length ?? 0;
 					return (
 						<motion.button
@@ -134,6 +201,7 @@ export function HomeScreen() {
 					);
 				})}
 			</div>
+			<HiddenItemsReveal items={hiddenModules} />
 		</ContentFrame>
 	);
 }

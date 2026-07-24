@@ -334,6 +334,20 @@ function foldHooks(
 	};
 }
 
+/** Does this predicate carry a `table-lookup` anywhere (nested
+ *  `where`s included)? Callers use it to distinguish "needs the
+ *  fixture snapshot" from "evaluable now". */
+export function predicateReferencesTableLookup(predicate: Predicate): boolean {
+	let found = false;
+	mapPredicateAst(predicate, {
+		mapExpression: (expr) => {
+			if (expr.kind === "table-lookup") found = true;
+			return undefined;
+		},
+	});
+	return found;
+}
+
 /**
  * Compute a lookup-backed select's live choices: the filtered rows in
  * authored order, each projected to its value/label column cell text.

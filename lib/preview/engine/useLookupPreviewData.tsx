@@ -14,7 +14,14 @@
 // (an active engine keeps its captured snapshot — per-form-session
 // choice stability).
 
-import { useEffect, useMemo, useState } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
@@ -24,15 +31,26 @@ import {
 	useAppId,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
+import { useEngineController } from "../hooks/useEngineController";
 import { useReloadableResource } from "../hooks/useReloadableResource";
 import { loadLookupFixtureDataAction } from "./lookupDataBinding";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 
-type LookupDataState =
+/**
+ * The builder session's lookup-data status, as navigation surfaces
+ * consume it: `idle` — the doc references no tables; `loading` — the
+ * fetch is in flight (carrier-bearing surfaces render placeholders);
+ * `data` — the evaluation-ready snapshot; `error` — the load failed
+ * (a carrier evaluation then fails loudly rather than resolving
+ * blank).
+ */
+export type PreviewLookupStatus =
 	| { kind: "idle" }
 	| { kind: "loading" }
 	| { kind: "data"; data: PreviewLookupData }
 	| { kind: "error" };
+
+type LookupDataState = PreviewLookupStatus;
 
 function sameIdList(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && a.every((id, i) => id === b[i]);
@@ -70,15 +88,7 @@ function manifestRevisionKey(
 		.join(" ");
 }
 
-/**
- * The lookup fixture data the running preview evaluates carriers
- * against, or `null` while the doc references no tables, the load is
- * in flight, or the load failed (the engine treats null as its typed
- * loading state; navigation surfaces skip lookup folding until data
- * arrives). Mount ONCE in `BuilderFormEngineProvider` — the
- * controller install is the single distribution point.
- */
-export function useLookupPreviewData(): PreviewLookupData | null {
+function useLookupPreviewDataResource(): PreviewLookupStatus {
 	const appId = useAppId();
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -141,5 +151,40 @@ export function useLookupPreviewData(): PreviewLookupData | null {
 		reloadToken,
 	});
 
-	return state.kind === "data" ? state.data : null;
+	return state;
+}
+
+const PreviewLookupDataContext = createContext<PreviewLookupStatus>({
+	kind: "idle",
+});
+
+/**
+ * Owns the ONE builder-session lookup fetch: installs the snapshot on
+ * the engine controller (the distribution point every form activation
+ * captures from) and provides the live status to navigation surfaces.
+ * Mount inside the session, doc, reconciler, AND engine providers —
+ * `BuilderProvider` wraps the builder subtree with it.
+ */
+export function PreviewLookupDataProvider({
+	children,
+}: {
+	children: ReactNode;
+}) {
+	const controller = useEngineController();
+	const status = useLookupPreviewDataResource();
+	const data = status.kind === "data" ? status.data : null;
+	useEffect(() => {
+		controller.setLookupData(data);
+	}, [controller, data]);
+	return (
+		<PreviewLookupDataContext value={status}>
+			{children}
+		</PreviewLookupDataContext>
+	);
+}
+
+/** The live lookup-data status — `idle` outside the provider, which
+ *  is also correct for surfaces rendered outside the builder. */
+export function usePreviewLookupStatus(): PreviewLookupStatus {
+	return useContext(PreviewLookupDataContext);
 }

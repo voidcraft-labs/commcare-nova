@@ -1,11 +1,15 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { motion } from "motion/react";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
+import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
+import { Skeleton } from "@/components/shadcn/skeleton";
+import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import {
@@ -16,7 +20,13 @@ import {
 import type { Uuid } from "@/lib/doc/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
+import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import {
+	previewAsMe,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
@@ -43,6 +53,50 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const lookup = usePreviewLookupStatus();
+	const { user } = useAuth();
+	// Better Auth resolves a cached session synchronously on the browser's
+	// first paint while SSR has none — keep the first render identity-free
+	// (the shared hydration rule) and apply session gating after mount.
+	const [authMounted, setAuthMounted] = useState(false);
+	useEffect(() => setAuthMounted(true), []);
+	const session = useMemo(
+		() => previewSessionValues(previewAsMe(authMounted ? user : null)),
+		[authMounted, user],
+	);
+
+	/* The running preview gates the forms-first form menu exactly as a
+	 * device would (`<command relevant>`). Forms-first conditions are
+	 * session-only (the validator admits property reads only in the
+	 * case-first flow, whose menu lives on the case-list screen), so no
+	 * case projection exists here. Edit mode shows everything. */
+	const formVisibility = useMemo(
+		() =>
+			new Map(
+				forms.map((form) => [
+					form.uuid,
+					mode === "edit"
+						? ("shown" as const)
+						: formDisplayVisibility({
+								condition: form.displayCondition,
+								session,
+								lookup,
+							}),
+				]),
+			),
+		[forms, mode, session, lookup],
+	);
+	const hiddenForms = useMemo(
+		() =>
+			forms
+				.filter((form) => formVisibility.get(form.uuid) === "hidden")
+				.map((form) => ({
+					key: form.uuid,
+					name: form.name,
+					summary: summarizeFilter(form.displayCondition, {}),
+				})),
+		[forms, formVisibility],
+	);
 
 	/* Two reasons this form menu isn't the right landing:
 	 *  - A `caseListOnly` module is a bare case list — it has NO forms in any
@@ -106,6 +160,16 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 			<div className="space-y-2">
 				{forms.map((form, fIdx) => {
+					const visibility = formVisibility.get(form.uuid) ?? "shown";
+					if (visibility === "hidden") return null;
+					if (visibility === "pending") {
+						return (
+							<Skeleton
+								key={form.uuid}
+								className="h-[58px] w-full rounded-lg"
+							/>
+						);
+					}
 					const icon = formTypeIcons[form.type];
 
 					const handleClick = () => {
@@ -160,6 +224,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 					);
 				})}
 			</div>
+			<HiddenItemsReveal items={hiddenForms} />
 		</ContentFrame>
 	);
 }

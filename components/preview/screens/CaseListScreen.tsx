@@ -52,13 +52,16 @@ import {
 	renderColumnCell,
 	resolveCalculatedTemporalType,
 } from "@/components/builder/case-list-config/columnCellRenderer";
+import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
+import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { Button } from "@/components/shadcn/button";
+import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import {
 	useEffectiveCaseTypes,
@@ -91,16 +94,19 @@ import {
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
+import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CaseQueryConstraintContext,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	useCaseCount,
@@ -244,6 +250,29 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const searchSession = useMemo(
 		() => previewSessionValues(previewAsMe(authMounted ? user : null)),
 		[authMounted, user],
+	);
+	const lookupStatus = usePreviewLookupStatus();
+	/* Case-first form conditions evaluate at THIS screen, against the
+	 * SELECTED row's projection — the wire's `<command relevant>` locus
+	 * (a case-first module's form menu renders after selection). The
+	 * decided list drives the auto-continue AND the post-selection menu,
+	 * so a false condition suppresses both. Edit-mode canvases never
+	 * reach this running-app pane, so no edit gate is needed here. */
+	const decideCaseLoadingForms = useCallback(
+		(row: CaseRowWithCalculated) => {
+			const projection = caseRowToFormPreload(row);
+			return caseLoadingForms.map((form) => ({
+				form,
+				visibility: formDisplayVisibility({
+					condition: form.displayCondition,
+					session: searchSession,
+					...(caseType !== undefined && { currentCaseType: caseType.name }),
+					caseProjection: projection,
+					lookup: lookupStatus,
+				}),
+			}));
+		},
+		[caseLoadingForms, searchSession, caseType, lookupStatus],
 	);
 	const searchTypeContext = useMemo<TypeContext>(
 		() => ({
@@ -798,11 +827,28 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * case-first → the single case-loading form, or the form menu when there
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
-		if (seededFormUuid !== undefined) {
-			openFormWithCase(seededFormUuid, row);
-		} else if (caseLoadingForms.length === 1) {
-			openFormWithCase(caseLoadingForms[0].uuid, row);
-		} else if (caseLoadingForms.length > 1) {
+		const decided = decideCaseLoadingForms(row);
+		const seeded =
+			seededFormUuid === undefined
+				? undefined
+				: decided.find((entry) => entry.form.uuid === seededFormUuid);
+		if (seeded?.visibility === "shown") {
+			openFormWithCase(seeded.form.uuid, row);
+			return;
+		}
+		/* A seeded target whose condition is false for THIS case falls
+		 * through to the ordinary decision rather than opening a form the
+		 * running app would not offer. */
+		const shown = decided.filter((entry) => entry.visibility === "shown");
+		const undecided = decided.some((entry) => entry.visibility === "pending");
+		if (!undecided && shown.length === 1) {
+			/* The single-form skip applies to the CONDITION-ELIGIBLE set —
+			 * a false condition suppresses the auto-continue too. */
+			openFormWithCase(shown[0].form.uuid, row);
+		} else if (decided.length > 0) {
+			/* Several eligible forms, still-loading conditions, or none
+			 * eligible at all land on the menu — it renders placeholders and
+			 * the hidden-items reveal honestly. */
 			setFormMenuCase(row);
 			focusNextFrame(() => formMenuBackRef.current);
 		}
@@ -1024,6 +1070,19 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 *  now picks which form to run for it (Follow-up / Close / …). Mirrors
 	 *  CommCare resolving the shared case datum and THEN asking for the
 	 *  command. Each choice carries the chosen case into the form. */
+	const formMenuDecided =
+		displayedFormMenuCase === null
+			? []
+			: decideCaseLoadingForms(displayedFormMenuCase);
+	const formMenuHidden = formMenuDecided
+		.filter((entry) => entry.visibility === "hidden")
+		.map((entry) => ({
+			key: entry.form.uuid,
+			name: entry.form.name,
+			summary: summarizeFilter(entry.form.displayCondition, {
+				...(caseType !== undefined && { currentCaseType: caseType.name }),
+			}),
+		}));
 	const formMenuPane = displayedFormMenuCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
 			{/* Back returns to whatever sits beneath the menu — the case
@@ -1055,35 +1114,47 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				Choose what to do with this case
 			</p>
 			<div className="grid gap-2">
-				{caseLoadingForms.map((form) => (
-					<Button
-						key={form.uuid}
-						type="button"
-						variant="outline"
-						onClick={() => openFormWithCase(form.uuid, displayedFormMenuCase)}
-						className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
-					>
-						<Icon
-							icon={formTypeIcons[form.type]}
-							width="18"
-							height="18"
-							className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
-						/>
-						<span
-							data-form-menu-choice-label
-							className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+				{formMenuDecided.map(({ form, visibility }) => {
+					if (visibility === "hidden") return null;
+					if (visibility === "pending") {
+						return (
+							<Skeleton
+								key={form.uuid}
+								className="h-[58px] w-full rounded-lg"
+							/>
+						);
+					}
+					return (
+						<Button
+							key={form.uuid}
+							type="button"
+							variant="outline"
+							onClick={() => openFormWithCase(form.uuid, displayedFormMenuCase)}
+							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 						>
-							{form.name}
-						</span>
-						<Icon
-							icon={tablerArrowRight}
-							width="15"
-							height="15"
-							className="text-nova-text-muted shrink-0"
-						/>
-					</Button>
-				))}
+							<Icon
+								icon={formTypeIcons[form.type]}
+								width="18"
+								height="18"
+								className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
+							/>
+							<span
+								data-form-menu-choice-label
+								className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+							>
+								{form.name}
+							</span>
+							<Icon
+								icon={tablerArrowRight}
+								width="15"
+								height="15"
+								className="text-nova-text-muted shrink-0"
+							/>
+						</Button>
+					);
+				})}
 			</div>
+			<HiddenItemsReveal items={formMenuHidden} />
 		</div>
 	);
 
