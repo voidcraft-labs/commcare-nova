@@ -155,7 +155,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		});
 		expect(docStore.getState().appName).toBe("Built locally");
 		expect(FakeEventSource.instances[0]?.url).toBe(
-			"/api/apps/app-created/stream?since=7&receiverVersion=2",
+			"/api/apps/app-created/stream?since=7&receiverVersion=3",
 		);
 		runtime.suspend();
 	});
@@ -206,7 +206,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		runtime.start();
 		const sourceStream = FakeEventSource.instances[0];
 		expect(sourceStream.url).toBe(
-			"/api/apps/app-1/stream?since=0&receiverVersion=2",
+			"/api/apps/app-1/stream?since=0&receiverVersion=3",
 		);
 		sourceStream.emit("lookup-revision", JSON.stringify(SOURCE_MANIFEST));
 		sourceStream.emit("presence", JSON.stringify(SOURCE_PRESENCE));
@@ -422,7 +422,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 
 	it("shows a distinct refresh-required state after the one-shot upgrade latch", () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
-		window.sessionStorage.setItem("nova:stream-upgrade:app-1:receiver-2", "1");
+		window.sessionStorage.setItem("nova:stream-upgrade:app-1:receiver-3", "1");
 		const persistedDoc = toPersistableDoc(emptyDoc());
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(persistedDoc);
