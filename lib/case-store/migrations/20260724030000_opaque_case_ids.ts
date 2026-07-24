@@ -17,10 +17,18 @@
 // Each ALTER guards on the column's current type, so the ledger-erase
 // replay over an already-widened schema no-ops. Every `ALTER TYPE` takes
 // ACCESS EXCLUSIVE with a table rewrite; the deploy-blocking Job runs it
-// while the previous revision serves, which is safe because that
-// revision's only `::uuid` parameter casts sit on schema-migration paths
-// that are idle during a deploy. `down` exists for local/test teardown
-// only and assumes every stored id still casts back to `uuid`.
+// while the previous revision serves. That revision's writers have no
+// single consistent acquisition order across this family (inserts take
+// `cases` then `case_indices`; sample reset takes `case_indices` first;
+// schema edits and parked-review writes take `cases` then
+// `parked_case_values`), so no DDL ordering can rule a deadlock out
+// statically. Instead the block acquires all three tables UP FRONT in
+// the majority writer order under a short `lock_timeout`: a collision
+// with an in-flight writer fails this transaction fast — BEFORE any
+// rewrite work — and the Job rerun is a plain build re-trigger, rather
+// than the deadlock detector cancelling a mid-rewrite migration. `down`
+// exists for local/test teardown only and assumes every stored id still
+// casts back to `uuid`.
 
 import { type Kysely, sql } from "kysely";
 
@@ -46,6 +54,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			IF cases_schema IS NULL THEN
 				RAISE EXCEPTION 'cases table not found in nova_case_runtime or public — the baseline migration must run first';
 			END IF;
+
+			EXECUTE 'SET LOCAL lock_timeout = ''5s''';
+			EXECUTE format('LOCK TABLE %I.cases IN ACCESS EXCLUSIVE MODE', cases_schema);
+			EXECUTE 'LOCK TABLE public.case_indices IN ACCESS EXCLUSIVE MODE';
+			EXECUTE 'LOCK TABLE public.parked_case_values IN ACCESS EXCLUSIVE MODE';
+			EXECUTE 'SET LOCAL lock_timeout = 0';
 
 			EXECUTE 'ALTER TABLE public.parked_case_values DROP CONSTRAINT IF EXISTS parked_case_values_case_id_fkey';
 

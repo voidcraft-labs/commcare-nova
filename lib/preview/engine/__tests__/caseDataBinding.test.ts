@@ -1837,6 +1837,34 @@ describe("readCaseData", () => {
 		expect(result.kind).toBe("missing");
 	});
 
+	it("loads a case by an authored URL-significant opaque id (no UUID shape gate)", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		const authoredId =
+			"nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:external/1 %x:y+z";
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: authoredId,
+				case_type: "patient",
+				case_name: "Authored",
+				status: "open",
+				properties: { name: "Authored", age: 30 },
+			},
+		});
+
+		const result = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseId: authoredId,
+			ancestorDepth: 5,
+		});
+		expect(result.kind).toBe("row");
+		if (result.kind !== "row") return;
+		expect(result.row.case_id).toBe(authoredId);
+	});
+
 	it("returns the missing arm for a cross-tenant case-id (tenant boundary stays structural)", async () => {
 		const storeA = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
