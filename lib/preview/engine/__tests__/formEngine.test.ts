@@ -1216,6 +1216,7 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({ caseTypes });
 				expect(mutation).toEqual({
 					kind: "registration",
+					formUuid: "test-form-uuid",
 					primary: {
 						caseType: "patient",
 						caseName: "Alice",
@@ -1473,6 +1474,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-123",
 					patch: {
 						caseName: "Alice",
@@ -1525,6 +1527,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [
@@ -1562,6 +1565,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "close",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-456",
 					patch: { properties: { notes: "discharged" } },
 					children: [
@@ -1606,6 +1610,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "close",
+					formUuid: "test-form-uuid",
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [],

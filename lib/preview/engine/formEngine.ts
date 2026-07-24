@@ -833,6 +833,7 @@ export class FormEngine {
 				}));
 				return {
 					kind: "registration",
+					...operationIdentity,
 					primary: {
 						caseType: this.moduleCaseType,
 						...(primaryCaseName !== undefined
@@ -871,9 +872,15 @@ export class FormEngine {
 					properties: primaryProperties,
 				};
 				if (this.formType === "followup") {
-					return { kind: "followup", caseId, patch, children };
+					return {
+						kind: "followup",
+						...operationIdentity,
+						caseId,
+						patch,
+						children,
+					};
 				}
-				return { kind: "close", caseId, patch, children };
+				return { kind: "close", ...operationIdentity, caseId, patch, children };
 			}
 			default:
 				// `survey` is handled at the top of the method; the form type
