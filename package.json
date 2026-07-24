@@ -38,6 +38,7 @@
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"test:changed": "vitest run --changed origin/main",
 		"test:leaks": "vitest run --detect-async-leaks --pool=forks --testTimeout=30000",
 		"test:smoke": "bash scripts/smoke.sh",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",

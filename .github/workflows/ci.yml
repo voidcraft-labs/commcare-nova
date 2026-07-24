@@ -82,8 +82,21 @@ jobs:
         run: npm run typecheck
 
   test:
-    name: Tests
+    # The full plain-mode suite is ~30 runner-minutes of CPU work, which one
+    # 4-vCPU runner serializes into ~10 minutes of wall time; four shards each
+    # take a deterministic quarter of the sorted test-file list (`--shard`
+    # partitions before running, so the shards are collectively exhaustive)
+    # and finish in ~3 minutes. Wall time is bounded by the slowest single
+    # test file, not by shard count — splitting the heavyweight files
+    # (lib/case-store/postgres store.test.ts, lib/preview/engine
+    # caseDataBinding.test.ts) is the next lever, more shards are not.
+    name: Test shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -102,32 +115,56 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
-      # The suite boots a Postgres testcontainer and applies the case-store
-      # migrations in-process via Kysely's Migrator
+      # Each shard boots its own Postgres testcontainer and applies the
+      # case-store migrations in-process via Kysely's Migrator
       # (lib/case-store/sql/__tests__/applyMigrations.ts), so no migration CLI
       # is needed on PATH. ubuntu-latest already runs a Docker daemon for the
       # container itself.
       - name: Test suite
-        run: npm test
+        run: npm test -- --shard=${{ matrix.shard }}/4
+
+  tests-gate:
+    # The branch ruleset requires a check literally named "Tests"; the shard
+    # jobs above report per-shard names, so this fan-in is the required check.
+    # `always()` keeps it from being skipped when a shard fails — GitHub
+    # treats a skipped required check as passing.
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ always() }}
+    steps:
+      - name: Every test shard succeeded
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::Test shards finished with result '${{ needs.test.result }}'. Open the failing shard job for the vitest output."
+            exit 1
+          fi
+          echo "All test shards passed."
 
   leaks:
-    name: Async-leak gate
+    # Every test file runs under the async-leak detector on every PR — no
+    # changed-file scoping. The module graph is centralized enough that
+    # `vitest --changed` swept most of the suite for any change to a shared
+    # lib anyway, and a dependency bump (outside every import graph) forced an
+    # unsharded full sweep that overran the job timeout — scoping made the
+    # gate's duration a per-PR gamble. The detector's per-async-op
+    # instrumentation roughly doubles test time and multiplies per-file
+    # import cost, putting the full sweep near 2 CPU-hours; eight shards
+    # bring that to ~5 minutes of wall time, the same every PR.
+    #
+    # `test:leaks` runs a 30s test timeout (vs the default 5s) because the
+    # instrumentation inflates every test's wall time — a timed-out test also
+    # leaks its in-flight promise into the next test, so a tight timeout
+    # would cascade into spurious leak findings.
+    name: Leak shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
-    # The detector's per-async-op instrumentation inflates every test's wall
-    # time, so `test:leaks` runs a 30s test timeout (vs the default 5s) — on a
-    # large PR the changed-vs-base set is big enough that heavy tests would
-    # otherwise cross 5s under parallel load and spuriously fail (a timed-out
-    # test also leaks its in-flight promise into the next test). 45 job-minutes
-    # keeps headroom for that slower-but-honest completion, including broad
-    # changed-test graphs that have reached roughly 30 minutes in CI.
-    timeout-minutes: 45
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v7
-        with:
-          # `vitest --changed` diffs the working tree against the PR base to
-          # decide which tests to run; that needs the base commit present in
-          # local history, which the default depth-1 checkout omits.
-          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -144,21 +181,24 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
-      # Scope the leak sweep to what the PR touched. `vitest --changed <base>`
-      # runs only the test files whose module import graph reaches a changed
-      # file — including unchanged tests that import a changed source file, so
-      # a leak introduced in `lib/` is still caught by its existing test.
-      # Sound because the async-leak detector attributes each leaked resource
-      # to the single test file that created it (no cross-file leak), so an
-      # unchanged graph reproduces a byte-identical, already-green run; the
-      # full suite still ran at this PR's merge base. A change to a shared
-      # input outside every graph (config, setup, deps) re-sweeps everything
-      # via `forceRerunTriggers` in vitest.config.ts. `--passWithNoTests`
-      # makes a PR that touches no covered code a green no-op.
-      - name: Changed tests under the async-leak detector
-        run: npm run test:leaks -- --changed "$PR_BASE_SHA" --passWithNoTests
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      - name: Full suite under the async-leak detector
+        run: npm run test:leaks -- --shard=${{ matrix.shard }}/8
+
+  leaks-gate:
+    # Same fan-in pattern as `tests-gate`: the branch ruleset pins the check
+    # name "Async-leak gate", the shard jobs report per-shard names.
+    name: Async-leak gate
+    runs-on: ubuntu-latest
+    needs: leaks
+    if: ${{ always() }}
+    steps:
+      - name: Every leak shard succeeded
+        run: |
+          if [ "${{ needs.leaks.result }}" != "success" ]; then
+            echo "::error::Leak shards finished with result '${{ needs.leaks.result }}'. Open the failing shard job for the detector's findings."
+            exit 1
+          fi
+          echo "All leak shards passed."
 
   build:
     name: Production build
