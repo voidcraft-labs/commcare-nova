@@ -961,5 +961,36 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("other@example.org");
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
 		});
+
+		it("a session resolving mid-entry preserves answers typed under the anonymous world", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+
+			ctrl.activateForm(FORM_UUID);
+			ctrl.onValueChange(Q1_UUID, "typed before session resolved");
+			ctrl.onTouch(Q1_UUID);
+
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe(
+				"typed before session resolved",
+			);
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("amina@example.org");
+		});
+
+		it("a sign-out (identity to null) discards entered values with the world", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+			ctrl.activateForm(FORM_UUID);
+			ctrl.onValueChange(Q1_UUID, "typed answer");
+
+			ctrl.setPreviewIdentity(null);
+
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("");
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
 	});
 });

@@ -303,16 +303,33 @@ export class EngineController {
 	 * incremental input. A re-derived-but-identical identity (session
 	 * refetches mint new object references) is a no-op, so entered
 	 * preview values survive it.
+	 *
+	 * Values typed under the ANONYMOUS world survive an arriving
+	 * identity: the cold session resolving after form activation is the
+	 * same human finishing their answers, not a persona switch, so the
+	 * rebuild restores user-touched values through the engine's shared
+	 * snapshot/restore path (identity-backed reads still re-evaluate).
+	 * Replacing a non-null identity discards — a sign-out or a different
+	 * worker is a different evaluation world, and restoring would leak
+	 * one worker's entries into another's session.
 	 */
 	setPreviewIdentity(identity: ResolvedPreviewIdentity | null): void {
 		if (samePreviewIdentity(this.previewIdentity, identity)) {
 			this.previewIdentity = identity;
 			return;
 		}
+		const restoreSnapshot =
+			this.previewIdentity === null && identity !== null
+				? this.engine?.getValueSnapshot()
+				: undefined;
 		this.previewIdentity = identity;
 		const formUuid = this.activeFormUuid;
 		if (formUuid !== undefined) {
 			this.activateForm(formUuid, this.activeCaseData);
+			if (restoreSnapshot !== undefined && this.engine !== undefined) {
+				this.engine.restoreValues(restoreSnapshot);
+				this.syncAllToStore();
+			}
 		}
 	}
 

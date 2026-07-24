@@ -96,6 +96,25 @@ const setPreviewSelectedCaseMock = vi.fn();
  *  default so test ordering doesn't matter. */
 let currentAppId: string | undefined = APP_ID;
 
+/* The screen mounts BuilderFormEngineProvider, which resolves "Preview
+ * as me" from `useAuth()`. Mock it so the suite doesn't subscribe Better
+ * Auth's client session atom — its nanostores `onMount` schedules a
+ * `setTimeout(0) → fetchSession()` real fetch that the async-leak
+ * detector pins. A static unauthenticated result is enough: the engine
+ * reads user slices as absent, which these tests never assert on. */
+vi.mock("@/lib/auth/hooks/useAuth", () => ({
+	useAuth: () => ({
+		user: null,
+		isAuthenticated: false,
+		isAdmin: false,
+		isImpersonating: false,
+		isPending: false,
+		error: null,
+		signIn: () => {},
+		signOut: () => {},
+	}),
+}));
+
 vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
 		"@/lib/routing/hooks",

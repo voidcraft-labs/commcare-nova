@@ -2663,11 +2663,15 @@ grows; keep every HQ JSON/compiler projection identical.
   identity once (`resolvePreviewIdentity`), `gatedCaseStore` takes the
   identity instead of a bare user id, the search/session projection is
   the identity's own, and the form engine's hardcoded `demo_user` map is
-  gone — `#user/*` reads the real signed-in worker (threaded
-  provider → controller → engine, with material-change rebuild and
-  no-op on re-derived identity), while submission identity remains the
-  server-resolved actor that already stamps `owner_id` (the engine emits
-  no meta block — there is no client meta to fix). User-data keys stay
+  gone — `#user/*` reads the real signed-in worker (seeded in the
+  provider's `useState` initializer so a warm-session mount builds once;
+  material change rebuilds, re-derivation no-ops, a cold session
+  resolving mid-entry restores user-touched values via the engine's
+  shared snapshot path, and replacing a non-null identity discards so
+  no worker's entries leak into another's session), while submission
+  identity remains the server-resolved actor that already stamps
+  `owner_id` (the engine emits no meta block — there is no client meta
+  to fix). User-data keys stay
   absent when the worker has no value. The dormant
   `TermBindings.actingUserId` stays unpopulated: `acting-user` is valid
   only inside case operations, so the envelope unit wires it where it
