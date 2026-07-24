@@ -14,6 +14,7 @@ import type { CaseType, Field, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
+import { previewAsMe } from "../identity";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -886,6 +887,110 @@ describe("EngineController", () => {
 				},
 				children: [],
 			});
+		});
+	});
+
+	describe("setPreviewIdentity", () => {
+		const WHO_UUID = asUuid("aaaaaaaa-0009-0009-0009-000000000009");
+		const ME = { id: "worker-1", email: "amina@example.org" };
+
+		/** Standard two-field doc plus a hidden `#user/username` calculate. */
+		function docWithUserCalc(): PersistableDoc {
+			return makeDoc(
+				{
+					[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+					[WHO_UUID]: {
+						uuid: WHO_UUID,
+						id: "who",
+						kind: "hidden",
+						calculate: xp("#user/username"),
+					} as Field,
+				},
+				{ [FORM_UUID]: [Q1_UUID, WHO_UUID] },
+			);
+		}
+
+		it("an identity installed before activation resolves #user reads", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+
+			ctrl.activateForm(FORM_UUID);
+
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("amina@example.org");
+		});
+
+		it("an identity arriving after activation rebuilds the active engine", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+
+			ctrl.activateForm(FORM_UUID);
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("");
+
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("amina@example.org");
+		});
+
+		it("a re-derived identical identity is a no-op preserving entered values", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+			ctrl.activateForm(FORM_UUID);
+
+			ctrl.onValueChange(Q1_UUID, "typed answer");
+			ctrl.setPreviewIdentity(previewAsMe({ ...ME }));
+
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("typed answer");
+		});
+
+		it("an identity change rebuilds the evaluation world, discarding entered values", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+			ctrl.activateForm(FORM_UUID);
+			ctrl.onValueChange(Q1_UUID, "typed answer");
+
+			ctrl.setPreviewIdentity(
+				previewAsMe({ id: "worker-2", email: "other@example.org" }),
+			);
+
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("other@example.org");
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
+
+		it("a session resolving mid-entry preserves answers typed under the anonymous world", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+
+			ctrl.activateForm(FORM_UUID);
+			ctrl.onValueChange(Q1_UUID, "typed before session resolved");
+			ctrl.onTouch(Q1_UUID);
+
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe(
+				"typed before session resolved",
+			);
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("amina@example.org");
+		});
+
+		it("a sign-out (identity to null) discards entered values with the world", () => {
+			const store = createLoadedStore(docWithUserCalc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.setPreviewIdentity(previewAsMe(ME));
+			ctrl.activateForm(FORM_UUID);
+			ctrl.onValueChange(Q1_UUID, "typed answer");
+
+			ctrl.setPreviewIdentity(null);
+
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("");
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
 		});
 	});
 });

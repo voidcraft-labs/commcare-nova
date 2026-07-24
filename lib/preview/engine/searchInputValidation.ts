@@ -11,11 +11,11 @@ import type { TypeContext } from "@/lib/domain/predicate";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { dateRangeInputErrors } from "./dateRangeInputValidation";
+import type { PreviewSearchSessionValues } from "./identity";
 import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
-import type { PreviewSearchSessionValues } from "./searchExpressionEvaluation";
 
 const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
 	context: {},

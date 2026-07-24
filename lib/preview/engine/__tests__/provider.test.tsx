@@ -15,7 +15,7 @@
 
 import { act, render, renderHook } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	ReconcilerContext,
 	type ReconcilerContextValue,
@@ -26,6 +26,25 @@ import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
+
+/* The provider resolves "Preview as me" from `useAuth()`. Mock it so the
+ * test doesn't subscribe Better Auth's client session atom — its nanostores
+ * `onMount` schedules a `setTimeout(0) → fetchSession()` real fetch that the
+ * async-leak detector pins. A static unauthenticated result is enough here:
+ * the identity effect installs `null` and the engine reads user slices as
+ * absent. */
+vi.mock("@/lib/auth/hooks/useAuth", () => ({
+	useAuth: () => ({
+		user: null,
+		isAuthenticated: false,
+		isAdmin: false,
+		isImpersonating: false,
+		isPending: false,
+		error: null,
+		signIn: () => {},
+		signOut: () => {},
+	}),
+}));
 
 /** Single-form doc with one text field — the minimum structure the engine
  *  needs to produce a non-empty runtime state from `activateForm(FORM_UUID)`. */

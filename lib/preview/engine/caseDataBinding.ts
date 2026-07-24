@@ -1,22 +1,23 @@
 // lib/preview/engine/caseDataBinding.ts
 //
 // Server Actions for the running-app view's case-data binding.
-// Each action resolves the request's session, then constructs a
-// Project-scoped `CaseStore` via `gatedCaseStore` — which verifies the
-// actor's membership of the app's Project (the IDOR gate over the
-// client-supplied `appId`) and wraps a `withProjectContext` store in
-// `schemaHealingCaseStore` (every individual store call self-heals a
-// missing or stale schema row and retries itself once) — and delegates
-// to an I/O helper in `./caseDataBindingHelpers.ts` (server-only) or an
-// error mapper in `./caseDataBindingClient.ts` (client-bundle-safe). A
-// membership denial surfaces as the IDOR-safe not-found `error` arm.
-// Tests bypass the actions and inject a `CaseStore` directly.
-// Centralizing session + membership resolution here means a change to
-// the auth strategy lands in one file.
+// Each action resolves the acting `ResolvedPreviewIdentity` at its own
+// boundary (`resolvePreviewIdentity` — never accepted from the client),
+// then constructs a Project-scoped `CaseStore` via `gatedCaseStore` —
+// which verifies the identity's membership of the app's Project (the
+// IDOR gate over the client-supplied `appId`) and wraps a
+// `withProjectContext` store in `schemaHealingCaseStore` (every
+// individual store call self-heals a missing or stale schema row and
+// retries itself once) — and delegates to an I/O helper in
+// `./caseDataBindingHelpers.ts` (server-only) or an error mapper in
+// `./caseDataBindingClient.ts` (client-bundle-safe). A membership
+// denial surfaces as the IDOR-safe not-found `error` arm. Tests bypass
+// the actions and inject a `CaseStore` directly. Centralizing identity
+// + membership resolution in these two modules means a change to the
+// auth strategy lands in one place.
 
 "use server";
 
-import { getSession } from "@/lib/auth-utils";
 import {
 	buildCaseTypeMap,
 	CaseNotFoundError,
@@ -56,6 +57,7 @@ import {
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
+	resolvePreviewIdentity,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
@@ -74,6 +76,7 @@ import type {
 	SubmissionResult,
 } from "./caseDataBindingTypes";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
+import type { PreviewSearchSessionValues } from "./identity";
 import {
 	type SearchInputValues,
 	type SearchInputValuesWire,
@@ -82,9 +85,7 @@ import {
 } from "./runtimeBindings";
 import {
 	evaluatePreviewSearchExpression,
-	type PreviewSearchSessionValues,
 	parseExcludedOwnerIds,
-	previewSearchSessionValues,
 } from "./searchExpressionEvaluation";
 import {
 	searchInputRuntimeGlobalError,
@@ -204,8 +205,8 @@ export async function loadCasesAction(args: {
 	viewerTimeZone?: string;
 }): Promise<LoadCasesResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
 		const caseTypeSchemas =
 			args.caseTypes && args.caseTypes.length > 0
 				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
@@ -213,7 +214,7 @@ export async function loadCasesAction(args: {
 		const inputValues = args.inputValues
 			? searchInputValuesFromWire(args.inputValues)
 			: undefined;
-		const searchSession = previewSearchSessionValues(session.user);
+		const searchSession = identity.session;
 		if (args.caseListConfig !== undefined) {
 			const globalRuntimeError = searchInputRuntimeGlobalError(
 				args.caseListConfig,
@@ -301,7 +302,7 @@ export async function loadCasesAction(args: {
 							args.caseListConfig?.searchInputs ?? [],
 						),
 					);
-		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const store = await gatedCaseStore(args.appId, identity, "view");
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -361,9 +362,9 @@ export async function loadCaseCountAction(args: {
 	includeHeld?: boolean;
 }): Promise<LoadCaseCountResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "view");
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
@@ -400,9 +401,9 @@ export async function conversionImpactAction(args: {
 	toType: CasePropertyDataType;
 }): Promise<ConversionImpactResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "view");
 		const impact = await store.conversionImpact({
 			appId: args.appId,
 			caseType: args.caseType,
@@ -448,10 +449,10 @@ export async function loadCaseDataAction(
 	includeHeld?: boolean,
 ): Promise<LoadCaseDataResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(appId, session.user.id, "view");
-		const searchSession = previewSearchSessionValues(session.user);
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(appId, identity, "view");
+		const searchSession = identity.session;
 		const expressionInputValues =
 			caseListConfig === undefined
 				? undefined
@@ -496,8 +497,8 @@ export async function populateSampleCasesAction(
 	caseType: CaseType,
 ): Promise<PopulateSampleCasesResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
 		// The LIVE `CaseType` definition comes straight from the client —
 		// the generator reads only its property declarations + `parent_type`,
 		// so the one catalog entry is all this needs (never the whole
@@ -505,7 +506,7 @@ export async function populateSampleCasesAction(
 		// app's Project before binding the store, so a crafted `appId` for
 		// another Project is rejected — the client-supplied id is otherwise
 		// unchecked — and generated rows land in that shared Project's store.
-		const store = await gatedCaseStore(appId, session.user.id, "edit");
+		const store = await gatedCaseStore(appId, identity, "edit");
 		return await seedSampleCases(store, { appId, caseType });
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
@@ -549,9 +550,9 @@ export async function resetSampleCasesAction(
 	caseType: CaseType,
 ): Promise<PopulateSampleCasesResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(appId, session.user.id, "edit");
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(appId, identity, "edit");
 		return await resetSampleCases(store, { appId, caseType });
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
@@ -587,9 +588,9 @@ export async function loadParkedValuesAction(args: {
 	caseType: string;
 }): Promise<LoadParkedValuesResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "view");
 		const entries = await store.listParkedValues({
 			appId: args.appId,
 			caseType: args.caseType,
@@ -631,9 +632,9 @@ export async function restoreParkedValuesAction(args: {
 	ids: string[];
 }): Promise<RestoreParkedValuesResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(args.appId, session.user.id, "edit");
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "edit");
 		const result = await store.restoreParkedValues({
 			appId: args.appId,
 			ids: args.ids,
@@ -663,9 +664,9 @@ export async function setParkedValuesDismissedAction(args: {
 	dismissed: boolean;
 }): Promise<SetParkedValuesDismissedResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(args.appId, session.user.id, "edit");
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "edit");
 		const count = await store.setParkedValuesDismissed({
 			appId: args.appId,
 			ids: args.ids,
@@ -701,9 +702,9 @@ export async function replaceParkedValueAction(args: {
 	value: JsonValue;
 }): Promise<ReplaceParkedValueResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(args.appId, session.user.id, "edit");
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "edit");
 		await store.replaceParkedValue({
 			appId: args.appId,
 			id: args.id,
@@ -767,8 +768,8 @@ export async function loadFilterPreviewAction(args: {
 		// Session-first matches every other action in this file. An
 		// unauthenticated request short-circuits before the parse
 		// work runs.
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
 
 		// Wire-boundary parse. `caseListConfig` comes first because its
 		// shape is structurally independent of the blueprint.
@@ -797,8 +798,8 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = await gatedCaseStore(args.appId, session.user.id, "view");
-		const searchSession = previewSearchSessionValues(session.user);
+		const store = await gatedCaseStore(args.appId, identity, "view");
+		const searchSession = identity.session;
 		const excludedOwnerIds =
 			args.excludedOwnerIdsExpression === undefined
 				? undefined
@@ -861,15 +862,15 @@ export async function submitFormAction(
 	appId: string,
 ): Promise<SubmissionResult> {
 	try {
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
 		// The schema heal lives INSIDE the store (one heal per individual
 		// store call), never around this dispatch: followup/close run a
 		// primary update plus per-child inserts in separate transactions,
 		// so a dispatch-level retry would re-insert children that already
 		// landed. With the heal at the store call, the one write that threw
 		// retries and the dispatch resumes from where it stopped.
-		const store = await gatedCaseStore(appId, session.user.id, "edit");
+		const store = await gatedCaseStore(appId, identity, "edit");
 		switch (mutation.kind) {
 			case "registration": {
 				const { caseId, childCaseIds } = await applyRegistrationMutation(

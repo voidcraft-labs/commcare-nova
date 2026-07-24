@@ -56,6 +56,7 @@ import {
 	FormEngine,
 	type FormEngineInput,
 } from "./formEngine";
+import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import { type FieldState, fieldStatesEqual } from "./types";
 
 // ── Runtime store types ─────────────────────────────────────────────────
@@ -280,6 +281,12 @@ export class EngineController {
 	 *  BlueprintDocProvider mounts, cleared on unmount. */
 	private docStore: BlueprintDocStore | undefined;
 
+	/** The resolved identity `#user/*` and future identity-backed reads
+	 *  evaluate against. Session-scoped — installed by the provider from
+	 *  the client auth session and deliberately NOT cleared by
+	 *  `deactivate()`, which is a per-form lifecycle. */
+	private previewIdentity: ResolvedPreviewIdentity | null = null;
+
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
 	}
@@ -287,6 +294,43 @@ export class EngineController {
 	/** Connect to the doc store. Called by SyncBridge when the provider mounts. */
 	setDocStore(docStore: BlueprintDocStore | null): void {
 		this.docStore = docStore ?? undefined;
+	}
+
+	/**
+	 * Install the resolved preview identity. A materially different
+	 * identity rebuilds any active engine so every computed value agrees
+	 * on one evaluation world — identity is engine-lifetime state, not an
+	 * incremental input. A re-derived-but-identical identity (session
+	 * refetches mint new object references) is a no-op, so entered
+	 * preview values survive it.
+	 *
+	 * Values typed under the ANONYMOUS world survive an arriving
+	 * identity: the cold session resolving after form activation is the
+	 * same human finishing their answers, not a persona switch, so the
+	 * rebuild restores user-touched values through the engine's shared
+	 * snapshot/restore path (identity-backed reads still re-evaluate).
+	 * Replacing a non-null identity discards — a sign-out or a different
+	 * worker is a different evaluation world, and restoring would leak
+	 * one worker's entries into another's session.
+	 */
+	setPreviewIdentity(identity: ResolvedPreviewIdentity | null): void {
+		if (samePreviewIdentity(this.previewIdentity, identity)) {
+			this.previewIdentity = identity;
+			return;
+		}
+		const restoreSnapshot =
+			this.previewIdentity === null && identity !== null
+				? this.engine?.getValueSnapshot()
+				: undefined;
+		this.previewIdentity = identity;
+		const formUuid = this.activeFormUuid;
+		if (formUuid !== undefined) {
+			this.activateForm(formUuid, this.activeCaseData);
+			if (restoreSnapshot !== undefined && this.engine !== undefined) {
+				this.engine.restoreValues(restoreSnapshot);
+				this.syncAllToStore();
+			}
+		}
 	}
 
 	// ── Lifecycle ────────────────────────────────────────────────────
@@ -320,7 +364,12 @@ export class EngineController {
 		if (!input) return;
 
 		const mod = s.modules[moduleUuid];
-		this.engine = new FormEngine(input, mod?.caseType, caseData);
+		this.engine = new FormEngine(
+			input,
+			mod?.caseType,
+			caseData,
+			this.previewIdentity,
+		);
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
 		const tree = this.engine.getFieldTree();

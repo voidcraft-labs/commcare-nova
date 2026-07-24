@@ -35,9 +35,11 @@ import {
 	useEffect,
 	useState,
 } from "react";
+import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { EngineController } from "./engineController";
+import { previewAsMe } from "./identity";
 
 // ── Context ─────────────────────────────────────────────────────────────
 
@@ -62,17 +64,23 @@ export function BuilderFormEngineProvider({
 }) {
 	const docStore = useContext(BlueprintDocContext);
 	const reconcilerContext = useReconcilerContext();
+	const { user } = useAuth();
 
-	/* Create the controller AND bind the doc store synchronously on first
-	 * render. Child effects (e.g. `useFormEngine.activateForm`) flush
-	 * before parent effects, so any install we did in this component's
-	 * own `useEffect` would land too late — descendants would already
-	 * have called `activateForm` against an unwired controller. The
-	 * `useState` initializer runs during render, before any descendant
-	 * mounts, so the binding is in place before anyone needs it. */
+	/* Create the controller AND bind the doc store + preview identity
+	 * synchronously on first render. Child effects (e.g.
+	 * `useFormEngine.activateForm`) flush before parent effects, so any
+	 * install we did in this component's own `useEffect` would land too
+	 * late — descendants would already have called `activateForm` against
+	 * an unwired controller. For the identity that lateness would mean
+	 * every warm-session form mount builds its engine identity-less and
+	 * immediately rebuilds when the parent effect lands. The `useState`
+	 * initializer runs during render, before any descendant mounts, so
+	 * both are in place before anyone needs them (`previewAsMe` is pure,
+	 * and Better Auth resolves a warm client session synchronously). */
 	const [controller] = useState(() => {
 		const c = new EngineController();
 		if (docStore) c.setDocStore(docStore);
+		c.setPreviewIdentity(previewAsMe(user));
 		return c;
 	});
 
@@ -89,6 +97,16 @@ export function BuilderFormEngineProvider({
 			controller.setDocStore(null);
 		};
 	}, [controller, docStore]);
+
+	/* Keep the identity in sync with later session changes — the cold
+	 * session resolving after mount, a sign-out broadcast from another
+	 * tab. The controller's setter treats a materially-identical identity
+	 * as a no-op, so session refetches minting new user references don't
+	 * rebuild an active engine; rendered markup never depends on the
+	 * session, so SSR/hydration stay identity-free. */
+	useEffect(() => {
+		controller.setPreviewIdentity(previewAsMe(user));
+	}, [controller, user]);
 
 	/* A same-app Project move does not remount this long-lived controller.
 	 * Deactivate synchronously at the reconciler's scope boundary so neither

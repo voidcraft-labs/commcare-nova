@@ -13,20 +13,22 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
+import { previewAsMe, previewSessionValues } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
 import {
 	evaluatePreviewSearchExpression,
 	evaluatePreviewSearchPredicate,
 	parseExcludedOwnerIds,
-	previewSearchSessionValues,
 	resolveSearchInputDefaults,
 } from "../searchExpressionEvaluation";
 
-const SESSION = previewSearchSessionValues({
-	id: "worker-42",
-	name: "Amina Diallo",
-	email: "amina@example.org",
-});
+const SESSION = previewSessionValues(
+	previewAsMe({
+		id: "worker-42",
+		name: "Amina Diallo",
+		email: "amina@example.org",
+	}),
+);
 
 describe("preview case-search expression evaluation", () => {
 	it("evaluates literals, date functions, and session-backed terms", () => {

@@ -81,8 +81,8 @@ import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
-import type { PreviewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { searchInputSubmissionErrors } from "@/lib/preview/engine/searchInputValidation";
 
 // ── Public surface ──────────────────────────────────────────────────

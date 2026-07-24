@@ -22,73 +22,13 @@ import type {
 } from "@/lib/domain/predicate";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
+import type { PreviewSearchSessionValues } from "./identity";
 import type { SearchInputValues } from "./runtimeBindings";
 import {
 	bindSearchInputValuesInExpression,
 	bindSearchInputValuesInPredicate,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
-
-/** The session slices a search expression can read on the device. */
-export interface PreviewSearchSessionValues {
-	readonly context: Readonly<Partial<Record<SessionContextField, string>>>;
-	readonly user: Readonly<Record<string, string>>;
-}
-
-/** Narrow user shape shared by Better Auth's client and server session. */
-export interface PreviewSearchUser {
-	readonly id: string;
-	readonly name?: string | null;
-	readonly email?: string | null;
-}
-
-const EMPTY_SESSION_VALUES: PreviewSearchSessionValues = {
-	context: {
-		deviceid: "nova-preview",
-		appversion: "preview",
-	},
-	user: {},
-};
-
-/**
- * Project a Nova login into the CommCare session vocabulary used by authored
- * expressions. `userid` is the important identity bridge: local case rows are
- * owned by that same authenticated id, so excluding the current worker behaves
- * truthfully in preview. Open-namespace user data is necessarily best-effort;
- * the common profile fields are populated and an unknown custom field resolves
- * blank, just as it would for a worker without that user-data field.
- */
-export function previewSearchSessionValues(
-	user: PreviewSearchUser | null | undefined,
-): PreviewSearchSessionValues {
-	if (user === null || user === undefined) return EMPTY_SESSION_VALUES;
-
-	const email = user.email?.trim() ?? "";
-	const name = user.name?.trim() ?? "";
-	const username = email || name || user.id;
-	const nameParts = name.split(/\s+/).filter(Boolean);
-	const firstName = nameParts[0] ?? "";
-	const lastName = nameParts.slice(1).join(" ");
-
-	return {
-		context: {
-			userid: user.id,
-			username,
-			deviceid: "nova-preview",
-			appversion: "preview",
-		},
-		user: Object.fromEntries(
-			[
-				["userid", user.id],
-				["username", username],
-				["email", email],
-				["name", name],
-				["first_name", firstName],
-				["last_name", lastName],
-			].filter((entry): entry is [string, string] => entry[1] !== ""),
-		),
-	};
-}
 
 /**
  * Evaluate one search ValueExpression with the same XPath implementation the
