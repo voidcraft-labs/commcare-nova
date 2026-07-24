@@ -125,12 +125,8 @@ vi.mock("@/lib/db/projectMembership", () => ({
  * of waiting the prod ~10 s. Prod never sets this var. */
 const originalStreamEnv = {
 	cadence: process.env.NOVA_STREAM_CADENCE_MS,
-	receiver: process.env.NOVA_STREAM_RECEIVER_VERSION,
-	registry: process.env.NOVA_STREAM_REGISTRY_VERSION,
 };
 process.env.NOVA_STREAM_CADENCE_MS = "150";
-process.env.NOVA_STREAM_RECEIVER_VERSION = "2";
-process.env.NOVA_STREAM_REGISTRY_VERSION = "1";
 
 const { GET } = await import("../route");
 const { POST: presencePost } = await import("../../presence/route");
@@ -517,13 +513,10 @@ afterEach(async () => {
 });
 
 afterAll(() => {
-	for (const [key, value] of [
-		["NOVA_STREAM_CADENCE_MS", originalStreamEnv.cadence],
-		["NOVA_STREAM_RECEIVER_VERSION", originalStreamEnv.receiver],
-		["NOVA_STREAM_REGISTRY_VERSION", originalStreamEnv.registry],
-	] as const) {
-		if (value === undefined) delete process.env[key];
-		else process.env[key] = value;
+	if (originalStreamEnv.cadence === undefined) {
+		delete process.env.NOVA_STREAM_CADENCE_MS;
+	} else {
+		process.env.NOVA_STREAM_CADENCE_MS = originalStreamEnv.cadence;
 	}
 });
 

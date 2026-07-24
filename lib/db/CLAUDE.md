@@ -167,9 +167,12 @@ compensates the already-durable reports.
 app-scoped, database-minted connection UUID plus a required receiver version and
 expiry; it is compatibility state, not lookup data or blueprint state.
 `streamReceiverCapabilities.ts` is the pure server admission boundary: it
-requires exactly one strict browser `receiverVersion`, clamps compiled support
-to the strictly parsed deployed environment, requires stream registry v1 on
-both sides, and admits the minimum browser/server receiver version.
+requires exactly one strict browser `receiverVersion` and admits the minimum
+of the browser declaration and the compiled manifest's registry-gated
+receiver capability. The baked image environment is deliberately not
+consulted — the startup probe proves it identical to the compiled manifest
+before an instance serves, and environments with no baked declaration (local
+dev, CI) must not fail closed to v0 under a nonzero floor.
 `streamCapabilityLeases.ts` owns the stateful half. Registration composes
 `apps FOR SHARE` -> serialized fresh Project membership/view authorization ->
 compatibility `FOR SHARE` -> floor verdict/lease insert in one transaction.

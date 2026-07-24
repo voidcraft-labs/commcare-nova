@@ -1,16 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
 	parseClientStreamReceiverVersion,
-	resolveDeployedStreamReceiverVersion,
 	resolveEffectiveStreamReceiverVersion,
 	resolveServingStreamReceiverVersion,
 } from "@/lib/db/streamReceiverCapabilities";
 import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
-
-const DEPLOYED_RECEIVER_V2 = Object.freeze({
-	NOVA_STREAM_RECEIVER_VERSION: "2",
-	NOVA_STREAM_REGISTRY_VERSION: "1",
-});
 
 function receiverQuery(...values: string[]): URLSearchParams {
 	const params = new URLSearchParams({ since: "17" });
@@ -19,22 +13,16 @@ function receiverQuery(...values: string[]): URLSearchParams {
 }
 
 describe("stream receiver capability admission", () => {
-	it("declares the S05a compiled and deployed receiver contract at v2", () => {
+	it("serves the compiled manifest's receiver capability", () => {
 		expect(RUNTIME_CAPABILITIES.streamReceiverVersion).toBe(2);
 		expect(RUNTIME_CAPABILITIES.streamRegistryVersion).toBe(1);
-		expect(resolveDeployedStreamReceiverVersion(DEPLOYED_RECEIVER_V2)).toBe(2);
-		expect(
-			resolveEffectiveStreamReceiverVersion(
-				receiverQuery("2"),
-				DEPLOYED_RECEIVER_V2,
-			),
-		).toBe(2);
-		expect(
-			resolveEffectiveStreamReceiverVersion(
-				receiverQuery("1"),
-				DEPLOYED_RECEIVER_V2,
-			),
-		).toBe(1);
+		// The baked image environment is deliberately not consulted: the startup
+		// probe proves it identical to the compiled manifest before an instance
+		// serves, and environments with no baked declaration (local dev, CI)
+		// must not fail closed to v0 under a nonzero admission floor.
+		expect(resolveServingStreamReceiverVersion()).toBe(2);
+		expect(resolveEffectiveStreamReceiverVersion(receiverQuery("2"))).toBe(2);
+		expect(resolveEffectiveStreamReceiverVersion(receiverQuery("1"))).toBe(1);
 	});
 
 	it.each([
@@ -75,125 +63,11 @@ describe("stream receiver capability admission", () => {
 		expect(parseClientStreamReceiverVersion(params)).toBe(0);
 	});
 
-	it.each([
-		["matching v1", 1, 1, 1, 1, 1],
-		["deployed receiver overstates support", 1, 1, 9, 1, 1],
-		["compiled receiver is newer", 9, 1, 1, 1, 1],
-		["compiled receiver is v0", 0, 1, 1, 1, 0],
-		["deployed receiver is v0", 1, 1, 0, 1, 0],
-		["compiled registry is pre-v1", 1, 0, 1, 1, 0],
-		["deployed registry is pre-v1", 1, 1, 1, 0, 0],
-		["both future registries satisfy the gate", 2, 4, 3, 7, 2],
-	] as const)(
-		"resolves serving support for %s",
-		(_name, compiledReceiver, compiledRegistry, deployedReceiver, deployedRegistry, expected) => {
-			expect(
-				resolveServingStreamReceiverVersion(
-					{
-						streamReceiverVersion: compiledReceiver,
-						streamRegistryVersion: compiledRegistry,
-					},
-					{
-						streamReceiverVersion: deployedReceiver,
-						streamRegistryVersion: deployedRegistry,
-					},
-				),
-			).toBe(expected);
-		},
-	);
-
-	it.each([
-		["undefined input", undefined],
-		["null input", null],
-		["string input", "receiver=1"],
-		["array input", ["1", "1"]],
-		["missing receiver", { NOVA_STREAM_REGISTRY_VERSION: "1" }],
-		["missing registry", { NOVA_STREAM_RECEIVER_VERSION: "1" }],
-		[
-			"numeric declarations",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: 1,
-				NOVA_STREAM_REGISTRY_VERSION: 1,
-			},
-		],
-		[
-			"padded receiver",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: " 1",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			},
-		],
-		[
-			"trailing-padded receiver",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: "1 ",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			},
-		],
-		[
-			"positive-signed receiver",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: "+1",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			},
-		],
-		[
-			"negative-signed receiver",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: "-1",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			},
-		],
-		[
-			"fractional receiver",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: "1.5",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			},
-		],
-		[
-			"overflowing receiver",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: "2147483648",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			},
-		],
-		[
-			"malformed receiver",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: "1-old",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			},
-		],
-		[
-			"malformed registry",
-			{
-				NOVA_STREAM_RECEIVER_VERSION: "1",
-				NOVA_STREAM_REGISTRY_VERSION: "01",
-			},
-		],
-	] as const)("fails %s deployed input closed to v0", (_name, environment) => {
-		expect(resolveDeployedStreamReceiverVersion(environment)).toBe(0);
-	});
-
 	it("takes the minimum of browser and serving revision support", () => {
 		expect(
-			resolveEffectiveStreamReceiverVersion(receiverQuery("2147483647"), {
-				NOVA_STREAM_RECEIVER_VERSION: "99",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			}),
-		).toBe(2);
-		expect(
-			resolveEffectiveStreamReceiverVersion(receiverQuery("bad"), {
-				NOVA_STREAM_RECEIVER_VERSION: "1",
-				NOVA_STREAM_REGISTRY_VERSION: "1",
-			}),
-		).toBe(0);
-		expect(
-			resolveEffectiveStreamReceiverVersion(receiverQuery("1"), {
-				NOVA_STREAM_RECEIVER_VERSION: "1",
-				NOVA_STREAM_REGISTRY_VERSION: "0",
-			}),
-		).toBe(0);
+			resolveEffectiveStreamReceiverVersion(receiverQuery("2147483647")),
+		).toBe(RUNTIME_CAPABILITIES.streamReceiverVersion);
+		expect(resolveEffectiveStreamReceiverVersion(receiverQuery("bad"))).toBe(0);
+		expect(resolveEffectiveStreamReceiverVersion(receiverQuery())).toBe(0);
 	});
 });

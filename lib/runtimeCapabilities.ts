@@ -31,6 +31,5 @@ export type {
 export {
 	canonicalRuntimeCapabilityManifest,
 	parseRevisionCapabilityLabels,
-	parseRuntimeCapabilityEnvironment,
 	parseRuntimeCapabilityVersion,
 } from "@/lib/runtimeCapabilities/core.mts";

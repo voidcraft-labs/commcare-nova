@@ -2209,15 +2209,16 @@ The implementation on `agent/s05c-lookup-cutover` delivers, per the closure:
   gains repaired/unchanged/fail-closed coverage.
 
 The closure's verification list caught one production-critical defect beyond
-the plan: `parseRuntimeCapabilityEnvironment` rejected `process.env` as a
-non-plain record on the deployed Node (its prototype is neither
-`Object.prototype` nor `null` there), silently parsing the deployed
-declaration as capability v0. The serving stream-receiver version was
-therefore 0 in production, and raising the floor to 2 without the fix would
-have revoked every stream admission permanently — the old revision could
-never admit at the new floor regardless of the browser. The parser now
-normalizes any non-array object, and a regression test pins the host-object
-shape.
+the plan: stream admission clamped the compiled receiver capability to a
+strictly parsed copy of the deployed environment, and that parse silently
+resolved to v0 both in production (`process.env` is a host object whose
+prototype fails a plain-record test on the deployed Node) and in every
+environment with no baked declaration at all (local dev, CI smoke — where
+the raised floor revoked every builder stream into the refresh-required
+screen). The clamp itself was purposeless: the startup probe already refuses
+to serve an instance whose environment differs from the compiled manifest,
+so the serving capability now comes from the compiled manifest alone and the
+caller-less environment parser is deleted.
 
 Independent adversarial review (four dimension finders, every finding
 verified twice by independent verifiers) raised three findings; two were
