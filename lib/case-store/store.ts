@@ -634,7 +634,9 @@ export interface CaseStore extends SchemaCaseStore {
 	/**
 	 * Predicate-driven SELECT with optional inline calculated-column
 	 * projection. Default ordering (when `sort` is absent) is
-	 * insertion order, driven by `case_id`'s UUID v7 timestamp prefix.
+	 * `(opened_on, case_id)` ascending — creation time as the durable
+	 * ordering fact, with the id purely as a deterministic tie-break.
+	 * Case ids are opaque text and carry no time order.
 	 *
 	 * Each `calculated` entry's `expression` compiles through
 	 * `compileExpression` and lands in the SELECT keyed by
