@@ -298,6 +298,88 @@ export class SchemaChangePhaseBError extends Error {
 	}
 }
 
+/**
+ * Why the submission envelope refused an advanced case operation. Every
+ * arm is a pre-DML rejection: the transaction rolls back whole, so no
+ * partial effect is observable. The arms mirror the wire's atomic
+ * failure modes — a blank/overlong authored key or text value, a
+ * runtime target the tenant-bound snapshot cannot authorize, a resolved
+ * sequence the rolling type proof rejects, and a retype whose retained
+ * document the destination schema cannot hold (the `wirePortable`
+ * runtime enforcement).
+ */
+export type SubmissionRejection =
+	| {
+			readonly kind: "authored-key";
+			readonly operationUuid: string;
+			readonly reason: "blank" | "too-long";
+			readonly maxKeyLength: number;
+	  }
+	| {
+			readonly kind: "text-value";
+			readonly operationUuid: string;
+			readonly facet: "name" | "rename" | "owner";
+			readonly reason: "blank" | "too-long";
+	  }
+	| {
+			readonly kind: "target";
+			readonly operationUuid: string;
+			readonly slot: "target" | `link:${string}`;
+			readonly reason: "not-found-or-out-of-scope" | "case-type-mismatch";
+	  }
+	| {
+			readonly kind: "sequence";
+			readonly operationUuid: string;
+			readonly slot: "target" | `link:${string}`;
+			readonly reason:
+				| "case-link-target-is-self"
+				| "rolling-case-type-mismatch"
+				| "authored-key-identity-is-type-stable";
+	  }
+	| {
+			readonly kind: "retype-not-portable";
+			readonly operationUuid: string;
+			readonly caseId: string;
+			readonly toCaseType: string;
+			readonly failures: ReadonlyArray<CasePropertyFailure>;
+	  };
+
+/**
+ * Thrown by `CaseStore.applySubmission` when the advanced-operation
+ * program violates its runtime contract. Always pre-effect for the
+ * rejected fact and always whole-envelope: the transaction rolls back,
+ * so the ordinary form action and every other operation land not at
+ * all. The structured `rejection` is the typed result arm's payload;
+ * the message names the facts for logs.
+ */
+export class SubmissionRejectedError extends Error {
+	/** Stable error name for log filters and instanceof-style checks. */
+	readonly name = "SubmissionRejectedError";
+	readonly rejection: SubmissionRejection;
+
+	constructor(rejection: SubmissionRejection) {
+		const detail: string[] = [`${INDENT}kind: '${rejection.kind}'`];
+		if (rejection.kind !== "retype-not-portable") {
+			detail.push(`${INDENT}reason: '${rejection.reason}'`);
+		}
+		detail.push(`${INDENT}operation: '${rejection.operationUuid}'`);
+		super(
+			[
+				`Submission rejected: the advanced case-operation program failed its runtime contract.`,
+				``,
+				...detail,
+				``,
+				"Nothing was written — the envelope applies a whole submission in one",
+				"transaction, and every operation contract check runs before its",
+				"effect. The running-app layer maps this error to a typed submission",
+				"failure so the worker sees one atomic rejection, mirroring how Core",
+				"and HQ fail the same submission's XML transaction.",
+			].join("\n"),
+		);
+		this.rejection = rejection;
+	}
+}
+
 export class SchemaNotSyncedError extends Error {
 	/** Stable error name for log filters and instanceof-style checks. */
 	readonly name = "SchemaNotSyncedError";

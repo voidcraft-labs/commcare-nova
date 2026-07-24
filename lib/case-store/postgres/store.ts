@@ -112,6 +112,14 @@ import type {
 	ResetSampleDataArgs,
 	SchemaChangeKind,
 } from "../store";
+import type {
+	ApplySubmissionArgs,
+	SubmissionEnvelopeResult,
+} from "../submission";
+import {
+	executeSubmissionEnvelope,
+	type SubmissionEnvelopeHost,
+} from "./submissionEnvelope";
 import { ajvErrorToCaseFailure } from "./validationFailure";
 
 /**
@@ -632,7 +640,58 @@ export class PostgresCaseStore implements CaseStore {
 		appId: string;
 		row: CaseInsert;
 	}): Promise<{ caseId: string }> {
+		// One transaction across cases + case_indices so a derived
+		// edge insert can't observe a partial cases-row commit.
+		// Validation runs INSIDE it — the schema `FOR SHARE` must hold
+		// until the row commits (the write-vs-sync contract on
+		// `getValidator`) — and AFTER the advisory block, keeping the
+		// uniform advisory → schema → rows lock order.
+		return await this.db.transaction().execute(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
+			const caseId = await this.insertRowInTransaction(trx, {
+				appId: args.appId,
+				row: args.row,
+			});
+			return { caseId };
+		});
+	}
+
+	/**
+	 * Single-row insert core shared by `insert` and the submission
+	 * envelope: validate, stamp, write the row, derive the parent edge.
+	 * Runs on the caller's transaction under the standard lock order.
+	 *
+	 * `caseId` overrides the column default for callers whose identity
+	 * is minted/derived up front (the envelope's create allocations);
+	 * `ownerId` overrides the actor stamp for an operation's evaluated
+	 * owner expression. Ordinary callers omit both.
+	 */
+	private async insertRowInTransaction(
+		trx: Transaction<Database>,
+		args: {
+			appId: string;
+			row: CaseInsert;
+			caseId?: string;
+			ownerId?: string;
+		},
+	): Promise<string> {
 		const propertiesObject = parseJsonbInput(args.row.properties);
+		await this.validateProperties({
+			appId: args.appId,
+			caseType: args.row.case_type,
+			properties: propertiesObject,
+			executor: trx,
+		});
+		if (
+			args.row.parent_case_id !== null &&
+			args.row.parent_case_id !== undefined
+		) {
+			await this.assertParentExists(trx, {
+				appId: args.appId,
+				parentCaseId: args.row.parent_case_id,
+			});
+		}
 
 		// `properties` re-stringifies because the `cases` table's JSONB
 		// insert side is a JSON string for pg's JSONB cast. The
@@ -643,207 +702,99 @@ export class PostgresCaseStore implements CaseStore {
 		// on non-string inputs to a text-cast slot).
 		const insertRow: InsertObject<Database, "cases"> = {
 			...args.row,
+			...(args.caseId === undefined ? {} : { case_id: args.caseId }),
 			app_id: args.appId,
 			project_id: this.requireProjectId(),
-			owner_id: this.requireActorUserId(),
+			owner_id: args.ownerId ?? this.requireActorUserId(),
 			...creationStamps(args.row),
 			properties: JSON.stringify(propertiesObject),
 		};
+		const inserted = await trx
+			.insertInto("cases")
+			.values(insertRow)
+			.returning("case_id")
+			.executeTakeFirstOrThrow();
+		const caseId = inserted.case_id;
 
-		// One transaction across cases + case_indices so a derived
-		// edge insert can't observe a partial cases-row commit.
-		// Validation runs INSIDE it — the schema `FOR SHARE` must hold
-		// until the row commits (the write-vs-sync contract on
-		// `getValidator`) — and AFTER the advisory block, keeping the
-		// uniform advisory → schema → rows lock order.
+		// Direct-edge derivation: depth=1 edges only; recursive
+		// walks compose at read time via `compileRelationPath`.
+		// `relationship` defaults to `child` — the subcase vs
+		// extension distinction is a CCHQ concern resolved at
+		// the relation-path compile site, not at write.
+		if (
+			args.row.parent_case_id !== null &&
+			args.row.parent_case_id !== undefined
+		) {
+			await trx
+				.insertInto("case_indices")
+				.values({
+					case_id: caseId,
+					ancestor_id: args.row.parent_case_id,
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				})
+				.execute();
+		}
+
+		return caseId;
+	}
+
+	async applySubmission(
+		args: ApplySubmissionArgs,
+	): Promise<SubmissionEnvelopeResult> {
+		// One transaction for the WHOLE submission — the ordinary form
+		// action and the advanced operation program land together or not
+		// at all. Standard lock order: authorize → relationship advisory
+		// → schema locks in sorted order for every case type the
+		// submission names up front (a followup/close bound case's type
+		// is discovered inside the update core, which acquires its own
+		// schema lock — the same pattern `update` uses).
 		return await this.db.transaction().execute(async (trx) => {
 			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
-			await this.validateProperties({
-				appId: args.appId,
-				caseType: args.row.case_type,
-				properties: propertiesObject,
-				executor: trx,
-			});
-			if (
-				args.row.parent_case_id !== null &&
-				args.row.parent_case_id !== undefined
-			) {
-				await this.assertParentExists(trx, {
-					appId: args.appId,
-					parentCaseId: args.row.parent_case_id,
-				});
-			}
-			const inserted = await trx
-				.insertInto("cases")
-				.values(insertRow)
-				.returning("case_id")
-				.executeTakeFirstOrThrow();
-			const caseId = inserted.case_id;
-
-			// Direct-edge derivation: depth=1 edges only; recursive
-			// walks compose at read time via `compileRelationPath`.
-			// `relationship` defaults to `child` — the subcase vs
-			// extension distinction is a CCHQ concern resolved at
-			// the relation-path compile site, not at write.
-			if (
-				args.row.parent_case_id !== null &&
-				args.row.parent_case_id !== undefined
-			) {
-				await trx
-					.insertInto("case_indices")
-					.values({
-						case_id: caseId,
-						ancestor_id: args.row.parent_case_id,
-						identifier: "parent",
-						relationship: "child",
-						depth: 1,
-					})
-					.execute();
-			}
-
-			return { caseId };
+			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
+			return await executeSubmissionEnvelope(
+				trx,
+				this.submissionEnvelopeHost(),
+				args,
+			);
 		});
 	}
 
-	async insertWithChildren(args: {
-		appId: string;
-		primary: CaseInsert;
-		children: ReadonlyArray<CaseInsert>;
-	}): Promise<{
-		primaryCaseId: string;
-		childCaseIds: ReadonlyArray<string>;
-	}> {
-		// Children must not carry an explicit `parent_case_id` —
-		// the value is the primary's generated id, threaded below.
-		// Guard outside the transaction so a malformed call fails
-		// fast without opening a Postgres transaction at all.
-		for (const child of args.children) {
-			if (child.parent_case_id !== null && child.parent_case_id !== undefined) {
-				throw new Error(
-					compilerBugMessage({
-						where: "case-store.PostgresCaseStore.insertWithChildren",
-						invariant:
-							"a child case carried an explicit `parent_case_id`; the value must be omitted because the primary's generated id is the implicit parent",
-						detail: `Child case-type \`${child.case_type}\` carried \`parent_case_id = '${child.parent_case_id}'\`. The shape \`insertWithChildren\` accepts is "primary plus children that share its parent edge"; supplying a different parent on a child is ambiguous (does the caller want the supplied id or the primary's id?). Hint: pass children without \`parent_case_id\`; if a child needs a different parent, insert it via \`insert\` outside the registration call.`,
-					}),
-				);
-			}
-		}
-
-		// One transaction across primary + every child + every
-		// derived edge. A failure anywhere rolls the entire
-		// registration back.
-		return await this.db.transaction().execute(async (trx) => {
-			await this.authorizeMutation(trx, args.appId);
-			const primaryParentCaseId = args.primary.parent_case_id ?? null;
-			await this.lockRelationshipWrites(trx, args.appId);
-			const validators = await this.lockValidators(trx, args.appId, [
-				args.primary.case_type,
-				...args.children.map((row) => row.case_type),
-			]);
-			if (primaryParentCaseId !== null) {
-				await this.assertParentExists(trx, {
-					appId: args.appId,
-					parentCaseId: primaryParentCaseId,
-				});
-			}
-			// Primary id generated up-front so child `parent_case_id`
-			// resolves before the bulk-insert lands. UUID v7's
-			// timestamp prefix matches `DEFAULT uuidv7()::text`'s
-			// B-tree clustering shape.
-			const primaryCaseId = args.primary.case_id ?? uuidv7();
-
-			const primaryProperties = parseJsonbInput(args.primary.properties);
-			const primaryValidator = validators.get(args.primary.case_type);
-			if (primaryValidator === undefined) {
-				throw new SchemaNotSyncedError(args.appId, args.primary.case_type);
-			}
-			this.assertValidProperties(primaryValidator, {
-				appId: args.appId,
-				caseType: args.primary.case_type,
-				properties: primaryProperties,
-			});
-
-			// Insert the primary row. With an explicit `case_id` the
-			// `RETURNING` round-trip is unnecessary.
-			const primaryRow: InsertObject<Database, "cases"> = {
-				...args.primary,
-				case_id: primaryCaseId,
-				app_id: args.appId,
-				project_id: this.requireProjectId(),
-				owner_id: this.requireActorUserId(),
-				...creationStamps(args.primary),
-				properties: JSON.stringify(primaryProperties),
-			};
-			await trx.insertInto("cases").values(primaryRow).execute();
-
-			// Primary parent edge if it carries one. Registration forms
-			// typically don't, but the shape admits a primary that
-			// itself points at an existing parent — handled uniformly
-			// with the per-row `insert`.
-			if (
-				args.primary.parent_case_id !== null &&
-				args.primary.parent_case_id !== undefined
-			) {
-				await trx
-					.insertInto("case_indices")
-					.values({
-						case_id: primaryCaseId,
-						ancestor_id: args.primary.parent_case_id,
-						identifier: "parent",
-						relationship: "child",
-						depth: 1,
-					})
-					.execute();
-			}
-
-			// Empty-children arm behaves like `insert` for just the
-			// primary; skip the bulk path entirely.
-			if (args.children.length === 0) {
-				return { primaryCaseId, childCaseIds: [] };
-			}
-
-			// Chunk children by case_type so the bulk path's
-			// hoisted-validator optimization (one schema fetch per
-			// `(appId, caseType)`) holds. Each chunk entry tracks its
-			// origin index so the returned `childCaseIds` reassembles
-			// into the caller's input order.
-			interface ChunkEntry {
-				originalIndex: number;
-				row: CaseInsert;
-			}
-			const byCaseType = new Map<string, ChunkEntry[]>();
-			for (let i = 0; i < args.children.length; i++) {
-				const child = args.children[i];
-				if (child === undefined) continue;
-				const list = byCaseType.get(child.case_type) ?? [];
-				list.push({
-					originalIndex: i,
-					row: { ...child, parent_case_id: primaryCaseId },
-				});
-				byCaseType.set(child.case_type, list);
-			}
-
-			const childCaseIds: string[] = new Array(args.children.length);
-			for (const [, chunk] of byCaseType) {
-				const { caseIds } = await this.insertManyInTransaction(trx, {
-					appId: args.appId,
-					rows: chunk.map((entry) => entry.row),
-				});
-				// Map each chunk position back to the caller's
-				// original index.
-				for (let i = 0; i < chunk.length; i++) {
-					const entry = chunk[i];
-					const generated = caseIds[i];
-					if (entry !== undefined && generated !== undefined) {
-						childCaseIds[entry.originalIndex] = generated;
-					}
-				}
-			}
-
-			return { primaryCaseId, childCaseIds };
-		});
+	/** The narrow store internals the envelope executor borrows — see
+	 * `SubmissionEnvelopeHost`. */
+	private submissionEnvelopeHost(): SubmissionEnvelopeHost {
+		return {
+			projectId: this.requireProjectId(),
+			actorUserId: this.requireActorUserId(),
+			validateProperties: (trx, a) =>
+				this.validateProperties({
+					appId: a.appId,
+					caseType: a.caseType,
+					properties: a.properties,
+					executor: trx,
+				}),
+			declaredProperties: async (trx, appId, caseType) =>
+				(await this.getValidator(appId, caseType, trx)).declared,
+			insertCase: (trx, a) =>
+				this.insertRowInTransaction(trx, {
+					appId: a.appId,
+					row: {
+						case_type: a.seed.caseType,
+						case_name: a.seed.caseName,
+						status: "open",
+						properties: a.seed.properties,
+						...(a.seed.parentCaseId === undefined
+							? {}
+							: { parent_case_id: a.seed.parentCaseId }),
+					},
+					...(a.caseId === undefined ? {} : { caseId: a.caseId }),
+					...(a.ownerId === undefined ? {} : { ownerId: a.ownerId }),
+				}),
+			updateCase: (trx, a) => this.updateInTransaction(trx, a),
+			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
+		};
 	}
 
 	/**
@@ -1068,45 +1019,55 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	async close(args: { appId: string; caseId: string }): Promise<void> {
-		// Lifecycle status is NOT caller input: CCHQ's built-in `@status`
-		// is exactly `open` / `closed`, so close owns the canonical
-		// `closed` write alongside the timestamp. `coalesce` preserves an
-		// existing closure timestamp while the second WHERE arm lets a
-		// re-close repair rows written by the old close path (`closed_on`
-		// present but status still `open`). `modified_on` advances only for
-		// a genuinely open row; status-only repair preserves the original
-		// close event's timestamp. Import/reopen flows go through `update`
-		// with both lifecycle fields.
 		await this.db.transaction().execute(async (trx) => {
 			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
-			const discovered = await trx
-				.selectFrom("cases as c")
-				.select("c.case_type")
-				.where("c.app_id", "=", args.appId)
-				.where("c.case_id", "=", args.caseId)
-				.where("c.project_id", "=", this.requireProjectId())
-				.executeTakeFirst();
-			if (discovered === undefined) return;
-			await this.getValidator(args.appId, discovered.case_type, trx);
-			await trx
-				.updateTable("cases as c")
-				.set({
-					closed_on: sql<Date>`coalesce(c.closed_on, now())`,
-					modified_on: sql<Date>`case when c.closed_on is null then now() else c.modified_on end`,
-					status: "closed",
-				})
-				.where("c.app_id", "=", args.appId)
-				.where("c.case_id", "=", args.caseId)
-				.where("c.project_id", "=", this.requireProjectId())
-				.where((eb) =>
-					eb.or([
-						eb("c.closed_on", "is", null),
-						eb("c.status", "is distinct from", "closed"),
-					]),
-				)
-				.execute();
+			await this.closeCaseInTransaction(trx, args);
 		});
+	}
+
+	/**
+	 * Lifecycle-close core shared by `close` and the submission
+	 * envelope. Status is NOT caller input: CCHQ's built-in `@status`
+	 * is exactly `open` / `closed`, so close owns the canonical
+	 * `closed` write alongside the timestamp. `coalesce` preserves an
+	 * existing closure timestamp while the second WHERE arm lets a
+	 * re-close repair rows written by the old close path (`closed_on`
+	 * present but status still `open`). `modified_on` advances only for
+	 * a genuinely open row; status-only repair preserves the original
+	 * close event's timestamp. Import/reopen flows go through `update`
+	 * with both lifecycle fields.
+	 */
+	private async closeCaseInTransaction(
+		trx: Transaction<Database>,
+		args: { appId: string; caseId: string },
+	): Promise<void> {
+		const discovered = await trx
+			.selectFrom("cases as c")
+			.select("c.case_type")
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_id", "=", args.caseId)
+			.where("c.project_id", "=", this.requireProjectId())
+			.executeTakeFirst();
+		if (discovered === undefined) return;
+		await this.getValidator(args.appId, discovered.case_type, trx);
+		await trx
+			.updateTable("cases as c")
+			.set({
+				closed_on: sql<Date>`coalesce(c.closed_on, now())`,
+				modified_on: sql<Date>`case when c.closed_on is null then now() else c.modified_on end`,
+				status: "closed",
+			})
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_id", "=", args.caseId)
+			.where("c.project_id", "=", this.requireProjectId())
+			.where((eb) =>
+				eb.or([
+					eb("c.closed_on", "is", null),
+					eb("c.status", "is distinct from", "closed"),
+				]),
+			)
+			.execute();
 	}
 
 	async traverse(args: {
@@ -3230,6 +3191,37 @@ export class PostgresCaseStore implements CaseStore {
 			await trx.insertInto("case_indices").values(edge).execute();
 		}
 	}
+}
+
+/**
+ * Every case type a submission names up front, for the envelope's
+ * sorted schema-lock acquisition: the registration primary + children,
+ * the followup/close children (and the declared module type when
+ * supplied), and each operation's declared type, retype target, and
+ * link target types. The followup/close BOUND case's type is
+ * deliberately absent — it is discovered inside the update core, which
+ * acquires its own schema lock, the same pattern `update` uses.
+ */
+function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
+	const types = new Set<string>();
+	const ordinary = args.ordinary;
+	if (ordinary.kind === "registration") {
+		types.add(ordinary.primary.caseType);
+		for (const child of ordinary.children) types.add(child.caseType);
+	} else if (ordinary.kind === "followup" || ordinary.kind === "close") {
+		if (ordinary.caseType !== undefined) types.add(ordinary.caseType);
+		for (const child of ordinary.children) types.add(child.caseType);
+	}
+	for (const entry of args.operations?.operations ?? []) {
+		types.add(entry.operation.caseType);
+		if (entry.operation.retype !== undefined) {
+			types.add(entry.operation.retype);
+		}
+		for (const link of entry.operation.links ?? []) {
+			types.add(link.targetType);
+		}
+	}
+	return [...types];
 }
 
 /**

@@ -45,12 +45,18 @@ writes) can still produce it. Consumers of `is-blank` should
 read `lib/domain/predicate/CLAUDE.md` § "Null vs blank semantics
 — locked invariant".
 
-Close-form completion delegates the lifecycle transition to
-`CaseStore.close()`. That storage operation atomically owns both
-`closed_on` and the canonical built-in `status = "closed"`; the preview
-must never supply or invent its own status vocabulary. This keeps the live
-row aligned with CommCare's `@status` attribute and makes a close form with no
-property writes a complete lifecycle write by itself.
+Every case-bearing submission lands through the case-store's atomic
+envelope: `submitFormAction` projects the engine's `SubmissionMutation`
+onto `CaseStore.applySubmission` (`submissionEnvelopeArgs` in the
+binding helpers), which applies the primary write, every child insert,
+and close's lifecycle transition in ONE Postgres transaction — partial
+success is unobservable, and the running-app view re-queries one
+settled state on resolve. The close transition itself stays the
+store's: it atomically owns both `closed_on` and the canonical
+built-in `status = "closed"`; the preview must never supply or invent
+its own status vocabulary. This keeps the live row aligned with
+CommCare's `@status` attribute and makes a close form with no property
+writes a complete lifecycle write by itself.
 
 ## Repeat instances are first-class
 
