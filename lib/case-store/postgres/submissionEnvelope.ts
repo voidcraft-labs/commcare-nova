@@ -409,17 +409,33 @@ async function evaluateBatch(
  * Convert one pg-deserialized evaluation result into the JSON storage
  * shape the destination property's data type expects — the executor's
  * explicit multi-select/temporal/numeric serialization boundary. The
- * row's AJV validation (against the rolling type's schema) remains the
- * authority; this conversion only maps driver shapes (a `Date`, a
+ * row's AJV validation (against the destination type's schema) remains
+ * the authority; this conversion only maps driver shapes (a `Date`, a
  * numeric string) onto the canonical stored lexical forms.
+ *
+ * `undefined` means BLANK: the wire's calculate writes the empty
+ * string for an absent/blank source, and Nova's storage convention
+ * projects that state as key-absent (the same two-state collapse form
+ * completion applies — typed properties cannot hold `''`, and
+ * `is-blank` reads absent and empty identically). The caller turns
+ * `undefined` into a key OMISSION on create and a key REMOVAL on
+ * update, so a blank overwrite still clears the stored value exactly
+ * as the device's `''` write does.
  */
 export function storageValueFromEvaluation(
 	value: unknown,
 	dataType: CasePropertyDataType,
-): JsonValue {
+): JsonValue | undefined {
+	if (
+		value === null ||
+		value === undefined ||
+		value === "" ||
+		(Array.isArray(value) && value.length === 0)
+	) {
+		return undefined;
+	}
 	switch (dataType) {
 		case "multi_select": {
-			if (value === null || value === undefined) return [];
 			if (Array.isArray(value)) return value.map((entry) => String(entry));
 			throw new Error(
 				compilerBugMessage({
@@ -430,16 +446,11 @@ export function storageValueFromEvaluation(
 				}),
 			);
 		}
-		case "int": {
-			if (value === null || value === undefined) return null;
-			return typeof value === "number" ? value : Number(String(value));
-		}
+		case "int":
 		case "decimal": {
-			if (value === null || value === undefined) return null;
 			return typeof value === "number" ? value : Number(String(value));
 		}
 		case "date": {
-			if (value === null || value === undefined) return null;
 			if (value instanceof Date) {
 				// node-postgres parses a `date` column in LOCAL time; read
 				// the local calendar parts back so the stored lexical day
@@ -452,12 +463,10 @@ export function storageValueFromEvaluation(
 			return String(value);
 		}
 		case "datetime": {
-			if (value === null || value === undefined) return null;
 			if (value instanceof Date) return value.toISOString();
 			return String(value);
 		}
 		case "time": {
-			if (value === null || value === undefined) return null;
 			const text = String(value);
 			// Canonical stored time is RFC 3339 full-time; a bare
 			// `HH:MM:SS` from a pg `time` cast reads as UTC, the same
@@ -467,7 +476,6 @@ export function storageValueFromEvaluation(
 		case "text":
 		case "single_select":
 		case "geopoint": {
-			if (value === null || value === undefined) return "";
 			if (value instanceof Date) return value.toISOString();
 			if (Array.isArray(value)) return value.map(String).join(" ");
 			return String(value);
@@ -513,8 +521,16 @@ interface ResolvedInstance {
 	readonly preparedName?: string;
 	readonly preparedRename?: string;
 	readonly preparedOwner?: string;
-	/** Executing writes only, in authored order, storage-converted. */
-	readonly writes: ReadonlyArray<{ property: string; value: JsonValue }>;
+	/** Executing writes only, in authored order, storage-converted
+	 * against the operation's RESULT type (retype destination when the
+	 * operation retypes — the wire applies writes and the type change in
+	 * one block, so writes are destination-typed). A `value` of
+	 * `undefined` is the wire's blank write: the key is omitted on
+	 * create and REMOVED from the stored document on update. */
+	readonly writes: ReadonlyArray<{
+		property: string;
+		value: JsonValue | undefined;
+	}>;
 	readonly links: ReadonlyArray<ResolvedLink>;
 }
 
@@ -1064,9 +1080,15 @@ async function resolveOperationProgram(
 				: prepareText("rename", evaluatedText(bag?.rename));
 
 		// Executing writes, storage-converted against the operation's
-		// rolling case type declaration.
-		const writes: Array<{ property: string; value: JsonValue }> = [];
-		const declaredType = program.caseTypeSchemas.get(operation.caseType);
+		// RESULT type — the retype destination when the operation
+		// retypes, since the validator resolves write properties against
+		// `retype ?? caseType` and the wire applies the writes and the
+		// type change in one block.
+		const writes: Array<{ property: string; value: JsonValue | undefined }> =
+			[];
+		const declaredType = program.caseTypeSchemas.get(
+			operation.retype ?? operation.caseType,
+		);
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (
 				write.condition !== undefined &&
@@ -1285,7 +1307,39 @@ async function applyOperationEffects(
 		for (const link of entry.links) {
 			await applyLinkEffect(trx, host, appId, entry.caseId, link);
 		}
+
+		// Every emitted case block advances `@date_modified`, including a
+		// pure index write. A link-only update touches no other stamping
+		// path, so stamp it here; every other arm (create, writes,
+		// rename, owner, retype, a genuine close transition) already
+		// stamps. A re-close deliberately keeps its repair semantics.
+		if (
+			operation.action === "update" &&
+			entry.links.length > 0 &&
+			entry.writes.length === 0 &&
+			entry.preparedRename === undefined &&
+			entry.preparedOwner === undefined &&
+			(operation.retype === undefined ||
+				operation.retype === operation.caseType)
+		) {
+			await stampModified(trx, host, appId, entry.caseId);
+		}
 	}
+}
+
+/** Split resolved writes into the additive patch and the blank-write
+ * key removals (the wire's `''` write projected onto typed storage). */
+function partitionWrites(writes: ResolvedInstance["writes"]): {
+	patch: JsonObject;
+	removals: string[];
+} {
+	const patch: JsonObject = {};
+	const removals: string[] = [];
+	for (const write of writes) {
+		if (write.value === undefined) removals.push(write.property);
+		else patch[write.property] = write.value;
+	}
+	return { patch, removals };
 }
 
 async function applyCreateEffect(
@@ -1296,23 +1350,27 @@ async function applyCreateEffect(
 	operation: CaseOperation,
 	createdInEnvelope: Set<string>,
 ): Promise<void> {
-	const properties: JsonObject = {};
-	for (const write of entry.writes) properties[write.property] = write.value;
+	const { patch, removals } = partitionWrites(entry.writes);
 	if (entry.mergesExisting || createdInEnvelope.has(entry.caseId)) {
 		// Create-of-existing merges (duplicate authored key, a retry of
 		// the same definition): the create block's facets apply over the
 		// existing row, exactly as Core/HQ accept a create for a known
 		// id. The rolling proof already refused a stored-type mismatch.
-		await host.updateCase(trx, {
-			appId,
-			caseId: entry.caseId,
-			patch: {
-				...(entry.preparedName === undefined
-					? {}
-					: { case_name: entry.preparedName }),
-				...(entry.writes.length > 0 ? { properties } : {}),
-			},
-		});
+		if (entry.preparedName !== undefined || Object.keys(patch).length > 0) {
+			await host.updateCase(trx, {
+				appId,
+				caseId: entry.caseId,
+				patch: {
+					...(entry.preparedName === undefined
+						? {}
+						: { case_name: entry.preparedName }),
+					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
+				},
+			});
+		}
+		if (removals.length > 0) {
+			await removeProperties(trx, host, appId, entry.caseId, removals);
+		}
 		if (entry.preparedOwner !== undefined) {
 			await setOwner(trx, host, appId, entry.caseId, entry.preparedOwner);
 		}
@@ -1328,12 +1386,15 @@ async function applyCreateEffect(
 			}),
 		);
 	}
+	// Blank writes on a fresh create simply never mint the key — the
+	// same document shape the ordinary form path's two-state collapse
+	// produces.
 	await host.insertCase(trx, {
 		appId,
 		seed: {
 			caseType: operation.caseType,
 			caseName: entry.preparedName,
-			properties,
+			properties: patch,
 		},
 		caseId: entry.caseId,
 		...(entry.preparedOwner === undefined
@@ -1350,40 +1411,53 @@ async function applyMutationEffect(
 	entry: ResolvedInstance,
 	operation: CaseOperation,
 ): Promise<void> {
-	const properties: JsonObject = {};
-	for (const write of entry.writes) properties[write.property] = write.value;
-	if (entry.writes.length > 0 || entry.preparedRename !== undefined) {
-		await host.updateCase(trx, {
-			appId,
-			caseId: entry.caseId,
-			patch: {
-				...(entry.preparedRename === undefined
-					? {}
-					: { case_name: entry.preparedRename }),
-				...(entry.writes.length > 0 ? { properties } : {}),
-			},
-		});
-	}
-	if (entry.preparedOwner !== undefined) {
-		await setOwner(trx, host, appId, entry.caseId, entry.preparedOwner);
-	}
 	if (
 		operation.retype !== undefined &&
 		operation.retype !== operation.caseType
 	) {
+		// A retyping operation applies its writes, rename, and the type
+		// change as ONE unit — the wire emits them in a single <update>
+		// block that Core/HQ apply together, so the writes are
+		// destination-typed and land on the destination-typed row.
 		await applyRetypeEffect(trx, host, appId, entry, operation.retype);
+	} else {
+		const { patch, removals } = partitionWrites(entry.writes);
+		if (Object.keys(patch).length > 0 || entry.preparedRename !== undefined) {
+			await host.updateCase(trx, {
+				appId,
+				caseId: entry.caseId,
+				patch: {
+					...(entry.preparedRename === undefined
+						? {}
+						: { case_name: entry.preparedRename }),
+					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
+				},
+			});
+		}
+		if (removals.length > 0) {
+			await removeProperties(trx, host, appId, entry.caseId, removals);
+		}
+	}
+	if (entry.preparedOwner !== undefined) {
+		await setOwner(trx, host, appId, entry.caseId, entry.preparedOwner);
 	}
 }
 
 /**
- * The wirePortable retype: rewrite `case_type` only, exactly as
- * CommCare's case XML changes the type field with no property pruning
- * and no value casting. Nova's storage invariant still holds — the
- * retained document (minus source-schema orphans, the same proof the
- * update merge sheds by) must validate under the destination schema,
- * or the retype is not portable for THIS row and the envelope rejects
- * whole. The richer conversion/parking plan (`planCaseRetype().safe`)
- * stays dormant until a shared wire representation exists.
+ * The wirePortable retype, applied with the operation's writes and
+ * rename as one unit — exactly the single `<update>` block the wire
+ * emits, where the case ends as the DESTINATION type carrying the
+ * written properties. Nova's storage invariant holds in two separately
+ * reported steps: the RETAINED document (the stored properties minus
+ * source-schema orphans, the same proof the update merge sheds by)
+ * must validate under the destination schema — failure is the
+ * wirePortable rejection (`retype-not-portable`) — and the FINAL
+ * document (retained + destination-typed writes, minus blank-write
+ * removals) must also validate, where a failure is genuine invalid
+ * write data and surfaces as the standard
+ * `CasePropertiesValidationError`. The richer conversion/parking plan
+ * (`planCaseRetype().safe`) stays dormant until a shared wire
+ * representation exists.
  */
 async function applyRetypeEffect(
 	trx: Transaction<Database>,
@@ -1430,15 +1504,77 @@ async function applyRetypeEffect(
 		}
 		throw err;
 	}
+
+	const { patch, removals } = partitionWrites(entry.writes);
+	const finalDocument: JsonObject = { ...retained, ...patch };
+	for (const key of removals) delete finalDocument[key];
+	if (Object.keys(patch).length > 0) {
+		await host.validateProperties(trx, {
+			appId,
+			caseType: toCaseType,
+			properties: finalDocument,
+		});
+	}
 	await trx
 		.updateTable("cases as c")
 		.set({
 			case_type: toCaseType,
-			properties: JSON.stringify(retained),
+			properties: JSON.stringify(finalDocument),
+			...(entry.preparedRename === undefined
+				? {}
+				: { case_name: entry.preparedRename }),
 			modified_on: sql<Date>`now()`,
 		})
 		.where("c.app_id", "=", appId)
 		.where("c.case_id", "=", entry.caseId)
+		.where("c.project_id", "=", host.projectId)
+		.execute();
+}
+
+/**
+ * The blank-write projection: remove each key from the stored
+ * document, the storage state Nova reads as blank exactly as the
+ * device reads the wire's `''` write. Removal cannot invalidate a
+ * valid document (no generated schema marks properties required), so
+ * no revalidation runs; `modified_on` advances as it does for every
+ * write the wire stamps.
+ */
+async function removeProperties(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	caseId: string,
+	keys: readonly string[],
+): Promise<void> {
+	let expression = sql`c.properties`;
+	for (const key of keys) {
+		// Explicit ::text disambiguates `jsonb - text` from
+		// `jsonb - integer` for the bound parameter.
+		expression = sql`${expression} - ${key}::text`;
+	}
+	await trx
+		.updateTable("cases as c")
+		.set({
+			properties: expression as unknown as string,
+			modified_on: sql<Date>`now()`,
+		})
+		.where("c.app_id", "=", appId)
+		.where("c.case_id", "=", caseId)
+		.where("c.project_id", "=", host.projectId)
+		.execute();
+}
+
+async function stampModified(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	caseId: string,
+): Promise<void> {
+	await trx
+		.updateTable("cases as c")
+		.set({ modified_on: sql<Date>`now()` })
+		.where("c.app_id", "=", appId)
+		.where("c.case_id", "=", caseId)
 		.where("c.project_id", "=", host.projectId)
 		.execute();
 }

@@ -2688,6 +2688,18 @@ grows; keep every HQ JSON/compiler projection identical.
   unauthorable until S07 opens the gate; the program arm is pinned by
   the per-test-database suite
   (`lib/case-store/postgres/__tests__/submissionEnvelope.test.ts`).
+  Adversarial review confirmed three wire-parity defects, all fixed
+  and pinned: a retyping operation now applies its writes, rename, and
+  type change as one destination-typed unit (the wire's single
+  `<update>` block — writes were previously validated and shed under
+  the source schema); a blank-evaluated write projects to key-absent
+  (omitted on create, removed on update) instead of failing typed
+  validation the device would accept; and a link-only operation
+  advances `modified_on` (the per-block `@date_modified` stamp). Two
+  confirmed coverage gaps closed: distinct-per-iteration repeat
+  expansion (per-iteration bindings, correlation, iteration-major
+  records) and the held blank-key failure on a skipped conditional
+  create.
 - **2026-07-24 — S06 resolved preview identity shipped:** PR #322
   merged (`ec6a4074`) and deployed; migration Job execution succeeded
   (no schema change), revision healthy across all three hosts with

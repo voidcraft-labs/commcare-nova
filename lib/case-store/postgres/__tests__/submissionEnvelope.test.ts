@@ -87,14 +87,19 @@ const PATIENT: CaseType = {
 		{ name: "notes", label: "Notes", data_type: "text" },
 		{ name: "copy", label: "Copy", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "prior_age", label: "Prior age", data_type: "int" },
 		{ name: "meds", label: "Meds", data_type: "multi_select" },
 	],
 };
-// Identical property shape to `patient` — the wirePortable retype
-// destination (exact retained JSON property types, nothing parked).
+// A superset of `patient` — every shared property keeps its exact
+// type (the wirePortable retype destination), plus a destination-only
+// `severity` slot a retyping operation's write may populate.
 const PATIENT_V2: CaseType = {
 	name: "patient_v2",
-	properties: PATIENT.properties,
+	properties: [
+		...PATIENT.properties,
+		{ name: "severity", label: "Severity", data_type: "text" },
+	],
 };
 const VISIT: CaseType = {
 	name: "visit",
@@ -655,6 +660,74 @@ describe("pre-submission snapshot", () => {
 });
 
 // ---------------------------------------------------------------
+// Blank writes — the wire's '' projected onto typed storage
+// ---------------------------------------------------------------
+
+describe("blank writes", () => {
+	it("a blank-evaluated typed write clears the stored key instead of failing", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		// `age` holds a value; `prior_age` is absent, so the int→int
+		// write below evaluates SQL NULL — the device's calculate writes
+		// `''` and commits; Nova's typed storage projects that blank as
+		// key-absent, clearing the previous value.
+		await seedSessionPatient(store, { notes: "original", age: 30 });
+
+		await store.applySubmission({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						writes: [
+							{ property: "age", value: term(prop("patient", "prior_age")) },
+							{ property: "notes", value: term(literal("still here")) },
+						],
+					}),
+				),
+			]),
+		});
+
+		const row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.properties).toMatchObject({ notes: "still here" });
+		expect(row?.properties).not.toHaveProperty("age");
+	});
+
+	it("a blank write on a fresh create never mints the key", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+
+		await store.applySubmission({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram(
+				[
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(literal("Visit A")),
+							writes: [{ property: "outcome", value: term(literal("")) }],
+						}),
+					),
+				],
+				{ sessionCaseId: null },
+			),
+		});
+
+		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		expect(visits).toHaveLength(1);
+		expect(visits[0]?.properties).not.toHaveProperty("outcome");
+	});
+});
+
+// ---------------------------------------------------------------
 // Conditions and guards
 // ---------------------------------------------------------------
 
@@ -708,6 +781,48 @@ describe("conditions", () => {
 			false,
 			false,
 		]);
+	});
+
+	it("a skipped authored-key create holds its blank-key failure", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+
+		// The wire never runs an irrelevant block's calculate, so a blank
+		// key on a false-conditioned create must not reject the envelope
+		// — the allocation holds the failure and discards it with the
+		// skip.
+		const result = await store.applySubmission({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram(
+				[
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new", idFrom: KEY_FIELD },
+							name: term(literal("Never made")),
+							condition: eq(formField(FLAG_FIELD), literal("yes")),
+						}),
+					),
+				],
+				{
+					formFields: [
+						[KEY_FIELD, ""],
+						[FLAG_FIELD, "no"],
+					],
+					sessionCaseId: null,
+				},
+			),
+		});
+
+		expect(result.operations).toEqual([
+			expect.objectContaining({ executed: false }),
+		]);
+		expect(
+			await store.query({ appId: APP_ID, caseType: "visit" }),
+		).toHaveLength(0);
 	});
 
 	it("a true condition executes the chain", async () => {
@@ -1092,6 +1207,99 @@ describe("resolved sequence proof", () => {
 		).toHaveLength(0);
 	});
 
+	it("expands distinct iterations with their own bindings, iteration-major", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+
+		// Two iterations with DISTINCT keys, values, and condition
+		// outcomes: iteration one's consumer is skipped, iteration two's
+		// executes. Pins per-iteration binding wiring, iteration-correlated
+		// op-id resolution, and the iteration-major effect-record order
+		// (A@0, B@0, A@1, B@1).
+		const result = await store.applySubmission({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				formUuid: FORM_UUID,
+				operations: [
+					envOp(
+						operation({
+							uuid: OP_A,
+							id: "op_make",
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new", idFrom: KEY_FIELD },
+							name: term(formField(KEY_FIELD)),
+							forEach: { repeat: REPEAT_UUID },
+						}),
+					),
+					envOp(
+						operation({
+							uuid: OP_B,
+							id: "op_note",
+							action: "update",
+							caseType: "visit",
+							target: { kind: "op", opUuid: OP_A },
+							condition: eq(formField(FLAG_FIELD), literal("yes")),
+							writes: [
+								{ property: "outcome", value: term(formField(MEDS_FIELD)) },
+							],
+							forEach: { repeat: REPEAT_UUID },
+						}),
+					),
+				],
+				scopes: [
+					{ iterations: [{ formFields: new Map() }] },
+					{
+						repeat: REPEAT_UUID,
+						iterations: [
+							{
+								formFields: new Map([
+									[KEY_FIELD, "key-1"],
+									[FLAG_FIELD, "no"],
+									[MEDS_FIELD, "n1"],
+								]),
+							},
+							{
+								formFields: new Map([
+									[KEY_FIELD, "key-2"],
+									[FLAG_FIELD, "yes"],
+									[MEDS_FIELD, "n2"],
+								]),
+							},
+						],
+					},
+				],
+				caseTypeSchemas: SCHEMAS,
+			},
+		});
+
+		// Iteration-major physical order with per-iteration outcomes.
+		expect(
+			result.operations.map((entry) => ({
+				uuid: entry.operationUuid,
+				iteration: entry.iteration,
+				executed: entry.executed,
+			})),
+		).toEqual([
+			{ uuid: OP_A, iteration: 0, executed: true },
+			{ uuid: OP_B, iteration: 0, executed: false },
+			{ uuid: OP_A, iteration: 1, executed: true },
+			{ uuid: OP_B, iteration: 1, executed: true },
+		]);
+
+		// Two rows, each named by ITS iteration's key; the conditional
+		// write landed only on iteration two's correlated create.
+		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		expect(visits).toHaveLength(2);
+		const byName = new Map(visits.map((row) => [row.case_name, row]));
+		expect(byName.get("key-1")?.properties).not.toHaveProperty("outcome");
+		expect(byName.get("key-2")?.properties).toMatchObject({ outcome: "n2" });
+		expect(byName.get("key-1")?.case_id).not.toBe(byName.get("key-2")?.case_id);
+		// The correlated update addressed each iteration's own create.
+		expect(result.operations[3]?.caseId).toBe(byName.get("key-2")?.case_id);
+	});
+
 	it("merges duplicate repeat keys without a type transition", async () => {
 		const store = makeStore();
 		await seedSchemas(store);
@@ -1376,6 +1584,43 @@ describe("retype", () => {
 		expect(rows[0]?.properties).toMatchObject({ notes: "kept", age: 30 });
 	});
 
+	it("applies destination-typed writes and the type change as one unit", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedSessionPatient(store, { notes: "kept" });
+
+		// `severity` is declared ONLY on the destination type — the
+		// validator resolves a retyping operation's writes against the
+		// destination, and the wire emits the write and the `case_type`
+		// change in one <update> block the server applies together.
+		await store.applySubmission({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						retype: "patient_v2",
+						rename: term(literal("Alice v2")),
+						writes: [{ property: "severity", value: term(literal("high")) }],
+					}),
+				),
+			]),
+		});
+
+		const rows = await store.query({ appId: APP_ID, caseType: "patient_v2" });
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
+		expect(rows[0]?.case_name).toBe("Alice v2");
+		expect(rows[0]?.properties).toMatchObject({
+			notes: "kept",
+			severity: "high",
+		});
+	});
+
 	it("rejects a retype whose retained document the destination schema cannot hold", async () => {
 		const store = makeStore();
 		await seedSchemas(store);
@@ -1493,6 +1738,59 @@ describe("links", () => {
 			[SESSION_CASE_ID],
 		);
 		expect(after.rows).toHaveLength(0);
+	});
+
+	it("a link-only operation advances the case's modified time", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
+		const before = (await patientRow(store, SESSION_CASE_ID))?.modified_on;
+		expect(before).not.toBeNull();
+
+		// Every emitted case block carries @date_modified — a pure index
+		// write still advances the case's modified time on device/HQ, and
+		// `last_modified` is a queryable standard property.
+		const visit = await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: "visit",
+				case_name: "V",
+				status: "open",
+				properties: "{}",
+			},
+		});
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		await store.applySubmission({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						links: [
+							{
+								identifier: "recent_visit",
+								targetType: "visit",
+								target: {
+									kind: "expression",
+									expr: term(literal(visit.caseId)),
+								},
+								relationship: "extension",
+							},
+						],
+					}),
+					{
+						expressionSnapshotTypes: { links: new Map([[0, "visit"]]) },
+					},
+				),
+			]),
+		});
+
+		const after = (await patientRow(store, SESSION_CASE_ID))?.modified_on;
+		expect(after?.getTime()).toBeGreaterThan(before?.getTime() ?? 0);
 	});
 
 	it("a parent-identifier link maintains the denormalized first parent", async () => {
@@ -1698,10 +1996,16 @@ describe("storageValueFromEvaluation", () => {
 		expect(storageValueFromEvaluation("2.5", "decimal")).toBe(2.5);
 	});
 
-	it("maps SQL NULL to the wire's blank for text-family destinations", () => {
-		expect(storageValueFromEvaluation(null, "text")).toBe("");
-		expect(storageValueFromEvaluation(null, "single_select")).toBe("");
-		expect(storageValueFromEvaluation(null, "multi_select")).toEqual([]);
+	it("signals blank (SQL NULL, '', empty selection) as undefined for every type", () => {
+		// The wire's calculate writes '' for a blank source; Nova's
+		// storage projects that state as key-absent, so the executor
+		// omits the key on create and removes it on update.
+		expect(storageValueFromEvaluation(null, "text")).toBeUndefined();
+		expect(storageValueFromEvaluation("", "text")).toBeUndefined();
+		expect(storageValueFromEvaluation(null, "int")).toBeUndefined();
+		expect(storageValueFromEvaluation(null, "date")).toBeUndefined();
+		expect(storageValueFromEvaluation([], "multi_select")).toBeUndefined();
+		expect(storageValueFromEvaluation(null, "single_select")).toBeUndefined();
 	});
 
 	it("keeps a multi-select array and space-joins one aimed at text", () => {
