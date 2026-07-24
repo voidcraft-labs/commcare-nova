@@ -12,6 +12,7 @@
 export const INVITE_ALLOWED_DOMAINS: readonly string[] = Object.freeze([
 	"dimagi.com",
 	"dimagi-ai.com",
+	"dimagi-associate.com",
 ]);
 
 /**

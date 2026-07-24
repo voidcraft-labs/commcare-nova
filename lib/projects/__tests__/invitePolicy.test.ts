@@ -18,6 +18,7 @@ describe("isInvitableEmail", () => {
 		expect(isInvitableEmail("Bob@Dimagi.com")).toBe(true);
 		expect(isInvitableEmail("carol@dimagi-ai.com")).toBe(true);
 		expect(isInvitableEmail("DAVE@DIMAGI-AI.COM")).toBe(true);
+		expect(isInvitableEmail("erin@dimagi-associate.com")).toBe(true);
 	});
 
 	it("rejects any other domain — including look-alikes (no subdomain widening)", () => {
@@ -43,6 +44,7 @@ describe("isInvitableEmail", () => {
 	it("exposes the allow-list as the single source the hook reads", () => {
 		expect(INVITE_ALLOWED_DOMAINS).toContain("dimagi.com");
 		expect(INVITE_ALLOWED_DOMAINS).toContain("dimagi-ai.com");
+		expect(INVITE_ALLOWED_DOMAINS).toContain("dimagi-associate.com");
 	});
 });
 
