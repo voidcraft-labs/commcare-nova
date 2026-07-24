@@ -237,10 +237,31 @@ describe("lookup-backed choices in the engine", () => {
 		expect(engine.getState("/data/clinic").value).toBe("c3");
 	});
 
-	it("throws the validation-bypass invariant when a carrier evaluates without a snapshot", () => {
+	it("leaves choices undefined (loading) without a snapshot, unselecting nothing", () => {
+		const engine = new FormEngine(
+			dTree([clinicSelect("single_select", false)]),
+		);
+		engine.setValue("/data/clinic", "b2");
+		expect(engine.getState("/data/clinic").choices).toBeUndefined();
+		expect(engine.getState("/data/clinic").value).toBe("b2");
+	});
+
+	it("throws the validation-bypass invariant for an unknown table WITH a snapshot", () => {
+		const orphanSelect = clinicSelect("single_select", false);
+		orphanSelect.optionsSource = {
+			...(orphanSelect.optionsSource as LookupOptionsSource),
+			tableId: "018f0000-0000-7000-8000-00000000dead" as LookupTableId,
+		};
 		expect(
-			() => new FormEngine(dTree([clinicSelect("single_select", false)])),
-		).toThrow(/no lookup fixture snapshot/);
+			() =>
+				new FormEngine(
+					dTree([orphanSelect]),
+					undefined,
+					undefined,
+					null,
+					lookupData(),
+				),
+		).toThrow(/not in the loaded fixture snapshot/);
 	});
 
 	it("a carrier-free form needs no snapshot", () => {

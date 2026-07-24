@@ -22,7 +22,13 @@ import type {
 } from "@/lib/domain/predicate";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
+import type { EvalContext } from "@/lib/preview/xpath/types";
 import type { PreviewSearchSessionValues } from "./identity";
+import {
+	foldTableLookupsInExpression,
+	foldTableLookupsInPredicate,
+	type PreviewLookupData,
+} from "./lookupEvaluation";
 import type { SearchInputValues } from "./runtimeBindings";
 import {
 	bindSearchInputValuesInExpression,
@@ -41,14 +47,27 @@ export function evaluatePreviewSearchExpression(
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
 	searchInputs: readonly SearchInputDef[] = [],
+	lookupData?: PreviewLookupData,
 ): string {
 	const bound = bindSearchInputValuesInExpression(
 		expression,
 		inputValues,
 		searchInputs,
 	);
+	/* Lookup carriers fold AFTER input binding (their row filters may
+	 * read Search answers) and BEFORE emission — the on-device emitter
+	 * has no naming here, and the scalar evaluator models no fixture
+	 * instance. Callers whose slots can carry lookups supply the loaded
+	 * snapshot; without one, a carrier-bearing expression throws the
+	 * emitter's loud missing-naming error rather than resolving blank. */
+	const folded =
+		lookupData === undefined
+			? bound
+			: foldTableLookupsInExpression(bound, lookupData, {
+					outer: searchSessionEvalContext(session),
+				});
 	return xpathToString(
-		evaluatePreviewSearchXPath(emitOnDeviceExpression(bound), session),
+		evaluatePreviewSearchXPath(emitOnDeviceExpression(folded), session),
 	);
 }
 
@@ -65,6 +84,7 @@ export function evaluatePreviewSearchPredicate(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
+	lookupData?: PreviewLookupData,
 ): boolean {
 	const expressionValues = withSearchInputExpressionValues(
 		searchInputs,
@@ -76,8 +96,14 @@ export function evaluatePreviewSearchPredicate(
 		new Set(searchInputs.map((input) => input.name)),
 		searchInputs,
 	);
+	const folded =
+		lookupData === undefined
+			? bound
+			: foldTableLookupsInPredicate(bound, lookupData, {
+					outer: searchSessionEvalContext(session),
+				});
 	return toBoolean(
-		evaluatePreviewSearchXPath(emitCaseListFilter(bound), session),
+		evaluatePreviewSearchXPath(emitCaseListFilter(folded), session),
 	);
 }
 
@@ -85,13 +111,23 @@ function evaluatePreviewSearchXPath(
 	xpath: string,
 	session: PreviewSearchSessionValues,
 ) {
-	return evaluate(xpath, {
+	return evaluate(xpath, searchSessionEvalContext(session));
+}
+
+/** The session-only evaluation world of the search surfaces — no case
+ *  row, no form instance; session/user instance paths resolve, all
+ *  else reads blank. Shared with lookup folding so a row filter's
+ *  non-row reads see the same world its containing slot does. */
+function searchSessionEvalContext(
+	session: PreviewSearchSessionValues,
+): EvalContext {
+	return {
 		contextPath: "",
 		position: 1,
 		size: 1,
 		getValue: (path) => sessionInstancePathValue(path, session),
 		resolveHashtag: () => "",
-	});
+	};
 }
 
 /**
@@ -134,6 +170,7 @@ export function sessionInstancePathValue(
 export function resolveSearchInputDefaults(
 	searchInputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
+	lookupData?: PreviewLookupData,
 ): SearchInputValues {
 	const values = new Map<string, string>();
 	for (const input of [...searchInputs].sort(bySortKey)) {
@@ -141,6 +178,9 @@ export function resolveSearchInputDefaults(
 		const value = evaluatePreviewSearchExpression(
 			input.default,
 			session,
+			undefined,
+			undefined,
+			lookupData,
 		).trim();
 		if (value === "") continue;
 		values.set(input.name, value);

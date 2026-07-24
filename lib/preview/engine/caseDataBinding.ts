@@ -48,7 +48,11 @@ import {
 	mapSubmitFormError,
 } from "./caseDataBindingClient";
 import {
+	collectConfigLookupTableIds,
 	gatedCaseStore,
+	gatedCaseStoreWithScope,
+	loadExpressionLookupData,
+	loadLookupTableSchemas,
 	readCaseData,
 	readCases,
 	readFilterPreview,
@@ -272,6 +276,23 @@ export async function loadCasesAction(args: {
 			expressionInputValues,
 			args.viewerTimeZone,
 		);
+		const { store, scope } = await gatedCaseStoreWithScope(
+			args.appId,
+			identity,
+			"view",
+		);
+		/* Lookup carriers: the SQL-bound slots (filter / calc columns /
+		 * advanced predicates) compile natively against a rows-free
+		 * definitions snapshot; the excluded-owner expression evaluates
+		 * scalar-side, so its carriers fold over loaded fixture rows. */
+		const lookupTableSchemas = await loadLookupTableSchemas(
+			scope,
+			collectConfigLookupTableIds(args.caseListConfig),
+		);
+		const excludedLookupData = await loadExpressionLookupData(
+			scope,
+			args.excludedOwnerIdsExpression,
+		);
 		const excludedOwnerIds =
 			args.excludedOwnerIdsExpression === undefined
 				? undefined
@@ -281,6 +302,7 @@ export async function loadCasesAction(args: {
 							searchSession,
 							expressionInputValues,
 							args.caseListConfig?.searchInputs ?? [],
+							excludedLookupData,
 						),
 					);
 		const authoredExcludedOwnerIds =
@@ -297,9 +319,9 @@ export async function loadCasesAction(args: {
 										new Map(),
 									),
 							args.caseListConfig?.searchInputs ?? [],
+							excludedLookupData,
 						),
 					);
-		const store = await gatedCaseStore(args.appId, identity, "view");
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -307,6 +329,7 @@ export async function loadCasesAction(args: {
 			caseListConfig: args.caseListConfig,
 			inputValues,
 			bindings,
+			lookupTableSchemas,
 			excludedOwnerIds,
 			authoredExcludedOwnerIds,
 			// Omitted is the pre-pagination action shape. Keep it unpaged so an
@@ -448,7 +471,15 @@ export async function loadCaseDataAction(
 	try {
 		const identity = await resolvePreviewIdentity();
 		if (!identity) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(appId, identity, "view");
+		const { store, scope } = await gatedCaseStoreWithScope(
+			appId,
+			identity,
+			"view",
+		);
+		const lookupTableSchemas = await loadLookupTableSchemas(
+			scope,
+			collectConfigLookupTableIds(caseListConfig),
+		);
 		const searchSession = identity.session;
 		const expressionInputValues =
 			caseListConfig === undefined
@@ -464,6 +495,7 @@ export async function loadCaseDataAction(
 			ancestorDepth,
 			caseListConfig,
 			includeHeld,
+			lookupTableSchemas,
 			bindings: previewCaseStoreBindings(
 				searchSession,
 				caseListConfig?.searchInputs,
@@ -795,7 +827,19 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = await gatedCaseStore(args.appId, identity, "view");
+		const { store, scope } = await gatedCaseStoreWithScope(
+			args.appId,
+			identity,
+			"view",
+		);
+		const lookupTableSchemas = await loadLookupTableSchemas(
+			scope,
+			collectConfigLookupTableIds(parsedConfig.data),
+		);
+		const excludedLookupData = await loadExpressionLookupData(
+			scope,
+			args.excludedOwnerIdsExpression,
+		);
 		const searchSession = identity.session;
 		const excludedOwnerIds =
 			args.excludedOwnerIdsExpression === undefined
@@ -804,6 +848,9 @@ export async function loadFilterPreviewAction(args: {
 						evaluatePreviewSearchExpression(
 							args.excludedOwnerIdsExpression,
 							searchSession,
+							undefined,
+							undefined,
+							excludedLookupData,
 						),
 					);
 		// `buildCaseTypeMap` reads only `caseTypes`, so the parsed
@@ -813,6 +860,7 @@ export async function loadFilterPreviewAction(args: {
 			caseType: args.caseType,
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
+			lookupTableSchemas,
 			bindings: previewCaseStoreBindings(
 				searchSession,
 				parsedConfig.data.searchInputs,

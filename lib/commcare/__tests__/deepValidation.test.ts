@@ -688,11 +688,19 @@ describe("TriggerDag.reportCycles", () => {
 			lookupSelectForDag(fieldB, "b", fieldA),
 		]);
 
-		expect(new TriggerDag().reportCycles(tree, doc)).toContainEqual([
-			"/data/a",
-			"/data/b",
-			"/data/a",
-		]);
+		// The cycle's reported rotation depends on edge-registration order
+		// (lookup filter edges register during expression collection since
+		// their runtime promotion); assert the cycle itself, not a rotation.
+		const cycles = new TriggerDag().reportCycles(tree, doc);
+		expect(
+			cycles.some(
+				(cycle) =>
+					cycle.length === 3 &&
+					cycle[0] === cycle[2] &&
+					cycle.includes("/data/a") &&
+					cycle.includes("/data/b"),
+			),
+		).toBe(true);
 	});
 
 	it("detects a calculate-to-options cycle", () => {
@@ -744,7 +752,7 @@ describe("TriggerDag.reportCycles", () => {
 		]);
 	});
 
-	it("keeps validation-only edges out of a non-empty runtime build and rebuild DAG", () => {
+	it("promotes lookup filter edges to runtime while defaults stay authoring-only", () => {
 		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a2");
 		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b2");
 		const fieldC = asUuid("20000000-0000-7000-8000-0000000000c2");
@@ -786,11 +794,18 @@ describe("TriggerDag.reportCycles", () => {
 
 		dag.build(tree, doc);
 		const beforeReport = runtimeSnapshot();
+		/* `a`'s default_value reference is authoring-only: no runtime
+		 * expression, and a `b` change never re-runs the applied default. */
 		expect(beforeReport.expressionsA).toEqual([]);
-		expect(beforeReport.expressionsB).toEqual([]);
-		expect(beforeReport.expressionsC).not.toEqual([]);
-		expect(beforeReport.affectedByA).not.toEqual([]);
+		expect(beforeReport.affectedByB).toEqual([]);
+		/* The lookup select's choices ARE runtime: one `choices`
+		 * expression, and its filter's field-term edge makes an `a`
+		 * change re-filter `b` (plus `c`'s ordinary relevance). */
+		expect(beforeReport.expressionsB).toEqual([{ type: "choices", expr: "" }]);
+		expect(beforeReport.affectedByA).toContain("/data/b");
+		expect(beforeReport.affectedByA).toContain("/data/c");
 		expect(beforeReport.allPaths).not.toEqual([]);
+		/* The cycle proof (defaults included) mutates nothing runtime. */
 		expect(dag.reportCycles(tree, doc)).not.toEqual([]);
 		expect(runtimeSnapshot()).toEqual(beforeReport);
 		dag.rebuild(tree, doc);

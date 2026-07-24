@@ -40,6 +40,8 @@ import {
 } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
+import { useLookupPreviewData } from "@/lib/preview/engine/useLookupPreviewData";
+import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useCanEdit } from "@/lib/session/hooks";
 import {
 	BuilderSessionContext,
@@ -144,6 +146,7 @@ function BuilderProviderInner({
 				<CaseListWorkspaceProvider>
 					<BuilderFormEngineProvider>
 						<SyncBridge />
+						<LookupDataBridge />
 						<LocationRecoveryEffect />
 						{initialDoc ? <LoadAppHydrator /> : null}
 						{children}
@@ -203,6 +206,24 @@ function BlueprintEditableBridge({ children }: { children: ReactNode }) {
  * The `BuilderFormEngineProvider` installs its own doc-store reference
  * via a sibling effect; SyncBridge doesn't touch the form controller.
  */
+/**
+ * LookupDataBridge — feeds the builder session's lookup fixture cache
+ * (the doc's referenced tables, generation-keyed and refreshed on the
+ * Project lookup clock) into the form engine controller, the single
+ * distribution point every activation captures its snapshot from. A
+ * sibling of SyncBridge because the hook needs the session, doc,
+ * reconciler, AND engine providers — the engine provider alone
+ * deliberately mounts without those in tests.
+ */
+function LookupDataBridge() {
+	const controller = useEngineController();
+	const lookupData = useLookupPreviewData();
+	useEffect(() => {
+		controller.setLookupData(lookupData);
+	}, [controller, lookupData]);
+	return null;
+}
+
 function SyncBridge() {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionStore = useContext(BuilderSessionContext);

@@ -41,7 +41,6 @@ import {
 } from "@/lib/domain";
 import {
 	compilerBugMessage,
-	typeCheckerBypassMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
 import { toBoolean, xpathToString } from "../xpath/coerce";
@@ -1353,7 +1352,13 @@ export class FormEngine {
 						(f.kind === "single_select" || f.kind === "multi_select") &&
 						f.optionsSource !== undefined
 					) {
-						const next = this.computeLookupChoices(f.optionsSource, ctx, path);
+						const next = this.computeLookupChoices(f.optionsSource, ctx);
+						/* `undefined` is the typed loading state: no snapshot captured
+						 * yet (the cold-load race before the builder session's fetch
+						 * settles). The renderer shows loading, and the controller's
+						 * first-arrival rebuild recomputes; nothing is unselected on
+						 * unknown — unknown is not empty. */
+						if (next === undefined) break;
 						if (!lookupChoicesEqual(next, choices)) {
 							choices = next;
 							changed = true;
@@ -1644,24 +1649,17 @@ export class FormEngine {
 		return this.lookupData !== null;
 	}
 
+	/** `undefined` while no snapshot is captured — the typed loading
+	 *  state the renderer presents and the controller's first-arrival
+	 *  rebuild resolves. With a snapshot, unavailable table/column
+	 *  identities throw the validation-bypass invariant from
+	 *  `evaluateLookupChoices` — that is the real bypass surface. */
 	private computeLookupChoices(
 		source: LookupOptionsSource,
 		ctx: EvalContext,
-		path: string,
-	): readonly LookupChoice[] {
+	): readonly LookupChoice[] | undefined {
 		const data = this.lookupData;
-		if (data === null) {
-			throw new Error(
-				typeCheckerBypassMessage({
-					where: "formEngine.computeLookupChoices",
-					summary: `the lookup-backed select at \`${path}\` evaluated with no lookup fixture snapshot`,
-					expected:
-						"the preview provider loads the doc's referenced lookup tables and installs them on the controller before a carrier-bearing form activates",
-					received: "an engine constructed without lookup data",
-					hint: "gate form activation on the lookup resource settling, or repair the doc if the carrier is unexpected.",
-				}),
-			);
-		}
+		if (data === null) return undefined;
 		return evaluateLookupChoices(source, data, {
 			outer: this.lookupOuterContext(ctx),
 			formFields: this.fieldPathsByUuid(),
