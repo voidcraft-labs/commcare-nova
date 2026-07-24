@@ -148,9 +148,10 @@ boundary.
 Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
 `CREATE` only in that isolated case schema for concurrent index DDL and receives
-read-only access to compatibility state, not control-table mutation. All
-destructive-schema,
-carrier-commit, and true Project-move flags remain false.
+read-only access to compatibility state, not control-table mutation. All four activation
+flags (destructive-schema, carrier-commit, Project-move, case-operations)
+remain false until S07c's controller enables them; `case_operations_enabled`
+shares the carrier CHECK's v3-receiver/v1-reader floors.
 
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
