@@ -133,13 +133,15 @@ plain `tsx` inspector dependency graphs. `service.ts` re-exports the same
 function for lookup-package callers; the transaction type remains the server
 boundary.
 
-`getLookupFixtureData(scope, tableIds)` is the compile boundary's
+`getLookupFixtureData(scope, tableIds)` is the one-generation
 definitions-plus-rows read: the same definitions projection plus every present
 table's complete rows in authored `(order_key, id)` order, from one read-only
-`REPEATABLE READ` transaction (`fixtureSnapshot.ts`). The local-CCZ export
-must validate and emit one generation, so it calls this reader instead of
-looping `getLookupTable`, whose per-call snapshots could mix generations.
-Missing and foreign ids are absent from both the definitions and the rows map.
+`REPEATABLE READ` transaction (`fixtureSnapshot.ts`). Its consumers must not
+loop `getLookupTable`, whose per-call snapshots could mix generations: the
+local-CCZ export validates and emits one generation, and the preview's
+builder-session cache (`lib/preview/engine/lookupDataBinding.ts`) evaluates
+carriers over one. Missing and foreign ids are absent from both the
+definitions and the rows map.
 
 `nova_lookup_stream` writes and reads are live. The one shared dedicated listener
 fans exact decimal revisions only to subscribers for that Project, and the app
