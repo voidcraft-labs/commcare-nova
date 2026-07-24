@@ -331,9 +331,40 @@ export type PopulateSampleCasesResult =
  * field whose `id === "case_name"` into the slot and never
  * includes it in `properties`.
  */
+/** One collected answer for the operation program — plain JSON for the
+ *  Server Action wire (a Map would flip the call to multipart and trip
+ *  the edge WAF). Multi-select answers carry the real token array. */
+export interface SubmissionAnswerEntry {
+	readonly fieldUuid: string;
+	readonly value: string | readonly string[];
+}
+
+/**
+ * Per-scope operation answer bindings, COMPLETE per iteration: each
+ * repeat iteration's entry list carries the root answers, every
+ * enclosing repeat's answers resolved for that concrete instance, and
+ * the iteration's own answers — the executor binds each expression
+ * with exactly its iteration's list. Repeat iterations flatten
+ * parent-major in live instance order (the executor's expansion
+ * order); a repeat with zero live iterations still appears with an
+ * empty list so the server can hand the executor its required scope
+ * entry. The server is the structural authority — it consumes ONLY
+ * these answer values and iteration counts, deriving everything else
+ * from the committed doc.
+ */
+export interface SubmissionOperationAnswers {
+	readonly root: ReadonlyArray<SubmissionAnswerEntry>;
+	readonly repeats: ReadonlyArray<{
+		readonly repeat: string;
+		readonly iterations: ReadonlyArray<ReadonlyArray<SubmissionAnswerEntry>>;
+	}>;
+}
+
 export type SubmissionMutation =
 	| {
 			kind: "registration";
+			formUuid?: string;
+			operationAnswers?: SubmissionOperationAnswers;
 			primary: {
 				caseType: string;
 				caseName?: string;
@@ -347,6 +378,8 @@ export type SubmissionMutation =
 	  }
 	| {
 			kind: "followup";
+			formUuid?: string;
+			operationAnswers?: SubmissionOperationAnswers;
 			caseId: string;
 			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
@@ -358,6 +391,8 @@ export type SubmissionMutation =
 	  }
 	| {
 			kind: "close";
+			formUuid?: string;
+			operationAnswers?: SubmissionOperationAnswers;
 			caseId: string;
 			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
@@ -367,7 +402,15 @@ export type SubmissionMutation =
 				parentCaseId: string;
 			}>;
 	  }
-	| { kind: "survey" };
+	| {
+			/** A survey touches no case ORDINARILY, but its case operations
+			 *  still execute — the identity slots let the server build the
+			 *  program; absent (older clients, operation-free forms) keeps
+			 *  the historical no-op short-circuit. */
+			kind: "survey";
+			formUuid?: string;
+			operationAnswers?: SubmissionOperationAnswers;
+	  };
 
 /**
  * Result of submitting a `SubmissionMutation` through the

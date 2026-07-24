@@ -37,6 +37,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	casePropertyDataTypes,
 	expressionSource,
+	orderedCaseOperations,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
 import {
@@ -46,7 +47,11 @@ import {
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
-import type { SubmissionMutation } from "./caseDataBindingTypes";
+import type {
+	SubmissionAnswerEntry,
+	SubmissionMutation,
+	SubmissionOperationAnswers,
+} from "./caseDataBindingTypes";
 import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import { previewSessionValues, type ResolvedPreviewIdentity } from "./identity";
@@ -546,12 +551,138 @@ export class FormEngine {
 	 * Throws when `formType` is `followup` or `close` and no `caseId`
 	 * is supplied — both arms operate on a bound case row.
 	 */
+	/** The one form this engine's input slice is rooted at. */
+	private activeFormUuid(): Uuid {
+		const formUuid = Object.keys(this.printDoc.forms)[0];
+		if (formUuid === undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.formEngine.activeFormUuid",
+					invariant: "the engine's print surface holds no form",
+				}),
+			);
+		}
+		return formUuid as Uuid;
+	}
+
+	/**
+	 * Collect the per-scope operation answer bindings for this form's
+	 * case operations — `undefined` when the form carries none. Each
+	 * repeat iteration's list is COMPLETE (root answers, every enclosing
+	 * repeat's answers for that concrete instance, and the iteration's
+	 * own answers), flattened parent-major in live instance order —
+	 * exactly the completeness the storage executor binds each
+	 * expression with. Values are raw instance strings; multi-select
+	 * answers carry the real token array (the one namespace the SQL
+	 * term compiler admits arrays in). Nested repeats form their OWN
+	 * scopes, so an iteration's list excludes deeper repeats' answers —
+	 * mirroring the validator's operation-correlation contract.
+	 */
+	computeOperationAnswers(): SubmissionOperationAnswers | undefined {
+		const form = this.printDoc.forms[this.activeFormUuid() as string] as
+			| Form
+			| undefined;
+		if (form === undefined || orderedCaseOperations(form).length === 0) {
+			return undefined;
+		}
+
+		const repeatScopes = new Map<string, SubmissionAnswerEntry[][]>();
+		const scopeFor = (repeatUuid: string): SubmissionAnswerEntry[][] => {
+			const existing = repeatScopes.get(repeatUuid);
+			if (existing !== undefined) return existing;
+			const created: SubmissionAnswerEntry[][] = [];
+			repeatScopes.set(repeatUuid, created);
+			return created;
+		};
+
+		const entryFor = (
+			field: Field,
+			concretePath: string,
+		): SubmissionAnswerEntry => {
+			const raw = this.instance.get(concretePath) ?? "";
+			return {
+				fieldUuid: field.uuid as string,
+				value:
+					field.kind === "multi_select"
+						? raw.split(/\s+/).filter(Boolean)
+						: raw,
+			};
+		};
+
+		/* Two-phase per level: gather the level's own leaf answers first
+		 * (groups inline), THEN expand deferred repeats with the complete
+		 * inherited + level context — a repeat later in document order
+		 * still inherits its whole enclosing level. */
+		const collectLevel = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			pathPrefix: string,
+			inherited: ReadonlyArray<SubmissionAnswerEntry>,
+		): SubmissionAnswerEntry[] => {
+			const level: SubmissionAnswerEntry[] = [];
+			const deferredRepeats: Array<{
+				node: FieldTreeNode;
+				path: string;
+			}> = [];
+			const gather = (
+				levelNodes: ReadonlyArray<FieldTreeNode>,
+				prefix: string,
+			): void => {
+				for (const node of levelNodes) {
+					const f = node.field;
+					const fieldPath = `${prefix}/${f.id}`;
+					if (f.kind === "group") {
+						if (node.children) gather(node.children, fieldPath);
+						continue;
+					}
+					if (f.kind === "repeat") {
+						deferredRepeats.push({ node, path: fieldPath });
+						continue;
+					}
+					if (f.kind === "label") continue;
+					level.push(entryFor(f, fieldPath));
+				}
+			};
+			gather(nodes, pathPrefix);
+
+			for (const { node, path } of deferredRepeats) {
+				const iterations = scopeFor(node.field.uuid as string);
+				if (!node.children) continue;
+				const instanceCount = this.instance.getRepeatCount(path);
+				for (let i = 0; i < instanceCount; i++) {
+					const enclosing = [...inherited, ...level];
+					const own = collectLevel(node.children, `${path}[${i}]`, enclosing);
+					iterations.push([...enclosing, ...own]);
+				}
+			}
+			return level;
+		};
+
+		const root = collectLevel(this.tree, "/data", []);
+		return {
+			root,
+			repeats: [...repeatScopes.entries()].map(([repeat, iterations]) => ({
+				repeat,
+				iterations,
+			})),
+		};
+	}
+
 	computeSubmissionMutation(args: {
 		caseId?: string;
 		caseTypes: ReadonlyArray<CaseType>;
 	}): SubmissionMutation {
+		/* The operation identity riding every arm: the submitting form's
+		 * uuid (the authored-key scope half and the server-side program
+		 * builder's doc anchor) plus the collected per-scope answers when
+		 * the form carries case operations. A survey with operations must
+		 * NOT short-circuit — its program still executes. */
+		const operationAnswers = this.computeOperationAnswers();
+		const operationIdentity = {
+			formUuid: this.activeFormUuid() as string,
+			...(operationAnswers !== undefined && { operationAnswers }),
+		};
 		if (this.formType === "survey") {
-			return { kind: "survey" };
+			return { kind: "survey", ...operationIdentity };
 		}
 
 		if (
