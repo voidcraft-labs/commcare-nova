@@ -48,6 +48,7 @@ import {
 	mapSubmitFormError,
 } from "./caseDataBindingClient";
 import {
+	buildSubmissionOperationProgram,
 	collectConfigLookupTableIds,
 	gatedCaseStore,
 	gatedCaseStoreWithScope,
@@ -905,18 +906,35 @@ export async function loadFilterPreviewAction(args: {
 export async function submitFormAction(
 	mutation: SubmissionMutation,
 	appId: string,
+	viewerTimeZone?: string,
 ): Promise<SubmissionResult> {
 	try {
 		const identity = await resolvePreviewIdentity();
 		if (!identity) return { kind: "unauthenticated" };
-		if (mutation.kind === "survey") return { kind: "survey" };
+		/* A survey with NO collected operation answers is the historical
+		 * no-op — nothing to write, no store bind. One WITH answers may
+		 * carry an executable program, decided below against the committed
+		 * doc and the activation flag. */
+		if (mutation.kind === "survey" && mutation.operationAnswers === undefined) {
+			return { kind: "survey" };
+		}
+		const built = await buildSubmissionOperationProgram({
+			appId,
+			identity,
+			mutation,
+			viewerTimeZone,
+		});
+		if (mutation.kind === "survey" && built.program === undefined) {
+			return { kind: "survey" };
+		}
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
 		const store = await gatedCaseStore(appId, identity, "edit");
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, appId),
+			submissionEnvelopeArgs(mutation, appId, built),
 		);
+		if (mutation.kind === "survey") return { kind: "survey" };
 		if (result.primaryCaseId === undefined) {
 			throw new Error(
 				unhandledKindMessage({

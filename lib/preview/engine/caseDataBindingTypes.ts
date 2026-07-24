@@ -26,6 +26,7 @@ import type {
 	JsonValue,
 	ParkedValueEntry,
 	ParkedValueStanding,
+	SubmissionRejection,
 } from "@/lib/case-store";
 import type { CasePropertyDataType } from "@/lib/domain";
 
@@ -437,4 +438,9 @@ export type SubmissionResult =
 	  }
 	| { kind: "missing-case-type"; caseType: string }
 	| { kind: "schema-not-synced"; caseType: string }
+	/** The atomic envelope rejected the whole submission — a typed,
+	 *  device-parity failure (blank authored key, unreachable target,
+	 *  rolling type mismatch, non-portable retype, blank text facet).
+	 *  Nothing was written. */
+	| { kind: "submission-rejected"; rejection: SubmissionRejection }
 	| { kind: "error"; message: string };

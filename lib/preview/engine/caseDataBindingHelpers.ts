@@ -28,13 +28,14 @@ import type { AppCapability } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import type {
 	ApplySubmissionArgs,
+	CaseOperationProgram,
 	CaseRow,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
 	TermBindings,
 } from "@/lib/case-store";
-import { withProjectContext } from "@/lib/case-store";
+import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
 import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
@@ -42,14 +43,25 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { readLookupActivationFlags } from "@/lib/db/rolloutCompatibility";
+import {
+	caseOperationConditionalGuardUuids,
+	caseOperationExpressionSnapshotTypes,
+	caseOperationMultiplicityScopes,
+} from "@/lib/doc/caseOperationOrder";
 import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
+	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseType,
 	type Column,
 	caseListColumnHasRuntimeRole,
+	orderedCaseOperations,
+	type PersistableDoc,
+	type Uuid,
 } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import { mapExpressionAst, mapPredicateAst } from "@/lib/domain/predicate";
 import {
@@ -78,6 +90,7 @@ import type {
 	LoadCasesResult,
 	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
+	SubmissionAnswerEntry,
 	SubmissionMutation,
 } from "./caseDataBindingTypes";
 import { previewAsMe, type ResolvedPreviewIdentity } from "./identity";
@@ -873,14 +886,171 @@ export async function resetSampleCases(
  * with the canonical compiler-bug invariant (`cases.case_name` is
  * NOT NULL; a valid blueprint always carries the name leaf).
  *
- * No advanced-operation program rides this path yet — operations stay
- * unauthorable until S07 wires the engine's descriptor emission, so
- * the production envelope is ordinary-only.
+ * The optional `built` half attaches the server-derived operation
+ * program and the ordinary action's module case type (the rolling
+ * proof's final implicit step) — both produced by
+ * `buildSubmissionOperationProgram` from the COMMITTED doc, never
+ * client structure.
  */
+/** The server-derived halves `submissionEnvelopeArgs` attaches. */
+export interface BuiltSubmissionOperations {
+	readonly program?: CaseOperationProgram;
+	readonly ordinaryCaseType?: string;
+}
+
+/**
+ * Build the storage executor's `CaseOperationProgram` from the
+ * COMMITTED doc — the server is the structural authority, consuming
+ * only the client's answer values and iteration counts. Returns an
+ * empty result (the `operations` arm stays absent) when the mutation
+ * carries no form identity (an older bundle — the receiver-v3 cutoff
+ * owns that skew), the doc's form holds no operations, or
+ * `case_operations_enabled` is off (the emergency-disable semantics:
+ * an operation-bearing doc submits ordinary-only while disabled).
+ *
+ * Everything structural derives from the S04 analyses over the
+ * committed doc: canonical `(order, uuid)` operation sequence,
+ * root-then-post-order multiplicity scopes (every scope present even
+ * with zero client iterations — the executor requires the entry),
+ * transitive producer guards resolved to their condition ASTs, and
+ * the immutable expression snapshot types. Identity rides
+ * server-resolved: `sessionUser`/`sessionContext` from the
+ * authenticated preview identity, never the client.
+ */
+export async function buildSubmissionOperationProgram(args: {
+	readonly appId: string;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly mutation: SubmissionMutation;
+	readonly viewerTimeZone?: string;
+}): Promise<BuiltSubmissionOperations> {
+	if (args.mutation.formUuid === undefined) return {};
+
+	const activation = await readLookupActivationFlags();
+	if (!activation.caseOperationsEnabled) return {};
+
+	const app = await loadApp(args.appId);
+	if (!app?.blueprint) return {};
+	return buildCaseOperationProgramFromDoc({
+		blueprint: app.blueprint,
+		mutation: args.mutation,
+		identity: args.identity,
+		...(args.viewerTimeZone !== undefined && {
+			viewerTimeZone: args.viewerTimeZone,
+		}),
+	});
+}
+
+/**
+ * The pure half: derive the program from ONE committed blueprint. The
+ * I/O wrapper above owns the flag read and the doc load; acceptance
+ * tests drive this directly against the storage executor.
+ */
+export function buildCaseOperationProgramFromDoc(args: {
+	readonly blueprint: PersistableDoc;
+	readonly mutation: SubmissionMutation;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly viewerTimeZone?: string;
+}): BuiltSubmissionOperations {
+	const { mutation } = args;
+	const formUuid = mutation.formUuid as Uuid | undefined;
+	if (formUuid === undefined) return {};
+	const blueprint = args.blueprint;
+	const doc = asWalkableDoc(blueprint);
+	const form = doc.forms[formUuid];
+	if (form === undefined) return {};
+	const operations = orderedCaseOperations(form);
+	if (operations.length === 0) return {};
+
+	const guards = caseOperationConditionalGuardUuids(doc, formUuid, operations);
+	const snapshotTypes = caseOperationExpressionSnapshotTypes(
+		doc,
+		formUuid,
+		operations,
+	);
+	const operationsByUuid = new Map(operations.map((op) => [op.uuid, op]));
+	const envelopeOperations = operations.map((operation) => {
+		const guardConditions = [...(guards.get(operation.uuid) ?? [])]
+			.map((uuid) => operationsByUuid.get(uuid)?.condition)
+			.filter((condition): condition is Predicate => condition !== undefined);
+		const snapshot = snapshotTypes.get(operation.uuid);
+		return {
+			operation,
+			guardConditions,
+			expressionSnapshotTypes: {
+				...(snapshot?.target !== undefined && { target: snapshot.target }),
+				links: snapshot?.links ?? new Map<number, string>(),
+			},
+		};
+	});
+
+	const answers = mutation.operationAnswers;
+	const answerMap = (
+		entries: ReadonlyArray<SubmissionAnswerEntry> | undefined,
+	): ReadonlyMap<Uuid, string | readonly string[]> =>
+		new Map(
+			(entries ?? []).map((entry) => [entry.fieldUuid as Uuid, entry.value]),
+		);
+	const scopes = caseOperationMultiplicityScopes(doc, formUuid).map(
+		(repeatUuid) => {
+			if (repeatUuid === undefined) {
+				return { iterations: [{ formFields: answerMap(answers?.root) }] };
+			}
+			const clientScope = answers?.repeats.find(
+				(scope) => scope.repeat === (repeatUuid as string),
+			);
+			return {
+				repeat: repeatUuid,
+				iterations: (clientScope?.iterations ?? []).map((bag) => ({
+					formFields: answerMap(bag),
+				})),
+			};
+		},
+	);
+
+	const sessionContext = new Map<string, string>();
+	for (const [field, value] of Object.entries(args.identity.session.context)) {
+		if (value !== undefined) sessionContext.set(field, value);
+	}
+	const ordinaryCaseType = owningModuleCaseType(doc, formUuid);
+	return {
+		program: {
+			formUuid,
+			operations: envelopeOperations,
+			scopes,
+			...(mutation.kind === "followup" || mutation.kind === "close"
+				? { sessionCaseId: mutation.caseId }
+				: {}),
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			sessionUser: new Map(Object.entries(args.identity.session.user)),
+			sessionContext,
+			...(args.viewerTimeZone === undefined
+				? {}
+				: { viewerTimeZone: args.viewerTimeZone }),
+		},
+		...(ordinaryCaseType !== undefined && { ordinaryCaseType }),
+	};
+}
+
+/** The module owning `formUuid`, walked off the committed doc. */
+function owningModuleCaseType(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): string | undefined {
+	for (const moduleUuid of doc.moduleOrder) {
+		if (doc.formOrder[moduleUuid]?.includes(formUuid)) {
+			return doc.modules[moduleUuid]?.caseType;
+		}
+	}
+	return undefined;
+}
+
 export function submissionEnvelopeArgs(
 	mutation: SubmissionMutation,
 	appId: string,
+	built?: BuiltSubmissionOperations,
 ): ApplySubmissionArgs {
+	const operations =
+		built?.program === undefined ? {} : { operations: built.program };
 	switch (mutation.kind) {
 		case "registration":
 			return {
@@ -890,6 +1060,7 @@ export function submissionEnvelopeArgs(
 					primary: mutation.primary,
 					children: mutation.children,
 				},
+				...operations,
 			};
 		case "followup":
 		case "close":
@@ -898,12 +1069,16 @@ export function submissionEnvelopeArgs(
 				ordinary: {
 					kind: mutation.kind,
 					caseId: mutation.caseId,
+					...(built?.ordinaryCaseType !== undefined && {
+						caseType: built.ordinaryCaseType,
+					}),
 					patch: mutation.patch,
 					children: mutation.children,
 				},
+				...operations,
 			};
 		case "survey":
-			return { appId, ordinary: { kind: "none" } };
+			return { appId, ordinary: { kind: "none" }, ...operations };
 		default: {
 			const _exhaustive: never = mutation;
 			throw new Error(
