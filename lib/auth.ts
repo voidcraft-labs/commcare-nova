@@ -790,7 +790,7 @@ async function createAuth() {
 					beforeCreateInvitation: async ({ invitation, organization }) => {
 						if (!isInvitableEmail(invitation.email)) {
 							throw new APIError("BAD_REQUEST", {
-								message: `Invitations are limited to ${INVITE_ALLOWED_DOMAINS.join(" and ")} email addresses.`,
+								message: `Invitations are limited to ${new Intl.ListFormat("en").format(INVITE_ALLOWED_DOMAINS)} email addresses.`,
 							});
 						}
 						/* A personal Project is private and accepts no invitations at
