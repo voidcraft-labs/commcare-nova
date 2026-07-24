@@ -1,10 +1,11 @@
 # Complex app roadmap
 
 > **Authoritative living plan.** Last rebaselined 2026-07-24 against deployed
-> Nova `62ffaff0` (PR #316). All of S01 through S05 is shipped: the lookup
+> Nova `62ffaff0` (PR #316). All of S01 through S06 is shipped: the lookup
 > maintenance floors hold their final values, local CCZ export emits the
-> preservable lookup wire, and S05's domain/wire decisions are pinned below.
-> S06 is `ready` — its readiness closure is recorded below. S22 awaits its
+> preservable lookup wire, case identity is opaque text end to end, preview
+> reads the real signed-in worker, and every submission lands through the
+> atomic envelope. S07 awaits its readiness closure. S22 awaits its
 > readiness rebaseline. This file
 > owns execution order,
 > product decisions, slice status, and
@@ -350,11 +351,12 @@ S06 -> S15 users/personas -> S16 organization/location store
 {S04, S07} -> S25 multi-select/related/profile extensions
 ```
 
-S02 through S05 are shipped. S05's exported-value, select-fallback,
+S02 through S06 are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are
 pinned, the local lookup wire is live in ccz export, and the maintenance
-floors hold their final values in production. S06 is `ready` under its
-recorded closure.
+floors hold their final values in production. S06's storage widening,
+identity contract, and atomic envelope are live, and its clean production
+rescan — S07's activation precondition — is recorded.
 S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 needs a
 readiness rebaseline before delegation.
@@ -372,8 +374,8 @@ Compiler verification stays serialized across wire slices.
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b | shipped | PR-01/03, F5 |
-| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | in progress | PR-04, F1/F4 |
-| S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
+| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | shipped | PR-04, F1/F4 |
+| S07 | Preview execution and carrier activation | S06 | planned | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
 | S09 | Project data tables workspace and options authoring | S05c/S07 | blocked | PR-05 |
 | S10 | Wave-one SA, MCP, docs, and closure | S08/S09 | blocked | PR-06 |
@@ -2652,6 +2654,15 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-24 — S06 shipped:** PR #323 merged (`7b0c7a15`) and
+  deployed; the migration Job execution succeeded (no schema change),
+  revision `commcare-nova-00373-t82` serves 100% with all three hosts
+  healthy and zero new-revision errors. That closes the slice: storage
+  activation (PR #321), the resolved preview identity (PR #322), and
+  the atomic submission envelope (PR #323) are all production-verified,
+  and the ledger row flips to `shipped`. S07's activation
+  precondition — the clean production rescan — was recorded with
+  PR #321.
 - **2026-07-24 — S06 atomic submission envelope (last of three units):**
   `agent/s06-atomic-envelope` extends the CaseStore contract with
   `applySubmission` — one tenant-bound transaction for the whole
