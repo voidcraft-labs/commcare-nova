@@ -104,6 +104,7 @@ import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
+import { predicateReferencesTableLookup } from "@/lib/preview/engine/lookupEvaluation";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -312,6 +313,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		scopeKey: `${scopeEpoch}:${moduleUuid ?? ""}`,
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
+		...(lookupStatus.kind === "data" && { lookupData: lookupStatus.data }),
 	});
 	const hasSearchInputs = (config?.searchInputs.length ?? 0) > 0;
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
@@ -326,12 +328,19 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const searchActionIsRelevant =
 		searchConfig !== undefined &&
 		(searchButtonCondition === undefined ||
-			evaluatePreviewSearchPredicate(
-				searchButtonCondition,
-				config?.searchInputs ?? [],
-				searchSession,
-				EMPTY_SEARCH_INPUT_VALUES,
-			));
+			(predicateReferencesTableLookup(searchButtonCondition) &&
+			lookupStatus.kind !== "data"
+				? /* A condition folding over lookup data the session hasn't
+					 * loaded is undecided — keep the Search pane withheld rather
+					 * than flashing a surface the decided value may retract. */
+					false
+				: evaluatePreviewSearchPredicate(
+						searchButtonCondition,
+						config?.searchInputs ?? [],
+						searchSession,
+						EMPTY_SEARCH_INPUT_VALUES,
+						lookupStatus.kind === "data" ? lookupStatus.data : undefined,
+					)));
 	/* A retained flipbook submission belongs to the Search action. If a live
 	 * session/config edit makes that action irrelevant, show the ordinary case
 	 * list instead of silently keeping an inaccessible remote-search query. The

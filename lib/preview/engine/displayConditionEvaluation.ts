@@ -82,9 +82,13 @@ function conditionVisibility(
 	const effective = effectiveDisplayConditionForEmission(args.condition);
 	if (effective === undefined) return "shown";
 
+	/* A carrier-bearing condition is decidable only over loaded data.
+	 * Loading, a failed fetch, and the first-render idle tick all render
+	 * the placeholder — never a guess, never a crash for a transient;
+	 * with loaded data, unavailable identities throw loudly below. */
 	if (
-		predicateReferencesTableLookup(effective) &&
-		args.lookup.kind === "loading"
+		args.lookup.kind !== "data" &&
+		predicateReferencesTableLookup(effective)
 	) {
 		return "pending";
 	}

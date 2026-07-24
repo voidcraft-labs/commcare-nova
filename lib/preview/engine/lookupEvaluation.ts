@@ -348,6 +348,20 @@ export function predicateReferencesTableLookup(predicate: Predicate): boolean {
 	return found;
 }
 
+/** Expression twin of {@link predicateReferencesTableLookup}. */
+export function expressionReferencesTableLookup(
+	expression: ValueExpression,
+): boolean {
+	let found = false;
+	mapExpressionAst(expression, {
+		mapExpression: (expr) => {
+			if (expr.kind === "table-lookup") found = true;
+			return undefined;
+		},
+	});
+	return found;
+}
+
 /**
  * Compute a lookup-backed select's live choices: the filtered rows in
  * authored order, each projected to its value/label column cell text.
