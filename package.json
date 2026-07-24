@@ -55,7 +55,7 @@
 		"@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
 		"@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
 		"@better-auth/api-key": "1.6.23",
-		"@better-auth/oauth-provider": "1.6.23",
+		"@better-auth/oauth-provider": "1.6.25",
 		"@codemirror/autocomplete": "^6.20.1",
 		"@codemirror/language": "^6.12.4",
 		"@floating-ui/react": "^0.27.20",
