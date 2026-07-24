@@ -135,6 +135,7 @@ export * from "./dateSearch";
 export * from "./distance";
 export * from "./errors";
 export * from "./jsonSchema";
+export * from "./mapAst";
 export * from "./normalizeRelationEvaluationScopes";
 export * from "./normalizeRelationReads";
 export * from "./reduction";
