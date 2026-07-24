@@ -4,7 +4,7 @@
 > Nova `62ffaff0` (PR #316). All of S01 through S05 is shipped: the lookup
 > maintenance floors hold their final values, local CCZ export emits the
 > preservable lookup wire, and S05's domain/wire decisions are pinned below.
-> S06 is the next slice and needs its readiness audit. S22 awaits its
+> S06 is `ready` — its readiness closure is recorded below. S22 awaits its
 > readiness rebaseline. This file
 > owns execution order,
 > product decisions, slice status, and
@@ -353,8 +353,8 @@ S06 -> S15 users/personas -> S16 organization/location store
 S02 through S05 are shipped. S05's exported-value, select-fallback,
 filter-scope, dependency, snapshot, and aggregate-fixture contracts are
 pinned, the local lookup wire is live in ccz export, and the maintenance
-floors hold their final values in production. S06 is the next slice and
-needs its readiness audit.
+floors hold their final values in production. S06 is `ready` under its
+recorded closure.
 S11-S14 and S15-S21 may
 overlap only when their worktrees do not share subsystem ownership. S22 needs a
 readiness rebaseline before delegation.
@@ -372,7 +372,7 @@ Compiler verification stays serialized across wire slices.
 | S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b | shipped | PR-01/03, F5 |
-| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | planned | PR-04, F1/F4 |
+| S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | ready | PR-04, F1/F4 |
 | S07 | Preview execution and carrier activation | S06 | blocked | PR-04, F1/F4/F5 |
 | S08 | Conditions and operations authoring | S03/S04/S07 | blocked | PR-05 |
 | S09 | Project data tables workspace and options authoring | S05c/S07 | blocked | PR-05 |
@@ -2293,6 +2293,169 @@ representation across device and Nova. Multi-select form answers bind to the SQL
 expression compiler as string arrays and must be serialized/cast explicitly to
 JSONB inside the atomic executor.
 
+#### S06 readiness closure — 2026-07-24
+
+Drafted blind against merged `main` (`9a959e89`) and the local CommCare
+checkouts, then adjudicated against claim extraction from PR-04, the F1/F4
+memos, and the ACA research memo. No extracted claim overturns the blind
+draft. Four legacy claims were retired as stale by primary evidence: the
+persona-id default owner (superseded by the recorded no-session-persona
+decision), F4's array-order-is-canonical sequencing (the living comparator
+sorts operations by `(order, uuid)`), the v1 exclusion of retypes and
+authored create ids (S04 shipped both), and the catalog-driven subcase
+relationship fix (no catalog relationship vocabulary exists — only operation
+links carry authored `child`/`extension`, so the hardcoded `child` on the
+subcase edge is the only representable value and stays). Two blind-draft
+errors were corrected the same way: `cases_quarantine` no longer exists
+(dropped by `20260721000000_parked_case_values`, so the widening covers
+exactly five columns), and the envelope needs no writer-version
+declaration — the S05c guard triggers cover app-state and lookup tables,
+never the cases family.
+
+The audit narrows the slice: every helper the charter names already shipped
+in S04 with its pinned vectors (`deriveAuthoredCaseId`,
+`prepareCaseOperationTextValue`, `validateResolvedCaseOperationTypeSequence`,
+`planCaseRetype().wirePortable`), wire emission is complete in
+`lib/commcare/xform/caseOps.ts` including the empty-`<update/>` missing-case
+guard and the trailing link-identity guards, the dormant domain vocabulary,
+order proofs, mutation arms, and the server-descriptor reauthorization seam
+(`validateCaseOperationTargetDescriptor`) all exist, and the read-side
+session identity plumbing (`previewSearchSessionValues` →
+`previewCaseStoreBindings`) plus acting-user owner stamping
+(`creationStamps`) are live. S06 changes no wire emission — `lib/commcare`
+is untouched and the recorded wire facts below are the only CCHQ
+re-verification the slice needs. The `CASE_OPERATIONS_NOT_ACTIVE` gate does
+NOT open in S06: S07 owns the expression evaluator, the engine's operation
+descriptor emission, and activation, so S06's clean production rescan is the
+gate's precondition, not its opening.
+
+Wire facts, verified against the checkouts: a case id on the wire is an
+opaque free-text string — `CaseXmlParser::parse` +
+`CaseXmlParserUtil::validateMandatoryProperty` reject only null/empty,
+`case_id` is deliberately absent from `checkForMaxLength`, and HQ bounds it
+only by `CommCareCase.case_id` `CharField(max_length=255, unique)`; a
+`case_type` update rewrites only the type field with no property pruning and
+no value casting (`CaseXmlParser::updateCase`,
+`SqlCaseUpdateStrategy._apply_update_action` / `_update_known_properties`);
+`owner_id` is a first-class mutable element in create and update with
+`@user_id` as the acting user and create-time fallback owner, and `-` is
+HQ's `UNOWNED_EXTENSION_OWNER_ID` sentinel. Supporting facts already
+embodied by the emitter: the server applies each block
+create→update→close→index regardless of child order (`parser.py::CaseUpdate`,
+`xform.py::order_updates`), an empty index target removes the link
+(`CaseXmlParser::indexCase`), create-of-existing merges (every runtime
+caller passes `acceptCreateOverwrites`), and formplayer commits a
+submission's case blocks with the HQ POST as one transaction
+(`FormSubmissionHelper::processAndSubmitForm`) — the model the envelope
+reproduces.
+
+Mechanics, resolved:
+
+- **Identity.** One server-side `ResolvedPreviewIdentity` resolved from the
+  authenticated session at the Server Action boundary, consolidating the
+  three current derivations (`previewSearchSessionValues`, the SQL
+  `TermBindings`, and the `gatedCaseStore` actor) and replacing the form
+  engine's hardcoded `demo_user` map so form XPath `#user/*` and the meta
+  userID read the real signed-in worker. "Preview as me" is the sole S06
+  provider behind a typed seam; the provider contract refuses any identity
+  without a persisted owner id, which is where S15's named personas later
+  plug in — no session-only pseudo-persona exists. User-data keys stay
+  ABSENT when the worker has no value (never coerced to empty), preserving
+  the wire's absent-node comparison split, and the contract exposes no
+  `window_width` and no case-count arm (the S03 correction stands). Owner
+  stamping: a create's owner defaults to the resolved identity; an explicit
+  owner expression overrides it; an update writes `owner_id` only when
+  explicitly set; `unowned` maps to `-`; every effective owner passes
+  `prepareCaseOperationTextValue`.
+- **Envelope.** One tenant-bound CaseStore method applies a whole submission
+  in ONE transaction under the store's existing lock order and
+  in-transaction reauthorization: the ordinary form action (registration
+  primary+children, followup update+children, close including final writes)
+  and the advanced operations execute in the canonical `(order, uuid)`
+  sequence from one pre-submission snapshot. Per operation: create →
+  property writes → rename/retype (scalar columns; retype executes ONLY the
+  `wirePortable` subset, never `planCaseRetype().safe`) → close last →
+  links. Targets resolve server-side in-transaction: `new` mints `uuidv7()`
+  or calls `deriveAuthoredCaseId` and aborts on blank/over-205 keys BEFORE
+  any DML; `op` reads the transaction's allocation record (the same record
+  `id-of` reads; `id-of` never appears in target or link expressions);
+  `session` uses the loaded case; `expression` evaluates in the transaction
+  and reauthorizes through `validateCaseOperationTargetDescriptor`. Repeats
+  expand into physical order and
+  `validateResolvedCaseOperationTypeSequence` runs over the
+  server-authorized descriptors before any write. Link CRUD is
+  identifier-keyed (upsert; remove on null target) and persists each link's
+  AUTHORED `child`/`extension` relationship — the first writer to put a
+  non-`child` value in `case_indices.relationship`. Operation conditions
+  evaluate explicitly from the snapshot, never via render visibility.
+  Multi-select answers serialize `JSON.stringify(...)::jsonb` explicitly in
+  the executor. A duplicate authored id within the store merges on insert
+  (create-of-existing wire parity). The schema-heal retry moves from the
+  individual store call to the envelope boundary — a retry re-runs the
+  whole envelope, safe once nothing partial persists — and any failure
+  rolls back the entire submission with a typed error arm.
+- **Storage widening.** A read-only scan, then ONE deploy-blocking Kysely
+  migration widening exactly `cases.case_id`, `cases.parent_case_id`,
+  `case_indices.case_id`, `case_indices.ancestor_id`, and
+  `parked_case_values.case_id` to `text`, rebuilding the touched PK/indexes
+  and the one FK, and retaining `uuidv7()::text` as the generated-id
+  default. Every statement schema-qualifies its objects
+  (`nova_case_runtime.cases` vs `public.*` per the PR #301 privilege
+  boundary) instead of trusting the connection search path. The
+  `ALTER TYPE`s take ACCESS EXCLUSIVE with a table rewrite; at dogfood
+  scale that is fast, and the old revision's only `::uuid` casts
+  (`conversionImpact`, `bulkUpdateProperties`) sit on schema-migration
+  paths idle during a deploy. The migration is replay-idempotent for the
+  ledger-erase replay and needs NO floor raise — column types change, no
+  write protocol does. The same PR deletes `readCaseData`'s `UUID_PATTERN`
+  gate, both `::uuid` casts, and the documented insertion-order-by-uuid
+  contract.
+- **Ordering.** The durable ordering fact is `(opened_on, case_id)`:
+  `opened_on` is already stamped on every insert (`creationStamps`,
+  mirroring device `date_opened`), so the no-sort default becomes an
+  explicit `ORDER BY opened_on, case_id` instead of heap order, and the
+  paging tie-breaker keeps `case_id` purely as a deterministic total-order
+  key with no time claim. No new column.
+- **URL symmetry.** Case ids cross exactly one URL boundary — the
+  client-side builder path (`lib/routing`) — and cross it raw today,
+  symmetric only because UUIDs are URL-safe. `serializePath`/`buildUrl`
+  encode the segment; `parsePathToLocation` and the pathname readers decode
+  it. No API route or Server Action carries a case id in a path or search
+  param (they ride plain JSON bodies), and `BuilderPage` never reads
+  `params.path`, so the routing module is the whole audit surface.
+- **Multiplayer.** The envelope writes case data, not blueprint state: no
+  `accepted_mutations` rows, no stream frames, no compatibility-floor
+  interaction, and live builder sessions observe nothing until the
+  running-app view re-queries. Write concurrency is the store's existing
+  in-transaction reauthorization plus the per-`(project, app)` relationship
+  advisory lock. The widening ships through the standard blocking Job; open
+  tabs are type-agnostic (the Kysely contract is already `string`).
+- **Authorization.** The envelope executes as the acting user through the
+  existing `gatedCaseStore` → `withProjectContext` → in-transaction
+  `authorizeMutation` fence; no new route, action, or MCP surface. The scan
+  reads production via gcloud IAM; the widening runs as the migration
+  identity in the blocking Job.
+
+A user observes exactly two changes: preview form XPath reads their real
+identity instead of `demo_user`, and followup/close submissions land
+atomically with no observable partial success. Operations remain
+unauthorable until S07 opens the gate, and case ids keep their UUID shape in
+practice until authored ids exist. Verification: per-test-database
+integration suites pin whole-envelope rollback (including the previously
+non-atomic followup/close shapes and a three-operation
+change-together-or-not-at-all acceptance), pre-DML rejection of
+blank/over-205 keys and blank/over-255 text values, self-link,
+rolling-type-mismatch, and duplicate-repeat-value refusal,
+authored-relationship link persistence, explicit multi-select JSONB
+serialization, and non-UUID ids with URL-significant characters through
+create/read/update/close, relation walks, paging and tie-breaks,
+parking/review/restore, retenancy moves, and the envelope; the pinned
+TS↔XPath identity vectors run against the executor; migration suites pin
+replay idempotence and the widened column family; the production scan runs
+before merge and the clean rescan after deploy gates S07's activation. No
+new Playwright journey — the identity swap and atomicity are state-model
+changes; the existing smoke covers the builder chrome.
+
 ### S07 — preview execution and carrier activation
 
 Implement the shared rewrite/fold/SQL-residue evaluator, table choices, atomic
@@ -2489,6 +2652,19 @@ grows; keep every HQ JSON/compiler projection identical.
 
 ## Change log
 
+- **2026-07-24 — S06 readiness closed:** The audit ran under the recorded
+  discipline: a blind draft derived from merged `main` (`9a959e89`) and the
+  CommCare checkouts, with PR-04, F1/F4, and the ACA memo harvested as
+  source-anchored claims in a separate context, and every conflict settled
+  by primary evidence — four legacy claims retired as stale and two
+  blind-draft errors corrected (`cases_quarantine` is already dropped, so
+  the widening covers exactly five columns; the envelope needs no
+  writer-version declaration because the guard triggers never covered the
+  cases family). The closure pins the `ResolvedPreviewIdentity` contract
+  and "Preview as me", the one-transaction submission envelope, the
+  opaque-id widening with the `(opened_on, case_id)` ordering fact and the
+  routing encode/decode symmetry, and holds `CASE_OPERATIONS_NOT_ACTIVE`
+  closed for S07. S06 is `ready`.
 - **2026-07-24 — S05c shipped:** PR #316 passed the full CI matrix after its
   Smoke failure exposed the second production-critical find of the slice: the
   stream admission's deployed-environment clamp resolved to receiver v0
