@@ -505,6 +505,12 @@ export function scopeOfMutations(
 			case "addPersona":
 			case "updatePersona":
 			case "removePersona":
+			case "addOrganizationLevel":
+			case "updateOrganizationLevel":
+			case "removeOrganizationLevel":
+			case "addLocationProperty":
+			case "updateLocationProperty":
+			case "removeLocationProperty":
 				// No widening at all. Every rule over these collections is
 				// app-level, and app-level rules run regardless of scope, so an
 				// empty module/form scope is sound rather than merely cheap. No

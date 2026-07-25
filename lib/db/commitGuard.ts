@@ -148,6 +148,12 @@ export function batchTargetsMissing(
 	const userProperties = new Set(Object.keys(doc.userProperties ?? {}));
 	const userTypes = new Set(Object.keys(doc.userTypes ?? {}));
 	const personas = new Set(Object.keys(doc.personas ?? {}));
+	// The organization's shape, at the same item granularity. Its CONTENTS
+	// are rows rather than doc entities, so nothing here tracks a location:
+	// a mutation can never name one, and the commit transaction is what
+	// proves a persona's assignment still points at a live place.
+	const organizationLevels = new Set(Object.keys(doc.organizationLevels ?? {}));
+	const locationProperties = new Set(Object.keys(doc.locationProperties ?? {}));
 	// A field's parent is a form or a group/repeat field — either may hold it.
 	const container = (uuid: string) => forms.has(uuid) || fields.has(uuid);
 	for (const m of mutations) {
@@ -328,6 +334,27 @@ export function batchTargetsMissing(
 				break;
 			case "updatePersona":
 				if (!personas.has(m.uuid)) return true;
+				break;
+			// ── Organization levels, location properties ───────────────
+			case "addOrganizationLevel":
+				organizationLevels.add(m.level.uuid);
+				break;
+			case "removeOrganizationLevel":
+				if (!organizationLevels.has(m.uuid)) return true;
+				organizationLevels.delete(m.uuid);
+				break;
+			case "updateOrganizationLevel":
+				if (!organizationLevels.has(m.uuid)) return true;
+				break;
+			case "addLocationProperty":
+				locationProperties.add(m.property.uuid);
+				break;
+			case "removeLocationProperty":
+				if (!locationProperties.has(m.uuid)) return true;
+				locationProperties.delete(m.uuid);
+				break;
+			case "updateLocationProperty":
+				if (!locationProperties.has(m.uuid)) return true;
 				break;
 			// ── App-level scalars — no entity target, always safe ──────
 			case "setAppName":

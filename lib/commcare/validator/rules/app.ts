@@ -13,6 +13,7 @@ import {
 	fieldKindMatchesPropertyType,
 	readCasePropertyOn,
 } from "./fieldKindMatchesPropertyType";
+import { ORGANIZATION_RULES } from "./organization";
 import { USER_RULES } from "./users";
 
 function noModules(doc: BlueprintDoc): ValidationError[] {
@@ -361,4 +362,10 @@ export const APP_RULES = [
 	// it, and the personas that act as those roles. App-scoped because none
 	// of the three belongs to a module or a form.
 	...USER_RULES,
+	// Where people work: the rungs of the organization and the catalog of
+	// custom fields the places at those rungs carry. App-scoped for the same
+	// reason — neither belongs to a module or a form. The places THEMSELVES
+	// are rows rather than document content, so every rule that depends on
+	// them lives in the commit transaction instead.
+	...ORGANIZATION_RULES,
 ];

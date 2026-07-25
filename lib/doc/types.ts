@@ -27,9 +27,11 @@ import {
 	columnSortSchema,
 	fieldKinds,
 	formSchema,
+	locationPropertySchema,
 	lookupOptionsSourceSchema,
 	mediaSchema,
 	moduleSchema,
+	organizationLevelSchema,
 	personaSchema,
 	searchInputDefSchema,
 	selectOptionSchema,
@@ -308,6 +310,27 @@ const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 const userPropertyUpdatePatchSchema = clearablePartialPatch(userPropertySchema);
 const userTypeUpdatePatchSchema = clearablePartialPatch(userTypeSchema);
 const personaUpdatePatchSchema = clearablePartialPatch(personaSchema);
+
+// Organization levels and the location-property catalog hold no Predicate
+// or ValueExpression either, so they share the users' story: one schema
+// under both envelopes, and no carrier-blind projection to build.
+//
+// Every clearable slot is null-as-delete-safe. An absent `order` sorts
+// last by uuid, an absent `description` is none, an absent
+// `parentLevelUuid` is a root level, an absent `required` is not
+// required, an absent `choices` is free text, and an absent `levelUuids`
+// means "every level" — which is why `levelUuids` is `.min(1)` on the
+// schema: an EMPTY array would mean "no levels", a state that reads
+// identically to absent in every consumer and would let a clear round-trip
+// as a lie. The required slots (`code`, `name`, `slug`, `label`,
+// `caseFlow`, `addressBook`) stay non-nullable, so a stray `null` for one
+// is a parse error rather than a corrupting assign.
+const organizationLevelUpdatePatchSchema = clearablePartialPatch(
+	organizationLevelSchema,
+);
+const locationPropertyUpdatePatchSchema = clearablePartialPatch(
+	locationPropertySchema,
+);
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
@@ -1078,6 +1101,47 @@ function createMutationSchema({
 			patch: personaUpdatePatchSchema.default(() => ({})),
 		}),
 		z.object({ kind: z.literal("removePersona"), uuid: uuidSchema }),
+		// ─── Organization levels and the location-property catalog ───────────
+		//
+		// Two more flat UUID-keyed collections (`lib/domain/organization.ts`),
+		// same add / update / remove trio, same absence of a `move*` kind for
+		// the same reason: no membership array, so a reorder is an `update`
+		// whose patch names only `order`.
+		//
+		// What is NOT here is the organization's contents. Locations are
+		// app-scoped Postgres rows, not blueprint entities, so there is no
+		// `addLocation` mutation and never will be — a tree of thousands of
+		// nodes fed from an external system is data, not a document. The one
+		// place the two stores meet is a persona's assignment, which names row
+		// identities from inside the document and is therefore carried as an
+		// exact transactional reference edge rather than a plain uuid.
+		//
+		// Removal never cascades inside the reducer. Removing a level while
+		// locations still stand at it is refused in the commit transaction
+		// (the store is what knows), and removing a location property rewrites
+		// the value bags on those rows in the same transaction — neither
+		// decision is a document edit the reducer could make, which is exactly
+		// why they live at the batch-building and commit layers instead.
+		z.object({
+			kind: z.literal("addOrganizationLevel"),
+			level: organizationLevelSchema,
+		}),
+		z.object({
+			kind: z.literal("updateOrganizationLevel"),
+			uuid: uuidSchema,
+			patch: organizationLevelUpdatePatchSchema.default(() => ({})),
+		}),
+		z.object({ kind: z.literal("removeOrganizationLevel"), uuid: uuidSchema }),
+		z.object({
+			kind: z.literal("addLocationProperty"),
+			property: locationPropertySchema,
+		}),
+		z.object({
+			kind: z.literal("updateLocationProperty"),
+			uuid: uuidSchema,
+			patch: locationPropertyUpdatePatchSchema.default(() => ({})),
+		}),
+		z.object({ kind: z.literal("removeLocationProperty"), uuid: uuidSchema }),
 		// ─── Granular case-list collections ──────────────────────────────────
 		//
 		// `caseListConfig.columns` / `.searchInputs` are membership arrays whose

@@ -17,6 +17,10 @@ import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { assetIdSchema } from "./multimedia";
+import {
+	locationPropertySchema,
+	organizationLevelSchema,
+} from "./organization";
 import type { ReferenceIndex } from "./referenceIndex";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
@@ -123,6 +127,27 @@ export const blueprintDocSchema = z
 		userProperties: z.record(z.string(), userPropertySchema).optional(),
 		userTypes: z.record(z.string(), userTypeSchema).optional(),
 		personas: z.record(z.string(), personaSchema).optional(),
+
+		/**
+		 * Where people work (`./organization.ts`): the rungs of the
+		 * organization and the custom-field catalog the places at those
+		 * rungs carry.
+		 *
+		 * The places THEMSELVES are deliberately not here. A location tree
+		 * runs to thousands of nodes and is routinely fed from outside Nova,
+		 * so it lives in app-scoped Postgres rows while the blueprint owns
+		 * only the shape. That split is why removing a level consults the
+		 * store transactionally instead of reading this document alone.
+		 *
+		 * Both are flat UUID-keyed records with no membership array, both
+		 * are OPTIONAL and omitted when empty, and both are read through
+		 * `organizationLevelsOf` / `locationPropertiesOf` rather than
+		 * defaulted at the call site.
+		 */
+		organizationLevels: z
+			.record(z.string(), organizationLevelSchema)
+			.optional(),
+		locationProperties: z.record(z.string(), locationPropertySchema).optional(),
 
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})

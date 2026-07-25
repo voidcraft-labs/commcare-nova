@@ -1210,6 +1210,21 @@ export function planReferenceIndexMaintenance(
 		case "addPersona":
 		case "updatePersona":
 		case "removePersona":
+		// Organization levels and location properties register no edges
+		// either, for the same reason and one more. The in-document
+		// questions they raise — which properties apply to a level, which
+		// levels a level's address book names — are answered by scanning
+		// collections bounded at tens of entries. The question that is NOT
+		// bounded, "does any place still stand at this level", cannot be
+		// answered from the document at all: places are rows. It is settled
+		// transactionally in the commit, which is also the only place an
+		// answer could still be true by the time it is acted on.
+		case "addOrganizationLevel":
+		case "updateOrganizationLevel":
+		case "removeOrganizationLevel":
+		case "addLocationProperty":
+		case "updateLocationProperty":
+		case "removeLocationProperty":
 			break;
 		default: {
 			const _exhaustive: never = mut;
