@@ -41,6 +41,7 @@ import { removeSearchInputTool } from "../removeSearchInput";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { setCaseListFilterTool } from "../setCaseListFilter";
+import { setCaseListTileTool } from "../setCaseListTile";
 import { SA_SEARCH_INPUT_TYPES } from "../shared";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { updateSearchInputTool } from "../updateSearchInput";
@@ -168,6 +169,7 @@ const FLAT_TOOLS = [
 	{ name: "removeSearchInput", tool: removeSearchInputTool },
 	{ name: "reorderSearchInputs", tool: reorderSearchInputsTool },
 	{ name: "setCaseListFilter", tool: setCaseListFilterTool },
+	{ name: "setCaseListTile", tool: setCaseListTileTool },
 ] as const;
 
 describe("case-list-config tool schemas — 8-optional ceiling contract", () => {
@@ -296,6 +298,95 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 			});
 			expect(result.success, `${key} must stay off the SA surface`).toBe(false);
 		}
+	});
+
+	it("takes a tile cell when a column is born, never when one is replaced", () => {
+		// A column joining an already-tiled case list must be born placed or the
+		// gate rejects the add for a field with nowhere to sit. A REPLACEMENT
+		// keeps whatever placement the column already has (the `updateColumn`
+		// reducer preserves the cell unconditionally), so a cell offered here
+		// would be read and silently discarded — `setCaseListTile` moves fields.
+		const column = {
+			kind: "plain",
+			field: "case_name",
+			header: "Patient",
+			tile: { x: 0, y: 0, width: 12, height: 1 },
+		};
+		const born = addCaseListColumnsTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columns: [column],
+		});
+		const replaced = updateCaseListColumnTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columnUuid: "11111111-1111-1111-1111-111111111111",
+			column,
+		});
+
+		expect(born.success).toBe(true);
+		expect(replaced.success).toBe(false);
+	});
+
+	it("setCaseListTile: parses a representative payload", () => {
+		const result = setCaseListTileTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			tile: { persistOnForms: true },
+			placements: [
+				{
+					columnUuid: "11111111-1111-1111-1111-111111111111",
+					cell: {
+						x: 0,
+						y: 0,
+						width: 12,
+						height: 1,
+						horizontalAlign: "center",
+						verticalAlign: "middle",
+						fontSize: "large",
+						showBorder: true,
+						showShading: true,
+					},
+				},
+				{
+					columnUuid: "22222222-2222-2222-2222-222222222222",
+					cell: { x: 0, y: 1, width: 6, height: 1 },
+				},
+			],
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("setCaseListTile: both clears are expressible", () => {
+		// Turning the tile off and taking one field off it are different acts, and
+		// each needs its own explicit null — a tool that could not distinguish
+		// "leave this alone" from "clear this" could express neither.
+		const layoutOff = setCaseListTileTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			tile: null,
+		});
+		const fieldUnplaced = setCaseListTileTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			placements: [
+				{ columnUuid: "11111111-1111-1111-1111-111111111111", cell: null },
+			],
+		});
+		const plainTile = setCaseListTileTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			tile: {},
+		});
+
+		expect(layoutOff.success).toBe(true);
+		expect(fieldUnplaced.success).toBe(true);
+		expect(plainTile.success).toBe(true);
+	});
+
+	it("setCaseListTile: a placement always decides where the field goes", () => {
+		// `cell` is required-and-nullable, so "named but unstated" — the shape a
+		// caller reaches for when it means "leave this one alone" — is rejected
+		// rather than read as a clear. Leaving the field out is how you keep it.
+		const result = setCaseListTileTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			placements: [{ columnUuid: "11111111-1111-1111-1111-111111111111" }],
+		});
+		expect(result.success).toBe(false);
 	});
 
 	it("removeCaseListColumn: parses a representative payload", () => {

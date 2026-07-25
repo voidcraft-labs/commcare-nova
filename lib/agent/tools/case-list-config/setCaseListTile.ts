@@ -260,7 +260,12 @@ function errorResult(
 	doc: BlueprintDoc,
 	error: string,
 ): MutatingToolResult<SetCaseListTileResult> {
-	return { kind: "mutate" as const, mutations: [], newDoc: doc, result: { error } };
+	return {
+		kind: "mutate" as const,
+		mutations: [],
+		newDoc: doc,
+		result: { error },
+	};
 }
 
 /**

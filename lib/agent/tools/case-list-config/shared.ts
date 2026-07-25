@@ -24,10 +24,12 @@
  * `lib/agent/blueprintHelpers.ts` — the same builders any non-SA
  * caller (UI mutation) reuses. This file owns the SA-boundary inputs:
  *
- *   - `columnInputSchema` / `searchInputDefInputSchema` — the
- *     discriminated-union shapes the SA passes when adding or updating
- *     an entry. `uuid` is omitted from each arm; the tool mints it on
- *     `add` and looks it up on `update`.
+ *   - `columnInputSchema` / `columnUpdateInputSchema` /
+ *     `searchInputDefInputSchema` — the discriminated-union shapes the SA
+ *     passes when adding or updating an entry. `uuid` is omitted from each
+ *     arm; the tool mints it on `add` and looks it up on `update`.
+ *   - `tileCellInputSchema` / `caseTileLayoutInputSchema` /
+ *     `tilePlacementInputSchema` — the tile-layout shapes.
  *   - `newUuid` — uuid mint helper.
  *
  * The `moduleNotFoundResult` helper is consumed by every case-list-
@@ -87,9 +89,10 @@ const carrierBlindValueExpressionInputSchema =
 // ── Tool input schemas — column + search-input shapes without uuid ──
 //
 // `addCaseListColumns` mints a fresh uuid per column; `updateCaseListColumn`
-// preserves the existing uuid keyed by `columnUuid`. Both accept the
-// same kind-discriminated body, so we reuse one input schema across
-// both surfaces. Same approach for the search-input tools.
+// preserves the existing uuid keyed by `columnUuid`. Both accept the same
+// kind-discriminated body — built from one set of arms, with the replace
+// surface dropping the tile cell as well (see `columnUpdateInputSchema`).
+// The search-input tools share one schema across both surfaces.
 //
 // Each arm comes from `columnSchema.options` / `searchInputDefSchema.options`.
 // Column identity plus generic/Results/Details order keys are tool-owned and
@@ -102,8 +105,8 @@ const carrierBlindValueExpressionInputSchema =
 
 // Positional destructure of the domain `columnSchema` arms — the order
 // MUST track `columnSchema`'s `z.discriminatedUnion([...])` member order
-// in `lib/domain/modules.ts`. Adding a column kind there requires adding
-// it here (and to `columnInputSchema` below) in the same position.
+// in `lib/domain/modules.ts`. Adding a column kind there requires adding it
+// here, and to both column-input unions below, in the same position.
 const [
 	plainColumnArm,
 	dateColumnArm,
@@ -152,7 +155,11 @@ const calculatedColumnInputArm = calculatedColumnArm
  * same shape with the same words.
  */
 function refineColumnScreenMembership(
-	column: { visibleInList?: boolean; visibleInDetail?: boolean; sort?: unknown },
+	column: {
+		visibleInList?: boolean;
+		visibleInDetail?: boolean;
+		sort?: unknown;
+	},
 	ctx: z.RefinementCtx,
 ): void {
 	if (

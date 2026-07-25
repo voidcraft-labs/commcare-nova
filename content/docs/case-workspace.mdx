@@ -63,6 +63,57 @@ Search button's display condition.
 After each update, return to the field to see the remaining uses. Once none
 remain, the dialog closes and **Remove search field** is ready for you again.
 
+## Lay results out as a tile
+
+A result is normally one row: each piece of information gets a column, and the
+columns run left to right. A **tile** is the other way to lay Results out. The
+result becomes a card, and each piece of information takes a rectangle on a
+12 × 12 grid — a name across the top, a status in the corner, a date
+underneath.
+
+Reach for a tile when the row runs out of room or stops reading well: when a
+name deserves to be larger than everything beside it, when two short values
+belong together on one line, or when people are scanning for a shape rather
+than reading across. Keep the row of columns when every piece of information
+is short and people compare the same value down the list — a row is easier to
+scan that way, and it needs no arranging.
+
+Turning the tile on and placing the information happen together. Every piece
+of information shown in Results needs a place on the grid, because a tile has
+no off-screen column: anything without a place lands wherever the grid happens
+to have room. So give each item a place, or hide it from Results first. The
+one exception worth knowing: an item you have hidden from Results still needs
+a place if Default order sorts by it, because the list has to carry the value
+to order by it.
+
+Give an item a place by choosing where it starts and how far it reaches — the
+column and row it begins at, and how many columns and rows it spans. Two items
+may never cover the same square. Because of that, a swap is a single
+rearrangement, not two moves: the halfway state where both items sit on one
+square is not a layout Nova will keep.
+
+Each placed item can also carry how it looks: where its text sits inside its
+own rectangle, its text size, and whether it gets a border or shading. Two of
+those behave in ways worth knowing up front:
+
+- **Border and shading are tile-wide.** Turning either on for a single item
+  puts the whole tile into a boxed layout, which changes the spacing of every
+  other item on the tile — not just the one you set. Decide them for the tile,
+  not for one piece of information.
+- **Text size is inherited when you leave it alone.** An item with no size set
+  reads at the same size as the rest of the list. There is no default size Nova
+  fills in, so set a size only where an item should stand out or recede.
+
+The tile is the layout for Results everywhere Results appear, so the list
+people search into looks the same as the list they browse. You can also ask for
+the tile to stay on screen above every form in the module, so the person
+filling in a form can always see which case they are working on. Details keeps
+its own arrangement either way.
+
+Going back to a row of columns keeps every placement. Nothing you arranged is
+lost, so you can try a tile, switch back, and switch to it again without
+redrawing the layout.
+
 ## Choose which cases people can find
 
 Search owns the action people use to continue and any **Search fields** they
