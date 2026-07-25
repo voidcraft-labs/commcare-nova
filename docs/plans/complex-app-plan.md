@@ -557,7 +557,7 @@ export-time verdicts, the export budget, the wire manifest, and the deletion gua
 live in `lib/media`. The manifest filters a document's referenced ids to the
 Project, which is also the exfiltration-via-compile defense — a foreign-Project
 reference resolves to `MEDIA_ASSET_NOT_FOUND` rather than being emitted. This is
-authoring media (menu icons, field images); case-captured media is unit 6.
+authoring media (menu icons, field images); case-captured media is unit 5.
 
 ### Export and HQ upload
 
@@ -706,13 +706,45 @@ can ask for it to be taken away again.
 
 **Depends on:** units 1 and 2.
 
-### 4 — Tile contracts and wire
+### 4 — Case tiles
 
-**PR:** `Case tile layout: identities, validation, and wire emission`
+**PRs:**
+1. `Case tile layout: authoring, preview, and wire`
+2. `Grouped case tiles`
 
-Land stable tile and grouping identities, validation, reference edges, HQ JSON,
-suite emission, and oracle fixtures. Author-facing surfaces use Nova relationship
-vocabulary, never `parentIndex`.
+Split by capability, not by layer: a laid-out tile is a complete, exportable
+feature on its own, and grouping is a further capability on top of it. Neither
+PR leaves emission that nothing can produce.
+
+Land stable tile identities, validation, reference edges, HQ JSON, suite
+emission, the query layer, preview rendering, and the layout authoring surface.
+Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
+
+Add group-aware ordering and pagination **at the data layer** before rendering.
+Groups cannot be formed after a 50-row page is fetched: grouped lists are
+re-sorted by first-appearance order of the group key after the user sort and
+before pagination (`EntityScreenHelper::groupEntities` performs a stable
+clustering sort), and pagination then counts group boundaries on adjacent keys
+(`EntityListResponse::getEntitiesForCurrentPage`). A grouped list pages by group,
+not by row, and Nova's preview and query layers apply the same clustering
+re-sort — including for a user sort that does not cluster by the parent index.
+
+Web Apps tile rendering is fully specified in source and is the parity target:
+Formplayer serializes `Tile[]` grid coordinates plus `Style[]`,
+`usesCaseTiles`/`maxWidth`/`maxHeight`/`numEntitiesPerRow`/`useUniformUnits`/`groupHeaderRows`,
+and a per-entity `groupKey`; cloudcare converts coordinates to 1-based CSS
+`grid-area` (`views.js::getGridAttributes`), builds the container grid via
+`buildCellGridStyle`, splits header from body fields by `gridY < groupHeaderRows`,
+and renders the persistent tile sticky above forms (`PersistentCaseTileView`,
+suppressed in App Preview only).
+
+Define pager semantics, persistent-tile locations, presets, responsive rendering,
+keyboard and numeric layout alternatives, and one visual parity journey.
+
+Because `entitiesPerRow` and `uniformCells` are excluded from constructible state,
+the parity renderer must pin what it assumes in their absence — the runtime
+defaults, one tile per row and non-uniform units — and the parity journey asserts
+against those values rather than leaving them implicit.
 
 Binding wire facts:
 
@@ -752,57 +784,13 @@ Binding wire facts:
   Nova tile config emits fully on any domain with no setup-artifact prerequisite.
   Grouping needs CommCare ≥ 2.54 on the client, which the Web Apps target gives.
 
-**Observed:** nothing yet — this unit is wire and validation only.
-
-This is the one split where emission lands before its authoring surface, and it
-does not contradict the no-speculative-machinery rule: the consumer ships in the
-same PR. The oracle fixtures are that consumer, and the bar is the standing one —
-every emitted byte is asserted against the CommCare tile fixtures —
-`suite/suite-case-tiles.xml`, `suite/case_tile_template_format.xml`, and
-`suite/case-tile-case-detail.xml` under
-`commcare-hq/corehq/apps/app_manager/tests/data/` — so the question answered is
-"would HQ's importer accept these bytes", not "does the shape look right".
-Smart links are excluded elsewhere precisely because they would have *no*
-consumer at all.
+**Observed:** an author lays out a case tile on a grid, exports it, and sees the
+same layout in the running preview that a device would show; then groups a child
+list under its parent and sees it page by group.
 
 **Depends on:** nothing outstanding.
 
-### 5 — Tile query, preview, and authoring
-
-**PR:** `Case tile query layer, preview rendering, and layout authoring`
-
-Add group-aware ordering and pagination **at the data layer** before rendering.
-Groups cannot be formed after a 50-row page is fetched: grouped lists are
-re-sorted by first-appearance order of the group key after the user sort and
-before pagination (`EntityScreenHelper::groupEntities` performs a stable
-clustering sort), and pagination then counts group boundaries on adjacent keys
-(`EntityListResponse::getEntitiesForCurrentPage`). A grouped list pages by group,
-not by row, and Nova's preview and query layers apply the same clustering
-re-sort — including for a user sort that does not cluster by the parent index.
-
-Web Apps tile rendering is fully specified in source and is the parity target:
-Formplayer serializes `Tile[]` grid coordinates plus `Style[]`,
-`usesCaseTiles`/`maxWidth`/`maxHeight`/`numEntitiesPerRow`/`useUniformUnits`/`groupHeaderRows`,
-and a per-entity `groupKey`; cloudcare converts coordinates to 1-based CSS
-`grid-area` (`views.js::getGridAttributes`), builds the container grid via
-`buildCellGridStyle`, splits header from body fields by `gridY < groupHeaderRows`,
-and renders the persistent tile sticky above forms (`PersistentCaseTileView`,
-suppressed in App Preview only).
-
-Define pager semantics, persistent-tile locations, presets, responsive rendering,
-keyboard and numeric layout alternatives, and one visual parity journey.
-
-Because `entitiesPerRow` and `uniformCells` are excluded from constructible state,
-the parity renderer must pin what it assumes in their absence — the runtime
-defaults, one tile per row and non-uniform units — and the parity journey asserts
-against those values rather than leaving them implicit.
-
-**Observed:** an author lays out a case tile on a grid, groups a child list by its
-parent, and sees the same layout in the running preview that a device would show.
-
-**Depends on:** unit 4.
-
-### 6 — Capture, storage, and submission lifecycle
+### 5 — Capture, storage, and submission lifecycle
 
 **PR:** `Media capture in forms: staged upload, lifecycle, and case references`
 
@@ -815,28 +803,26 @@ Specify staged upload, cancellation, retry, required/relevant behavior, repeat
 support, compensation and orphan cleanup, authorization, case-reference deletion
 guards, and why case captures do not pollute the authoring media library.
 
-The `MEDIA_CASE_PROPERTY` validator rule
-(`lib/commcare/validator/rules/form.ts::mediaCaseProperty`) currently rejects
-media capture kinds carrying `case_property_on`. This unit lifts that rejection
-for exactly the save-to-case shapes and keeps it for a media kind with
-`case_property_on` and no mode.
+This unit stops at the form. The `MEDIA_CASE_PROPERTY` validator rule
+(`lib/commcare/validator/rules/form.ts::mediaCaseProperty`) keeps rejecting media
+capture kinds that carry `case_property_on`, and unit 5 lifts it — writing a
+capture onto the case is inseparable from emitting its URL column, so the two
+ship together rather than leaving a field an author can tick and no export can
+represent. Nothing here needs a deployment target, which is why it can go first.
 
-Lifting it makes save-to-case constructible one unit before unit 7 can emit it,
-which would otherwise mean an author ticks "save to the case" and every export
-silently emits nothing — the failure mode the total-emitter contract exists to
-prevent. So this unit also lands the export boundary finding that says so, beside
-`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE` in `lib/export/boundaryValidation.ts`, and unit
-7 removes it. Naming the refusal is the whole point: a person who cannot export
-must be told which field is holding it back.
-
-**Observed:** a worker photographs something in a preview form and the image
-survives submission, appears against the case, and can be replaced or removed.
+**Observed:** a worker photographs something in a preview form, the image rides
+the submission, and it can be replaced or removed before submitting.
 
 **Depends on:** nothing outstanding.
 
-### 7 — Attachment target-aware emission and link UX
+### 6 — Attachment target-aware emission and link UX
 
 **PR:** `Attachment URL columns, link presentation, and the opt-in legacy attachment mode`
+
+Lift the `MEDIA_CASE_PROPERTY` rejection for exactly the save-to-case shapes —
+keeping it for a media kind with `case_property_on` and no mode — and ship that
+constructibility together with the emission it needs, so save-to-case is never
+authorable without a wire spelling.
 
 Add target-aware URL-property emission only when the deployment server and domain
 are known, explicit link presentation, preview replacement and removal, SA and
@@ -865,7 +851,7 @@ The emitted value is a calculate over the submission's own metadata —
 `concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/',
 '<attachment name>')` — so `instance_id` comes from the form instance and the
 attachment name from the capture field. Both halves of the origin come from the
-deployment record, which is why this unit waits on unit 12. A local `.ccz` export
+deployment record, which is why this unit waits on unit 11. A local `.ccz` export
 has no origin or domain to resolve, so it emits the field without the URL column
 and says so at export time rather than writing a URL that resolves nowhere.
 - An empty `<attachment>` element removes a case attachment on both runtimes.
@@ -873,9 +859,9 @@ and says so at export time rather than writing a URL that resolves nowhere.
 **Observed:** a case list shows a working link to a captured photo, and an author
 is told plainly why inline display is not offered.
 
-**Depends on:** unit 6, and the deployment target from unit 12.
+**Depends on:** unit 5, and the deployment target from unit 11.
 
-### 8 — User types and preview personas
+### 7 — User types and preview personas
 
 **PR:** `User types and preview personas as first-class blueprint objects`
 
@@ -922,7 +908,7 @@ that type, and sees conditions on `session/user/data` behave.
 
 **Depends on:** nothing outstanding.
 
-### 9 — Organization model and locations store
+### 8 — Organization model and locations store
 
 **PR:** `Organization levels, the app-scoped locations store, and owner validation`
 
@@ -930,7 +916,7 @@ Land the app-wide custom-field catalog, stable level and site codes, app-scoped
 location rows, realtime revisions, cross-store lock discipline, row integrity,
 archive and reassignment rules, Project-move handling, and role-aware owner
 validation. The model validates whether a fixed destination can belong to each
-applicable persona's address-book footprint; unit 10 proves the emitted fixture
+applicable persona's address-book footprint; unit 9 proves the emitted fixture
 actually carries it.
 
 Binding facts:
@@ -978,9 +964,9 @@ and Nova names them as such rather than exposing eight booleans.
 **Observed:** an author builds a district/facility hierarchy, assigns a persona to
 a facility, and is warned before archiving a location that owns cases.
 
-**Depends on:** unit 8.
+**Depends on:** unit 7.
 
-### 10 — Usercase, owner sets, restore scope, and wire
+### 9 — Usercase, owner sets, restore scope, and wire
 
 **PR:** `Usercase materialization, owner sets, restore closure, and the location fixture`
 
@@ -1076,9 +1062,9 @@ emits its instance declaration without any authored placeholder.
 **Observed:** previewing as a persona shows exactly the cases that persona's
 worker would see on a device.
 
-**Depends on:** unit 9.
+**Depends on:** unit 8.
 
-### 11 — Representable automations and setup guidance
+### 10 — Representable automations and setup guidance
 
 **PR:** `Automations as blueprint objects with a regenerated HQ setup artifact`
 
@@ -1142,7 +1128,7 @@ Not every criterion in that closed vocabulary can back the "currently matches N
 cases" count, because the count runs through the AST→Kysely compiler over Nova's
 own case rows. Nova makes constructible exactly the criteria it can evaluate
 locally: the nine `MatchPropertyDefinition` match types, `ClosedParentDefinition`,
-and — once unit 9 lands its rows — `LocationFilterDefinition`. `UCRFilterDefinition`
+and — once unit 8 lands its rows — `LocationFilterDefinition`. `UCRFilterDefinition`
 references a report config Nova does not model, code-registered customs vary per
 HQ instance, and `filter_on_server_modified` measures HQ server-modified age,
 which has no local counterpart. Those three stay setup-artifact-only: authorable
@@ -1154,9 +1140,9 @@ count could not include — a silent under- or over-count is worse than no count
 matches, and receives copy-pasteable HQ setup steps rather than a false promise of
 execution.
 
-**Depends on:** unit 9 (location criteria) and unit 8 (user-data filters).
+**Depends on:** unit 8 (location criteria) and unit 7 (user-data filters).
 
-### 12 — Deployment core and artifact
+### 11 — Deployment core and artifact
 
 **PR:** `Durable deployment records, ownership mappings, and the setup artifact`
 
@@ -1167,7 +1153,7 @@ endpoint URLs or dependent drivers consume it.
 
 The setup artifact is the regenerated, human-applied half of deployment: the user-
 data field schema, the organization model (level definitions are UI-only — see
-unit 13), and automations. It regenerates from the document on every export behind
+unit 12), and automations. It regenerates from the document on every export behind
 a push port.
 
 The state machine is this unit's core deliverable, so it is enumerated here rather
@@ -1179,21 +1165,21 @@ fails lands there and withholds both `released` and `runnable`, and it is reache
 from any earlier state. Every phase is independently retryable from the state it
 failed in, and retrying never requires re-importing the app.
 
-Existing export guards stay until unit 13 can satisfy them: you cannot upload an
+Existing export guards stay until unit 12 can satisfy them: you cannot upload an
 app that references a resource you have not pushed.
 
 **Observed:** an author connects an HQ domain, sees exactly what Nova will create
 there and what they must set up by hand, and can retry a failed phase without
 re-importing the app.
 
-**Depends on:** units 8, 9, and 11 for artifact content.
+**Depends on:** units 7, 8, and 10 for artifact content.
 
-### 13 — Push and provisioning drivers
+### 12 — Push and provisioning drivers
 
 **PR:** `Push referenced lookup tables and locations, and provision workers`
 
 Implement referenced-table push, location push, and explicit worker provisioning
-against the ownership mappings from unit 12. Preflight organization levels,
+against the ownership mappings from unit 11. Preflight organization levels,
 fields, and toggles before external mutation. Push and verify required tables and
 locations before app import or release where the target APIs permit. If an
 unavoidable required step can occur only after import, its failure leaves the
@@ -1257,9 +1243,9 @@ Binding facts:
 **Observed:** an author pushes an app whose selects are backed by a Project lookup
 table, and the table exists on HQ before the app that references it.
 
-**Depends on:** unit 12.
+**Depends on:** unit 11.
 
-### 14 — App setup UI, SA, MCP, and docs
+### 13 — App setup UI, SA, MCP, and docs
 
 **PR:** `App setup workspace: users, organization, automations, and deployment`
 
@@ -1269,11 +1255,12 @@ deployment progress and retry, and honest target prerequisites. Complete the SA
 and MCP tools, the public docs, and the cross-facility owner/restore walkthrough
 scenario.
 
-**Observed:** everything from units 8–13 is reachable without chat.
+**Observed:** every capability from units 7 through 12 is reachable
+without chat.
 
-**Depends on:** units 8–13.
+**Depends on:** units 7, 8, 9, 10, 11, and 12.
 
-### 15 — Exclusive form links and sections
+### 14 — Exclusive form links and sections
 
 **PRs:**
 1. `Durable form-link identity and exclusive link projection`
@@ -1346,7 +1333,7 @@ predictably.
 
 **Depends on:** nothing outstanding.
 
-### 16 — Nested menus and linked-form reuse
+### 15 — Nested menus and linked-form reuse
 
 **PR:** `One-tier menu nesting and native linked-form reuse`
 
@@ -1374,9 +1361,9 @@ Binding facts:
 **Observed:** an author groups modules under a parent menu and reuses one form
 from two places without duplicating its content.
 
-**Depends on:** unit 15.
+**Depends on:** unit 14.
 
-### 17 — Session endpoints and deep links
+### 16 — Session endpoints and deep links
 
 **PR:** `Session endpoints and shareable deep links`
 
@@ -1448,12 +1435,12 @@ Binding facts:
 **Observed:** an author copies a link that opens a specific case in a specific
 form, and is told plainly when the target domain lacks the required toggle.
 
-**Depends on:** units 13 and 16 — 13 rather than 12 because a shareable link must
+**Depends on:** units 12 and 15 — 12 rather than 11 because a shareable link must
 resolve to a *released* build whose referenced tables and locations already exist
 on the target; linking into an app whose lookup tables were never pushed produces
 a dead claim frame at runtime rather than a build-time error.
 
-### 18 — Multi-select, related cases, and profile extensions
+### 17 — Multi-select, related cases, and profile extensions
 
 **PRs:**
 1. `Multi-select case lists and selected-case operation semantics`
@@ -1509,7 +1496,7 @@ The emitted datums and claim POST are asserted against
 **Observed:** a worker selects several cases at once and runs one form over all of
 them.
 
-**Depends on:** unit 13 — the profile PR needs a live push path to confirm that
+**Depends on:** unit 12 — the profile PR needs a live push path to confirm that
 the `CUSTOM_PROPERTIES` toggle is present on the target before offering authored
 properties that HQ would otherwise merge away silently.
 
@@ -1524,35 +1511,35 @@ Each unit's prerequisites, matching its "Depends on" line above:
 | 1 conditions/operations authoring | — |
 | 2 Project data workspace | — |
 | 3 SA, MCP, docs | 1, 2 |
-| 4 tile wire | — |
-| 5 tile query/preview/authoring | 4 |
-| 6 media capture | — |
-| 7 attachment emission and link UX | 6, 12 |
-| 8 user types and personas | — |
-| 9 organization and locations store | 8 |
-| 10 usercase, owner sets, wire | 9 |
-| 11 automations | 8, 9 |
-| 12 deployment core and artifact | 8, 9, 11 |
-| 13 push and provisioning drivers | 12 |
-| 14 App setup UI, SA, MCP, docs | 8, 9, 10, 11, 12, 13 |
-| 15 form links and sections | — |
-| 16 nested menus and linked-form reuse | 15 |
-| 17 session endpoints and deep links | 13, 16 |
-| 18 multi-select, related cases, profile | 13 |
+| 4 case tiles | — |
+| 5 media capture in forms | — |
+| 6 save-to-case and attachment link UX | 5, 11 |
+| 7 user types and personas | — |
+| 8 organization and locations store | 7 |
+| 9 usercase, owner sets, wire | 8 |
+| 10 automations | 7, 8 |
+| 11 deployment core and artifact | 7, 8, 10 |
+| 12 push and provisioning drivers | 11 |
+| 13 App setup UI, SA, MCP, docs | 7, 8, 9, 10, 11, 12 |
+| 14 form links and sections | — |
+| 15 nested menus and linked-form reuse | 14 |
+| 16 session endpoints and deep links | 12, 15 |
+| 17 multi-select, related cases, profile | 12 |
 
 Six units have no outstanding prerequisites and can start in any order: 1, 2, 4,
-6, 8, and 15. They are also the six independent entry points — every other unit
-descends from one of them.
+5, 7, and 14. They are the independent entry points — every other unit descends
+from one of them.
 
-Two chains dominate the critical path. The deployment chain
-(8 → 9 → 11 → 12 → 13) gates units 7, 14, 17, and 18, so anything needing a real
-HQ target waits on it. The navigation chain (15 → 16 → 17) is independent until
-17, which needs both.
+The deployment chain (7 → 8 → 10 → 11 → 12) is the critical path: it gates units
+6, 13, and 16, so anything needing a real HQ target waits on it. The navigation
+chain (14 → 15) runs independently until unit 16, which needs both.
 
-Units 3, 5, 7, 14, 17, and 18 are leaves — nothing waits on them, so each can land
-whenever its own prerequisites are met. Unit 10 sits off the deployment chain's
-critical path: only the App setup UI waits on it, so it can follow unit 9 at any
-point without holding up unit 12.
+Units 3, 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
+whenever its own prerequisites are met. Case tiles (unit 4) are both an entry
+point and a leaf: nothing blocks them and nothing waits on them, which makes them
+the natural filler whenever the deployment chain is blocked on something external.
+Unit 9 sits off the critical path too — only the App setup UI waits on it, so it
+can follow unit 8 without holding up unit 11.
 
 ---
 
