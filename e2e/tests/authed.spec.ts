@@ -1168,7 +1168,7 @@ test.describe("authenticated builder", () => {
 		await expect(addDetailsInformation).toBeFocused();
 	});
 
-	test("a menu's display condition explains where it applies, and Preview runs the screen it governs", async ({
+	test("a module's display condition explains where it applies, and Preview runs the screen it governs", async ({
 		page,
 	}) => {
 		test.setTimeout(120_000);
@@ -1205,7 +1205,7 @@ test.describe("authenticated builder", () => {
 		await conditionSection
 			.getByRole("button", { name: "Add condition" })
 			.click();
-		// A menu is decided before any case exists, so the seed compares a
+		// A module is decided before any case exists, so the seed compares a
 		// session value rather than a case property.
 		await expect(
 			conditionSection.getByRole("button", {
@@ -1217,9 +1217,13 @@ test.describe("authenticated builder", () => {
 		await conditionSection
 			.getByRole("button", { name: "Add condition" })
 			.click();
-		await expect(
-			page.getByRole("menuitem", { name: /^Require a related case/ }),
-		).toBeDisabled();
+		const relatedCaseChoice = page.getByRole("menuitem", {
+			name: /^Require a related case/,
+		});
+		// Withheld WITH its reason rather than silently absent — the
+		// `data-disabled` attribute is what the menu's own styling keys on.
+		await expect(relatedCaseChoice).toContainText("before a case is selected");
+		await expect(relatedCaseChoice).toHaveAttribute("data-disabled", /.*/);
 		await page.keyboard.press("Escape");
 
 		// Preview runs the surface the condition governs — the home screen —
