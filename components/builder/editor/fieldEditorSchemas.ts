@@ -15,6 +15,7 @@
 import { CasePropertyEditor } from "@/components/builder/editor/fields/CasePropertyEditor";
 import { MediaSlotEditor } from "@/components/builder/editor/fields/MediaSlotEditor";
 import { OptionsEditor } from "@/components/builder/editor/fields/OptionsEditor";
+import { OptionsSourceEditor } from "@/components/builder/editor/fields/OptionsSourceEditor";
 import { RequiredEditor } from "@/components/builder/editor/fields/RequiredEditor";
 import { ALWAYS_REQUIRED_EXPRESSION } from "@/components/builder/editor/fields/requiredState";
 import { TextEditor } from "@/components/builder/editor/fields/TextEditor";
@@ -397,6 +398,11 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 	data: [
 		casePropertyEntry<SingleSelectField>(),
+		{
+			key: "optionsSource",
+			component: OptionsSourceEditor,
+			label: "Where the choices come from",
+		},
 		{ key: "options", component: OptionsEditor, label: "Options" },
 	],
 	logic: [
@@ -424,6 +430,11 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	data: [
 		casePropertyEntry<MultiSelectField>(),
+		{
+			key: "optionsSource",
+			component: OptionsSourceEditor,
+			label: "Where the choices come from",
+		},
 		{ key: "options", component: OptionsEditor, label: "Options" },
 	],
 	logic: [
