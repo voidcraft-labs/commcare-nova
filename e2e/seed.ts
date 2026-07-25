@@ -28,6 +28,7 @@ import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
 import type { Pool } from "pg";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { withProjectContext } from "@/lib/case-store";
@@ -42,7 +43,10 @@ import {
 	completeAndSettleRun,
 	createApp,
 } from "@/lib/db/apps";
+import { withDeploymentCutoverSession } from "@/lib/db/deploymentCutoverGate";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { getAppDb } from "@/lib/db/pg";
+import { enableLookupReferenceActivationInTransaction } from "@/lib/db/rolloutCompatibility";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -62,6 +66,11 @@ export const SEED = {
 	userName: "Smoke Test User",
 	openAppName: "Smoke — Open Me",
 	deleteAppName: "Smoke — Delete Me",
+	/** Cross-Project move journey: one app plus a second Project the seeded user
+	 *  also owns. The activation switch is turned ON in the local database so
+	 *  the spec drives the real move, not the switched-off refusal. */
+	moveAppName: "Smoke — Move Me",
+	moveProjectName: "Smoke Destination",
 	/** Module-bearing app with a settled conversation — the smoke asserts the
 	 *  transcript hydrates into the docked chat on load, lists in the
 	 *  Conversations view, and survives a New chat → reopen round trip. */
@@ -83,6 +92,9 @@ export const SEED = {
 	scrollQuestionTwoText: "When should a referral close?",
 	scrollQuestionFinalOption: "After the visit is logged",
 } as const;
+
+/** Fixed slug so a re-run replaces the destination Project rather than piling up. */
+const MOVE_DESTINATION_SLUG = `move-destination-${SEED.userId}`;
 
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
 const STATE_FILE = path.join(AUTH_DIR, "state.json");
@@ -209,6 +221,7 @@ async function clearSeedAuthRows(pool: Pool): Promise<void> {
 	// org and leave the re-run's user unable to resolve app scope.
 	const orgSlugs = [
 		`mp-shared-${MP_SEED.userA.id}`,
+		MOVE_DESTINATION_SLUG,
 		...userIds.map((id) => `personal-${id}`),
 	];
 	await pool.query(`DELETE FROM auth_session WHERE "userId" = ANY($1)`, [
@@ -226,6 +239,41 @@ async function clearSeedAuthRows(pool: Pool): Promise<void> {
 		orgSlugs,
 	]);
 	await pool.query(`DELETE FROM auth_user WHERE id = ANY($1)`, [userIds]);
+}
+
+/**
+ * A second Project the seeded user owns — the move journey's destination.
+ * Mirrors `ensurePersonalProject`'s shape without the `personal` marker, so the
+ * Project switcher and the placement policy both treat it as an ordinary
+ * shared Project.
+ */
+async function seedMoveDestinationProject(): Promise<string> {
+	const db = await getAuthDb();
+	const organizationId = randomUUID();
+	await db.transaction().execute(async (tx) => {
+		await tx
+			.insertInto("auth_organization")
+			.values({
+				id: organizationId,
+				name: SEED.moveProjectName,
+				slug: MOVE_DESTINATION_SLUG,
+				logo: null,
+				metadata: null,
+				createdAt: new Date(),
+			})
+			.execute();
+		await tx
+			.insertInto("auth_member")
+			.values({
+				id: randomUUID(),
+				organizationId,
+				userId: SEED.userId,
+				role: "owner",
+				createdAt: new Date(),
+			})
+			.execute();
+	});
+	return organizationId;
 }
 
 async function main(): Promise<void> {
@@ -589,6 +637,26 @@ async function main(): Promise<void> {
 		);
 	}
 
+	/* Cross-Project move journey. The seeded user owns a second Project, so the
+	 * destination list is non-empty and the database's dual-`delete` +
+	 * owner-retention rules are satisfied. Activation runs through the real
+	 * controller transaction rather than a hand-written UPDATE, so the smoke
+	 * proves the enabled path exactly as production reaches it. */
+	const moveDestinationProjectId = await seedMoveDestinationProject();
+	await withDeploymentCutoverSession(await getAppDb(), (session) =>
+		session
+			.transaction()
+			.execute((tx) =>
+				enableLookupReferenceActivationInTransaction(tx, [
+					"project_moves_enabled",
+				]),
+			),
+	);
+	const moveAppId = await createApp(SEED.userId, seedProjectId, randomUUID(), {
+		appName: SEED.moveAppName,
+		status: "complete",
+	});
+
 	// Emit storageState (consumed by the `authed` Playwright project) + a seed
 	// manifest the tests read for the concrete ids.
 	const storageState = buildSessionStorageState({ token, secret, baseUrl });
@@ -606,6 +674,8 @@ async function main(): Promise<void> {
 				olderThreadId,
 				scrollAppId,
 				scrollQuestionThreadId,
+				moveAppId,
+				moveDestinationProjectId,
 				baseUrl,
 			},
 			null,

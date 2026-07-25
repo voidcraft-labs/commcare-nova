@@ -45,14 +45,17 @@ export async function AppList({ projectId, userId }: AppListProps) {
 		listUserProjects(userId),
 	]);
 
-	/* Admins/owners retain the old placement affordance while cross-Project moves
-	 * are temporarily unavailable. It is now an informational popover, not a target
-	 * picker, so the page deliberately performs no destination or owner-membership
-	 * reads that could imply an available move. */
+	/* Placement is a governance act, so only members who hold it in BOTH Projects
+	 * see the control — and the destination list is exactly the other Projects
+	 * where this member holds it. The database re-proves both roles, plus source
+	 * owner retention, inside the move transaction. */
 	const active = projects.find((p) => p.id === projectId);
-	const showProjectMoveInfo = Boolean(
-		active && canManageAppPlacement(active.role),
-	);
+	const canMoveApp = Boolean(active && canManageAppPlacement(active.role));
+	const moveTargets = canMoveApp
+		? projects
+				.filter((p) => p.id !== projectId && canManageAppPlacement(p.role))
+				.map((p) => ({ id: p.id, name: p.name }))
+		: [];
 	const canCreateApp = Boolean(active && roleAllowsApp(active.role, "edit"));
 	const canDeleteApp = Boolean(active && roleAllowsApp(active.role, "delete"));
 
@@ -77,7 +80,8 @@ export async function AppList({ projectId, userId }: AppListProps) {
 				active={activeRes.apps}
 				deleted={deletedRes.apps}
 				canDeleteApp={canDeleteApp}
-				showProjectMoveInfo={showProjectMoveInfo}
+				canMoveApp={canMoveApp}
+				moveTargets={moveTargets}
 			/>
 		</>
 	);

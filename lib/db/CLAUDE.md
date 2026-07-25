@@ -93,9 +93,8 @@ edges; a null-Project app cannot gain a nonempty set, and missing/foreign target
 share one opaque error.
 
 `apps.ts` is the authoritative protocol. Every `createApp`,
-`commitGuardedBatch`, `appendSyntheticBatch`, and dormant
-`commitAppProjectMove` transaction declares lookup writer v1 from the shared
-runtime manifest. Creation prepares
+`commitGuardedBatch`, `appendSyntheticBatch`, and `commitAppProjectMove`
+transaction declares lookup writer v1 from the shared runtime manifest. Creation prepares
 the template exactly once outside the retryable transaction, then takes the
 shared Project-membership advisory gate, authorizes, inserts the root,
 locks/reads lookup definitions, evaluates, checks template
@@ -119,11 +118,12 @@ writes no row and advances no sequence. `repairLookupReferenceEdges` is the
 app-locked maintenance sibling for derived edge state only: it rederives the
 structural target set from the committed blueprint and replaces the stored
 edge sets, writing no entity, history, or sequence. It is server-only and
-script-driven, with no route, action, or MCP exposure. The dormant Project move now implements
-the final transaction but remains production-disabled by its database flag. Its
-test seam requires the enabled compatibility row, compatible writer/receiver
-versions, and no incompatible live stream; the production wrapper declares the
-manifest's current writer/receiver versions. Under the app lock it takes the membership gate, locks the actor and all
+script-driven, with no route, action, or MCP exposure. The cross-Project move
+runs when its database flag is on: the Server Action reads the switch for
+person-readable copy, but `lockProjectMoveCompatibility` re-reads it `FOR SHARE`
+in the move transaction and is the authority. It also requires compatible
+writer/receiver versions and no incompatible live stream; the production wrapper
+declares the manifest's current writer/receiver versions. Under the app lock it takes the membership gate, locks the actor and all
 source-owner membership pairs across both Projects, enforces dual `delete` plus
 owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
@@ -148,10 +148,12 @@ boundary.
 Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
 `CREATE` only in that isolated case schema for concurrent index DDL and receives
-read-only access to compatibility state, not control-table mutation. All four activation
-flags (destructive-schema, carrier-commit, Project-move, case-operations)
-remain false until S07c's controller enables them; `case_operations_enabled`
-shares the carrier CHECK's v3-receiver/v1-reader floors.
+read-only access to compatibility state, not control-table mutation — which is
+why the rollout controller runs as the MIGRATION identity. The four activation
+flags (destructive-schema, carrier-commit, Project-move, case-operations) plus
+the run-holder nonce switch are turned on only by that controller;
+`case_operations_enabled` shares the carrier CHECK's v3-receiver/v1-reader
+floors.
 
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
@@ -207,13 +209,15 @@ as a pooled session setting. `lookupReferenceWriter.ts` is the one transaction
 declaration seam. All authoritative call sites use
 `declareLookupReferenceWriter(tx)`, whose current value derives from
 `config/runtime-capabilities.json` through the validated runtime accessor; it never
-owns a second numeric literal. The database floors hold
+owns a second numeric literal. Migrations seed the database floors at
 `minimum_writer_version = 1` and `minimum_stream_receiver_version = 2` (the
-`lookup_reference_floors` migration). The writer floor matches the manifest;
-the receiver floor deliberately trails the manifest's receiver v3 (the S07b
-bump) — admission takes `min(browser, manifest)`, so pre-v3 tabs stay admitted
-until S07c's raise-and-drain lifts the floor. The runtime-reader floor stays 0
-and every feature flag remains false. Direct DML against a guarded table —
+`lookup_reference_floors` migration) with the runtime-reader floor at 0 and
+every switch off. The receiver floor deliberately trails the manifest's receiver
+v3 — admission takes `min(browser, manifest)`, so pre-v3 tabs stay admitted
+until the rollout controller's raise-and-drain lifts the floor. A migration
+never raises a floor: the deploy-blocking Job runs BEFORE its revision takes
+traffic, so a Job-time raise would revoke every open tab into a pre-cutoff
+bundle. Direct DML against a guarded table —
 tests and hand-run SQL included — must declare writer v1 or fail closed with
 SQLSTATE `55000`.
 
@@ -309,25 +313,36 @@ must never use the 10/15-minute renewable liveness horizons as total drain
 bounds.
 
 `rolloutCompatibility.ts` is the only named compatibility-operation service.
-The activation-FLAG reads (`readLookupActivationForShare` /
-`readLookupActivationFlags`) live in the marker-free `lookupActivation.ts`
-leaf instead: `apps.ts`/`appAccess.ts` import them on the commit path, and the
-tsx-run smoke seeds + inspect scripts import `apps.ts`, so the leaf must load
-under plain Node — adding `server-only` there (or importing the operational
-service from the commit path) breaks every one of those entry points at
-import time, the same trade `threads.ts` documents.
+It is a CONTROL-PLANE module: `scripts/rollout/activate-lookup-references.ts`
+drives every operation in it, and the request path uses exactly one export
+(`readStreamReceiverCompatibilityForShare`, for stream registration). That is
+why it carries no `server-only` marker — the tsx controller could not load it
+otherwise, the same trade `lookupActivation.ts` and `threads.ts` document. The
+activation-FLAG reads stay in `lookupActivation.ts` so the request path depends
+on the reads without the cutover machinery.
 Its status read is one repeatable-read snapshot. Traffic reconciliation and
 runtime-epoch preparation invoke their control-plane snapshot callback only
 after taking the fixed deployment-cutover gate; that callback must perform a
 fresh read when invoked and must never return a pre-captured/cached split. Their
-in-transaction variants exist only for a future explicitly approved activation
-mechanism that already holds the session gate on the same dedicated backend.
+in-transaction variants are what the controller drives: it holds the SESSION
+form of the gate on one pinned connection
+(`withDeploymentCutoverSession`, acquired with `pg_try_advisory_lock` so a
+second cutover aborts instead of queueing) and its transactions re-take the
+gate's transaction form on that same session, which is re-entrant by design.
 Reconciliation deletes invalid runtime epochs but never auto-creates one.
 Runtime floor raise locks cutover → compatibility `FOR UPDATE` → plain
 MVCC holder census (never app rows); the stream-receiver floor raise is a plain
-monotonic write under the same gate and never evicts an admitted lease. The
-service exposes only
-explicit emergency flag disablement—no flag-enable bypass. Stream registration
+monotonic write under the same gate and never evicts an admitted lease.
+`enableLookupReferenceActivationInTransaction` is the ONLY enable path and has
+no pool-backed sibling. It re-proves each requested switch's floor thresholds
+(person-readable codes over the database CHECKs) and re-proves the LEASE drain,
+because raising the receiver floor deliberately does not evict admitted leases,
+so below-floor connections legitimately outlive the raise. It deliberately does
+NOT re-prove the holder census: the runtime floor raise already drained it under
+the same `FOR UPDATE` cutoff and the stamp trigger then refuses every new
+below-floor holder, so a blocker there is unrepresentable rather than unlikely —
+the controller reports the census and the audit scans instead. Emergency flag
+disablement stays available on its own. Stream registration
 must compose `apps FOR SHARE` → membership gate/read →
 `readStreamReceiverCompatibilityForShare(tx)` → floor verdict → lease insert in
 one transaction.
@@ -357,7 +372,7 @@ serialize-wait gate/timeout, superseded resume — additionally merges its
 incoming messages via `mergeThreadTurnMessages`, identity/marker untouched,
 so an answered question round survives the refresh the bail recommends.)
 Every thread writer locks the app before its deterministic thread-row lock, so
-the dormant Project move is a serial winner rather than a whole-history race.
+the Project move is a serial winner rather than a whole-history race.
 Writers MERGE by message id (`mergeTranscript` — union, richer version wins),
 never rewrite: a stale tab or a late finalize can add turns, not erase them,
 and an askQuestions continuation lands as ONE merged message. For a shared

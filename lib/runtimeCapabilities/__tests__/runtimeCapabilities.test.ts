@@ -19,6 +19,7 @@ import {
 	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
+	runtimeCapabilityRevisionLabelArgument,
 	streamLeaseTtlSeconds,
 } from "../core.mjs";
 import {
@@ -186,6 +187,24 @@ describe("runtime capability manifest", () => {
 		expect(environment[RUNTIME_CAPABILITY_ENV_KEYS.streamLeaseTtlSeconds]).toBe(
 			"3900",
 		);
+	});
+
+	it("renders one sorted gcloud label argument and rejects invalid pairs", () => {
+		expect(
+			runtimeCapabilityRevisionLabelArgument(
+				runtimeCapabilityRevisionLabels(manifest, buildId),
+			),
+		).toBe(
+			`nova_build=${buildId},nova_manifest=c3ecd827181b36c2,` +
+				"nova_runtime_reader=1,nova_stream_receiver=3," +
+				"nova_stream_registry=1,nova_writer=1",
+		);
+		expect(() =>
+			runtimeCapabilityRevisionLabelArgument({ Nova_Writer: "1" }),
+		).toThrow("Nova_Writer is not a valid Google Cloud label key");
+		expect(() =>
+			runtimeCapabilityRevisionLabelArgument({ nova_writer: "1,nova_build=x" }),
+		).toThrow("nova_writer is not a valid Google Cloud label value");
 	});
 
 	it("keeps validated browser access free of Node hashing", () => {

@@ -7,9 +7,12 @@ import {
 	canonicalRuntimeCapabilityManifest,
 	RUNTIME_BUILD_ID_ENV_KEY,
 	RUNTIME_BUILD_ID_FILE_PATH,
+	RUNTIME_REVISION_LABELS_ENV_KEY,
 	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
+	runtimeCapabilityRevisionLabelArgument,
+	runtimeCapabilityRevisionLabelsFromHash,
 } from "../../lib/runtimeCapabilities/core.mts";
 import { hashCanonicalRuntimeCapabilityManifest } from "../../lib/runtimeCapabilities/serverHash.mts";
 
@@ -93,6 +96,17 @@ function renderShellEnvironment(manifest, manifestHash, buildId) {
 	}
 	if (buildId !== undefined) {
 		lines.push(`export ${RUNTIME_BUILD_ID_ENV_KEY}=${shellQuote(buildId)}`);
+		lines.push(
+			`export ${RUNTIME_REVISION_LABELS_ENV_KEY}=${shellQuote(
+				runtimeCapabilityRevisionLabelArgument(
+					runtimeCapabilityRevisionLabelsFromHash(
+						manifest,
+						manifestHash,
+						buildId,
+					),
+				),
+			)}`,
+		);
 	}
 	return `${lines.join("\n")}\n`;
 }
@@ -215,6 +229,15 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		dockerfile,
 		`> ${RUNTIME_BUILD_ID_FILE_PATH}`,
 		"Dockerfile",
+		issues,
+	);
+	// Without this argument the deployed revision declares nothing, every
+	// capability label parses as v0, and the rollout controller refuses every
+	// floor raise — a silent activation deadlock rather than a build failure.
+	requireExactlyOnce(
+		cloudBuild,
+		`--labels="$$${RUNTIME_REVISION_LABELS_ENV_KEY}"`,
+		"cloudbuild.yaml",
 		issues,
 	);
 

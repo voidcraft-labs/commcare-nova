@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE } from "../../lib/projects/moveTargets";
+import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
 import { expect, test } from "../lib/fixtures";
 
 /**
@@ -35,6 +35,10 @@ interface SeedManifest {
 	scrollQuestionOneText: string;
 	scrollQuestionTwoText: string;
 	scrollQuestionFinalOption: string;
+	moveAppName: string;
+	moveProjectName: string;
+	moveAppId: string;
+	moveDestinationProjectId: string;
 	caseWorkspace: {
 		routes: {
 			search: string;
@@ -269,26 +273,23 @@ test.describe("authenticated builder", () => {
 			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
 		).toBeVisible();
 
-		// Admin/owner placement help is a real sibling action, never nested in the
+		// Admin/owner placement is a real sibling action, never nested in the
 		// primary card link. Exercise its focus contract before navigating.
-		const moveInfo = page.getByRole("button", {
-			name: `About moving ${seed.openAppName}`,
+		const moveControl = page.getByRole("button", {
+			name: `Move ${seed.openAppName} to another Project`,
 		});
-		await expect(moveInfo).toBeVisible();
-		const moveInfoBox = await moveInfo.boundingBox();
-		expect(moveInfoBox).not.toBeNull();
-		expect(moveInfoBox?.width ?? 0).toBeGreaterThanOrEqual(44);
-		expect(moveInfoBox?.height ?? 0).toBeGreaterThanOrEqual(44);
-		await moveInfo.click();
-		const moveInfoTitle = page.getByRole("heading", {
-			name: "Moving between Projects",
-		});
-		await expect(moveInfoTitle).toBeFocused();
+		await expect(moveControl).toBeVisible();
+		const moveControlBox = await moveControl.boundingBox();
+		expect(moveControlBox).not.toBeNull();
+		expect(moveControlBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+		expect(moveControlBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+		await moveControl.click();
 		await expect(
-			page.getByText(CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE),
-		).toBeVisible();
+			page.getByRole("heading", { name: "Move to another Project" }),
+		).toBeFocused();
+		await expect(page.getByText(CROSS_PROJECT_MOVE_DISCLOSURE)).toBeVisible();
 		await page.keyboard.press("Escape");
-		await expect(moveInfo).toBeFocused();
+		await expect(moveControl).toBeFocused();
 
 		// The primary navigation link and card actions are accessible siblings.
 		await page.getByRole("link", { name: `Open ${seed.openAppName}` }).click();
@@ -1432,5 +1433,80 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("tab", { name: "Recently deleted" }),
 		).toBeVisible();
+	});
+
+	/**
+	 * The cross-Project move, end to end, on a database where the activation
+	 * switch is genuinely ON (`e2e/seed.ts` flips it through the same transaction
+	 * the rollout controller runs) — a switched-off run would pass vacuously on
+	 * the refusal branch and prove nothing about the move.
+	 *
+	 * Compact first, then desktop, in ONE sequential journey: the app leaves the
+	 * source list, survives a reload as gone, and is found in the destination
+	 * Project through the switcher. Its case data, media, and history travel with
+	 * it, which is why the disclosure is asserted before the move commits.
+	 */
+	test("an owner moves an app to another Project and finds it there", async ({
+		page,
+	}) => {
+		// Compact width: the placement control and its popover must be reachable
+		// on a phone-sized canvas, not only on the desktop grid.
+		await page.setViewportSize({ width: 390, height: 780 });
+		await page.goto("/");
+
+		const moveControl = page.getByRole("button", {
+			name: `Move ${seed.moveAppName} to another Project`,
+		});
+		await expect(moveControl).toBeVisible();
+		const box = await moveControl.boundingBox();
+		expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+		expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await moveControl.click();
+		await expect(page.getByText(CROSS_PROJECT_MOVE_DISCLOSURE)).toBeVisible();
+
+		// Choosing a destination is required before the action arms.
+		const moveButton = page.getByRole("button", { name: "Move app" });
+		await expect(moveButton).toBeDisabled();
+		const destination = page.getByRole("radio", {
+			name: seed.moveProjectName,
+		});
+		await expect(destination).not.toBeChecked();
+		await destination.check();
+		await expect(destination).toBeChecked();
+		await expect(moveButton).toBeEnabled();
+		await moveButton.click();
+
+		// The real moveApp Server Action → move transaction → revalidatePath("/").
+		const movedHeading = page.getByRole("heading", {
+			name: seed.moveAppName,
+			level: 3,
+		});
+		await expect(movedHeading).toHaveCount(0, { timeout: 20_000 });
+
+		// A reload proves the app left this Project durably, not just optimistically.
+		await page.reload();
+		await expect(
+			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
+		).toBeVisible();
+		await expect(movedHeading).toHaveCount(0);
+
+		// …and arrived: switch the active Project and the app is listed there,
+		// openable at the same id it always had.
+		await page.getByRole("button", { name: "Switch Project" }).click();
+		await page.getByRole("button", { name: seed.moveProjectName }).click();
+		await expect(movedHeading).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("link", { name: `Open ${seed.moveAppName}` }),
+		).toHaveAttribute("href", `/build/${seed.moveAppId}`);
+
+		// Switching writes the active Project onto the shared seeded SESSION, so
+		// restore it — otherwise every later test would list a different Project.
+		await page.getByRole("button", { name: "Switch Project" }).click();
+		await page.getByRole("button", { name: "Personal" }).click();
+		await expect(
+			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
+		).toBeVisible({ timeout: 20_000 });
 	});
 });

@@ -1,4 +1,13 @@
-import "server-only";
+/**
+ * The named compatibility operations behind the lookup-reference rollout.
+ *
+ * Deliberately carries no `server-only` marker: this is a control-plane
+ * service, and the tsx rollout controller — not a route or a component — is the
+ * caller of every operation here except `readStreamReceiverCompatibilityForShare`
+ * (the one request-path export, used by stream registration). The marker would
+ * throw the instant the controller loaded it, the same trade `lookupActivation.ts`
+ * and `threads.ts` document.
+ */
 
 import { sql, type Transaction } from "kysely";
 import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
@@ -559,10 +568,137 @@ export async function raiseMinimumStreamReceiverVersion(
 	);
 }
 
+/** Floors each switch needs before it may turn on, mirroring the DB CHECKs. */
+const ACTIVATION_FLOORS: Readonly<
+	Record<
+		LookupReferenceActivationFlag | "run_holder_nonce_enforced",
+		{ writer: number; receiver: number; reader: number }
+	>
+> = {
+	carrier_commits_enabled: { writer: 1, receiver: 3, reader: 1 },
+	case_operations_enabled: { writer: 0, receiver: 3, reader: 1 },
+	destructive_schema_actions_enabled: { writer: 1, receiver: 0, reader: 0 },
+	project_moves_enabled: { writer: 1, receiver: 1, reader: 0 },
+	run_holder_nonce_enforced: { writer: 0, receiver: 0, reader: 1 },
+};
+
+export type ActivationSwitch =
+	| LookupReferenceActivationFlag
+	| "run_holder_nonce_enforced";
+
+const ACTIVATION_COLUMNS = {
+	carrier_commits_enabled: "carrier_commits_enabled",
+	case_operations_enabled: "case_operations_enabled",
+	destructive_schema_actions_enabled: "destructive_schema_actions_enabled",
+	project_moves_enabled: "project_moves_enabled",
+	run_holder_nonce_enforced: "run_holder_nonce_enforced",
+} as const satisfies Record<ActivationSwitch, string>;
+
 /**
- * Emergency rollback operation. S02c1 deliberately exposes no enable path:
- * later activation tooling must prove flag-specific request/holder/lease drain
- * and audit scans under the same dedicated cutover session.
+ * Turn on the requested activation switches once this transaction has itself
+ * re-proved every precondition. The database CHECKs already refuse a switch
+ * below its floor; re-proving here turns that into a person-readable code, and
+ * the drain proofs close the window between the controller's preflight and this
+ * write — outside one transaction they are only a recent observation.
+ *
+ * The lease drain is proved here because raising the receiver floor
+ * deliberately does NOT evict an admitted lease, so below-floor connections
+ * legitimately outlive the raise and still hold pre-cutoff bundles. The runtime
+ * holder census is NOT re-proved: the floor raise already drained it under the
+ * same `FOR UPDATE` cutoff, and the stamp trigger then refuses every new
+ * below-floor holder, so a blocker here is unrepresentable rather than merely
+ * unlikely. The controller reports the census and the audit scans, which read
+ * state this transaction does not lock.
+ */
+export async function enableLookupReferenceActivationInTransaction(
+	tx: Transaction<AppDatabase>,
+	switches: readonly ActivationSwitch[],
+): Promise<LookupReferenceCompatibilityState> {
+	if (switches.length === 0) {
+		throw new RolloutCompatibilityError(
+			"invalid_version",
+			"Name at least one activation switch to enable.",
+		);
+	}
+	await lockDeploymentCutoverGate(tx);
+	const current = await readCompatibilityRow(tx, "update");
+
+	const unmet = switches
+		.map((name) => ({ name, floors: ACTIVATION_FLOORS[name] }))
+		.filter(
+			({ floors }) =>
+				current.minimum_writer_version < floors.writer ||
+				current.minimum_stream_receiver_version < floors.receiver ||
+				current.minimum_runtime_reader_version < floors.reader,
+		);
+	if (unmet.length > 0) {
+		throw new RolloutCompatibilityError(
+			"activation_floor_unmet",
+			"Raise the compatibility floors before enabling these switches.",
+			{
+				unmet,
+				current: {
+					writer: current.minimum_writer_version,
+					receiver: current.minimum_stream_receiver_version,
+					reader: current.minimum_runtime_reader_version,
+				},
+			},
+		);
+	}
+
+	const observedAt = await databaseNow(tx);
+	const staleLeases = await tx
+		.selectFrom("lookup_stream_capability_leases")
+		.select(["app_id", "connection_id", "receiver_version", "expires_at"])
+		.where("receiver_version", "<", current.minimum_stream_receiver_version)
+		.where("expires_at", ">", observedAt)
+		.orderBy("expires_at", "asc")
+		.limit(16)
+		.execute();
+	if (staleLeases.length > 0) {
+		throw new RolloutCompatibilityError(
+			"activation_receivers_not_drained",
+			"Unexpired below-floor stream leases still hold pre-cutoff bundles.",
+			{
+				receiverFloor: current.minimum_stream_receiver_version,
+				staleLeases: staleLeases.map((lease) => ({
+					appId: lease.app_id,
+					connectionId: lease.connection_id,
+					receiverVersion: lease.receiver_version,
+					expiresAt: lease.expires_at,
+				})),
+			},
+		);
+	}
+
+	const updated = await tx
+		.updateTable("lookup_reference_compatibility")
+		.set({
+			...Object.fromEntries(
+				switches.map((name) => [ACTIVATION_COLUMNS[name], true]),
+			),
+			updated_at: sql<Date>`clock_timestamp()`,
+		})
+		.where("id", "=", 1)
+		.returning([
+			"minimum_writer_version",
+			"minimum_stream_receiver_version",
+			"minimum_runtime_reader_version",
+			"run_holder_nonce_enforced",
+			"carrier_commits_enabled",
+			"destructive_schema_actions_enabled",
+			"project_moves_enabled",
+			"case_operations_enabled",
+			"updated_at",
+		])
+		.executeTakeFirstOrThrow();
+	return compatibilityState(updated);
+}
+
+/**
+ * Emergency rollback operation. There is deliberately no pool-backed enable
+ * sibling: activation belongs to the controller's dedicated cutover session,
+ * which drives the in-transaction form above under the session gate.
  */
 export async function disableLookupReferenceActivationFlagInTransaction(
 	tx: Transaction<AppDatabase>,
