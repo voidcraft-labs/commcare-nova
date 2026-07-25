@@ -17,16 +17,21 @@
 // Two rules a fresh implementation gets wrong, both proven by the
 // templates:
 //
-//   1. **A tile carries more columns than it shows.** A column hidden
-//      from Results that still owns a Default-order rule is emitted as a
-//      zero-width sort carrier
-//      (`lib/commcare/suite/case-list/shortDetail.ts`), and in a tile
-//      that carrier is a real cell: `tile_item.html` renders its value
-//      inside `<div class="d-none">` but the cell div itself still takes
-//      its `grid-area`. So the carrier occupies its square, contributes
-//      to the grid's extent, and draws its box chrome — it just shows no
-//      value. Projecting only the Results-visible columns would compute
-//      a narrower grid than the device draws.
+//   1. **A tile carries more columns than it shows, and the extra ones
+//      hold no square.** A column hidden from Results that still owns a
+//      Default-order rule is emitted as a zero-width sort carrier
+//      (`lib/commcare/suite/case-list/shortDetail.ts`) so the device can
+//      order by it. It is NOT a tile cell: `columns.ts::tileStyleChildren`
+//      refuses a `<style>` for a hidden column, so
+//      `DetailField::isCaseTileField` is false, Formplayer sends a null
+//      tile for it, and `views.js::buildCellLayout` writes no `grid-area`
+//      rule. `tile_item.html` still emits a wrapper div, but its content
+//      goes inside `<div class="d-none">` and `grid.scss::.box` gives the
+//      wrapper no size — an empty, zero-size, auto-placed item. So the
+//      carrier adds nothing to the grid's extent and takes no part in the
+//      tile-wide border/shading switch. `tileResultsColumns` strips the
+//      stored cell from a hidden carrier to keep this projection matching
+//      that.
 //
 //   2. **`text-align` is not part of the alignment switch.** The cell
 //      template emits `text-align` for every cell in every mode, and
@@ -48,9 +53,10 @@ import {
 export interface TileResultsColumn {
 	readonly column: Column;
 	/**
-	 * True for a column the case list hides but still orders by. Its cell
-	 * holds its square in the grid and shows nothing —
-	 * `tile_item.html`'s `widthHint === 0` arm.
+	 * True for a column the case list hides but still orders by. It rides
+	 * the detail so the device can sort on it and draws nothing —
+	 * `tile_item.html`'s `widthHint === 0` arm renders its value inside a
+	 * `d-none` wrapper.
 	 */
 	readonly valueHidden: boolean;
 }
@@ -61,16 +67,28 @@ export interface TileResultsColumn {
  *
  * This is the same set the short detail emits: every column shown in
  * Results, plus every hidden column that owns a Default-order rule. The
- * order matters — it is the order the emitted `<field>`s take, and the
- * grid extent is derived from exactly these cells.
+ * order matters — it is the order the emitted `<field>`s take.
+ *
+ * A hidden carrier arrives here with its stored placement STRIPPED, which
+ * is what keeps this projection honest against the wire. Hiding a column
+ * keeps its cell on the document — an author who hides and unhides should
+ * get their drawing back — but `columns.ts::tileStyleChildren` refuses to
+ * emit a `<style>` for a hidden column, so on the device that carrier is
+ * not a tile field at all: it claims no `grid-area`, adds nothing to the
+ * grid's extent, and takes no part in the tile-wide border/shading switch.
+ * Leaving the cell attached here would let an invisible column silently
+ * widen the tile and box every visible cell in the preview and nowhere
+ * else.
  */
 export function tileResultsColumns(
 	listOrderedColumns: readonly Column[],
 ): readonly TileResultsColumn[] {
-	return listOrderedColumns.flatMap((column) => {
+	return listOrderedColumns.flatMap<TileResultsColumn>((column) => {
 		const hidden = column.visibleInList === false;
 		if (hidden && column.sort === undefined) return [];
-		return [{ column, valueHidden: hidden }];
+		if (!hidden) return [{ column, valueHidden: false }];
+		const { tile: _unemittedCell, ...carrier } = column;
+		return [{ column: carrier as Column, valueHidden: true }];
 	});
 }
 

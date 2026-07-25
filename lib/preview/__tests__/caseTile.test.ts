@@ -239,7 +239,7 @@ describe("the tile-wide border / shading switch", () => {
 });
 
 describe("the columns a tile carries", () => {
-	it("keeps a hidden column that still orders the list, and hides only its value", () => {
+	it("keeps a hidden column that still orders the list, without giving it a square", () => {
 		const carried = tileResultsColumns([
 			plainColumn(NAME, "case_name", "Patient", {
 				tile: tileCell(0, 0, 4, 1),
@@ -260,10 +260,12 @@ describe("the columns a tile carries", () => {
 			[NAME, false],
 			[VILLAGE, true],
 		]);
-		// The carrier holds its square, so the grid is six columns wide —
-		// projecting only the visible column would draw four.
+		// The carrier keeps the list's order but claims no square: the wire
+		// refuses a `<style>` for a hidden column, so letting its stored cell
+		// through would widen the tile in the preview and nowhere else.
+		expect(carried[1].column.tile).toBeUndefined();
 		expect(projectTileGrid(carried.map((entry) => entry.column)).columns).toBe(
-			6,
+			4,
 		);
 	});
 
