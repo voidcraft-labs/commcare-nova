@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type ExactRunHolderIdentity,
 	exactRunHolderMatches,
+	toExactRunHolderIdentity,
 	updatedExactlyOne,
 } from "../runHolderWrites";
 
@@ -57,6 +58,44 @@ describe("exact run-holder write helpers", () => {
 				corruptExpected,
 			),
 		).toBe(false);
+	});
+
+	it("narrows only fully concrete database identities to a caller token", () => {
+		expect(
+			toExactRunHolderIdentity({
+				mode: "build",
+				runId: "run-1",
+				nonce: HOLDER_NONCE,
+			}),
+		).toEqual({ mode: "build", runId: "run-1", nonce: HOLDER_NONCE });
+		expect(toExactRunHolderIdentity(null)).toBeNull();
+		expect(
+			toExactRunHolderIdentity({
+				mode: "build",
+				runId: null,
+				nonce: HOLDER_NONCE,
+			}),
+		).toBeNull();
+		expect(
+			toExactRunHolderIdentity({
+				mode: "edit",
+				runId: "",
+				nonce: HOLDER_NONCE,
+			}),
+		).toBeNull();
+	});
+
+	/* The narrowing that decides whether a reaper may act. A holder written
+	 * before the nonce existed carries none, so it can never be proven and no
+	 * writer may touch it — which is exactly why such rows are retired by
+	 * migration rather than left for the reapers to find. */
+	it("refuses a nonce-less holder, so nothing can compare-and-set against it", () => {
+		expect(
+			toExactRunHolderIdentity({ mode: "build", runId: "run-1", nonce: null }),
+		).toBeNull();
+		expect(
+			toExactRunHolderIdentity({ mode: "edit", runId: "run-1", nonce: "" }),
+		).toBeNull();
 	});
 
 	it("accepts exactly one affected row, never zero or a multi-row write", () => {

@@ -174,13 +174,6 @@ vi.mock("@/lib/db/appAccess", async () => {
 // `readLookupActivationForShare` is present only because the actual
 // `appAccess` module (spread above) imports it at module scope —
 // nothing here calls it (`resolveAppScope` is stubbed).
-const { activationFlagsMock } = vi.hoisted(() => ({
-	activationFlagsMock: vi.fn(),
-}));
-vi.mock("@/lib/db/lookupActivation", () => ({
-	readLookupActivationFlags: activationFlagsMock,
-	readLookupActivationForShare: vi.fn(),
-}));
 
 // ---------------------------------------------------------------
 // Per-test database lifecycle (mirrors PostgresCaseStore tests)
@@ -3354,10 +3347,9 @@ describe("submitFormAction", () => {
 	});
 
 	// ---------------------------------------------------------------
-	// The case-operation program path: flag gate + authorization
-	// ordering. The committed doc comes from `loadApp` (stubbed) and
-	// the activation flag from `readLookupActivationFlags` (stubbed)
-	// — the two reads `buildSubmissionOperationProgram` performs.
+	// The case-operation program path: authorization ordering. The
+	// committed doc comes from `loadApp` (stubbed) — the one read
+	// `buildSubmissionOperationProgram` performs.
 	// ---------------------------------------------------------------
 
 	/** A survey form carrying one root create operation. */
@@ -3443,10 +3435,6 @@ describe("submitFormAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		activationFlagsMock.mockResolvedValue({
-			carrierCommitsEnabled: false,
-			caseOperationsEnabled: true,
-		});
 		const { doc, formUuid, noteUuid } = operationSurveyDoc();
 		loadAppMock.mockResolvedValue({ blueprint: doc });
 		const applySubmission = vi.fn().mockResolvedValueOnce({

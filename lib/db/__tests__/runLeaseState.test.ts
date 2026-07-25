@@ -475,7 +475,7 @@ describe("runLeaseState — reapableStrandedEdit", () => {
 			lease({ ...strandedEdit, run_lock: lockAt(-1, "") }).reapableStrandedEdit,
 		).toBe(false);
 	});
-	it("true: a legacy v0 edit without a nonce remains reapable before cutover", () => {
+	it("true: a nonce-less edit still reports reapable — liveness sees it even though no writer can act on it", () => {
 		expect(
 			lease({ ...strandedEdit, run_holder_nonce: null }).reapableStrandedEdit,
 		).toBe(true);
@@ -528,7 +528,7 @@ describe("runLeaseState — reapableStaleBuild", () => {
 			}).reapableStaleBuild,
 		).toBe(false);
 	});
-	it("true: a legacy v0 build without a nonce remains reapable before cutover", () => {
+	it("true: a nonce-less build still reports reapable — liveness sees it even though no writer can act on it", () => {
 		expect(
 			lease({
 				status: "generating",

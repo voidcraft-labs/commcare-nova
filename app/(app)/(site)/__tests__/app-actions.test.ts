@@ -54,9 +54,6 @@ vi.mock("@/lib/db/moveAppToProject", () => ({
 vi.mock("@/lib/db/projectMoveAdmission", () => ({
 	ProjectMoveCompatibilityError: mocks.ProjectMoveCompatibilityError,
 }));
-vi.mock("@/lib/db/lookupActivation", () => ({
-	readProjectMovesEnabled: mocks.readProjectMovesEnabled,
-}));
 
 import {
 	deleteApp,
