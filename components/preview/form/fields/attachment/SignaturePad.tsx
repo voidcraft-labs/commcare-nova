@@ -1,5 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -77,6 +78,25 @@ export function SignaturePad({
 	const settleRef = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
 	);
+	/**
+	 * The strokes the last Clear removed, kept so it can be undone.
+	 *
+	 * This is the one destructive act in the whole attachment flow. Every
+	 * other capture kind is the OS file picker, so clearing one costs a
+	 * re-pick from a file still sitting on the worker's disk — and replacing
+	 * one means they already went through the picker and chose something
+	 * else, a deliberate act of its own. A signature has no source file:
+	 * clearing it destroys the only copy that ever existed.
+	 *
+	 * So it gets inverse-action undo rather than a confirmation, which is
+	 * what the contracts prefer for a recoverable edit. A modal in front of
+	 * a gesture a worker repeats is friction; undo costs nothing until it is
+	 * needed. The offer stands until they draw again — deliberately not a
+	 * timed window, which would punish anyone reading slowly or arriving by
+	 * keyboard.
+	 */
+	const clearedRef = useRef<Point[][] | undefined>(undefined);
+	const [cleared, setCleared] = useState(false);
 	const [empty, setEmpty] = useState(true);
 
 	const redraw = useCallback(() => {
@@ -141,11 +161,28 @@ export function SignaturePad({
 		// Cancel any settle in flight: a timer that survived would re-upload
 		// the strokes the worker just cleared.
 		clearTimeout(settleRef.current);
+		clearedRef.current =
+			strokesRef.current.length > 0 ? strokesRef.current : undefined;
+		setCleared(clearedRef.current !== undefined);
 		strokesRef.current = [];
 		setEmpty(true);
 		redraw();
 		onClear();
 	}, [redraw, onClear]);
+
+	const undo = useCallback(() => {
+		const restored = clearedRef.current;
+		if (restored === undefined) return;
+		clearedRef.current = undefined;
+		setCleared(false);
+		strokesRef.current = restored;
+		setEmpty(false);
+		redraw();
+		// Restoring the pixels is not enough: `onClear` discarded the staged
+		// attachment, so the answer has to be re-minted from the restored
+		// canvas. `emit` is the same path an ordinary stroke takes.
+		emit();
+	}, [redraw, emit]);
 
 	return (
 		<div className="space-y-2">
@@ -157,6 +194,12 @@ export function SignaturePad({
 					// No disabled check: the surface stays live even while an
 					// upload is in flight, so a worker can keep signing.
 					clearTimeout(settleRef.current);
+					// A new stroke supersedes the undo offer — the worker has
+					// said what they want by drawing it.
+					if (clearedRef.current !== undefined) {
+						clearedRef.current = undefined;
+						setCleared(false);
+					}
 					e.currentTarget.setPointerCapture(e.pointerId);
 					drawingRef.current = true;
 					strokesRef.current = [...strokesRef.current, [pointFrom(e)]];
@@ -185,13 +228,32 @@ export function SignaturePad({
 			/>
 			{/* The pad stays drawable while this shows — it reports progress,
 			    it does not gate the surface. */}
-			<p aria-live="polite" className="text-xs text-nova-text-muted">
-				{uploading
-					? "Saving signature…"
-					: hasAnswer
-						? "Signature saved."
-						: "Sign above."}
-			</p>
+			<div className="flex flex-wrap items-center gap-2">
+				<p aria-live="polite" className="text-xs text-nova-text-muted">
+					{uploading
+						? "Saving signature…"
+						: cleared
+							? "Signature cleared."
+							: hasAnswer
+								? "Signature saved."
+								: "Sign above."}
+				</p>
+				{cleared ? (
+					<button
+						type="button"
+						onClick={undo}
+						className="inline-flex min-h-12 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
+					>
+						<Icon
+							icon={tablerArrowBackUp}
+							width="14"
+							height="14"
+							aria-hidden="true"
+						/>
+						Undo
+					</button>
+				) : null}
+			</div>
 			<button
 				type="button"
 				onClick={clear}

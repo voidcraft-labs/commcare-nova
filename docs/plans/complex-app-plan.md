@@ -644,6 +644,16 @@ survive — a second call would silently delete the first with no symptom until
 objects stopped being collected. Submission promotes a kept attachment out of
 the TTL'd prefix, so the reaper can never reach one.
 
+Clear and Replace carry no confirmation on the picked kinds, deliberately:
+the device does not confirm either, and nothing is actually lost — the file
+is still on the worker's disk, and replacing one means they already went
+through the picker and chose another. Signature is the carve-out, because
+it is drawn rather than picked and clearing destroys the only copy; it gets
+inverse-action undo (the retained stroke buffer, re-emitted through the
+ordinary upload path) rather than a confirm, per the contracts' preference
+for undo over confirm-then-destroy. The real protection on both is the
+ordering — answer first, bytes second — not a prompt.
+
 The preview control is device-faithful: a filename and a Clear button, no
 thumbnail, no playback, no way to reopen the file — what `entry_file.html`
 shows, and Formplayer declares no route serving a staged capture back. The

@@ -98,6 +98,7 @@ const APPLICATION_TABLES = [
 	"media_assets",
 	"media_asset_refs",
 	"media_upload_aliases",
+	"form_attachments",
 	"lookup_project_state",
 	"lookup_tables",
 	"lookup_columns",
@@ -184,13 +185,29 @@ export function auditPublicTableInventory(
 		.sort();
 	const missing = REQUIRED_PUBLIC_TABLES.filter((name) => !actual.has(name));
 	if (unknown.length > 0 || missing.length > 0) {
+		// Two different causes with two different fixes, so each arm says its
+		// own. The previous message reported both counts on every failure and
+		// explained neither, which reads as "your migration is wrong" — the
+		// thing the reader just changed, and usually the one thing that is
+		// fine. This runs in the migrate Cloud Run Job on every deploy and a
+		// non-zero exit blocks the deploy, so whoever hits it is already
+		// under pressure.
+		const parts = [
+			"Checked the tables in the `public` schema against the privilege inventory in `lib/db/privilegeConvergence.ts`, and they disagree. Every table has to be listed there so convergence knows which role owns it.",
+		];
+		if (unknown.length > 0) {
+			parts.push(
+				`The database has ${unknown.length === 1 ? "a table" : "tables"} the inventory doesn't list: ${unknown.join(", ")}. If you just added ${unknown.length === 1 ? "it" : "them"} in a migration, add the name to the matching group in that file — \`APPLICATION_TABLES\` for ordinary app-state or case data, \`CONTROL_TABLES\` or \`MIGRATION_TABLES\` for infrastructure. \`REQUIRED_PUBLIC_TABLES\` and \`TABLE_CLASSES\` both derive from those lists, so the one edit is the whole change.`,
+			);
+		}
+		if (missing.length > 0) {
+			parts.push(
+				`The inventory lists ${missing.length === 1 ? "a table" : "tables"} the database doesn't have: ${missing.join(", ")}. Either the migration that creates ${missing.length === 1 ? "it" : "them"} hasn't run against this database, or it was removed without removing the name from the inventory.`,
+			);
+		}
 		throw new DatabasePrivilegeConvergenceError(
 			"schema_inventory_drift",
-			[
-				"Database privilege inventory does not match the migrated public schema.",
-				`unknown tables: ${unknown.join(", ") || "(none)"}`,
-				`missing tables: ${missing.join(", ") || "(none)"}`,
-			].join("\n"),
+			parts.join("\n\n"),
 		);
 	}
 	return [...actual].sort().map((name) => ({
