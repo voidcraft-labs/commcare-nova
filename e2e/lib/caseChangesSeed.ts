@@ -13,7 +13,7 @@
  * keyboard path still moves what it may.
  */
 
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type CaseOperation } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { buildUrl } from "@/lib/routing/location";
@@ -56,6 +56,11 @@ export function buildCaseChangesBlueprint(): BlueprintDoc {
 				uuid: CASE_CHANGES_SEED.moduleUuid,
 				name: CASE_CHANGES_SEED.moduleName,
 				caseType: CASE_CHANGES_SEED.caseType,
+				// A case-bearing module needs one visible Results field, or rows
+				// are indistinguishable and the app is invalid.
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						uuid: CASE_CHANGES_SEED.formUuid,
