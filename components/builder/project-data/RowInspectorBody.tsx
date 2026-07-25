@@ -5,11 +5,16 @@
  * the conflict story tractable: a save carries the snapshot's revision, and a
  * refusal is resolved by `rowWriteConflictVerdict` against a fresh read.
  *
- * **The draft is never discarded.** In every branch — a benign drift that
- * retried, a real conflict, a row deleted underneath — what the author typed
- * stays on screen. That is the acceptance criterion this surface exists to
- * meet, not a nicety: a grid where a co-member's edit silently swallows yours
- * is a data-loss bug wearing a save button.
+ * **The draft is never discarded** — but this component is not where that
+ * promise is kept, and an earlier version of it claimed otherwise and was
+ * wrong. A refused write is handed to the CONTROLLER, which renders
+ * `RowConflictBody`; this body unmounts the moment its row leaves the table,
+ * which is exactly what a co-member's delete does, so holding the conflict
+ * here lost the draft in the one branch that mattered most.
+ *
+ * The component is keyed on the row's id by `projectDataInspector`. Without
+ * that key React preserves this local draft across a change of selection, and
+ * Save writes one row's values to another row's id.
  */
 "use client";
 

@@ -202,6 +202,15 @@ replacement. Paging rather than virtualizing is a semantics decision first: it
 keeps `<th>`/`<td>` header association and screen-reader table navigation that a
 virtualized ARIA grid would have to hand-roll.
 
+**An unresolved conflict lives on the CONTROLLER, not in the row's body**, and
+every inspector body is keyed on its selection's identity. Both are load-bearing
+rather than tidy: the body unmounts the moment its row leaves the table — which
+is precisely what a co-member's delete does — so a conflict held there could
+never render the case it exists for, and an unkeyed body preserves its local
+draft across a change of selection, so Save writes one row's values to another
+row's id. A refused write therefore never reloads before returning; the reload
+waits for the author's decision.
+
 **The conflict policy lives in `projectDataModel.ts`, pure and unit-tested.** A
 table's optimistic token is `max(definitionRevision, rowsRevision)`, so ANY
 concurrent change invalidates it. `rowWriteConflictVerdict` retries only when a
