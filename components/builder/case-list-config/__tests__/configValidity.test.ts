@@ -51,6 +51,9 @@ function verdicts(partial: Partial<CaseListConfig>) {
 
 const CLEAN = { search: false, list: false, detail: false };
 
+const TOP_LEFT = { x: 0, y: 0, width: 6, height: 1 };
+const TOP_RIGHT = { x: 6, y: 0, width: 6, height: 1 };
+
 describe("caseListConfigVerdicts", () => {
 	it("reports an empty config clean", () => {
 		const v = verdicts({});
@@ -359,5 +362,115 @@ describe("caseListConfigVerdicts", () => {
 		});
 		expect(assignedCases.filterBroken).toBe(false);
 		expect(assignedCases.excludedOwnerIdsBroken).toBe(true);
+	});
+	// ── Tile placement ──
+	//
+	// A tile problem is a Results problem. It marks the field so the tab
+	// dot leads somewhere findable, and it deliberately stays OUT of
+	// `brokenColumns`, which Details reads too.
+
+	it("reports a well-placed tile clean", () => {
+		const v = verdicts({
+			tile: {},
+			columns: [
+				{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
+				{ ...plainColumn(asUuid("c2"), "age", "Age"), tile: TOP_RIGHT },
+			],
+		});
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.tileIssues.size).toBe(0);
+	});
+
+	it("badges Results for a cell that runs past the edge of the grid", () => {
+		const v = verdicts({
+			tile: {},
+			columns: [
+				{
+					...plainColumn(asUuid("c1"), "name", "Name"),
+					tile: { x: 8, y: 0, width: 6, height: 1 },
+				},
+			],
+		});
+		expect(v.errorAreas).toEqual({ search: false, list: true, detail: false });
+		expect(v.tileIssues.get(asUuid("c1"))?.[0]).toContain(
+			"runs past the edge of the tile",
+		);
+	});
+
+	it("checks stored geometry even while Results shows rows", () => {
+		// Continuous geometry checking is what guarantees that turning the
+		// tile back on is always accepted.
+		const v = verdicts({
+			columns: [
+				{
+					...plainColumn(asUuid("c1"), "name", "Name"),
+					tile: { x: 8, y: 0, width: 6, height: 1 },
+				},
+			],
+		});
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.tileIssues.size).toBe(1);
+	});
+
+	it("marks both fields of an overlapping pair", () => {
+		const v = verdicts({
+			tile: {},
+			columns: [
+				{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
+				{
+					...plainColumn(asUuid("c2"), "age", "Age"),
+					tile: { x: 3, y: 0, width: 6, height: 1 },
+				},
+			],
+		});
+		expect([...v.tileIssues.keys()].sort()).toEqual([
+			asUuid("c1"),
+			asUuid("c2"),
+		]);
+	});
+
+	it("badges Results, never Details, for a field shown on both screens", () => {
+		const v = verdicts({
+			tile: {},
+			columns: [
+				{
+					...plainColumn(asUuid("c1"), "name", "Name"),
+					tile: { x: 8, y: 0, width: 6, height: 1 },
+				},
+			],
+		});
+		expect(v.errorAreas.detail).toBe(false);
+		expect(v.brokenColumns.size).toBe(0);
+	});
+
+	it("reports coverage only while the tile is on", () => {
+		const columns = [
+			{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
+			plainColumn(asUuid("c2"), "age", "Age"),
+		];
+		expect(verdicts({ columns }).errorAreas).toEqual(CLEAN);
+		const on = verdicts({ tile: {}, columns });
+		expect(on.errorAreas.list).toBe(true);
+		expect(on.tileIssues.get(asUuid("c2"))?.[0]).toContain(
+			"has no place on the tile",
+		);
+	});
+
+	it("requires a place for a hidden field that drives the default order", () => {
+		const v = verdicts({
+			tile: {},
+			columns: [
+				{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
+				{
+					...plainColumn(asUuid("c2"), "age", "Age"),
+					visibleInList: false,
+					sort: { direction: "asc" as const, priority: 1 },
+				},
+			],
+		});
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.tileIssues.get(asUuid("c2"))?.[0]).toContain(
+			"A tile can\u2019t hide a field",
+		);
 	});
 });

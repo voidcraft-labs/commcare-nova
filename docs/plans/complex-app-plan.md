@@ -572,19 +572,6 @@ The wire facts that shape the emitter:
 - **Absent text size means inherit, not medium.** An absent `font-size` produces
   an empty `font-size: ;` declaration the browser discards. The `medium` default
   exists only in HQ's authoring UI.
-- **Ordering by a field workers don't see works unchanged on a tile.** The
-  zero-width sort carrier (`<header width="0">` + `<template width="0">` +
-  `<sort>`, no `<style>`) is CommCare's own reserved spelling for a
-  carried-but-hidden field — `commcare-core/.../org/commcare/suite/model/Style.java::Style(DetailField)`
-  records that "`'0'` is reserved for hidden (Search) fields", and both tile
-  templates (`cloudcare/templates/cloudcare/partials/case_list/tile_item.html`
-  and `tile_grouped_item.html`) branch on `styles[index].widthHint === 0` to
-  render the value inside a `d-none` wrapper. The surrounding cell div carries a
-  `-grid-style-N` class `views.js::buildCellLayout` never writes a rule for, and
-  `formplayer-common/grid.scss::.box` sets only colors and font size, so it is an
-  empty zero-size grid item. The tile therefore keeps the row layout's
-  hide-but-sort affordance exactly.
-
 Emitted bytes are asserted against HQ's own fixtures —
 `suite-case-tiles.xml` for the `<style>`/`<grid>` shape,
 `case-tile-case-detail.xml` for `show-border` / `show-shading`, and
@@ -595,6 +582,31 @@ Two scope fences are deliberate. Long-detail tiles stay out: CommCare allows
 Pull-down (`detail-inline`) stays out because it is a navigation change rather
 than a layout one — it replaces the case-detail confirm screen by folding the
 long detail into the persistent tile.
+
+### Carrying a column without showing it
+
+`width="0"` on a short-detail `<header>` and `<template>` is CommCare's own
+reserved spelling for a column the list carries but does not display — not a
+Nova convention and not a hack.
+`commcare-core/.../org/commcare/suite/model/Style.java::Style(DetailField)`
+records it in its own comment ("`'0'` is reserved for hidden (Search) fields")
+and defaults an absent width to `-1` precisely to keep `0` free for it. Both
+Web Apps tile templates honor the contract explicitly, branching on
+`styles[index].widthHint === 0` to render the value inside a `d-none` wrapper —
+`cloudcare/templates/cloudcare/partials/case_list/tile_item.html` and the
+identical branch in `tile_grouped_item.html`, so grouping inherits it unchanged.
+
+This is what lets Nova's zero-width sort carrier work on a tile with no special
+case: the field emits with no `<style>`, occupies no cell (its
+`-grid-style-N` class has no rule, because `views.js::buildCellLayout` filters
+null tile entries before building the style block, and
+`formplayer-common/grid.scss::.box` adds no box size), and the ordering still
+applies because the runtime sorts entities before it draws them. Ordering by a
+field workers never see behaves the same on a tile as in a row of columns.
+
+The fact reaches past tiles. Any column that must ride the detail without being
+shown — so its value is available to sorting, to a calculation, or to a later
+surface — uses this shape rather than being dropped from the detail.
 
 ### Media
 
