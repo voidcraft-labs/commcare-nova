@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	asUuid,
+	type CaseTileLayout,
 	calculatedColumn,
 	dateColumn,
 	plainColumn,
@@ -238,21 +239,28 @@ describe("the tile-wide border / shading switch", () => {
 	});
 });
 
+/** A case list with a tile layout on. Presence is the switch, and the layout
+ *  carries no slot these assertions read. */
+const TILE_ON: CaseTileLayout = {};
+
 describe("the columns a tile carries", () => {
 	it("keeps a hidden column that still orders the list, without giving it a square", () => {
-		const carried = tileResultsColumns([
-			plainColumn(NAME, "case_name", "Patient", {
-				tile: tileCell(0, 0, 4, 1),
-			}),
-			plainColumn(VILLAGE, "village", "Village", {
-				visibleInList: false,
-				sort: { direction: "asc", priority: 0 },
-				tile: tileCell(4, 0, 2, 1),
-			}),
-			plainColumn(PRIORITY, "care_priority", "Priority", {
-				visibleInList: false,
-			}),
-		]);
+		const carried = tileResultsColumns(
+			[
+				plainColumn(NAME, "case_name", "Patient", {
+					tile: tileCell(0, 0, 4, 1),
+				}),
+				plainColumn(VILLAGE, "village", "Village", {
+					visibleInList: false,
+					sort: { direction: "asc", priority: 0 },
+					tile: tileCell(4, 0, 2, 1),
+				}),
+				plainColumn(PRIORITY, "care_priority", "Priority", {
+					visibleInList: false,
+				}),
+			],
+			TILE_ON,
+		);
 
 		expect(
 			carried.map((entry) => [entry.column.uuid, entry.valueHidden]),
@@ -270,11 +278,14 @@ describe("the columns a tile carries", () => {
 	});
 
 	it("carries a calculated column like any other placed column", () => {
-		const carried = tileResultsColumns([
-			calculatedColumn(VISIT, "Age", term(literal("42")), {
-				tile: tileCell(0, 0, 3, 1),
-			}),
-		]);
+		const carried = tileResultsColumns(
+			[
+				calculatedColumn(VISIT, "Age", term(literal("42")), {
+					tile: tileCell(0, 0, 3, 1),
+				}),
+			],
+			TILE_ON,
+		);
 		expect(carried).toHaveLength(1);
 		expect(carried[0].valueHidden).toBe(false);
 	});

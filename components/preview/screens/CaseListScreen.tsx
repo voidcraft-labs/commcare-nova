@@ -632,10 +632,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		(col) => col.visibleInList ?? true,
 	);
 	/* A tile carries the columns the short detail emits — the visible ones
-	 * PLUS any hidden column that still orders the list, which holds a square
-	 * without showing a value. Both the extent and the placement depend on
-	 * that full set, so it is derived here rather than from `visibleColumns`. */
-	const tileColumns = tileResultsColumns(listOrderedColumns);
+	 * PLUS any hidden column that still orders the list. The hidden one holds
+	 * NO square (the wire gives it no `<style>`, so the device draws an empty
+	 * zero-size item); it is carried only so ordering keeps working, which is
+	 * why the set is derived here rather than from `visibleColumns`. */
+	const tileColumns = tileResultsColumns(listOrderedColumns, config?.tile);
 	const tileProjection = projectTileGrid(tileColumns.map((c) => c.column));
 	/* Presence of the layout is the switch; an unplaced tile has no geometry
 	 * to draw, so Results keeps the row layout rather than rendering an empty

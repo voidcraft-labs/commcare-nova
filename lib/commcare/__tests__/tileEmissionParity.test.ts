@@ -157,6 +157,7 @@ describe("the three emission paths agree about which columns hold a square", () 
 		// (3) The preview projection.
 		const carried = tileResultsColumns(
 			[...config.columns].sort(byListColumnOrder),
+			config.tile,
 		);
 		const projection = projectTileGrid(carried.map((entry) => entry.column));
 		expect(projection.cells).toHaveLength(1);

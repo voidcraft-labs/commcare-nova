@@ -63,8 +63,12 @@ export function PersistentCaseTile({
 		fallbackProperties,
 	);
 	const tileColumns = useMemo(
-		() => tileResultsColumns([...config.columns].sort(byListColumnOrder)),
-		[config.columns],
+		() =>
+			tileResultsColumns(
+				[...config.columns].sort(byListColumnOrder),
+				config.tile,
+			),
+		[config.columns, config.tile],
 	);
 	const projection = useMemo(
 		() => projectTileGrid(tileColumns.map((entry) => entry.column)),

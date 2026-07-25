@@ -49,17 +49,6 @@ import {
 	tileGridTemplateRows,
 } from "./caseTileLayout";
 
-/**
- * The layout `tileResultsColumns` adjudicates against.
- *
- * This function is only reached for a case list that HAS a tile — its
- * callers branch on `config.tile` before rendering a tile at all — so the
- * layout's presence is a precondition here rather than a parameter. It is
- * spelled out so the call into `tileCellFor` reads as the same decision
- * the emitters make, with the same shape of input.
- */
-const TILE_LAYOUT_ON: CaseTileLayout = {};
-
 /** One column a tile draws, with what the tile does about its value. */
 export interface TileResultsColumn {
 	readonly column: Column;
@@ -93,6 +82,7 @@ export interface TileResultsColumn {
  */
 export function tileResultsColumns(
 	listOrderedColumns: readonly Column[],
+	layout: CaseTileLayout | undefined,
 ): readonly TileResultsColumn[] {
 	return listOrderedColumns.flatMap<TileResultsColumn>((column) => {
 		const hidden = column.visibleInList === false;
@@ -100,8 +90,11 @@ export function tileResultsColumns(
 		// `tileCellFor` is the ONE decision about whether a column holds a
 		// square, shared with both emitters. Reading it here — rather than
 		// re-testing `visibleInList` and reaching a matching answer by hand — is
-		// what stops this surface drifting away from what the wire does.
-		const cell = tileCellFor(column, TILE_LAYOUT_ON);
+		// what stops this surface drifting away from what the wire does. The
+		// caller's real layout is threaded in rather than assumed present: a
+		// caller may compute this before it decides whether to draw a tile, and
+		// a synthetic stand-in would hand back cells the wire would not emit.
+		const cell = tileCellFor(column, layout);
 		if (cell !== undefined) return [{ column, valueHidden: hidden }];
 		const { tile: _unemittedCell, ...carried } = column;
 		return [{ column: carried as Column, valueHidden: hidden }];
