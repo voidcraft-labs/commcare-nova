@@ -593,7 +593,14 @@ export interface FormLinkFallback {
  * emitted strings alone would need re-parsing to answer that.
  */
 export interface EndOfFormEntryContext {
-	readonly navigation?: NavigationContext;
+	/**
+	 * Required, not optional-with-a-default. Every post-submit destination
+	 * except `app_home` needs frame children, and a link needs its
+	 * TARGET's — so an entry built without this would silently emit no
+	 * `<stack>` and quietly strand every form's navigation. Making the
+	 * caller supply it is what turns that into a compile error.
+	 */
+	readonly navigation: NavigationContext;
 	readonly fallback?: FormLinkFallback;
 	readonly linkGuardPredicates?: readonly Predicate[];
 }
@@ -718,27 +725,49 @@ export function deriveFormLinkStack(
  * local `.ccz` emission has no equivalent post-process, so the
  * accumulator walks each calc expression's term set here.
  */
+export interface EntryDefinitionInput extends EndOfFormEntryContext {
+	readonly formXmlns: string;
+	readonly moduleIndex: number;
+	readonly formIndex: number;
+	readonly formType: FormType;
+	readonly postSubmit: PostSubmitDestination;
+	readonly caseType?: string;
+	readonly formLinks?: readonly HqFormLink[];
+	readonly caseListFilter?: Predicate;
+	readonly searchButtonDisplayCondition?: Predicate;
+	readonly caseListColumnExpressions?: readonly ValueExpression[];
+	readonly actions?: FormActions;
+	readonly excludedOwnerIds?: ValueExpression;
+	readonly relationContext?: RelationEvaluationScopeContext;
+	readonly formDisplayCondition?: Predicate;
+	readonly lookupNaming?: LookupWireNaming;
+}
+
 export function deriveEntryDefinition(
-	formXmlns: string,
-	moduleIndex: number,
-	formIndex: number,
-	formType: FormType,
-	postSubmit: PostSubmitDestination,
-	caseType?: string,
-	formLinks?: HqFormLink[],
-	caseListFilter?: Predicate,
-	searchButtonDisplayCondition?: Predicate,
-	caseListColumnExpressions?: readonly ValueExpression[],
-	actions?: FormActions,
-	excludedOwnerIds?: ValueExpression,
-	relationContext: RelationEvaluationScopeContext = {},
-	formDisplayCondition?: Predicate,
-	lookupNaming?: LookupWireNaming,
-	endOfForm: EndOfFormEntryContext = {},
+	input: EntryDefinitionInput,
 ): EntryDefinition {
+	const {
+		formXmlns,
+		moduleIndex,
+		formIndex,
+		formType,
+		postSubmit,
+		caseType,
+		formLinks,
+		caseListFilter,
+		searchButtonDisplayCondition,
+		caseListColumnExpressions,
+		actions,
+		excludedOwnerIds,
+		relationContext = {},
+		formDisplayCondition,
+		lookupNaming,
+		navigation,
+		fallback,
+		linkGuardPredicates,
+	} = input;
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
-	const { navigation, fallback, linkGuardPredicates } = endOfForm;
 
 	const datumMetas = deriveFormDatums(
 		formType,
@@ -807,9 +836,12 @@ export function deriveEntryDefinition(
 	// plus the fallback when one is still reachable; otherwise the form's own
 	// post-submit destination decides, and `app_home` deliberately emits
 	// nothing at all.
-	const sourceModule = navigation?.modules[moduleIndex];
+	const sourceModule = navigation.modules[moduleIndex] ?? {
+		commandId: `m${moduleIndex}`,
+		forms: [],
+	};
 	const operations =
-		formLinks && formLinks.length > 0 && navigation && sourceModule
+		formLinks && formLinks.length > 0
 			? deriveFormLinkStack(
 					formLinks,
 					fallback,
@@ -818,9 +850,7 @@ export function deriveEntryDefinition(
 					formIndex,
 					datumMetas.map((meta) => meta.navigation),
 				)
-			: sourceModule
-				? derivePostSubmitStack(postSubmit, sourceModule, formIndex)
-				: [];
+			: derivePostSubmitStack(postSubmit, sourceModule, formIndex);
 
 	return {
 		formXmlns,

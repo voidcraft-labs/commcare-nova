@@ -501,32 +501,36 @@ export function compileCcz(
 				sortedFormOrderForNavigation,
 				lookupNaming,
 			);
-			const entryDef = deriveEntryDefinition(
-				xmlns,
-				mIdx,
-				fIdx,
+			const entryDef = deriveEntryDefinition({
+				formXmlns: xmlns,
+				moduleIndex: mIdx,
+				formIndex: fIdx,
 				formType,
 				postSubmit,
-				caseType || undefined,
-				endOfForm.links.length > 0 ? endOfForm.links : undefined,
-				mod.caseListConfig?.filter,
-				searchButtonDisplayCondition,
-				caseListColumnExpressions.length > 0
-					? caseListColumnExpressions
-					: undefined,
-				hqForm.actions,
-				excludedOwnerIds,
-				moduleTypeContext(mod, doc),
-				form.displayCondition,
-				lookupNaming,
-				{
-					navigation,
-					...(endOfForm.fallback !== undefined && {
-						fallback: endOfForm.fallback,
-					}),
-					linkGuardPredicates: endOfForm.guardPredicates,
-				},
-			);
+				navigation,
+				...(caseType && { caseType }),
+				...(endOfForm.links.length > 0 && { formLinks: endOfForm.links }),
+				...(endOfForm.fallback !== undefined && {
+					fallback: endOfForm.fallback,
+				}),
+				linkGuardPredicates: endOfForm.guardPredicates,
+				...(mod.caseListConfig?.filter !== undefined && {
+					caseListFilter: mod.caseListConfig.filter,
+				}),
+				...(searchButtonDisplayCondition !== undefined && {
+					searchButtonDisplayCondition,
+				}),
+				...(caseListColumnExpressions.length > 0 && {
+					caseListColumnExpressions,
+				}),
+				actions: hqForm.actions,
+				...(excludedOwnerIds !== undefined && { excludedOwnerIds }),
+				relationContext: moduleTypeContext(mod, doc),
+				...(form.displayCondition !== undefined && {
+					formDisplayCondition: form.displayCondition,
+				}),
+				...(lookupNaming !== undefined && { lookupNaming }),
+			});
 
 			// Re-validate after injection — catches orphaned binds or
 			// malformed structure introduced by the splice. The oracle
