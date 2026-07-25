@@ -7,6 +7,10 @@ import { summarizeFilter } from "@/components/builder/case-list-config/predicate
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
+import {
+	formLaunch,
+	moduleScreenLanding,
+} from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
@@ -18,7 +22,6 @@ import {
 	useOrderedForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
-import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import {
@@ -98,26 +101,25 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 		[forms, formVisibility],
 	);
 
-	/* Two reasons this form menu isn't the right landing:
-	 *  - A `caseListOnly` module is a bare case list — it has NO forms in any
-	 *    mode, so the menu is always empty. Its home is the case list, in both
-	 *    edit and preview. Replace history so {kind:"module"} never becomes a
-	 *    back-button stop for a formless module.
-	 *  - A case-first module (every form case-loading) lands on the case list
-	 *    in the running app (the shared case selection hoists). Edit mode keeps
-	 *    the form menu — it's the authoring surface — so this is preview-only,
-	 *    and pushes (the module is a real, reachable screen in edit).
-	 * The home screen already routes both; this redirect covers landing on the
-	 * module URL directly (deep link, breadcrumb, flipping to preview). */
+	/* The home screen already routes both redirecting shapes; this covers landing
+	 * on the module URL directly (deep link, breadcrumb, flipping to preview).
+	 * `moduleScreenNavigation.ts` owns which landing applies and why. */
 	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
 	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
-	const redirectToCaseList =
-		!!moduleUuid && (isBareCaseList || (mode !== "edit" && isCaseFirst));
+	const landing = moduleScreenLanding({
+		hasModule: !!moduleUuid,
+		isBareCaseList,
+		isCaseFirst,
+		mode: mode === "edit" ? "edit" : "preview",
+	});
 	useEffect(() => {
-		if (!redirectToCaseList || !moduleUuid) return;
-		if (isBareCaseList) navigate.replace({ kind: "cases", moduleUuid });
-		else navigate.openCaseList(moduleUuid);
-	}, [redirectToCaseList, isBareCaseList, moduleUuid, navigate]);
+		if (!moduleUuid) return;
+		if (landing.kind === "replace-with-case-list") {
+			navigate.replace({ kind: "cases", moduleUuid });
+		} else if (landing.kind === "open-case-list") {
+			navigate.openCaseList(moduleUuid);
+		}
+	}, [landing.kind, moduleUuid, navigate]);
 
 	/* Forward the gated dispatch's outcome — a rename the commit gate
 	 * refuses (e.g. duplicating another module's name) keeps the editor
@@ -131,7 +133,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 	if (!mod) return null;
 	/* Suppress the form-menu flash while the redirect above navigates away. */
-	if (redirectToCaseList) return null;
+	if (landing.kind !== "form-menu") return null;
 
 	const hasCase = !!mod.caseType;
 	const canEdit = mode === "edit" && isReady;
@@ -174,11 +176,11 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 					const handleClick = () => {
 						if (!moduleUuid) return;
-						if (CASE_LOADING_FORM_TYPES.has(form.type) && hasCase) {
-							/* Case-loading forms select a case first. Name this form
-							 * as the case list's continue target so picking a case
-							 * leads back to THIS form (not the module's first
-							 * case-loading form), then open the list. */
+						const launch = formLaunch({
+							formType: form.type,
+							moduleHasCaseType: hasCase,
+						});
+						if (launch.kind === "select-case-first") {
 							setPreviewCaseTarget({ formUuid: form.uuid });
 							navigate.openCaseList(moduleUuid);
 						} else {
