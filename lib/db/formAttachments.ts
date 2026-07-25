@@ -17,6 +17,21 @@
 // delete another member's in-flight captures by sending their entry key —
 // reachable in a shared Project, not theoretical.
 //
+// **There is deliberately no `owner_id` column, and adding one would be a
+// mistake.** `owner_id` is the CommCare case-owner — the persona a preview
+// acts as — and `lib/case-store/CLAUDE.md` is explicit that it is never a
+// tenant filter and never an authorization axis. Read access here is
+// Project-wide to match case data, and which worker attached a file is
+// already derivable from the submission's case rows. Copying it onto the
+// attachment would put a second, staler copy of an authorization-adjacent
+// fact one careless `where` clause away from the membership check — which
+// is exactly how these two axes get conflated. The conflation is not
+// hypothetical: this lane shipped with `settleSubmittedAttachments` passing
+// `identity.ownerId` where `actorUserId` belonged, which authorized on
+// authored blueprint content and matched zero rows under any persona. It
+// survived every test because the two ids are the same string when
+// previewing as yourself.
+//
 // ## Authorization order matches the media lane
 //
 // Membership first (`projectRoleForInTransaction` + `roleAllowsApp`),
