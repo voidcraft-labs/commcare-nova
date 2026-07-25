@@ -31,6 +31,7 @@ import type { Selectable, Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
 	captureAttachmentName,
+	captureObjectKeyFor,
 	stagedCaptureObjectKeyFor,
 } from "@/lib/domain/captureFormats";
 import type { AppDatabase, FormAttachmentsTable } from "./pg";
@@ -303,6 +304,13 @@ export interface ReconcileFormAttachmentsResult {
  * authority: a name that does not belong to this entry, member, and
  * Project simply does not match, so a forged list can neither promote nor
  * preserve someone else's attachment.
+ *
+ * It carries the names whose bytes the caller has ALREADY copied to their
+ * durable key — not merely the names the submission mentioned. That is
+ * what lets the promotion below name the durable key inside this
+ * transaction: a name only reaches here once its object exists, so a
+ * failed copy resolves as "not promoted" rather than as a submitted row
+ * pointing at a key nothing ever wrote.
  */
 export async function reconcileFormAttachments(args: {
 	appId: string;
@@ -348,17 +356,21 @@ export async function reconcileFormAttachments(args: {
 			}
 		}
 		for (const record of promoted) {
-			// The status flips here; the KEY does not. Rewriting it in this
-			// transaction would point the row at an object the caller has not
-			// copied yet, and a failed copy would then leave a submitted
-			// attachment naming a key that was never written while its real
-			// bytes expire under the staging TTL — silent loss of a
-			// submission's evidence. The caller copies first and calls
-			// `recordPromotedAttachmentKey` on success, so the row always
-			// names bytes that exist.
+			// Safe to name the durable key here because the caller has already
+			// copied the bytes to it — that ordering is the contract, and it
+			// is why `keptNames` carries only what was successfully copied. A
+			// row therefore never names an object that does not exist.
 			await tx
 				.updateTable("form_attachments")
-				.set({ status: "submitted", submitted_at: new Date() })
+				.set({
+					status: "submitted",
+					submitted_at: new Date(),
+					gcs_object_key: captureObjectKeyFor(
+						record.projectId,
+						record.attachmentId,
+						record.extension,
+					),
+				})
 				.where("attachment_id", "=", record.attachmentId)
 				.execute();
 		}
@@ -378,26 +390,32 @@ export async function reconcileFormAttachments(args: {
 }
 
 /**
- * Point a promoted attachment at its durable object, after the copy that
- * put bytes there succeeded.
+ * The not-yet-submitted attachments a settlement would consider, without
+ * changing anything.
  *
- * Split from the promotion itself so the row never names an object that
- * does not exist. A promotion whose copy failed keeps its staging key: the
- * bytes are still reachable until the staging TTL collects them, which is
- * a bounded window to notice and re-run rather than an immediate silent
- * loss.
+ * Settlement copies bytes to their durable key BEFORE promoting the row,
+ * so it needs to know what it is about to copy. Read-only and unlocked on
+ * purpose: `reconcileFormAttachments` re-reads the same rows `FOR UPDATE`
+ * and re-filters by name and status, so anything that changed in between
+ * simply is not promoted. This read can be stale; it cannot be wrong.
  */
-export async function recordPromotedAttachmentKey(args: {
-	attachmentId: string;
-	gcsObjectKey: string;
-}): Promise<void> {
+export async function listSettlementCandidates(args: {
+	appId: string;
+	entryKey: string;
+	actorUserId: string;
+	expectedProjectId: string;
+}): Promise<readonly FormAttachmentRecord[]> {
 	const db = await getAppDb();
-	await db
-		.updateTable("form_attachments")
-		.set({ gcs_object_key: args.gcsObjectKey })
-		.where("attachment_id", "=", args.attachmentId)
-		.where("status", "=", "submitted")
+	const rows = await db
+		.selectFrom("form_attachments")
+		.selectAll()
+		.where("app_id", "=", args.appId)
+		.where("entry_key", "=", args.entryKey)
+		.where("created_by", "=", args.actorUserId)
+		.where("project_id", "=", args.expectedProjectId)
+		.where("status", "=", "staged")
 		.execute();
+	return rows.map(recordFromRow);
 }
 
 /**

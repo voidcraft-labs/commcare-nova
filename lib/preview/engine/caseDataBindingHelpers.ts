@@ -43,8 +43,8 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import {
+	listSettlementCandidates,
 	reconcileFormAttachments,
-	recordPromotedAttachmentKey,
 } from "@/lib/db/formAttachments";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import {
@@ -1470,22 +1470,30 @@ export function schemaHealingCaseStore(
  * Settle one form entry's staged attachments against what its submission
  * actually named.
  *
- * Promotes exactly the attachments the surviving relevant answers hold,
- * discards the rest, and moves each promoted object out of the TTL'd
- * staging prefix into the durable per-Project one. The move is a
- * server-side GCS copy, so a submission carrying many attachments moves no
- * bytes through this process.
+ * **Bytes are copied to their durable key BEFORE any row is promoted.**
+ * That ordering is the whole safety property, and the obvious ordering is
+ * the wrong one: promoting first and copying after means a transient GCS
+ * or Postgres error leaves a submitted row naming a key nothing ever
+ * wrote, while the real bytes sit at the staging key — which the bucket
+ * TTL deletes within a day, with nothing alerting on it. Copying first
+ * makes a failed copy resolve as "not promoted", which is honest: the row
+ * never claims an attachment that does not exist.
+ *
+ * So the sequence is: read the candidates, copy each one's bytes, then
+ * promote exactly the subset that copied and discard the rest in one
+ * transaction. `keptNames` therefore carries the successfully-copied
+ * names, not merely the names the submission mentioned.
  *
  * A mutation with no `entryKey` came from a client that predates the
- * attachment lane. It settles nothing rather than discarding attachments it
- * cannot see — an absent list means "no opinion", while an empty one means
- * "this submission named nothing".
+ * attachment lane. It settles nothing rather than discarding attachments
+ * it cannot see — an absent list means "no opinion", while an empty one
+ * means "this submission named nothing".
  *
- * Storage failures are logged and swallowed on purpose. The metadata has
- * already committed, so the durable answer is intact either way: a failed
- * copy leaves the bytes at the staging key until its TTL, and a failed
- * cleanup leaves a duplicate the same TTL collects. Failing the submission
- * over either would be strictly worse, because the case write has landed.
+ * The only failures still swallowed are the ones that cost nothing: a
+ * leftover staging object after a successful promotion, and a discard
+ * whose cleanup failed. Both are collected by the same TTL, and failing
+ * the submission over either would be strictly worse, because the case
+ * write has already landed.
  */
 export async function settleSubmittedAttachments(args: {
 	appId: string;
@@ -1495,33 +1503,63 @@ export async function settleSubmittedAttachments(args: {
 }): Promise<void> {
 	const { entryKey, attachmentNames } = args.mutation;
 	if (entryKey === undefined) return;
+	const named = new Set(attachmentNames ?? []);
+
+	const candidates = await listSettlementCandidates({
+		appId: args.appId,
+		entryKey,
+		actorUserId: args.actorUserId,
+		expectedProjectId: args.projectId,
+	});
+
+	// Copy first. A candidate whose copy fails is deliberately left out of
+	// `copiedNames`, so the transaction below discards it instead of
+	// promoting a row that points nowhere.
+	const copiedNames: string[] = [];
+	const stagedKeyByName = new Map<string, string>();
+	await Promise.allSettled(
+		candidates
+			.filter((candidate) => named.has(candidate.attachmentName))
+			.map(async (candidate) => {
+				try {
+					await copyAssetObject(
+						candidate.gcsObjectKey,
+						captureObjectKeyFor(
+							candidate.projectId,
+							candidate.attachmentId,
+							candidate.extension,
+						),
+					);
+					copiedNames.push(candidate.attachmentName);
+					stagedKeyByName.set(candidate.attachmentName, candidate.gcsObjectKey);
+				} catch (err) {
+					log.warn("[attachments] promotion copy failed", {
+						err,
+						attachmentId: candidate.attachmentId,
+					});
+				}
+			}),
+	);
+
 	const settled = await reconcileFormAttachments({
 		appId: args.appId,
 		entryKey,
 		actorUserId: args.actorUserId,
 		expectedProjectId: args.projectId,
-		keptNames: attachmentNames ?? [],
+		keptNames: copiedNames,
 	});
+
+	// Cleanup only, past the point where anything can be lost: a promoted
+	// row already names its durable copy, and a discarded one is gone from
+	// the table. A failure here leaves an object the staging TTL collects.
 	await Promise.allSettled([
 		...settled.promoted.map(async (attachment) => {
-			const durable = captureObjectKeyFor(
-				attachment.projectId,
-				attachment.attachmentId,
-				attachment.extension,
-			);
+			const stagedKey = stagedKeyByName.get(attachment.attachmentName);
+			if (stagedKey === undefined) return;
 			try {
-				// Copy, then point the row at the copy, then drop the original.
-				// That order is what keeps the row naming bytes that exist: a
-				// failure at any step leaves it on the staging key, whose TTL is
-				// a bounded window rather than an immediate silent loss.
-				await copyAssetObject(attachment.gcsObjectKey, durable);
-				await recordPromotedAttachmentKey({
-					attachmentId: attachment.attachmentId,
-					gcsObjectKey: durable,
-				});
-				await deleteAsset(attachment.gcsObjectKey);
+				await deleteAsset(stagedKey);
 			} catch (err) {
-				log.warn("[attachments] promotion copy failed", {
+				log.warn("[attachments] staging cleanup failed", {
 					err,
 					attachmentId: attachment.attachmentId,
 				});
