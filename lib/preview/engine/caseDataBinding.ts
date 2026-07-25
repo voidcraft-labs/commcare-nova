@@ -1024,6 +1024,7 @@ export async function submitFormAction(
 		// case write would instead durably keep files for a submission that
 		// never happened.
 		await settleSubmittedAttachments({
+			appId,
 			mutation,
 			actorUserId: identity.ownerId,
 			projectId: scope.projectId,

@@ -32,17 +32,39 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * takes.
  */
 interface SignaturePadProps {
-	readonly disabled: boolean;
+	/** Whether an upload is in flight. Deliberately NOT used to disable the
+	 *  drawing surface — see `SIGNATURE_SETTLE_MS`. */
+	readonly uploading: boolean;
 	readonly hasAnswer: boolean;
-	/** Fired once a stroke ends, with the pad's current content as a PNG. */
+	/** Fired once the worker has stopped drawing, with the pad's whole
+	 *  content as a PNG. */
 	readonly onDrawn: (file: File) => void;
 	readonly onClear: () => void;
 }
 
+/**
+ * How long after the last stroke the pad waits before uploading.
+ *
+ * A signature is many strokes, not one. Uploading on every `pointerup`
+ * would fire a round trip per stroke, each immediately superseded by the
+ * next — and, worse, would make the pad unusable if the surface were
+ * disabled while a request was in flight: the worker's pen would die
+ * partway through their own name and the strokes drawn in that window
+ * would be dropped by the browser. So the surface stays live at all times
+ * and the upload waits for the worker to stop.
+ *
+ * The real runtime answers on every `endStroke`
+ * (`entries.js::SignatureEntry`) and gets away with it because its canvas
+ * is never disabled either; what it does not do is block drawing. Nova
+ * matches the part that matters — an always-drawable pad — and sends one
+ * upload instead of ten.
+ */
+const SIGNATURE_SETTLE_MS = 700;
+
 type Point = { x: number; y: number };
 
 export function SignaturePad({
-	disabled,
+	uploading,
 	hasAnswer,
 	onDrawn,
 	onClear,
@@ -52,6 +74,9 @@ export function SignaturePad({
 	 *  so a resize can replay rather than lose the signature. */
 	const strokesRef = useRef<Point[][]>([]);
 	const drawingRef = useRef(false);
+	const settleRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
 	const [empty, setEmpty] = useState(true);
 
 	const redraw = useCallback(() => {
@@ -91,6 +116,10 @@ export function SignaturePad({
 		return () => window.removeEventListener("resize", onResize);
 	}, [redraw]);
 
+	// A pending settle must not outlive the pad; without this the timer
+	// fires into an unmounted component after a form change.
+	useEffect(() => () => clearTimeout(settleRef.current), []);
+
 	const pointFrom = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
 		const rect = e.currentTarget.getBoundingClientRect();
 		return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -109,6 +138,9 @@ export function SignaturePad({
 	}, [onDrawn]);
 
 	const clear = useCallback(() => {
+		// Cancel any settle in flight: a timer that survived would re-upload
+		// the strokes the worker just cleared.
+		clearTimeout(settleRef.current);
 		strokesRef.current = [];
 		setEmpty(true);
 		redraw();
@@ -120,10 +152,11 @@ export function SignaturePad({
 			<canvas
 				ref={canvasRef}
 				aria-label="Signature pad. Sign with a finger, stylus, or mouse."
-				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white disabled:opacity-40"
-				style={disabled ? { pointerEvents: "none", opacity: 0.4 } : undefined}
+				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white"
 				onPointerDown={(e) => {
-					if (disabled) return;
+					// No disabled check: the surface stays live even while an
+					// upload is in flight, so a worker can keep signing.
+					clearTimeout(settleRef.current);
 					e.currentTarget.setPointerCapture(e.pointerId);
 					drawingRef.current = true;
 					strokesRef.current = [...strokesRef.current, [pointFrom(e)]];
@@ -142,18 +175,27 @@ export function SignaturePad({
 					if (!drawingRef.current) return;
 					drawingRef.current = false;
 					e.currentTarget.releasePointerCapture(e.pointerId);
-					// One upload per stroke end, mirroring the runtime's
-					// answer-on-`endStroke` behavior. Each replaces the last.
-					emit();
+					// Upload once the worker has stopped, not once per stroke.
+					clearTimeout(settleRef.current);
+					settleRef.current = setTimeout(emit, SIGNATURE_SETTLE_MS);
 				}}
 				onPointerCancel={() => {
 					drawingRef.current = false;
 				}}
 			/>
+			{/* The pad stays drawable while this shows — it reports progress,
+			    it does not gate the surface. */}
+			<p aria-live="polite" className="text-xs text-nova-text-muted">
+				{uploading
+					? "Saving signature…"
+					: hasAnswer
+						? "Signature saved."
+						: "Sign above."}
+			</p>
 			<button
 				type="button"
 				onClick={clear}
-				disabled={disabled || (empty && !hasAnswer)}
+				disabled={empty && !hasAnswer}
 				className="inline-flex min-h-12 items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors hover:border-pv-input-focus disabled:opacity-40"
 			>
 				<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />

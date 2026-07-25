@@ -42,7 +42,10 @@ import {
 } from "@/lib/case-store/errors";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
-import { reconcileFormAttachments } from "@/lib/db/formAttachments";
+import {
+	reconcileFormAttachments,
+	recordPromotedAttachmentKey,
+} from "@/lib/db/formAttachments";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import {
 	caseOperationConditionalGuardUuids,
@@ -1485,6 +1488,7 @@ export function schemaHealingCaseStore(
  * over either would be strictly worse, because the case write has landed.
  */
 export async function settleSubmittedAttachments(args: {
+	appId: string;
 	mutation: SubmissionMutation;
 	actorUserId: string;
 	projectId: string;
@@ -1492,6 +1496,7 @@ export async function settleSubmittedAttachments(args: {
 	const { entryKey, attachmentNames } = args.mutation;
 	if (entryKey === undefined) return;
 	const settled = await reconcileFormAttachments({
+		appId: args.appId,
 		entryKey,
 		actorUserId: args.actorUserId,
 		expectedProjectId: args.projectId,
@@ -1505,7 +1510,15 @@ export async function settleSubmittedAttachments(args: {
 				attachment.extension,
 			);
 			try {
+				// Copy, then point the row at the copy, then drop the original.
+				// That order is what keeps the row naming bytes that exist: a
+				// failure at any step leaves it on the staging key, whose TTL is
+				// a bounded window rather than an immediate silent loss.
 				await copyAssetObject(attachment.gcsObjectKey, durable);
+				await recordPromotedAttachmentKey({
+					attachmentId: attachment.attachmentId,
+					gcsObjectKey: durable,
+				});
 				await deleteAsset(attachment.gcsObjectKey);
 			} catch (err) {
 				log.warn("[attachments] promotion copy failed", {

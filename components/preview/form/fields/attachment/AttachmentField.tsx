@@ -187,7 +187,7 @@ function AttachmentControl({
 		<div className="space-y-2">
 			{field.kind === "signature" ? (
 				<SignaturePad
-					disabled={busy}
+					uploading={busy}
 					hasAnswer={hasAnswer}
 					onDrawn={(file) => void stage(file)}
 					onClear={clear}

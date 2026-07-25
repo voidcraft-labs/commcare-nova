@@ -127,6 +127,15 @@ describe("object keys", () => {
 		expect(durable).toBe("projects/proj-1/captures/att-1.jpg");
 	});
 
+	it("gives promotion a destination distinct from its source", () => {
+		// The promotion copies staging -> durable and only then repoints the
+		// row. If these two ever collided, the copy would be a no-op and the
+		// subsequent staging delete would destroy the submitted attachment.
+		const staged = stagedCaptureObjectKeyFor("p", "att", ".jpg");
+		const durable = captureObjectKeyFor("p", "att", ".jpg");
+		expect(staged).not.toBe(durable);
+	});
+
 	it("keys on the attachment id, never the content hash", () => {
 		// Two workers who attach identical bytes made two independent
 		// observations with independent lifecycles; sharing one object would

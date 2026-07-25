@@ -31,7 +31,6 @@ import type { Selectable, Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
 	captureAttachmentName,
-	captureObjectKeyFor,
 	stagedCaptureObjectKeyFor,
 } from "@/lib/domain/captureFormats";
 import type { AppDatabase, FormAttachmentsTable } from "./pg";
@@ -212,6 +211,7 @@ export async function confirmFormAttachment(args: {
 			.selectAll()
 			.where("attachment_id", "=", args.attachmentId)
 			.where("project_id", "=", args.expectedProjectId)
+			.where("created_by", "=", args.actorUserId)
 			.forUpdate()
 			.executeTakeFirst();
 		if (row === undefined) return { kind: "not_found" };
@@ -305,6 +305,7 @@ export interface ReconcileFormAttachmentsResult {
  * preserve someone else's attachment.
  */
 export async function reconcileFormAttachments(args: {
+	appId: string;
 	entryKey: string;
 	actorUserId: string;
 	expectedProjectId: string;
@@ -325,6 +326,7 @@ export async function reconcileFormAttachments(args: {
 		const rows = await tx
 			.selectFrom("form_attachments")
 			.selectAll()
+			.where("app_id", "=", args.appId)
 			.where("entry_key", "=", args.entryKey)
 			.where("created_by", "=", args.actorUserId)
 			.where("project_id", "=", args.expectedProjectId)
@@ -346,17 +348,17 @@ export async function reconcileFormAttachments(args: {
 			}
 		}
 		for (const record of promoted) {
+			// The status flips here; the KEY does not. Rewriting it in this
+			// transaction would point the row at an object the caller has not
+			// copied yet, and a failed copy would then leave a submitted
+			// attachment naming a key that was never written while its real
+			// bytes expire under the staging TTL — silent loss of a
+			// submission's evidence. The caller copies first and calls
+			// `recordPromotedAttachmentKey` on success, so the row always
+			// names bytes that exist.
 			await tx
 				.updateTable("form_attachments")
-				.set({
-					status: "submitted",
-					submitted_at: new Date(),
-					gcs_object_key: captureObjectKeyFor(
-						record.projectId,
-						record.attachmentId,
-						record.extension,
-					),
-				})
+				.set({ status: "submitted", submitted_at: new Date() })
 				.where("attachment_id", "=", record.attachmentId)
 				.execute();
 		}
@@ -373,6 +375,29 @@ export async function reconcileFormAttachments(args: {
 		return { promoted, discarded };
 	};
 	return args.tx ? run(args.tx) : withAppTx(run);
+}
+
+/**
+ * Point a promoted attachment at its durable object, after the copy that
+ * put bytes there succeeded.
+ *
+ * Split from the promotion itself so the row never names an object that
+ * does not exist. A promotion whose copy failed keeps its staging key: the
+ * bytes are still reachable until the staging TTL collects them, which is
+ * a bounded window to notice and re-run rather than an immediate silent
+ * loss.
+ */
+export async function recordPromotedAttachmentKey(args: {
+	attachmentId: string;
+	gcsObjectKey: string;
+}): Promise<void> {
+	const db = await getAppDb();
+	await db
+		.updateTable("form_attachments")
+		.set({ gcs_object_key: args.gcsObjectKey })
+		.where("attachment_id", "=", args.attachmentId)
+		.where("status", "=", "submitted")
+		.execute();
 }
 
 /**
