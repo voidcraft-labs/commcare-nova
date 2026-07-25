@@ -172,7 +172,7 @@ export function ColumnInspectorBody({
 						type="button"
 						variant="ghost"
 						disabled={lastColumn}
-						className="min-h-11 gap-2 text-nova-text-muted hover:text-nova-text"
+						className="min-h-11 gap-2 text-nova-text-muted not-disabled:hover:text-nova-text"
 						onClick={() => setPending({ kind: "remove" })}
 					>
 						<Icon

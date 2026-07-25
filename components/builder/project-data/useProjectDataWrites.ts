@@ -36,8 +36,6 @@ function unavailable(): LookupGovernanceFailure {
 export interface ColumnWrites {
 	readonly status: string | null;
 	readonly failure: string | null;
-	/** The last governance refusal, so a dialog can name its blocking apps. */
-	readonly governanceFailure: LookupGovernanceFailure | null;
 	readonly renameLabel: (column: LookupColumn, label: string) => Promise<void>;
 	readonly renameWireName: (
 		column: LookupColumn,
@@ -61,8 +59,6 @@ export function useColumnWrites(
 	const projectId = useProjectId();
 	const [status, setStatus] = useState<string | null>(null);
 	const [failure, setFailure] = useState<string | null>(null);
-	const [governanceFailure, setGovernanceFailure] =
-		useState<LookupGovernanceFailure | null>(null);
 
 	const renameLabel = useCallback(
 		async (column: LookupColumn, label: string) => {
@@ -112,14 +108,12 @@ export function useColumnWrites(
 		async (column: LookupColumn): Promise<LookupGovernanceFailure | null> => {
 			if (projectId === undefined) return unavailable();
 			setFailure(null);
-			setGovernanceFailure(null);
 			const result = await removeLookupColumnAction(projectId, {
 				tableId: table.id,
 				expectedTableRevision: table.tableRevision,
 				columnId: column.id,
 			});
 			if (!result.success) {
-				setGovernanceFailure(result);
 				setFailure(result.message);
 				return result;
 			}
@@ -142,7 +136,6 @@ export function useColumnWrites(
 		): Promise<LookupGovernanceFailure | null> => {
 			if (projectId === undefined) return unavailable();
 			setFailure(null);
-			setGovernanceFailure(null);
 			const result = await retypeLookupColumnAction(projectId, {
 				tableId: table.id,
 				expectedTableRevision: table.tableRevision,
@@ -150,7 +143,6 @@ export function useColumnWrites(
 				dataType,
 			});
 			if (!result.success) {
-				setGovernanceFailure(result);
 				setFailure(
 					result.code === "incompatible_values"
 						? `${result.message} Nothing changed.`
@@ -168,7 +160,6 @@ export function useColumnWrites(
 	return {
 		status,
 		failure,
-		governanceFailure,
 		renameLabel,
 		renameWireName,
 		removeColumn,

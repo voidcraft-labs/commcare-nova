@@ -83,7 +83,16 @@ export function DestructiveChangeDialog({
 	>(null);
 
 	useEffect(() => {
-		if (!open || projectId === undefined) return;
+		if (!open) return;
+		if (projectId === undefined) {
+			/* No Project resolved means the scan cannot run at all. Leaving
+			 * `checking` true would spin forever behind a permanently disabled
+			 * action; settling to an empty, unverified list lets the author proceed
+			 * and lets the transactional check — the authority anyway — answer. */
+			setBlockers([]);
+			setChecking(false);
+			return;
+		}
 		let live = true;
 		setChecking(true);
 		void getLookupReferencingAppsAction(projectId, {

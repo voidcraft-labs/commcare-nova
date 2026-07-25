@@ -25,7 +25,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
-import { useId } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
 import {
@@ -65,21 +65,56 @@ export function OptionsSourceEditor<F extends Field>({
 		"optionsSource" in field
 			? (field.optionsSource as LookupOptionsSource | undefined)
 			: undefined;
-	const tables = useProjectLookupDefinitions(source?.tableId);
+	/* The table being CONSIDERED, held until its columns arrive.
+	 *
+	 * Binding needs a value and a label column, and columns are a separate read
+	 * from the table list. Choosing a table therefore cannot commit in the same
+	 * tick: the pick records an intent here, the hook fetches that table, and
+	 * the effect below commits once there is something to bind to. Committing
+	 * immediately with whatever columns happened to be loaded is what made the
+	 * picker a silent no-op — nothing was loaded, so nothing ever committed. */
+	const [considering, setConsidering] = useState<LookupTableId | null>(null);
+	const tables = useProjectLookupDefinitions(considering ?? source?.tableId);
 	const table =
 		source === undefined ? undefined : tables.byId.get(source.tableId);
 
-	const commit = (next: LookupOptionsSource | undefined) => {
-		/* `onChange(undefined)` is the editor registry's own spelling for
-		 * "remove this slot". The doc-diff persistence path turns it into the
-		 * durable `null` — `lib/doc/lookupOptionsSourceMutations.ts` records why
-		 * that distinction is load-bearing rather than cosmetic.
-		 *
-		 * The cast mirrors `OptionsEditor`'s: `onChange` is an indexed-access
-		 * write over the generic, and every kind that declares `optionsSource`
-		 * carries it as `LookupOptionsSource | undefined`. */
-		onChange(next as F["optionsSource" & keyof F]);
-	};
+	const commit = useCallback(
+		(next: LookupOptionsSource | undefined) => {
+			/* `onChange(undefined)` is the editor registry's own spelling for
+			 * "remove this slot". The doc-diff persistence path turns it into the
+			 * durable `null` — `lib/doc/lookupOptionsSourceMutations.ts` records why
+			 * that distinction is load-bearing rather than cosmetic.
+			 *
+			 * The cast mirrors `OptionsEditor`'s: `onChange` is an indexed-access
+			 * write over the generic, and every kind that declares `optionsSource`
+			 * carries it as `LookupOptionsSource | undefined`. */
+			onChange(next as F["optionsSource" & keyof F]);
+		},
+		[onChange],
+	);
+
+	const consideredColumns = considering
+		? (tables.byId.get(considering)?.columns ?? [])
+		: [];
+	const consideredName = considering
+		? tables.byId.get(considering)?.name
+		: undefined;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `commit` is stable per `onChange`; re-running on `tables` identity alone would re-commit.
+	useEffect(() => {
+		if (considering === null) return;
+		const first = consideredColumns[0];
+		if (first === undefined) return;
+		/* Seeded whole, never half-configured: a source without both columns is
+		 * not a thing the wire can emit, so the first column stands in for both
+		 * until the author says otherwise. */
+		commit({
+			kind: "lookup-table",
+			tableId: considering,
+			valueColumnId: first.id,
+			labelColumnId: first.id,
+		});
+		setConsidering(null);
+	}, [considering, consideredColumns[0]?.id, commit]);
 
 	return (
 		<div className="space-y-3">
@@ -88,25 +123,17 @@ export function OptionsSourceEditor<F extends Field>({
 					Where the choices come from
 				</Label>
 				<Select
-					value={source === undefined ? INLINE : source.tableId}
+					value={
+						considering ?? (source === undefined ? INLINE : source.tableId)
+					}
 					disabled={!canEdit}
 					onValueChange={(next) => {
 						if (next === INLINE) {
+							setConsidering(null);
 							commit(undefined);
 							return;
 						}
-						const chosen = tables.byId.get(next as LookupTableId);
-						const first = chosen?.columns[0];
-						if (chosen === undefined || first === undefined) return;
-						/* Seeded whole, never half-configured: a source without both
-						 * columns is not a thing the wire can emit, so the first column
-						 * stands in for both until the author says otherwise. */
-						commit({
-							kind: "lookup-table",
-							tableId: chosen.id,
-							valueColumnId: first.id,
-							labelColumnId: first.id,
-						});
+						setConsidering(next as LookupTableId);
 					}}
 				>
 					<SelectTrigger id={modeId} className="mt-1 h-11 w-full">
@@ -123,7 +150,16 @@ export function OptionsSourceEditor<F extends Field>({
 				</Select>
 			</div>
 
-			{source === undefined ? (
+			{considering !== null || tables.loadingList || tables.loadingFocused ? (
+				<p
+					role="status"
+					className="text-[12px] leading-snug text-nova-text-muted"
+				>
+					{considering === null
+						? "Loading this project’s data tables…"
+						: `Loading “${consideredName ?? "that table"}”…`}
+				</p>
+			) : source === undefined ? (
 				<p className="text-[12px] leading-snug text-nova-text-muted">
 					{tables.definitions.length === 0
 						? "This project has no data tables yet. Create one to offer the same list in more than one place."

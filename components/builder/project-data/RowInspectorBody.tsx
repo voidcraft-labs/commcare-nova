@@ -14,19 +14,14 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
-import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import type { LookupColumnId } from "@/lib/domain/lookupIds";
 import type { LookupColumn, LookupRow } from "@/lib/lookup/types";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
-import type {
-	ProjectDataRowConflict,
-	ProjectDataWorkspace,
-} from "./ProjectDataWorkspaceProvider";
+import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import {
-	cellText,
 	type RowDraft,
 	rowDraftToValues,
 	rowValuesToDraft,
@@ -59,7 +54,6 @@ export function RowInspectorBody({
 	);
 	const [status, setStatus] = useState<string | null>(null);
 	const [failure, setFailure] = useState<string | null>(null);
-	const [conflict, setConflict] = useState<ProjectDataRowConflict | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingDelete);
@@ -70,7 +64,7 @@ export function RowInspectorBody({
 	const lastStored = useRef(stored);
 	if (lastStored.current !== stored) {
 		lastStored.current = stored;
-		if (!dirty && conflict === null) setDraft(stored);
+		if (!dirty) setDraft(stored);
 	}
 
 	const update = (columnId: LookupColumnId, next: string | undefined) => {
@@ -94,7 +88,6 @@ export function RowInspectorBody({
 		setSaving(false);
 		if (outcome.kind === "saved") {
 			setDirty(false);
-			setConflict(null);
 			setStatus("Saved.");
 			return;
 		}
@@ -102,31 +95,11 @@ export function RowInspectorBody({
 			setFailure(outcome.failure.message);
 			return;
 		}
-		setConflict(outcome.conflict);
+		/* Handed to the controller, which renders it as its own body — this one
+		 * unmounts the moment the row leaves the table, which is exactly what a
+		 * co-member's delete does. */
+		workspace.setRowConflict(outcome.conflict);
 	};
-
-	if (conflict !== null) {
-		return (
-			<ConflictResolution
-				conflict={conflict}
-				columns={columns}
-				onKeepMine={async () => {
-					setConflict(null);
-					await save();
-				}}
-				onUseTheirs={() => {
-					setConflict(null);
-					setDirty(false);
-					setDraft(
-						conflict.current === undefined
-							? stored
-							: rowValuesToDraft(conflict.current, columns),
-					);
-					setStatus("Kept the version that was already saved.");
-				}}
-			/>
-		);
-	}
 
 	return (
 		<div className="space-y-4">
@@ -225,7 +198,7 @@ export function RowInspectorBody({
 									if (outcome.kind === "failed") {
 										setFailure(outcome.failure.message);
 									} else if (outcome.kind === "conflict") {
-										setConflict(outcome.conflict);
+										workspace.setRowConflict(outcome.conflict);
 									}
 								}}
 							>
@@ -250,111 +223,6 @@ export function RowInspectorBody({
 						Delete row
 					</Button>
 				))}
-		</div>
-	);
-}
-
-/**
- * The side-by-side an author sees when a save could not be applied safely.
- *
- * It shows both versions of every cell that differs, because the decision is
- * "which of these two is right" and it cannot be made from one of them. The
- * two actions are the two real answers; there is deliberately no third
- * "merge" affordance, which would ask the author to hand-reconcile values the
- * surface could show them directly.
- */
-function ConflictResolution({
-	conflict,
-	columns,
-	onKeepMine,
-	onUseTheirs,
-}: {
-	conflict: ProjectDataRowConflict;
-	columns: readonly LookupColumn[];
-	onKeepMine: () => void;
-	onUseTheirs: () => void;
-}) {
-	const gone = conflict.verdict.kind === "gone";
-	const reason = gone
-		? "Someone deleted this row while you were editing it."
-		: conflict.verdict.reason === "columns-changed"
-			? "Someone changed this table's columns while you were editing this row, so your values may not mean the same thing anymore."
-			: "Someone else saved this row while you were editing it.";
-
-	return (
-		<div className="space-y-4">
-			<div
-				role="alert"
-				className="flex gap-2 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.08] p-3"
-			>
-				<Icon
-					icon={tablerAlertTriangle}
-					width="16"
-					height="16"
-					className="mt-0.5 shrink-0 text-nova-amber"
-					aria-hidden="true"
-				/>
-				<div className="min-w-0 space-y-1">
-					<p className="text-[13px] font-medium text-nova-text">
-						This row wasn’t saved
-					</p>
-					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						{reason} Nothing you typed has been lost — pick which version to
-						keep.
-					</p>
-				</div>
-			</div>
-
-			<dl className="space-y-3">
-				{columns.map((column) => {
-					const mine = cellText(conflict.draft, column);
-					const theirs =
-						conflict.current === undefined
-							? undefined
-							: cellText(conflict.current, column);
-					if (mine === theirs) return null;
-					return (
-						<div key={column.id} className="min-w-0">
-							<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
-								{column.label}
-							</dt>
-							<dd className="mt-1 space-y-1 text-[13px]">
-								<p className="text-nova-text-secondary [overflow-wrap:anywhere]">
-									<span className="text-nova-text-muted">Yours: </span>
-									{mine ?? "No value"}
-								</p>
-								<p className="text-nova-text-secondary [overflow-wrap:anywhere]">
-									<span className="text-nova-text-muted">
-										{gone ? "Deleted" : "Already saved"}:{" "}
-									</span>
-									{gone ? "—" : (theirs ?? "No value")}
-								</p>
-							</dd>
-						</div>
-					);
-				})}
-			</dl>
-
-			<div className="flex flex-wrap gap-2">
-				{!gone && (
-					<Button
-						type="button"
-						variant="default"
-						className="min-h-11"
-						onClick={onKeepMine}
-					>
-						Keep mine
-					</Button>
-				)}
-				<Button
-					type="button"
-					variant="ghost"
-					className="min-h-11"
-					onClick={onUseTheirs}
-				>
-					{gone ? "Discard my changes" : "Keep the saved version"}
-				</Button>
-			</div>
 		</div>
 	);
 }

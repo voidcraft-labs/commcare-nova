@@ -52,17 +52,26 @@ export function TableActions({
 	const [addingColumn, setAddingColumn] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const [failure, setFailure] = useState<string | null>(null);
+	const [status, setStatus] = useState<string | null>(null);
 
 	const capacity = tableCapacity(table);
 	const full = rowAdditionRefusal(capacity);
 
 	const addRow = async () => {
 		setFailure(null);
-		/* An empty row, then the rail opens it. Adding a row and filling it in
-		 * are two gestures, and a dialog that demanded every value before the
-		 * row existed would make adding fifty rows fifty dialogs. */
+		/* An empty row, appended. Adding a row and filling it in are two
+		 * gestures, and a dialog demanding every value before the row existed
+		 * would make adding fifty rows fifty dialogs. The row lands at the end,
+		 * so the status below says where to find it rather than leaving the
+		 * author to hunt an unchanged-looking table. */
 		const outcome = await workspace.addRow({} as LookupRowValues);
-		if (outcome.kind === "failed") setFailure(outcome.failure.message);
+		if (outcome.kind === "failed") {
+			setFailure(outcome.failure.message);
+			return;
+		}
+		setStatus(
+			"Added an empty row at the end of the table. Open it to fill it in.",
+		);
 	};
 
 	return (
@@ -149,6 +158,14 @@ export function TableActions({
 			{failure !== null && (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">
 					{failure}
+				</p>
+			)}
+			{status !== null && (
+				<p
+					role="status"
+					className="text-[13px] leading-relaxed text-nova-text-secondary"
+				>
+					{status}
 				</p>
 			)}
 

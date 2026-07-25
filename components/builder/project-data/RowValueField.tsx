@@ -130,12 +130,17 @@ function DateTimeField({
 }) {
 	const timeId = useId();
 	const [datePart = "", timePart = ""] = value.split("T");
-	/* Recombine only when both halves are present. A date with no time is not a
-	 * date-time, and emitting a half value would have the server refuse
-	 * something the author is still in the middle of typing. */
+	/* A HALF-filled date-time is kept, as `date` + `T` + `time` with one side
+	 * blank. Emitting `""` for a half value instead — the obvious reading of
+	 * "only a complete date-time is valid" — deletes the draft cell, which
+	 * resets both controls and discards the half the author just entered, so
+	 * the field could never be filled in at all. The draft holds text; only
+	 * `rowDraftToValues` decides what is storable, and it refuses a half
+	 * date-time with words rather than by erasing it. Both halves empty is a
+	 * genuinely empty cell. */
 	const emit = (nextDate: string, nextTime: string) =>
 		onChange(
-			nextDate === "" || nextTime === "" ? "" : `${nextDate}T${nextTime}`,
+			nextDate === "" && nextTime === "" ? "" : `${nextDate}T${nextTime}`,
 		);
 
 	return (

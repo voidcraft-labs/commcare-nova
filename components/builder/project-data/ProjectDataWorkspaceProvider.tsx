@@ -63,7 +63,17 @@ export type ProjectDataSelection =
  * failure this whole model exists to prevent.
  */
 export interface ProjectDataRowConflict {
+	/**
+	 * What the author was trying to do, and the resolution surface MUST branch
+	 * on it. A save conflict asks "which set of values wins"; a delete conflict
+	 * asks "do you still want this row gone". Offering the save question's
+	 * "keep mine" on a refused delete would quietly turn a deletion into a save
+	 * of values the author never typed.
+	 */
+	readonly attempted: "save" | "delete";
 	readonly rowId: string;
+	/** For a save, the values the author typed. For a delete, the row as they
+	 *  last saw it — what they were asking to remove. */
 	readonly draft: LookupRowValues;
 	readonly verdict: Extract<
 		ConflictVerdict,
@@ -87,6 +97,17 @@ export interface ProjectDataWorkspace {
 	readonly reload: () => Promise<void>;
 	readonly selection: ProjectDataSelection;
 	readonly select: (selection: ProjectDataSelection) => void;
+	/**
+	 * An unresolved conflict, held HERE rather than inside the inspector body.
+	 *
+	 * The body unmounts the moment its row leaves the snapshot, and the most
+	 * important conflict — someone deleted the row you were editing — is
+	 * precisely the one that makes the row leave. Holding it on the controller
+	 * is what lets that case render at all, and what keeps the author's draft on
+	 * screen while it does.
+	 */
+	readonly rowConflict: ProjectDataRowConflict | null;
+	readonly setRowConflict: (conflict: ProjectDataRowConflict | null) => void;
 	readonly saveRow: (
 		rowId: string,
 		values: LookupRowValues,
@@ -125,14 +146,18 @@ function ActiveHost({
 	const projectId = useProjectId();
 	const { state, reload } = useProjectDataTable(tableId);
 	const [selection, setSelection] = useState<ProjectDataSelection>(null);
+	const [rowConflict, setRowConflict] = useState<ProjectDataRowConflict | null>(
+		null,
+	);
 
-	/* Selection belongs to ONE table. Resetting during render (rather than in
-	 * an effect) means the rail never paints one frame of the previous table's
-	 * row in the new table's context. */
+	/* Selection and any unresolved conflict belong to ONE table. Resetting
+	 * during render (rather than in an effect) means the rail never paints one
+	 * frame of the previous table's row in the new table's context. */
 	const lastTableId = useRef(tableId);
 	if (lastTableId.current !== tableId) {
 		lastTableId.current = tableId;
 		if (selection !== null) setSelection(null);
+		if (rowConflict !== null) setRowConflict(null);
 	}
 
 	const snapshot = state.kind === "data" ? state.value : undefined;
@@ -180,6 +205,13 @@ function ActiveHost({
 					await reload();
 					return { kind: "saved" };
 				}
+				/* Only a second REVISION drift is a conflict. A retry refused for any
+				 * other reason — a value the column will not take, a byte cap — carries
+				 * its own message, and reporting it as "someone else saved this row"
+				 * would replace the one sentence that says what to fix. */
+				if (retried.code !== "conflict") {
+					return { kind: "failed", failure: retried };
+				}
 				/* One retry only. A second drift means the table is under active
 				 * concurrent editing, and silently looping would be indistinguishable
 				 * from a hang — the author gets the choice instead. */
@@ -190,6 +222,7 @@ function ActiveHost({
 				return {
 					kind: "conflict",
 					conflict: {
+						attempted: "save",
 						rowId,
 						draft,
 						verdict: { kind: "ask", reason: "row-changed" },
@@ -197,10 +230,20 @@ function ActiveHost({
 					},
 				};
 			}
-			await reload();
+			/* Deliberately NO reload before returning a conflict. Refreshing here
+			 * drops a deleted row from the snapshot, which unmounts the inspector
+			 * holding the author's draft — losing exactly the work the conflict
+			 * exists to protect, in the one case that matters most. The reload
+			 * happens once the author has decided. */
 			return {
 				kind: "conflict",
-				conflict: { rowId, draft, verdict, current: current?.values },
+				conflict: {
+					attempted: "save",
+					rowId,
+					draft,
+					verdict,
+					current: current?.values,
+				},
 			};
 		},
 		[projectId, tableId, reload],
@@ -351,7 +394,12 @@ function ActiveHost({
 			return {
 				kind: "conflict",
 				conflict: {
+					attempted: "delete",
 					rowId,
+					/* What the author asked to remove, as they last saw it — NOT any
+					 * unsaved edits they had typed. A delete conflict asks whether the
+					 * row should still go, and answering it with the author's draft
+					 * would present values nobody has saved as the thing at stake. */
 					draft: baselineRow?.values ?? ({} as LookupRowValues),
 					verdict,
 					current: current?.values,
@@ -369,11 +417,22 @@ function ActiveHost({
 			reload,
 			selection,
 			select: setSelection,
+			rowConflict,
+			setRowConflict,
 			saveRow,
 			addRow,
 			deleteRow,
 		}),
-		[tableId, state, reload, selection, saveRow, addRow, deleteRow],
+		[
+			tableId,
+			state,
+			reload,
+			selection,
+			rowConflict,
+			saveRow,
+			addRow,
+			deleteRow,
+		],
 	);
 
 	return (

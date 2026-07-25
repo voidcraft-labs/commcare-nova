@@ -13,14 +13,22 @@ import { useCanEdit } from "@/lib/session/hooks";
 import { ColumnInspectorBody } from "./ColumnInspectorBody";
 import type { ActiveInspectorDescriptor } from "./inspectorTypes";
 import { useProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
+import { RowConflictBody } from "./RowConflictBody";
 import { RowInspectorBody } from "./RowInspectorBody";
 
 /**
  * The rail descriptor for whatever the workspace has selected, or `null`.
  *
- * Returns `null` — a stable identity — whenever the workspace is inactive or
- * nothing is selected, so the rail and layout consumers do not re-render as
- * the table's rows change underneath them.
+ * Every body carries a `key` on its selection's identity. The rail renders
+ * `{inspector.body}` bare, so without one React preserves a body's local state
+ * across a change of selection — and these bodies hold DRAFTS. That is not a
+ * cosmetic leak: a dirty row A followed by selecting row B would save A's typed
+ * values to B's id, and a half-edited column name would rename the next column
+ * you clicked.
+ *
+ * An unresolved conflict outranks the selection, and it is read from the
+ * CONTROLLER rather than the body, so it still renders when the row it is about
+ * has left the table — which is exactly what a co-member's delete does.
  */
 export function useProjectDataInspector(): {
 	readonly inspector: ActiveInspectorDescriptor | null;
@@ -32,9 +40,30 @@ export function useProjectDataInspector(): {
 	const table =
 		workspace?.table.kind === "data" ? workspace.table.value : undefined;
 
+	const conflict = workspace?.rowConflict ?? null;
+
 	return useMemo(() => {
 		if (workspace === null) return null;
 		const onClose = () => workspace.select(null);
+		/* An unresolved conflict outranks everything, INCLUDING the row having
+		 * left the table. It is the only surface holding the author's draft. */
+		if (conflict !== null && table !== undefined) {
+			return {
+				inspector: {
+					kicker: conflict.attempted === "delete" ? "Delete row" : "Row",
+					title: "Not saved",
+					body: (
+						<RowConflictBody
+							key={`conflict:${conflict.rowId}`}
+							conflict={conflict}
+							columns={table.columns}
+							workspace={workspace}
+						/>
+					),
+				},
+				onClose,
+			};
+		}
 		if (selection === null || table === undefined) {
 			return { inspector: null, onClose };
 		}
@@ -42,9 +71,9 @@ export function useProjectDataInspector(): {
 			const row = table.rows.find(
 				(candidate) => candidate.id === selection.rowId,
 			);
-			/* A row that has left the table (deleted here or by a co-member)
-			 * carries no inspector. The grid is already showing the table without
-			 * it, so an empty panel would be the only thing claiming it exists. */
+			/* A row that has left the table with no conflict pending was removed
+			 * deliberately, here or by a co-member, and nothing is waiting on a
+			 * decision. An empty panel would be the only thing claiming it exists. */
 			if (row === undefined) return { inspector: null, onClose };
 			const position = table.rows.indexOf(row) + 1;
 			return {
@@ -53,6 +82,7 @@ export function useProjectDataInspector(): {
 					title: `Row ${position.toLocaleString("en-US")}`,
 					body: (
 						<RowInspectorBody
+							key={row.id}
 							row={row}
 							columns={table.columns}
 							workspace={workspace}
@@ -73,6 +103,7 @@ export function useProjectDataInspector(): {
 				title: column.label,
 				body: (
 					<ColumnInspectorBody
+						key={column.id}
 						column={column}
 						table={table}
 						workspace={workspace}
@@ -81,5 +112,5 @@ export function useProjectDataInspector(): {
 			},
 			onClose,
 		};
-	}, [workspace, selection, table, canEdit]);
+	}, [workspace, conflict, selection, table, canEdit]);
 }
