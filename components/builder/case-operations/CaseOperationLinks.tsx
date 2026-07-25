@@ -37,6 +37,11 @@ import { FieldError } from "@/components/shadcn/field";
 import { caseOperationLinkIdentifierVerdict } from "@/lib/doc/identifierVerdicts";
 import type { CaseOperation, CaseOperationLink } from "@/lib/domain";
 import { CaseTargetPicker, type TargetChoiceContext } from "./CaseTargetPicker";
+
+/** What a LINK's target picker needs: everything but the two axes the link
+ *  itself fixes (never a new case, always able to unlink). */
+type LinkTargetContext = Omit<TargetChoiceContext, "newOnly" | "allowsNone">;
+
 import { nextLinkIdentifier, seedCaseOperationLink } from "./seeds";
 
 const RELATIONSHIP_LABEL = {
@@ -57,7 +62,7 @@ export function CaseOperationLinks({
 	onChange,
 }: {
 	readonly operation: CaseOperation;
-	readonly targetContext: Omit<TargetChoiceContext, "allowsNew" | "allowsNone">;
+	readonly targetContext: LinkTargetContext;
 	readonly canEdit: boolean;
 	/** The stored slot is a mutable array, so the callback hands one back
 	 *  rather than a readonly view the document could not hold. */
@@ -123,7 +128,7 @@ function LinkRow({
 }: {
 	readonly link: CaseOperationLink;
 	readonly siblings: ReadonlySet<string>;
-	readonly targetContext: Omit<TargetChoiceContext, "allowsNew" | "allowsNone">;
+	readonly targetContext: LinkTargetContext;
 	readonly canEdit: boolean;
 	readonly onChange: (next: CaseOperationLink) => void;
 	readonly onRemove: () => void;
@@ -186,7 +191,7 @@ function LinkRow({
 				<CaseTargetPicker
 					value={link.target}
 					ariaLabel="Connect to"
-					context={{ ...targetContext, allowsNew: false, allowsNone: true }}
+					context={{ ...targetContext, newOnly: false, allowsNone: true }}
 					onChange={(target) => onChange({ ...link, target })}
 				/>
 				{link.target === null && (

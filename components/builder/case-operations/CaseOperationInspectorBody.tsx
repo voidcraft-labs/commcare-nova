@@ -198,7 +198,10 @@ export function CaseOperationInspectorBody({
 					context={{
 						priorCreates,
 						sessionUnavailableReason,
-						allowsNew: operation.action === "create",
+						// A create's case comes into existence here, so "a new case" is
+						// not one option among several — it is the only target the facet
+						// rules admit on a create.
+						newOnly: operation.action === "create",
 						allowsNone: false,
 					}}
 					onChange={(target) => {

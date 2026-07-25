@@ -531,7 +531,6 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 							<CaseOperationsCanvas
 								moduleUuid={caseOperationsRef.current.moduleUuid}
 								formUuid={caseOperationsRef.current.formUuid}
-								selectedUuid={undefined}
 							/>
 						) : (
 							<CaseOperationDetailCanvas

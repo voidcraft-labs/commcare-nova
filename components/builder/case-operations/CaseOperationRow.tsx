@@ -44,7 +44,6 @@ export interface CaseOperationRowProps {
 	readonly context: OperationSentenceContext;
 	readonly position: number;
 	readonly total: number;
-	readonly selected: boolean;
 	readonly canEdit: boolean;
 	/** Conditions this change inherits from earlier changes, in execution
 	 *  order, already resolved to names by the caller. */
@@ -65,7 +64,6 @@ export function CaseOperationRow({
 	context,
 	position,
 	total,
-	selected,
 	canEdit,
 	inheritedGuards,
 	beingMoved,
@@ -122,11 +120,9 @@ export function CaseOperationRow({
 		<div
 			data-case-operation-row={operation.uuid}
 			className={`group/operation flex min-h-16 items-stretch overflow-hidden rounded-xl border transition-colors ${
-				selected
-					? "border-nova-violet bg-nova-violet/[0.08] shadow-[0_0_0_1px_color-mix(in_oklab,var(--nova-violet),transparent_55%)]"
-					: canEdit
-						? "border-white/[0.07] bg-nova-deep/35 hover:border-nova-border-bright hover:bg-white/[0.025]"
-						: "border-white/[0.07] bg-nova-deep/35"
+				canEdit
+					? "border-white/[0.07] bg-nova-deep/35 hover:border-nova-border-bright hover:bg-white/[0.025]"
+					: "border-white/[0.07] bg-nova-deep/35"
 			} ${beingMoved ? "opacity-50" : ""}`}
 		>
 			{canEdit && (
@@ -162,8 +158,7 @@ export function CaseOperationRow({
 					type="button"
 					variant="ghost"
 					onClick={onSelect}
-					aria-pressed={selected}
-					aria-label={`${spoken}. Open settings.`}
+					aria-label={`${spoken}. Open this change.`}
 					data-case-operation-select={operation.uuid}
 					className="h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
 				>

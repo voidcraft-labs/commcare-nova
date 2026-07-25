@@ -79,11 +79,9 @@ const CONTAINER_KIND = "case-operations";
 export function CaseOperationsCanvas({
 	moduleUuid,
 	formUuid,
-	selectedUuid,
 }: {
 	readonly moduleUuid: Uuid;
 	readonly formUuid: Uuid;
-	readonly selectedUuid: Uuid | undefined;
 }) {
 	const view = useCaseOperations(formUuid);
 	const context = useOperationSentenceContext(formUuid);
@@ -314,7 +312,6 @@ export function CaseOperationsCanvas({
 											context={context}
 											position={index + 1}
 											total={operations.length}
-											selected={selectedUuid === operation.uuid}
 											canEdit={canEdit}
 											inheritedGuards={guardNames(view, operation.uuid)}
 											beingMoved={beingMoved}

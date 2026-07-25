@@ -25,6 +25,7 @@ import {
 	effectiveCaseTypes,
 	type Form,
 	formFieldCanKeyCreate,
+	formFieldCorrelatesWithCreate,
 	isCaseFirstModule,
 	MAX_CASE_OPERATION_TEXT_LENGTH,
 	type Module,
@@ -347,7 +348,7 @@ function validateOperation(
 					"An authored create id must come from a scalar string-valued field in this form; a multi-select answer is an array in Nova and cannot be an identity key.",
 				),
 			);
-		} else if (!operationCanReadFormField(field.repeat, repeat)) {
+		} else if (!formFieldCorrelatesWithCreate(field.repeat, repeat)) {
 			errors.push(
 				opError(
 					ctx,

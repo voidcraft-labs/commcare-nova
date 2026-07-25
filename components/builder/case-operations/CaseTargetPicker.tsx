@@ -40,10 +40,43 @@ export interface TargetChoiceContext {
 	}[];
 	/** Why the session case is unavailable, or `undefined` when it is. */
 	readonly sessionUnavailableReason: string | undefined;
-	/** Whether a brand-new case is a legal target here (creates only). */
-	readonly allowsNew: boolean;
+	/**
+	 * Whether a brand-new case is the ONLY legal target here.
+	 *
+	 * A create brings its case into existence, so `validateFacets` refuses
+	 * every other target kind on one — the choice is not "new is also
+	 * allowed", it is "new is all there is". Offering the rest would be
+	 * offer-then-reject.
+	 */
+	readonly newOnly: boolean;
 	/** Whether "no case" is legal — an unlink, on a link target only. */
 	readonly allowsNone: boolean;
+	/**
+	 * A target this slot may not point at because it names the operation's
+	 * OWN case: a case cannot connect to itself
+	 * (`CASE_OPERATION_LINK_INVALID`).
+	 */
+	readonly excludes?: CaseTarget;
+}
+
+/** Whether two targets name the same case identity, for the self-check. */
+function sameTarget(left: CaseTarget, right: CaseTarget): boolean {
+	if (left.kind !== right.kind) return false;
+	if (left.kind === "session") return true;
+	if (left.kind === "op" && right.kind === "op") {
+		return left.opUuid === right.opUuid;
+	}
+	return false;
+}
+
+/** Why this target is unavailable because it is the change's own case. */
+function selfReason(
+	target: CaseTarget,
+	context: TargetChoiceContext,
+): string | undefined {
+	return context.excludes !== undefined && sameTarget(target, context.excludes)
+		? "This is the case the change itself acts on, and a case cannot connect to itself"
+		: undefined;
 }
 
 function label(
@@ -124,44 +157,60 @@ export function CaseTargetPicker({
 								onClick={() => onChange(null)}
 							/>
 						)}
-						{context.allowsNew && (
+						{context.newOnly ? (
 							<Choice
 								active={value?.kind === "new"}
 								title="A new case"
 								detail="This change brings the case into existence"
 								onClick={() => onChange({ kind: "new" })}
 							/>
+						) : (
+							<>
+								<Choice
+									active={value?.kind === "session"}
+									title="The case this form opened"
+									detail={
+										selfReason({ kind: "session" }, context) ??
+										context.sessionUnavailableReason ??
+										"The case someone picked before opening this form"
+									}
+									disabled={
+										selfReason({ kind: "session" }, context) !== undefined ||
+										context.sessionUnavailableReason !== undefined
+									}
+									onClick={() => onChange({ kind: "session" })}
+								/>
+								{context.priorCreates.map((create) => {
+									const target = { kind: "op", opUuid: create.uuid } as const;
+									const self = selfReason(target, context);
+									return (
+										<Choice
+											key={create.uuid}
+											active={
+												value?.kind === "op" && value.opUuid === create.uuid
+											}
+											title={`The case from \u201c${create.label}\u201d`}
+											detail={
+												self ?? "A case an earlier change in this form creates"
+											}
+											disabled={self !== undefined}
+											onClick={() => onChange(target)}
+										/>
+									);
+								})}
+								<Choice
+									active={value?.kind === "expression"}
+									title="A case found by a calculation"
+									detail="Work the case id out from the answers \u2014 edit it on this screen"
+									onClick={() =>
+										onChange({
+											kind: "expression",
+											expr: term(literal("")),
+										})
+									}
+								/>
+							</>
 						)}
-						<Choice
-							active={value?.kind === "session"}
-							title="The case this form opened"
-							detail={
-								context.sessionUnavailableReason ??
-								"The case someone picked before opening this form"
-							}
-							disabled={context.sessionUnavailableReason !== undefined}
-							onClick={() => onChange({ kind: "session" })}
-						/>
-						{context.priorCreates.map((create) => (
-							<Choice
-								key={create.uuid}
-								active={value?.kind === "op" && value.opUuid === create.uuid}
-								title={`The case from “${create.label}”`}
-								detail="A case an earlier change in this form creates"
-								onClick={() => onChange({ kind: "op", opUuid: create.uuid })}
-							/>
-						))}
-						<Choice
-							active={value?.kind === "expression"}
-							title="A case found by a calculation"
-							detail="Work the case id out from the answers — edit it on this screen"
-							onClick={() =>
-								onChange({
-									kind: "expression",
-									expr: term(literal("")),
-								})
-							}
-						/>
 					</DropdownMenuPopup>
 				</DropdownMenuPositioner>
 			</DropdownMenuPortal>

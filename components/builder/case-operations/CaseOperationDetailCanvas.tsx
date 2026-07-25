@@ -439,6 +439,9 @@ export function CaseOperationDetailCanvas({
 						targetContext={{
 							priorCreates: operationScope.creates,
 							sessionUnavailableReason,
+							// A case cannot connect to itself, so the change's own
+							// target is withheld with that reason.
+							excludes: operation.target,
 						}}
 						onChange={(links) => commit({ ...operation, links })}
 					/>

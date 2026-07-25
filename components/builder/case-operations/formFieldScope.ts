@@ -18,6 +18,7 @@ import type { FormFieldEntry } from "@/lib/doc/hooks/useFormFieldEntries";
 import {
 	type CaseOperation,
 	formFieldCanKeyCreate,
+	formFieldCorrelatesWithCreate,
 	operationCanReadFormField,
 	type Uuid,
 } from "@/lib/domain";
@@ -73,10 +74,8 @@ export function identityKeyFieldDecls(
 	return entries
 		.filter(
 			(entry) =>
-				// Stricter than a plain read: the key must come from the create's
-				// OWN repeat, so a root answer cannot key a repeated create — two
-				// iterations would otherwise share one identity.
-				entry.repeat === repeat && formFieldCanKeyCreate(entry),
+				formFieldCorrelatesWithCreate(entry.repeat, repeat) &&
+				formFieldCanKeyCreate(entry),
 		)
 		.map(declOf);
 }

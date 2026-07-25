@@ -1030,6 +1030,16 @@ describe("case-operation target and dependency safety", () => {
 				forEach: { repeat: REPEAT_A },
 			}),
 		]);
+		// A ROOT answer is readable from a repeated operation but cannot KEY
+		// one: it has a single value per submission, so every iteration would
+		// derive the same identity and collapse onto one case. The identity
+		// rule is exact correlation, never the (looser) read rule.
+		expectCode("CASE_OPERATION_REPEAT_CORRELATION", [
+			create({
+				target: { kind: "new", idFrom: TEXT },
+				forEach: { repeat: REPEAT_A },
+			}),
+		]);
 		expectCode("CASE_OPERATION_AMBIGUOUS_REFERENCE", [
 			update({ owner: term(formField(REPEAT_A_TEXT)) }),
 		]);
