@@ -145,14 +145,29 @@ returns. DELETING a worker is destructive: `users/models.py::CommCareUser.retire
 `tag_cases_as_deleted_and_remove_indices`, soft-deleting them and stripping
 indices — the usercase among them, since the worker owns it.
 
-So this unit owns a real decision rather than inheriting one: **what happens to
-a materialized usercase when its persona is deleted.** Nova has already chosen
-to preserve the persona's ordinary case rows, on the grounds that a persona is a
-design and test actor rather than a person who left an organization, and its
-cases are the author's own test data. Closing the usercase is the option
-consistent with that (the deactivation path, and a persona UUID is never
-reissued so there is no reopen case); deleting it is the option consistent with
-HQ's own delete. Pick one deliberately and record it here.
+So this unit owns a real decision rather than inheriting one, and it is now
+made: **deleting a persona CLOSES its materialized usercase. It never deletes
+it.** Four reasons, in the order they decide it:
+
+- Nova already preserves the persona's ordinary case rows, because a persona is
+  a design and test actor rather than a person who left an organization, and its
+  cases are the author's own test data. Deleting the usercase would contradict
+  that inside the same gesture.
+- The usercase is **not purely derived**. `usercase_update` means a form can
+  write to it during preview, so it can carry real properties an author produced
+  by exercising their app. Deleting it destroys test data nothing else holds;
+  closing preserves it and leaves it visible with a closed status, which is what
+  an author wants to see after a preview run.
+- It is the option HQ's own **deactivation** path takes, and the one ambiguity
+  that path carries does not exist here: a persona UUID is never reissued, so a
+  closed usercase can never be resurrected meaning something else.
+- It needs no new mechanism. `CaseStore.close()` is already one storage
+  operation that stamps `closed_on` and `status` together.
+
+Closing is what HQ's deactivation does, but do not record this as parity: the
+two anchored paths above disagree with each other, so there is no single
+upstream answer to match. Nova takes neither wholesale, because neither was
+written about an actor whose cases are somebody's test fixtures.
 
 One delivery precondition is easy to miss and silently breaks the whole fixture:
 a form only carries the `locations` instance if something in it **references**

@@ -63,6 +63,13 @@ import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
 import { keyedOptions } from "@/lib/doc/order/options";
 import { searchInputMoveMutation } from "@/lib/doc/order/searchInput";
 import {
+	addLocationPropertyMutations,
+	addOrganizationLevelMutations,
+	removeLocationPropertyMutations,
+	removeOrganizationLevelPlan,
+	setPersonaLocationsMutations,
+} from "@/lib/doc/organizationMutations";
+import {
 	BlueprintDocContext,
 	BlueprintEditableContext,
 } from "@/lib/doc/provider";
@@ -107,7 +114,9 @@ import {
 	type FormType,
 	fieldRegistry,
 	HIDDEN_INERT_DEFAULT_VALUE,
+	type LocationProperty,
 	type Module,
+	type OrganizationLevel,
 	type Persona,
 	type SelectOption,
 	type UserProperty,
@@ -411,6 +420,46 @@ export interface BlueprintMutations {
 	updatePersona: (uuid: Uuid, patch: UserEntityPatch<Persona>) => CommitOutcome;
 	/** Remove a persona. Case rows it owns are deliberately left alone. */
 	removePersona: (uuid: Uuid) => CommitOutcome;
+
+	/** Add a rung to the organization. */
+	addOrganizationLevel: (
+		level: Omit<OrganizationLevel, "uuid" | "order">,
+	) => AddCommitOutcome;
+	/** Change a level's name, parentage, or either of its two axes. Its
+	 *  `code` is create-once and is deliberately not patchable here. */
+	updateOrganizationLevel: (
+		uuid: Uuid,
+		patch: UserEntityPatch<OrganizationLevel>,
+	) => CommitOutcome;
+	/** Remove a level, narrowing every place-information entry that named
+	 *  it. Refused while another level sits under it or names it in its
+	 *  settings, and — when the caller supplies the organization's occupied
+	 *  levels — while any place still stands at it. The commit refuses that
+	 *  last one regardless; passing the set only makes the refusal immediate
+	 *  and specific. */
+	removeOrganizationLevel: (
+		uuid: Uuid,
+		occupiedLevelUuids?: ReadonlySet<string>,
+	) => CommitOutcome;
+
+	/** Add a piece of information every place can carry. */
+	addLocationProperty: (
+		property: Omit<LocationProperty, "uuid" | "order">,
+	) => AddCommitOutcome;
+	/** Change a place-information entry. A cleared slot is `null`. */
+	updateLocationProperty: (
+		uuid: Uuid,
+		patch: UserEntityPatch<LocationProperty>,
+	) => CommitOutcome;
+	/** Remove a place-information entry. The values recorded against it are
+	 *  shed from every place in the same transaction that commits this. */
+	removeLocationProperty: (uuid: Uuid) => CommitOutcome;
+
+	/** Set where a persona works — primary first, empty to clear. */
+	setPersonaLocations: (
+		personaUuid: Uuid,
+		locationIds: readonly string[],
+	) => CommitOutcome;
 
 	createCaseListModule: (args: {
 		caseType: string;
@@ -1203,6 +1252,79 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					}
 					return toOutcome(
 						guardedApply(removeUserPropertyMutations(doc, uuid)),
+					);
+				},
+
+				addOrganizationLevel(level) {
+					const uuid = asUuid(crypto.randomUUID());
+					const applied = guardedApply(
+						addOrganizationLevelMutations(get(), uuid, level),
+					);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
+
+				updateOrganizationLevel(uuid, patch) {
+					if (get().organizationLevels?.[uuid] === undefined) {
+						warnUnresolved("updateOrganizationLevel", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateOrganizationLevel", uuid, patch }]),
+					);
+				},
+
+				removeOrganizationLevel(uuid, occupiedLevelUuids) {
+					const doc = get();
+					if (doc.organizationLevels?.[uuid] === undefined) {
+						warnUnresolved("removeOrganizationLevel", { uuid });
+						return NOOP_REJECTION;
+					}
+					const plan = removeOrganizationLevelPlan(
+						doc,
+						uuid,
+						occupiedLevelUuids,
+					);
+					if (!plan.ok) return { ok: false, messages: [plan.userMessage] };
+					return toOutcome(guardedApply(plan.mutations));
+				},
+
+				addLocationProperty(property) {
+					const uuid = asUuid(crypto.randomUUID());
+					const applied = guardedApply(
+						addLocationPropertyMutations(get(), uuid, property),
+					);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
+
+				updateLocationProperty(uuid, patch) {
+					if (get().locationProperties?.[uuid] === undefined) {
+						warnUnresolved("updateLocationProperty", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateLocationProperty", uuid, patch }]),
+					);
+				},
+
+				removeLocationProperty(uuid) {
+					if (get().locationProperties?.[uuid] === undefined) {
+						warnUnresolved("removeLocationProperty", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(guardedApply(removeLocationPropertyMutations(uuid)));
+				},
+
+				setPersonaLocations(personaUuid, locationIds) {
+					if (get().personas?.[personaUuid] === undefined) {
+						warnUnresolved("setPersonaLocations", { uuid: personaUuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply(
+							setPersonaLocationsMutations(personaUuid, locationIds),
+						),
 					);
 				},
 

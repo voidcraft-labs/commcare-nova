@@ -58,9 +58,29 @@ when required resources and ordering are verified end to end.
   failing.** `_update` **regenerates** `site_code` on any request carrying a new
   `name` without one, so a push that omits the stored code repoints the
   bulk-upload key on every rename — always send it. Unknown `location_data` keys
-  are **not** rejected: the validator checks required/choices/regex only on
-  *defined* slugs and stores the rest as HQ's uncategorized data, so a stale key
-  survives silently. And `_update` calls
+  are **not** rejected, and the path is worth tracing because it looks like they
+  are: `_update` really does call
+  `LocationFieldsView.get_validator(domain)` and raise `LocationAPIError` on its
+  result, but
+  `custom_data_fields/models.py::CustomDataFieldsDefinition.get_validator`'s
+  inner `validate_custom_fields` iterates the **declared** fields
+  (`for field in fields: value = custom_fields.get(field.slug, None)`, then
+  required / choices / regex) and never looks at a submitted key the definition
+  does not declare. `_update` then does
+  `setattr(bundle.obj, 'metadata', data.pop('location_data'))` — the **raw
+  dict**, unknown keys included. `get_model_and_uncategorized` exists on that
+  same class to split known from unknown, and the v0.6 resource does not call
+  it.
+
+  **So a typo'd slug does not fail the push; it succeeds wrongly.** The junk
+  lands in the location's `metadata` and is invisible on the wire, because the
+  fixture emits every *defined* field under `<location_data>` and an undefined
+  key never appears there — nobody sees it until someone reads the database.
+  Slug legality is therefore **Nova's** guarantee, the same shape unit 7 already
+  holds for user-data slugs and for a sharper reason: there, construction-time
+  enforcement prevents a failed push; here it prevents a silently corrupt one.
+
+  And `_update` calls
   `corehq/apps/locations/util.py::get_location_type` on **every** create and on
   any update carrying `location_type_code`, which admits only the types
   `corehq/apps/locations/forms.py::LocationForm.get_allowed_types` returns for

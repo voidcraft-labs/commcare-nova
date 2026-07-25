@@ -34,8 +34,11 @@ import type {
 	UserProperty,
 	UserType,
 } from "@/lib/domain";
-import { useCanEdit } from "@/lib/session/hooks";
+import type { StoredLocation } from "@/lib/organization/types";
+import { useOrganization } from "@/lib/organization/useOrganization";
+import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import { PersonaLocations } from "./PersonaLocations";
 import { PersonaRemoveConfirm } from "./PersonaRemoveConfirm";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 import { ValueField } from "./ValueField";
@@ -51,6 +54,10 @@ export function PersonasSubsection() {
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
+	// Places live in the locations store, not the document. Read once for the
+	// whole list so opening several personas does not open several reads.
+	const appId = useAppId();
+	const organization = useOrganization(appId ?? "");
 
 	const add = () => {
 		if (!sessionApi.getState().canEdit) return;
@@ -82,6 +89,8 @@ export function PersonasSubsection() {
 						persona={persona}
 						roles={roles}
 						properties={properties}
+						locations={organization.locations}
+						locationsLoading={organization.loading}
 						open={openUuid === persona.uuid}
 						onOpenChange={(next) =>
 							setOpenUuid(next ? persona.uuid : undefined)
@@ -106,12 +115,16 @@ function PersonaRow({
 	persona,
 	roles,
 	properties,
+	locations,
+	locationsLoading,
 	open,
 	onOpenChange,
 }: {
 	persona: Persona;
 	roles: readonly UserType[];
 	properties: readonly UserProperty[];
+	locations: readonly StoredLocation[];
+	locationsLoading: boolean;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -200,6 +213,12 @@ function PersonaRow({
 						</span>
 					)}
 				</div>
+
+				<PersonaLocations
+					persona={persona}
+					locations={locations}
+					loading={locationsLoading}
+				/>
 
 				<div className="flex flex-col gap-3">
 					<h4 className="text-[12px] font-medium text-nova-text-secondary">
