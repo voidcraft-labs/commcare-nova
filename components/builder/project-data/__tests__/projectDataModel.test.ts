@@ -16,8 +16,8 @@ import {
 	cellText,
 	columnsEqual,
 	filterRows,
-	formatCount,
-	formatStorageSize,
+	formatLookupBytes,
+	formatLookupCount,
 	replacementConflictVerdict,
 	rowAdditionRefusal,
 	rowValuesEqual,
@@ -62,26 +62,26 @@ function row(entries: Record<string, string | number>): LookupRow {
 	};
 }
 
-describe("formatStorageSize", () => {
+describe("formatLookupBytes", () => {
 	it("reports bytes exactly and larger sizes in binary units", () => {
-		expect(formatStorageSize(0)).toBe("0 bytes");
-		expect(formatStorageSize(1)).toBe("1 byte");
-		expect(formatStorageSize(1023)).toBe("1023 bytes");
-		expect(formatStorageSize(1024)).toBe("1 KB");
-		expect(formatStorageSize(1536)).toBe("1.5 KB");
+		expect(formatLookupBytes(0)).toBe("0 bytes");
+		expect(formatLookupBytes(1)).toBe("1 byte");
+		expect(formatLookupBytes(1023)).toBe("1023 bytes");
+		expect(formatLookupBytes(1024)).toBe("1 KB");
+		expect(formatLookupBytes(1536)).toBe("1.5 KB");
 	});
 
 	it("prints the table byte cap as the round number the copy promises", () => {
 		// A refusal that says "8.4 MB is over the 8 MB limit" reads as a bug.
-		expect(formatStorageSize(LOOKUP_MAX_TABLE_BYTES)).toBe("8 MB");
+		expect(formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)).toBe("8 MB");
 	});
 });
 
-describe("formatCount", () => {
+describe("formatLookupCount", () => {
 	it("agrees with its noun", () => {
-		expect(formatCount(0, "row")).toBe("0 rows");
-		expect(formatCount(1, "row")).toBe("1 row");
-		expect(formatCount(2, "column")).toBe("2 columns");
+		expect(formatLookupCount(0, "row")).toBe("0 rows");
+		expect(formatLookupCount(1, "row")).toBe("1 row");
+		expect(formatLookupCount(2, "column")).toBe("2 columns");
 	});
 });
 

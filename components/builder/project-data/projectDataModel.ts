@@ -10,6 +10,7 @@ import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
 } from "@/lib/lookup/constants";
+import { formatLookupBytes, formatLookupCount } from "@/lib/lookup/format";
 import type {
 	LookupCellValue,
 	LookupColumn,
@@ -18,31 +19,12 @@ import type {
 	LookupRowValues,
 } from "@/lib/lookup/types";
 
-/**
- * A stored size in the units a person reads, from exact bytes.
- *
- * Binary units, because every cap in `lib/lookup/constants` is binary
- * (8 MiB is 8 × 1024²) — reporting a 8,388,608-byte ceiling as "8.4 MB"
- * beside a limit written as "8 MB" is the kind of mismatch that makes a
- * refusal look wrong. One decimal place above a kilobyte; bytes are exact.
- */
-export function formatStorageSize(bytes: number): string {
-	if (!Number.isFinite(bytes) || bytes < 0) return "an unknown size";
-	if (bytes < 1024) return `${bytes} ${bytes === 1 ? "byte" : "bytes"}`;
-	const kib = bytes / 1024;
-	if (kib < 1024) return `${roundToOneDecimal(kib)} KB`;
-	return `${roundToOneDecimal(kib / 1024)} MB`;
-}
-
-function roundToOneDecimal(value: number): string {
-	const rounded = Math.round(value * 10) / 10;
-	return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-}
-
-/** A count with its noun, so call sites never hand-assemble "1 rows". */
-export function formatCount(count: number, singular: string): string {
-	return `${count.toLocaleString()} ${count === 1 ? singular : `${singular}s`}`;
-}
+/* Sizes and counts come from `lib/lookup/format`, the same module the
+ * service's and the CSV route's refusals use. One formatter means a refusal
+ * that says "over the 8 MB limit" and a workspace that says the table holds
+ * "8 MB" can never disagree about what a byte count is. Re-exported so the
+ * workspace's components have one import for every derivation they render. */
+export { formatLookupBytes, formatLookupCount };
 
 /**
  * How full a table is against the two caps that can actually stop a write.
@@ -90,10 +72,10 @@ export function rowAdditionRefusal(
 	capacity: TableCapacity,
 ): string | undefined {
 	if (capacity.rowCount >= capacity.rowLimit) {
-		return `This table already holds its limit of ${capacity.rowLimit.toLocaleString()} rows. Remove a row, or split the data across two tables.`;
+		return `This table already holds its limit of ${formatLookupCount(capacity.rowLimit, "row")}. Remove a row, or split the data across two tables.`;
 	}
 	if (capacity.dataBytes >= capacity.byteLimit) {
-		return `This table already holds ${formatStorageSize(capacity.dataBytes)}, which is its limit of ${formatStorageSize(capacity.byteLimit)}. Shorten some values, remove a row, or split the data across two tables.`;
+		return `This table already holds ${formatLookupBytes(capacity.dataBytes)}, which is its limit of ${formatLookupBytes(capacity.byteLimit)}. Shorten some values, remove a row, or split the data across two tables.`;
 	}
 	return undefined;
 }

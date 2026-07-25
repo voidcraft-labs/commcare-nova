@@ -331,6 +331,23 @@ export const moveLookupRowInputSchema = z
 	.object({ ...rowMutationShape, toIndex: lookupExistingRowIndexSchema })
 	.strict();
 
+export const removeLookupColumnInputSchema = z
+	.object(columnMutationShape)
+	.strict();
+
+export const retypeLookupColumnInputSchema = z
+	.object({ ...columnMutationShape, dataType: lookupDataTypeSchema })
+	.strict();
+
+/** Which lookup resource's reference edges a caller is asking about. An
+ *  absent `columnId` asks about the table itself. */
+export const lookupResourceReferenceQuerySchema = z
+	.object({
+		tableId: lookupTableIdSchema,
+		columnId: lookupColumnIdSchema.optional(),
+	})
+	.strict();
+
 export const replaceLookupRowsInputSchema = z
 	.object({
 		...expectedTableRevisionShape,

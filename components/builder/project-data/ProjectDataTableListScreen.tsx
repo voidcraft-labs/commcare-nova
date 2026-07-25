@@ -16,7 +16,7 @@ import { Button } from "@/components/shadcn/button";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
-import { formatCount, formatStorageSize } from "./projectDataModel";
+import { formatLookupBytes, formatLookupCount } from "./projectDataModel";
 import { useProjectDataManifest } from "./useProjectData";
 
 export function ProjectDataTableListScreen() {
@@ -79,9 +79,9 @@ export function ProjectDataTableListScreen() {
 										{table.name}
 									</span>
 									<span className="min-w-0 text-[12px] leading-snug text-nova-text-secondary [overflow-wrap:anywhere]">
-										{formatCount(table.columnCount, "column")} ·{" "}
-										{formatCount(table.rowCount, "row")} ·{" "}
-										{formatStorageSize(table.dataBytes)}
+										{formatLookupCount(table.columnCount, "column")} ·{" "}
+										{formatLookupCount(table.rowCount, "row")} ·{" "}
+										{formatLookupBytes(table.dataBytes)}
 									</span>
 								</span>
 								<Icon

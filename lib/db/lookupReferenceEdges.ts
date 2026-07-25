@@ -5,6 +5,7 @@ import {
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import {
+	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -142,6 +143,73 @@ export async function readStoredLookupReferenceTargets(
 		// mismatch. Do not let parser details or stored ids escape the writer.
 		throwMismatch();
 	}
+}
+
+/** One app that a destructive lookup change would break, named. */
+export interface LookupReferencingApp {
+	readonly appId: string;
+	readonly appName: string;
+	/** True when the app is in the trash. A soft-deleted app still holds its
+	 *  edges and still blocks the change, so naming it without saying where it
+	 *  is would show the author a blocker they cannot find. */
+	readonly deleted: boolean;
+}
+
+/**
+ * The apps whose blueprints reference a lookup table, or one of its columns.
+ *
+ * This is the confirmation surface's read, and it is deliberately ADVISORY:
+ * the authority is the transactional edge check inside
+ * `applyLookupSchemaGovernanceInTransaction`, which re-proves zero edges under
+ * the table lock. This read exists so an author is told which apps a
+ * destructive change would break BEFORE they ask for it, rather than being
+ * refused afterwards with a list of opaque ids.
+ *
+ * Naming the apps leaks nothing across tenants. `replaceLookupReferenceEdges`
+ * only writes an edge whose app sits in the edge's own Project, so every row
+ * matching a `(project_id, table_id)` belongs to an app in that Project — and
+ * the caller has already been authorized against exactly that Project.
+ *
+ * Passing a `columnId` narrows to that column's edges; omitting it reads the
+ * table's. The two are separate sets on purpose: removing a column is blocked
+ * only by apps that reference THAT column, while deleting the table is blocked
+ * by any app that references the table at all.
+ */
+export async function readLookupReferencingApps(
+	db: LookupReferenceReadExecutor,
+	args: {
+		projectId: string;
+		tableId: LookupTableId;
+		columnId?: LookupColumnId;
+	},
+): Promise<LookupReferencingApp[]> {
+	const edges =
+		args.columnId === undefined
+			? db
+					.selectFrom("lookup_table_references")
+					.where("project_id", "=", args.projectId)
+					.where("table_id", "=", args.tableId)
+					.select("app_id")
+			: db
+					.selectFrom("lookup_column_references")
+					.where("project_id", "=", args.projectId)
+					.where("table_id", "=", args.tableId)
+					.where("column_id", "=", args.columnId)
+					.select("app_id");
+
+	const rows = await db
+		.selectFrom("apps")
+		.where("apps.id", "in", edges)
+		.select(["apps.id", "apps.app_name", "apps.deleted_at"])
+		.orderBy("apps.app_name", "asc")
+		.orderBy("apps.id", "asc")
+		.execute();
+
+	return rows.map((row) => ({
+		appId: row.id,
+		appName: row.app_name,
+		deleted: row.deleted_at !== null,
+	}));
 }
 
 /**

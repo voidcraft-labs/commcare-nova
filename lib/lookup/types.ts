@@ -258,6 +258,40 @@ export type LookupResult<Value, Code extends string = LookupActionErrorCode> =
 	| { success: true; value: Value }
 	| LookupFailure<Code>;
 
+/**
+ * Why a schema-governance change was refused. Three codes beyond the ordinary
+ * lookup set, each of which the confirmation surface can explain concretely:
+ * apps still reference the resource, a table would be left with no columns, or
+ * stored cells do not already satisfy the requested type.
+ */
+export type LookupGovernanceErrorCode =
+	| LookupActionErrorCode
+	| "referenced"
+	| "last_column"
+	| "incompatible_values";
+
+export interface LookupGovernanceFailure
+	extends LookupFailure<LookupGovernanceErrorCode> {
+	/** Present on `referenced` — the apps that blocked the change, named, in
+	 *  the same shape the pre-flight read returns so the author sees the same
+	 *  words before and after. */
+	blockingApps?: readonly LookupReferencingAppSummary[];
+	/** Present on `incompatible_values` — the rows whose stored cells the
+	 *  requested type would not accept. */
+	incompatibleRowIds?: readonly LookupRowId[];
+}
+
+/** One app that references a lookup resource. Mirrors `lib/db`'s row shape;
+ *  restated here so the client wire has no `lib/db` import. */
+export interface LookupReferencingAppSummary {
+	readonly appId: string;
+	readonly appName: string;
+	/** The app is in the trash. It still holds its edges and still blocks the
+	 *  change, so a confirmation naming it must say where it is — a blocker the
+	 *  author cannot find reads as a phantom. */
+	readonly deleted: boolean;
+}
+
 /** Parsed before any transaction; keys intentionally remain wire names. */
 export interface LookupCsvWireRow {
 	sourceRow: number;

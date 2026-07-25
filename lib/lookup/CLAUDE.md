@@ -47,10 +47,11 @@ are canonical nonnegative decimal strings within signed-int64 range on every
 application wire. Never convert one through `Number`, serialize native `bigint`,
 or compare revision strings lexically.
 
-The public lookup surface permits additive columns but exposes no table delete,
-column removal, or column retype. Established table-tag and column-wire-name
-changes require the existing `delete` capability; all row operations and
-non-identity edits require `edit`; reads require `view`.
+The public lookup surface permits additive columns; table delete, column
+removal, and column retype are the three schema-governance actions below.
+Those three, plus established table-tag and column-wire-name changes, require
+the existing `delete` capability; all row operations and non-identity edits
+require `edit`; reads require `view`.
 
 ## Reference edges and schema governance
 
@@ -62,20 +63,29 @@ extracted edge sets in their own transaction; S05a's immutable production
 registry covers every lookup carrier. Both are app-state tables, not Project
 lookup resources, and must not be exposed through this package's table/row APIs.
 
-`schemaGovernance.ts` is a package-private, server-only seam with no action,
-route, MCP tool, or public barrel export. It reuses `writerTransaction.ts`, the
-same Project-state/table lock and revision helpers as every live lookup writer.
-Both its wrapper and transaction core require the scope's `delete` capability
-before taking a lock and collapse an insufficient role to the same not-found
-shape as a missing or foreign resource.
-Its complete lock prefix is Project state `FOR UPDATE` -> exact table `FOR
-UPDATE` -> exact table/column edges. It never takes an app lock. Blocker results
-contain the sorted exact app-id set only; a fresh carrier-path re-walk belongs to
-confirmation UX.
+`schemaGovernance.ts` is the server-only seam behind the three destructive
+Project data actions — `deleteLookupTableAction`, `removeLookupColumnAction`,
+and `retypeLookupColumnAction`. There is still no route, MCP tool, or public
+barrel export. It reuses `writerTransaction.ts`, the same Project-state/table
+lock and revision helpers as every live lookup writer. Both its wrapper and
+transaction core require the scope's `delete` capability before taking a lock
+and collapse an insufficient role to the same not-found shape as a missing or
+foreign resource; `runLookupGovernanceAction` authorizes the same capability on
+the explicit Project id first, so the gate is doubled rather than delegated.
 
-No caller reaches the production wrapper, so the seam stays write-free outside
-tests; its transaction core is the seeded integration seam for exact race
-coverage.
+Its complete lock prefix is Project state `FOR UPDATE` -> exact table `FOR
+UPDATE` -> exact table/column edges. It never takes an app lock, which is what
+lets a table deletion racing an app commit serialize instead of deadlocking.
+
+**The transactional edge check is the authority; the confirmation's scan is
+advisory.** `readLookupReferencingApps` (`lib/db/lookupReferenceEdges.ts`) names
+the apps that would break BEFORE the author asks, but a scan cannot authorize a
+destructive schema change because it races a concurrent app commit. Blocker
+results from the seam carry the sorted exact app-id set only; `actions.ts`
+resolves those ids to names outside the transaction, so a refusal reads the
+same way as the pre-flight warning. A soft-deleted app still holds its edges
+and still blocks the change, so it is named with its trashed state rather than
+omitted — a blocker the author cannot find reads as a phantom.
 
 Inside that closed seam, an unreferenced table deletion uses the existing
 row/column cascades, retains Project state, and advances/notifies once. Column

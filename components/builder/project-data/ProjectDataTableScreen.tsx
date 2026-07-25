@@ -32,8 +32,8 @@ import {
 	COLUMN_TYPE_LABELS,
 	cellText,
 	filterRows,
-	formatCount,
-	formatStorageSize,
+	formatLookupBytes,
+	formatLookupCount,
 	ROWS_PER_PAGE,
 	tableCapacity,
 } from "./projectDataModel";
@@ -122,11 +122,11 @@ export function ProjectDataTableScreen({
 				{table.name}
 			</h1>
 			<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
-				{formatCount(table.columns.length, "column")} ·{" "}
-				{formatCount(table.rowCount, "row")} of{" "}
+				{formatLookupCount(table.columns.length, "column")} ·{" "}
+				{formatLookupCount(table.rowCount, "row")} of{" "}
 				{capacity.rowLimit.toLocaleString()} ·{" "}
-				{formatStorageSize(table.dataBytes)} of{" "}
-				{formatStorageSize(capacity.byteLimit)}
+				{formatLookupBytes(table.dataBytes)} of{" "}
+				{formatLookupBytes(capacity.byteLimit)}
 			</p>
 
 			<TableGrid table={table} />
@@ -205,8 +205,8 @@ function TableGrid({ table }: { table: LookupTableSnapshot }) {
 					className="min-h-11 content-center text-[13px] text-nova-text-secondary"
 				>
 					{query.trim() === ""
-						? formatCount(table.rows.length, "row")
-						: `${formatCount(matches.length, "row")} matching`}
+						? formatLookupCount(table.rows.length, "row")
+						: `${formatLookupCount(matches.length, "row")} matching`}
 				</p>
 			</div>
 
@@ -219,8 +219,8 @@ function TableGrid({ table }: { table: LookupTableSnapshot }) {
 					<div className="mt-3 overflow-x-auto rounded-xl border border-nova-border">
 						<table className="w-full min-w-max border-collapse text-left">
 							<caption className="sr-only">
-								{table.name}: {formatCount(matches.length, "row")}, showing{" "}
-								{start + 1} to {start + visible.length}
+								{table.name}: {formatLookupCount(matches.length, "row")},
+								showing {start + 1} to {start + visible.length}
 							</caption>
 							<thead>
 								<tr className="border-b border-nova-border bg-nova-elevated">

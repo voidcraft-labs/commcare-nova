@@ -26,6 +26,7 @@ import {
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
 import { readLookupFixtureDataInTransaction } from "./fixtureSnapshot";
+import { formatLookupBytes, formatLookupCount } from "./format";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
@@ -198,6 +199,22 @@ function receiptOf(
 
 function notFound(): never {
 	throw new LookupError("not_found", "Lookup resource was not found.");
+}
+
+/**
+ * The one storage refusal, naming the size that was actually measured.
+ *
+ * A bare "this table is full" leaves the author with nothing to act on: they
+ * cannot tell whether they are 200 bytes over or ten times over, nor whether
+ * shortening one long value would be enough. `dataBytes` is the exact
+ * Postgres-generated total the write would have produced, so the sentence is
+ * a measurement rather than an estimate.
+ */
+function rejectStorageLimit(dataBytes: number): never {
+	throw new LookupError(
+		"storage_limit",
+		`This change would put ${formatLookupBytes(dataBytes)} of data in the table, which is over its limit of ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)}. Shorten some values, remove some rows, or split the data across two tables.`,
+	);
 }
 
 async function orderedColumns(
@@ -825,7 +842,7 @@ export async function createLookupRow(
 			if (table.row_count >= LOOKUP_MAX_ROWS) {
 				throw new LookupError(
 					"row_limit",
-					`A lookup table may have at most ${LOOKUP_MAX_ROWS} rows.`,
+					`This table already holds its limit of ${formatLookupCount(LOOKUP_MAX_ROWS, "row")}. Remove a row, or split the data across two tables.`,
 				);
 			}
 			assertCreateIndex(parsed.toIndex, table.row_count, "Row");
@@ -851,12 +868,7 @@ export async function createLookupRow(
 				.returning(["id", "value_bytes"])
 				.executeTakeFirstOrThrow();
 			const dataBytes = table.data_bytes + inserted.value_bytes;
-			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) {
-				throw new LookupError(
-					"storage_limit",
-					"This lookup table has reached its storage limit.",
-				);
-			}
+			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) rejectStorageLimit(dataBytes);
 			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
 			const updated = await updateLockedTable(
 				tx,
@@ -923,12 +935,7 @@ export async function updateLookupRow(
 				.executeTakeFirstOrThrow();
 			const dataBytes =
 				table.data_bytes - current.value_bytes + updatedRow.value_bytes;
-			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) {
-				throw new LookupError(
-					"storage_limit",
-					"This lookup table has reached its storage limit.",
-				);
-			}
+			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) rejectStorageLimit(dataBytes);
 			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
 			const updated = await updateLockedTable(
 				tx,
@@ -1092,12 +1099,7 @@ export async function replaceLookupRows(
 					.execute();
 				dataBytes = inserted.reduce((total, row) => total + row.value_bytes, 0);
 			}
-			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) {
-				throw new LookupError(
-					"storage_limit",
-					"This lookup table has reached its storage limit.",
-				);
-			}
+			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) rejectStorageLimit(dataBytes);
 			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
 			const updated = await updateLockedTable(
 				tx,
