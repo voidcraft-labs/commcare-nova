@@ -1,23 +1,48 @@
 name: Pull the Postgres test image
 description: >
   Fetches the digest-pinned Postgres image the testcontainers harness boots,
-  retrying past Docker Hub's transient failures before vitest starts.
+  through a registry mirror and past Docker Hub's sustained bad windows.
 
 # Thirteen jobs in this workflow boot a Postgres testcontainer — four test
 # shards, eight leak shards, and the auth session-cookie contract — and each
-# runs on its own fresh runner, so each one pulls the image from Docker Hub
-# independently. That is thirteen anonymous registry pulls per PR run, and
-# Docker Hub answers some of them with a 500 or lets the connection time out.
+# runs on its own fresh runner, so each pulls the image independently. Docker
+# Hub answers some of those with a 500 or lets the connection time out.
 #
 # Left inside the harness, that arrives as `(HTTP code 500) server error - Get
 # "https://registry-1.docker.io/v2/"` thrown out of `globalSetup`, which vitest
 # reports as an unhandled error with no test output at all. It reads like a
 # broken build and costs a human the diagnosis every time.
 #
-# Pulling here instead makes the registry a step that either succeeds or fails
-# on its own terms, and gives it the retry a network call against someone
-# else's service needs. Once the image is in the runner's local store,
-# testcontainers finds it there and performs no pull of its own.
+# ## Why a mirror, not just more retries
+#
+# Retrying alone was measured and found insufficient. Each attempt blocks ~16s
+# on its own connection timeout before the backoff even starts, so five
+# attempts already span ~90 seconds of wall clock — and observed outages
+# outlasted that, failing every attempt. The shape is a sustained window on one
+# network path, not a blip, so the lever is a SECOND PATH rather than more
+# attempts at the dead one. Piling on retries also multiplies badly: thirteen
+# jobs each burning minutes against an unreachable registry is its own cost.
+#
+# `mirror.gcr.io` is Google's pull-through cache for Docker Hub. Verified to
+# serve this exact image — pulled by the same digest it yields the identical
+# image id.
+#
+# ## Why this does not weaken the supply chain
+#
+# The reference stays digest-pinned, and **a digest verifies the content
+# regardless of which host served it** — a mirror returning different bytes
+# would fail verification rather than be trusted. The mirror changes the path,
+# never what is accepted.
+#
+# ## Why the daemon, not the pull command
+#
+# The mirror is configured on the DAEMON rather than by pulling
+# `mirror.gcr.io/<repo>@<digest>` directly, because a pull records the host it
+# came from in the image's RepoDigests. Verified: a mirror-host pull records
+# `mirror.gcr.io/imresamu/postgis@sha256:…`, which is NOT the reference
+# testcontainers resolves — so it would find nothing locally and pull again.
+# Configured on the daemon, the fetch goes through the mirror while the image
+# is still recorded under its Docker Hub reference.
 #
 # The harness keeps its own retry (`lib/case-store/sql/__tests__/globalSetup.ts`)
 # for the paths that never run this action — a developer's first local run, or
@@ -26,6 +51,26 @@ description: >
 runs:
   using: composite
   steps:
+    - name: Route Docker Hub through a mirror
+      shell: bash
+      run: |
+        set -uo pipefail
+        # Additive: `registry-mirrors` is consulted BEFORE Docker Hub and falls
+        # back to it, so this adds a path rather than replacing one.
+        existing='{}'
+        [ -f /etc/docker/daemon.json ] && existing="$(cat /etc/docker/daemon.json)"
+        echo "$existing" \
+          | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' \
+          | sudo tee /etc/docker/daemon.json > /dev/null
+        sudo systemctl restart docker
+        # The daemon takes a moment to accept connections again; without this a
+        # fast-following pull races the restart and fails for the wrong reason.
+        for _ in $(seq 1 30); do
+          docker info > /dev/null 2>&1 && break
+          sleep 1
+        done
+        docker info --format 'Registry mirrors: {{.RegistryConfig.Mirrors}}'
+
     - name: Pull the pinned Postgres image
       shell: bash
       run: |
@@ -36,10 +81,11 @@ runs:
         image="$(node scripts/ci/print-test-image.mjs)"
         echo "Pinned test image: $image"
 
-        # Five attempts over ~31s of backoff. Docker Hub's failures are brief
-        # — a 500 or a dial timeout, not a sustained outage — so this is sized
-        # to ride out a blip while still failing the job promptly when the
-        # registry is genuinely down.
+        # Five attempts. Each blocks ~16s on its own connection timeout before
+        # the backoff starts, so this already spans ~90s of wall clock —
+        # deliberately not widened further, because the mirror above is what
+        # addresses a sustained outage, and thirteen jobs each retrying for
+        # minutes against a dead registry costs more than it saves.
         delay=1
         for attempt in 1 2 3 4 5; do
           if docker pull --quiet "$image"; then
@@ -47,11 +93,11 @@ runs:
             exit 0
           fi
           if [ "$attempt" -lt 5 ]; then
-            echo "::warning::Docker Hub pull failed (attempt $attempt/5). Retrying in ${delay}s."
+            echo "::warning::Image pull failed (attempt $attempt/5). Retrying in ${delay}s."
             sleep "$delay"
             delay=$((delay * 2))
           fi
         done
 
-        echo "::error::Could not pull $image from Docker Hub after 5 attempts. The registry is unreachable or rejecting this runner, which is an infrastructure failure rather than a change in this PR. Check https://status.docker.com and re-run the job."
+        echo "::error::Could not pull $image after 5 attempts, via mirror.gcr.io and Docker Hub both. Both registry paths are unreachable or rejecting this runner, which is an infrastructure failure rather than a change in this PR. Check https://status.docker.com and re-run the job."
         exit 1
