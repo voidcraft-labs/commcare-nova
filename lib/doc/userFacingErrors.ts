@@ -126,6 +126,77 @@ const USER_MESSAGE_BY_CODE: Partial<
 	// The rule's own message already carries the specific reason (an illegal
 	// character, a reserved word, a length cap), so these repeat the shape
 	// rather than the detail and let the validator's sentence say the rest.
+	// ── Where people work ────────────────────────────────────────────
+	// Same rule as the block below: the validator's own sentence carries the
+	// specific level or property, so these say the shape and let it say the
+	// rest. Every one of them is a state an author reached by editing, so each
+	// names what to change rather than what went wrong.
+	ORGANIZATION_LEVEL_CODE_DUPLICATE: (e) => {
+		const code = det(e, "code", "");
+		return code
+			? `Two levels both use the code ${q(code)}. A level's code is how expressions and the device tell one level from another, so each needs its own.`
+			: "Two levels share a code. Give each one a code of its own.";
+	},
+	ORGANIZATION_LEVEL_NAME_DUPLICATE: (e) => {
+		const name = det(e, "name", "");
+		return name
+			? `Two levels are both called ${q(name)}. Give each one a name of its own, so you can tell them apart when placing a location.`
+			: "Two levels share a name. Give each one a name of its own.";
+	},
+	ORGANIZATION_LEVEL_PARENT_UNKNOWN: (e) => {
+		const level = det(e, "level", "");
+		return level
+			? `${q(level)} sits under a level that no longer exists. Choose the level it belongs under, or make it a top level.`
+			: "A level sits under one that no longer exists. Choose where it belongs, or make it a top level.";
+	},
+	ORGANIZATION_LEVEL_CYCLE: (e) => {
+		const level = det(e, "level", "");
+		return level
+			? `${q(level)} ends up under itself. Levels run top to bottom, so following one upward has to reach a top level eventually.`
+			: "A level ends up under itself. Levels run top to bottom, so following one upward has to reach a top level.";
+	},
+	ORGANIZATION_LEVEL_REFERENCE_UNKNOWN: (e) => {
+		const level = det(e, "level", "");
+		return level
+			? `${q(level)} uses a level that no longer exists in one of its settings. Pick one that does.`
+			: "A level uses one that no longer exists in its settings. Pick one that does.";
+	},
+	ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR: (e) => {
+		const level = det(e, "level", "");
+		return level
+			? `${q(level)} starts its address book from a level that isn't above it. An address book widens by starting further up, so pick a level it sits under.`
+			: "A level starts its address book from one that isn't above it. Pick a level it sits under.";
+	},
+	ORGANIZATION_LEVEL_CAP_NOT_BELOW: (e) => {
+		const level = det(e, "level", "");
+		return level
+			? `${q(level)} has a depth limit naming a level that isn't below it. A depth limit has to name the level itself or one under it.`
+			: "A level has a depth limit naming one that isn't below it. Name the level itself or one under it.";
+	},
+	LOCATION_PROPERTY_SLUG_INVALID: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `CommCare won't accept ${q(slug)} as the name a piece of place information is saved under. Pick a different one — letters, numbers, and underscores work.`
+			: "CommCare won't accept the name one piece of place information is saved under. Pick a different one.";
+	},
+	LOCATION_PROPERTY_SLUG_DUPLICATE: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `Two pieces of place information both save under ${q(slug)}. CommCare treats names as the same whatever their capitalization, so give one of them a different name.`
+			: "Two pieces of place information save under the same name. Give one of them a different name.";
+	},
+	LOCATION_PROPERTY_LEVEL_UNKNOWN: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `${q(slug)} applies to a level that no longer exists. Choose the levels it applies to, or let it apply everywhere.`
+			: "A piece of place information applies to a level that no longer exists. Choose its levels, or let it apply everywhere.";
+	},
+	PERSONA_LOCATION_PRIMARY_REPEATED: (e) => {
+		const name = det(e, "name", "");
+		return name
+			? `${q(name)} has the same place listed twice. Their main place is always included, so list each other place once.`
+			: "A persona has the same place listed twice. List each place once.";
+	},
 	USER_PROPERTY_SLUG_INVALID: (e) => {
 		const slug = det(e, "slug", "");
 		return slug

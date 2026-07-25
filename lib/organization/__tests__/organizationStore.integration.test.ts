@@ -826,8 +826,45 @@ describe("locations store — removing a location property", () => {
 });
 
 describe("locations store — custom field values", () => {
+	/** Declare the two properties every value test records against. */
+	async function declareProperties(
+		extra: {
+			required?: boolean;
+			choices?: string[];
+			levelUuids?: string[];
+		} = {},
+	): Promise<void> {
+		const { levelUuids, ...scalar } = extra;
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: `declare-props-${JSON.stringify(extra)}`,
+			mutations: [
+				{
+					kind: "addLocationProperty",
+					property: {
+						uuid: PROP_BEDS,
+						slug: "beds",
+						label: "Beds",
+						...scalar,
+						...(levelUuids !== undefined && {
+							levelUuids: levelUuids.map(asUuid),
+						}),
+					},
+				},
+				{
+					kind: "addLocationProperty",
+					property: { uuid: PROP_PHONE, slug: "phone", label: "Phone" },
+				},
+			],
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+	}
+
 	it("stores values keyed by property uuid and replaces the bag wholesale", async () => {
 		await seedOrgApp();
+		await declareProperties();
 		const created = await createLocation(scope(), {
 			levelUuid: REGION,
 			parentId: null,
@@ -835,17 +872,141 @@ describe("locations store — custom field values", () => {
 			externalId: null,
 			latitude: "12.5",
 			longitude: "-7.25",
-			values: { "prop-a": "12", "prop-b": "" },
+			values: { [PROP_BEDS]: "12", [PROP_PHONE]: "" },
 		});
-		expect(created.location.values).toEqual({ "prop-a": "12", "prop-b": "" });
+		expect(created.location.values).toEqual({
+			[PROP_BEDS]: "12",
+			[PROP_PHONE]: "",
+		});
 		expect(created.location.latitude).toBe("12.5");
 
 		const updated = await updateLocation(scope(), created.location.id, {
-			values: { "prop-a": "13" },
+			values: { [PROP_BEDS]: "13" },
 		});
 		// A whole-bag replacement, so a cleared field is an omitted key rather
 		// than a stored null — absent and null would print identically.
-		expect(updated.location.values).toEqual({ "prop-a": "13" });
+		expect(updated.location.values).toEqual({ [PROP_BEDS]: "13" });
+	});
+
+	it("refuses a value against a property the app does not declare", async () => {
+		// Without this the failure surfaces at push time, when HQ's own
+		// custom-data validation rejects the location — long after it was written.
+		await seedOrgApp();
+		await expect(
+			createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "North",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: { [PROP_BEDS]: "12" },
+			}),
+		).rejects.toMatchObject({ code: "rejected" });
+	});
+
+	it("refuses a value outside a declared choice list, but allows empty", async () => {
+		await seedOrgApp();
+		await declareProperties({ choices: ["public", "private"] });
+		await expect(
+			createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "North",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: { [PROP_BEDS]: "banana" },
+			}),
+		).rejects.toMatchObject({ code: "rejected" });
+		// Empty text is a legitimate "no value" — HQ's fixture emits an empty
+		// element for an unset field — so a choice list constrains only a value
+		// that is actually there.
+		await expect(
+			createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "South",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: { [PROP_BEDS]: "" },
+			}),
+		).resolves.toMatchObject({ location: { name: "South" } });
+	});
+
+	it("refuses a place missing a required property", async () => {
+		await seedOrgApp();
+		await declareProperties({ required: true });
+		await expect(
+			createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "North",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			}),
+		).rejects.toMatchObject({ code: "rejected" });
+	});
+
+	it("refuses a value for a property that does not apply to the level", async () => {
+		await seedOrgApp();
+		await declareProperties({ levelUuids: [FACILITY] });
+		await expect(
+			createLocation(scope(), {
+				levelUuid: REGION,
+				parentId: null,
+				name: "North",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: { [PROP_BEDS]: "12" },
+			}),
+		).rejects.toMatchObject({ code: "rejected" });
+	});
+});
+
+describe("locations store — archived places hold nothing", () => {
+	it("refuses a new place under an archived one", async () => {
+		// A live place under an archived one is the state the archive cascade
+		// exists to make unreachable: absent from every fixture and footprint,
+		// yet offered in the assignment picker and able to own cases.
+		await seedOrgApp();
+		const { district } = await seedChain();
+		await setLocationArchived(scope(), district, true);
+		await expect(
+			createLocation(scope(), {
+				levelUuid: FACILITY,
+				parentId: district,
+				name: "New Clinic",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			}),
+		).rejects.toMatchObject({ code: "rejected" });
+	});
+
+	it("refuses a move under an archived place", async () => {
+		await seedOrgApp();
+		const { region, district } = await seedChain();
+		const other = (
+			await createLocation(scope(), {
+				levelUuid: DISTRICT,
+				parentId: region,
+				name: "Lakeside",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+			})
+		).location.id;
+		await setLocationArchived(scope(), district, true);
+		await expect(
+			moveLocation(scope(), other, { parentId: district }),
+		).rejects.toMatchObject({ code: "rejected" });
 	});
 });
 

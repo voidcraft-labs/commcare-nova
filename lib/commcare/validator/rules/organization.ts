@@ -31,6 +31,7 @@ import {
 	ancestorLevels,
 	type BlueprintDoc,
 	locationPropertiesOf,
+	type OrganizationLevel,
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
@@ -145,6 +146,34 @@ function levelReferences(doc: BlueprintDoc): ValidationError[] {
 			{ level: level.name },
 		);
 
+	/**
+	 * A depth cap names how far DOWN a walk reaches, so it must be the level
+	 * itself or one below it. Pointing one at an ancestor is not merely odd: it
+	 * compiles to an `expand_to` naming a level that is not below the assigned
+	 * type, which `get_location_fixture_ids.sql` resolves as a depth that clips
+	 * the worker's own branch to nothing — a silently empty address book from an
+	 * app the gate called valid.
+	 */
+	const notBelow = (level: { name: string }, target: string, what: string) => {
+		const named = levels[target];
+		return validationError(
+			"ORGANIZATION_LEVEL_CAP_NOT_BELOW",
+			"app",
+			`"${level.name}" ${what} ${named === undefined ? "a level" : `"${named.name}"`}, which isn't below it. A depth limit has to name the level itself or one under it.`,
+			{},
+			{ level: level.name },
+		);
+	};
+
+	const isSelfOrBelow = (level: OrganizationLevel, target: string): boolean => {
+		if (target === level.uuid) return true;
+		const candidate = levels[target];
+		if (candidate === undefined) return false;
+		return ancestorLevels(candidate, levels).some(
+			(ancestor) => ancestor.uuid === level.uuid,
+		);
+	};
+
 	for (const level of Object.values(levels)) {
 		const above = new Set(
 			ancestorLevels(level, levels).map((ancestor) => ancestor.uuid),
@@ -153,10 +182,14 @@ function levelReferences(doc: BlueprintDoc): ValidationError[] {
 		const flow = level.caseFlow;
 		if (
 			flow.workers === "assigned" &&
-			flow.descendantCases.kind === "down-to" &&
-			levels[flow.descendantCases.levelUuid] === undefined
+			flow.descendantCases.kind === "down-to"
 		) {
-			errors.push(unknown(level, "sends cases down to"));
+			const target = flow.descendantCases.levelUuid;
+			if (levels[target] === undefined) {
+				errors.push(unknown(level, "sends cases down to"));
+			} else if (!isSelfOrBelow(level, target)) {
+				errors.push(notBelow(level, target, "sends cases down to"));
+			}
 		}
 
 		const book = level.addressBook;
@@ -169,6 +202,10 @@ function levelReferences(doc: BlueprintDoc): ValidationError[] {
 		} else if (book.downToLevelUuid !== undefined) {
 			if (levels[book.downToLevelUuid] === undefined) {
 				errors.push(unknown(level, "stops its address book at"));
+			} else if (!isSelfOrBelow(level, book.downToLevelUuid)) {
+				errors.push(
+					notBelow(level, book.downToLevelUuid, "stops its address book at"),
+				);
 			}
 		}
 
@@ -262,12 +299,19 @@ function personaAssignments(doc: BlueprintDoc): ValidationError[] {
 	for (const persona of Object.values(personasOf(doc))) {
 		const locations = persona.locations;
 		if (locations === undefined) continue;
-		if (locations.additionalUuids?.includes(locations.primaryUuid)) {
+		const additional = locations.additionalUuids ?? [];
+		// One place, listed twice, in either position. Both send the same
+		// location to CommCare twice — the primary-repeated case is just the one
+		// that is easy to notice.
+		if (
+			additional.includes(locations.primaryUuid) ||
+			new Set(additional).size !== additional.length
+		) {
 			errors.push(
 				validationError(
 					"PERSONA_LOCATION_PRIMARY_REPEATED",
 					"app",
-					`${persona.name}'s main place is also listed among their other places. Their main place is always included, so list only the additional ones.`,
+					`${persona.name} has the same place listed twice. Their main place is always included, so list each other place once.`,
 					{},
 					{ name: persona.name },
 				),

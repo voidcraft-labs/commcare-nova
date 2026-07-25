@@ -21,6 +21,7 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	levelMayNestUnder,
+	locationPropertiesOf,
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
@@ -89,6 +90,25 @@ export async function readOrganization(
 		.setIsolationLevel("repeatable read")
 		.setAccessMode("read only")
 		.execute(async (tx) => {
+			// The action authorized this scope before constructing it, but an app
+			// that moved Projects in between must not be readable through the old
+			// one. Every WRITE re-proves this under its lock; a read-only
+			// transaction cannot lock, so it proves it in its own snapshot.
+			const app = await tx
+				.selectFrom("apps")
+				.select(["project_id", "deleted_at"])
+				.where("id", "=", scope.appId)
+				.executeTakeFirst();
+			if (
+				app === undefined ||
+				app.deleted_at !== null ||
+				app.project_id !== scope.projectId
+			) {
+				throw new OrganizationError(
+					"not_found",
+					"This app's organization isn't available. It may have been deleted or moved to another project — reload to get the latest state.",
+				);
+			}
 			const state = await tx
 				.selectFrom("app_organization_state")
 				.select("revision")
@@ -293,6 +313,17 @@ function assertPlacement(
 	}
 	const parent = tree.byId.get(parentId);
 	if (parent === undefined) throw organizationNotFound();
+	// A live place under an archived one is exactly the state the archive
+	// cascade exists to make unreachable: a place is unreachable while any
+	// ancestor is archived, which is why unarchive walks ancestors at all. It
+	// would be absent from every fixture and footprint while still being
+	// offered in the assignment picker and still able to own cases.
+	if (parent.archived_at !== null) {
+		throw new OrganizationError(
+			"rejected",
+			`"${parent.name}" is archived, so nothing can sit inside it. Bring it back first, or choose somewhere else.`,
+		);
+	}
 	if (above.length === 0) {
 		throw new OrganizationError(
 			"rejected",
@@ -305,6 +336,80 @@ function assertPlacement(
 			"rejected",
 			`A ${level.name.toLowerCase()} has to sit under one of the levels above it${above.length <= 3 ? ` (${above.map((ancestor) => ancestor.name).join(", ")})` : ""}${parentLevel === undefined ? "" : `, and ${parentLevel.name} isn't one of them`}. Pick a different place for it.`,
 		);
+	}
+}
+
+/**
+ * The custom values a place carries must satisfy the catalog that declares
+ * them: every required property present, every value inside its declared
+ * choices, and nothing recorded against a property that does not apply to the
+ * place's level.
+ *
+ * This is the promise this package's header makes — "a place Nova accepts is a
+ * place a push can create" — and without it the failure surfaces at push time,
+ * long after the author wrote it, when HQ's own `custom_data_fields` validation
+ * rejects the location.
+ *
+ * `values` is a whole-bag replacement, so the check runs over the bag that is
+ * about to be stored rather than the delta.
+ */
+function assertValuesSatisfyCatalog(
+	doc: BlueprintDoc,
+	levelUuid: string,
+	values: Readonly<Record<string, string>>,
+): void {
+	const properties = Object.values(locationPropertiesOf(doc));
+	const byUuid = new Map<string, (typeof properties)[number]>(
+		properties.map((property) => [property.uuid, property]),
+	);
+
+	for (const [uuid, value] of Object.entries(values)) {
+		const property = byUuid.get(uuid);
+		if (property === undefined) {
+			throw new OrganizationError(
+				"rejected",
+				"This place carries information that is no longer part of the app. Reload to get the latest place information, then try again.",
+			);
+		}
+		if (
+			property.levelUuids !== undefined &&
+			!property.levelUuids.some((applicable) => applicable === levelUuid)
+		) {
+			throw new OrganizationError(
+				"rejected",
+				`"${property.label}" doesn't apply to places at this level, so it can't be recorded here.`,
+			);
+		}
+		// Empty text is a legitimate "no value" — HQ's own fixture emits an empty
+		// element for an unset field — so a choice list constrains only a value
+		// that is actually there.
+		if (
+			value !== "" &&
+			property.choices !== undefined &&
+			!property.choices.includes(value)
+		) {
+			throw new OrganizationError(
+				"rejected",
+				`"${value}" isn't one of the accepted values for "${property.label}".`,
+			);
+		}
+	}
+
+	for (const property of properties) {
+		if (property.required !== true) continue;
+		if (
+			property.levelUuids !== undefined &&
+			!property.levelUuids.some((applicable) => applicable === levelUuid)
+		) {
+			continue;
+		}
+		const value = values[property.uuid];
+		if (value === undefined || value === "") {
+			throw new OrganizationError(
+				"rejected",
+				`"${property.label}" is required for places at this level.`,
+			);
+		}
 	}
 }
 
@@ -341,6 +446,7 @@ export async function createLocation(
 		const tree = await lockTree(tx, scope.appId);
 		const doc = await loadDocInTransaction(tx, scope.appId);
 		assertPlacement(doc, tree, input.levelUuid, input.parentId);
+		assertValuesSatisfyCatalog(doc, input.levelUuid, input.values);
 
 		// Derived when omitted, exactly as `models.py::set_site_code_if_needed`
 		// does, and checked against the locked set either way so a concurrent
@@ -397,6 +503,19 @@ export async function updateLocation(
 		const current = tree.byId.get(locationId);
 		if (current === undefined) throw organizationNotFound();
 
+		const nextLevelUuid = patch.levelUuid ?? current.level_uuid;
+		if (patch.values !== undefined || patch.levelUuid !== undefined) {
+			// Re-checked against the level the place will HAVE, so retyping a place
+			// into a level its recorded information does not apply to is refused
+			// rather than silently leaving values nothing will emit.
+			const doc = await loadDocInTransaction(tx, scope.appId);
+			assertValuesSatisfyCatalog(
+				doc,
+				nextLevelUuid,
+				patch.values ?? current.values,
+			);
+		}
+
 		if (
 			patch.levelUuid !== undefined &&
 			patch.levelUuid !== current.level_uuid
@@ -416,14 +535,41 @@ export async function updateLocation(
 			assertPlacement(doc, tree, patch.levelUuid, current.parent_id);
 		}
 
+		// Only slots whose value actually DIFFERS are written. A patch that
+		// restates what is stored is not a change, and advancing the clock for one
+		// would invalidate every client's snapshot to record that someone pressed
+		// Save on an unedited form.
 		const values: Record<string, unknown> = { updated_by: scope.actorUserId };
-		if (patch.name !== undefined) values.name = patch.name;
-		if (patch.externalId !== undefined) values.external_id = patch.externalId;
-		if (patch.latitude !== undefined) values.latitude = patch.latitude;
-		if (patch.longitude !== undefined) values.longitude = patch.longitude;
-		if (patch.values !== undefined)
+		if (patch.name !== undefined && patch.name !== current.name) {
+			values.name = patch.name;
+		}
+		if (
+			patch.externalId !== undefined &&
+			patch.externalId !== current.external_id
+		) {
+			values.external_id = patch.externalId;
+		}
+		if (patch.latitude !== undefined && patch.latitude !== current.latitude) {
+			values.latitude = patch.latitude;
+		}
+		if (
+			patch.longitude !== undefined &&
+			patch.longitude !== current.longitude
+		) {
+			values.longitude = patch.longitude;
+		}
+		if (
+			patch.values !== undefined &&
+			JSON.stringify(patch.values) !== JSON.stringify(current.values)
+		) {
 			values.values = JSON.stringify(patch.values);
-		if (patch.levelUuid !== undefined) values.level_uuid = patch.levelUuid;
+		}
+		if (
+			patch.levelUuid !== undefined &&
+			patch.levelUuid !== current.level_uuid
+		) {
+			values.level_uuid = patch.levelUuid;
+		}
 		// One key means nothing but provenance changed, and provenance alone is
 		// not a change: advancing the clock would invalidate every client's
 		// snapshot to record that someone pressed Save on an unedited form.

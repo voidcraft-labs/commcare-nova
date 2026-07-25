@@ -75,21 +75,39 @@ const coordinateSchema = z
  * there is no stored `null`, because absent and null would print identically
  * and only one of them can round-trip.
  */
-const locationValuesSchema = z.record(
-	z.string(),
-	z
-		.string()
-		.max(4096)
-		// Postgres `text` cannot hold a NUL, and an unpaired surrogate is not
-		// valid UTF-8 — both fail at the driver rather than as a typed rejection
-		// the author can read.
-		.refine((value) => !value.includes("\u0000"), {
-			message: "A value cannot contain a NUL character.",
-		})
-		.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-			message: "A value cannot contain an unpaired surrogate.",
-		}),
-);
+/**
+ * How many custom values one place may carry.
+ *
+ * The catalog is the real bound — a value can only mean something if a property
+ * declares it — but the schema has to carry its own ceiling, because an
+ * unbounded record is unbounded whatever the catalog says.
+ */
+export const MAX_LOCATION_VALUES = 250;
+
+const locationValuesSchema = z
+	.record(
+		// Keyed on the property UUID, not any string. The whole design rests on
+		// that, and `shedRemovedLocationPropertyValues` only ever removes keys that
+		// were once declared properties — so a key that was never a uuid is
+		// unreachable by the shed AND by the catalog, permanent dead weight on a row
+		// every read carries.
+		z.uuid(),
+		z
+			.string()
+			.max(4096)
+			// Postgres `text` cannot hold a NUL, and an unpaired surrogate is not
+			// valid UTF-8 — both fail at the driver rather than as a typed rejection
+			// the author can read.
+			.refine((value) => !value.includes("\u0000"), {
+				message: "A value cannot contain a NUL character.",
+			})
+			.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
+				message: "A value cannot contain an unpaired surrogate.",
+			}),
+	)
+	.refine((values) => Object.keys(values).length <= MAX_LOCATION_VALUES, {
+		message: "A place carries more information than Nova stores for one place.",
+	});
 
 export const createLocationInputSchema = z
 	.object({

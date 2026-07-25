@@ -101,12 +101,23 @@ export function useOrganization(
 		return collab.subscribeAppOrganization(reload);
 	}, [collab, reload]);
 
-	/** Run a write, then re-read so the view matches what the server holds. */
+	/**
+	 * Adopt the revision a write returned, then re-read.
+	 *
+	 * Adopting it SYNCHRONOUSLY is the load-bearing half. The re-read is async,
+	 * so between a write resolving and its reload committing, the writers are
+	 * still closed over the revision from the last completed read — and the next
+	 * gesture would send that stale token and be refused for a change the same
+	 * person just made, one round trip earlier. Two quick additions, or a rename
+	 * immediately followed by a drag, hit it every time.
+	 */
 	const after = useCallback(
 		<T extends { success: boolean; message?: string }>(
-			result: T,
+			result: T & { data?: { revision?: string } },
 		): { ok: boolean; message?: string } => {
 			if (result.success) {
+				const next = result.data?.revision;
+				if (next !== undefined) setRevision(next);
 				reload();
 				return { ok: true };
 			}
