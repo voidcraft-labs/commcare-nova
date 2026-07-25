@@ -247,10 +247,15 @@ const carrierBlindFormShape = formSchema.extend({
  * with links emits the plain `addForm` followed by one change per link
  * (`diffDocsToMutations`, `formLinkMutations.ts`).
  *
- * Omitting the slot from a `.strict()` object is what enforces that: an
- * `addForm` that forgot to split fails to parse loudly at the write
- * boundary instead of parsing here and being rejected by an older
- * receiver mid-rollout.
+ * The omission does not by itself REFUSE such a payload. The arm alone
+ * does, but `mutationSchema` is that union intersected with the
+ * options-source placement check, and a Zod intersection stops nested
+ * strict objects from rejecting — so at the envelope an unsplit
+ * `addForm` parses with its links quietly stripped, and the links would
+ * be lost rather than refused. The split in `diffDocsToMutations` is
+ * therefore the enforcement, and
+ * `__tests__/mutationRollingCompatibility.test.ts` holds all three facts
+ * together so neither half can drift alone.
  */
 const carrierBlindFormSchema = carrierBlindFormShape.omit({
 	formLinks: true,
@@ -351,8 +356,13 @@ function caseSearchConfigPatchSchemaFor(
 const carrierBlindModuleUpdatePatchSchema = clearablePartialPatch(
 	carrierBlindModuleSchema,
 );
+// Built from the SHAPE rather than from `carrierBlindFormSchema`, which has
+// already dropped `formLinks`: `.omit()` on a key the object does not carry
+// throws. Both ordered collections are named here so the exclusion reads as
+// the deliberate rule it is rather than as an accident of what the nested
+// fallback happened to keep.
 const carrierBlindFormUpdatePatchSchema = clearablePartialPatch(
-	carrierBlindFormSchema,
+	carrierBlindFormShape as unknown as typeof formSchema,
 ).omit({
 	caseOperations: true,
 	formLinks: true,

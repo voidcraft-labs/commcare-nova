@@ -468,17 +468,30 @@ export function diffDocsToMutations(
 
 	// Forms: in next.formOrder order per module, so each lands at its
 	// target index relative to forms already present.
+	//
+	// A form born WITH end-of-form links splits: the `addForm` carries the
+	// form without them and one `formLinkChange` per link follows. The
+	// nested form on `addForm` has no origin-compatible spelling for a
+	// link, so an `addForm` carrying one fails the rolling parse outright —
+	// which is reachable from an ordinary gesture, because a form created
+	// and then linked inside one auto-save window is a single diff.
 	for (const moduleUuid of next.moduleOrder) {
 		const order = next.formOrder[moduleUuid] ?? [];
 		for (let index = 0; index < order.length; index++) {
 			const formUuid = order[index];
 			if (!addedFormSet.has(formUuid)) continue;
-			adds.push({
-				kind: "addForm",
-				moduleUuid,
-				form: cloneEntity(next.forms[formUuid]),
-				index,
-			});
+			const form = cloneEntity(next.forms[formUuid]);
+			const bornLinks = form.formLinks;
+			if (bornLinks !== undefined) delete form.formLinks;
+			adds.push({ kind: "addForm", moduleUuid, form, index });
+			for (const link of bornLinks ?? []) {
+				adds.push({
+					kind: "updateForm",
+					uuid: formUuid,
+					patch: {},
+					formLinkChange: { operation: "add", value: link },
+				});
+			}
 		}
 	}
 

@@ -20,6 +20,10 @@ import {
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	addFormLinkMutation,
+	removeFormLinkMutation,
+} from "@/lib/doc/formLinkMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { columnSurfaceOrderMutation } from "@/lib/doc/order/columnSurface";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
@@ -28,6 +32,7 @@ import {
 	type BlueprintDoc,
 	type Column,
 	type Field,
+	type FormLink,
 	type LookupOptionsSource,
 	type Module,
 	mediaSchema,
@@ -1334,5 +1339,280 @@ describe("user collections — the new-discriminator contract", () => {
 
 	function usersDoc(): BlueprintDoc {
 		return fold(emptyDoc(), batch.slice(0, 3));
+	}
+});
+
+describe("end-of-form links — the extension-on-an-existing-kind contract", () => {
+	const LINK_FORM = asUuid("b1111111-1111-4111-8111-111111111111");
+	const LINK_A = asUuid("b2222222-2222-4222-8222-222222222222");
+	const LINK_B = asUuid("b3333333-3333-4333-8333-333333333333");
+	const TARGET = asUuid("b4444444-4444-4444-8444-444444444444");
+
+	const linkA: FormLink = {
+		uuid: LINK_A,
+		order: "a0",
+		condition: {
+			kind: "eq",
+			left: {
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "status" },
+			},
+			right: { kind: "term", term: { kind: "literal", value: "open" } },
+		},
+		target: { type: "module", moduleUuid: TARGET },
+	};
+	const linkB: FormLink = {
+		uuid: LINK_B,
+		order: "a1",
+		target: { type: "module", moduleUuid: TARGET },
+	};
+
+	/**
+	 * The pre-unit-14 link shape, frozen: no identity, no order key, and a
+	 * condition stored as an XPath AST rather than a Predicate. It is
+	 * `.strict()` because the origin element was — which is exactly why a
+	 * current link cannot ride an origin-shaped slot.
+	 */
+	const originFormLinkSchema = z
+		.object({
+			condition: xpathExpressionSchema.optional(),
+			target: z.discriminatedUnion("type", [
+				z
+					.object({
+						type: z.literal("form"),
+						moduleUuid: uuidSchema,
+						formUuid: uuidSchema,
+					})
+					.strict(),
+				z
+					.object({ type: z.literal("module"), moduleUuid: uuidSchema })
+					.strict(),
+			]),
+			datums: z
+				.array(
+					z.object({ name: z.string(), xpath: xpathExpressionSchema }).strict(),
+				)
+				.optional(),
+		})
+		.strict();
+
+	/** The origin `updateForm` arm: strips unknown keys, defaults the patch. */
+	const originUpdateFormSchema = z.object({
+		kind: z.literal("updateForm"),
+		uuid: uuidSchema,
+		patch: z
+			.object({
+				name: z.string().nullable().optional(),
+				postSubmit: z.string().nullable().optional(),
+				formLinks: z.array(originFormLinkSchema).nullable().optional(),
+			})
+			.partial()
+			.default(() => ({})),
+	});
+
+	const changes: Mutation[] = [
+		addFormLinkMutation(docWithLinks([]), LINK_FORM, linkA),
+		{
+			kind: "updateForm",
+			uuid: LINK_FORM,
+			patch: {},
+			formLinkChange: { operation: "update", uuid: LINK_A, value: linkA },
+		},
+		{
+			kind: "updateForm",
+			uuid: LINK_FORM,
+			patch: {},
+			formLinkChange: { operation: "move", uuid: LINK_A, order: "a2" },
+		},
+		removeFormLinkMutation(LINK_FORM, LINK_A),
+	];
+
+	it("every arm parses under both envelopes", () => {
+		for (const mutation of changes) {
+			expect(mutationSchema.safeParse(mutation).success).toBe(true);
+			expect(canonicalMutationSchema.safeParse(mutation).success).toBe(true);
+		}
+	});
+
+	it("an origin receiver strips the change and applies an empty patch", () => {
+		// The whole safety argument for extending `updateForm` rather than
+		// minting a discriminator: a pre-deploy tab parses the event, sees a
+		// kind it knows, and applies a patch carrying no link state. The edit
+		// does not stick until the client's next diff re-sends it — which is
+		// a lost edit, never a half-written link.
+		for (const mutation of changes) {
+			const parsed = originUpdateFormSchema.parse(mutation);
+			expect(parsed).not.toHaveProperty("formLinkChange");
+			expect(parsed.patch).toEqual({});
+		}
+	});
+
+	it("neither envelope carries a wholesale formLinks array on the patch", () => {
+		// Last-write-wins over an ORDER-SENSITIVE list changes which branch a
+		// worker takes, not just how the list looks. Both envelopes drop the
+		// key rather than applying it.
+		const wholesale = {
+			kind: "updateForm",
+			uuid: LINK_FORM,
+			patch: { formLinks: [linkA] },
+		};
+		for (const schema of [mutationSchema, canonicalMutationSchema]) {
+			const parsed = schema.parse(wholesale);
+			expect(parsed.kind).toBe("updateForm");
+			expect(
+				(parsed as Extract<Mutation, { kind: "updateForm" }>).patch,
+			).toEqual({});
+		}
+	});
+
+	it("the addForm arm refuses links, but the envelope only strips them", () => {
+		// A link's stored shape — its uuid, its order, and a Predicate where
+		// the origin element declared an XPath AST — has no origin-compatible
+		// spelling, so the nested fallback omits the slot and the ARM rejects
+		// a form carrying one.
+		//
+		// The envelope does not. `mutationSchema` is that union intersected
+		// with the options-source placement check, and a Zod intersection
+		// stops nested strict objects from rejecting — so an unsplit
+		// `addForm` parses at the write boundary with its links quietly
+		// stripped. That is why the split below is the enforcement, and why
+		// this test states the weaker envelope behavior rather than assuming
+		// the stronger arm behavior reaches the wire.
+		const plainAddForm = {
+			kind: "addForm",
+			moduleUuid: MODULE,
+			form: {
+				uuid: LINK_FORM,
+				id: "intake",
+				name: "Intake",
+				type: "survey",
+			},
+		};
+		const withLinks = {
+			...plainAddForm,
+			form: { ...plainAddForm.form, formLinks: [linkA] },
+		};
+		const arm = (
+			mutationSchema.options as ReadonlyArray<z.ZodType<unknown>>
+		).find((option) => option.safeParse(plainAddForm).success);
+		expect(arm).toBeDefined();
+		expect(arm?.safeParse(withLinks).success).toBe(false);
+
+		const parsed = mutationSchema.parse(withLinks);
+		expect(
+			(parsed as Extract<Mutation, { kind: "addForm" }>).form,
+		).not.toHaveProperty("formLinks");
+	});
+
+	it("a form born with links diffs into an addForm plus one change per link", () => {
+		// Reachable from an ordinary gesture: a form created and then linked
+		// inside one auto-save window is a single diff.
+		const born = produce(docWithLinks([]), (draft) => {
+			draft.forms[LINK_FORM].formLinks = [linkA, linkB];
+		});
+		const emitted = diffDocsToMutations(emptyFormDoc(), born);
+		for (const mutation of emitted) {
+			expect(mutationSchema.safeParse(mutation).success, mutation.kind).toBe(
+				true,
+			);
+		}
+		const addForm = emitted.find((m) => m.kind === "addForm");
+		expect(addForm).toBeDefined();
+		expect(
+			(addForm as Extract<Mutation, { kind: "addForm" }>).form,
+		).not.toHaveProperty("formLinks");
+		expect(
+			emitted
+				.filter((m) => m.kind === "updateForm" && m.formLinkChange)
+				.map((m) =>
+					m.kind === "updateForm" && m.formLinkChange?.operation === "add"
+						? m.formLinkChange.value.uuid
+						: undefined,
+				),
+		).toEqual([LINK_A, LINK_B]);
+		// And replaying that batch reproduces the document it came from.
+		expect(
+			applyCurrent(emptyFormDoc(), emitted).forms[LINK_FORM].formLinks,
+		).toEqual([linkA, linkB]);
+	});
+
+	it("a Predicate condition survives the JSON hop the wire actually takes", () => {
+		const [add] = changes;
+		const parsed = mutationSchema.safeParse(JSON.parse(JSON.stringify(add)));
+		expect(parsed.success).toBe(true);
+		const replayed = applyCurrent(docWithLinks([]), [
+			mutationSchema.parse(JSON.parse(JSON.stringify(add))) as Mutation,
+		]);
+		expect(replayed.forms[LINK_FORM].formLinks?.[0]?.condition).toEqual(
+			linkA.condition,
+		);
+	});
+
+	it("removing the last link leaves a form byte-identical to one that never had any", () => {
+		const before = docWithLinks([]);
+		const after = applyCurrent(before, [
+			addFormLinkMutation(before, LINK_FORM, linkA),
+			removeFormLinkMutation(LINK_FORM, LINK_A),
+		]);
+		expect(JSON.stringify(toPersistableDoc(after))).toBe(
+			JSON.stringify(toPersistableDoc(before)),
+		);
+	});
+
+	it("a stale change merges as nothing rather than resurrecting a link", () => {
+		// Two members can edit one form's links at once. An update or a move
+		// naming a link the other member already removed must no-op — and
+		// must not birth an empty array, which would make the doc stop
+		// round-tripping to the shape it had before links existed.
+		const before = docWithLinks([]);
+		const after = applyCurrent(before, [
+			{
+				kind: "updateForm",
+				uuid: LINK_FORM,
+				patch: {},
+				formLinkChange: { operation: "update", uuid: LINK_A, value: linkA },
+			},
+			{
+				kind: "updateForm",
+				uuid: LINK_FORM,
+				patch: {},
+				formLinkChange: { operation: "move", uuid: LINK_A, order: "a9" },
+			},
+			removeFormLinkMutation(LINK_FORM, LINK_A),
+		]);
+		expect(after.forms[LINK_FORM]).not.toHaveProperty("formLinks");
+	});
+
+	function emptyFormDoc(): BlueprintDoc {
+		return {
+			appId: "rolling-links",
+			appName: "Rolling links",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[MODULE]: { uuid: MODULE, id: "patients", name: "Patients" },
+				[TARGET]: { uuid: TARGET, id: "visits", name: "Visits" },
+			},
+			forms: {},
+			fields: {},
+			moduleOrder: [MODULE, TARGET],
+			formOrder: { [MODULE]: [], [TARGET]: [] },
+			fieldOrder: {},
+			fieldParent: {},
+		};
+	}
+
+	function docWithLinks(links: FormLink[]): BlueprintDoc {
+		return produce(emptyFormDoc(), (draft) => {
+			draft.forms[LINK_FORM] = {
+				uuid: LINK_FORM,
+				id: "intake",
+				name: "Intake",
+				type: "survey",
+				...(links.length > 0 && { formLinks: links }),
+			};
+			draft.formOrder[MODULE] = [LINK_FORM];
+			draft.fieldOrder[LINK_FORM] = [];
+		});
 	}
 });
