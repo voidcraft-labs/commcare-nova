@@ -13,6 +13,8 @@ import {
 	advancedSearchInputDef,
 	asUuid,
 	simpleSearchInputDef,
+	type TileCell,
+	tileCell,
 } from "@/lib/domain";
 import {
 	dateAdd,
@@ -2283,5 +2285,282 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 		expect(novaRewind?.attribs.value).toBeDefined();
 		expect(cchqRewind?.attribs.value).toBeDefined();
 		expect(novaRewind?.attribs.value).toBe(cchqRewind?.attribs.value);
+	});
+});
+
+/**
+ * Case-tile parity against CCHQ's own emitted bytes.
+ *
+ * The reference fixtures under CCHQ's `data/suite` directory are the
+ * byte oracle for the tile wire shape:
+ *
+ *   - `suite-case-tiles.xml` — a complete tile short detail, asserted by
+ *     `commcare-hq/corehq/apps/app_manager/tests/test_suite_case_tiles.py::SuiteCaseTilesTest.test_case_tile_suite`.
+ *     Its `<field>` blocks carry the `<style horz-align vert-align
+ *     font-size><grid grid-height grid-width grid-x grid-y/></style>`
+ *     shape Nova reproduces.
+ *   - `case-tile-case-detail.xml` — the `show-border` / `show-shading`
+ *     variant, asserted by
+ *     `test_suite_custom_case_tiles.py::SuiteCustomCaseTilesTest.test_case_tile_for_case_detail`.
+ *     It is a LONG detail in CCHQ's own test (the one arm where CCHQ
+ *     allows a custom tile on the case-detail screen); Nova keeps
+ *     case-detail tiles out of scope, so only its `<style>` shape is the
+ *     reference here, never its placement.
+ *   - `case_tile_pulldown_session.xml` — the `detail-persistent` datum
+ *     attribute, asserted by
+ *     `test_suite_case_tiles.py::SuiteCaseTilesTest.test_case_tile_pull_down`.
+ *     Nova emits `detail-persistent` and deliberately not its sibling
+ *     `detail-inline`: pull-down REPLACES the case-detail confirm screen,
+ *     which is a navigation change rather than a tile layout.
+ *
+ * Parity is structural after the parse boundary, as everywhere else in
+ * this file: attribute presence and value, element nesting, child order.
+ * CCHQ's fixtures carry hand-indentation inside `<style>` that no emitter
+ * reproduces, and Nova's serializer escapes `'` as `&apos;`; neither is a
+ * wire difference.
+ */
+describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ case-tile parity", () => {
+	function tiledDoc(
+		options: {
+			readonly persistOnForms?: true;
+			readonly cells?: readonly [TileCell, TileCell];
+		} = {},
+	): ReturnType<typeof buildDoc> {
+		const cells = options.cells ?? [
+			tileCell(2, 0, 10, 1, {
+				horizontalAlign: "left",
+				verticalAlign: "middle",
+				fontSize: "medium",
+			}),
+			tileCell(2, 1, 5, 1, {
+				horizontalAlign: "left",
+				verticalAlign: "middle",
+				fontSize: "small",
+			}),
+		];
+		const base = caseListConfig([
+			{ field: "case_name", header: "Name" },
+			{ field: "town", header: "Town" },
+		]);
+		return buildDoc({
+			appName: "TileParity",
+			modules: [
+				{
+					name: "Children",
+					caseType: "child",
+					caseListConfig: {
+						...base,
+						columns: [
+							{ ...base.columns[0], tile: cells[0] },
+							{ ...base.columns[1], tile: cells[1] },
+						],
+						tile:
+							options.persistOnForms === undefined
+								? {}
+								: { persistOnForms: options.persistOnForms },
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "child",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "town", label: "Town" },
+					],
+				},
+			],
+		});
+	}
+
+	function novaSuite(doc: ReturnType<typeof buildDoc>): SuiteElement {
+		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
+		const entry = zip.getEntry("suite.xml");
+		if (entry === null) throw new Error("compileCcz produced no suite.xml");
+		return parseSuiteXml(entry.getData().toString("utf-8"));
+	}
+
+	/** Every `<style>` element under one detail, paired with its `<grid>`. */
+	function stylesOf(
+		root: SuiteElement,
+		detailId: string,
+	): readonly { style: SuiteElement; grid: SuiteElement }[] {
+		const detail = findAllByName(root, "detail").find(
+			(d) => d.attribs.id === detailId,
+		);
+		if (detail === undefined) return [];
+		return findAllByName(detail, "style").map((style) => {
+			const grid = findFirstByName(style, "grid");
+			if (grid === undefined) {
+				throw new Error(
+					`A <style> under ${detailId} carried no <grid> child. CommCare's DetailFieldParser runs GridParser unconditionally after StyleParser, so the pair is indivisible on the wire.`,
+				);
+			}
+			return { style, grid };
+		});
+	}
+
+	it("emits the same <style>/<grid> shape CCHQ emits", () => {
+		const nova = novaSuite(tiledDoc());
+		const cchq = parseSuiteXml(readCchqSuiteFixture("suite-case-tiles.xml"));
+
+		const novaStyles = stylesOf(nova, "m0_case_short");
+		const cchqStyles = stylesOf(cchq, "m0_case_short");
+		expect(novaStyles).toHaveLength(2);
+		expect(cchqStyles.length).toBeGreaterThan(0);
+
+		// `<grid>` is a CHILD of `<style>` on both sides, never a sibling.
+		for (const { style, grid } of [...novaStyles, ...cchqStyles]) {
+			expect(style.children.map((c) => c.name)).toEqual(["grid"]);
+			expect(grid.children).toEqual([]);
+		}
+
+		// All four coordinates on every emitted grid. A missing one is an
+		// uncaught NumberFormatException inside GridParser::parse.
+		const gridKeys = ["grid-height", "grid-width", "grid-x", "grid-y"];
+		for (const { grid } of [...novaStyles, ...cchqStyles]) {
+			expect(Object.keys(grid.attribs).sort()).toEqual([...gridKeys].sort());
+		}
+
+		// Nova's attribute vocabulary is a subset of CCHQ's.
+		const cchqStyleAttrNames = new Set(
+			cchqStyles.flatMap(({ style }) => Object.keys(style.attribs)),
+		);
+		for (const { style } of novaStyles) {
+			for (const name of Object.keys(style.attribs)) {
+				expect(cchqStyleAttrNames).toContain(name);
+			}
+		}
+
+		expect(novaStyles[0].style.attribs).toEqual({
+			"horz-align": "left",
+			"vert-align": "center",
+			"font-size": "medium",
+		});
+		expect(novaStyles[0].grid.attribs).toEqual({
+			"grid-height": "1",
+			"grid-width": "10",
+			"grid-x": "2",
+			"grid-y": "0",
+		});
+		// One CCHQ field carries exactly those bytes, which is the point of
+		// picking this placement for the fixture doc.
+		expect(
+			cchqStyles.some(
+				({ style, grid }) =>
+					JSON.stringify(style.attribs) ===
+						JSON.stringify(novaStyles[0].style.attribs) &&
+					JSON.stringify(grid.attribs) ===
+						JSON.stringify(novaStyles[0].grid.attribs),
+			),
+		).toBe(true);
+	});
+
+	it("emits show-border and show-shading the way CCHQ does", () => {
+		const nova = novaSuite(
+			tiledDoc({
+				cells: [
+					tileCell(0, 0, 4, 1, { showBorder: false, showShading: false }),
+					tileCell(5, 0, 4, 1, { showBorder: true, showShading: true }),
+				],
+			}),
+		);
+		const cchq = parseSuiteXml(
+			readCchqSuiteFixture("case-tile-case-detail.xml"),
+		);
+		const [first, second] = stylesOf(nova, "m0_case_short");
+		const cchqStyle = findFirstByName(cchq, "style");
+
+		// CCHQ's own bytes for a border/shading-bearing cell.
+		expect(cchqStyle?.attribs).toEqual({
+			"show-border": "false",
+			"show-shading": "false",
+		});
+		expect(first.style.attribs).toEqual({
+			"show-border": "false",
+			"show-shading": "false",
+		});
+		expect(second.style.attribs).toEqual({
+			"show-border": "true",
+			"show-shading": "true",
+		});
+		// An unset presentation slot stays OFF the wire rather than emitting a
+		// default: an absent font-size makes the cell inherit the list's size,
+		// which is a different rendering from any named size.
+		expect(first.style.attribs["font-size"]).toBeUndefined();
+	});
+
+	it("maps Nova's vertical-alignment words onto values Web Apps honors", () => {
+		const nova = novaSuite(
+			tiledDoc({
+				cells: [
+					tileCell(0, 0, 6, 1, { verticalAlign: "top" }),
+					tileCell(6, 0, 6, 1, { verticalAlign: "bottom" }),
+				],
+			}),
+		);
+		const [first, second] = stylesOf(nova, "m0_case_short");
+		// `top` / `bottom` are NOT in cloudcare's ALLOWED_FIELD_ALIGNMENTS and
+		// are silently rewritten to `start`; `start` / `end` survive.
+		expect(first.style.attribs["vert-align"]).toBe("start");
+		expect(second.style.attribs["vert-align"]).toBe("end");
+	});
+
+	it("gives the search-results detail the same tile as the case list", () => {
+		const doc = tiledDoc();
+		const mod = doc.modules[doc.moduleOrder[0]];
+		mod.caseSearchConfig = { searchScreenTitle: "Find a child" };
+		const nova = novaSuite(doc);
+		const caseGrids = stylesOf(nova, "m0_case_short").map(
+			({ grid }) => grid.attribs,
+		);
+		const searchGrids = stylesOf(nova, "m0_search_short").map(
+			({ grid }) => grid.attribs,
+		);
+		expect(searchGrids).toEqual(caseGrids);
+	});
+
+	it("leaves the case-detail screen a plain field list", () => {
+		const nova = novaSuite(tiledDoc());
+		expect(stylesOf(nova, "m0_case_long")).toEqual([]);
+	});
+
+	it("emits detail-persistent only when the tile asks to stay above forms", () => {
+		const datumOf = (root: SuiteElement): SuiteElement | undefined => {
+			const entry = findAllByName(root, "entry")[0];
+			return entry === undefined ? undefined : findFirstByName(entry, "datum");
+		};
+		expect(
+			datumOf(novaSuite(tiledDoc()))?.attribs["detail-persistent"],
+		).toBeUndefined();
+		expect(
+			datumOf(novaSuite(tiledDoc({ persistOnForms: true })))?.attribs[
+				"detail-persistent"
+			],
+		).toBe("m0_case_short");
+
+		// CCHQ's own pull-down fixture is the reference for the attribute name
+		// and its value shape.
+		const cchqDatum = findFirstByName(
+			parseSuiteXml(readCchqSuiteFixture("case_tile_pulldown_session.xml")),
+			"datum",
+		);
+		expect(cchqDatum?.attribs["detail-persistent"]).toBe("m0_case_short");
+	});
+
+	it("emits no <style> at all when the case list has no tile layout", () => {
+		const doc = tiledDoc();
+		const mod = doc.modules[doc.moduleOrder[0]];
+		// The cells stay on the columns — turning the tile off keeps the
+		// drawing — but nothing about them reaches the wire.
+		delete mod.caseListConfig?.tile;
+		expect(findAllByName(novaSuite(doc), "style")).toEqual([]);
 	});
 });
