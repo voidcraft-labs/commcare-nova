@@ -163,6 +163,81 @@ rather than rediscovering it.
 
 `content/docs/display-conditions.mdx` is the user-facing guide.
 
+### End-of-form navigation
+
+A form's `postSubmit` names where a submission lands, and an ordered list of
+`formLinks` may override it per condition. Each link carries immutable `uuid`
+identity, a fractional `order`, a typed `Predicate` condition, and a form or
+module target by uuid.
+
+**Links are exclusive, and the emitted guard is what makes them so.** CommCare
+picks no winner: every `<create>` whose `if` holds pushes its own frame
+(`CommCareSession::createFrame` → `pushNewFrame`) and frames pop LIFO
+(`::finishAndPop`), so two matching links would send a worker to the second and
+then to the first. Link *i* therefore emits `Ci ∧ ¬C1 ∧ … ∧ ¬C(i-1)`, composed
+on the Predicate AST rather than by wrapping printed text
+(`lib/domain/formLinkProjection.ts`). A terminal unconditional link is the
+exhaustive `else`: its guard is the negation of every earlier condition and it
+suppresses the fallback frame entirely. A link *after* an unconditional one can
+never fire and is refused (`FORM_LINK_UNREACHABLE`), as is a condition that can
+never match. An absent condition and one that reduces to always-true are the
+same state — every reader asks `effectiveDisplayConditionForEmission`.
+
+One projector (`lib/commcare/suite/endOfForm.ts`) serves both delivery paths,
+which works because HQ re-emits a link's `xpath` verbatim (`workflow.py` runs no
+`interpolate_xpath` over it) and derives its own fallback by negating the guards
+it was given — and since the exclusive guards partition the authored conditions,
+`¬G1 ∧ … ∧ ¬Gn ≡ ¬C1 ∧ … ∧ ¬Cn`. The HQ payload sets `post_form_workflow` to
+`form` whenever links exist, because
+`EndOfFormNavigationWorkflow.form_workflow_frames` returns the static frame and
+ignores `form_links` under any other workflow, and carries
+`post_form_workflow_fallback` only when a fallback is still reachable. HQ
+validates that slot itself not at all — `WORKFLOW_FALLBACK_OPTIONS` is
+`list(ALL_WORKFLOWS).remove(WORKFLOW_FORM)`, and `list.remove` returns `None` —
+so Nova validates its own value.
+
+A guard evaluates in the **session** context at end of form
+(`MenuSessionRunnerService::executeAndRebuildSession`;
+`AndroidSessionWrapper::terminateSession`, which nulls its initializer first so
+`casedb` is re-read). Two consequences shape authoring: this submission's own
+case writes are already visible, so an author conditions on the case rather than
+on the answers; and the submitted form instance is out of scope on both
+runtimes, so a guard cannot read `/data/...` at all. The anchor is the loaded
+case for a case-loading form and `case_id_new_<type>_0` for a registration form —
+the case it just created — which is what makes register-then-route work. Because
+the anchor is a concrete session case id, relation walks, counts, and presence
+tests are all available, so a link condition is strictly more capable than the
+same form's display condition; `lib/commcare/predicate/sessionCaseAnchor.ts` is
+the shared anchoring both this and case operations use.
+
+`lib/commcare/suite/navigation.ts` is Nova's `WorkflowHelper.get_frame_children`:
+the module command, the datums common to every form in the module, the form
+command, then that form's remaining datums, matched against the source form's
+session variables by id and case type. Carrying datums is not decoration — a
+frame is replayed step by step and stops at the first datum it still needs, so a
+command-only frame drops a worker on the target's case list to re-pick the case
+he was already working. All six end-of-form workflows route through the same
+projector: `app_home` emits no frame at all (HQ's `_get_static_stack_frame` has
+no `WORKFLOW_DEFAULT` arm — absence *is* the runtime's built-in return), `root`
+emits an empty `<create>` (`allow_empty_frame`), `module` emits the module
+command, `previous` is the form's own frame minus its trailing
+non-selection steps, and `parent_module` stays refused until nesting is modelled.
+An unconditional guard emits **no** `if` attribute rather than an empty one:
+`StackOperation`'s constructor parses any non-null value and
+`XPathParseTool.parseXPath("")` throws, which would fail the whole suite parse.
+
+The stack vocabulary is closed: operations `{create, push, clear}` each with an
+optional `@if`, and steps `{datum, instance-datum, command, query, mark, rewind,
+jump}` (`StackOpParser`, `StackFrameStepParser`). Datum values evaluate at push
+time — concrete strings, never lazy references — and `rewind` truncates to the
+latest mark, is silently ignored without one, and halts every later operation.
+
+Links are authored in the builder and executed in the running preview against the
+case as it stands after the write. Their SA and MCP surfaces belong to unit 3,
+which already owns the identity bridge for every typed `Predicate` tool
+parameter including form links; exposing them from one editor ahead of that
+bridge would mint a second, throwaway leaf vocabulary.
+
 ### Case operations
 
 Forms carry ordered case operations — create, update, close, with links, renames,
@@ -764,16 +839,15 @@ and Deployment — plus the SA and MCP surfaces and public docs for units 8 thro
 12. **The file is deliberately short**: its substance is the prerequisite units'
 files and the baseline UI review in the contracts.
 
-### 14 — Exclusive form links and sections
+### 14 — Form sections
 
 [`complex-app/14-form-links-and-sections.md`](complex-app/14-form-links-and-sections.md)
 · depends on nothing · blocks unit 15
 
-An exhaustive-`else` link projection with durable link identity in one release,
-then form sections with fractional order. **The file holds** the six end-of-form
-workflow mappings and their traps, the closed stack vocabulary, the negative sweep
-proving sections have no wire notion, the no-expression-slots design fence, and
-the verified mechanics that make sections beat multi-form chains.
+Form sections with fractional order. **The file holds** the negative sweep
+proving sections have no wire notion, why `field-list` does not page Web Apps by
+itself, the no-expression-slots design fence, and the verified mechanics that
+make sections beat multi-form chains.
 
 ### 15 — Nested menus and linked-form reuse
 
@@ -827,7 +901,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 8, 10 |
 | [12 push and provisioning drivers](complex-app/12-push-and-provisioning-drivers.md) | 11 |
 | [13 App setup UI, SA, MCP, docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 8, 9, 10, 11, 12 |
-| [14 form links and sections](complex-app/14-form-links-and-sections.md) | — |
+| [14 form sections](complex-app/14-form-links-and-sections.md) | — |
 | [15 nested menus and linked-form reuse](complex-app/15-nested-menus-and-linked-form-reuse.md) | 14 |
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |

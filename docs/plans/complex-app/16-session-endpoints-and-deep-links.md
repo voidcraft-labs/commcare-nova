@@ -29,6 +29,25 @@ This is also the unit that must retire the two hardcoded US hosts named in
 ignores the selected server sends an India or EU deployment's users to the wrong
 cluster.
 
+## What unit 14 already built for this unit
+
+The navigation-frame projector exists. `lib/commcare/suite/navigation.ts` is
+Nova's implementation of `WorkflowHelper.get_frame_children` — the module
+command, the common-prefix datums across the module's forms, the form command,
+the remaining datums, plus the source-matching (`_get_datums_matched_to_source`,
+including its two quirks) and manual-value matching HQ applies on top. All six
+end-of-form workflows route through it via `frameForPostSubmit`, so this unit
+builds its `<push>` frames and claim datums on that projector rather than
+re-deriving the algorithm. Two things it deliberately does not yet do:
+`parent_module` resolves to the module's own frame while nesting is unmodelled
+(`POST_SUBMIT_PARENT_MODULE_UNSUPPORTED` refuses the state, and unit 15 activates
+the arm), and there is no query-datum arm — `WorkflowQueryMeta` has no Nova
+counterpart until this unit adds one.
+
+`lib/commcare/suite/endOfForm.ts` is the matching guard projector, and
+`lib/commcare/predicate/sessionCaseAnchor.ts` anchors an on-device condition on
+a concrete session case id — the seam an endpoint argument would bind through.
+
 ## Binding facts
 
 - HQ's authoring fields are `ModuleBase.session_endpoint_id`,
