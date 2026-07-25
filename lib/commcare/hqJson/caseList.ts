@@ -49,6 +49,7 @@ import type {
 	BlueprintDoc,
 	CaseListConfig,
 	CaseProperty,
+	CaseTileLayout,
 	Column,
 	CaseSearchConfig as DomainCaseSearchConfig,
 	Module,
@@ -89,6 +90,7 @@ import {
 	SORT_DIRECTION_WIRE_MAP,
 	SORT_TYPE_WIRE_MAP,
 } from "../suite/case-list/sortKeys";
+import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
 import { compileForPlatform } from "../suite/case-search/compileForPlatform";
 import {
 	PROMPT_ATTRIBUTE_MAPPINGS,
@@ -103,6 +105,7 @@ import {
 import type {
 	CaseSearchProperty,
 	DefaultCaseSearchProperty,
+	Detail,
 	DetailColumnFormat,
 	DetailPair,
 	SortElement,
@@ -870,6 +873,11 @@ export function projectCaseListForHq(
 	const pair = detailPair(shortColumns, longColumns);
 	pair.short.sort_elements = sortElements;
 	pair.short.filter = filter;
+	applyTileLayoutToShortDetail(
+		pair.short,
+		caseListConfig?.tile,
+		shortSourceColumns,
+	);
 
 	const searchConfig = buildSearchConfigDocument(
 		caseSearchConfig,
@@ -880,6 +888,62 @@ export function projectCaseListForHq(
 	);
 
 	return { caseDetails: pair, searchConfig };
+}
+
+/**
+ * Write the tile layout onto the SHORT detail only.
+ *
+ * `case_tile_template` is what makes CCHQ regenerate the detail through
+ * `suite_xml/features/case_tiles.py::CaseTileHelper` — a bare truthiness
+ * check in `suite_xml/sections/details.py::DetailContributor.build_detail`
+ * with no feature toggle in front of it, so an uploaded Nova tile emits
+ * on any domain with nothing to set up first. Nova always writes
+ * `"custom"`, the arm where each column carries its own placement.
+ *
+ * Only the short detail is written, and that is enough to cover all three
+ * tile surfaces: `models/modules.py::Module.search_detail` DEEP-COPIES the
+ * short detail for the search-results screen, and `persist_tile_on_forms`
+ * turns the same detail into the persistent tile. The long detail stays a
+ * plain field list — the one CCHQ arm where `custom` would be legal but
+ * Nova's contract keeps case-detail tiles out of scope.
+ *
+ * The per-column grid slots are written on the SAME column objects the
+ * detail already carries. Nova writes all four coordinates together or
+ * none: CCHQ's own emitter builds a `<style>` when ANY of the four is
+ * non-null, so a partial set produces a `<grid>` missing an attribute,
+ * and `GridParser::parse` reads each through an unguarded
+ * `Integer.parseInt`.
+ *
+ * `shortSourceColumns` is the Results-ordered source list the caller
+ * already built, in the exact order it projected `detail.columns`, so
+ * the two zip positionally.
+ */
+function applyTileLayoutToShortDetail(
+	shortDetail: Detail,
+	tile: CaseTileLayout | undefined,
+	shortSourceColumns: readonly Column[],
+): void {
+	if (tile === undefined) return;
+	shortDetail.case_tile_template = "custom";
+	if (tile.persistOnForms === true) shortDetail.persist_tile_on_forms = true;
+	for (const [index, source] of shortSourceColumns.entries()) {
+		const cell = source.tile;
+		const target = shortDetail.columns[index];
+		if (cell === undefined || target === undefined) continue;
+		target.grid_x = cell.x;
+		target.grid_y = cell.y;
+		target.width = cell.width;
+		target.height = cell.height;
+		if (cell.horizontalAlign !== undefined) {
+			target.horizontal_align = cell.horizontalAlign;
+		}
+		if (cell.verticalAlign !== undefined) {
+			target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
+		}
+		if (cell.fontSize !== undefined) target.font_size = cell.fontSize;
+		if (cell.showBorder !== undefined) target.show_border = cell.showBorder;
+		if (cell.showShading !== undefined) target.show_shading = cell.showShading;
+	}
 }
 
 /** Results columns CCHQ must persist: visible fields plus the rare off-screen

@@ -159,6 +159,14 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: "soundness",
 	CASE_LIST_STRICT_NULL_NOT_PORTABLE: "soundness",
 	CASE_LIST_CSQL_NOT_REPRESENTABLE: "soundness",
+	// Tile geometry and coverage are soundness: a cell off the grid, two
+	// cells on one square, or an unplaced field in a tile detail each
+	// produce a layout the running app draws differently from the one the
+	// author arranged.
+	CASE_LIST_TILE_CELL_OUT_OF_GRID: "soundness",
+	CASE_LIST_TILE_CELLS_OVERLAP: "soundness",
+	CASE_LIST_TILE_COLUMN_NOT_PLACED: "soundness",
+	CASE_LIST_TILE_SORT_COLUMN_NOT_PLACED: "soundness",
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	FIELD_KIND_WRITERS_DISAGREE: "soundness",
 	// ── Case-search-config rules ─────────────────────────────────────
@@ -580,6 +588,21 @@ export function errorIdentity(err: ValidationError): string {
 				part("surface", det?.surface),
 				part("input", det?.inputUuid),
 				part("reason", det?.reason),
+			);
+			break;
+		// One finding per placed column, so moving one cell resolves exactly
+		// its own finding and leaves a sibling's untouched.
+		case "CASE_LIST_TILE_CELL_OUT_OF_GRID":
+		case "CASE_LIST_TILE_COLUMN_NOT_PLACED":
+		case "CASE_LIST_TILE_SORT_COLUMN_NOT_PLACED":
+			parts.push(part("m", loc.moduleUuid), part("column", det?.columnUuid));
+			break;
+		// An overlap is a fact about a PAIR, so its identity carries both.
+		case "CASE_LIST_TILE_CELLS_OVERLAP":
+			parts.push(
+				part("m", loc.moduleUuid),
+				part("first", det?.firstUuid),
+				part("second", det?.secondUuid),
 			);
 			break;
 		// Form-scope: a named case property / connect id / hashtag is the

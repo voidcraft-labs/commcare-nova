@@ -12,13 +12,15 @@ import type { Column } from "@/lib/domain";
 
 /**
  * Origin/main's strict nested `columnSchema` predates the two surface-order
- * keys. Keep every fallback snapshot parseable by an old PUT handler; the new
- * keys travel only in optional top-level extensions on known mutation kinds.
+ * keys and the tile cell. Keep every fallback snapshot parseable by an old PUT
+ * handler; the new keys travel only in optional top-level extensions on known
+ * mutation kinds.
  */
 export function legacyCompatibleColumnSnapshot(column: Column): Column {
 	const {
 		listOrder: _listOrder,
 		detailOrder: _detailOrder,
+		tile: _tile,
 		...legacyColumn
 	} = column;
 	return legacyColumn as Column;
@@ -45,7 +47,33 @@ export function columnAddMutation(
 		moduleUuid,
 		column: legacyCompatibleColumnSnapshot(column),
 		...(surfaceOrders !== undefined && { surfaceOrders }),
+		...(column.tile !== undefined && { tileCell: column.tile }),
 	};
+}
+
+/**
+ * Plan the independently mergeable tile-placement slot.
+ *
+ * Placement is deliberately its own write rather than part of a content
+ * update: an author dragging a cell and a peer relabelling the same column
+ * are edits to different things and must merge, exactly as a move and a
+ * relabel already do.
+ */
+export function columnTileMutations(
+	current: Column,
+	next: Column,
+	moduleUuid: Uuid,
+): Mutation[] {
+	if (deepEqual(current.tile, next.tile)) return [];
+	return [
+		{
+			kind: "updateColumn",
+			moduleUuid,
+			uuid: next.uuid,
+			column: legacyCompatibleColumnSnapshot(next),
+			tilePatch: next.tile ?? null,
+		},
+	];
 }
 
 /** Compare only the column body owned by `updateColumn`. */
@@ -140,6 +168,7 @@ export function columnSnapshotMutations(
 	}
 	mutations.push(...columnVisibilityMutations(current, next, moduleUuid));
 	mutations.push(...columnSortMutations(current, next, moduleUuid));
+	mutations.push(...columnTileMutations(current, next, moduleUuid));
 	if (current.listOrder !== next.listOrder) {
 		mutations.push(
 			columnSurfaceOrderMutation({
@@ -192,6 +221,7 @@ function stripGranularSlots(column: Column): unknown {
 		sort: _sort,
 		visibleInList: _visibleInList,
 		visibleInDetail: _visibleInDetail,
+		tile: _tile,
 		...content
 	} = column;
 	return content;

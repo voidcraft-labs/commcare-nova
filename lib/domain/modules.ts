@@ -160,6 +160,228 @@ const columnCommonSlots = z
 	})
 	.strict();
 
+// ── Case-tile cells ──────────────────────────────────────────────
+//
+// A tile-laid-out case list places each Results column on a grid
+// instead of stacking it in a row. The cell is PLACEMENT, entirely
+// separate from `listOrder` / `detailOrder`, which remain the
+// column's position in the Results / Details sequences: moving a
+// column in the Results sequence never moves its tile cell, and
+// vice versa.
+//
+// The wire shape is one `<style horz-align vert-align font-size
+// show-border show-shading><grid grid-x grid-y grid-width
+// grid-height/></style>` child on the column's `<field>`. All four
+// grid attributes are mandatory once `<style>` exists — CommCare's
+// `commcare-core/.../org/commcare/xml/GridParser.java::GridParser.parse`
+// runs an UNGUARDED `Integer.parseInt` on each of the four, and
+// `commcare-core/.../org/commcare/xml/DetailFieldParser.java::DetailFieldParser.parseStyle`
+// always runs `GridParser` after `StyleParser`, so a `<style>` without a
+// complete `<grid>` is an install-time parse failure. A field counts as a
+// tile cell only when all four are set
+// (`commcare-core/.../org/commcare/suite/model/DetailField.java::DetailField.isCaseTileField`,
+// which tests each against the `-1` unset sentinel). Modelling the four
+// as one required object is what makes the partial state unrepresentable.
+
+/**
+ * Columns in one tile row. The cap is CommCare HQ's own parity
+ * assertion — `commcare-hq/corehq/apps/app_manager/tests/test_suite_case_tiles.py::SuiteCaseTilesTest.test_case_tile_column_count`
+ * fails any built-in template whose `x + width` exceeds 12, with the
+ * comment "Keeps the number of columns in parity with what mobile
+ * allows". CommCare Core carries no column-count constant of its own
+ * (the Web Apps renderer sizes its grid from the actual extent), so
+ * Nova enforces the 12 itself rather than inheriting it.
+ */
+export const TILE_GRID_COLUMNS = 12;
+
+/**
+ * Rows in one tile. CommCare bounds the row extent nowhere — the
+ * renderer sizes the grid from whatever the fields occupy — so this
+ * is declared Nova policy: a tile is a 12 x 12 grid, which keeps the
+ * layout editor a fixed, learnable surface and keeps a tile visually
+ * comparable to the row it replaces.
+ */
+export const TILE_GRID_ROWS = 12;
+
+// Alignment vocabulary is constrained by what the Web Apps renderer
+// HONORS, not by what the suite parser accepts.
+// `commcare-core/.../org/commcare/xml/StyleParser.java::StyleParser.parse`
+// stores `horz-align` / `vert-align` as raw unvalidated strings, but
+// `commcare-hq/corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js::getValidFieldAlignment`
+// silently rewrites anything outside
+// `commcare-hq/corehq/apps/cloudcare/static/cloudcare/js/formplayer/constants.js::ALLOWED_FIELD_ALIGNMENTS`
+// (`start`, `end`, `center`, `left`, `right`) to `start`. HQ's own
+// shipped `icon_text_grid` template emits `vert-align="top"` and Web
+// Apps therefore renders it as `start` — an authored value that does
+// not survive. Nova emits only values the renderer honors, so what an
+// author picks is what a worker sees.
+
+/**
+ * Horizontal cell alignment. Nova's authoring word and the wire value
+ * coincide here — `left` / `center` / `right` are all in Web Apps'
+ * honored set and read the same way to an author.
+ */
+export const TILE_HORIZONTAL_ALIGNS = ["left", "center", "right"] as const;
+export type TileHorizontalAlign = (typeof TILE_HORIZONTAL_ALIGNS)[number];
+
+/**
+ * Vertical cell alignment, in Nova's authoring words. These project
+ * onto the honored wire values at emission
+ * (`lib/commcare/suite/case-list/tileStyle.ts::TILE_VERTICAL_ALIGN_WIRE`):
+ * `top` → `start`, `middle` → `center`, `bottom` → `end`. The wire
+ * spelling is a flex/grid alignment vocabulary; the authoring words
+ * are the ones an author would say about a cell.
+ */
+export const TILE_VERTICAL_ALIGNS = ["top", "middle", "bottom"] as const;
+export type TileVerticalAlign = (typeof TILE_VERTICAL_ALIGNS)[number];
+
+/**
+ * Cell text size. Emits verbatim as `<style font-size>`, which Web
+ * Apps interpolates straight into a CSS `font-size` declaration
+ * (`views.js::buildCellLayout` → the `cell_layout_style.html`
+ * template). These three are the CSS absolute-size keywords, and are
+ * the sizes CommCare's own shipped tile templates use
+ * (`commcare-hq/corehq/apps/app_manager/suite_xml/case_tile_templates/person_simple.xml`
+ * carries `small` and `medium`;
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_persistent_case_context_detail`
+ * emits `large`).
+ *
+ * Absent is a real, distinct state: the renderer emits an empty
+ * `font-size: ;` declaration the browser discards, so the cell
+ * INHERITS the list's size. There is no `medium` default at runtime —
+ * that default exists only in HQ's authoring UI — so Nova's own
+ * renderer must inherit too rather than substituting a size.
+ */
+export const TILE_FONT_SIZES = ["small", "medium", "large"] as const;
+export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
+
+/**
+ * One column's placement and presentation inside the tile grid.
+ *
+ * `x` / `y` are zero-based grid coordinates; `width` / `height` are
+ * spans in cells. The schema keeps only the bounds that have no
+ * repair ambiguity — non-negative origin, positive span — so an
+ * imported document with an out-of-grid or overlapping cell still
+ * LOADS and can be repaired. The grid contract itself (the 12-column
+ * cap, the row cap, no two cells overlapping, and every Results
+ * column carrying a cell) lives in
+ * `lib/commcare/validator/rules/case-list/caseTileLayout.ts`, where
+ * one rule owns every geometry message.
+ *
+ * The five presentation slots are all optional; each maps 1:1 onto a
+ * `<style>` attribute and is omitted from the wire when absent.
+ */
+export const tileCellSchema = z
+	.object({
+		x: z.number().int().min(0),
+		y: z.number().int().min(0),
+		width: z.number().int().min(1),
+		height: z.number().int().min(1),
+		horizontalAlign: z.enum(TILE_HORIZONTAL_ALIGNS).optional(),
+		verticalAlign: z.enum(TILE_VERTICAL_ALIGNS).optional(),
+		fontSize: z.enum(TILE_FONT_SIZES).optional(),
+		showBorder: z.boolean().optional(),
+		showShading: z.boolean().optional(),
+	})
+	.strict();
+export type TileCell = z.infer<typeof tileCellSchema>;
+
+/** Constructs a tile cell. Optional presentation slots are omitted
+ *  when absent so a constructed cell round-trips equal to a stored
+ *  one under the schema's strip-mode parse. */
+export function tileCell(
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+	presentation: Omit<TileCell, "x" | "y" | "width" | "height"> = {},
+): TileCell {
+	const out: TileCell = { x, y, width, height };
+	if (presentation.horizontalAlign !== undefined)
+		out.horizontalAlign = presentation.horizontalAlign;
+	if (presentation.verticalAlign !== undefined)
+		out.verticalAlign = presentation.verticalAlign;
+	if (presentation.fontSize !== undefined) out.fontSize = presentation.fontSize;
+	if (presentation.showBorder !== undefined)
+		out.showBorder = presentation.showBorder;
+	if (presentation.showShading !== undefined)
+		out.showShading = presentation.showShading;
+	return out;
+}
+
+/** The half-open column span a cell occupies. */
+export function tileCellRightEdge(cell: TileCell): number {
+	return cell.x + cell.width;
+}
+
+/** The half-open row span a cell occupies. */
+export function tileCellBottomEdge(cell: TileCell): number {
+	return cell.y + cell.height;
+}
+
+/** Whether two cells cover any common grid square. */
+export function tileCellsOverlap(a: TileCell, b: TileCell): boolean {
+	return (
+		a.x < tileCellRightEdge(b) &&
+		b.x < tileCellRightEdge(a) &&
+		a.y < tileCellBottomEdge(b) &&
+		b.y < tileCellBottomEdge(a)
+	);
+}
+
+/**
+ * The grid a set of cells actually occupies, in columns x rows.
+ *
+ * This is DERIVED, never authored, and every renderer must derive it
+ * the same way: the runtime sizes the tile's CSS grid from the
+ * occupied extent, not from the 12-column authoring canvas. CommCare
+ * Core computes it in
+ * `commcare-core/.../org/commcare/suite/model/Detail.java::Detail.getMaxWidthHeight`
+ * (`max(gridX + gridWidth)`, `max(gridY + gridHeight)`), Formplayer
+ * ships it as `maxWidth` / `maxHeight`
+ * (`formplayer/.../beans/menus/EntityListResponse.java::EntityListResponse.processCaseTiles`),
+ * and Web Apps turns it into
+ * `grid-template-columns: repeat(maxWidth, 1fr)` /
+ * `grid-template-rows: repeat(maxHeight, …)`
+ * (`cloudcare/.../formplayer/menus/views.js::buildCellGridStyle`). A
+ * tile whose widest cell ends at column 6 therefore renders six
+ * equal columns, not six twelfths of the canvas — so a renderer that
+ * assumed 12 would draw every such tile at half width.
+ *
+ * An empty set has zero extent.
+ */
+export function tileGridExtent(cells: readonly TileCell[]): {
+	readonly columns: number;
+	readonly rows: number;
+} {
+	let columns = 0;
+	let rows = 0;
+	for (const cell of cells) {
+		columns = Math.max(columns, tileCellRightEdge(cell));
+		rows = Math.max(rows, tileCellBottomEdge(cell));
+	}
+	return { columns, rows };
+}
+
+/**
+ * Whether any cell in the tile asks for a border or shading.
+ *
+ * The flag is TILE-WIDE at the runtime, not per cell: Web Apps'
+ * `views.js::buildCellLayout` computes one `borderInTile` /
+ * `shadingInTile` across every style in the tile and switches the
+ * WHOLE tile into boxed layout when either is set. In boxed layout a
+ * cell that carries border or shading stretches
+ * (`justify-self: stretch`) inside a padded rounded box, while a cell
+ * that carries neither keeps its own alignment with a flat 7px
+ * margin. A renderer that treated the flags per cell would place
+ * every plain cell differently from the device.
+ */
+export function tileHasBoxedCells(cells: readonly TileCell[]): boolean {
+	return cells.some(
+		(cell) => cell.showBorder === true || cell.showShading === true,
+	);
+}
+
 /** Base shape every column kind extends — uuid + the common
  *  optional slots (sort, visibility). Per-kind schemas add their
  *  required configuration on top. The `.strict()` on the base
@@ -171,9 +393,19 @@ const columnCommonSlots = z
  *  (`lib/doc/order`). `listOrder` and `detailOrder` independently sequence
  *  the Results and Details surfaces, each falling back to `order` when its
  *  surface key is absent. All three are optional (legacy columns predate
- *  them; `order` is backfilled at hydration) and never reach CommCare. */
+ *  them; `order` is backfilled at hydration) and never reach CommCare.
+ *
+ *  `tile` is the column's placement on the case list's tile grid. It
+ *  sits here rather than in `columnCommonSlots` only because
+ *  `tileCellSchema` is declared below that object; it is an ordinary
+ *  optional common slot in every other respect, and
+ *  `ColumnCommonSlots` carries it for the builders. */
 const columnBase = z
-	.object({ uuid: uuidSchema, order: z.string().optional() })
+	.object({
+		uuid: uuidSchema,
+		order: z.string().optional(),
+		tile: tileCellSchema.optional(),
+	})
 	.extend(columnCommonSlots.shape)
 	.strict();
 
@@ -414,6 +646,10 @@ export interface ColumnCommonSlots {
 	readonly visibleInDetail?: boolean;
 	readonly listOrder?: string;
 	readonly detailOrder?: string;
+	/** Placement on the case list's tile grid. Independent of the two
+	 *  surface order keys — a cell is where the column sits on the tile,
+	 *  an order key is where it sits in a sequence. */
+	readonly tile?: TileCell;
 }
 
 /**
@@ -431,6 +667,7 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		visibleInDetail?: boolean;
 		listOrder?: string;
 		detailOrder?: string;
+		tile?: TileCell;
 	} = { ...base };
 	if (slots.sort !== undefined) out.sort = slots.sort;
 	if (slots.visibleInList !== undefined)
@@ -439,6 +676,7 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		out.visibleInDetail = slots.visibleInDetail;
 	if (slots.listOrder !== undefined) out.listOrder = slots.listOrder;
 	if (slots.detailOrder !== undefined) out.detailOrder = slots.detailOrder;
+	if (slots.tile !== undefined) out.tile = slots.tile;
 	return out;
 }
 
@@ -1193,11 +1431,75 @@ export function simpleSearchInputHasCoherentRangeWidget(
 // entirely; a module with a case list always carries every required
 // sub-field, even if `columns` / `searchInputs` are empty arrays.
 
+// ── Case-tile layout ─────────────────────────────────────────────
+
+/**
+ * The case list's tile layout. PRESENCE is the switch: a config
+ * carrying this slot renders its Results rows as a grid of cells
+ * instead of a row of columns, on every surface the short detail
+ * drives — the case list, the search-results list, and the
+ * persistent tile. A config without it keeps the row layout.
+ *
+ * There is no template slug here, and there never will be. CommCare
+ * HQ ships two named tile templates (`person_simple`,
+ * `icon_text_grid` —
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/features/case_tiles.py::CaseTileTemplates`)
+ * whose slots an author fills by name; Nova emits only HQ's `custom`
+ * vocabulary, where every cell carries its own placement. That
+ * sidesteps `person_simple`'s hardcoded profile-image slot and its
+ * literal non-parameterized `m0-f0` registration action, and HQ's
+ * per-template slot-mapping validators
+ * (`case_tiles.py::CaseTileHelper._get_matched_detail_column` raises
+ * a build error for any unmapped template slot). Nova's layout
+ * presets are builder gestures that fill per-column placement; they
+ * are never persisted as a template name, so a preset and a
+ * hand-drawn layout take exactly the same wire path.
+ *
+ * Two runtime tile controls are deliberately absent. CommCare Core
+ * reads `fit-across` (tiles per row) and `uniform-units` (square
+ * cells) off `<detail>`
+ * (`commcare-core/.../org/commcare/xml/DetailParser.java::DetailParser.parse`),
+ * but HQ models neither — there is no `Detail` field for either and
+ * HQ never emits the attributes — so an app carrying them would lose
+ * them silently on the primary HQ delivery path. Because they are
+ * absent, Nova's renderer pins what the runtime assumes without
+ * them: one tile per row and non-uniform (`min-content`) row
+ * heights.
+ */
+export const caseTileLayoutSchema = z
+	.object({
+		/**
+		 * Keep the tile on screen above every form in this module.
+		 *
+		 * Emits as `detail-persistent="m{N}_case_short"` on the entry's
+		 * case datum; Web Apps renders it in the sticky
+		 * `#persistent-case-tile` region above the form
+		 * (`cloudcare/.../formplayer/menus/views.js::PersistentCaseTileView`,
+		 * stickiness from `.case-tile-container` in
+		 * `hqwebapp/static/cloudcare/scss/formplayer-webapp/case-tile.scss`).
+		 * The one surface that suppresses it is HQ's App Preview pane
+		 * (`menus/controller.js::showMenu` gates on
+		 * `displayOptions.singleAppMode`), which Nova does not target.
+		 *
+		 * `true` is the only stored value; absence is off, matching the
+		 * "visibility true is canonicalized as absence" convention the
+		 * column slots already follow.
+		 */
+		persistOnForms: z.literal(true).optional(),
+	})
+	.strict();
+export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
+
 export const caseListConfigSchema = z
 	.object({
 		columns: z.array(columnSchema),
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
+		/**
+		 * Tile layout for the Results surface. Absent ≡ the ordinary row
+		 * layout. See `caseTileLayoutSchema`.
+		 */
+		tile: caseTileLayoutSchema.optional(),
 		/**
 		 * Image for the "Open case list" affordance — the menu link from
 		 * the module's home screen that opens the case list. Emits ONLY on

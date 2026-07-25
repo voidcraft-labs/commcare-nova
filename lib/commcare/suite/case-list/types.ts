@@ -25,7 +25,12 @@
 //     reference) — every other byte is identical.
 
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import type { CaseProperty, CaseType, Uuid } from "@/lib/domain";
+import type {
+	CaseProperty,
+	CaseTileLayout,
+	CaseType,
+	Uuid,
+} from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ResolvedSortDirective } from "./sortKeys";
 
@@ -151,6 +156,14 @@ export interface CaseListEmitContext {
 	 * columns derive worker-facing option labels from this metadata; other plain
 	 * fields remain raw. */
 	readonly caseProperties: readonly CaseProperty[];
+	/**
+	 * The case list's tile layout, when it has one. Present only on the
+	 * SHORT detail, where a placed column emits its
+	 * `<style><grid/></style>`; the long detail is a plain field list
+	 * whatever the case list does. Absent means the ordinary row layout,
+	 * and columns keep any stored cells without emitting them.
+	 */
+	readonly tileLayout?: CaseTileLayout;
 	/** Case graph used to canonicalize inferred relation destinations while
 	 * lowering predicate carriers nested in calculated expressions. */
 	readonly caseTypes?: readonly CaseType[];

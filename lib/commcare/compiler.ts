@@ -216,6 +216,18 @@ export function compileCcz(
 
 		appStrings[`modules.m${mIdx}`] = modName;
 
+		// The persistent case tile. When the case list's tile layout asks to
+		// stay on screen above the module's forms, every case-loading datum in
+		// the module names the short detail as its persistent detail; Web Apps
+		// then renders that tile in its sticky region above the form. The same
+		// attribute rides the `caseListOnly` browse entry, matching CCHQ
+		// (`commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`
+		// is consulted for the form entry and the case-list command alike).
+		const persistentTileDetailId =
+			mod.caseListConfig?.tile?.persistOnForms === true
+				? `m${mIdx}_case_short`
+				: undefined;
+
 		// Every calc-column expression on this module's case-list short /
 		// long detail. Module-invariant (it depends only on
 		// `caseListConfig.columns`), so it's computed once here and reused
@@ -464,6 +476,7 @@ export function compileCcz(
 				moduleTypeContext(mod, doc),
 				form.displayCondition,
 				lookupNaming,
+				persistentTileDetailId,
 			);
 
 			// Re-validate after injection — catches orphaned binds or
@@ -590,6 +603,7 @@ export function compileCcz(
 				excludedOwnerIds,
 				moduleTypeContext(mod, doc),
 				lookupNaming,
+				persistentTileDetailId,
 			);
 			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
 			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));

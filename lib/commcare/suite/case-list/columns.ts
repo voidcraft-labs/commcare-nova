@@ -125,6 +125,7 @@ import type {
 } from "../../predicate/termEmitter";
 import { escapeRegex } from "../../xml";
 import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
+import { buildTileStyleBlock } from "./tileStyle";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
@@ -836,6 +837,32 @@ function retargetSortDirective(
  * into `ctx.sortByUuid`. Long detail emits no `<sort>` blocks
  * regardless of `ctx.sortByUuid` content.
  */
+/**
+ * The `<style>` child a placed cell contributes, or nothing.
+ *
+ * Three conditions gate it, and each is load-bearing:
+ *
+ *   - the column carries a cell — an unplaced column has nothing to
+ *     describe, and a `<style>` with no complete `<grid>` is an
+ *     install-time parse failure (see `tileStyle.ts`);
+ *   - the case list has a tile layout — cells persist while the layout
+ *     is off so switching back restores the drawing, but they describe
+ *     nothing the wire renders until it is on;
+ *   - the detail is the SHORT one. Tiles apply to the case list, the
+ *     search-results list, and the persistent tile, all of which the
+ *     short detail drives; the case-detail screen stays a plain field
+ *     list.
+ */
+function tileStyleChildren(
+	column: Column,
+	ctx: CaseListEmitContext,
+): readonly Element[] {
+	if (column.tile === undefined) return [];
+	if (ctx.tileLayout === undefined) return [];
+	if (ctx.detailKind !== "short") return [];
+	return [buildTileStyleBlock(column.tile)];
+}
+
 export function buildColumnField(args: {
 	readonly column: Column;
 	readonly position: number;
@@ -860,6 +887,7 @@ export function buildColumnField(args: {
 		position,
 	);
 	const fieldChildren: Element[] = [
+		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId, hidden),
 		buildTemplateBlock(
 			displayXpath,
@@ -924,6 +952,7 @@ function buildCalculatedField(args: {
 		position,
 	);
 	const fieldChildren: Element[] = [
+		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId, hidden),
 		buildCalculatedTemplateBlock(calcXpath, hidden),
 	];
