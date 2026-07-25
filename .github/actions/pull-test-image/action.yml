@@ -1,0 +1,57 @@
+name: Pull the Postgres test image
+description: >
+  Fetches the digest-pinned Postgres image the testcontainers harness boots,
+  retrying past Docker Hub's transient failures before vitest starts.
+
+# Thirteen jobs in this workflow boot a Postgres testcontainer — four test
+# shards, eight leak shards, and the auth session-cookie contract — and each
+# runs on its own fresh runner, so each one pulls the image from Docker Hub
+# independently. That is thirteen anonymous registry pulls per PR run, and
+# Docker Hub answers some of them with a 500 or lets the connection time out.
+#
+# Left inside the harness, that arrives as `(HTTP code 500) server error - Get
+# "https://registry-1.docker.io/v2/"` thrown out of `globalSetup`, which vitest
+# reports as an unhandled error with no test output at all. It reads like a
+# broken build and costs a human the diagnosis every time.
+#
+# Pulling here instead makes the registry a step that either succeeds or fails
+# on its own terms, and gives it the retry a network call against someone
+# else's service needs. Once the image is in the runner's local store,
+# testcontainers finds it there and performs no pull of its own.
+#
+# The harness keeps its own retry (`lib/case-store/sql/__tests__/globalSetup.ts`)
+# for the paths that never run this action — a developer's first local run, or
+# a job added without it.
+
+runs:
+  using: composite
+  steps:
+    - name: Pull the pinned Postgres image
+      shell: bash
+      run: |
+        set -uo pipefail
+
+        # One source of truth for the reference, shared with compose.yaml and
+        # verified against it by the `quality` job.
+        image="$(node scripts/ci/print-test-image.mjs)"
+        echo "Pinned test image: $image"
+
+        # Five attempts over ~31s of backoff. Docker Hub's failures are brief
+        # — a 500 or a dial timeout, not a sustained outage — so this is sized
+        # to ride out a blip while still failing the job promptly when the
+        # registry is genuinely down.
+        delay=1
+        for attempt in 1 2 3 4 5; do
+          if docker pull --quiet "$image"; then
+            echo "Pulled on attempt $attempt."
+            exit 0
+          fi
+          if [ "$attempt" -lt 5 ]; then
+            echo "::warning::Docker Hub pull failed (attempt $attempt/5). Retrying in ${delay}s."
+            sleep "$delay"
+            delay=$((delay * 2))
+          fi
+        done
+
+        echo "::error::Could not pull $image from Docker Hub after 5 attempts. The registry is unreachable or rejecting this runner, which is an infrastructure failure rather than a change in this PR. Check https://status.docker.com and re-run the job."
+        exit 1
