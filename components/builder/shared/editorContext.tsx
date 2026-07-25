@@ -31,6 +31,7 @@ import {
 	type CheckError,
 	checkExpression,
 	expressionReadsCaseData,
+	expressionReadsRelatedCaseData,
 	type ResolvedType,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -38,6 +39,7 @@ import { presentCheckErrorForEditor } from "./checkErrorPresentation";
 import {
 	type CaseDataScope,
 	GLOBAL_SCOPE_CASE_DATA_REASON,
+	SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
 } from "./editorSchemas";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
@@ -88,6 +90,9 @@ interface PredicateEditContextValue {
 	 * sources are gated by the provider-derived admission oracle.
 	 */
 	readonly caseDataScope: CaseDataScope;
+	/** See `PredicateEditContext.allowsNeverMatch`. Carried on the React
+	 *  context because nested cards rebuild their edit context from it. */
+	readonly allowsNeverMatch: boolean;
 	/**
 	 * Errors keyed by serialized path. Cards look up their own path
 	 * via `useEditorErrorsAt` to render inline diagnostics; the
@@ -119,6 +124,7 @@ interface PredicateEditProviderProps {
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
+	readonly allowsNeverMatch?: boolean;
 	readonly validityIndex: ValidityIndex;
 	readonly admitExpressionChange?: AdmitExpressionChange | undefined;
 	readonly children: ReactNode;
@@ -134,23 +140,33 @@ interface PredicateEditProviderProps {
  * oracle IN FRONT of any caller-supplied oracle, so every value-source
  * and calculated-kind menu that consults `admitExpressionChange`
  * disables case reads with one shared reason — no per-surface wiring.
+ * A `"selected-case"` scope composes the narrower twin: the chosen
+ * case's own properties stay available while relationship walks,
+ * relationship counts, and presence tests do not.
  */
 export function PredicateEditProvider({
 	caseTypes,
 	currentCaseType,
 	knownInputs,
 	caseDataScope = "per-case",
+	allowsNeverMatch = true,
 	validityIndex,
 	admitExpressionChange,
 	children,
 }: PredicateEditProviderProps) {
 	const expressionFocusTargets = useRef(new Map<string, HTMLElement>()).current;
 	const effectiveAdmit = useMemo<AdmitExpressionChange | undefined>(() => {
-		if (caseDataScope !== "global") return admitExpressionChange;
+		if (caseDataScope === "per-case") return admitExpressionChange;
+		const readsOutOfScope =
+			caseDataScope === "global"
+				? expressionReadsCaseData
+				: expressionReadsRelatedCaseData;
+		const reason =
+			caseDataScope === "global"
+				? GLOBAL_SCOPE_CASE_DATA_REASON
+				: SELECTED_CASE_SCOPE_RELATED_DATA_REASON;
 		return (path, next) => {
-			if (expressionReadsCaseData(next)) {
-				return { admitted: false, reason: GLOBAL_SCOPE_CASE_DATA_REASON };
-			}
+			if (readsOutOfScope(next)) return { admitted: false, reason };
 			return admitExpressionChange?.(path, next) ?? { admitted: true };
 		};
 	}, [caseDataScope, admitExpressionChange]);
@@ -160,6 +176,7 @@ export function PredicateEditProvider({
 			currentCaseType,
 			knownInputs,
 			caseDataScope,
+			allowsNeverMatch,
 			validityIndex,
 			admitExpressionChange: effectiveAdmit,
 			expressionFocusTargets,
@@ -169,6 +186,7 @@ export function PredicateEditProvider({
 			currentCaseType,
 			knownInputs,
 			caseDataScope,
+			allowsNeverMatch,
 			validityIndex,
 			effectiveAdmit,
 			expressionFocusTargets,

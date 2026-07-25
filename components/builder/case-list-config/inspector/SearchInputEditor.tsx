@@ -667,7 +667,7 @@ export function SearchInputEditor({
 								}) ?? "Every case matches"}
 							</p>
 							<Button
-								data-search-condition-origin
+								data-condition-origin
 								type="button"
 								variant="outline"
 								size="xl"

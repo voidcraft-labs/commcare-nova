@@ -41,6 +41,8 @@ import {
 	CaseListWorkspaceCanvas,
 	type CaseListWorkspaceTab,
 } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
+import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
@@ -99,6 +101,14 @@ function locationToScreen(
 		return { type: "dataReview", moduleIndex };
 	}
 
+	/* A display-condition URL runs the surface its condition governs. A
+	 * module's condition decides whether its menu is on the HOME screen,
+	 * so home is what Preview runs: entering the module would route
+	 * straight past the one screen the condition decides (and a
+	 * case-first module's own screen redirects to its case list, which
+	 * would also rewrite this URL out from under the author). */
+	if (loc.kind === "module-condition") return { type: "home" };
+
 	/* Form screen — resolve formUuid to index within the module's form list. */
 	const formIds = formOrder[loc.moduleUuid] ?? [];
 	const formIndex = formIds.indexOf(loc.formUuid);
@@ -130,8 +140,16 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * it names the form we're showing, so `FormScreen` preloads the case. */
 	const previewCaseTarget = usePreviewCaseTarget();
 
-	const zustandScreen: PreviewScreen = useMemo(() => {
+	/* The screen AND "is this a condition-authoring URL" both derive from
+	 * the location, so they must travel together through the deferred
+	 * value. Splitting them would let one flip a render before the other:
+	 * leaving a module's condition would briefly satisfy
+	 * `screen.type === "home"` with authoring already off, flashing the
+	 * running home screen on the way to the module screen. */
+	const zustandView = useMemo(() => {
 		const screen = locationToScreen(loc, moduleOrder, formOrder);
+		const atCondition =
+			loc.kind === "module-condition" || loc.kind === "form-condition";
 		/* Graft the bound case onto the form ONLY when the target binds THIS
 		 * form — `previewCaseTargetBindsLocation` is the same predicate the
 		 * breadcrumb gates its case crumb on, so the loaded case and the named
@@ -142,17 +160,22 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			previewCaseTarget?.caseId !== undefined &&
 			previewCaseTargetBindsLocation(loc, previewCaseTarget)
 		) {
-			return { ...screen, caseId: previewCaseTarget.caseId };
+			return {
+				screen: { ...screen, caseId: previewCaseTarget.caseId },
+				atCondition,
+			};
 		}
-		return screen;
+		return { screen, atCondition };
 	}, [loc, moduleOrder, formOrder, previewCaseTarget]);
+	const zustandScreen: PreviewScreen = zustandView.screen;
 
 	/* ── Concurrent screen transition ──────────────────────────────────
 	 * `zustandScreen` updates immediately on URL change. `screen` is the
 	 * deferred value — React schedules the Activity mode flip at lower
 	 * priority, keeping the old screen visible while the new screen mounts
 	 * in the background. Return visits are near-instant. */
-	const screen = useDeferredValue(zustandScreen);
+	const view = useDeferredValue(zustandView);
+	const screen = view.screen;
 
 	const mode = useEditMode();
 	/* `/cases/{caseId}` is the running record deep link, not the Results
@@ -225,6 +248,27 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	if (loc.kind === "data-review") {
 		dataReviewRef.current = { moduleUuid: loc.moduleUuid };
 	}
+	/** The display-condition editor's identity. Also uuid-shaped, and
+	 *  gated on `loc` rather than the deferred `screen` for the same
+	 *  reason `atCaseRecord` is: the condition URLs map onto the RUNNING
+	 *  module/form screens, so the URL is what distinguishes "authoring
+	 *  the condition" from "running the thing it governs". */
+	const displayConditionRef = useRef<DisplayConditionTarget>(undefined);
+	if (loc.kind === "module-condition") {
+		displayConditionRef.current = {
+			kind: "module",
+			moduleUuid: loc.moduleUuid,
+		};
+	} else if (loc.kind === "form-condition") {
+		displayConditionRef.current = {
+			kind: "form",
+			moduleUuid: loc.moduleUuid,
+			formUuid: loc.formUuid,
+		};
+	}
+	/* `mode` stays immediate — the Preview toggle must never lag — while
+	 * the location half rides the deferred pair above. */
+	const editingDisplayCondition = mode === "edit" && view.atCondition;
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
 	const homeVisitedRef = useRef(false);
@@ -308,7 +352,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				 *  without destroying their subtree. */}
 				{homeVisitedRef.current && (
 					<Activity
-						mode={screen.type === "home" ? "visible" : "hidden"}
+						mode={
+							screen.type === "home" && !editingDisplayCondition
+								? "visible"
+								: "hidden"
+						}
 						name="HomeScreen"
 					>
 						<HomeScreen />
@@ -316,7 +364,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				)}
 				{moduleScreenRef.current && (
 					<Activity
-						mode={screen.type === "module" ? "visible" : "hidden"}
+						mode={
+							screen.type === "module" && !editingDisplayCondition
+								? "visible"
+								: "hidden"
+						}
 						name="ModuleScreen"
 					>
 						<ModuleScreen screen={moduleScreenRef.current} />
@@ -354,7 +406,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 								screen.type === "searchConfig" ||
 								screen.type === "detailConfig") &&
 							mode === "edit" &&
-							!atCaseRecord
+							!atCaseRecord &&
+							!editingDisplayCondition
 								? "visible"
 								: "hidden"
 						}
@@ -366,7 +419,9 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				{dataReviewRef.current && (
 					<Activity
 						mode={
-							screen.type === "dataReview" && mode === "edit"
+							screen.type === "dataReview" &&
+							mode === "edit" &&
+							!editingDisplayCondition
 								? "visible"
 								: "hidden"
 						}
@@ -393,10 +448,33 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				)}
 				{formScreenRef.current && (
 					<Activity
-						mode={screen.type === "form" ? "visible" : "hidden"}
+						mode={
+							screen.type === "form" && !editingDisplayCondition
+								? "visible"
+								: "hidden"
+						}
 						name="FormScreen"
 					>
 						<FormScreen screen={formScreenRef.current} onBack={handleBack} />
+					</Activity>
+				)}
+				{displayConditionRef.current && (
+					<Activity
+						mode={editingDisplayCondition ? "visible" : "hidden"}
+						name="DisplayConditionCanvas"
+					>
+						{/* Keyed by the item: one canvas serves both condition URLs,
+						 *  and module → form changes the evaluation scope, the copy,
+						 *  and the rule being edited. A fresh mount re-announces the
+						 *  heading and drops the previous rule's open pickers. */}
+						<DisplayConditionCanvas
+							key={
+								displayConditionRef.current.kind === "module"
+									? displayConditionRef.current.moduleUuid
+									: displayConditionRef.current.formUuid
+							}
+							target={displayConditionRef.current}
+						/>
 					</Activity>
 				)}
 			</main>

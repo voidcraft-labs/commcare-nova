@@ -1,0 +1,92 @@
+---
+title: Show a module or form only when it applies
+description: Set a condition that keeps a module or a form out of the way until it is relevant.
+---
+
+Most apps have a module or a form that only some people need, or that only makes
+sense for some cases. A **display condition** keeps that item out of the way
+until it applies, so the person using the app sees a short, relevant list
+instead of everything the app can do.
+
+Every module and every form can carry one.
+
+## Add a condition
+
+Open the item's settings and find **When this module appears** (or **When this
+form appears** on a form):
+
+- For a module, open it and choose the settings gear. A bare case list keeps
+  its settings on the Search / Results / Details strip.
+- For a form, open the form and choose the settings gear.
+
+Choose **Add condition**. Nova commits a starting condition and opens the full
+editor in the middle of the screen, where you build the rule out of plain
+clauses — a value, a comparison, and what to compare it with. Group clauses
+together with **All conditions must match** or **Any condition can match**, and
+nest as deeply as the rule needs.
+
+The settings panel then shows a one-line summary of the rule, with **Edit
+condition** to reopen the editor and **Always show** to remove it.
+
+Every condition has its own address, so you can link a teammate straight to it.
+
+## Read “Where this is checked” first
+
+The editor opens with a short explanation of where the condition takes effect,
+because that decides what the condition can use. It is not the same for every
+item.
+
+**A module's condition** is checked on the app's home screen, before anyone opens
+a module or picks a case. There is no case yet, so the condition can use fixed
+values and information about the person signed in — not case information.
+
+**A form's condition** is checked wherever people choose that form, and that
+depends on the module it sits in:
+
+- If **every form in the module opens an existing case**, people pick the case
+  first. Nova checks the condition straight afterwards, for the case they
+  picked, so the condition can read that case's own information. If the module
+  holds only one form, picking a case normally opens it immediately — a case
+  the condition does not match stops at the list instead.
+- If **any form in the module starts a new case** (or collects a plain survey),
+  people choose the form before they pick a case. Nova checks the condition on
+  that form list, where there is no case yet, so it can use fixed values and
+  information about the person signed in.
+
+The editor only offers what the condition can actually use at that point, so
+you cannot build a rule that reads information CommCare will not have. On a
+form checked for an already-chosen case, that case's own information is
+available; information from connected cases, and counts of them, is not.
+
+## Watch it work
+
+Turn on **Preview** from any condition screen and Nova runs the surface the
+condition governs, against your real case data:
+
+- a module's condition runs the app's **home screen**, where the module either
+  appears or does not;
+- a form's condition runs **that form**, so you can work through it and step
+  back to the list the condition gates.
+
+Navigate the running app as a worker would; the condition decides what appears.
+Leaving Preview returns you to the condition you were editing.
+
+Preview never simply hides things without saying so. A screen whose list is
+being narrowed shows **Hidden items** with a count; opening it lists the items
+that are hidden, each with the condition it is waiting on.
+
+The authoring canvases are the opposite: they never hide a conditioned item, so
+your app's structure always stays visible and editable.
+
+## A condition is not a permission
+
+A display condition decides what a screen offers, not who may see the data
+behind it. The app still carries the hidden item and everything it reads. Use
+conditions to keep the app focused on what someone needs right now, not to keep
+data away from people.
+
+## Removing a condition
+
+**Always show** removes the condition and confirms what that changes before it
+does — from the settings row or from the condition screen. The item then appears
+every time. Like every other edit in the builder, you can undo it.

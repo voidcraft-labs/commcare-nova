@@ -138,6 +138,8 @@ export interface NavigateActions {
 	 * Case data popover, the conversion toast, and shared deep links.
 	 */
 	openDataReview: (moduleUuid: Uuid) => void;
+	openModuleCondition: (moduleUuid: Uuid) => void;
+	openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -165,6 +167,8 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 			loc.kind === "search-config" ||
 			loc.kind === "detail-config" ||
 			loc.kind === "data-review" ||
+			loc.kind === "module-condition" ||
+			loc.kind === "form-condition" ||
 			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
@@ -191,7 +195,10 @@ export function useIsCaseListSelected(uuid: Uuid): boolean {
  */
 export function useIsFormSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
-	return loc.kind === "form" && loc.formUuid === uuid;
+	return (
+		(loc.kind === "form" || loc.kind === "form-condition") &&
+		loc.formUuid === uuid
+	);
 }
 
 /**
@@ -229,10 +236,15 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config" ||
 		loc.kind === "data-review" ||
+		loc.kind === "module-condition" ||
+		loc.kind === "form-condition" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
-	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
+	const formUuid =
+		loc.kind === "form" || loc.kind === "form-condition"
+			? loc.formUuid
+			: undefined;
 
 	const moduleName = useBlueprintDoc((s) =>
 		moduleUuid ? s.modules[moduleUuid]?.name : undefined,
@@ -306,11 +318,31 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				location: { kind: "data-review", moduleUuid: loc.moduleUuid },
 			});
 		}
-		if (loc.kind === "form" && formUuid && moduleUuid) {
+		if (
+			(loc.kind === "form" || loc.kind === "form-condition") &&
+			formUuid &&
+			moduleUuid
+		) {
 			items.push({
 				key: `f:${formUuid}`,
 				label: formName ?? "Form",
 				location: { kind: "form", moduleUuid, formUuid },
+			});
+		}
+		// The two display-condition screens share one crumb word so the
+		// trail reads the same wherever the author opened it from.
+		if (loc.kind === "module-condition" && moduleUuid) {
+			items.push({
+				key: `module-condition:${moduleUuid}`,
+				label: "When it appears",
+				location: { kind: "module-condition", moduleUuid },
+			});
+		}
+		if (loc.kind === "form-condition" && moduleUuid && formUuid) {
+			items.push({
+				key: `form-condition:${formUuid}`,
+				label: "When it appears",
+				location: { kind: "form-condition", moduleUuid, formUuid },
 			});
 		}
 		return items;
@@ -372,6 +404,10 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "detail-config", moduleUuid }),
 			openDataReview: (moduleUuid: Uuid) =>
 				push({ kind: "data-review", moduleUuid }),
+			openModuleCondition: (moduleUuid: Uuid) =>
+				push({ kind: "module-condition", moduleUuid }),
+			openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) =>
+				push({ kind: "form-condition", moduleUuid, formUuid }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -406,7 +442,14 @@ export function parentLocation(loc: Location): Location | undefined {
 		case "search-config":
 		case "detail-config":
 		case "data-review":
+		case "module-condition":
 			return { kind: "module", moduleUuid: loc.moduleUuid };
+		case "form-condition":
+			return {
+				kind: "form",
+				moduleUuid: loc.moduleUuid,
+				formUuid: loc.formUuid,
+			};
 		case "form":
 			return loc.selectedUuid
 				? {

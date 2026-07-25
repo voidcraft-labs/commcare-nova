@@ -87,21 +87,38 @@ import type { EditorSearchInputDecl } from "./searchInputPresentation";
  *   - `"per-case"` — the ordinary scope: the expression runs against a
  *     case (a Results row, a search candidate), so case-property and
  *     relationship reads are meaningful.
+ *   - `"selected-case"` — the expression runs against ONE already-chosen
+ *     case and can see nothing else: a form's display condition on a
+ *     module where everyone picks a case first. CommCare evaluates it on
+ *     the case-list screen, where the chosen case is the whole world, so
+ *     the commit gate rejects related-case reads, counts, and presence
+ *     tests (`FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`).
  *   - `"global"` — the expression resolves ONCE, before any case is
  *     selected (a search input's starting value, the search-button
- *     display condition). There is no row to read: the commit gate
- *     rejects case-data reads there
+ *     display condition, a module's display condition). There is no row
+ *     to read: the commit gate rejects case-data reads there
  *     (`CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE` /
- *     `CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`),
- *     so the pickers must not offer them.
+ *     `CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE` /
+ *     `MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`), so the pickers
+ *     must not offer them.
  */
-export type CaseDataScope = "per-case" | "global";
+export type CaseDataScope = "per-case" | "selected-case" | "global";
 
 /** One shared disabled-choice reason for every case-data-dependent
  *  pick in a global slot — sources, verbs, and calculated kinds all
  *  read the same sentence so the vocabulary can't drift. */
 export const GLOBAL_SCOPE_CASE_DATA_REASON =
 	"This is decided before a case is selected, so it can use only fixed values and current-user information";
+
+/** Why a never-matching rule is withheld from a display condition. */
+export const NEVER_MATCH_UNAVAILABLE_REASON =
+	"Nobody could ever reach this item, so remove the item itself rather than hiding it from everyone";
+
+/** The `"selected-case"` twin of `GLOBAL_SCOPE_CASE_DATA_REASON`: the
+ *  chosen case's own information is available, everything reached
+ *  through a connection is not. */
+export const SELECTED_CASE_SCOPE_RELATED_DATA_REASON =
+	"This is decided for one already-chosen case, so it can read that case's own information but not connected cases or their counts";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -121,6 +138,23 @@ export interface PredicateEditContext {
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly caseDataScope: CaseDataScope;
+	/**
+	 * Whether a rule that can never match is meaningful in this slot.
+	 *
+	 * Defaults to true, because for most carriers it is: a case-list
+	 * filter matching nothing is a real query, and the Search action's
+	 * condition is deliberately allowed to be `match-none` —
+	 * `lib/domain/CLAUDE.md` records that projection as valid authored
+	 * data an existing document may already hold, never normalized away.
+	 * It is FALSE only for a navigation display condition, where "never"
+	 * means nobody could ever open the item and the commit gate refuses
+	 * it (`DISPLAY_CONDITION_ALWAYS_FALSE`).
+	 *
+	 * Deliberately its own axis rather than a reading of
+	 * `caseDataScope`: a module's display condition and the Search
+	 * action's condition share the `global` scope and disagree here.
+	 */
+	readonly allowsNeverMatch?: boolean;
 	/** In a global slot, the truth value an UNCHOSEN placeholder must
 	 *  evaluate to so committing it leaves the rule's meaning unchanged:
 	 *  true at the root and inside "all" groups (`and(p, true)` = `p`),
@@ -134,6 +168,18 @@ export interface PredicateEditContext {
  *  editor scope. */
 export function caseDataInScope(ctx: PredicateEditContext): boolean {
 	return ctx.caseDataScope !== "global";
+}
+
+/** Whether a never-matching rule is meaningful in this slot. */
+export function neverMatchInScope(ctx: PredicateEditContext): boolean {
+	return ctx.allowsNeverMatch ?? true;
+}
+
+/** Whether the scope can reach past the case being evaluated —
+ *  relationship walks, relationship counts, relationship presence. Only
+ *  the ordinary per-case scope can. */
+export function relatedCaseDataInScope(ctx: PredicateEditContext): boolean {
+	return ctx.caseDataScope === "per-case";
 }
 
 /** The truth value an unchosen global placeholder must hold in this
@@ -251,11 +297,16 @@ export function predicateUnavailableReason(
 	kind: Predicate["kind"],
 	ctx: PredicateEditContext,
 ): string {
+	if (kind === "match-none" && !neverMatchInScope(ctx)) {
+		return NEVER_MATCH_UNAVAILABLE_REASON;
+	}
 	if (!caseDataInScope(ctx)) return GLOBAL_SCOPE_CASE_DATA_REASON;
 	switch (kind) {
 		case "exists":
 		case "missing":
-			return "Add a parent or child case type first";
+			return relatedCaseDataInScope(ctx)
+				? "Add a parent or child case type first"
+				: SELECTED_CASE_SCOPE_RELATED_DATA_REASON;
 		case "when-input-present":
 			return ctx.knownInputs.length === 0
 				? "Add a search field first"
@@ -472,7 +523,12 @@ export const predicateCardSchemas: {
 		description: "Let nothing pass this condition",
 		component: MatchNoneCard,
 		defaultValue: () => buildMatchNone(),
-		applicable: () => true,
+		/* Meaningful wherever "nothing matches" is a real answer — an
+		 * empty case list, a Search action deliberately withheld — and
+		 * withheld only where the commit gate refuses it. An ALREADY
+		 * SAVED `match-none` still renders and re-emits: `applicable`
+		 * governs the add/replace menus, never round-tripping. */
+		applicable: neverMatchInScope,
 	},
 
 	// ── Logical groups (and / or / not, one card) ───────────────────
@@ -528,7 +584,7 @@ export const predicateCardSchemas: {
 		description: "Require at least one connected case to match",
 		component: ExistsCard,
 		defaultValue: existsDefault,
-		applicable: (ctx) => caseDataInScope(ctx) && hasRelatedCaseType(ctx),
+		applicable: (ctx) => relatedCaseDataInScope(ctx) && hasRelatedCaseType(ctx),
 	},
 	missing: {
 		kind: "missing",
@@ -538,7 +594,7 @@ export const predicateCardSchemas: {
 		description: "Require that no connected case matches",
 		component: ExistsCard,
 		defaultValue: missingDefault,
-		applicable: (ctx) => caseDataInScope(ctx) && hasRelatedCaseType(ctx),
+		applicable: (ctx) => relatedCaseDataInScope(ctx) && hasRelatedCaseType(ctx),
 	},
 };
 

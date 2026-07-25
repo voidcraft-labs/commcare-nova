@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
+import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
 import { AfterSubmitSection } from "./AfterSubmitSection";
 import { CloseConditionSection } from "./CloseConditionSection";
 import { ConnectSection } from "./ConnectSection";
@@ -52,6 +53,11 @@ export function FormSettingsPanel({
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
+
+				<DisplayConditionSection
+					target={{ kind: "form", moduleUuid, formUuid }}
+					onNavigateAway={onClose}
+				/>
 			</div>
 		</div>
 	);

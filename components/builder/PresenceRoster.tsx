@@ -63,6 +63,9 @@ function whereLabel(location: Location): string {
 			return "in the case list";
 		case "data-review":
 			return "reviewing case data";
+		case "module-condition":
+		case "form-condition":
+			return "setting when something appears";
 		case "form":
 			return location.selectedUuid !== undefined
 				? "editing a field"

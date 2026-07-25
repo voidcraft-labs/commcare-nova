@@ -221,6 +221,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
 			caseDataScope: ctx.caseDataScope,
+			allowsNeverMatch: ctx.allowsNeverMatch,
 			// A clause added to THIS group must be neutral for its
 			// combinator, so the group's (and therefore the rule's)
 			// meaning is unchanged until the author edits the new row.
@@ -231,6 +232,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			ctx.currentCaseType,
 			ctx.knownInputs,
 			ctx.caseDataScope,
+			ctx.allowsNeverMatch,
 			value.kind,
 		],
 	);
@@ -620,6 +622,7 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
 		caseDataScope: ctx.caseDataScope,
+		allowsNeverMatch: ctx.allowsNeverMatch,
 	};
 
 	return (

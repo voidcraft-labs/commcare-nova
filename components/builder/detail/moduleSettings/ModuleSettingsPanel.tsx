@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
+import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
 import { Button } from "@/components/shadcn/button";
 import { PopoverTitle } from "@/components/shadcn/popover";
 import type { Uuid } from "@/lib/doc/types";
@@ -18,8 +19,8 @@ interface ModuleSettingsPanelProps {
 /**
  * Module-settings drawer body rendered inside the Popover popup. Pure
  * chrome — a labeled header with a dismiss button and a content region
- * that hosts the module's name (when it has no other screen), case type, and
- * appearance sections. The shell keeps its header fixed while the body scrolls
+ * that hosts the module's name (when it has no other screen), case type,
+ * appearance, and display-condition sections. The shell keeps its header fixed while the body scrolls
  * within the available viewport.
  */
 export function ModuleSettingsPanel({
@@ -50,6 +51,10 @@ export function ModuleSettingsPanel({
 				<ModuleNameSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
+				<DisplayConditionSection
+					target={{ kind: "module", moduleUuid }}
+					onNavigateAway={onClose}
+				/>
 			</div>
 		</div>
 	);

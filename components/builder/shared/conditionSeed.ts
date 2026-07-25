@@ -5,7 +5,11 @@
 
 import { exists, type Predicate } from "@/lib/domain/predicate";
 import { firstComparisonDefault } from "./cards/comparisonSeed";
-import { caseDataInScope, type PredicateEditContext } from "./editorSchemas";
+import {
+	caseDataInScope,
+	type PredicateEditContext,
+	relatedCaseDataInScope,
+} from "./editorSchemas";
 import { firstRelatedCasePath } from "./relationSeed";
 
 /** Visible next step for optional nested-condition controls with no valid seed. */
@@ -25,6 +29,10 @@ export function firstConditionSeed(
 	if (current !== undefined && current.properties.length > 0) {
 		return firstComparisonDefault(ctx);
 	}
+
+	// A scope confined to one already-chosen case has no connection to fall
+	// back on, so an empty case type simply has nothing to compare yet.
+	if (!relatedCaseDataInScope(ctx)) return undefined;
 
 	const via = firstRelatedCasePath(ctx);
 	return via === undefined ? undefined : exists(via);

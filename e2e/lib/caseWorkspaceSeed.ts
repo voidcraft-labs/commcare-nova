@@ -310,6 +310,7 @@ export interface CaseWorkspaceRoutes {
 	readonly search: string;
 	readonly results: string;
 	readonly details: string;
+	readonly condition: string;
 	readonly firstCase: string;
 }
 
@@ -324,6 +325,7 @@ export function caseWorkspaceRoutes(
 		search: buildUrl(basePath, { kind: "search-config", moduleUuid }),
 		results: buildUrl(basePath, { kind: "cases", moduleUuid }),
 		details: buildUrl(basePath, { kind: "detail-config", moduleUuid }),
+		condition: buildUrl(basePath, { kind: "module-condition", moduleUuid }),
 		firstCase: buildUrl(basePath, {
 			kind: "cases",
 			moduleUuid,

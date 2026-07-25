@@ -497,7 +497,7 @@ function useController(
 					'[data-builder-secondary-header="inspector"]',
 				)?.parentElement;
 				inspector
-					?.querySelector<HTMLButtonElement>("[data-search-condition-origin]")
+					?.querySelector<HTMLButtonElement>("[data-condition-origin]")
 					?.focus();
 			});
 		},

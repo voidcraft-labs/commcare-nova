@@ -198,8 +198,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * schema's writer-derived property types. */
 	const caseTypes = useMaterializableCaseTypes();
 
-	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
-	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;
+	/* `form-condition` is one of this form's own configuration URLs, and
+	 * Preview runs a configuration URL's owning item — so it identifies
+	 * the same form here. It carries no field selection. */
+	const atForm = loc.kind === "form" || loc.kind === "form-condition";
+	const formUuid = atForm ? loc.formUuid : undefined;
+	const moduleUuid = atForm ? loc.moduleUuid : undefined;
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 
 	const mod = useModuleEntity(moduleUuid);

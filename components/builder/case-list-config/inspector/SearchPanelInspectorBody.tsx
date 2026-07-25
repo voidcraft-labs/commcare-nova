@@ -7,8 +7,9 @@
 //   2. `searchScreenSubtitle` — markdown subtitle below the title.
 //   3. `searchButtonLabel` — label on the search button.
 //   4. `searchButtonDisplayCondition` — optional predicate gating the
-//      button's visibility at runtime. This rail only summarizes it; the
-//      center Search workbench is its one editing surface.
+//      button's visibility at runtime. This rail only summarizes it
+//      (through the shared `ConditionSlotSetting`); the center Search
+//      workbench is its one editing surface.
 // Assigned-case availability is edited only in Results beside the other
 // Cases available rules. This inspector owns Search-screen behavior only.
 //
@@ -24,22 +25,12 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
-import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
+import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import {
 	Collapsible,
@@ -53,7 +44,6 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
-import { summarizeFilter } from "../predicateSummary";
 
 export interface SearchPanelInspectorBodyProps {
 	/** Current case-search configuration. `undefined` means the module
@@ -171,7 +161,7 @@ export function SearchPanelInspectorBody({
 						maxGraphemes={32}
 					/>
 				)}
-				<SearchDisplayConditionSetting
+				<ConditionSlotSetting
 					title="When Search is available"
 					description="Offer the Search action only when a condition matches"
 					value={value?.searchButtonDisplayCondition}
@@ -184,150 +174,11 @@ export function SearchPanelInspectorBody({
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
 					knownInputs={knownInputs}
+					// The Search action's relevance resolves before any case is
+					// selected, so the seed compares a session value.
+					caseDataScope="global"
 				/>
 			</AdvancedSearchSettings>
-		</>
-	);
-}
-
-function SearchDisplayConditionSetting({
-	title,
-	description,
-	value,
-	onChange,
-	onEdit,
-	alwaysSummary,
-	clearLabel,
-	clearTitle,
-	clearConsequence,
-	caseTypes,
-	currentCaseType,
-	knownInputs,
-}: {
-	readonly title: string | undefined;
-	readonly description: string;
-	readonly value: Predicate | undefined;
-	readonly onChange: (next: Predicate | undefined) => void;
-	readonly onEdit: (focusNewCondition?: boolean) => void;
-	readonly alwaysSummary: string;
-	readonly clearLabel: string;
-	readonly clearTitle: string;
-	readonly clearConsequence: string;
-	readonly caseTypes: readonly CaseType[];
-	readonly currentCaseType: string;
-	readonly knownInputs: readonly EditorSearchInputDecl[];
-}) {
-	const addButtonRef = useRef<HTMLButtonElement>(null);
-	const clearButtonRef = useRef<HTMLButtonElement>(null);
-	const focusAddAfterClearRef = useRef(false);
-	const [confirmingClear, setConfirmingClear] = useState(false);
-	useEffect(() => {
-		if (value !== undefined || !focusAddAfterClearRef.current) return;
-		const frame = requestAnimationFrame(() => {
-			addButtonRef.current?.focus();
-			focusAddAfterClearRef.current = false;
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [value]);
-
-	const add = () => {
-		onChange(
-			firstComparisonDefault({
-				caseTypes,
-				currentCaseType,
-				knownInputs,
-				// The display condition resolves before any case is selected,
-				// so the seed compares a session value, never a case property.
-				caseDataScope: "global",
-			}),
-		);
-		onEdit(true);
-	};
-	return (
-		<>
-			<section className="space-y-3">
-				<div>
-					{title !== undefined && (
-						<h3 className="text-[13px] font-medium leading-5 text-nova-text-secondary">
-							{title}
-						</h3>
-					)}
-					<p
-						className={`${title === undefined ? "" : "mt-1 "}text-[13px] leading-relaxed text-nova-text-muted`}
-					>
-						{description}
-					</p>
-				</div>
-				{value === undefined ? (
-					<Button
-						ref={addButtonRef}
-						type="button"
-						variant="outline"
-						size="xl"
-						onClick={add}
-						className="w-full border-dashed border-white/[0.10] bg-transparent text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
-					>
-						Add condition
-					</Button>
-				) : (
-					<div className="rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3">
-						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							{summarizeFilter(value, {
-								caseTypes,
-								currentCaseType,
-								knownInputs,
-							}) ?? alwaysSummary}
-						</p>
-						<div className="mt-3 flex gap-2">
-							<Button
-								data-search-condition-origin
-								type="button"
-								variant="outline"
-								size="xl"
-								onClick={() => onEdit()}
-								className="min-w-0 flex-1 border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
-							>
-								Edit condition
-							</Button>
-							<Button
-								ref={clearButtonRef}
-								type="button"
-								variant="destructive"
-								size="xl"
-								onClick={() => setConfirmingClear(true)}
-								className="shrink-0 px-3 text-[14px]"
-							>
-								{clearLabel}
-							</Button>
-						</div>
-					</div>
-				)}
-			</section>
-
-			<AlertDialog open={confirmingClear} onOpenChange={setConfirmingClear}>
-				<AlertDialogContent
-					finalFocus={() => addButtonRef.current ?? clearButtonRef.current}
-					className="text-left"
-				>
-					<AlertDialogHeader>
-						<AlertDialogTitle>{clearTitle}</AlertDialogTitle>
-						<AlertDialogDescription>{clearConsequence}</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							variant="destructive"
-							onClick={() => {
-								focusAddAfterClearRef.current = true;
-								onChange(undefined);
-								setConfirmingClear(false);
-							}}
-						>
-							{clearLabel}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
 		</>
 	);
 }

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
+import { CASE_WORKSPACE_SEED } from "../lib/caseWorkspaceSeed";
 import { expect, test } from "../lib/fixtures";
 
 /**
@@ -44,6 +45,7 @@ interface SeedManifest {
 			search: string;
 			results: string;
 			details: string;
+			condition: string;
 		};
 	};
 }
@@ -1164,6 +1166,94 @@ test.describe("authenticated builder", () => {
 			}),
 		).toHaveCount(0);
 		await expect(addDetailsInformation).toBeFocused();
+	});
+
+	test("a module's display condition explains where it applies, and Preview runs the screen it governs", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await page.goto(seed.caseWorkspace.routes.condition);
+
+		const heading = page.getByRole("heading", {
+			name: `When \u201c${CASE_WORKSPACE_SEED.moduleName}\u201d appears`,
+			level: 1,
+		});
+		await expect(heading).toBeVisible({ timeout: 20_000 });
+		// The screen leads with the locus because that is what decides which
+		// values the editor may offer at all.
+		await expect(
+			page.getByRole("heading", { name: "Where this is checked", level: 2 }),
+		).toBeVisible();
+		await expect(
+			page.getByText("CommCare checks this on the home screen", {
+				exact: false,
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByText("not who may see the data behind it", { exact: false }),
+		).toBeVisible();
+
+		const conditionSection = page.locator(
+			'section[aria-labelledby="display-condition-heading"]',
+		);
+		await expect(
+			conditionSection.getByText(
+				`\u201c${CASE_WORKSPACE_SEED.moduleName}\u201d always appears.`,
+			),
+		).toBeVisible();
+
+		await conditionSection
+			.getByRole("button", { name: "Add condition" })
+			.click();
+		// A module is decided before any case exists, so the seed compares a
+		// session value rather than a case property.
+		await expect(
+			conditionSection.getByRole("button", {
+				name: "Condition source: App information",
+			}),
+		).toBeVisible();
+		// Relationship reads have no meaning before a case is chosen, and the
+		// editor withholds them rather than letting the commit gate refuse.
+		await conditionSection
+			.getByRole("button", { name: "Add condition" })
+			.click();
+		const relatedCaseChoice = page.getByRole("menuitem", {
+			name: /^Require a related case/,
+		});
+		// Withheld WITH its reason rather than silently absent — the
+		// `data-disabled` attribute is what the menu's own styling keys on.
+		await expect(relatedCaseChoice).toContainText("before a case is selected");
+		await expect(relatedCaseChoice).toHaveAttribute("data-disabled", /.*/);
+		await page.keyboard.press("Escape");
+
+		// Preview runs the surface the condition governs — the home screen —
+		// and leaves the authoring URL alone so exiting returns here.
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		await expect(
+			page.locator("main").getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.moduleName}`),
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(heading).toBeHidden();
+		expect(new URL(page.url()).pathname).toBe(
+			seed.caseWorkspace.routes.condition,
+		);
+
+		await page.getByRole("button", { name: "Back to edit" }).click();
+		await expect(heading).toBeVisible();
+
+		// Removing the condition leaves the item shown, and the empty state
+		// says so in the author's own words.
+		await conditionSection.getByRole("button", { name: "Always show" }).click();
+		await page
+			.getByRole("alertdialog")
+			.getByRole("button", { name: "Always show" })
+			.click();
+		await expect(
+			conditionSection.getByText(
+				`\u201c${CASE_WORKSPACE_SEED.moduleName}\u201d always appears.`,
+			),
+		).toBeVisible();
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

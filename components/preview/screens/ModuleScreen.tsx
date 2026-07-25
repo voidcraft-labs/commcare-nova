@@ -51,7 +51,12 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mode = useEditMode();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 
-	/** Module uuid from the URL — used for uuid-first mutations and navigation. */
+	/** Module uuid from the URL — used for uuid-first mutations and
+	 *  navigation. Deliberately NOT widened to `module-condition`: a
+	 *  module's condition previews as the HOME screen (the screen the
+	 *  condition decides), so this screen is never the one shown there,
+	 *  and claiming the module would only arm this screen's own
+	 *  bare-case-list redirect from a hidden render. */
 	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
 
 	const mod = useModuleEntity(moduleUuid);

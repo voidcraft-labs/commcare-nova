@@ -51,8 +51,12 @@ export function BuilderReferenceProvider({
 	);
 
 	/** The form the user is currently editing, surfaced via `useCurrentFormUuid`
-	 *  so editor/canvas chip surfaces resolve without threading the uuid. */
-	const currentFormUuid = loc.kind === "form" ? loc.formUuid : undefined;
+	 *  so editor/canvas chip surfaces resolve without threading the uuid.
+	 *  A form's own configuration URLs name the same form. */
+	const currentFormUuid =
+		loc.kind === "form" || loc.kind === "form-condition"
+			? loc.formUuid
+			: undefined;
 
 	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
 	 *  Covers fields (field references, case_property_on), modules (case_type renames),
