@@ -52,8 +52,8 @@ export const updateCaseListColumnInputSchema = z
 		columnUuid: uuidInputSchema.describe(
 			"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
-		column: columnInputSchema.describe(
-			"Replacement column body (full shape, any kind). The uuid carries over from the existing entry — never supply one.",
+		column: columnUpdateInputSchema.describe(
+			"Replacement column body (full shape, any kind). The uuid carries over from the existing entry — never supply one, and the column keeps its place on the case tile. Use setCaseListTile to move it.",
 		),
 	})
 	.strict();

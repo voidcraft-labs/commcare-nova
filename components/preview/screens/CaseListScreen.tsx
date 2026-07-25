@@ -53,7 +53,8 @@ import {
 	resolveCalculatedTemporalType,
 } from "@/components/builder/case-list-config/columnCellRenderer";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
-import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
+import { caseColumnLabel } from "@/components/preview/shared/caseColumnLabel";
+import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import {
 	ListFilterBox,
@@ -94,6 +95,14 @@ import {
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
+import {
+	projectTileGrid,
+	type TileGridProjection,
+} from "@/lib/preview/caseTileLayout";
+import {
+	type TileResultsColumn,
+	tileResultsColumns,
+} from "@/lib/preview/caseTileRendering";
 import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CaseQueryConstraintContext,
@@ -644,9 +653,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	// Results and Details are independent compositions. Each consumes its own
 	// fractional order key (falling back to legacy `order`) so rearranging one
 	// running-app screen cannot silently rearrange the other.
-	const visibleColumns = [...(config?.columns ?? [])]
-		.sort(byListColumnOrder)
-		.filter((col) => col.visibleInList ?? true);
+	const listOrderedColumns = [...(config?.columns ?? [])].sort(
+		byListColumnOrder,
+	);
+	const visibleColumns = listOrderedColumns.filter(
+		(col) => col.visibleInList ?? true,
+	);
+	/* A tile carries the columns the short detail emits — the visible ones
+	 * PLUS any hidden column that still orders the list, which holds a square
+	 * without showing a value. Both the extent and the placement depend on
+	 * that full set, so it is derived here rather than from `visibleColumns`. */
+	const tileColumns = tileResultsColumns(listOrderedColumns);
+	const tileProjection = projectTileGrid(tileColumns.map((c) => c.column));
+	/* Presence of the layout is the switch; an unplaced tile has no geometry
+	 * to draw, so Results keeps the row layout rather than rendering an empty
+	 * grid. The commit gate places every emitted column, so this only guards
+	 * a config whose columns are all gone. */
+	const tileActive =
+		config?.tile !== undefined && tileProjection.cells.length > 0;
 	const detailColumns = [...(config?.columns ?? [])]
 		.sort(byDetailColumnOrder)
 		.filter((col) => col.visibleInDetail !== false);
@@ -1252,6 +1276,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				filterActive={filterText !== ""}
 				pageLocalFilter={pageLocalFilter}
 				visibleColumns={visibleColumns}
+				tile={
+					tileActive
+						? { projection: tileProjection, columns: tileColumns }
+						: undefined
+				}
 				caseProperties={caseType.properties}
 				columnDisplayContext={columnDisplayContext}
 				emptyResultContext={queryConstraintSource}
@@ -1368,6 +1397,7 @@ function ResultsBody({
 	filterActive,
 	pageLocalFilter,
 	visibleColumns,
+	tile,
 	caseProperties,
 	columnDisplayContext,
 	emptyResultContext,
@@ -1391,6 +1421,8 @@ function ResultsBody({
 	readonly filterActive: boolean;
 	readonly pageLocalFilter: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
+	/** Present when the case list is laid out as a tile; absent keeps rows. */
+	readonly tile: ResultsTileLayout | undefined;
 	readonly caseProperties: readonly CaseProperty[];
 	readonly columnDisplayContext: ColumnDisplayContext;
 	/** Why an empty server result may differ from a truly empty case type. */
@@ -1540,15 +1572,27 @@ function ResultsBody({
 
 	return (
 		<div>
-			<ResultsTable
-				rows={rows}
-				visibleColumns={visibleColumns}
-				caseProperties={caseProperties}
-				columnDisplayContext={columnDisplayContext}
-				rowAction={rowAction}
-				onOpenCase={onOpenCase}
-				busy={busy}
-			/>
+			{tile === undefined ? (
+				<ResultsTable
+					rows={rows}
+					visibleColumns={visibleColumns}
+					caseProperties={caseProperties}
+					columnDisplayContext={columnDisplayContext}
+					rowAction={rowAction}
+					onOpenCase={onOpenCase}
+					busy={busy}
+				/>
+			) : (
+				<ResultsTiles
+					rows={rows}
+					tile={tile}
+					caseProperties={caseProperties}
+					columnDisplayContext={columnDisplayContext}
+					rowAction={rowAction}
+					onOpenCase={onOpenCase}
+					busy={busy}
+				/>
+			)}
 		</div>
 	);
 }
@@ -1799,19 +1843,6 @@ function resultsLayoutClasses(columnCount: number): ResultsLayoutClasses {
 	if (columnCount === 5) return THREE_XL_RESULTS;
 	if (columnCount === 6) return FOUR_XL_RESULTS;
 	return ALWAYS_STACKED_RESULTS;
-}
-
-function caseColumnLabel(
-	col: CaseListConfig["columns"][number],
-	caseProperties: readonly CaseProperty[],
-): string {
-	const authoredHeader = col.header.trim();
-	if (authoredHeader !== "") return authoredHeader;
-	if (col.kind === "calculated") return "Calculated value";
-	const field = col.field.trim();
-	return field === ""
-		? "Case information"
-		: propertyDisplayLabelForName(field, caseProperties);
 }
 
 function ResultsTable({
