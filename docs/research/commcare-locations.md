@@ -10,7 +10,7 @@
 
 - **The tree.** Each project defines *organization levels* (`corehq/apps/locations/models.py::LocationType`) — e.g. State → Registry → Organization → Facility → Facility Data — and then *locations* (`::SQLLocation`) instantiating them as a tree. Levels carry the behavior flags (§3); locations carry identity and data.
 - **Identity.** A location has a server-generated `location_id` (the value that appears in `owner_id`), a human `site_code`, a name, and its type's `code` (the **Type Code**, surfaced in fixtures as `@type` — the thing expressions filter on: `location[@type = 'facility_data']`). ("Advanced Organization Level Configuration", commcarepublic.)
-- **Custom data.** Projects can define custom location fields (`corehq/apps/locations/views.py::LocationFieldsView`, the same custom-data machinery users get). These matter more than they look: in the flat fixture they surface as *attributes* on each `<location>` element, which makes them **join keys** for expressions — the Colorado project puts `facility_id` (= the parent facility's location id) on every facility-data location, enabling the two-hop owner lookup described in §5. ("Referencing the Location/Organization Hierarchy in Applications", commcarepublic, shows the same pattern as `@block_id`/`@city_id` templates.)
+- **Custom data.** Projects can define custom location fields (`corehq/apps/locations/views.py::LocationFieldsView`, the same custom-data machinery users get). Note what they are *not*: custom fields serialize as `<location_data>` **children**, never as attributes, so they are not the join keys. The join keys are HQ's own built-in lineage attributes — one `{level_code}_id` per level, carrying the id of the location's self-or-ancestor at that level (`fixtures.py::FlatLocationSerializer::_fill_in_location_element`). The Colorado two-hop in §5 reads `@facility_id` because `facility` is a *level code*, not because anyone defined a custom field by that name. ("Referencing the Location/Organization Hierarchy in Applications", commcarepublic, shows the same `@block_id`/`@city_id` pattern — also lineage attributes.)
 - **Assignment.** Mobile workers (and web users) are assigned to one or more locations, with one primary. The session exposes the assignment to forms as `instance('commcaresession')/session/user/data/commcare_location_id` (primary) and `commcare_location_ids` (all).
 
 ## 2. The three jobs
@@ -56,7 +56,7 @@ The two independent axes deserve restating: `view_descendants`/`shares_cases` sh
 
 **Two formats, one current.** The modern **flat fixture** has id `locations` (`instance('locations')` in forms); the legacy **hierarchical fixture** is `commtrack:locations`, kept behind the `HIERARCHICAL_LOCATION_FIXTURE` toggle for old projects (`corehq/apps/locations/fixtures.py` — `flat_location_fixture_generator` / `location_fixture_generator`; migration guidance in "Migrating your project from the hierarchical location fixture to the flat location fixture.", commcarepublic). All new projects get flat. The flat serializer also emits an index schema so key attributes are device-indexed for query speed (`fixtures.py::get_index_schema_node`).
 
-**Shape.** One `<location>` element per visible location, with identity and custom data fields as attributes — which is what makes expressions like the Colorado two-hop possible:
+**Shape.** One `<location>` element per visible location. Attributes are `type` (the level code), `id`, and one `{level_code}_id` lineage attribute per level — self plus every ancestor, empty string otherwise. Built-in children are `name`, `site_code`, `external_id`, `latitude`, `longitude`, `location_type`, and `supply_point_id`; custom fields sit as grandchildren under exactly one `<location_data>` child. The lineage attributes are what make expressions like the Colorado two-hop possible:
 
 ```
 instance('locations')/locations/location
@@ -64,7 +64,7 @@ instance('locations')/locations/location
     [@facility_id = <a clinic case's @owner_id>]/@id
 ```
 
-(`@type` = the level's Type Code; `@facility_id` = a project-defined custom field; `@id` = the location id that goes into `owner_id`.)
+(`@type` = the level's Type Code; `@facility_id` = the built-in lineage attribute for the `facility` level, holding that location's facility ancestor's id; `@id` = the location id that goes into `owner_id`.)
 
 **Default scope, and the dials.** By default a user's fixture holds their assigned location(s), all ancestors, and all descendants ("Advanced Organization Level Configuration", commcarepublic). The dials:
 
@@ -122,6 +122,6 @@ Locations appear on both sides of the restore-size ledger ("USS Designing and Bu
 
 ## 10. Open questions
 
-1. **Fixture attribute contract.** Custom location fields as fixture attributes is observed behavior and documented-by-example ("Referencing the Location Hierarchy…"); confirm the exact serialization rules (`fixtures.py::FlatLocationSerializer`) — name collisions with built-in attributes, type coercion — before Nova relies on them as join keys.
-2. **`LocationTypeResource` writability.** v0.6 writes locations; whether level definitions (the flags) are API-writable or UI/bulk-upload-only needs a check before assuming Nova can push a whole org *model* rather than just a tree.
+1. ~~**Fixture attribute contract.**~~ **Answered in source.** `fixtures.py::FlatLocationSerializer` settles it: the join keys are the built-in `{level_code}_id` lineage attributes, and custom fields are `<location_data>` children rather than attributes, so the collision and coercion worries do not arise. The indexed `data_<slug>` attribute shape that appears in two orphaned HQ test files is a removed feature (`index_in_fixture`) — do not build to it. §3 and §5 above are corrected accordingly.
+2. ~~**`LocationTypeResource` writability.**~~ **Answered in source: read-only.** It declares no authorization override and so falls back to tastypie's `ReadOnlyAuthorization`. Level definitions are UI/bulk-upload only, which is why a Nova org *model* can only travel as a setup artifact while the *tree* pushes through the writable v0.6 `LocationResource`.
 3. **Can fixture scoping alone serve cross-facility addressing?** In principle the expand/include dials could put sibling facilities' buckets in a worker's fixture (locations only — never their cases) for direct addressing; the Colorado apps never needed to try, because their report pipes carry the cross-facility data anyway. A platform question to test empirically if a Nova design ever wants fixture-only addressing — with the standing caveat that backend dials and their UI surfaces don't always match (fields can be flag-gated, hidden, or differently named in the interface), so any answer should be traced through both.

@@ -26,7 +26,12 @@ member can do is set by their **role**:
 | **Viewer** | Open and preview the Project's apps and case data. No edits. |
 | **Editor** | Build and edit the Project's apps and case data. No member management. |
 | **Admin** | Everything an Editor can do, plus invite members, change their roles, and remove them. |
-| **Owner** | Whoever created the Project — full control, including deleting the Project. Can't be removed. |
+| **Owner** | Whoever created the Project — everything an Admin can do, plus renaming the Project. Can't be removed. |
+
+Deleting a Project isn't available to anyone yet, including its Owner. A Project
+holds apps, case data, media, lookup tables, and conversation history, and Nova
+won't offer a single control that removes all of it until that lifecycle is
+fully audited. Move or delete the apps you no longer want instead.
 
 If someone changes your role while an app is open, Nova pauses editing and
 refreshes the app and your access together. Changes that were already waiting
