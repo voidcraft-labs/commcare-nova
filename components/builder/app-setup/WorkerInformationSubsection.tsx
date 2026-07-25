@@ -31,12 +31,8 @@ import type { Uuid } from "@/lib/doc/types";
 import { BUILT_IN_USER_PROPERTIES, type UserProperty } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import {
-	EntryRow,
-	Subsection,
-	SubsectionEmpty,
-	useInlineConfirmFocus,
-} from "./subsection";
+import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 export function WorkerInformationSubsection() {
 	const properties = useUserProperties();

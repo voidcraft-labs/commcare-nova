@@ -9,43 +9,13 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { type ReactNode, useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
-
-/**
- * Focus choreography for an inline confirmation that REPLACES its trigger.
- *
- * The trigger unmounts the moment the confirmation opens, so without this
- * focus falls to the document body and a keyboard user is silently returned
- * to the top of the page — with a destructive question on screen they never
- * heard. The panel takes focus on open (announcing its own question) and
- * hands it back to the trigger on close, which is the only moment the
- * trigger remounts.
- *
- * `open` is the caller's existing confirming state; nothing else changes.
- */
-export function useInlineConfirmFocus(open: boolean) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const panelRef = useRef<HTMLDivElement>(null);
-	const wasOpen = useRef(false);
-
-	useEffect(() => {
-		if (open) {
-			wasOpen.current = true;
-			panelRef.current?.focus();
-		} else if (wasOpen.current) {
-			wasOpen.current = false;
-			triggerRef.current?.focus();
-		}
-	}, [open]);
-
-	return { triggerRef, panelRef };
-}
 
 export function Subsection({
 	id,

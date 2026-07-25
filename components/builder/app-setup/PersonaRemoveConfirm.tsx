@@ -26,7 +26,7 @@ import type { Persona } from "@/lib/domain";
 import { countCasesOwnedByAction } from "@/lib/preview/engine/caseDataBinding";
 import { useAppId } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { useInlineConfirmFocus } from "./subsection";
+import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 
 type OwnedCount =
 	| { state: "counting" }
