@@ -41,6 +41,8 @@
 // not-found shape: a caller must not be able to tell "exists in a Project
 // you cannot see" from "does not exist".
 
+import "server-only";
+
 import { randomUUID } from "node:crypto";
 import type { Selectable, Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";

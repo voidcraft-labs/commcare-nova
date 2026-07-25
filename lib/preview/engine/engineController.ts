@@ -42,7 +42,6 @@
  * There is no conversion to a legacy nested-form shape. The engine walks
  * a rose-tree built at construction time — see `fieldTree.ts`.
  */
-import { randomUUID } from "node:crypto";
 import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -437,7 +436,13 @@ export class EngineController {
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
-		this.currentEntryKey = randomUUID();
+		// The Web Crypto GLOBAL, not `node:crypto`. This controller runs in
+		// the browser, where importing `node:crypto` resolves to a shim whose
+		// `randomUUID` is undefined — so the import form throws here at
+		// runtime while typechecking and every node/jsdom test passes, both
+		// of which have a real `crypto`. `lib/doc/scaffolds.ts` mints uuids
+		// the same way for the same reason.
+		this.currentEntryKey = crypto.randomUUID();
 
 		/* Build the FormEngine input from the doc store */
 		const input = buildEngineInput(s, formUuid);
