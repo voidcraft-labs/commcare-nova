@@ -111,6 +111,7 @@ import {
 	type Column,
 	resolveCommCareDatePattern,
 	TIME_SINCE_UNIT_DAYS,
+	tileCellFor,
 } from "@/lib/domain";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
@@ -125,6 +126,7 @@ import type {
 } from "../../predicate/termEmitter";
 import { escapeRegex } from "../../xml";
 import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
+import { buildTileStyleBlock } from "./tileStyle";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
@@ -836,6 +838,46 @@ function retargetSortDirective(
  * into `ctx.sortByUuid`. Long detail emits no `<sort>` blocks
  * regardless of `ctx.sortByUuid` content.
  */
+/**
+ * The `<style>` child a placed cell contributes, or nothing.
+ *
+ * Three conditions gate it, and each is load-bearing:
+ *
+ *   - the column carries a cell — an unplaced column has nothing to
+ *     describe, and a `<style>` with no complete `<grid>` is an
+ *     install-time parse failure (see `tileStyle.ts`);
+ *   - the case list has a tile layout — cells persist while the layout
+ *     is off so switching back restores the drawing, but they describe
+ *     nothing the wire renders until it is on;
+ *   - the detail is the SHORT one. Tiles apply to the case list, the
+ *     search-results list, and the persistent tile, all of which the
+ *     short detail drives; the case-detail screen stays a plain field
+ *     list.
+ */
+function tileStyleChildren(
+	column: Column,
+	ctx: CaseListEmitContext,
+): readonly Element[] {
+	// Which detail surface this is stays here — tiles apply to the short
+	// detail, and the case-detail screen is a plain field list whatever the
+	// case list does. WHETHER the column contributes a cell at all is
+	// `tileCellFor`'s single decision, shared with the HQ JSON writer and the
+	// preview renderer so the three cannot disagree.
+	//
+	// Long-detail tiles are out of scope by contract — see
+	// `docs/plans/complex-app/00-contracts.md`, deliberate target gaps:
+	// "Tiles apply to the short and search details; the case-detail view emits
+	// a plain field list." CommCare would accept a `custom` tile there, so
+	// nothing upstream forbids it; this branch is what makes the excluded case
+	// unrepresentable rather than merely unreached. `longDetail.ts` also never
+	// puts a `tileLayout` on its context, but that is the same rule applied a
+	// second time, not the reason for this one.
+	if (ctx.detailKind !== "short") return [];
+	const cell = tileCellFor(column, ctx.tileLayout);
+	if (cell === undefined) return [];
+	return [buildTileStyleBlock(cell)];
+}
+
 export function buildColumnField(args: {
 	readonly column: Column;
 	readonly position: number;
@@ -860,6 +902,7 @@ export function buildColumnField(args: {
 		position,
 	);
 	const fieldChildren: Element[] = [
+		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId, hidden),
 		buildTemplateBlock(
 			displayXpath,
@@ -924,6 +967,7 @@ function buildCalculatedField(args: {
 		position,
 	);
 	const fieldChildren: Element[] = [
+		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId, hidden),
 		buildCalculatedTemplateBlock(calcXpath, hidden),
 	];

@@ -20,6 +20,7 @@ import {
 	multiSelectContainsMode,
 	rangeMode,
 	simpleSearchInputDef,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -68,6 +69,19 @@ function column(uuidSuffix: string, field: string, header: string): Column {
 		header,
 	};
 }
+
+/** The tile arrangement props every Results canvas render needs. These
+ * tests cover the row layout, so the tile is off and its handlers are
+ * inert. */
+const ROW_LAYOUT_PROPS = {
+	tileIssues: new Map<Uuid, readonly string[]>(),
+	tileDisabledReason: undefined,
+	onArrangementChange: () => {},
+	onPlaceTileCell: () => {},
+	onPutColumnOnTile: () => {},
+	onApplyTilePreset: () => {},
+	onTilePersistOnFormsChange: () => {},
+} as const;
 
 const NAME = column("1", "case_name", "Patient name");
 const DOB = column("2", "date_of_birth", "Date of birth");
@@ -348,6 +362,7 @@ describe("case workspace chrome", () => {
 		};
 		render(
 			<CaseListCanvas
+				{...ROW_LAYOUT_PROPS}
 				config={{ columns: [NAME], searchInputs: [] }}
 				caseType={patient}
 				caseTypes={[patient]}
@@ -395,6 +410,7 @@ describe("case workspace chrome", () => {
 		session.canEdit = false;
 		render(
 			<CaseListCanvas
+				{...ROW_LAYOUT_PROPS}
 				config={{ columns: [], searchInputs: [] }}
 				caseType={{ name: "patient", properties: [] }}
 				caseTypes={[]}
@@ -440,6 +456,7 @@ describe("case workspace chrome", () => {
 		};
 		render(
 			<CaseListCanvas
+				{...ROW_LAYOUT_PROPS}
 				config={{ columns: [sortedName], searchInputs: [] }}
 				caseType={patient}
 				caseTypes={[patient]}

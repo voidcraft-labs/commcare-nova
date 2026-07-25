@@ -80,11 +80,55 @@ const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
  */
 let runningContainer: StartedPostgreSqlContainer | null = null;
 
+/**
+ * Boot the container, retrying past a registry that answered badly.
+ *
+ * Starting a container pulls `IMAGE_TAG` when it isn't already in the local
+ * store, so this call reaches Docker Hub — which intermittently answers with a
+ * 500 or lets the connection time out. Thrown from `globalSetup`, that arrives
+ * as a vitest unhandled error with no test output at all, which reads like a
+ * broken build rather than someone else's registry having a bad minute.
+ *
+ * CI pre-pulls the image (`.github/actions/pull-test-image`), so these retries
+ * are for the paths that don't: a developer's first run on a clean machine, and
+ * any job added without that step.
+ *
+ * Three attempts, because the failures worth surviving are brief. A wrong
+ * digest or an unreachable daemon fails the same way three times and reports
+ * the last error verbatim rather than being classified by matching on its
+ * message.
+ */
+async function startContainer(): Promise<StartedPostgreSqlContainer> {
+	const attempts = 3;
+	let lastError: unknown;
+
+	for (let attempt = 1; attempt <= attempts; attempt++) {
+		try {
+			return await new PostgreSqlContainer(IMAGE_TAG)
+				.withDatabase(DATABASE_NAME)
+				.start();
+		} catch (error) {
+			lastError = error;
+			if (attempt < attempts) {
+				await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
+			}
+		}
+	}
+
+	const detail =
+		lastError instanceof Error ? lastError.message : String(lastError);
+	throw new Error(
+		`Could not start the Postgres test container after ${attempts} attempts.\n` +
+			`Image: ${IMAGE_TAG}\n` +
+			`Last error: ${detail}\n\n` +
+			"If that mentions registry-1.docker.io, Docker Hub was unreachable — check https://status.docker.com and run again.\n" +
+			"Otherwise check that Docker is running (`docker info`), since every test in this package needs a real Postgres.",
+	);
+}
+
 /** Boot the container, install extensions, apply migrations, publish the URI for workers. */
 export async function setup(project: TestProject): Promise<void> {
-	const container = await new PostgreSqlContainer(IMAGE_TAG)
-		.withDatabase(DATABASE_NAME)
-		.start();
+	const container = await startContainer();
 
 	runningContainer = container;
 	const connectionString = container.getConnectionUri();

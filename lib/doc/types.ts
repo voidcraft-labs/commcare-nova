@@ -22,6 +22,7 @@ import {
 	casePropertySchema,
 	caseSearchConfigSchema,
 	caseTargetSchema,
+	caseTileLayoutSchema,
 	caseTypeSchema,
 	columnSchema,
 	columnSortSchema,
@@ -33,6 +34,7 @@ import {
 	personaSchema,
 	searchInputDefSchema,
 	selectOptionSchema,
+	tileCellSchema,
 	userPropertySchema,
 	userTypeSchema,
 	uuidSchema,
@@ -465,6 +467,66 @@ const optionsSourcePlacementSchema = z
 	// empty object so the intersection's merged output remains the parsed union.
 	.transform(() => ({}));
 
+/**
+ * Per-column tile placement carried on a wholesale module write.
+ *
+ * A tile cell is a current-only column slot, so it cannot ride inside
+ * the nested module/config fallback that an origin/main strict schema
+ * has to parse — exactly the constraint `columnSurfaceOrders` solves
+ * for the two surface order keys. This array is the same shape of
+ * answer: the fallback body carries cell-free columns an old reducer
+ * applies unchanged, and a current reducer replays the cells on top.
+ */
+const columnTileCellsSchema = z
+	.array(z.object({ uuid: uuidSchema, tile: tileCellSchema }).strict())
+	.optional();
+
+/**
+ * Reports a nested fallback column that smuggled a current-only tile
+ * cell. Shared by `addModule` and `updateModule`, whose fallback
+ * bodies sit at different paths.
+ */
+function reportSmuggledTileCells(
+	columns: readonly { readonly tile?: unknown }[],
+	basePath: readonly (string | number)[],
+	ctx: z.RefinementCtx,
+): void {
+	for (const [index, column] of columns.entries()) {
+		if (column.tile === undefined) continue;
+		ctx.addIssue({
+			code: "custom",
+			path: [...basePath, index, "tile"],
+			message:
+				"A tile cell must travel in the mutation's columnTileCells extension so the strict pre-deploy column schema can parse the fallback.",
+		});
+	}
+}
+
+/**
+ * Reports tile-cell hydration entries that do not name exactly one
+ * distinct column present in the mutation's own fallback body — the
+ * same integrity rule `columnSurfaceOrders` carries, so a replayed
+ * extension can never invent or double-write a column.
+ */
+function reportUnmatchedTileCellEntries(
+	entries: readonly { readonly uuid: string }[],
+	fallbackColumnUuids: ReadonlySet<string>,
+	ctx: z.RefinementCtx,
+): void {
+	const seen = new Set<string>();
+	for (const [index, entry] of entries.entries()) {
+		if (!fallbackColumnUuids.has(entry.uuid) || seen.has(entry.uuid)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["columnTileCells", index, "uuid"],
+				message:
+					"Each tile-cell entry must name one unique column in the mutation's fallback columns.",
+			});
+		}
+		seen.add(entry.uuid);
+	}
+}
+
 function createMutationSchema({
 	module: mutationModuleSchema,
 	moduleUpdatePatch: mutationModuleUpdatePatchSchema,
@@ -504,6 +566,12 @@ function createMutationSchema({
 							),
 					)
 					.optional(),
+				// Per-column tile placement and the case list's tile layout are both
+				// current-only slots on a strict nested schema, so they travel here and
+				// the fallback module stays tile-free. An old reducer applies a
+				// row-layout case list; the current reducer replays the tile on top.
+				columnTileCells: columnTileCellsSchema,
+				caseListTile: caseTileLayoutSchema.optional(),
 				// Desired owner-only Search state contains Nova's private false bit.
 				// The old-shape module carries a match-none projection instead.
 				caseSearchConfigValue: mutationCaseSearchConfigSchema.optional(),
@@ -512,6 +580,24 @@ function createMutationSchema({
 			})
 			.superRefine((mutation, ctx) => {
 				const columns = mutation.module.caseListConfig?.columns ?? [];
+				reportSmuggledTileCells(
+					columns,
+					["module", "caseListConfig", "columns"],
+					ctx,
+				);
+				if (mutation.module.caseListConfig?.tile !== undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["module", "caseListConfig", "tile"],
+						message:
+							"A tile layout must travel in addModule.caseListTile so the strict pre-deploy module schema can parse the fallback.",
+					});
+				}
+				reportUnmatchedTileCellEntries(
+					mutation.columnTileCells ?? [],
+					new Set(columns.map((column) => column.uuid)),
+					ctx,
+				);
 				for (const [index, column] of columns.entries()) {
 					for (const key of ["listOrder", "detailOrder"] as const) {
 						if (column[key] !== undefined) {
@@ -672,6 +758,11 @@ function createMutationSchema({
 				// Per-setting enabled-Search edits merge into the fresh bag. The nested
 				// patch remains a full origin-compatible snapshot for old reducers.
 				caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema.optional(),
+				// Tile placement + layout on a wholesale case-list replacement. Same
+				// contract as `columnSurfaceOrders`: the nested patch is the tile-free
+				// old-reducer fallback and these rebuild the current-only slots.
+				columnTileCells: columnTileCellsSchema,
+				caseListTile: caseTileLayoutSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
 				const caseListFallback = mutation.patch.caseListConfig;
@@ -679,6 +770,28 @@ function createMutationSchema({
 					caseListFallback === null || caseListFallback === undefined
 						? []
 						: caseListFallback.columns;
+				reportSmuggledTileCells(
+					fallbackColumns,
+					["patch", "caseListConfig", "columns"],
+					ctx,
+				);
+				if (
+					caseListFallback !== null &&
+					caseListFallback !== undefined &&
+					caseListFallback.tile !== undefined
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["patch", "caseListConfig", "tile"],
+						message:
+							"A tile layout must travel in updateModule.caseListTile so the strict pre-deploy nested schema can parse the fallback.",
+					});
+				}
+				reportUnmatchedTileCellEntries(
+					mutation.columnTileCells ?? [],
+					new Set(fallbackColumns.map((column) => column.uuid)),
+					ctx,
+				);
 				for (const [index, column] of fallbackColumns.entries()) {
 					for (const key of ["listOrder", "detailOrder"] as const) {
 						if (column[key] !== undefined) {
@@ -1104,6 +1217,10 @@ function createMutationSchema({
 					})
 					.strict()
 					.optional(),
+				// Placement on the tile grid for a column added into a tile-laid-out
+				// case list. Top-level for the same reason as `surfaceOrders`: origin's
+				// nested column schema is strict and predates the slot.
+				tileCell: tileCellSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
 				for (const key of ["listOrder", "detailOrder"] as const) {
@@ -1115,6 +1232,14 @@ function createMutationSchema({
 								"Surface order must use addColumn.surfaceOrders so the strict pre-deploy column schema can parse the fallback.",
 						});
 					}
+				}
+				if (mutation.column.tile !== undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["column", "tile"],
+						message:
+							"Tile placement must use addColumn.tileCell so the strict pre-deploy column schema can parse the fallback.",
+					});
 				}
 			}),
 		z
@@ -1133,6 +1258,12 @@ function createMutationSchema({
 				// Sort is an independently mergeable slot. `null` clears it; the
 				// nested column remains an old-reducer full-body fallback.
 				sortPatch: columnSortSchema.nullable().optional(),
+				// Tile placement is an independently mergeable slot, like sort: `null`
+				// clears the cell, a value sets it. Unlike `sortPatch` there is no
+				// agreeing fallback to check — origin's strict column schema has no
+				// `tile` key at all, so the nested body stays cell-free and an old
+				// receiver simply keeps rendering rows.
+				tilePatch: tileCellSchema.nullable().optional(),
 				visibilityPatch: z
 					.object({
 						surface: z.enum(["list", "detail"]),
@@ -1151,6 +1282,28 @@ function createMutationSchema({
 								"Surface order keys must stay out of the strict pre-deploy updateColumn fallback.",
 						});
 					}
+				}
+				if (mutation.column.tile !== undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["column", "tile"],
+						message:
+							"Tile placement must stay out of the strict pre-deploy updateColumn fallback.",
+					});
+				}
+				if (
+					mutation.tilePatch !== undefined &&
+					(mutation.sortPatch !== undefined ||
+						mutation.preserveSort ||
+						mutation.preserveVisibility ||
+						mutation.visibilityPatch !== undefined)
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["tilePatch"],
+						message:
+							"A tile patch cannot be combined with another updateColumn semantic mode.",
+					});
 				}
 				if (mutation.sortPatch !== undefined) {
 					if (
@@ -1302,6 +1455,15 @@ function createMutationSchema({
 					audioLabel: assetIdSchema.nullable().optional(),
 				})
 				.strict(),
+			// The tile layout is the same kind of non-array case-list metadata as
+			// `filter` / `icon` / `audioLabel`, but `patch` is `.strict()` in the
+			// pre-deploy schema, so a `patch.tile` key would fail an old parser
+			// outright rather than degrade. It therefore rides top-level: an old
+			// receiver strips it and applies the (typically empty) patch as a
+			// harmless no-op, while the current reducer folds it into the same
+			// key-by-key apply, where `null` clears exactly as it does for the
+			// other three slots.
+			tilePatch: caseTileLayoutSchema.nullable().optional(),
 		}),
 		// ─── Granular select options ─────────────────────────────────────────
 		//
