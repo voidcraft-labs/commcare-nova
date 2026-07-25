@@ -27,16 +27,29 @@ surface.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
-groups) plus one `blueprint_entities` row per entity. Six kinds share that table
+groups) plus one `blueprint_entities` row per entity. Eight kinds share that table
 (`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
-`(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
-flat — no parent, constant ordinal, sequence living entirely in each entity's
-fractional `order` key. **Every kind branches explicitly in the assembler**: its
-shape is `if module / else if form / else field`, so a new kind that falls
-through is read as a field, fails `blueprintDocSchema`, and stops the whole app
-from loading rather than losing one row. The three flat collections' doc slots
-are optional and OMITTED when empty, so an app declaring none assembles to
-exactly the doc it did before they existed.
+`(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` and
+`organization_level` / `location_property` are flat — no parent, constant
+ordinal, sequence living entirely in each entity's fractional `order` key.
+**Every kind branches explicitly in the assembler**: its shape is
+`if module / else if form / else field`, so a new kind that falls through is
+read as a field, fails `blueprintDocSchema`, and stops the whole app from
+loading rather than losing one row. The flat collections' accumulator is
+DERIVED from the same `FLAT_COLLECTIONS` table the classifier reads, so a kind
+added to that table cannot be classified into a slot with no bucket — which
+would drop every row of the new kind while the classifier still looked correct.
+Their doc slots are optional and OMITTED when empty, so an app declaring none
+assembles to exactly the doc it did before they existed.
+
+**A new table must be registered in `privilegeConvergence.ts`.** Its
+`APPLICATION_TABLES` / `CONTROL_TABLES` / `MIGRATION_TABLES` inventory is
+CLOSED, and `convergeDatabasePrivileges` runs in the migrate Cloud Run Job on
+every deploy — an unregistered table fails the Job, which fails the build
+before the deploy step, for everyone. Local dev deliberately skips role
+convergence, so applying the migration against the dev database and inspecting
+the result structurally cannot catch this; run
+`vitest run privilegeConvergence.integration.test.ts` instead.
 `blueprintRows.ts` is the projection: `assembleBlueprint` (rows → the exact
 `PersistableDoc`, Zod-validated), `decomposeBlueprint` (inverse; membership
 arrays round-trip via the stored `ordinal`), `diffBlueprints` (the minimal
