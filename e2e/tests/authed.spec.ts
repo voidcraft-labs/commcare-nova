@@ -1331,6 +1331,27 @@ test.describe("authenticated builder", () => {
 			expect(insetBox.width).toBeLessThan(tileBox.width * 0.5);
 		});
 
+		await test.step("an authored cell action stays a sibling of the row action", async () => {
+			// A phone link may never be nested inside the row's primary button:
+			// HTML forbids it, and a worker reaching the number would open the
+			// case instead of dialling.
+			const firstRow = rows.first();
+			const phone = firstRow.getByRole("link", { name: /^Call / });
+			await expect(phone).toBeVisible();
+			expect(
+				await phone.evaluate((el) =>
+					el.closest("[data-case-result-action]") === null
+						? "sibling"
+						: "nested",
+				),
+			).toBe("sibling");
+			const phoneBox = await phone.boundingBox();
+			expect(phoneBox).not.toBeNull();
+			expect(phoneBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+			await phone.focus();
+			await expect(phone).toBeFocused();
+		});
+
 		await test.step("the same tile pins above the module's form", async () => {
 			await rows.first().locator("[data-case-result-action]").click();
 			const persistent = page.locator("[data-persistent-case-tile]");

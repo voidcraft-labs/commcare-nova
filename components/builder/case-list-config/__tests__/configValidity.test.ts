@@ -456,7 +456,9 @@ describe("caseListConfigVerdicts", () => {
 		);
 	});
 
-	it("requires a place for a hidden field that drives the default order", () => {
+	it("asks for no place from a hidden field that drives the default order", () => {
+		// That field reaches the wire as CommCare's reserved zero-width
+		// carrier, which draws nothing, so it needs no square.
 		const v = verdicts({
 			tile: {},
 			columns: [
@@ -468,9 +470,7 @@ describe("caseListConfigVerdicts", () => {
 				},
 			],
 		});
-		expect(v.errorAreas.list).toBe(true);
-		expect(v.tileIssues.get(asUuid("c2"))?.[0]).toContain(
-			"A tile can\u2019t hide a field",
-		);
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.tileIssues.size).toBe(0);
 	});
 });

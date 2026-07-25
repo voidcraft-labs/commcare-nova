@@ -4,22 +4,17 @@
 // — a pointer drag, an arrow key, a typed number, a preset — resolves to
 // the same verdict here: one placement, or one refusal stated in the
 // author's words. The editor never lands a refused placement, which is
-// what keeps the four `CASE_LIST_TILE_*` validator findings unreachable
-// from the canvas.
+// what keeps the `CASE_LIST_TILE_*` validator findings unreachable from
+// the canvas.
 //
-// Two rules the surrounding UI reads off this file:
-//
-//   1. **A tile cannot hide a field.** A column that is hidden from
-//      Results but still sets the default order is carried by the tile
-//      anyway — the wire emits its `<style><grid>` alongside its
-//      zero-width header — so it occupies a real square and belongs on
-//      the canvas. `tileParticipation` is the one place that decision
-//      lives.
-//   2. **Overlap is checked across every participant**, including those
-//      order-only fields. The validator checks overlap only among
-//      Results-visible cells; the editor is deliberately stricter,
-//      because two cells on one square is never something an author
-//      means, whichever of them is nominally hidden.
+// One rule the surrounding UI reads off this file: **the tile lays out
+// exactly the fields Results shows.** A column hidden from Results
+// still reaches the wire when it drives the default order, but it goes
+// as CommCare's reserved zero-width carrier and draws nothing, so it
+// needs no square; a hidden column with no ordering role reaches the
+// short detail not at all. Either way its stored cell is inert, kept so
+// that showing the column again restores the place the author drew.
+// `tileShowsColumn` is the one place that decision lives.
 
 import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
@@ -35,19 +30,10 @@ import {
 } from "@/lib/domain";
 import { columnLabel } from "../canvas/ColumnInventory";
 
-/** Why a column is on the tile. */
-export type TileParticipantRole =
-	/** Shown in Results — the ordinary case. */
-	| "shown"
-	/** Hidden from Results, but the case list still carries it to order
-	 *  by it, and a tile has no off-screen column. */
-	| "order-only";
-
 /** One column the tile lays out, with the place it currently holds. */
 export interface TilePlacement {
 	readonly uuid: Uuid;
 	readonly label: string;
-	readonly role: TileParticipantRole;
 	readonly cell: TileCell;
 }
 
@@ -55,7 +41,6 @@ export interface TilePlacement {
 export interface TileVacancy {
 	readonly uuid: Uuid;
 	readonly label: string;
-	readonly role: TileParticipantRole;
 }
 
 /** The tile's membership, split by whether each member has a place. */
@@ -78,17 +63,12 @@ export type TilePlacementVerdict =
 	| { readonly ok: false; readonly reason: string };
 
 /**
- * Whether a column is laid out by the tile, and why.
- *
- * Returns `null` for a column the tile does not carry — one hidden from
- * Results with no ordering role. Such a column may still hold a stored
- * cell; that cell is inert, and keeping it means showing the column in
- * Results again restores the place the author drew.
+ * Whether the tile lays this column out — that is, whether a worker sees
+ * it. A column hidden from Results draws nothing on a tile whether or
+ * not it still orders the list, so it needs no square.
  */
-export function tileParticipation(column: Column): TileParticipantRole | null {
-	if (column.visibleInList !== false) return "shown";
-	if (column.sort !== undefined) return "order-only";
-	return null;
+export function tileShowsColumn(column: Column): boolean {
+	return column.visibleInList !== false;
 }
 
 /**
@@ -99,14 +79,13 @@ export function tileMembership(columns: readonly Column[]): TileMembership {
 	const placed: TilePlacement[] = [];
 	const unplaced: TileVacancy[] = [];
 	for (const column of [...columns].sort(byListColumnOrder)) {
-		const role = tileParticipation(column);
-		if (role === null) continue;
+		if (!tileShowsColumn(column)) continue;
 		const label = columnLabel(column);
 		if (column.tile === undefined) {
-			unplaced.push({ uuid: column.uuid, label, role });
+			unplaced.push({ uuid: column.uuid, label });
 			continue;
 		}
-		placed.push({ uuid: column.uuid, label, role, cell: column.tile });
+		placed.push({ uuid: column.uuid, label, cell: column.tile });
 	}
 	return { placed, unplaced };
 }
@@ -118,7 +97,7 @@ export function tileMembership(columns: readonly Column[]): TileMembership {
 export function tileMemberUuids(columns: readonly Column[]): readonly Uuid[] {
 	return [...columns]
 		.sort(byListColumnOrder)
-		.filter((column) => tileParticipation(column) !== null)
+		.filter(tileShowsColumn)
 		.map((column) => column.uuid);
 }
 
@@ -418,11 +397,7 @@ export function nextFreeTilePlacement(
 
 // ── Findings ──────────────────────────────────────────────────────
 
-export type TileIssueKind =
-	| "out-of-grid"
-	| "overlap"
-	| "not-placed"
-	| "order-not-placed";
+export type TileIssueKind = "out-of-grid" | "overlap" | "not-placed";
 
 /** One tile problem, addressed to the field it belongs to. */
 export interface TileIssue {
@@ -463,12 +438,12 @@ export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 		});
 	}
 
-	// Overlap mirrors the validator's Results-visible scope. An order-only
-	// field is left out here for the same reason the rule leaves it out:
-	// unhiding it is the moment the conflict becomes the author's to fix.
-	// The editor still refuses to CREATE one against an order-only cell.
+	// Overlap is a Results-visible question, exactly as the validator has
+	// it: a hidden field's stored cell draws nothing, so two of them on one
+	// square is not something a worker can see. Showing one of them is the
+	// moment the conflict becomes the author's to fix.
 	const visible = columns.filter(
-		(column) => column.tile !== undefined && column.visibleInList !== false,
+		(column) => column.tile !== undefined && tileShowsColumn(column),
 	);
 	for (let a = 0; a < visible.length; a++) {
 		for (let b = a + 1; b < visible.length; b++) {
@@ -489,21 +464,12 @@ export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 
 	for (const column of columns) {
 		if (column.tile !== undefined) continue;
-		const role = tileParticipation(column);
-		if (role === null) continue;
-		issues.push(
-			role === "shown"
-				? {
-						uuid: column.uuid,
-						kind: "not-placed",
-						message: `${columnLabel(column)} is shown in Results but has no place on the tile. Give it a place, or hide it from Results.`,
-					}
-				: {
-						uuid: column.uuid,
-						kind: "order-not-placed",
-						message: `${columnLabel(column)} sets the default order, so the tile still carries it. A tile can’t hide a field — give it a place, or take it out of the default order.`,
-					},
-		);
+		if (!tileShowsColumn(column)) continue;
+		issues.push({
+			uuid: column.uuid,
+			kind: "not-placed",
+			message: `${columnLabel(column)} is shown in Results but has no place on the tile. Give it a place, or hide it from Results.`,
+		});
 	}
 
 	return issues;

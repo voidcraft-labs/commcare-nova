@@ -92,7 +92,9 @@ describe("planTileLayoutEnable", () => {
 		expect(written.get("village")).toEqual(tileCell(0, 0, 12, 1));
 	});
 
-	it("places a hidden field that sets the default order", () => {
+	it("leaves a hidden default-order field unplaced — it draws nothing", () => {
+		// It reaches the wire as CommCare's reserved zero-width carrier, so
+		// it needs no square on the tile.
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
 			columns: [
@@ -106,10 +108,7 @@ describe("planTileLayoutEnable", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect([...placements(plan.mutations).keys()].sort()).toEqual([
-			"name",
-			"registered",
-		]);
+		expect([...placements(plan.mutations).keys()]).toEqual(["name"]);
 	});
 
 	it("leaves a Details-only field alone — the tile does not carry it", () => {

@@ -48,7 +48,7 @@ import {
 	planColumnTilePlacement,
 	type TileGeometry,
 	tileMemberUuids,
-	tileParticipation,
+	tileShowsColumn,
 } from "./tileModel";
 
 export interface TileCellInspectorProps {
@@ -81,16 +81,14 @@ export function TileCellInspector({
 	onClearPlace,
 	onPutOnTile,
 }: TileCellInspectorProps) {
-	const role = tileParticipation(column);
+	const onTile = tileShowsColumn(column);
 	const cell = column.tile;
 
-	if (tileOn && role !== null && cell === undefined) {
+	if (tileOn && onTile && cell === undefined) {
 		return (
 			<InspectorSection label="Place on the tile">
 				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-					{role === "order-only"
-						? "This field sets the default order, so the tile still carries it — a tile can’t hide a field. Give it a place, or take it out of the default order."
-						: "This field is shown in Results but has no place on the tile yet."}
+					This field is shown in Results but has no place on the tile yet.
 				</p>
 				{canEdit && (
 					<Button
@@ -110,7 +108,7 @@ export function TileCellInspector({
 
 	if (cell === undefined) return null;
 
-	const drawnOnTile = tileOn && role !== null;
+	const drawnOnTile = tileOn && onTile;
 	if (!drawnOnTile) {
 		return (
 			<SavedPlaceSection

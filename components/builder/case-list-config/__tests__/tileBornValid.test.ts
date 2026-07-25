@@ -105,7 +105,7 @@ describe("turning the tile on", () => {
 		).toBe(true);
 	});
 
-	it("places a hidden default-order field so the tile can carry it", () => {
+	it("leaves a hidden default-order field unplaced — it draws nothing", () => {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", { listOrder: "a" }),
 			column("age", "Age", {
@@ -120,7 +120,14 @@ describe("turning the tile on", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect(accepts(doc, plan.mutations).ok).toBe(true);
+		const verdict = accepts(doc, plan.mutations);
+		expect(verdict.ok).toBe(true);
+		if (!verdict.ok) return;
+		expect(
+			verdict.nextDoc.modules[moduleUuid]?.caseListConfig?.columns.map(
+				(entry) => entry.tile,
+			),
+		).toEqual([{ x: 0, y: 0, width: 12, height: 1 }, undefined]);
 	});
 
 	it("stays accepted at a full grid of single squares", () => {

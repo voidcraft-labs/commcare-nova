@@ -24,7 +24,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerCornerRightDown from "@iconify-icons/tabler/corner-right-down";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import tablerSortAscending from "@iconify-icons/tabler/sort-ascending";
 import { useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -103,11 +102,14 @@ export function TileGridEditor({
 	const extent = projectTileGrid(
 		[...columns].filter((column) => drawableUuids.has(column.uuid)),
 	);
-	const needsAPlace = [
+	const needsAPlace: ReadonlyArray<{
+		readonly uuid: Uuid;
+		readonly label: string;
+		readonly reason: string | undefined;
+	}> = [
 		...offGrid.map((entry) => ({
 			uuid: entry.uuid,
 			label: entry.label,
-			role: entry.role,
 			reason: issues.get(entry.uuid)?.[0],
 		})),
 		...unplaced.map((entry) => ({ ...entry, reason: undefined })),
@@ -373,11 +375,6 @@ export function TileGridEditor({
 							>
 								<span className="min-w-0 flex-1 break-words text-[14px] text-nova-text">
 									{entry.label}
-									{entry.role === "order-only" && (
-										<span className="ml-2 text-[13px] text-nova-text-muted">
-											Sets the default order
-										</span>
-									)}
 									{entry.reason !== undefined && (
 										<span className="mt-0.5 block text-[13px] leading-relaxed text-nova-text-secondary">
 											{entry.reason}
@@ -438,9 +435,7 @@ function TileCellChip({
 		? "border-nova-rose/50 bg-nova-rose/[0.10]"
 		: selected
 			? "border-nova-violet bg-nova-violet/[0.16]"
-			: placement.role === "order-only"
-				? "border-white/[0.10] bg-nova-surface/40"
-				: "border-white/[0.12] bg-nova-surface/70";
+			: "border-white/[0.12] bg-nova-surface/70";
 
 	const body = (
 		<span className="flex min-w-0 items-center gap-1.5">
@@ -450,14 +445,6 @@ function TileCellChip({
 					width="14"
 					height="14"
 					className="shrink-0 text-nova-rose"
-				/>
-			)}
-			{placement.role === "order-only" && !broken && (
-				<Icon
-					icon={tablerSortAscending}
-					width="14"
-					height="14"
-					className="shrink-0 text-nova-text-muted"
 				/>
 			)}
 			<span className="min-w-0 break-words [overflow-wrap:anywhere]">

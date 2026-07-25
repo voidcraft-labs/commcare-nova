@@ -21,7 +21,7 @@ import {
 	tileLayoutIssues,
 	tileMembership,
 	tileMemberUuids,
-	tileParticipation,
+	tileShowsColumn,
 } from "../tile/tileModel";
 
 function column(
@@ -48,28 +48,27 @@ function membershipOf(columns: readonly Column[]) {
 	return tileMembership(columns).placed;
 }
 
-describe("tileParticipation", () => {
-	it("carries a Results-visible field", () => {
-		expect(tileParticipation(column("a", "A"))).toBe("shown");
+describe("tileShowsColumn", () => {
+	it("lays out a Results-visible field", () => {
+		expect(tileShowsColumn(column("a", "A"))).toBe(true);
 	});
 
-	it("still carries a hidden field that sets the default order", () => {
-		// A tile has no off-screen column: the case list must carry the
-		// field to sort by it, and the wire emits its grid alongside a
-		// zero-width header.
+	it("leaves out a hidden field that only sets the default order", () => {
+		// It reaches the wire as CommCare's reserved zero-width carrier and
+		// draws nothing, so it needs no square.
 		expect(
-			tileParticipation(
+			tileShowsColumn(
 				column("a", "A", {
 					visibleInList: false,
 					sort: { direction: "asc", priority: 1 },
 				}),
 			),
-		).toBe("order-only");
+		).toBe(false);
 	});
 
-	it("leaves a Details-only field off the tile", () => {
-		expect(tileParticipation(column("a", "A", { visibleInList: false }))).toBe(
-			null,
+	it("leaves out a Details-only field", () => {
+		expect(tileShowsColumn(column("a", "A", { visibleInList: false }))).toBe(
+			false,
 		);
 	});
 });
@@ -196,22 +195,20 @@ describe("planTilePlacement", () => {
 		expect(verdict.ok).toBe(true);
 	});
 
-	it("checks a hidden order-only field's square like any other", () => {
-		// The validator's overlap rule skips hidden cells; the editor is
-		// deliberately stricter, because both squares are drawn.
-		const orderOnly = column("order", "Registered on", {
+	it("ignores a hidden field's stored cell — nothing is drawn there", () => {
+		const hidden = column("order", "Registered on", {
 			listOrder: "b",
 			visibleInList: false,
 			sort: { direction: "asc", priority: 1 },
 			tile: tileCell(6, 0, 6, 1),
 		});
-		const verdict = planTilePlacement(
-			membershipOf([NAME, orderOnly]),
-			NAME.uuid,
-			{ x: 4, y: 0, width: 6, height: 1 },
-		);
-		expect(verdict.ok).toBe(false);
-		expect(verdict.ok === false && verdict.reason).toContain("Registered on");
+		const verdict = planTilePlacement(membershipOf([NAME, hidden]), NAME.uuid, {
+			x: 4,
+			y: 0,
+			width: 6,
+			height: 1,
+		});
+		expect(verdict.ok).toBe(true);
 	});
 });
 
@@ -409,15 +406,14 @@ describe("tileLayoutIssues", () => {
 		);
 	});
 
-	it("explains an unplaced order-only field in its own terms", () => {
+	it("asks for no place from a hidden field that only sets the order", () => {
+		// It reaches the wire as the zero-width carrier and draws nothing.
 		const sorter = column("sorter", "Registered on", {
 			listOrder: "b",
 			visibleInList: false,
 			sort: { direction: "asc", priority: 1 },
 		});
-		const found = issues([NAME, sorter], true);
-		expect(found.map((issue) => issue.kind)).toEqual(["order-not-placed"]);
-		expect(found[0]?.message).toContain("A tile can’t hide a field");
+		expect(issues([NAME, sorter], true)).toEqual([]);
 	});
 
 	it("leaves a Details-only field alone — its cell renders nowhere", () => {
