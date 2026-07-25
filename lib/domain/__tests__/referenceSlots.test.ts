@@ -685,6 +685,9 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"caseListConfig.searchInputs[].name",
 			"caseListConfig.searchInputs[].order",
 			"caseListConfig.searchInputs[].uuid",
+			// Reviewed: a case-index identifier, interpolated into the emitted
+			// `string(./index/<id>)` path step. Carries no expression.
+			"caseListConfig.tile.grouping.relationship",
 			"caseSearchConfig.searchButtonLabel",
 			"caseSearchConfig.searchScreenSubtitle",
 			"caseSearchConfig.searchScreenTitle",

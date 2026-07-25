@@ -140,18 +140,27 @@ export function planTileLayoutDisable(moduleUuid: Uuid): readonly Mutation[] {
  * Keep the tile on screen above this module's forms, or stop doing so.
  *
  * `tilePatch` replaces the layout object wholesale, so this rebuilds it
- * from the current one rather than writing a bare `{ persistOnForms }`.
- * The layout carries exactly one slot today and the two spellings are
- * identical — but a second slot added later would be silently erased by
- * every toggle of this switch, and that failure is invisible until an
- * author notices a setting gone.
+ * from the current one rather than writing a bare `{ persistOnForms }` —
+ * a slot added later would otherwise be silently erased by every toggle
+ * of this switch, and that failure is invisible until an author notices
+ * a setting gone.
+ *
+ * `grouping` is the one slot deliberately dropped here rather than
+ * carried: it cannot ride `tilePatch` at all, because a pre-grouping
+ * receiver parses that carrier with a `.strict()` schema that has no such
+ * key. The reducer preserves the current grouping across this write, so
+ * dropping it is what KEEPS it — carrying it would fail the parse.
  */
 export function planTilePersistOnForms(
 	moduleUuid: Uuid,
 	persist: boolean,
 	current: CaseTileLayout | undefined,
 ): readonly Mutation[] {
-	const { persistOnForms: _cleared, ...rest } = current ?? {};
+	const {
+		persistOnForms: _cleared,
+		grouping: _preservedByReducer,
+		...rest
+	} = current ?? {};
 	return [
 		{
 			kind: "setCaseListMeta",

@@ -10,7 +10,15 @@
 import { legacyCompatibleColumnSnapshot } from "@/lib/doc/caseListColumnMutations";
 import { legacyCompatibleCaseSearchConfig } from "@/lib/doc/caseSearchConfigMutations";
 import type { Mutation } from "@/lib/doc/types";
-import type { CaseListConfig, Column, Module, Uuid } from "@/lib/domain";
+import type {
+	CaseListConfig,
+	CaseTileGrouping,
+	CaseTileLayout,
+	CaseTileLayoutPatch,
+	Column,
+	Module,
+	Uuid,
+} from "@/lib/domain";
 
 type AddModuleMutation = Extract<Mutation, { kind: "addModule" }>;
 type UpdateModuleMutation = Extract<Mutation, { kind: "updateModule" }>;
@@ -44,6 +52,27 @@ function columnTileCells(
 	);
 }
 
+/**
+ * Split a tile layout into the two top-level slots a wholesale module write
+ * carries.
+ *
+ * `caseListTile` is grouping-free because a pre-grouping receiver parses it
+ * with a `.strict()` layout schema; grouping travels beside it in
+ * `caseListTileGrouping`. Both are top-level extensions, so an older parser
+ * strips whichever it does not know and applies a row-layout case list.
+ */
+function tileHydration(tile: CaseTileLayout | undefined): {
+	caseListTile?: CaseTileLayoutPatch;
+	caseListTileGrouping?: CaseTileGrouping;
+} {
+	if (tile === undefined) return {};
+	const { grouping, ...layout } = tile;
+	return {
+		caseListTile: layout,
+		...(grouping === undefined ? {} : { caseListTileGrouping: grouping }),
+	};
+}
+
 function legacyCompatibleCaseListConfig(
 	config: CaseListConfig,
 ): CaseListConfig {
@@ -74,7 +103,7 @@ export function updateModuleMutation(
 		},
 		...(surfaceOrders.length > 0 && { columnSurfaceOrders: surfaceOrders }),
 		...(tileCells.length > 0 && { columnTileCells: tileCells }),
-		...(config.tile !== undefined && { caseListTile: config.tile }),
+		...tileHydration(config.tile),
 	};
 }
 
@@ -85,7 +114,7 @@ export function addModuleMutation(
 	const columns = module.caseListConfig?.columns ?? [];
 	const surfaceOrders = columnSurfaceOrders(columns);
 	const tileCells = columnTileCells(columns);
-	const caseListTile = module.caseListConfig?.tile;
+	const tileSlots = tileHydration(module.caseListConfig?.tile);
 
 	const desiredOwnerOnly =
 		module.caseSearchConfig?.searchActionEnabled === false
@@ -107,7 +136,7 @@ export function addModuleMutation(
 		...(index !== undefined && { index }),
 		...(surfaceOrders.length > 0 && { columnSurfaceOrders: surfaceOrders }),
 		...(tileCells.length > 0 && { columnTileCells: tileCells }),
-		...(caseListTile !== undefined && { caseListTile }),
+		...tileSlots,
 		...(desiredOwnerOnly !== undefined && {
 			caseSearchConfigValue: desiredOwnerOnly,
 		}),

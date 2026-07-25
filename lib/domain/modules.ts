@@ -1482,6 +1482,56 @@ export function simpleSearchInputHasCoherentRangeWidget(
 // ── Case-tile layout ─────────────────────────────────────────────
 
 /**
+ * Rows of the tile that form a group's header. The header is drawn from
+ * the group's FIRST case, so these rows show what the members share and
+ * the rows below show each member's own values.
+ *
+ * The bound is the grid itself: a header taking every row would leave no
+ * body, which is a list of headers rather than a grouped list. The
+ * validator holds the real constraint (`headerRows` must be strictly
+ * less than the tile's occupied row extent) because that depends on the
+ * layout, not on this number alone.
+ */
+export const TILE_MIN_HEADER_ROWS = 1;
+
+/**
+ * How a case list groups its rows.
+ *
+ * Nova narrows the group key to a case **index** — a relationship —
+ * rather than any value. That is Nova's choice and not the platform's:
+ * `commcare-core/.../org/commcare/xml/DetailGroupParser.java::parse`
+ * validates the group function with `XPathParseTool.parseXPath` and
+ * nothing else, the runtime treats the result as an opaque string, and a
+ * shipped fixture groups by `string(case_name)`. The narrowing exists
+ * because the header is taken from the group's first case, so a header
+ * cell is only honest when its value is invariant across every member —
+ * and an index is the only key Nova can statically prove invariant.
+ * Grouping by a plain property would make exactly one value shared and
+ * turn every other header cell into a guess drawn from an arbitrary
+ * member.
+ *
+ * `relationship` is the index identifier as authored in Nova's
+ * relationship vocabulary (`parent`, `host`, or a custom index name) —
+ * never the spelled-out `./index/<id>` path, which is an emission
+ * detail.
+ */
+export const caseTileGroupingSchema = z
+	.object({
+		// The identifier is interpolated straight into the emitted
+		// `string(./index/<id>)` path step, so it must be a bare XPath name —
+		// the same constraint every relation identifier in the AST carries.
+		relationship: z
+			.string()
+			.regex(
+				XML_ELEMENT_NAME_PATTERN,
+				"A grouping relationship must start with a letter or underscore and contain only letters, digits, or underscores. It is written straight into the group's XPath path step, so characters outside that class would emit an expression the runtime cannot parse.",
+			),
+		headerRows: z.number().int().min(TILE_MIN_HEADER_ROWS),
+	})
+	.strict();
+export type CaseTileGrouping = z.infer<typeof caseTileGroupingSchema>;
+
+/**
  * The case list's tile layout. PRESENCE is the switch: a config
  * carrying this slot renders its Results rows as a grid of cells
  * instead of a row of columns, on every surface the short detail
@@ -1534,9 +1584,37 @@ export const caseTileLayoutSchema = z
 		 * column slots already follow.
 		 */
 		persistOnForms: z.literal(true).optional(),
+		/**
+		 * How the list groups its rows, when it does. See
+		 * `caseTileGroupingSchema`.
+		 *
+		 * This slot lives inside the layout because grouping is a property
+		 * of the tile — it decides which of the tile's own rows become a
+		 * header. It does NOT ride the layout's mutation carrier: a
+		 * pre-grouping receiver parses `tilePatch` with a `.strict()` schema
+		 * that has no `grouping` key, so it travels in its own top-level
+		 * slot and the reducer folds the two together.
+		 */
+		grouping: caseTileGroupingSchema.optional(),
 	})
 	.strict();
 export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
+
+/**
+ * The layout as its own mutation carrier: everything except `grouping`.
+ *
+ * Origin's `caseTileLayoutSchema` is `.strict()` and predates grouping, so
+ * a `tilePatch` carrying a `grouping` key fails an older parser outright
+ * rather than degrading. Grouping therefore rides
+ * `setCaseListMeta.tileGroupingPatch`, and a `tilePatch` never carries it —
+ * the reducer preserves whatever grouping is current, the same
+ * unconditional-preserve rule a slot with no fallback spelling always
+ * takes (`lib/doc/CLAUDE.md`).
+ */
+export const caseTileLayoutPatchSchema = caseTileLayoutSchema
+	.omit({ grouping: true })
+	.strict();
+export type CaseTileLayoutPatch = z.infer<typeof caseTileLayoutPatchSchema>;
 
 export const caseListConfigSchema = z
 	.object({

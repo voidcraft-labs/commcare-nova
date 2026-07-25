@@ -22,7 +22,8 @@ import {
 	casePropertySchema,
 	caseSearchConfigSchema,
 	caseTargetSchema,
-	caseTileLayoutSchema,
+	caseTileGroupingSchema,
+	caseTileLayoutPatchSchema,
 	caseTypeSchema,
 	columnSchema,
 	columnSortSchema,
@@ -571,7 +572,11 @@ function createMutationSchema({
 				// the fallback module stays tile-free. An old reducer applies a
 				// row-layout case list; the current reducer replays the tile on top.
 				columnTileCells: columnTileCellsSchema,
-				caseListTile: caseTileLayoutSchema.optional(),
+				// Grouping-free for the same reason `setCaseListMeta.tilePatch` is:
+				// a pre-grouping receiver parses this slot with a `.strict()`
+				// layout schema. Grouping hydrates through `caseListTileGrouping`.
+				caseListTile: caseTileLayoutPatchSchema.optional(),
+				caseListTileGrouping: caseTileGroupingSchema.optional(),
 				// Desired owner-only Search state contains Nova's private false bit.
 				// The old-shape module carries a match-none projection instead.
 				caseSearchConfigValue: mutationCaseSearchConfigSchema.optional(),
@@ -762,7 +767,11 @@ function createMutationSchema({
 				// contract as `columnSurfaceOrders`: the nested patch is the tile-free
 				// old-reducer fallback and these rebuild the current-only slots.
 				columnTileCells: columnTileCellsSchema,
-				caseListTile: caseTileLayoutSchema.optional(),
+				// Grouping-free for the same reason `setCaseListMeta.tilePatch` is:
+				// a pre-grouping receiver parses this slot with a `.strict()`
+				// layout schema. Grouping hydrates through `caseListTileGrouping`.
+				caseListTile: caseTileLayoutPatchSchema.optional(),
+				caseListTileGrouping: caseTileGroupingSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
 				const caseListFallback = mutation.patch.caseListConfig;
@@ -1463,7 +1472,17 @@ function createMutationSchema({
 			// harmless no-op, while the current reducer folds it into the same
 			// key-by-key apply, where `null` clears exactly as it does for the
 			// other three slots.
-			tilePatch: caseTileLayoutSchema.nullable().optional(),
+			// Carries the layout MINUS grouping. A pre-grouping receiver parses
+			// this with a `.strict()` schema that has no `grouping` key, so a
+			// layout carrying one would fail outright rather than degrade —
+			// grouping rides `tileGroupingPatch` below and the reducer folds the
+			// two together, preserving whichever slot this write does not name.
+			tilePatch: caseTileLayoutPatchSchema.nullable().optional(),
+			// Grouping is an independently mergeable slot on the same layout:
+			// `null` clears it, a value sets it. Separate from `tilePatch` for the
+			// rolling reason above, and separate semantically too — turning the
+			// tile off should not silently discard how the author grouped it.
+			tileGroupingPatch: caseTileGroupingSchema.nullable().optional(),
 		}),
 		// ─── Granular select options ─────────────────────────────────────────
 		//

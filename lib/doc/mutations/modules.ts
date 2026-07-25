@@ -95,7 +95,14 @@ export function applyModuleMutation(
 				mut.caseListTile !== undefined &&
 				module.caseListConfig !== undefined
 			) {
-				module.caseListConfig.tile = structuredClone(mut.caseListTile);
+				// The layout arrives split across two top-level slots so neither
+				// breaks a pre-grouping parser; rebuild it here.
+				module.caseListConfig.tile = {
+					...structuredClone(mut.caseListTile),
+					...(mut.caseListTileGrouping === undefined
+						? {}
+						: { grouping: structuredClone(mut.caseListTileGrouping) }),
+				};
 			}
 			if (mut.caseSearchConfigValue !== undefined) {
 				module.caseSearchConfig = structuredClone(mut.caseSearchConfigValue);
@@ -183,7 +190,12 @@ export function applyModuleMutation(
 					}
 					applyColumnTileCells(columnByUuid, mut.columnTileCells);
 					if (mut.caseListTile !== undefined) {
-						config.tile = structuredClone(mut.caseListTile);
+						config.tile = {
+							...structuredClone(mut.caseListTile),
+							...(mut.caseListTileGrouping === undefined
+								? {}
+								: { grouping: structuredClone(mut.caseListTileGrouping) }),
+						};
 					}
 					target[key] = config;
 					continue;
@@ -537,13 +549,38 @@ export function applyModuleMutation(
 			// The tile layout is one more such slot; it rides top-level only so an
 			// origin/main parser can strip it off the `.strict()` patch body.
 			const target = config as unknown as Record<string, unknown>;
+			// The layout's two slots merge rather than replace. `tilePatch` carries
+			// everything except `grouping` — it has no fallback spelling on a
+			// pre-grouping receiver, so it is preserved UNCONDITIONALLY across a
+			// layout write, the same rule the tile cell takes on `updateColumn`
+			// (`lib/doc/CLAUDE.md`). Turning `persistOnForms` on must not silently
+			// discard how the author grouped the list.
+			const currentGrouping = config.tile?.grouping;
+			const nextTile =
+				mut.tilePatch === undefined || mut.tilePatch === null
+					? mut.tilePatch
+					: {
+							...structuredClone(mut.tilePatch),
+							...(currentGrouping === undefined
+								? {}
+								: { grouping: structuredClone(currentGrouping) }),
+						};
 			const slots: Record<string, unknown> =
 				mut.tilePatch === undefined
 					? mut.patch
-					: { ...mut.patch, tile: mut.tilePatch };
+					: { ...mut.patch, tile: nextTile };
 			for (const [key, value] of Object.entries(slots)) {
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
+			}
+			// Grouping is its own mergeable slot, applied after the layout so a
+			// batch carrying both lands the requested grouping rather than the
+			// preserved one. It can only exist on a layout that exists: clearing
+			// the tile clears its grouping with it, which the ordering above
+			// already did.
+			if (mut.tileGroupingPatch !== undefined && config.tile !== undefined) {
+				if (mut.tileGroupingPatch === null) delete config.tile.grouping;
+				else config.tile.grouping = structuredClone(mut.tileGroupingPatch);
 			}
 			return;
 		}
