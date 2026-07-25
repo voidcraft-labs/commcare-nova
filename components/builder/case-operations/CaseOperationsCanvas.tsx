@@ -55,9 +55,13 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import type { CaseOperationMoveVerdict } from "@/lib/doc/caseOperationReview";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
+import {
+	useModuleCaseType,
+	useModuleSelectsCaseFirst,
+} from "@/lib/doc/hooks/useCaseOperationFacts";
+import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import type { Uuid } from "@/lib/doc/types";
-import { type CaseOperation, isCaseFirstModule } from "@/lib/domain";
+import type { CaseOperation } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOperationRow } from "./CaseOperationRow";
@@ -68,7 +72,6 @@ import {
 	seedCaseOperation,
 	takenOperationIds,
 } from "./seeds";
-import { useCaseOperations } from "./useCaseOperations";
 import { useOperationSentenceContext } from "./useOperationSentenceContext";
 
 const CONTAINER_KIND = "case-operations";
@@ -121,10 +124,11 @@ export function CaseOperationsCanvas({
 			const verdicts = view.moveVerdicts(uuid);
 			const verdict = verdicts.get(toIndex);
 			if (verdict !== undefined && !verdict.ok) {
-				const message = moveRefusalReason(verdict, view.nameOf);
-				setRefusal(message);
-				setAnnouncement(
-					`${view.nameOf(uuid) ?? "This change"} did not move. ${message}`,
+				/* An alert, not a status: the screen is otherwise unchanged, so
+				 * without it the gesture reads as a no-op. The polite region
+				 * carries only outcomes that DID something. */
+				setRefusal(
+					`${view.nameOf(uuid) ?? "This change"} did not move. ${moveRefusalReason(verdict, view.nameOf)}`,
 				);
 				return false;
 			}
@@ -182,8 +186,15 @@ export function CaseOperationsCanvas({
 			}
 			return;
 		}
+		if (outcome.kind === "refused") {
+			// The refusal is the alert; the polite region stays quiet so the
+			// author hears one sentence, not two.
+			setRefusal(outcome.announcement);
+			setAnnouncement("");
+			return;
+		}
 		setAnnouncement(outcome.announcement);
-		setRefusal(outcome.kind === "refused" ? outcome.message : undefined);
+		setRefusal(undefined);
 	};
 
 	const add = (seed: CaseOperationSeedKind) => {
@@ -391,21 +402,8 @@ function AddChangeControl({
 	readonly onAdd: (seed: CaseOperationSeedKind) => void;
 }) {
 	const [mode, setMode] = useState<"intent" | "create-type">("intent");
-	const { moduleCaseType, sessionAvailable } = useBlueprintDocShallow(
-		(state) => {
-			const module = state.modules[moduleUuid];
-			const formTypes = (state.formOrder[moduleUuid] ?? [])
-				.map((uuid) => state.forms[uuid]?.type)
-				.filter((type): type is NonNullable<typeof type> => type !== undefined);
-			return {
-				moduleCaseType: module?.caseType,
-				sessionAvailable: isCaseFirstModule(
-					formTypes,
-					module?.caseType !== undefined,
-				),
-			};
-		},
-	);
+	const moduleCaseType = useModuleCaseType(moduleUuid);
+	const sessionAvailable = useModuleSelectsCaseFirst(moduleUuid);
 	const sessionReason = sessionAvailable
 		? undefined
 		: "This module does not choose a case before opening its forms, so there is no case in hand to change";

@@ -1,7 +1,13 @@
-// components/builder/case-operations/useCaseOperations.ts
+// lib/doc/hooks/useCaseOperations.ts
 //
 // One read/write surface over a form's case operations, shared by the
 // centre-canvas list and the rail's per-operation body.
+//
+// It lives with the doc hooks rather than beside its screens because it
+// reads the WHOLE document: every planner takes it, and the operation
+// graph spans the form's fields (repeat scopes) as well as its
+// operations. Selector-accepting store hooks are lib-private, so a
+// surface that needs the whole doc gets a named hook here instead.
 //
 // Selection lives in the URL, not here. That is deliberate: a form can
 // hold twenty operations, "look at this one" needs to be sendable, and
@@ -16,27 +22,27 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
+import { type CaseOperation, orderedCaseOperations } from "@/lib/domain";
 import {
 	addCaseOperationMutations,
 	type CaseOperationMutationPlan,
 	moveCaseOperationMutation,
 	removeCaseOperationMutation,
 	updateCaseOperationMutations,
-} from "@/lib/doc/caseOperationMutations";
-import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
+} from "../caseOperationMutations";
+import { caseOperationConditionalGuardUuids } from "../caseOperationOrder";
 import {
 	type CaseOperationDependency,
 	type CaseOperationMoveVerdict,
 	caseOperationDependencyOccurrences,
 	caseOperationMoveVerdicts,
-} from "@/lib/doc/caseOperationReview";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+} from "../caseOperationReview";
+import type { Uuid } from "../types";
+import { useBlueprintDoc } from "./useBlueprintDoc";
 import {
 	type CommitOutcome,
 	useBlueprintMutations,
-} from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Uuid } from "@/lib/doc/types";
-import { type CaseOperation, orderedCaseOperations } from "@/lib/domain";
+} from "./useBlueprintMutations";
 
 export interface CaseOperationsView {
 	/** Execution order — the order the runtime applies them. */

@@ -54,7 +54,9 @@ export function BuilderReferenceProvider({
 	 *  so editor/canvas chip surfaces resolve without threading the uuid.
 	 *  A form's own configuration URLs name the same form. */
 	const currentFormUuid =
-		loc.kind === "form" || loc.kind === "form-condition"
+		loc.kind === "form" ||
+		loc.kind === "form-condition" ||
+		loc.kind === "form-operations"
 			? loc.formUuid
 			: undefined;
 

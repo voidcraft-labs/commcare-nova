@@ -22,10 +22,20 @@
 
 import { type ReactNode, useCallback } from "react";
 import { useCaseListInspector } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { CaseOperationInspectorBody } from "@/components/builder/case-operations/CaseOperationInspectorBody";
+import { operationSentence } from "@/components/builder/case-operations/operationSentence";
+import { useOperationSentenceContext } from "@/components/builder/case-operations/useOperationSentenceContext";
 import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
 import { PeerBadge } from "@/components/builder/PeerBadge";
+import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
+import type { Uuid } from "@/lib/doc/types";
 import { fieldRegistry } from "@/lib/domain";
-import { useSelect, useSelectedField } from "@/lib/routing/hooks";
+import {
+	useLocation,
+	useNavigate,
+	useSelect,
+	useSelectedField,
+} from "@/lib/routing/hooks";
 
 export interface ActiveInspector {
 	readonly kicker: string;
@@ -39,6 +49,8 @@ export function useActiveInspector(): ActiveInspector | null {
 	const field = useSelectedField();
 	const select = useSelect();
 	const caseList = useCaseListInspector();
+	const operation = useSelectedCaseOperation();
+	const navigate = useNavigate();
 
 	if (field) {
 		// Title = the field's prompt, falling back to its id (the `hidden` kind
@@ -62,6 +74,21 @@ export function useActiveInspector(): ActiveInspector | null {
 	if (caseList?.inspector) {
 		return { ...caseList.inspector, onClose: caseList.onClose };
 	}
+	if (operation !== null) {
+		return {
+			kicker: "Case change",
+			title: operation.title,
+			body: (
+				<CaseOperationInspectorBody
+					moduleUuid={operation.moduleUuid}
+					formUuid={operation.formUuid}
+					operationUuid={operation.operationUuid}
+				/>
+			),
+			onClose: () =>
+				navigate.openFormOperations(operation.moduleUuid, operation.formUuid),
+		};
+	}
 	return null;
 }
 
@@ -77,11 +104,59 @@ export function useInspectorPresence(): {
 	const field = useSelectedField();
 	const select = useSelect();
 	const caseList = useCaseListInspector();
+	const operation = useSelectedCaseOperation();
+	const navigate = useNavigate();
 	const caseListClose = caseList?.onClose;
-	const docked = field !== null || (caseList?.inspector ?? null) !== null;
+	const docked =
+		field !== null ||
+		(caseList?.inspector ?? null) !== null ||
+		operation !== null;
 	const requestClose = useCallback(() => {
 		if (field !== null) select(undefined);
-		else caseListClose?.();
-	}, [field, select, caseListClose]);
+		else if (operation !== null) {
+			navigate.openFormOperations(operation.moduleUuid, operation.formUuid);
+		} else caseListClose?.();
+	}, [field, select, caseListClose, operation, navigate]);
 	return { docked, requestClose };
 }
+
+/**
+ * The third selection source: one case change, selected in the URL.
+ *
+ * Unlike the case workspace's row selection this lives in the path, so a
+ * change is linkable and survives a preview flip for free — and unlike a
+ * field it names an entity inside a form record rather than a top-level
+ * one, which is why closing means dropping back to the list URL rather
+ * than clearing a selection param.
+ */
+function useSelectedCaseOperation(): {
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
+	readonly operationUuid: Uuid;
+	readonly title: string;
+} | null {
+	const loc = useLocation();
+	const formUuid = loc.kind === "form-operations" ? loc.formUuid : undefined;
+	const operationUuid =
+		loc.kind === "form-operations" ? loc.operationUuid : undefined;
+	const context = useOperationSentenceContext(formUuid ?? EMPTY_FORM_UUID);
+	const operation = useCaseOperation(formUuid, operationUuid);
+	if (
+		loc.kind !== "form-operations" ||
+		operationUuid === undefined ||
+		formUuid === undefined ||
+		operation === undefined
+	) {
+		return null;
+	}
+	return {
+		moduleUuid: loc.moduleUuid,
+		formUuid,
+		operationUuid,
+		title: operationSentence(operation, context).lead,
+	};
+}
+
+/** A form uuid that resolves to nothing, for the hook-order-preserving
+ *  call the sentence context makes while no change is selected. */
+const EMPTY_FORM_UUID = "" as Uuid;

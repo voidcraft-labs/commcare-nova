@@ -33,8 +33,9 @@ import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCard
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	type CaseOperation,
@@ -58,7 +59,6 @@ import { useCanEdit } from "@/lib/session/hooks";
 import { operationFormFieldDecls } from "./formFieldScope";
 import { operationSentence } from "./operationSentence";
 import { seedCaseOperationWrite } from "./seeds";
-import { useCaseOperations } from "./useCaseOperations";
 import { useOperationSentenceContext } from "./useOperationSentenceContext";
 import { WritePropertyPicker } from "./WritePropertyPicker";
 
@@ -85,14 +85,10 @@ export function CaseOperationDetailCanvas({
 	);
 	const operation = index < 0 ? undefined : operations[index];
 
-	const doc = useBlueprintDocShallow((state) => ({
-		fields: state.fields,
-		fieldOrder: state.fieldOrder,
-	}));
-
+	const fieldEntries = useFormFieldEntries(formUuid);
 	const formFields = useMemo(
-		() => operationFormFieldDecls(doc, formUuid, operation?.forEach?.repeat),
-		[doc, formUuid, operation?.forEach?.repeat],
+		() => operationFormFieldDecls(fieldEntries, operation?.forEach?.repeat),
+		[fieldEntries, operation?.forEach?.repeat],
 	);
 
 	/* Only the creates BEFORE this one are in scope — the same set the

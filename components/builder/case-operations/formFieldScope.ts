@@ -16,15 +16,13 @@
 // whole form, and no sequence of choices can author a reference the gate
 // would bounce. The same walk feeds the identity-key picker, which is
 // narrower still: an authored create id must be a scalar string.
+//
+// Pure over `FormFieldEntry[]` (`lib/doc/hooks/useFormFieldEntries`), so
+// the rules are unit-testable without a document or a render.
 
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
-import type { BlueprintDoc } from "@/lib/domain";
-import {
-	type CaseOperation,
-	caseDataTypeForFieldKind,
-	type Field,
-	type Uuid,
-} from "@/lib/domain";
+import type { FormFieldEntry } from "@/lib/doc/hooks/useFormFieldEntries";
+import type { CaseOperation, Uuid } from "@/lib/domain";
 import {
 	type Predicate,
 	type Term,
@@ -33,53 +31,20 @@ import {
 	walkTerms,
 } from "@/lib/domain/predicate";
 
-interface ScopedField {
-	readonly field: Field;
-	/** The innermost repeat containing the field, if any. */
-	readonly repeat: Uuid | undefined;
-}
-
-/** Every field in the form, innermost-repeat-tagged, in canvas order. */
-function walkFormFields(
-	doc: Pick<BlueprintDoc, "fields" | "fieldOrder">,
-	formUuid: Uuid,
-): ScopedField[] {
-	const found: ScopedField[] = [];
-	const walk = (parent: Uuid, repeat: Uuid | undefined) => {
-		for (const uuid of doc.fieldOrder[parent] ?? []) {
-			const field = doc.fields[uuid];
-			if (field === undefined) continue;
-			const inner = field.kind === "repeat" ? field.uuid : repeat;
-			found.push({ field, repeat: inner });
-			walk(uuid, inner);
-		}
-	};
-	walk(formUuid, undefined);
-	return found;
-}
-
-function fieldLabel(field: Field): string {
-	const label = "label" in field ? (field.label ?? "").trim() : "";
-	return label.length > 0 ? label : field.id;
-}
-
-function declOf(field: Field): EditorFormFieldDecl {
+function declOf(entry: FormFieldEntry): EditorFormFieldDecl {
 	return {
-		uuid: field.uuid,
-		label: fieldLabel(field),
-		id: field.id,
-		dataType: caseDataTypeForFieldKind(field.kind),
+		uuid: entry.uuid,
+		label: entry.label,
+		id: entry.id,
+		dataType: entry.dataType,
 	};
 }
 
 /** Whether a field carries an answer an expression can read at all. */
-function carriesAnswer(field: Field): boolean {
+function carriesAnswer(entry: FormFieldEntry): boolean {
 	// A hidden field has no data type of its own but always holds a value —
 	// the same admission `expressionContext` gives the validator's checker.
-	return (
-		caseDataTypeForFieldKind(field.kind) !== undefined ||
-		field.kind === "hidden"
-	);
+	return entry.dataType !== undefined || entry.kind === "hidden";
 }
 
 /**
@@ -87,17 +52,16 @@ function carriesAnswer(field: Field): boolean {
  * singular operation) may read, in canvas order.
  */
 export function operationFormFieldDecls(
-	doc: Pick<BlueprintDoc, "fields" | "fieldOrder">,
-	formUuid: Uuid,
+	entries: readonly FormFieldEntry[],
 	repeat: Uuid | undefined,
 ): readonly EditorFormFieldDecl[] {
-	return walkFormFields(doc, formUuid)
+	return entries
 		.filter(
-			(scoped) =>
-				carriesAnswer(scoped.field) &&
-				(scoped.repeat === undefined || scoped.repeat === repeat),
+			(entry) =>
+				carriesAnswer(entry) &&
+				(entry.repeat === undefined || entry.repeat === repeat),
 		)
-		.map((scoped) => declOf(scoped.field));
+		.map(declOf);
 }
 
 /**
@@ -106,39 +70,33 @@ export function operationFormFieldDecls(
  * A multi-select answer is an array in Nova and cannot be an identity.
  */
 export function identityKeyFieldDecls(
-	doc: Pick<BlueprintDoc, "fields" | "fieldOrder">,
-	formUuid: Uuid,
+	entries: readonly FormFieldEntry[],
 	repeat: Uuid | undefined,
 ): readonly EditorFormFieldDecl[] {
-	return walkFormFields(doc, formUuid)
-		.filter((scoped) => {
-			if (scoped.repeat !== repeat) return false;
-			const dataType = caseDataTypeForFieldKind(scoped.field.kind);
-			if (scoped.field.kind === "hidden") return true;
-			return dataType === "text" || dataType === "single_select";
+	return entries
+		.filter((entry) => {
+			if (entry.repeat !== repeat) return false;
+			if (entry.kind === "hidden") return true;
+			return entry.dataType === "text" || entry.dataType === "single_select";
 		})
-		.map((scoped) => declOf(scoped.field));
+		.map(declOf);
 }
 
 /** Every repeat in the form, for the multiplicity picker. */
 export function repeatFieldDecls(
-	doc: Pick<BlueprintDoc, "fields" | "fieldOrder">,
-	formUuid: Uuid,
+	entries: readonly FormFieldEntry[],
 ): readonly EditorFormFieldDecl[] {
-	return walkFormFields(doc, formUuid)
-		.filter((scoped) => scoped.field.kind === "repeat")
-		.map((scoped) => declOf(scoped.field));
+	return entries.filter((entry) => entry.kind === "repeat").map(declOf);
 }
 
 /** Whether an operation's saved reads survive a change of multiplicity. */
 export function operationReadsOutsideRepeat(
-	doc: Pick<BlueprintDoc, "fields" | "fieldOrder">,
-	formUuid: Uuid,
+	entries: readonly FormFieldEntry[],
 	operation: CaseOperation,
 	nextRepeat: Uuid | undefined,
 ): boolean {
 	const admissible = new Set(
-		operationFormFieldDecls(doc, formUuid, nextRepeat).map((decl) => decl.uuid),
+		operationFormFieldDecls(entries, nextRepeat).map((decl) => decl.uuid),
 	);
 	return referencedFieldUuids(operation).some((uuid) => !admissible.has(uuid));
 }

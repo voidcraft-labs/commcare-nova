@@ -42,6 +42,8 @@ import {
 	CaseListWorkspaceCanvas,
 	type CaseListWorkspaceTab,
 } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { CaseOperationDetailCanvas } from "@/components/builder/case-operations/CaseOperationDetailCanvas";
+import { CaseOperationsCanvas } from "@/components/builder/case-operations/CaseOperationsCanvas";
 import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
@@ -154,6 +156,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		const screen = locationToScreen(loc, moduleOrder, formOrder);
 		const atCondition =
 			loc.kind === "module-condition" || loc.kind === "form-condition";
+		/* A form's case-operations URL maps onto its RUNNING form screen —
+		 * Preview from a configuration URL runs the thing it configures — so
+		 * the URL, not the screen, is what says "authoring" rather than
+		 * "running". Same shape as `atCondition`, and it travels through the
+		 * same deferred value so one can never flip a render before the
+		 * other. */
+		const atOperations = loc.kind === "form-operations";
 		/* Graft the bound case onto the form ONLY when the target binds THIS
 		 * form — `previewCaseTargetBindsLocation` is the same predicate the
 		 * breadcrumb gates its case crumb on, so the loaded case and the named
@@ -167,9 +176,10 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			return {
 				screen: { ...screen, caseId: previewCaseTarget.caseId },
 				atCondition,
+				atOperations,
 			};
 		}
-		return { screen, atCondition };
+		return { screen, atCondition, atOperations };
 	}, [loc, moduleOrder, formOrder, previewCaseTarget]);
 	const zustandScreen: PreviewScreen = zustandView.screen;
 
@@ -277,9 +287,30 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	if (loc.kind === "app-setup") {
 		appSetupRef.current = { section: loc.section };
 	}
+	/** The case-operations screen's identity: the form, plus which change
+	 *  is selected. Held in a ref for the same reason the two above are —
+	 *  the boundary must survive navigating away and back — and carrying
+	 *  the selection so the detail canvas keeps showing its change while
+	 *  hidden. */
+	const caseOperationsRef = useRef<{
+		moduleUuid: Uuid;
+		formUuid: Uuid;
+		operationUuid: Uuid | undefined;
+	}>(undefined);
+	if (loc.kind === "form-operations") {
+		caseOperationsRef.current = {
+			moduleUuid: loc.moduleUuid,
+			formUuid: loc.formUuid,
+			operationUuid: loc.operationUuid,
+		};
+	}
 	/* `mode` stays immediate — the Preview toggle must never lag — while
 	 * the location half rides the deferred pair above. */
 	const editingDisplayCondition = mode === "edit" && view.atCondition;
+	const editingCaseOperations = mode === "edit" && view.atOperations;
+	/** Either centre-canvas form-configuration surface is up, so every
+	 *  running screen hides. They are mutually exclusive (one URL kind). */
+	const editingFormConfig = editingDisplayCondition || editingCaseOperations;
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
 	const homeVisitedRef = useRef(false);
@@ -369,7 +400,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				{homeVisitedRef.current && (
 					<Activity
 						mode={
-							screen.type === "home" && !editingDisplayCondition
+							screen.type === "home" && !editingFormConfig
 								? "visible"
 								: "hidden"
 						}
@@ -381,7 +412,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				{moduleScreenRef.current && (
 					<Activity
 						mode={
-							screen.type === "module" && !editingDisplayCondition
+							screen.type === "module" && !editingFormConfig
 								? "visible"
 								: "hidden"
 						}
@@ -423,7 +454,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 								screen.type === "detailConfig") &&
 							mode === "edit" &&
 							!atCaseRecord &&
-							!editingDisplayCondition
+							!editingFormConfig
 								? "visible"
 								: "hidden"
 						}
@@ -437,7 +468,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						mode={
 							screen.type === "dataReview" &&
 							mode === "edit" &&
-							!editingDisplayCondition
+							!editingFormConfig
 								? "visible"
 								: "hidden"
 						}
@@ -477,13 +508,39 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				{formScreenRef.current && (
 					<Activity
 						mode={
-							screen.type === "form" && !editingDisplayCondition
+							screen.type === "form" && !editingFormConfig
 								? "visible"
 								: "hidden"
 						}
 						name="FormScreen"
 					>
 						<FormScreen screen={formScreenRef.current} onBack={handleBack} />
+					</Activity>
+				)}
+				{caseOperationsRef.current && (
+					<Activity
+						mode={editingCaseOperations ? "visible" : "hidden"}
+						name="CaseOperationsCanvas"
+					>
+						{/* The list and one change's detail are two screens on one
+						 *  URL, and the selection is what distinguishes them. Keying
+						 *  the detail by its uuid re-announces the heading and drops
+						 *  the previous change's open pickers when the author walks
+						 *  Previous / Next through a long sequence. */}
+						{caseOperationsRef.current.operationUuid === undefined ? (
+							<CaseOperationsCanvas
+								moduleUuid={caseOperationsRef.current.moduleUuid}
+								formUuid={caseOperationsRef.current.formUuid}
+								selectedUuid={undefined}
+							/>
+						) : (
+							<CaseOperationDetailCanvas
+								key={caseOperationsRef.current.operationUuid}
+								moduleUuid={caseOperationsRef.current.moduleUuid}
+								formUuid={caseOperationsRef.current.formUuid}
+								operationUuid={caseOperationsRef.current.operationUuid}
+							/>
+						)}
 					</Activity>
 				)}
 				{displayConditionRef.current && (
