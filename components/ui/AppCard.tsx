@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerApps from "@iconify-icons/tabler/apps";
-import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
+import tablerBuildingCommunity from "@iconify-icons/tabler/building-community";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
@@ -20,16 +20,40 @@ import {
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AppSummary } from "@/lib/db/apps";
-import { CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE } from "@/lib/projects/moveTargets";
+import {
+	CROSS_PROJECT_MOVE_DISCLOSURE,
+	CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
+} from "@/lib/projects/moveTargets";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
 
 /**
- * Generic discriminated-union result the optional `onDelete` callback returns.
- * Inlined here (rather than imported from the home-page action module) to keep
+ * Generic discriminated-union results the optional callbacks return. Inlined
+ * here (rather than imported from the home-page action module) to keep
  * `components/ui` independent of `app/`.
  */
 type DeleteResult = { success: true } | { success: false; error: string };
+type MoveResult = { success: true } | { success: false; error: string };
+
+/** A Project this member may move the app into. */
+export interface AppProjectMoveTarget {
+	id: string;
+	name: string;
+}
+
+/**
+ * The Project-placement affordance, shown only to members who govern it. The
+ * switched-off arm still shows the control and explains why, rather than
+ * arming a destination picker whose Move button the server would refuse.
+ */
+export type AppProjectMoveAffordance =
+	| {
+			enabled: true;
+			/** Other Projects where this member also holds the capability. */
+			targets: readonly AppProjectMoveTarget[];
+			onMove: (appId: string, toProjectId: string) => Promise<MoveResult>;
+	  }
+	| { enabled: false };
 
 interface AppCardProps {
 	app: Pick<
@@ -54,10 +78,11 @@ interface AppCardProps {
 	 * no delete affordance appears.
 	 */
 	onDelete?: (appId: string) => Promise<DeleteResult>;
-	/** Show the temporary Project-placement informational popover to admins/owners.
-	 * The trigger stays enabled so pointer, keyboard, touch, and assistive-tech
-	 * users can all discover why the app cannot move right now. */
-	showProjectMoveInfo?: boolean;
+	/** If provided, the card grows the Project-placement control. Supplied only
+	 *  to members who govern placement in this Project; an empty target list
+	 *  still shows the control, explaining what a destination requires rather
+	 *  than hiding the operation. */
+	projectMove?: AppProjectMoveAffordance;
 }
 
 /**
@@ -78,26 +103,49 @@ export function AppCard({
 	index,
 	href,
 	onDelete,
-	showProjectMoveInfo,
+	projectMove,
 }: AppCardProps) {
 	const [cardState, setCardState] = useState<CardState>({ type: "idle" });
-	const moveInfoTriggerRef = useRef<HTMLButtonElement>(null);
-	const moveInfoTitleRef = useRef<HTMLHeadingElement>(null);
+	const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
+	const moveTriggerRef = useRef<HTMLButtonElement>(null);
+	const moveTitleRef = useRef<HTMLHeadingElement>(null);
 
 	const style = STATUS_STYLES[app.status];
 	const isFailed = app.status === "error";
 	const updatedAt = new Date(app.updated_at);
 	const displayName = app.app_name || "Untitled";
-	const moveInfoLabel = `About moving ${displayName}`;
+	const moveLabel = projectMove?.enabled
+		? `Move ${displayName} to another Project`
+		: `About moving ${displayName}`;
 
-	/* Keep navigation available while the information popover is open. The card's
+	/* Keep navigation available while the placement popover is open. The card's
 	 * DOM shape is stable because the primary Link is an overlay sibling rather
-	 * than the surface wrapper. Confirm/delete states remove that overlay. */
+	 * than the surface wrapper. Confirm/delete/move states remove that overlay. */
 	const interactive =
 		cardState.type === "idle" ||
 		cardState.type === "error" ||
-		cardState.type === "showingMoveInfo";
+		cardState.type === "choosingMoveTarget";
 	const errorMessage = cardState.type === "error" ? cardState.message : null;
+
+	const handleMove = async () => {
+		if (!projectMove?.enabled || !moveTargetId) return;
+		setCardState({ type: "movingApp" });
+		try {
+			const result = await projectMove.onMove(app.id, moveTargetId);
+			if (!result.success) {
+				setCardState({ type: "error", message: result.error });
+				return;
+			}
+			/* The action revalidates the home page; the app leaves this Project's
+			 * list and this card unmounts, so there is no success state to hold. */
+		} catch {
+			setCardState({
+				type: "error",
+				message:
+					"Could not move this app. Check your connection and try again.",
+			});
+		}
+	};
 
 	const handleConfirmDelete = async () => {
 		if (!onDelete) return;
@@ -199,7 +247,7 @@ export function AppCard({
 							Confirm delete
 						</button>
 					</>
-				) : cardState.type === "deleting" ? (
+				) : cardState.type === "deleting" || cardState.type === "movingApp" ? (
 					<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
 						<Icon
 							icon={tablerLoader2}
@@ -207,7 +255,7 @@ export function AppCard({
 							height="14"
 							className="animate-spin"
 						/>
-						Deleting…
+						{cardState.type === "deleting" ? "Deleting…" : "Moving…"}
 					</span>
 				) : (
 					<>
@@ -216,54 +264,117 @@ export function AppCard({
 						>
 							{style.label}
 						</span>
-						{showProjectMoveInfo && !isFailed && (
+						{projectMove && !isFailed && (
 							<Popover
-								open={cardState.type === "showingMoveInfo"}
-								onOpenChange={(open) =>
+								open={cardState.type === "choosingMoveTarget"}
+								onOpenChange={(open) => {
+									/* Closing abandons the choice. Keeping it would leave the
+									 * next open pre-armed, so a single click on a popover the
+									 * user only meant to read would move the app and all of its
+									 * data — there is no confirmation step after this. */
+									if (!open) setMoveTargetId(null);
 									setCardState((s) =>
 										open
-											? { type: "showingMoveInfo" }
-											: s.type === "showingMoveInfo"
+											? { type: "choosingMoveTarget" }
+											: s.type === "choosingMoveTarget"
 												? { type: "idle" }
 												: s,
-									)
-								}
+									);
+								}}
 							>
-								<SimpleTooltip content="About moving this app">
+								<SimpleTooltip
+									content={
+										projectMove.enabled
+											? "Move to another Project"
+											: "About moving this app"
+									}
+								>
 									<PopoverTrigger
-										ref={moveInfoTriggerRef}
+										ref={moveTriggerRef}
 										render={
 											<Button type="button" variant="ghost" size="icon-lg" />
 										}
-										aria-label={moveInfoLabel}
+										aria-label={moveLabel}
 										onClick={(e) => {
 											e.preventDefault();
 											e.stopPropagation();
 										}}
 										className="size-12 text-nova-text-muted not-disabled:hover:bg-nova-violet/10 not-disabled:hover:text-nova-text"
 									>
-										<Icon icon={tablerInfoCircle} width="18" height="18" />
+										<Icon
+											icon={tablerBuildingCommunity}
+											width="18"
+											height="18"
+										/>
 									</PopoverTrigger>
 								</SimpleTooltip>
 								<PopoverContent
 									align="end"
 									sideOffset={6}
 									className="w-80"
-									initialFocus={moveInfoTitleRef}
-									finalFocus={moveInfoTriggerRef}
+									initialFocus={moveTitleRef}
+									finalFocus={moveTriggerRef}
 								>
 									<PopoverHeader>
 										<PopoverTitle
-											ref={moveInfoTitleRef}
+											ref={moveTitleRef}
 											tabIndex={-1}
 											className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-nova-violet-bright/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-surface"
 										>
 											Moving between Projects
 										</PopoverTitle>
 									</PopoverHeader>
-									<PopoverDescription className="leading-relaxed text-nova-text-secondary">
-										{CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE}
-									</PopoverDescription>
+									{!projectMove.enabled ? (
+										<PopoverDescription className="leading-relaxed text-nova-text-secondary">
+											{CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE}
+										</PopoverDescription>
+									) : projectMove.targets.length === 0 ? (
+										<PopoverDescription className="leading-relaxed text-nova-text-secondary">
+											There's nowhere to move this app yet. A destination has to
+											be a Project where you're an admin or owner too.
+										</PopoverDescription>
+									) : (
+										<>
+											<PopoverDescription className="leading-relaxed text-nova-text-secondary">
+												{CROSS_PROJECT_MOVE_DISCLOSURE}
+											</PopoverDescription>
+											{/* An inline list, not a Select: a second floating
+											    surface opened from inside this popover would render
+											    beneath it, and the destination set is small enough
+											    to show in full. */}
+											<fieldset className="mt-3 flex max-h-52 flex-col overflow-y-auto">
+												<legend className="sr-only">Destination Project</legend>
+												{projectMove.targets.map((target) => (
+													<label
+														key={target.id}
+														className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-nova-text transition-colors hover:bg-white/[0.06] has-checked:bg-nova-violet/10 has-focus-visible:ring-2 has-focus-visible:ring-nova-violet-bright/60"
+													>
+														<input
+															type="radio"
+															name={`move-destination-${app.id}`}
+															value={target.id}
+															checked={target.id === moveTargetId}
+															onChange={() => setMoveTargetId(target.id)}
+															autoComplete="off"
+															data-1p-ignore
+															className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-nova-border transition-all checked:border-[5px] checked:border-nova-violet-bright focus-visible:outline-none"
+														/>
+														<span className="flex-1 truncate font-medium">
+															{target.name}
+														</span>
+													</label>
+												))}
+											</fieldset>
+											<Button
+												type="button"
+												className="mt-2 w-full"
+												disabled={!moveTargetId}
+												onClick={() => void handleMove()}
+											>
+												Move app
+											</Button>
+										</>
+									)}
 								</PopoverContent>
 							</Popover>
 						)}
@@ -323,5 +434,6 @@ type CardState =
 	| { type: "idle" }
 	| { type: "confirmingDelete" }
 	| { type: "deleting" }
-	| { type: "showingMoveInfo" }
+	| { type: "choosingMoveTarget" }
+	| { type: "movingApp" }
 	| { type: "error"; message: string };

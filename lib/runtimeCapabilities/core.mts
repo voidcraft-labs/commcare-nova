@@ -69,6 +69,14 @@ export const RUNTIME_CAPABILITY_ENV_KEYS = Object.freeze({
 /** Per-Cloud-Build identity baked into the runner image. */
 export const RUNTIME_BUILD_ID_ENV_KEY = "NOVA_BUILD_ID";
 
+/**
+ * The rendered `gcloud run deploy --labels` argument. The deploy step attaches
+ * it so every serving revision DECLARES the capabilities of the image it runs;
+ * the rollout controller reads those labels back to prove a floor raise is safe
+ * for the exact set of traffic-receiving revisions.
+ */
+export const RUNTIME_REVISION_LABELS_ENV_KEY = "NOVA_REVISION_LABELS";
+
 /** Immutable runner-image copy used to reject runtime env overrides. */
 export const RUNTIME_BUILD_ID_FILE_PATH = "/app/.nova-build-id";
 
@@ -405,4 +413,23 @@ export function runtimeCapabilityRevisionLabelsFromHash(
 			"buildId",
 		),
 	});
+}
+
+/**
+ * Render the label set as gcloud's `KEY=VALUE,…` argument. Sorted so two builds
+ * of one manifest produce byte-identical deploy arguments, and re-validated
+ * here because this string is what actually reaches the control plane.
+ */
+export function runtimeCapabilityRevisionLabelArgument(
+	labels: Readonly<Record<string, string>>,
+): string {
+	return Object.entries(labels)
+		.map(([key, value]) => {
+			if (!/^[a-z][-_a-z0-9]{0,62}$/.test(key)) {
+				throw new Error(`${key} is not a valid Google Cloud label key`);
+			}
+			return `${key}=${requireLabelValue(value, key)}`;
+		})
+		.sort()
+		.join(",");
 }

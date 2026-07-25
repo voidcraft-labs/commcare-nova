@@ -7,16 +7,20 @@ const mocks = vi.hoisted(() => {
 	class MockCaseDataStrandedError extends Error {}
 	class MockCrossProjectAppMoveBlockedError extends Error {
 		readonly code = "cross_project_move_unavailable" as const;
-		constructor() {
-			super(
-				"Apps can't move between Projects yet. This app and its shared data will stay in the current Project.",
-			);
+	}
+	class MockAppRunStateCorruptError extends Error {}
+	class MockProjectMoveCompatibilityError extends Error {
+		constructor(readonly code: "disabled" | "incompatible_receiver") {
+			super(code);
 		}
 	}
 
 	return {
 		AppAccessError: MockAppAccessError,
 		AppBusyError: MockAppBusyError,
+		AppRunStateCorruptError: MockAppRunStateCorruptError,
+		ProjectMoveCompatibilityError: MockProjectMoveCompatibilityError,
+		readProjectMovesEnabled: vi.fn(),
 		CaseDataStrandedError: MockCaseDataStrandedError,
 		CrossProjectAppMoveBlockedError: MockCrossProjectAppMoveBlockedError,
 		getSession: vi.fn(),
@@ -42,9 +46,16 @@ vi.mock("@/lib/db/apps", () => ({
 }));
 vi.mock("@/lib/db/moveAppToProject", () => ({
 	AppBusyError: mocks.AppBusyError,
+	AppRunStateCorruptError: mocks.AppRunStateCorruptError,
 	CaseDataStrandedError: mocks.CaseDataStrandedError,
 	CrossProjectAppMoveBlockedError: mocks.CrossProjectAppMoveBlockedError,
 	moveAppToProject: mocks.moveAppToProject,
+}));
+vi.mock("@/lib/db/projectMoveAdmission", () => ({
+	ProjectMoveCompatibilityError: mocks.ProjectMoveCompatibilityError,
+}));
+vi.mock("@/lib/db/lookupActivation", () => ({
+	readProjectMovesEnabled: mocks.readProjectMovesEnabled,
 }));
 
 import {
@@ -104,9 +115,12 @@ describe("moveApp temporary Project policy", () => {
 			actorUserId: "user-1",
 		});
 		mocks.moveAppToProject.mockResolvedValue(undefined);
+		mocks.readProjectMovesEnabled.mockResolvedValue(true);
 	});
 
-	it("authorizes the source before returning the cross-Project block", async () => {
+	it("authorizes the source before returning the switched-off block", async () => {
+		mocks.readProjectMovesEnabled.mockResolvedValue(false);
+
 		const result = await moveApp("app-1", "project-target");
 
 		expect(mocks.resolveAppAccess).toHaveBeenCalledWith(
@@ -119,6 +133,32 @@ describe("moveApp temporary Project policy", () => {
 			code: "cross_project_move_unavailable",
 		});
 		expect(mocks.moveAppToProject).not.toHaveBeenCalled();
+	});
+
+	it("moves the app once the switch is on", async () => {
+		await expect(moveApp("app-1", "project-target")).resolves.toEqual({
+			success: true,
+			kind: "moved",
+		});
+		expect(mocks.moveAppToProject).toHaveBeenCalledWith({
+			appId: "app-1",
+			fromProjectId: "project-source",
+			toProjectId: "project-target",
+			actorUserId: "user-1",
+			movesEnabled: true,
+		});
+		expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
+	});
+
+	it("asks for a refresh when an older tab still holds the app's stream", async () => {
+		mocks.moveAppToProject.mockRejectedValue(
+			new mocks.ProjectMoveCompatibilityError("incompatible_receiver"),
+		);
+
+		await expect(moveApp("app-1", "project-target")).resolves.toMatchObject({
+			success: false,
+			code: "stale_client",
+		});
 	});
 
 	it("keeps source denials opaque instead of revealing the move policy", async () => {
@@ -144,6 +184,7 @@ describe("moveApp temporary Project policy", () => {
 			fromProjectId: "project-source",
 			toProjectId: "project-source",
 			actorUserId: "user-1",
+			movesEnabled: true,
 		});
 		expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
 	});

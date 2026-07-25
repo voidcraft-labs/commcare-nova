@@ -1,6 +1,6 @@
 ---
 title: Projects & sharing
-description: Personal vs shared Projects, member roles, and moving an app between Projects.
+description: Personal vs shared Projects, member roles, and how to move an app between Projects.
 ---
 
 A **Project** is the space your apps and their case data live in. Every account
@@ -36,13 +36,39 @@ continue exploring and previewing the app. If your access is removed entirely,
 Nova closes the workspace instead of showing data from a Project you can no
 longer view.
 
-## Moving an app between Projects (coming soon)
+## Moving an app between Projects
 
-Project moves are currently unavailable while Nova finishes the safety checks
-that keep an app and all of its Project-scoped data together. The move control
-will stay hidden until that complete workflow is active.
+On the home page, each app card has a **Move to another Project** control. Pick
+a destination and choose **Move app** — Nova moves the app in one protected
+operation, so it either arrives complete or stays exactly where it was.
 
-When it becomes available, moving will require the appropriate Admin or Owner
-access on both ends and will move the app, case data, media, and other
-Project-scoped data as one protected operation. This page will be updated with
-the final workflow when the feature is turned on.
+You'll see the control when you're an **Admin** or **Owner** of the Project the
+app is in, and the destination list shows only the other Projects where you hold
+Admin or Owner access too. If you don't have that access on both ends, the move
+isn't offered.
+
+### What moves with the app
+
+Everything Project-scoped travels with it:
+
+- the app itself and its full edit history,
+- its case data,
+- its media (logos, images, audio), and
+- its chat conversations, **including files attached in chat**.
+
+Everyone in the destination Project can see all of it, at whatever their role
+allows — so treat a move as sharing that data with those members.
+
+### When a move waits
+
+- **A Solutions Architect run is in progress.** An app being built or edited
+  can't move; try again once the run finishes.
+- **Someone still has the app open in an older browser tab.** Nova asks you to
+  have them refresh first, so no one is left editing an app that has moved out
+  from under them.
+- **Every Owner of the current Project must already be a member of the
+  destination.** This keeps an app from moving somewhere its Owners can't
+  follow.
+
+Apps that use Project data tables can't move yet — their lookup tables would be
+left behind. Nova blocks those moves rather than splitting an app from its data.

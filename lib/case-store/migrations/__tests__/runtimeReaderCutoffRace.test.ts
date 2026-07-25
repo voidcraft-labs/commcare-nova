@@ -254,6 +254,7 @@ describe("runtime-reader claim/floor cutoff", () => {
 						{
 							revision: "candidate",
 							runtimeReaderVersion: 1,
+							streamReceiverVersion: 3,
 						},
 					];
 				},

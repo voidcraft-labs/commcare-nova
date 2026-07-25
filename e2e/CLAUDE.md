@@ -39,6 +39,14 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   instance.
 - **No new RTL/jsdom tests.** UI logic is tested as `f(state)` in Vitest; real UI
   behavior is tested here in Playwright. Don't add `@testing-library/react` DOM tests.
+- **The cross-Project move journey runs with the switch genuinely ON.** `seed.ts`
+  turns `project_moves_enabled` on through the SAME transaction the rollout
+  controller runs (`enableLookupReferenceActivationInTransaction` under the
+  session cutover gate) and seeds a second owned Project as the destination — a
+  switched-off run would pass vacuously on the refusal branch. The test switches
+  the active Project to verify arrival, which writes to the SHARED seeded
+  session, so it switches back to `Personal` before finishing; any test that
+  changes the active Project must do the same.
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by

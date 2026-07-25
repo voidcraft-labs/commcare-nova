@@ -22,7 +22,7 @@ import {
 	AppBusyError,
 	CrossProjectAppMoveBlockedError,
 	moveAppToProject,
-	moveAppToProjectWhenEnabled,
+	runCrossProjectMove,
 } from "../moveAppToProject";
 
 const sameProjectArgs = {
@@ -45,8 +45,10 @@ describe("moveAppToProject production policy", () => {
 		});
 	});
 
-	it("blocks a true cross-Project request before any storage work", async () => {
-		await expect(moveAppToProject(crossProjectArgs)).rejects.toMatchObject({
+	it("blocks a cross-Project request before any storage work while switched off", async () => {
+		await expect(
+			moveAppToProject({ ...crossProjectArgs, movesEnabled: false }),
+		).rejects.toMatchObject({
 			name: CrossProjectAppMoveBlockedError.name,
 			code: "cross_project_move_unavailable",
 		});
@@ -56,16 +58,41 @@ describe("moveAppToProject production policy", () => {
 		expect(mocks.repairAppCaseTenancy).not.toHaveBeenCalled();
 	});
 
-	it("routes exact same-Project recovery through the app-locked repair", async () => {
-		await moveAppToProject(sameProjectArgs);
+	it("runs the real move once the switch is on", async () => {
+		mocks.prepareAppProjectMove.mockResolvedValue({
+			kind: "ready",
+			requiredAssetIds: ["source"],
+			historicalAssetIds: [],
+		});
+		mocks.copyAssetsIntoProject.mockResolvedValue(new Map());
+		mocks.commitAppProjectMove.mockResolvedValue({ kind: "moved" });
 
-		expect(mocks.repairAppCaseTenancy).toHaveBeenCalledWith("app-1", "user-1");
+		await moveAppToProject({ ...crossProjectArgs, movesEnabled: true });
+
+		expect(mocks.commitAppProjectMove).toHaveBeenCalledWith(
+			"app-1",
+			expect.objectContaining({ toProjectId: "project-b" }),
+		);
+		expect(mocks.repairAppCaseTenancy).not.toHaveBeenCalled();
+	});
+
+	it("routes exact same-Project recovery through the app-locked repair", async () => {
+		for (const movesEnabled of [true, false]) {
+			await moveAppToProject({ ...sameProjectArgs, movesEnabled });
+		}
+
+		expect(mocks.repairAppCaseTenancy).toHaveBeenNthCalledWith(
+			1,
+			"app-1",
+			"user-1",
+		);
+		expect(mocks.repairAppCaseTenancy).toHaveBeenCalledTimes(2);
 		expect(mocks.copyAssetsIntoProject).not.toHaveBeenCalled();
 		expect(mocks.commitAppProjectMove).not.toHaveBeenCalled();
 	});
 });
 
-describe("dormant move orchestration", () => {
+describe("cross-Project move orchestration", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.copyAssetsIntoProject.mockResolvedValue(
@@ -89,7 +116,7 @@ describe("dormant move orchestration", () => {
 				historicalAssetIds: ["history"],
 			});
 
-		await moveAppToProjectWhenEnabled(crossProjectArgs);
+		await runCrossProjectMove(crossProjectArgs);
 
 		expect(mocks.normalizeReapableRunForProjectMove).toHaveBeenCalledWith(
 			"app-1",
@@ -113,7 +140,7 @@ describe("dormant move orchestration", () => {
 			new Error("credit database unavailable"),
 		);
 
-		await expect(moveAppToProjectWhenEnabled(crossProjectArgs)).rejects.toThrow(
+		await expect(runCrossProjectMove(crossProjectArgs)).rejects.toThrow(
 			"credit database unavailable",
 		);
 		expect(mocks.copyAssetsIntoProject).not.toHaveBeenCalled();
@@ -127,9 +154,9 @@ describe("dormant move orchestration", () => {
 			})
 			.mockResolvedValueOnce({ kind: "busy" });
 
-		await expect(
-			moveAppToProjectWhenEnabled(crossProjectArgs),
-		).rejects.toBeInstanceOf(AppBusyError);
+		await expect(runCrossProjectMove(crossProjectArgs)).rejects.toBeInstanceOf(
+			AppBusyError,
+		);
 		expect(mocks.copyAssetsIntoProject).not.toHaveBeenCalled();
 	});
 });

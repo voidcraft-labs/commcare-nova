@@ -159,6 +159,13 @@ steps:
   # is declared failed — in practice the second attempt succeeds. The probe
   # port is Cloud Run's default container port; if a `--port` override ever
   # lands here, httpGet.port must move with it.
+  # `--labels` (an alias of `--update-labels`, so it merges) attaches this
+  # image's capability declaration to the revision. The rollout controller reads
+  # the labels of every traffic-receiving revision before it raises a
+  # compatibility floor, so an unlabeled revision reads as capability v0 and
+  # blocks activation — deliberately fail-closed, since a floor raised past a
+  # revision that cannot honor it revokes live clients.
+  #
   # `--update-secrets` MERGES into the service's existing secret env vars
   # (unlike `--set-secrets`, which replaces the whole set). OPENAI_API_KEY is
   # the one LLM credential (Secret Manager: `nova-openai-api-key`, resolved
@@ -181,6 +188,7 @@ steps:
           --update-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
           --no-default-url --ingress=internal-and-cloud-load-balancing \
           --min-instances=1 --max-instances=5 \
+          --labels="$$NOVA_REVISION_LABELS" \
           --timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s" \
           --no-cpu-throttling \
           --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest \

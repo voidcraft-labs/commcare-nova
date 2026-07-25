@@ -19,6 +19,7 @@ import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
+import { readProjectMovesEnabled } from "@/lib/db/lookupActivation";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
@@ -44,15 +45,27 @@ export async function AppList({ projectId, userId }: AppListProps) {
 		listDeletedApps(projectId, { limit: PAGE_SIZE }),
 		listUserProjects(userId),
 	]);
+	/* Read the switch HERE, not only in the Server Action: between a deploy and
+	 * the rollout controller's enable phase — and after any emergency disable —
+	 * an armed destination picker would take the user through the data-sharing
+	 * disclosure and a Move click before refusing.
+	 *
+	 * Sequenced after the batch above ON PURPOSE: that batch is already exactly
+	 * `POOL_MAX_PER_INSTANCE` wide, so a fourth parallel query would wait on a
+	 * connection while holding the render open. */
+	const movesEnabled = await readProjectMovesEnabled();
 
-	/* Admins/owners retain the old placement affordance while cross-Project moves
-	 * are temporarily unavailable. It is now an informational popover, not a target
-	 * picker, so the page deliberately performs no destination or owner-membership
-	 * reads that could imply an available move. */
+	/* Placement is a governance act, so only members who hold it in BOTH Projects
+	 * see the control — and the destination list is exactly the other Projects
+	 * where this member holds it. The database re-proves both roles, plus source
+	 * owner retention, inside the move transaction. */
 	const active = projects.find((p) => p.id === projectId);
-	const showProjectMoveInfo = Boolean(
-		active && canManageAppPlacement(active.role),
-	);
+	const canMoveApp = Boolean(active && canManageAppPlacement(active.role));
+	const moveTargets = canMoveApp
+		? projects
+				.filter((p) => p.id !== projectId && canManageAppPlacement(p.role))
+				.map((p) => ({ id: p.id, name: p.name }))
+		: [];
 	const canCreateApp = Boolean(active && roleAllowsApp(active.role, "edit"));
 	const canDeleteApp = Boolean(active && roleAllowsApp(active.role, "delete"));
 
@@ -77,7 +90,9 @@ export async function AppList({ projectId, userId }: AppListProps) {
 				active={activeRes.apps}
 				deleted={deletedRes.apps}
 				canDeleteApp={canDeleteApp}
-				showProjectMoveInfo={showProjectMoveInfo}
+				canMoveApp={canMoveApp}
+				movesEnabled={movesEnabled}
+				moveTargets={moveTargets}
 			/>
 		</>
 	);

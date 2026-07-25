@@ -1,6 +1,6 @@
 /**
  * Server Actions for the home-page app list — soft-delete, restore, and the
- * temporary Project-placement policy boundary.
+ * Project-placement boundary.
  *
  * Mirrors the discriminated-union pattern in `settings/oauth-actions.ts`:
  * never throws, always returns a structured result. Next surfaces
@@ -20,17 +20,24 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
-import { CommitReauthError } from "@/lib/db/commitGuard";
+import {
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
+import { readProjectMovesEnabled } from "@/lib/db/lookupActivation";
 import {
 	AppBusyError,
+	AppRunStateCorruptError,
 	CaseDataStrandedError,
 	CrossProjectAppMoveBlockedError,
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
+import { ProjectMoveCompatibilityError } from "@/lib/db/projectMoveAdmission";
 import { log } from "@/lib/logger";
 import {
 	appProjectMovePolicy,
-	type CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
+	CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
+	CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
 } from "@/lib/projects/moveTargets";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -51,13 +58,17 @@ export type MoveAppErrorCode =
 	| "not_found"
 	| typeof CROSS_PROJECT_MOVE_UNAVAILABLE_CODE
 	| "busy"
+	| "run_state_corrupt"
+	| "stale_client"
+	| "move_rejected"
+	| "not_permitted"
 	| "case_sync_failed"
 	| "internal_error";
 
-/** Result of the staged `moveApp` boundary. A true move is unavailable;
- * the sole success is an idempotent same-Project case-data reconciliation. */
+/** Result of the `moveApp` boundary: either the app changed Projects, or an
+ * exact same-Project call reconciled its case data idempotently. */
 export type MoveAppResult =
-	| { success: true; kind: "same_project_recovered" }
+	| { success: true; kind: "moved" | "same_project_recovered" }
 	| { success: false; code: MoveAppErrorCode; error: string };
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -153,12 +164,12 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 }
 
 /**
- * Staged Project-move boundary. Source authorization happens before the
- * policy response, so a caller cannot use the unavailable-operation message to
- * distinguish another tenant's app from a missing id. Every authorized true
- * cross-Project request is then refused without resolving or touching the target
- * Project. An exact same-Project call remains available only as the atomic,
- * app-locked case-tenancy repair path.
+ * Project-move boundary. Source authorization happens before the policy
+ * response, so a caller cannot use a refusal message to distinguish another
+ * tenant's app from a missing id. The move switch is read here for
+ * person-readable copy; the move transaction re-reads it `FOR SHARE` and is the
+ * authority. An exact same-Project call is not a move at all — it is the
+ * atomic, app-locked case-tenancy repair path.
  */
 export async function moveApp(
 	appId: string,
@@ -203,7 +214,12 @@ export async function moveApp(
 			throw err;
 		}
 
-		const policy = appProjectMovePolicy(access.projectId, toProjectId);
+		const movesEnabled = await readProjectMovesEnabled();
+		const policy = appProjectMovePolicy(
+			access.projectId,
+			toProjectId,
+			movesEnabled,
+		);
 		if (policy.kind === "cross_project_blocked") {
 			return {
 				success: false,
@@ -217,9 +233,16 @@ export async function moveApp(
 			fromProjectId: access.projectId,
 			toProjectId,
 			actorUserId: session.user.id,
+			movesEnabled,
 		});
 		revalidatePath("/");
-		return { success: true, kind: "same_project_recovered" };
+		return {
+			success: true,
+			kind:
+				policy.kind === "cross_project_move"
+					? "moved"
+					: "same_project_recovered",
+		};
 	} catch (err) {
 		if (err instanceof CrossProjectAppMoveBlockedError) {
 			return {
@@ -235,6 +258,39 @@ export async function moveApp(
 				error:
 					"This app is being generated right now. Try again once it finishes.",
 			};
+		}
+		/* The move transaction's own refusals already carry person-readable copy —
+		 * an app that references lookup tables, out-of-sync edges, a destination
+		 * role the actor lacks, a source Owner who is not a member there. Passing
+		 * them through keeps an ordinary expected outcome out of Sentry and off
+		 * the "try again" path, which would never succeed. */
+		if (err instanceof BlueprintCommitRejectedError) {
+			return { success: false, code: "move_rejected", error: err.message };
+		}
+		if (err instanceof CommitReauthError) {
+			return { success: false, code: "not_permitted", error: err.message };
+		}
+		if (err instanceof AppRunStateCorruptError) {
+			return {
+				success: false,
+				code: "run_state_corrupt",
+				error:
+					"This app's last Solutions Architect run left an inconsistent record, so it can't move yet. Contact support.",
+			};
+		}
+		if (err instanceof ProjectMoveCompatibilityError) {
+			return err.code === "disabled"
+				? {
+						success: false,
+						code: CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
+						error: CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
+					}
+				: {
+						success: false,
+						code: "stale_client",
+						error:
+							"Someone still has this app open in an older tab. Ask them to refresh, then try again.",
+					};
 		}
 		if (err instanceof CaseDataStrandedError) {
 			return {

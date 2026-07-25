@@ -1,12 +1,9 @@
 /**
  * Activation-flag reads over the `lookup_reference_compatibility`
- * singleton, split out of `rolloutCompatibility.ts` (the operational
- * compatibility service) with deliberately NO `server-only` marker:
- * the tsx-run smoke seeds and inspect scripts import `apps.ts` /
- * `appAccess.ts`, whose commit-path admission reads land here — the
- * same trade `threads.ts` documents. The operational service (floor
- * raises, emergency disablement, cutover machinery) keeps its marker
- * and re-exports the shared error class from here.
+ * singleton, kept separate from `rolloutCompatibility.ts` (the
+ * operational compatibility service) so the request path depends on the
+ * reads alone and not on the cutover machinery. The operational service
+ * re-exports the shared error class from here.
  */
 
 import type { Transaction } from "kysely";
@@ -21,7 +18,9 @@ export type RolloutCompatibilityErrorCode =
 	| "floor_cannot_decrease"
 	| "runtime_epoch_missing"
 	| "runtime_epoch_too_young"
-	| "runtime_holders_not_drained";
+	| "runtime_holders_not_drained"
+	| "activation_floor_unmet"
+	| "activation_receivers_not_drained";
 
 export class RolloutCompatibilityError extends Error {
 	readonly code: RolloutCompatibilityErrorCode;
@@ -65,6 +64,27 @@ export async function readLookupActivationForShare(
 		carrierCommitsEnabled: row.carrier_commits_enabled,
 		caseOperationsEnabled: row.case_operations_enabled,
 	};
+}
+
+/**
+ * The cross-Project move switch, read at the Server Action boundary so the
+ * refusal carries person-readable copy. `lockProjectMoveCompatibility` re-reads
+ * it `FOR SHARE` inside the move transaction and remains the authority.
+ */
+export async function readProjectMovesEnabled(): Promise<boolean> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("lookup_reference_compatibility")
+		.select("project_moves_enabled")
+		.where("id", "=", 1)
+		.executeTakeFirst();
+	if (!row) {
+		throw new RolloutCompatibilityError(
+			"compatibility_state_missing",
+			"Lookup-reference compatibility state is missing.",
+		);
+	}
+	return row.project_moves_enabled;
 }
 
 /**

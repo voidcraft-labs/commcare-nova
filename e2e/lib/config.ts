@@ -9,3 +9,7 @@ export const SMOKE_RETRIES = process.env.CI ? 2 : 0;
 
 /** One throwaway delete-app per possible attempt (initial try + retries). */
 export const DELETE_APP_COUNT = SMOKE_RETRIES + 1;
+
+/** Same rule for the cross-Project move journey: a moved app is gone from the
+ *  source Project, so a retry needs its own. */
+export const MOVE_APP_COUNT = SMOKE_RETRIES + 1;

@@ -1,5 +1,7 @@
-// Cross-Project move orchestration. The production policy remains closed, but
-// the complete dormant protocol is implemented behind capability admission.
+// Cross-Project move orchestration. Whether a true move may run is runtime
+// state, read at the Server Action boundary and threaded in here;
+// `lockProjectMoveCompatibility` re-reads the same switch inside the move
+// transaction and remains the authority.
 
 import { log } from "@/lib/logger";
 import { copyAssetsIntoProject } from "@/lib/media/moveMedia";
@@ -33,7 +35,7 @@ export class AppRunStateCorruptError extends Error {
 	}
 }
 
-/** Defense-in-depth refusal for the dormant cross-Project move path. */
+/** Defense-in-depth refusal when the move switch is off. */
 export class CrossProjectAppMoveBlockedError extends Error {
 	readonly name = "CrossProjectAppMoveBlockedError";
 	readonly code = CROSS_PROJECT_MOVE_UNAVAILABLE_CODE;
@@ -61,27 +63,37 @@ export interface MoveAppToProjectArgs {
 }
 
 /**
- * Production entry point. Cross-Project requests stop before any database,
- * media, or GCS work. Exact same-Project calls use the app-locked case-only
- * repair and derive the destination from the fresh row.
+ * Production entry point. A cross-Project request with the switch off stops
+ * before any database, media, or GCS work. Exact same-Project calls are not
+ * moves: they take the app-locked case-only repair and derive the destination
+ * from the fresh row.
  */
 export async function moveAppToProject(
-	args: MoveAppToProjectArgs,
+	args: MoveAppToProjectArgs & { readonly movesEnabled: boolean },
 ): Promise<void> {
-	const policy = appProjectMovePolicy(args.fromProjectId, args.toProjectId);
+	const policy = appProjectMovePolicy(
+		args.fromProjectId,
+		args.toProjectId,
+		args.movesEnabled,
+	);
 	if (policy.kind === "cross_project_blocked") {
 		throw new CrossProjectAppMoveBlockedError();
+	}
+	if (policy.kind === "cross_project_move") {
+		await runCrossProjectMove(args);
+		return;
 	}
 	await repairAppCaseTenancy(args.appId, args.actorUserId);
 }
 
 /**
- * Dormant orchestration used by the package's seeded v1 harness. The database
- * wrappers still declare this runtime's real capabilities, so today they fail
- * closed even if this function is imported directly; S07 activation changes
- * the manifest and policy rather than adding a second move implementation.
+ * The move itself: prepare under the app lock, copy media bytes outside the
+ * transaction, then commit atomically — retrying when the app's run holder or
+ * media closure changed underneath. Every database wrapper it calls declares
+ * this runtime's real capabilities and re-proves admission, so calling it
+ * directly with the switch off still fails closed.
  */
-export async function moveAppToProjectWhenEnabled(
+export async function runCrossProjectMove(
 	args: MoveAppToProjectArgs,
 ): Promise<void> {
 	for (let attempt = 1; attempt <= MAX_MOVE_ATTEMPTS; attempt++) {

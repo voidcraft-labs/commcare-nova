@@ -17,20 +17,23 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerArchive from "@iconify-icons/tabler/archive";
-import { useState } from "react";
-import { AppCard } from "@/components/ui/AppCard";
+import { useMemo, useState } from "react";
+import { AppCard, type AppProjectMoveTarget } from "@/components/ui/AppCard";
 import { DeletedAppCard } from "@/components/ui/DeletedAppCard";
 import type { AppSummary, DeletedAppSummary } from "@/lib/db/apps";
-import { deleteApp, restoreApp } from "./app-actions";
+import { deleteApp, moveApp, restoreApp } from "./app-actions";
 
 interface AppListBodyProps {
 	active: AppSummary[];
 	deleted: DeletedAppSummary[];
 	/** Whether this member may soft-delete and restore Project apps. */
 	canDeleteApp: boolean;
-	/** Whether to retain the Project-placement affordance as an informational
-	 *  popover for the admins/owners who would otherwise manage app placement. */
-	showProjectMoveInfo: boolean;
+	/** Whether this member governs app placement in the active Project. */
+	canMoveApp: boolean;
+	/** Whether the runtime switch admits cross-Project moves at all. */
+	movesEnabled: boolean;
+	/** The other Projects they may move an app into. */
+	moveTargets: AppProjectMoveTarget[];
 }
 
 type View = "active" | "deleted";
@@ -39,9 +42,27 @@ export function AppListBody({
 	active,
 	deleted,
 	canDeleteApp,
-	showProjectMoveInfo,
+	canMoveApp,
+	movesEnabled,
+	moveTargets,
 }: AppListBodyProps) {
 	const [view, setView] = useState<View>("active");
+
+	/* Stable across renders so an open popover is not torn down mid-interaction
+	 * by a fresh prop identity. */
+	const projectMove = useMemo(
+		() =>
+			canMoveApp
+				? movesEnabled
+					? ({
+							enabled: true,
+							targets: moveTargets,
+							onMove: moveApp,
+						} as const)
+					: ({ enabled: false } as const)
+				: undefined,
+		[canMoveApp, movesEnabled, moveTargets],
+	);
 
 	/* Tab strip is suppressed entirely when the user has nothing in the
 	 * trash AND isn't currently viewing it — would otherwise be a
@@ -70,7 +91,7 @@ export function AppListBody({
 									index={i}
 									href={app.status === "error" ? undefined : `/build/${app.id}`}
 									onDelete={canDeleteApp ? deleteApp : undefined}
-									showProjectMoveInfo={showProjectMoveInfo}
+									projectMove={projectMove}
 								/>
 							</li>
 						))}
