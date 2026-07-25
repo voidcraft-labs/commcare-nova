@@ -163,6 +163,61 @@ Rules that aren't enforced by tooling:
 
 The module-scoped canvas screen (`/build/{appId}/{moduleUuid}/data-review`, edit-mode only — preview shows the running case list for its URL) where saved values a type conversion couldn't carry are put back, overwritten, or dismissed. **The unit is the CASE, and the hold is real**: a case with any active (undismissed) kept value is HELD out of the running app — excluded by default from every case-store read (`QueryArgs.includeHeld`, query/count/form loading/search all inherit it), released the moment nothing is left waiting (every value put back, overwritten, or dismissed; a dismissed entry moved back to review re-holds). Storage stays per-value; availability is per-case. There is no occupancy verdict — nothing can land a newer value in a held slot — so `standing` is `fits` / `blocked` / `undeclared`, and an explicit Put back OVERWRITES whatever the slot holds (a narrow-options flush's surviving subset, a rename's standing destination value); only the review's human decision overwrites — the saga compensation and the convert-back auto-restore never do. **Vocabulary is plain words only** — no coined terms ("set-aside"/"park"/"quarantine" never render; a hyphenated compound invented for the feature reads as jargon the user was never taught): values were "kept", the screen is "Data to review", the restore verb is **"put back"** (always with a success toast naming where the value went — an entry silently leaving the list reads as "no idea what that did"). **Reassurance lives in the verbs, never appended disclaimers** — "kept" and "moves to the Dismissed list" already say nothing was deleted; a trailing "Nothing was deleted." on every surface is banned repetition. **The header explains the interface once; each row then tells its own story in one clause.** The page description states the mechanism (a saved value that no longer fits holds its case out of the app), the actions, the release (nothing left waiting → the case returns), and the automatic return on a type change back — there are NO per-property notice cards collating "convert back" prose above the list. Under each row's chip + value sits the standing phrase (`standingPhrase` in `dataReviewModel.ts`): a short present-tense fact mapped from the server-classified `standing` — "Isn't a date" / "Isn't a single choice" (blocked; the type word comes from the same declaration the chip icon reads, so they can't disagree), "The property was removed" (undeclared), "Fits the property again" (fits). Never park-time history replayed as if current (`fromType`/`toType`/`reason` are captured at park time and go stale; `reason` is developer voice and never renders), never a paragraph. A select block is always a SHAPE mismatch — the stored select schema carries no option enum, so a narrowed-away value stands fits (its case is held; put back overwrites any surviving subset), never blocked-on-membership. **The CASE is the anchor**: one card per case with its waiting values as rows (people review records, not floating values), and each card's **View case** opens `CaseDetailDialog` (the ONE read that passes `includeHeld` — it exists to inspect a held case) — the whole record as a scrollable vertical table (declared properties in catalog order, then undeclared saved keys; select values render their option labels; loading renders a `Skeleton` table in the final column geometry) — so decisions are made against the record, not a floating value. **Identifiers render as `NameChip`** — a variant of the `#case/property` reference chip (`lib/references` case-family tint + `CHIP` constants; wrap-enabled and selectable, unlike the editor chip) carrying the property/case-type ID in mono, never a humanized label and never inline prose. A declared property's chip icon is its CURRENT data type (`DATA_TYPE_ICONS`, the same icons the field palette uses) — that icon beside the literal old value shows the mismatch the standing phrase states; an undeclared property keeps the case family's database mark. Used in rows, the Replace editor, the case dialog's table, and the Case data popover's case-type reference alike. Two filter pills — **Ready to review** (active) and **Dismissed** — partition the list; the Dismissed pill disables at zero and the effective filter falls back to Ready when the last dismissed entry leaves. **A row offers every action that works for it**: Put back when the value fits again (`standing === "fits"`; a human decision made against the whole record — it overwrites the slot, and anything non-redundant it displaces is archived as a new dismissed entry, reported in the toast), **Overwrite** whenever the property is still declared (one name through the whole flow: the row action opens the editor, whose commit is the warning-styled **Overwrite value** button — amber `warning` Button variant, no forward-explaining footnote; the outcome toast reports the original archived under Dismissed), and Dismiss always; NO Put back or Overwrite when the park's property is no longer declared (the store rejects an undeclared patch key on every save). A DISMISSED entry is never restorable directly — the store's dismissed gate keeps a stale client's Put back — its one action is Move back to review. A button that couldn't work is never rendered at all, let alone disabled beside a live one — and every action keeps ONE fixed appearance on every row: all ghost with an icon + label, constructive actions (Put back, Replace, Move back to review) in violet action text held through hover, Dismiss in secondary. No per-row "primary" promotion — a variant that changes with the row's sibling buttons reads as random emphasis. Discovery actions that land on this screen (the popover's Review data, the conversion toast) exit preview first — in preview the URL renders the running case list, so the press would read as a no-op. Derivations (case grouping, filter partition, standing phrases, Replace-draft normalization incl. the strict-schema UTC stamps) live in the pure `dataReviewModel.ts` and are unit-tested there; the `standing` verdict is server-computed per entry (`listParkedValues`) and never re-derived client-side. The Replace editor's temporal inputs are the shadcn primitives: date (and the date half of datetime) is `DatePicker` (`components/shadcn/date-picker.tsx` — the same component the running Search screen's date prompts wrap; NEVER a native `<input type="date">`/`"datetime-local"`, whose browser picker pops over Nova's theme, and never a hand-assembled Popover + Calendar), and the time half is `TimeField` in the locale's clock (example "2:30 PM", never a 24-hour spelling worn as theme) whose hand-typed value `replacementDraftToValue` parses strictly through `lib/ui/clockTime.ts` (12-hour or bare 24-hour, shape + ranges) instead of trusting. Discovery is the reconciler's conversion toast (action → this screen), the amber dot on the Case data trigger, and the popover's review section (HELD-CASE count via `heldCaseCount` + Review data button, no property list — the discovery surfaces speak in cases, the unit the app is missing) — all fed by ONE `useParkedValues` list on the shared case-data invalidation channel. The builder's case-data population count (`loadCaseCountAction`) passes `includeHeld: true` — the manager governs stored rows, held or not. There is no tree node — the screen is reached from those signals and shared links.
 
+## Project data (`project-data/`)
+
+The URL-owned workspace for the Project's shared data tables
+(`/build/{appId}/project-data[/{tableId}]`), rendered by `ProjectDataWorkspace`
+as a centre-canvas surface beside App setup, the case workspace, and data
+review. It reaches the author from the expanded sidebar's footer, the collapsed
+rail's footer, and therefore the handset structure drawer — never as a tree
+node. The `Location` kind carries **no `moduleUuid`**, which is what makes the
+boundary structural: every module-keyed helper branches on it explicitly and the
+compiler finds any that doesn't. Preview from here leaves for the app home; a
+lookup table has no running counterpart.
+
+`ProjectDataWorkspaceProvider` is the single controller, mounted above the
+builder row in `BuilderProvider` beside `CaseListWorkspaceProvider` and for the
+same reasons — one fetch and one selection shared by the canvas and the rail,
+and a host element whose type never changes so the subtree cannot remount and
+sever chat's live run. `useProjectDataInspector` is the rail's third selection
+source; the three are mutually exclusive because the URL makes them so.
+
+**The grid scans; the rail edits.** Cells are typed, and a date column needs
+`DatePicker` while a time column needs `TimeField` — floating surfaces that
+cannot live in a dense scrolling cell with a 44px target. So the grid is a real
+`<table>` in pages of `ROWS_PER_PAGE` (50, matching the running case list) with
+a search box over the text it displays, a selected row opens in the rail with
+one correctly-typed control per column, and bulk change goes through CSV
+replacement. Paging rather than virtualizing is a semantics decision first: it
+keeps `<th>`/`<td>` header association and screen-reader table navigation that a
+virtualized ARIA grid would have to hand-roll.
+
+**The conflict policy lives in `projectDataModel.ts`, pure and unit-tested.** A
+table's optimistic token is `max(definitionRevision, rowsRevision)`, so ANY
+concurrent change invalidates it. `rowWriteConflictVerdict` retries only when a
+fresh read proves the edit is still the same edit — identical row values AND
+unmoved columns, because a retype changes what a draft means even when its cells
+match — and otherwise shows both versions and asks. `replacementConflictVerdict`
+is unconditionally "ask" and a test pins that it can never return `retry`: a CSV
+replacement discards every row by definition, so drift is exactly the case where
+resending destroys the change. **The draft is never discarded, in any branch.**
+
+Destructive changes (delete table, remove column, retype column) go through
+`DestructiveChangeDialog`, which NAMES the apps that would break — including one
+in the trash, said as such, because a blocker the author cannot find reads as a
+phantom. Its pre-flight read is advisory; the transactional edge check is the
+authority, and a refusal renders its own blocking set in the same words. It is a
+real `alert-dialog` rather than the confirm-in-place pattern, so it needs no
+`useInlineConfirmFocus` — the dialog primitives own focus entry and return. The
+row-delete confirm inside the rail IS confirm-in-place and uses the hook.
+
+The select's own editor entry (`editor/fields/OptionsSourceEditor.tsx`) binds a
+question to a table column. **Its two directions are asymmetric**: choosing a
+table sets `optionsSource` and leaves the inline options as the fallback, while
+choosing the inline options must CLEAR it, or the retained source keeps winning
+at every presence-based consumer. `lib/doc/lookupOptionsSourceMutations.ts`
+records why the clear is a `null`.
+
 ## Display conditions (`conditions/`)
 
 A module's and a form's navigation display condition are authored on their own

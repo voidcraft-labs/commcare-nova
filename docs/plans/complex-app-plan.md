@@ -68,8 +68,73 @@ makes client-side choice evaluation viable.
 Table schema governance — deleting a table, removing a column, retyping a column —
 lives in `lib/lookup/schemaGovernance.ts::applyLookupSchemaGovernanceInTransaction`.
 Each requires the `delete` capability and zero applicable reference edges, proved
-transactionally rather than by scan. It stays package-private with no user surface
-until the Project data workspace owns the confirmation UX.
+transactionally rather than by scan, and reaches authors through the three
+governed actions in `lib/lookup/actions.ts`.
+
+### The Project data workspace
+
+Project data is a URL-owned builder workspace at
+`/build/{appId}/project-data[/{tableId}]`, reachable from the expanded structure
+sidebar's footer, the collapsed rail's footer, and therefore the handset
+structure drawer. It is deliberately not a child of the structure tree: the tree
+represents the runnable app, and a lookup table belongs to the Project and is
+shared by every app in it. The `Location` kind carries no `moduleUuid` at all, so
+every module-keyed helper branches on it explicitly and the boundary is enforced
+by the compiler rather than by convention. `project-data` is a reserved first
+path segment matched before any uuid lookup; the location names no blueprint
+entity, so it is always valid and always survives recovery, and the workspace
+itself owns the "that table is gone" state. Preview from the workspace leaves for
+the app home — nobody using the app opens a lookup table. Every screen states
+that a change affects every app in the Project, as a permanent subtitle rather
+than a dismissible notice, because a deep link never passes the door.
+
+The controller (`ProjectDataWorkspaceProvider`, mounted above the builder row)
+owns one read and one selection, shared by the centre canvas and the inspector
+rail. Reads are generation-keyed on the reconciler runtime scope, the Project
+scope epoch, and the Project lookup clock, so a co-member's edit refetches
+exactly what it changed and a cross-Project move invalidates everything; the
+pushed manifest is the invalidation signal rather than the data, because a
+session with a dormant reconciler receives no frames and must still load.
+
+**Editing is row-shaped.** The grid is a real `<table>` in pages of 50 with a
+search box over the text it displays — paging keeps native row and column header
+semantics that a virtualized ARIA grid would have to hand-roll, and the running
+case list already pages at 50. A selected row opens in the rail, where each value
+gets the control its type deserves; bulk change goes through CSV replacement.
+That also makes the unit of concurrency the row, which is the unit `lib/lookup`'s
+row API and its optimistic revisions already work in.
+
+**The conflict policy is the reason the row is the unit.** A table's optimistic
+token is `max(definitionRevision, rowsRevision)`, so any concurrent change
+invalidates it — including one to a row nobody in this session touched. Retrying
+every drift would let one author overwrite a co-member's edit to the same row;
+asking about every drift would put a dialog in front of edits that do not
+conflict. So a refused write re-reads the table and
+`projectDataModel.ts::rowWriteConflictVerdict` retries only when the fresh state
+proves the edit is still the same edit — byte-identical row AND unmoved column
+definitions, because a retype changes what a draft means even when its cells
+match. Otherwise both versions are shown and the author chooses. A row deleted
+underneath is its own verdict. `replacementConflictVerdict` is unconditionally
+"ask": a CSV replacement discards every row by definition, so drift is precisely
+the case where resending destroys the change. The draft survives every branch.
+
+**A destructive change names the apps it would break, before it happens.**
+`lib/db/lookupReferenceEdges.ts::readLookupReferencingApps` joins the edge tables
+to `apps` for names; a soft-deleted app still holds its edges and still blocks
+the change, so it is named with its trashed state rather than omitted. That read
+is advisory by construction — a scan races a concurrent app commit — and the
+transactional edge check under the table lock remains the authority; a refusal
+resolves its own returned app-id set to the same named shape, so the warning and
+the refusal cannot disagree. Naming leaks nothing: every edge for a
+`(project_id, table_id)` belongs to an app in the Project the caller was already
+authorized against.
+
+Cap refusals name the size that was actually measured — an oversized CSV reports
+its own size, one over the row cap reports its exact row count and how many rows
+to remove — through one formatter (`lib/lookup/format.ts`) shared by the service,
+the CSV route, and the workspace.
+
+`content/docs/project-data.mdx` is the user-facing guide.
 
 ### Exact reference edges
 
@@ -246,6 +311,21 @@ reject only null/empty, and `case_id` is deliberately absent from
 Selects take a lookup `optionsSource`, and expressions take `table-lookup` value
 terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
+The builder binds one in the select's own editor (`OptionsSourceEditor`).
+
+**That switch is asymmetric, and the asymmetry is its correctness.**
+`optionsSource` precedence is presence-based at every consumer —
+`lib/commcare/xform/builder.ts` branches on `optionsSource !== undefined`, as does
+the preview's choice evaluation. Inline → Table merely SETS the source, and the
+inline options stay as the origin-compatible fallback a pre-S05 receiver reads
+and a duplicate reverts to. Table → Inline must CLEAR it, or the retained source
+keeps winning while the editor claims the field is back on its typed-in list.
+The clear is an explicit `null`, for the same reason a display condition's is:
+the reducer deletes on either spelling, but the SSE frame and the persisted jsonb
+are both `JSON.stringify`, which drops an `undefined`-valued key.
+`lib/doc/lookupOptionsSourceMutations.ts` makes the mutation object correct on its
+own so a durable emitter inherits the spelling, and its test asserts the clear
+survives a real round trip rather than only applying in memory.
 
 The local `.ccz` emits the preservable lookup wire. The binding facts:
 
@@ -646,16 +726,15 @@ validates, emits, and previews. **The file holds** the 20-operation stress case
 and its interaction model, the planner refusals the reorder UI must surface
 before the gesture, and which vocabulary unit 1 deliberately excludes.
 
-### 2 — Project data tables workspace
+### 2 — Lookup-row filter authoring
 
 [`complex-app/02-project-data-workspace.md`](complex-app/02-project-data-workspace.md)
-· depends on nothing · blocks unit 3
+· depends on unit 1 · blocks unit 3
 
-The Project data workspace — schema and row grid, atomic CSV import, revisions,
-conflict handling, permissions — plus the select options-source editor and the
-confirmation UX that lets lookup schema governance leave package-private scope.
-**The file holds** the asymmetric source-mode switch, the one semantic that
-silently ships an inert feature when missed.
+Editing the row filter that narrows a lookup-backed select's choices — the last
+unauthored slot of the lookup vocabulary. **The file holds** why the filter's
+scope is a table row rather than a case row, which two leaf sources are dormant
+by default, and which extension point to build on instead of a parallel one.
 
 ### 3 — SA, MCP, and docs for conditions, operations, and lookups
 
@@ -816,7 +895,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [1 case-operation authoring](complex-app/01-conditions-and-operations-authoring.md) | — |
-| [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
+| [2 lookup-row filter authoring](complex-app/02-project-data-workspace.md) | 1 |
 | [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 1, 2 |
 | [4 case tiles](complex-app/04-case-tiles.md) | — |
 | [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
@@ -832,7 +911,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
 
-Six units have no outstanding prerequisites and can start in any order: 1, 2, 4,
+Five units have no outstanding prerequisites and can start in any order: 1, 4,
 5, 8, and 14. They are the independent entry points — every other unit descends
 from one of them.
 
