@@ -757,9 +757,11 @@ Binding wire facts:
 This is the one split where emission lands before its authoring surface, and it
 does not contradict the no-speculative-machinery rule: the consumer ships in the
 same PR. The oracle fixtures are that consumer, and the bar is the standing one —
-every emitted byte is asserted against a named CommCare suite fixture under
-`commcare-hq/corehq/apps/app_manager/tests/data/suite/`, so the question answered
-is "would HQ's importer accept these bytes", not "does the shape look right".
+every emitted byte is asserted against the CommCare tile fixtures —
+`suite/suite-case-tiles.xml`, `suite/case_tile_template_format.xml`, and
+`suite/case-tile-case-detail.xml` under
+`commcare-hq/corehq/apps/app_manager/tests/data/` — so the question answered is
+"would HQ's importer accept these bytes", not "does the shape look right".
 Smart links are excluded elsewhere precisely because they would have *no*
 consumer at all.
 
@@ -1380,8 +1382,9 @@ from two places without duplicating its content.
 
 Verify claim-command resolution against current HQ fixtures **first** — the claim
 push is the part most likely to have drifted, and the emitted frames are asserted
-against the endpoint fixtures under
-`commcare-hq/corehq/apps/app_manager/tests/data/suite/`.
+against `session_endpoint_remote_request.xml` and
+`session_endpoint_remote_request_multi_select.xml` under
+`commcare-hq/corehq/apps/app_manager/tests/data/`.
 
 Endpoints depend on durable released deployments, use the selected server, reject
 flattened modules, preserve tenant authorization even when relevancy is bypassed,
@@ -1467,6 +1470,11 @@ operations. Add preview repeat materialization, integer limits 1–100,
 empty-selection behavior, and cross-page/search/back persistence.
 
 Binding facts:
+
+The emitted datums and claim POST are asserted against
+`suite/multi_select_case_list/basic_remote_request.xml` and
+`session_endpoint_remote_request_multi_select.xml` under
+`commcare-hq/corehq/apps/app_manager/tests/data/`.
 
 - **Multi-select.** The short detail carries `multi_select` (Boolean) and
   `max_select_value` (Integer, default 100); emission swaps the datum class to
