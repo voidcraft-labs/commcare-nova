@@ -72,7 +72,6 @@ describe("case-list read projections", () => {
 		// overlap — so a read that showed the layout without the placements
 		// would force a guess. The summary is the edit turn's only read.
 		const base = independentlyArrangedFixture();
-		const config = base.doc.modules[MOD_A].caseListConfig;
 		const fixture = {
 			...base,
 			doc: {
@@ -82,7 +81,7 @@ describe("case-list read projections", () => {
 					[MOD_A]: {
 						...base.doc.modules[MOD_A],
 						caseListConfig: {
-							...config,
+							searchInputs: [],
 							columns: [
 								plainColumn(A, "case_name", "Patient", {
 									listOrder: "z",
