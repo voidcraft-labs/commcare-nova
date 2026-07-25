@@ -29,6 +29,7 @@ import {
 	APP_STREAM_CHANNEL,
 	CHAT_STREAM_CHANNEL,
 	LOOKUP_STREAM_CHANNEL,
+	ORGANIZATION_STREAM_CHANNEL,
 	PRESENCE_CHANNEL,
 } from "./pg";
 
@@ -51,6 +52,16 @@ const chatSubscribers = new Map<string, Set<() => void>>();
  * Revisions remain decimal strings end to end because the Project clock is a
  * Postgres bigint and can exceed JavaScript's safe-integer range. */
 const lookupSubscribers = new Map<string, Set<(revision: string) => void>>();
+
+/** appId → the organization readers open for it in this process.
+ * Keyed by APP rather than Project, because an organization belongs to one app
+ * while lookup tables are shared across a Project's apps. Revisions stay
+ * decimal strings for the same reason lookup revisions do: the clock is a
+ * Postgres bigint and can exceed JavaScript's safe-integer range. */
+const organizationSubscribers = new Map<
+	string,
+	Set<(revision: string) => void>
+>();
 
 /** The dedicated LISTEN connection; `null` until the first subscriber builds it. */
 let client: Client | null = null;
@@ -216,6 +227,9 @@ function dispatchCatchUpAll(): void {
 	for (const set of lookupSubscribers.values()) {
 		for (const onPoke of set) safeCall(() => onPoke("0"));
 	}
+	for (const set of organizationSubscribers.values()) {
+		for (const onPoke of set) safeCall(() => onPoke("0"));
+	}
 }
 
 function onNotification(msg: { channel: string; payload?: string }): void {
@@ -261,6 +275,20 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 	}
 	const appId = parsed.appId;
 	if (typeof appId !== "string") return;
+	if (msg.channel === ORGANIZATION_STREAM_CHANNEL) {
+		const revision = parsed.revision;
+		if (
+			appId.length === 0 ||
+			typeof revision !== "string" ||
+			!/^(?:0|[1-9]\d*)$/.test(revision) ||
+			BigInt(revision) > LOOKUP_REVISION_MAX
+		)
+			return;
+		const set = organizationSubscribers.get(appId);
+		if (set === undefined) return;
+		for (const onPoke of set) safeCall(() => onPoke(revision));
+		return;
+	}
 	if (msg.channel === APP_STREAM_CHANNEL) {
 		const seq = typeof parsed.seq === "number" ? parsed.seq : 0;
 		dispatch(appId, (sub) => sub.onMutationPoke(seq));
@@ -287,6 +315,7 @@ async function establish(): Promise<void> {
 		await c.query(`LISTEN ${PRESENCE_CHANNEL}`);
 		await c.query(`LISTEN ${CHAT_STREAM_CHANNEL}`);
 		await c.query(`LISTEN ${LOOKUP_STREAM_CHANNEL}`);
+		await c.query(`LISTEN ${ORGANIZATION_STREAM_CHANNEL}`);
 	} catch (err) {
 		/* A throw AFTER a successful connect (a LISTEN query failing) would
 		 * otherwise leak a live connection that was never latched into `client`
@@ -463,6 +492,38 @@ export function subscribeLookupProject(
 }
 
 /**
+ * Subscribe to one app's organization invalidations. The callback gets the
+ * exact decimal revision from Postgres; `"0"` is the advisory catch-up
+ * sentinel after an initial connect or reconnect, and in either case the
+ * subscriber re-reads the authoritative snapshot rather than trusting the
+ * number.
+ */
+export function subscribeAppOrganization(
+	appId: string,
+	onPoke: (revision: string) => void,
+): () => void {
+	torndown = false;
+	let set = organizationSubscribers.get(appId);
+	if (set === undefined) {
+		set = new Set();
+		organizationSubscribers.set(appId, set);
+	}
+	set.add(onPoke);
+
+	void ensureConnected();
+
+	let unsubscribed = false;
+	return () => {
+		if (unsubscribed) return;
+		unsubscribed = true;
+		const current = organizationSubscribers.get(appId);
+		if (current === undefined) return;
+		current.delete(onPoke);
+		if (current.size === 0) organizationSubscribers.delete(appId);
+	};
+}
+
+/**
  * Tear down the dedicated LISTEN connection and cancel any pending reconnect.
  * For tests (and process teardown): drops every subscriber, ends the client, and
  * cancels the backoff timer so nothing survives into the next per-test database.
@@ -479,6 +540,7 @@ export async function closeStreamListener(): Promise<void> {
 	subscribers.clear();
 	chatSubscribers.clear();
 	lookupSubscribers.clear();
+	organizationSubscribers.clear();
 	// Await any in-flight connect so a client it establishes can't latch AFTER
 	// this returns (its own `torndown` check discards it, but awaiting closes the
 	// race window against the next test's connection).

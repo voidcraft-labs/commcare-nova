@@ -97,6 +97,10 @@ export interface ReconcilerRuntime {
 	 *  every dev session ignoring frames + discarding PUT outcomes forever. */
 	suspend: () => void;
 	readonly presenceSubs: Set<(roster: PresenceFrame) => void>;
+	/** Organization pokes carry no payload and no cursor, so they need no
+	 *  broker and no late-subscriber replay — a subscriber that arrives after a
+	 *  poke re-reads on its own mount anyway. */
+	readonly organizationSubs: Set<() => void>;
 	readonly lookupManifestBroker: LookupManifestBroker;
 	readonly projectScopeResetRegistry: ProjectScopeResetRegistry;
 }
@@ -124,6 +128,7 @@ export function createReconcilerRuntime(
 	const appIdBox: { current: string | undefined } = { current: init.appId };
 	const projectScopeId = `builder-project-scope-${++nextProjectScopeId}`;
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
+	const organizationSubs = new Set<() => void>();
 	const lookupManifestBroker = createLookupManifestBroker();
 	const projectScopeResetRegistry = createProjectScopeResetRegistry();
 	let presenceMayBeRetained = false;
@@ -324,6 +329,10 @@ export function createReconcilerRuntime(
 			} catch {
 				/* a malformed presence frame is best-effort — skip it. */
 			}
+		});
+		es.addEventListener("organization-revision", () => {
+			if (es !== eventSource) return;
+			for (const cb of [...organizationSubs]) cb();
 		});
 		es.addEventListener("lookup-revision", (ev) => {
 			if (es !== eventSource) return;
@@ -710,6 +719,7 @@ export function createReconcilerRuntime(
 		activate,
 		suspend,
 		presenceSubs,
+		organizationSubs,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
 	};
@@ -771,6 +781,10 @@ export function ReconcilerProvider({
 						subscribePresence: (cb: (roster: PresenceFrame) => void) => {
 							runtime.presenceSubs.add(cb);
 							return () => runtime.presenceSubs.delete(cb);
+						},
+						subscribeAppOrganization: (cb: () => void) => {
+							runtime.organizationSubs.add(cb);
+							return () => runtime.organizationSubs.delete(cb);
 						},
 						subscribeLookupManifest: (
 							cb: (manifest: LookupManifest | null) => void,

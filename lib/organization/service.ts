@@ -13,7 +13,7 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { keyBetween } from "@/lib/doc/order/keys";
+import { keysForSlot } from "@/lib/doc/order/keys";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	ancestorLevels,
@@ -177,16 +177,35 @@ function subtreeIds(tree: LockedTree, rootId: string): string[] {
 	return collected;
 }
 
-/** The order key that places a row after `afterSiblingId` among its siblings. */
+/**
+ * The order key that places a row after `afterSiblingId` among its siblings.
+ *
+ * Routed through `keysForSlot`, the collision-safe layer every insert-between
+ * gesture in the repo uses, rather than a bare `keyBetween`. Nova's own writes
+ * cannot produce two siblings with the same key — each mints against the
+ * locked set, and the state-row lock serializes concurrent creates — but
+ * `keyBetween` THROWS on a numerically degenerate interval, so a tie from any
+ * source at all (a hand-repaired row, a future import path) would turn an
+ * ordinary insert into a 500 instead of a placement. `keysForSlot` widens past
+ * the tied run to a distinct bound, which is the whole reason it exists.
+ */
 function orderKeyForSlot(
 	tree: LockedTree,
 	parentId: string | null,
 	afterSiblingId: string | undefined,
+	/** Excluded from the sibling set — a row being moved within its own parent
+	 *  must not be its own neighbour. */
+	movingId?: string,
 ): string {
-	const siblings = tree.childrenOf.get(parentId) ?? [];
+	const siblings = (tree.childrenOf.get(parentId) ?? []).filter(
+		(row) => row.id !== movingId,
+	);
 	if (afterSiblingId === undefined) {
-		const last = siblings.at(-1);
-		return keyBetween(last?.order_key ?? null, null);
+		return keysForSlot(
+			siblings.map((row) => row.order_key),
+			siblings.length,
+			1,
+		)[0];
 	}
 	const index = siblings.findIndex((row) => row.id === afterSiblingId);
 	if (index === -1) {
@@ -195,12 +214,11 @@ function orderKeyForSlot(
 			"The place you asked to put this one after isn't in the same part of the organization. Reload to get the latest places, then try again.",
 		);
 	}
-	const before = siblings[index];
-	const after = siblings[index + 1];
-	// `keysForSlot` is the collision-safe layer for entities that can share an
-	// order key; location rows cannot, because every insert mints its key
-	// against the locked sibling set, so the plain interval is exact.
-	return keyBetween(before.order_key, after?.order_key ?? null);
+	return keysForSlot(
+		siblings.map((row) => row.order_key),
+		index + 1,
+		1,
+	)[0];
 }
 
 /**
@@ -470,6 +488,7 @@ export async function moveLocation(
 			tree,
 			target.parentId,
 			target.afterSiblingId,
+			locationId,
 		);
 		if (
 			current.parent_id === target.parentId &&

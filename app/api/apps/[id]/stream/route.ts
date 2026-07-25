@@ -23,6 +23,11 @@
  *
  * Frames:
  *   event: mutation  id:<seq>  — one committed batch (the `AcceptedMutationDoc`).
+ *   event: organization-revision — a POKE carrying only the app's
+ *     organization clock. Unlike the lookup frame this is deliberately not a
+ *     manifest: the client already reads the whole organization through its own
+ *     authorized action, so the notification stays out of the data plane
+ *     entirely and there is no payload to get wrong.
  *   event: lookup-revision     — the Project's complete authoritative lookup
  *                                manifest. Seq-less; the mutation cursor stays
  *                                exclusively on `mutation` frames.
@@ -48,6 +53,7 @@ import { createCoalescedStreamPump } from "@/lib/db/coalescedStreamPump";
 import { RETENTION_COUNT } from "@/lib/db/constants";
 import { getAppDb } from "@/lib/db/pg";
 import {
+	subscribeAppOrganization,
 	subscribeAppStream,
 	subscribeLookupProject,
 } from "@/lib/db/streamListener";
@@ -242,6 +248,10 @@ function openStream(args: {
 				 * reloads-and-closes before any subscribe). */
 				let mutationPump: ReturnType<typeof createCoalescedStreamPump> | null =
 					null;
+				let organizationPump: ReturnType<
+					typeof createCoalescedStreamPump
+				> | null = null;
+				let unsubscribeOrganization: (() => void) | null = null;
 				let lookupPump: ReturnType<typeof createCoalescedStreamPump> | null =
 					null;
 				let unsubscribeApp: (() => void) | null = null;
@@ -274,6 +284,8 @@ function openStream(args: {
 					closed = true;
 					mutationPump?.close();
 					lookupPump?.close();
+					organizationPump?.close();
+					unsubscribeOrganization?.();
 					unsubscribeApp?.();
 					unsubscribeLookup?.();
 					if (cadence) clearInterval(cadence);
@@ -478,6 +490,23 @@ function openStream(args: {
 						},
 					});
 
+					/* The organization's clock. A poke rather than a snapshot: the
+					 * client re-reads through its own authorized action, so the
+					 * notification is never the data plane — the same rule the lookup
+					 * frame follows, minus the manifest it does not need. */
+					organizationPump = createCoalescedStreamPump({
+						async run() {
+							if (closed) return;
+							send("organization-revision", {});
+						},
+						onError(err) {
+							log.warn("[stream] organization pump error (will retry)", {
+								appId,
+								err: err instanceof Error ? err.message : String(err),
+							});
+						},
+					});
+
 					/* If the cursor fell below the retention window, the client is too far
 					 * behind to replay economically. The log is PERMANENT so the entries DO
 					 * exist, but replaying thousands of batches is slower than a single
@@ -501,6 +530,9 @@ function openStream(args: {
 						},
 					);
 					runAfterAppStreamSubscribeTestHook();
+					unsubscribeOrganization = subscribeAppOrganization(appId, () => {
+						organizationPump?.poke();
+					});
 					unsubscribeLookup = subscribeLookupProject(
 						lookupScope.projectId,
 						() => {
