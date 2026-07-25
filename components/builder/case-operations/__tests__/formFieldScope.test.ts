@@ -69,7 +69,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		uuid: BED_COUNT,
 		id: "bed_count",
 		label: "Bed count",
-		kind: "integer",
+		kind: "int",
 		dataType: "int",
 		repeat: BEDS,
 	},

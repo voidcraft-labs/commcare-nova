@@ -24,9 +24,11 @@ import {
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 	type Form,
+	formFieldCanKeyCreate,
 	isCaseFirstModule,
 	MAX_CASE_OPERATION_TEXT_LENGTH,
 	type Module,
+	operationCanReadFormField,
 	orderedCaseOperations,
 	planCaseRetype,
 	prepareCaseOperationTextValue,
@@ -336,12 +338,7 @@ function validateOperation(
 		operation.target.idFrom !== undefined
 	) {
 		const field = ctx.fields.get(operation.target.idFrom);
-		if (
-			field === undefined ||
-			(field.kind !== "hidden" &&
-				(field.dataType === undefined ||
-					(field.dataType !== "text" && field.dataType !== "single_select")))
-		) {
+		if (field === undefined || !formFieldCanKeyCreate(field)) {
 			errors.push(
 				opError(
 					ctx,
@@ -350,7 +347,7 @@ function validateOperation(
 					"An authored create id must come from a scalar string-valued field in this form; a multi-select answer is an array in Nova and cannot be an identity key.",
 				),
 			);
-		} else if (field.repeat !== repeat) {
+		} else if (!operationCanReadFormField(field.repeat, repeat)) {
 			errors.push(
 				opError(
 					ctx,
@@ -854,8 +851,8 @@ function validateOperationTerm(
 	}
 
 	const fieldRepeat = field.repeat;
-	if (fieldRepeat === undefined) return;
 	const operationRepeat = operation.forEach?.repeat;
+	if (operationCanReadFormField(fieldRepeat, operationRepeat)) return;
 	if (operationRepeat === undefined) {
 		errors.push(
 			opError(

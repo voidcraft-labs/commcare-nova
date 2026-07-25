@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
+import { CASE_CHANGES_SEED } from "../lib/caseChangesSeed";
 import { CASE_WORKSPACE_SEED } from "../lib/caseWorkspaceSeed";
 import { expect, test } from "../lib/fixtures";
 
@@ -48,6 +49,10 @@ interface SeedManifest {
 			condition: string;
 			tileResults: string;
 		};
+	};
+	caseChanges: {
+		appId: string;
+		route: string;
 	};
 }
 
@@ -1487,6 +1492,77 @@ test.describe("authenticated builder", () => {
 				page.getByText(/This tile uses 6 columns and 3 rows/),
 			).toBeVisible();
 		});
+	test("a refused keyboard reorder of a case change says why, and names it", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await page.goto(seed.caseChanges.route);
+
+		await expect(
+			page.getByRole("heading", { name: "Case changes", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		// Rows read as sentences, in the order the runtime applies them.
+		const list = page.getByRole("list", {
+			name: "Case changes in the order they happen",
+		});
+		const rows = list.getByRole("listitem");
+		await expect(rows).toHaveCount(3);
+		await expect(rows.nth(0)).toContainText("Create a new referral case");
+		await expect(rows.nth(2)).toContainText(
+			`Update the referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
+		);
+
+		// The handle is the keyboard alternative to dragging, and its name
+		// states where in the sequence this change is.
+		const fileHandle = page.getByRole("button", {
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 3 of 3`),
+		});
+		await fileHandle.focus();
+
+		// Home would put it ahead of the create whose case it changes. The
+		// planner refuses, and the refusal NAMES the change it is about
+		// rather than the key silently doing nothing.
+		await page.keyboard.press("Home");
+		const refusal = page.getByRole("alert");
+		await expect(refusal).toContainText(
+			`${CASE_CHANGES_SEED.ids.file} did not move`,
+		);
+		// The moved change is the one whose reference would break, so the
+		// sentence names what it DEPENDS on rather than naming it back.
+		await expect(refusal).toContainText(
+			`This change uses the case \u201c${CASE_CHANGES_SEED.ids.create}\u201d makes`,
+		);
+		// Nothing moved: the refusal came BEFORE the gesture, not after a
+		// commit that had to be undone.
+		await expect(rows.nth(0)).toContainText("Create a new referral case");
+		await expect(rows.nth(2)).toContainText(
+			`Update the referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
+		);
+
+		// The same keyboard path still moves a change nothing depends on.
+		const noteHandle = page.getByRole("button", {
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of 3`),
+		});
+		await noteHandle.focus();
+		await page.keyboard.press("ArrowUp");
+		await expect(
+			page.getByRole("button", {
+				name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 1 of 3`),
+			}),
+		).toBeVisible();
+
+		// Preview from a configuration URL runs the form the changes belong
+		// to, and leaves the authoring URL alone so exiting returns here.
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		await expect(
+			page.getByRole("heading", { name: "Case changes", level: 1 }),
+		).toBeHidden();
+		expect(new URL(page.url()).pathname).toBe(seed.caseChanges.route);
+		await page.getByRole("button", { name: "Back to edit" }).click();
+		await expect(
+			page.getByRole("heading", { name: "Case changes", level: 1 }),
+		).toBeVisible();
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

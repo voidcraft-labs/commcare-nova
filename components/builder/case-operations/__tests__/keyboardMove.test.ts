@@ -36,6 +36,7 @@ describe("planKeyboardMove", () => {
 			key: "ArrowUp",
 			verdicts: allOk(3),
 			nameOf,
+			dependsOn: [],
 		});
 		expect(outcome).toEqual({
 			kind: "move",
@@ -52,6 +53,7 @@ describe("planKeyboardMove", () => {
 				key: "Home",
 				verdicts: allOk(3),
 				nameOf,
+				dependsOn: [],
 			}),
 		).toMatchObject({ kind: "move", toIndex: 0 });
 		expect(
@@ -61,6 +63,7 @@ describe("planKeyboardMove", () => {
 				key: "End",
 				verdicts: allOk(3),
 				nameOf,
+				dependsOn: [],
 			}),
 		).toMatchObject({ kind: "move", toIndex: 2 });
 	});
@@ -72,6 +75,7 @@ describe("planKeyboardMove", () => {
 			key: "ArrowUp",
 			verdicts: allOk(2),
 			nameOf,
+			dependsOn: [],
 		});
 		expect(outcome).toEqual({
 			kind: "at-edge",
@@ -79,7 +83,7 @@ describe("planKeyboardMove", () => {
 		});
 	});
 
-	it("speaks a dependency refusal and names the consumer", () => {
+	it("names the consumer when moving a producer would break it", () => {
 		const verdicts = new Map<number, CaseOperationMoveVerdict>([
 			[0, { ok: false, reason: "dependent-reference", blockingUuids: [B] }],
 			[1, { ok: true }],
@@ -90,12 +94,36 @@ describe("planKeyboardMove", () => {
 			key: "ArrowUp",
 			verdicts,
 			nameOf,
+			dependsOn: [],
 		});
 		expect(outcome?.kind).toBe("refused");
 		// The name of the change that did not move leads, then the reason,
 		// then the change the reason is about.
 		expect(outcome?.announcement).toBe(
 			"create_referral did not move earlier. “update_client” uses this change's result, so this has to stay before it.",
+		);
+	});
+
+	it("names what it depends on when moving a CONSUMER would break itself", () => {
+		// The planner answers with the operations whose references would
+		// break, which here is the moved one itself: dragging a consumer
+		// ahead of what it consumes breaks its OWN reference. Naming it back
+		// to the author would read as "this change uses itself", so the
+		// sentence names its dependency instead.
+		const verdicts = new Map<number, CaseOperationMoveVerdict>([
+			[0, { ok: false, reason: "dependent-reference", blockingUuids: [C] }],
+			[1, { ok: true }],
+		]);
+		const outcome = planKeyboardMove({
+			order: [A, C],
+			index: 1,
+			key: "Home",
+			verdicts,
+			nameOf,
+			dependsOn: [A],
+		});
+		expect(outcome?.announcement).toBe(
+			"close_visit did not move earlier. This change uses the case “create_referral” makes, so it has to stay after it.",
 		);
 	});
 
@@ -110,6 +138,7 @@ describe("planKeyboardMove", () => {
 			key: "ArrowUp",
 			verdicts,
 			nameOf,
+			dependsOn: [],
 		});
 		expect(outcome?.kind).toBe("refused");
 		// It is a property of the submitted form, not a mistake the author
@@ -137,6 +166,7 @@ describe("planKeyboardMove", () => {
 			key: "ArrowUp",
 			verdicts,
 			nameOf,
+			dependsOn: [],
 		});
 		expect(outcome?.announcement).toContain("another change");
 		expect(outcome?.announcement).not.toContain("undefined");
@@ -150,6 +180,7 @@ describe("planKeyboardMove", () => {
 				key: "ArrowDown",
 				verdicts: allOk(1),
 				nameOf,
+				dependsOn: [],
 			}),
 		).toBeUndefined();
 	});

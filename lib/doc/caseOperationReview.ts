@@ -41,6 +41,7 @@ import {
 	type CaseOperationMutationPlan,
 	moveCaseOperationMutation,
 } from "./caseOperationMutations";
+import { caseOperationDependencyUuids } from "./caseOperationOrder";
 
 /**
  * How an operation is named in a sentence about it. Returns `undefined`
@@ -162,6 +163,32 @@ function predicateReferences(predicate: Predicate, uuid: Uuid): boolean {
 		if (node.kind === "id-of" && node.opUuid === uuid) found = true;
 	});
 	return found;
+}
+
+/**
+ * The creates this operation consumes, in execution order.
+ *
+ * The inverse of `caseOperationDependencyOccurrences`, and the other half
+ * of what a refusal needs to read correctly. `dependencyOrderViolations`
+ * answers with the operations whose REFERENCES would break, which
+ * includes the moved operation itself whenever a consumer is dragged
+ * ahead of what it consumes — so a refusal about that move has to name
+ * what the moved operation depends on, not the operation itself.
+ *
+ * Reads the planner's own `caseOperationDependencyUuids` rather than
+ * walking the operation again, so the two cannot disagree about what a
+ * dependency is.
+ */
+export function caseOperationDependencyTargets(
+	form: Form,
+	uuid: Uuid,
+): readonly Uuid[] {
+	const ordered = orderedCaseOperations(form);
+	const operation = ordered.find((candidate) => candidate.uuid === uuid);
+	if (operation === undefined) return [];
+	return inExecutionOrder(ordered, [
+		...caseOperationDependencyUuids(operation),
+	]);
 }
 
 export type CaseOperationMoveVerdict =

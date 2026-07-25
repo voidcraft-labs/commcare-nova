@@ -128,7 +128,11 @@ export function CaseOperationsCanvas({
 				 * without it the gesture reads as a no-op. The polite region
 				 * carries only outcomes that DID something. */
 				setRefusal(
-					`${view.nameOf(uuid) ?? "This change"} did not move. ${moveRefusalReason(verdict, view.nameOf)}`,
+					`${view.nameOf(uuid) ?? "This change"} did not move. ${moveRefusalReason(
+						verdict,
+						view.nameOf,
+						{ moved: uuid, dependsOn: view.dependenciesOf(uuid) },
+					)}`,
 				);
 				return false;
 			}
@@ -177,6 +181,7 @@ export function CaseOperationsCanvas({
 			key,
 			verdicts: view.moveVerdicts(uuid),
 			nameOf: view.nameOf,
+			dependsOn: view.dependenciesOf(uuid),
 		});
 		if (outcome === undefined) return;
 		if (outcome.kind === "move") {
@@ -339,7 +344,12 @@ export function CaseOperationsCanvas({
 
 			{pendingDrop?.refused === true && (
 				<p className="mb-4 text-[13px] leading-relaxed text-nova-rose">
-					{dragRefusalText(dragVerdictsRef.current, pendingDrop.toIndex, view)}
+					{dragRefusalText(
+						dragVerdictsRef.current,
+						pendingDrop.toIndex,
+						pendingDrop.itemKey as Uuid,
+						view,
+					)}
 				</p>
 			)}
 
@@ -369,12 +379,17 @@ function guardNames(
 function dragRefusalText(
 	verdicts: ReadonlyMap<number, CaseOperationMoveVerdict> | null,
 	toIndex: number,
+	moved: Uuid | undefined,
 	view: ReturnType<typeof useCaseOperations>,
 ): string {
 	const verdict = verdicts?.get(toIndex);
-	return verdict === undefined || verdict.ok
-		? "That position is not available."
-		: moveRefusalReason(verdict, view.nameOf);
+	if (verdict === undefined || verdict.ok || moved === undefined) {
+		return "That position is not available.";
+	}
+	return moveRefusalReason(verdict, view.nameOf, {
+		moved,
+		dependsOn: view.dependenciesOf(moved),
+	});
 }
 
 function OperationDragPreview({ label }: { readonly label: string }) {

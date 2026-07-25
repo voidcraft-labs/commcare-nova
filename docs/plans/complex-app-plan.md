@@ -226,6 +226,50 @@ An owner expression's result lands verbatim and unvalidated in the case block �
 the only server-side check is length ≤ 255. Typed owner addressing is entirely
 Nova's guarantee.
 
+Operations are authored on the form's own URL — `/{formUuid}/operations`, with
+`/{operationUuid}` selecting one — reached from the form settings panel, whose
+row states how many changes the form makes. The list is the answer to "what does
+submitting this form do to the case universe?", the question the platform's own
+question-scoped surface never puts on a screen: one row per change, in execution
+order, each a sentence (`operationSentence.ts`, a display projection that forks
+no semantics). A row shows the conditions it inherits from earlier changes at
+rest, not on hover.
+
+**Both reorder gestures read one map.** `caseOperationMoveVerdicts`
+(`lib/doc/caseOperationReview.ts`) asks the move planner about every destination
+at once; drag feeds it to `useReorderableList`'s `canDropAtIndex` — capturing the
+source on the handle's pointer-down, so the first pointer move is already gated —
+and the keyboard asks the same map before committing. Neither gesture can commit
+what the other would refuse, and `view.move` re-plans at commit so a peer edit
+mid-gesture cannot slip one through. A refused keyboard move ANNOUNCES why and
+names the operations involved (`keyboardMove.ts`), which is the whole point: a
+pointer author reads a refusal off a drop zone that will not open, and a
+keyboard author would otherwise get a key that silently does nothing. Refusals
+go to `role="alert"` (the screen is otherwise unchanged, so the press would read
+as a no-op) and the polite region carries only outcomes that did something.
+`dependent-reference` and `execution-order` stay distinct: the second is a
+property of the submitted form, not the author's mistake, and never says
+otherwise.
+
+The rail owns the discrete choices — name, action, case type, target, identity
+key, multiplicity, retype, removal — and the centre canvas owns every recursive
+AST, the same split the case-list workspace keeps. Adding is chooser-first and
+lands a complete operation the commit gate already accepts
+(`components/builder/case-operations/seeds.ts`, proved against
+`mutationCommitVerdict`). Removal asks `removalPlan` first and, when something
+depends on the operation, names each consumer and the exact slot holding the
+reference instead of offering a delete that would bounce.
+
+Which form answers an operation may read is ONE rule with two callers:
+`lib/domain/caseOperationScope.ts` holds `operationCanReadFormField` and
+`formFieldCanKeyCreate`, the validator calls them, and the answer pickers apply
+them — so the offered set cannot drift from the accepted set. `field` terms,
+`acting-user`, `unowned`, and `id-of` become authorable in the shared expression
+editor only when a surface supplies `formFields` / `operationScope`; absent means
+unauthorable, which is what keeps every other surface's round-trip-only behavior
+exactly as it was (`operationScopeFailsClosed.test.ts` pins it).
+`content/docs/case-changes.mdx` is the user-facing guide.
+
 ### Case identity storage
 
 The whole case-identity family — `cases.case_id`, `cases.parent_case_id`,
@@ -770,21 +814,11 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Sixteen units, one file each. **Every entry below is a pointer, not a summary of
+Fifteen units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
 [`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
-
-### 1 — Case-operation authoring
-
-[`complex-app/01-conditions-and-operations-authoring.md`](complex-app/01-conditions-and-operations-authoring.md)
-· depends on nothing · blocks unit 3
-
-The builder authoring surface for the case-operation vocabulary that already
-validates, emits, and previews. **The file holds** the 20-operation stress case
-and its interaction model, the planner refusals the reorder UI must surface
-before the gesture, and which vocabulary unit 1 deliberately excludes.
 
 ### 2 — Project data tables workspace
 
@@ -800,7 +834,7 @@ silently ships an inert feature when missed.
 ### 3 — SA, MCP, and docs for conditions, operations, and lookups
 
 [`complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md)
-· depends on units 1 and 2 · blocks nothing
+· depends on unit 2 · blocks nothing
 
 Expose the shipped conditions, operations, and lookup vocabulary through both the
 camelCase chat tools and the snake_case MCP projection, with public docs and one
@@ -955,9 +989,8 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [1 case-operation authoring](complex-app/01-conditions-and-operations-authoring.md) | — |
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
-| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 1, 2 |
+| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 2 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 5, 11 |
@@ -972,7 +1005,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
 
-Six units have no outstanding prerequisites and can start in any order: 1, 2, 4,
+Five units have no outstanding prerequisites and can start in any order: 2, 4,
 5, 8, and 14. They are the independent entry points — every other unit descends
 from one of them.
 

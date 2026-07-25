@@ -35,6 +35,7 @@ import {
 	type CaseOperationDependency,
 	type CaseOperationMoveVerdict,
 	caseOperationDependencyOccurrences,
+	caseOperationDependencyTargets,
 	caseOperationMoveVerdicts,
 } from "../caseOperationReview";
 import type { Uuid } from "../types";
@@ -53,6 +54,8 @@ export interface CaseOperationsView {
 	readonly nameOf: (uuid: Uuid) => string | undefined;
 	/** Who consumes this operation, and through which slots. */
 	readonly dependentsOf: (uuid: Uuid) => readonly CaseOperationDependency[];
+	/** The creates this operation consumes, in execution order. */
+	readonly dependenciesOf: (uuid: Uuid) => readonly Uuid[];
 	/** The move planner's answer for every candidate position. */
 	readonly moveVerdicts: (
 		uuid: Uuid,
@@ -106,6 +109,16 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 			return form === undefined
 				? []
 				: caseOperationDependencyOccurrences(form, uuid);
+		},
+		[doc, formUuid],
+	);
+
+	const dependenciesOf = useCallback(
+		(uuid: Uuid) => {
+			const form = doc.forms[formUuid];
+			return form === undefined
+				? []
+				: caseOperationDependencyTargets(form, uuid);
 		},
 		[doc, formUuid],
 	);
@@ -165,6 +178,7 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		inheritedGuards,
 		nameOf,
 		dependentsOf,
+		dependenciesOf,
 		moveVerdicts,
 		removalPlan,
 		add,

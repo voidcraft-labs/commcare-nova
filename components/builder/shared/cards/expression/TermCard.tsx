@@ -10,8 +10,10 @@
 //   - `session-context` — closed-namespace session field (`userid` /
 //     `username` / `deviceid` / `appversion`).
 //   - `session-user` — open-namespace user-data field (free-text).
-//   - `field` — stable form-field identity, preserved here but authored only
-//     by the future case-operation editor.
+//   - `field` — stable form-field identity. Offered as a real source only
+//     where the edit context supplies `formFields` (today, a case
+//     operation); everywhere else it round-trips a saved value without
+//     entering the source menu.
 //   - `literal` — primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
 //   - `table-column` remains a dormant compatibility carrier: a direct

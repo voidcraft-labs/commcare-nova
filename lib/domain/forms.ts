@@ -349,7 +349,8 @@ export const formSchema = z
 		connect: connectConfigSchema.nullable().optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 		formLinks: z.array(formLinkSchema).optional(),
-		/** Ordered, typed case effects. Dormant until the S07 runtime activation. */
+		/** Ordered, typed case effects: what one submission does to the case
+		 *  universe, in the order the runtime applies it. */
 		caseOperations: z.array(caseOperationSchema).optional(),
 		/**
 		 * Image shown on the form's menu tile — the per-form

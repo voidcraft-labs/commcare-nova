@@ -53,26 +53,58 @@ function quotedNames(
 export function moveRefusal(
 	verdict: CaseOperationMoveVerdict | undefined,
 	nameOf: CaseOperationReviewName,
+	context: {
+		readonly moved: Uuid;
+		readonly dependsOn: readonly Uuid[];
+	},
 ): string | undefined {
 	if (verdict === undefined || verdict.ok) return undefined;
-	return moveRefusalReason(verdict, nameOf);
+	return moveRefusalReason(verdict, nameOf, context);
 }
 
 /**
  * The same sentence for a verdict already known to be a refusal, so a
  * caller inside the refused branch does not have to fall back on copy
  * that could never be right.
+ *
+ * A dependency refusal comes in two shapes, and saying them the same way
+ * would misdescribe one of them. The planner answers with the operations
+ * whose REFERENCES would break, so:
+ *
+ *   - dragging a producer LATER breaks its consumers — name them;
+ *   - dragging a consumer EARLIER breaks its own references — naming it
+ *     back to the author would read as "this change uses itself", so the
+ *     sentence names what it depends on instead.
+ *
+ * `moved` and `dependsOn` are what let the copy tell those apart without
+ * deciding anything: both come from the model.
  */
 export function moveRefusalReason(
 	verdict: Extract<CaseOperationMoveVerdict, { ok: false }>,
 	nameOf: CaseOperationReviewName,
+	context: {
+		/** The operation being moved. */
+		readonly moved: Uuid;
+		/** The creates it consumes, in execution order. */
+		readonly dependsOn: readonly Uuid[];
+	},
 ): string {
-	const names = quotedNames(verdict.blockingUuids, nameOf);
 	if (verdict.reason === "dependent-reference") {
+		const consumers = verdict.blockingUuids.filter(
+			(uuid) => uuid !== context.moved,
+		);
+		if (verdict.blockingUuids.includes(context.moved)) {
+			const targets = quotedNames(context.dependsOn, nameOf);
+			return targets.length === 0
+				? "This change uses a case an earlier change makes, so it cannot move ahead of it."
+				: `This change uses the case ${targets} makes, so it has to stay after it.`;
+		}
+		const names = quotedNames(consumers, nameOf);
 		return names.length === 0
 			? "Something else here uses this change's result, so it has to stay earlier."
 			: `${names} uses this change's result, so this has to stay before it.`;
 	}
+	const names = quotedNames(verdict.blockingUuids, nameOf);
 	return names.length === 0
 		? "The submitted form cannot carry the changes in this order."
 		: `The submitted form cannot carry this order: it would put this change on the wrong side of ${names}.`;

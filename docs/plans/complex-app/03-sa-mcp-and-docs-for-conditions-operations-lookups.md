@@ -2,7 +2,7 @@
 
 **PR:** `Expose conditions, operations, and lookups to the SA and MCP`
 
-**Depends on:** units 1 and 2. · **Blocks:** nothing.
+**Depends on:** unit 2. · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the three-surfaces rule
 > and the identity contract there are what this unit implements — and

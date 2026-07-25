@@ -2,27 +2,25 @@
 //
 // Which of a form's answers one case operation may read.
 //
-// This is the editor half of a commit-gate rule, and it exists so the
-// two can never disagree. `caseOperations.ts::validateOperationTerm`
-// refuses a `field` reference whose repeat scope does not match the
-// operation's:
-//
-//   - a singular operation cannot read an answer that has one value per
-//     repeat iteration (which value would it mean?);
-//   - a repeated operation may read repeated answers only from the exact
-//     repeat it runs over.
-//
-// So the picker is handed exactly the admissible answers rather than the
-// whole form, and no sequence of choices can author a reference the gate
-// would bounce. The same walk feeds the identity-key picker, which is
-// narrower still: an authored create id must be a scalar string.
+// The rules themselves are NOT here: `operationCanReadFormField` and
+// `formFieldCanKeyCreate` live in `lib/domain/caseOperationScope.ts` and
+// the validator calls the same two functions
+// (`rules/caseOperations.ts::validateOperationTerm` and the identity-key
+// arm of `validateOperation`). This module only applies them to a form's
+// answers, so the picker offers exactly what the commit gate accepts and
+// there is no second implementation to keep in step.
 //
 // Pure over `FormFieldEntry[]` (`lib/doc/hooks/useFormFieldEntries`), so
-// the rules are unit-testable without a document or a render.
+// the application is unit-testable without a document or a render.
 
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
 import type { FormFieldEntry } from "@/lib/doc/hooks/useFormFieldEntries";
-import type { CaseOperation, Uuid } from "@/lib/domain";
+import {
+	type CaseOperation,
+	formFieldCanKeyCreate,
+	operationCanReadFormField,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	type Predicate,
 	type Term,
@@ -58,8 +56,7 @@ export function operationFormFieldDecls(
 	return entries
 		.filter(
 			(entry) =>
-				carriesAnswer(entry) &&
-				(entry.repeat === undefined || entry.repeat === repeat),
+				carriesAnswer(entry) && operationCanReadFormField(entry.repeat, repeat),
 		)
 		.map(declOf);
 }
@@ -74,11 +71,13 @@ export function identityKeyFieldDecls(
 	repeat: Uuid | undefined,
 ): readonly EditorFormFieldDecl[] {
 	return entries
-		.filter((entry) => {
-			if (entry.repeat !== repeat) return false;
-			if (entry.kind === "hidden") return true;
-			return entry.dataType === "text" || entry.dataType === "single_select";
-		})
+		.filter(
+			(entry) =>
+				// Stricter than a plain read: the key must come from the create's
+				// OWN repeat, so a root answer cannot key a repeated create — two
+				// iterations would otherwise share one identity.
+				entry.repeat === repeat && formFieldCanKeyCreate(entry),
+		)
 		.map(declOf);
 }
 

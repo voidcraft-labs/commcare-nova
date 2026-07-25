@@ -47,6 +47,11 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
+	buildCaseChangesBlueprint,
+	CASE_CHANGES_SEED,
+	caseChangesRoute,
+} from "./lib/caseChangesSeed";
+import {
 	buildCaseWorkspaceBlueprint,
 	CASE_WORKSPACE_SEED,
 	caseWorkspaceCaseRows,
@@ -396,6 +401,26 @@ async function main(): Promise<void> {
 		caseCount: caseWorkspaceCaseIds.length,
 		routes: caseWorkspaceRoutes(caseWorkspaceAppId, firstCaseId),
 	};
+	/* The case-changes fixture: a form whose changes already depend on one
+	 * another, so the smoke drives the reorder refusal in one keypress rather
+	 * than building the dependency through the UI first. */
+	const caseChangesAppId = await createApp(
+		SEED.userId,
+		seedProjectId,
+		randomUUID(),
+		{ appName: CASE_CHANGES_SEED.appName, status: "complete" },
+	);
+	await appendSyntheticBatch({
+		appId: caseChangesAppId,
+		expectedBaseSeq: 0,
+		targetDoc: toPersistableDoc(buildCaseChangesBlueprint()),
+		authority: { kind: "user", actorUserId: SEED.userId },
+	});
+	const caseChanges = {
+		appId: caseChangesAppId,
+		route: caseChangesRoute(caseChangesAppId),
+	};
+
 	/* The conversations fixture: a module-bearing app (docked chat) plus two
 	 * tall, settled conversations written through the real thread store (turn
 	 * upsert + response append, live marker cleared) — exactly the rows finished
@@ -660,6 +685,7 @@ async function main(): Promise<void> {
 				...SEED,
 				openAppId,
 				caseWorkspace,
+				caseChanges,
 				deleteAppIds,
 				threadsAppId,
 				olderThreadId,

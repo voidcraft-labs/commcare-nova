@@ -20,7 +20,7 @@ import type {
 	CaseOperationReviewName,
 } from "@/lib/doc/caseOperationReview";
 import type { Uuid } from "@/lib/doc/types";
-import { moveRefusal } from "./refusalCopy";
+import { moveRefusalReason } from "./refusalCopy";
 
 export type ReorderKey = "ArrowUp" | "ArrowDown" | "Home" | "End";
 
@@ -50,6 +50,10 @@ interface KeyboardMoveArgs {
 	readonly verdicts: ReadonlyMap<number, CaseOperationMoveVerdict>;
 	/** How each operation is named in a sentence. */
 	readonly nameOf: CaseOperationReviewName;
+	/** The creates the moved operation consumes, in execution order —
+	 *  what a refusal names when the move would break its OWN references
+	 *  rather than someone else's. */
+	readonly dependsOn: readonly Uuid[];
 }
 
 function destinationIndex(
@@ -84,7 +88,7 @@ function direction(key: ReorderKey): "earlier" | "later" {
 export function planKeyboardMove(
 	args: KeyboardMoveArgs,
 ): KeyboardMoveOutcome | undefined {
-	const { order, index, key, verdicts, nameOf } = args;
+	const { order, index, key, verdicts, nameOf, dependsOn } = args;
 	const uuid = order[index];
 	if (uuid === undefined) return undefined;
 	const name = nameOf(uuid) ?? "This change";
@@ -99,7 +103,10 @@ export function planKeyboardMove(
 
 	const verdict = verdicts.get(toIndex);
 	if (verdict !== undefined && !verdict.ok) {
-		const message = moveRefusal(verdict, nameOf) ?? "";
+		const message = moveRefusalReason(verdict, nameOf, {
+			moved: uuid,
+			dependsOn,
+		});
 		return {
 			kind: "refused",
 			// The name leads so a screen reader announces WHICH change did not

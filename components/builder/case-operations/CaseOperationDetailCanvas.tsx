@@ -33,6 +33,7 @@ import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCard
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
+import { useModuleSelectsCaseFirst } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
@@ -56,6 +57,7 @@ import {
 } from "@/lib/domain/predicate";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { CaseOperationLinks } from "./CaseOperationLinks";
 import { operationFormFieldDecls } from "./formFieldScope";
 import { operationSentence } from "./operationSentence";
 import { seedCaseOperationWrite } from "./seeds";
@@ -86,6 +88,13 @@ export function CaseOperationDetailCanvas({
 	const operation = index < 0 ? undefined : operations[index];
 
 	const fieldEntries = useFormFieldEntries(formUuid);
+	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
+	/* A link may point at "the case this form opened" only where the module
+	 * actually hands its forms one — the same rule the validator applies to
+	 * a session target. */
+	const sessionUnavailableReason = caseFirst
+		? undefined
+		: "This module does not choose a case before opening its forms, so there is no case in hand";
 	const formFields = useMemo(
 		() => operationFormFieldDecls(fieldEntries, operation?.forEach?.repeat),
 		[fieldEntries, operation?.forEach?.repeat],
@@ -408,6 +417,23 @@ export function CaseOperationDetailCanvas({
 					)}
 				</div>
 			</Section>
+
+			{operation.action !== "close" && (
+				<Section
+					title="Connections to other cases"
+					description="How this case relates to another one. A connection can also be broken here — that is what an author reaches for when a temporary grouping has served its purpose."
+				>
+					<CaseOperationLinks
+						operation={operation}
+						canEdit={canEdit}
+						targetContext={{
+							priorCreates: operationScope.creates,
+							sessionUnavailableReason,
+						}}
+						onChange={(links) => commit({ ...operation, links })}
+					/>
+				</Section>
+			)}
 		</ContentFrame>
 	);
 }
