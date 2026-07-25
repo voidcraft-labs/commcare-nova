@@ -5,7 +5,10 @@ conditions, case operations, case tiles, media capture, users and locations,
 automations, and HQ deployment.
 
 This is the only planning document for that program. It describes the system as
-it is today and the work that remains. It carries no history: what shipped, when,
+it is today and the work that remains. Its primary sources are the two research
+memos in `docs/research/` — `advanced-case-actions.md` and
+`commcare-locations.md` — which stay as evidence; where a memo and this document
+disagree, this document wins. It carries no history: what shipped, when,
 in which PR, and against which revision lives in git. When behavior changes, this
 file changes with it in the same PR.
 
@@ -36,8 +39,8 @@ around.
 **Instant migration.** A data migration reaches its final shape in one step. It
 never lands a transitional column, a dual-write, or a backfill that a later
 release finishes. Migrations are additive where they can be and immediate where
-they cannot; shipped migration code is immutable, because it must still build a
-fresh database years later.
+they cannot; a migration that has run anywhere is immutable, because it must
+still build a fresh database years later.
 
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
@@ -45,6 +48,19 @@ MCP API. There is no save/validate/release cycle and no draft state. New
 mutations follow the compatibility rules in `lib/doc/CLAUDE.md`: persisted
 mutation history must always replay, and when a stored shape changes, the same
 change migrates stored history.
+
+**Every wire unit names its fixture.** A unit that emits new wire states the
+CommCare suite fixture under
+`commcare-hq/corehq/apps/app_manager/tests/data/suite/` that its implementer and
+its reviewer assert the emitted bytes against. The bar is "would HQ's importer
+accept these bytes", never "does the shape look right", and it applies to tiles,
+form links, endpoints, and multi-select alike.
+
+**Every author-facing vocabulary ships its three surfaces.** A unit that adds
+something an author can create also ships its SA tools, its MCP projection, and
+its public docs — the three editors edit one document, so a vocabulary reachable
+from only one of them is an unfinished feature, not a smaller one. Where a
+vocabulary is deliberately builder-only, the unit says so and why.
 
 **Nova is not CommCare HQ.** HQ, CommCare Core, Formplayer, and CommCare Android
 establish only what the target wire and runtime accept, reject, or execute. Their
@@ -91,8 +107,8 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 - Deployment is a dependency graph, not a fixed "app first, warn later" list.
   Required prerequisites are checked before destructive or externally visible
-  mutation. A required dependency failure leaves the deployment `incomplete` or
-  `blocked`, never ordinary success with a warning.
+  mutation. A required dependency failure leaves the deployment `incomplete`,
+  never ordinary success with a warning.
 - A durable deployment record is keyed by Nova app, Project, HQ server, and HQ
   domain. Remote-resource mappings additionally key the Nova resource UUID and
   store ownership/adoption, remote id, pushed identity, and revision.
@@ -106,8 +122,11 @@ These decisions are closed unless the project owner explicitly reopens them.
   links are shown as durable only after their deployment is released and the URL
   has been probed.
 - Endpoint URLs derive from the selected HQ server. `lib/commcare/client.ts`
-  already resolves its base URL per credential server from `COMMCARE_SERVERS`; no
-  code hard-codes the US hostname.
+  resolves its base URL per credential server from `COMMCARE_SERVERS`. Two
+  suite-emission constants still hardcode the US host and must move to the
+  selected server before endpoints ship —
+  `lib/commcare/suite/case-search/claim.ts::CLAIM_URL_TEMPLATE` and the search
+  template in `lib/commcare/suite/case-search/searchSession.ts`.
 
 ### Deliberate target gaps
 
@@ -116,14 +135,16 @@ These decisions are closed unless the project owner explicitly reopens them.
   round-trip them, so an app carrying them would silently lose them on the
   primary delivery path.
 - **Case attachment display is link-first.** URL-property mode is the normal
-  path. The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicitly
-  capability-gated compatibility option, never the default — on a stock domain
+  path. The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicit
+  opt-in that works only on a domain carrying HQ's `MM_CASE_PROPERTIES` toggle —
+  a target-domain prerequisite recorded in the deployment record and the setup
+  artifact, never the default. On a stock domain
   `update_strategy.py::_apply_attachments_action` returns before doing anything,
   so the block parses and is then silently dropped. Inline picture presentation
   is not promised until the Web Apps HTTPS-resource path works.
 - **Smart-link authoring does not ship before Nova models data-registry search.**
   No unused emission helper lands as speculative machinery.
-- **Long-detail tiles are recorded, not planned.** Tiles apply to the short and
+- **Long-detail tiles are out of scope.** Tiles apply to the short and
   search details; the case-detail view emits a plain field list.
 - **The offline demo sandbox is out of scope.** A `.ccz` can embed a complete
   `<user-restore>`, but Web Apps never boots it — Formplayer installs the
@@ -138,8 +159,7 @@ These decisions are closed unless the project owner explicitly reopens them.
 ### One Postgres system
 
 All persistent state uses the Cloud SQL Postgres pool and the Kysely migration
-owner. There is no Firestore definition store, listener, blueprint scan, or
-identity mapping.
+owner.
 
 Lookup definitions and rows are Project-scoped. Organization and persona data are
 app-scoped unless a later approved contract says otherwise. Every table has
@@ -166,9 +186,14 @@ result wins. Missing and foreign-Project resources are indistinguishable and fai
 closed for newly introduced references — a differing message would confirm that a
 resource exists in a Project the caller cannot see.
 
-One lock order covers app commits, resource schema mutation, Project moves, and
-reference-edge writes: app row, then lookup tables in canonical UUID order, then
-thread rows.
+Two lock prefixes share one global order. App commits, Project moves, and
+reference-edge writes take the app row, then lookup tables in canonical UUID
+order, then thread rows. Lookup resource writes — row and definition edits, and
+schema governance — never take an app lock at all: their complete prefix is
+Project state, then the target table, then the exact edges
+(`lib/lookup/schemaGovernance.ts::applyLookupSchemaGovernanceInTransaction`).
+Because neither prefix ever holds a lock the other takes first, a table deletion
+racing an app commit serializes rather than deadlocking.
 
 ### Case operations and submissions
 
@@ -349,12 +374,18 @@ unlinking is always a separate operation from closing, while close may still
 carry final property writes.
 
 Reserved case types are `commcare-user`, `commcare-case-claim`, and
-`user-owner-mapping-case`. Reserved write properties are HQ's server-side
-`RESTRICTED_PROPERTIES` plus `location_id`, `hq_user_id`, `external_id`,
-`category`, and `state`. `case_name` and `case_type` are the only case attributes
-whose update-key mapping agrees on both runtimes (`CaseXmlParser::updateCase` and
-`parser.py::CaseActionBase.V2_PROPERTY_MAPPING`); `category` and `state` diverge —
-client-reserved, server-plain — and stay unconstructible.
+`user-owner-mapping-case`. Reserved write properties are
+`lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES` — HQ's authoring-side
+case-reserved-words list plus `name` and `owner_id` — extended with
+`location_id`, `hq_user_id`, `external_id`, `category`, and `state`.
+
+`category` and `state` are reserved because the two runtimes disagree about
+them. `case_type`, `case_name`, `owner_id`, `external_id`, `user_id`, and
+`date_opened` land in the same dedicated slot on both sides
+(`CaseXmlParser::updateCase` and `parser.py::CaseActionBase.V2_PROPERTY_MAPPING`),
+but `category` and `state` have dedicated client setters and no server mapping at
+all, so the same block sets a reserved slot on the device and an ordinary dynamic
+property on HQ. A property that means two different things cannot be authored.
 
 The emitter is total by structural construction, and four wire facts force its
 shape:
@@ -495,14 +526,48 @@ The running preview executes the blueprint in a client-side engine
   (N)" reveal with ghosted entries and a person-readable condition summary. That
   summary printer is display-only and forks no predicate semantics. Authoring
   surfaces — canvas, tree, flipbook — never hide conditioned items.
-- Lookup-backed selects render live filtered choices (`lookupEvaluation.ts`,
-  `formEngineLookupChoices`). Choice rows hold stable within one form session: a
+- Lookup-backed selects render live filtered choices
+  (`lib/preview/engine/lookupEvaluation.ts` resolves them,
+  `lib/preview/engine/formEngine.ts` materializes them into the running form, and
+  `lib/preview/engine/useLookupPreviewData.tsx` holds the builder-session table
+  cache). Choice rows hold stable within one form session: a
   row edited mid-entry appears on the next form entry, matching the wire's
   install/upgrade fixture semantic, while the builder-session cache refreshes on
   the Project realtime clock between sessions.
 - The AST→Kysely compiler (`lib/case-store/sql`) carries `table-lookup` and
   `table-column` arms, so a lookup-bearing case-list filter compiles to SQL.
 - Preview identity is always the signed-in worker until named personas exist.
+
+### Case lists, search, and the case workspace
+
+Every module carries a case-list configuration: one ordered column array carrying
+display, sort, calculated, and visibility state together, plus search inputs and
+their matching behavior. Predicates are typed ASTs throughout, so a column filter,
+a search-input condition, and a display condition all speak the same vocabulary
+and all compile to three surfaces — the on-device XPath dialect, CSQL for HQ-side
+search, and Postgres for the preview (`lib/case-store/sql`). Search-button display
+conditions, results availability, and default ordering are authored in the case
+workspace; `content/docs/case-workspace.mdx` is the user-facing guide.
+
+### Media
+
+Assets are Project-scoped: bytes in GCS, a metadata row in Postgres, and
+`project_id` set authoritatively at upload as the only access gate. Attach- and
+export-time verdicts, the export budget, the wire manifest, and the deletion guard
+live in `lib/media`. The manifest filters a document's referenced ids to the
+Project, which is also the exfiltration-via-compile defense — a foreign-Project
+reference resolves to `MEDIA_ASSET_NOT_FOUND` rather than being emitted. This is
+authoring media (menu icons, field images); case-captured media is unit 6.
+
+### Export and HQ upload
+
+`lib/commcare` compiles a `BlueprintDoc` to the wire on three paths: a downloadable
+`.ccz`, an HQ import file, and a direct HQ upload through the REST client. All
+three re-run the full validator with zero tolerance, and
+`lib/export/boundaryValidation.ts` adds the boundary findings that depend on
+things the document alone cannot know — Project media membership, and which
+carriers a given export mode can represent. Credentials are KMS-encrypted per
+server, and `lib/commcare/client.ts` resolves its base URL from the selected one.
 
 ### Projects, moves, and multiplayer
 
@@ -512,8 +577,12 @@ its case, media, and lookup data at viewer/editor/admin/owner roles. Invitations
 are domain-gated (`lib/projects/invitePolicy.ts`).
 
 Cross-Project moves are live. An admin/owner of both ends moves an app plus its
-case, media, and conversation history — including chat-attached files — as one
-transaction. The destination picker is an inline radio list over the Projects
+case, media, and conversation history — including chat-attached files. Media
+bytes copy into the destination Project first — content-addressed, so a retry
+dedups rather than duplicating — and the blueprint repoint plus every row move
+then commit as one transaction, retrying if the app's run holder or media closure
+changed underneath (`lib/db/moveAppToProject.ts::runCrossProjectMove`). The
+destination picker is an inline radio list over the Projects
 where the member also governs placement, because a second floating surface opened
 from inside the popover renders beneath it. Governance requires `delete` on both
 ends, `deleted_at IS NULL`, owner retention, and an exact empty lookup closure:
@@ -577,25 +646,55 @@ This unit also gives `applyLookupSchemaGovernance` its confirmation UX, which is
 what lets table deletion, column removal, and column retype leave package-private
 scope. Each still requires `delete` plus zero applicable edges.
 
+The one non-obvious semantic is that the source-mode switch is **asymmetric**,
+because `optionsSource` precedence is presence-based at every consumer
+(`lib/commcare/xform/builder.ts` branches on `optionsSource !== undefined`).
+Inline → Table merely sets `optionsSource`, and the inline options stay as the
+origin-compatible fallback. Table → Inline must emit an explicit
+`optionsSource: null` clear; treating the two directions symmetrically ships a
+Table → Inline switch that is observably inert, because the retained source keeps
+winning.
+
 **Observed:** an author creates a lookup table, pastes a CSV over it, points a
 select at one of its columns, and is told plainly which apps a destructive change
 would break before it happens.
 
 **Depends on:** nothing outstanding.
 
-### 3 — Wave-one SA, MCP, docs, and closure
+### 3 — SA, MCP, and docs for conditions, operations, and lookups
 
 **PR:** `Expose conditions, operations, and lookups to the SA and MCP`
 
-Expose the shipped vocabulary through both camelCase chat tools and the
+Expose the display-condition, case-operation, and lookup vocabulary from
+[What is built](#what-is-built) through both camelCase chat tools and the
 snake_case MCP projection, preserving OpenAI Responses strict-schema
-normalization, cache stability, schema size, and API acceptance
-(`project_openai_gpt56_cutover` records the constraints). Update public authoring
-docs and every nearest subsystem `CLAUDE.md`. Run one integrated end-to-end flow:
+normalization, prompt-cache stability, schema size, and API acceptance —
+`lib/agent/CLAUDE.md` holds those constraints, and `scripts/test-schema.ts`
+verifies that the generated tool schemas are actually accepted by the API. Update
+public authoring docs and every nearest subsystem `CLAUDE.md`. Run one integrated
+end-to-end flow:
 chat builds an app with a lookup-backed select and a conditional form, the builder
 edits it, and the preview runs it.
 
-**Observed:** a user can ask for a lookup-backed select in chat and get one.
+Two pieces of engineering sit under that packaging, and both are easy to miss.
+
+The **identity bridge**: the SA never sees UUIDs — it addresses modules, forms,
+and operations by slug id and fields by path — while the identity contract above
+stores them by immutable UUID. Every typed `Predicate` and `ValueExpression` tool
+parameter therefore needs SA-facing leaf variants, plus a boundary AST walk that
+rewrites them to UUID leaves *before* the checker runs, applied uniformly across
+display conditions, operation names and owners, `writes[].value`, form links, and
+options-source filters. A leaf that slips through unrewritten fails validation
+with a message about an identity the author never typed.
+
+The **null-clears contract**: a tool that cannot distinguish "leave this alone"
+from "clear this" cannot express removing a display condition or an options
+source, and strict-mode schema normalization makes that distinction non-obvious.
+`lib/agent/CLAUDE.md` holds the rule; it is the same asymmetry unit 2 hits in the
+builder.
+
+**Observed:** a user can ask for a lookup-backed select in chat and get one, and
+can ask for it to be taken away again.
 
 **Depends on:** units 1 and 2.
 
@@ -647,6 +746,15 @@ Binding wire facts:
 
 **Observed:** nothing yet — this unit is wire and validation only.
 
+This is the one split where emission lands before its authoring surface, and it
+does not contradict the no-speculative-machinery rule: the consumer ships in the
+same PR. The oracle fixtures are that consumer, and the bar is the standing one —
+every emitted byte is asserted against a named CommCare suite fixture under
+`commcare-hq/corehq/apps/app_manager/tests/data/suite/`, so the question answered
+is "would HQ's importer accept these bytes", not "does the shape look right".
+Smart links are excluded elsewhere precisely because they would have *no*
+consumer at all.
+
 **Depends on:** nothing outstanding.
 
 ### 5 — Tile query, preview, and authoring
@@ -674,6 +782,11 @@ suppressed in App Preview only).
 Define pager semantics, persistent-tile locations, presets, responsive rendering,
 keyboard and numeric layout alternatives, and one visual parity journey.
 
+Because `entitiesPerRow` and `uniformCells` are excluded from constructible state,
+the parity renderer must pin what it assumes in their absence — the runtime
+defaults, one tile per row and non-uniform units — and the parity journey asserts
+against those values rather than leaving them implicit.
+
 **Observed:** an author lays out a case tile on a grid, groups a child list by its
 parent, and sees the same layout in the running preview that a device would show.
 
@@ -698,6 +811,14 @@ media capture kinds carrying `case_property_on`. This unit lifts that rejection
 for exactly the save-to-case shapes and keeps it for a media kind with
 `case_property_on` and no mode.
 
+Lifting it makes save-to-case constructible one unit before unit 7 can emit it,
+which would otherwise mean an author ticks "save to the case" and every export
+silently emits nothing — the failure mode the total-emitter contract exists to
+prevent. So this unit also lands the export boundary finding that says so, beside
+`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE` in `lib/export/boundaryValidation.ts`, and unit
+7 removes it. Naming the refusal is the whole point: a person who cannot export
+must be told which field is holding it back.
+
 **Observed:** a worker photographs something in a preview form and the image
 survives submission, appears against the case, and can be replaced or removed.
 
@@ -705,11 +826,13 @@ survives submission, appears against the case, and can be replaced or removed.
 
 ### 7 — Attachment target-aware emission and link UX
 
-**PR:** `Attachment URL columns, link presentation, and the capability-gated legacy mode`
+**PR:** `Attachment URL columns, link presentation, and the opt-in legacy attachment mode`
 
 Add target-aware URL-property emission only when the deployment server and domain
 are known, explicit link presentation, preview replacement and removal, SA and
-docs coverage, and the capability-gated deprecated attachment compatibility path.
+docs coverage, and the deprecated attachment compatibility path — offered only
+when the deployment record shows the target domain carries HQ's
+`MM_CASE_PROPERTIES` toggle, and stated in the field UI before selection.
 
 Binding facts:
 
@@ -727,6 +850,14 @@ Binding facts:
   column once the cloudcare HTTPS passthrough is fixed. Until then the
   plain/markdown column formats render the stored URL as a clickable link, which
   is the working link-first path. Do not default to a broken HTTPS picture column.
+
+The emitted value is a calculate over the submission's own metadata —
+`concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/',
+'<attachment name>')` — so `instance_id` comes from the form instance and the
+attachment name from the capture field. Both halves of the origin come from the
+deployment record, which is why this unit waits on unit 12. A local `.ccz` export
+has no origin or domain to resolve, so it emits the field without the URL column
+and says so at export time rather than writing a URL that resolves nowhere.
 - An empty `<attachment>` element removes a case attachment on both runtimes.
 
 **Observed:** a case list shows a working link to a captured photo, and an author
@@ -800,6 +931,15 @@ Binding facts:
   metadata JSON blob while definitions use the same `custom_data_fields` machinery
   under `field_type='LocationFields'`. There is no `LocationFixtureDataField`
   model.
+The flags below are HQ's storage, not Nova's authoring vocabulary. They fall into
+two independent axes, and conflating them is the classic authoring error:
+`shares_cases`, `view_descendants`, and `expand_view_child_data_to` shape **case
+flow** — which cases a worker receives — while `expand_from`, `expand_from_root`,
+`expand_to`, `include_without_expanding`, and `include_only` shape **fixture
+contents** only — which locations a worker can see and address. A level that owns
+cases and a level that is merely referenceable are different authoring choices,
+and Nova names them as such rather than exposing eight booleans.
+
 - `LocationType` flags, per column: `code` (SlugField, auto-derived, domain-unique
   — the fixture `@type`), `shares_cases`, `view_descendants`, `has_users`
   (default true; editing it is toggle-gated), `expand_view_child_data_to` (same
@@ -809,9 +949,14 @@ Binding facts:
   therefore **not** a usable "owns nothing" inverse. `has_user` is dead.
 - Owner-set assembly: owner ids are the user id plus one id per case-sharing
   group, where each case-owning location materializes as an `UnsavableGroup` whose
-  `_id` **is** the `location_id`. Case-owning means assigned locations carrying
-  `shares_cases`, plus descendants under `view_descendants` types. Web users get
-  location groups only, never classic groups.
+  `_id` **is** the `location_id`. Case-owning is two filtered sets, and the
+  descendant filter is easy to drop and wrong to drop
+  (`models.py::CouchUser::_get_case_owning_locations`): the user's assigned
+  locations whose *type* carries `shares_cases`, **plus** the descendants of
+  assigned locations whose type carries `view_descendants`, themselves filtered to
+  `shares_cases` **and** not archived. Omitting either filter puts non-sharing or
+  archived locations in the owner set and the persona sees cases a real worker
+  never would. Web users get location groups only, never classic groups.
 - Unassigning the last worker from a case-owning location merely **orphans** its
   cases — `owner_id` keeps pointing at the location and nothing moves. HQ's
   "Orphan Case Alerts" setting is a UI warning only. This is validator and SA
@@ -834,6 +979,28 @@ sets; run tenant-complete restore closure; lower user and location terms; and em
 the flat location fixture and usercase actions. Start with the measured CTE inline
 and Postgres revision invalidation, and re-run current-scale measurements before
 choosing materialization.
+
+**The restore closure is a fixpoint, not a filter**, and it is the hardest part of
+this unit. Ownership alone does not decide what a device holds; extension chains
+pull cases in that nobody owns. The rules, verified in
+`casexml/apps/phone/data_providers/case/livequery.py::do_livequery`:
+
+- A case is **available** if it is open and not an extension case, or open and the
+  extension of an available case. A case that is both a child and an extension
+  counts as *not* an extension, so it is available on the first arm.
+- A case is **live** if it is owned and available. An owned open extension is
+  never seeded directly — it becomes live only once its host chain is available.
+- Liveness then **propagates transitively** through three edge kinds at once
+  (`enliven`): a live case makes its extensions, its hosts, and its parents live.
+  So an unowned parent arrives because its child is owned, and an unowned host
+  arrives because its extension is.
+
+Preview must reproduce this fixpoint rather than approximate it with a join —
+this is the mechanism behind the soft-close doctrine in
+`docs/research/advanced-case-actions.md`, where hard-closing a root silently drops
+its whole extension tree from every device. Acceptance runs the closure against
+seeded chains that are unowned-but-reachable and owned-but-unreachable in both
+directions.
 
 Binding facts:
 
@@ -880,9 +1047,21 @@ Binding facts:
   Any create/close prohibition is Nova's own authoring guard matching HQ's
   authoring-side rule, not a runtime constraint.
 
+One delivery precondition is easy to miss and silently breaks the whole fixture:
+a form only carries the `locations` instance if something in it **references**
+that instance. HQ authors work around this with a dummy always-false question —
+exactly the hidden scaffolding Nova must never make an author think about — so
+Nova's emitter adds the declaration whenever a location term appears anywhere in
+the form. The general rule governing any fixture family: `instance('X')` binds a
+declared `<instance id="X" src="jr://fixture/Y">`, and `Y` — the substring after
+the last `/` — must equal the delivered fixture's id
+(`CommCareInstanceInitializer::loadFixtureRoot`). A mismatched pair resolves to
+nothing at runtime with no build-time error.
+
 Acceptance includes proving that every valid fixed or reverse-hop destination is
-present in the applicable persona's emitted fixture, and that an out-of-footprint
-destination is rejected before commit.
+present in the applicable persona's emitted fixture, that an out-of-footprint
+destination is rejected before commit, and that a form carrying a location term
+emits its instance declaration without any authored placeholder.
 
 **Observed:** previewing as a persona shows exactly the cases that persona's
 worker would see on a device.
@@ -949,6 +1128,18 @@ Binding facts:
   caveat travels with it: the boundary measures server-modified age, not claimed-at
   age; a claimed-at variant needs an explicit date-offset criterion.
 
+Not every criterion in that closed vocabulary can back the "currently matches N
+cases" count, because the count runs through the AST→Kysely compiler over Nova's
+own case rows. Nova makes constructible exactly the criteria it can evaluate
+locally: the nine `MatchPropertyDefinition` match types, `ClosedParentDefinition`,
+and — once unit 9 lands its rows — `LocationFilterDefinition`. `UCRFilterDefinition`
+references a report config Nova does not model, code-registered customs vary per
+HQ instance, and `filter_on_server_modified` measures HQ server-modified age,
+which has no local counterpart. Those three stay setup-artifact-only: authorable
+as artifact text, excluded from the constructible schema. A rule mixing both kinds
+shows its count over the evaluable criteria and states plainly which criterion the
+count could not include — a silent under- or over-count is worse than no count.
+
 **Observed:** an author declares a cleanup rule, sees how many cases it currently
 matches, and receives copy-pasteable HQ setup steps rather than a false promise of
 execution.
@@ -969,9 +1160,17 @@ data field schema, the organization model (level definitions are UI-only — see
 unit 13), and automations. It regenerates from the document on every export behind
 a push port.
 
-This unit records and plans the new deployment state. Existing export guards stay
-until unit 13 can satisfy them: you cannot upload an app that references a
-resource you have not pushed.
+The state machine is this unit's core deliverable, so it is enumerated here rather
+than discovered later. A deployment is `preflight` while prerequisites are being
+checked, `uploaded` once the app JSON lands, `built` once HQ has produced a build,
+`released` once that build is released, and `runnable` once a released endpoint
+URL has been probed. `incomplete` is the terminal refusal: any required phase that
+fails lands there and withholds both `released` and `runnable`, and it is reached
+from any earlier state. Every phase is independently retryable from the state it
+failed in, and retrying never requires re-importing the app.
+
+Existing export guards stay until unit 13 can satisfy them: you cannot upload an
+app that references a resource you have not pushed.
 
 **Observed:** an author connects an HQ domain, sees exactly what Nova will create
 there and what they must set up by hand, and can retry a failed phase without
@@ -1004,7 +1203,9 @@ Binding facts:
   would force Nova to keep per-row remote-UUID bookkeeping — so the Excel bulk POST
   `/a/<domain>/fixtures/fixapi/` is the row path: API-key auth,
   `replace=true|false` (full replace vs merge), sync or async with a `download_id`
-  and pollable `status_url`, hard-capped at `MAX_FIXTURE_ROWS` per workbook.
+  and pollable `status_url`, hard-capped at `MAX_FIXTURE_ROWS` = 500,000 rows
+  per workbook (`fixtures/upload/const.py`) — far above Nova's own 5,000-row
+  table cap, so a legal Nova table never needs chunking across workbooks.
 - **The fixapi workbook format is not "one sheet with field-name headers".** It is
   a mandatory `types` definition sheet (one row per table: `Delete(Y/N)`, the table
   tag, the global flag, and the field-name columns) **plus one data sheet per table
@@ -1169,10 +1370,19 @@ from two places without duplicating its content.
 
 **PR:** `Session endpoints and shareable deep links`
 
+Verify claim-command resolution against current HQ fixtures **first** — the claim
+push is the part most likely to have drifted, and the emitted frames are asserted
+against the endpoint fixtures under
+`commcare-hq/corehq/apps/app_manager/tests/data/suite/`.
+
 Endpoints depend on durable released deployments, use the selected server, reject
 flattened modules, preserve tenant authorization even when relevancy is bypassed,
 and distinguish internal preview routes from shareable HQ links. Registry-search
 smart links stay out of scope.
+
+This is also the unit that must retire the two hardcoded US hosts named in
+[HQ deployment safety](#hq-deployment-safety): a deep link that ignores the
+selected server sends an India or EU deployment's users to the wrong cluster.
 
 Binding facts:
 
@@ -1231,15 +1441,19 @@ form, and is told plainly when the target domain lacks the required toggle.
 
 ### 18 — Multi-select, related cases, and profile extensions
 
-**PR:** `Multi-select case lists, related-case pulls, and app-profile properties`
+**PRs:**
+1. `Multi-select case lists and selected-case operation semantics`
+2. `Related-case pulls in case search`
+3. `Authored app-profile properties`
+
+Three independent vocabularies that only share a dependency, so they ship as three
+PRs rather than one with a contingency. Every HQ JSON and compiler projection
+stays identical across all three.
 
 Define selected-case runtime semantics before suite flags: ordinary primary-case
 preloads and writes must either reject or lower through per-selected-case
 operations. Add preview repeat materialization, integer limits 1–100,
-empty-selection behavior, cross-page/search/back persistence, and related-case
-visibility. Treat profile properties and related-case pulls as separately accepted
-sub-slices if the diff grows; keep every HQ JSON and compiler projection
-identical.
+empty-selection behavior, and cross-page/search/back persistence.
 
 Binding facts:
 
@@ -1264,7 +1478,11 @@ Binding facts:
   single visible choice self-selects and the advanced menu drops out of the
   persistent menu and breadcrumb), and `cc-index-case-search-results`.
   `lib/commcare/compiler.ts::generateProfile` currently hardcodes its property
-  list; this unit makes it authored.
+  list; this unit makes exactly those three `cc-*` keys authored. The
+  emitter-owned properties — the app name, the `cc-content-version` blueprint
+  stamp every export carries, `cc-app-version`, and the logo — stay reserved and
+  unauthorable, because an author who overwrites the version stamp breaks the
+  upgrade path silently.
 - **Several `CaseSearch` fields are removed upstream and must never be modeled or
   reproduced:** `search_label`, `additional_relevant`, `dynamic_search`, and
   `search_filter`.
@@ -1278,30 +1496,42 @@ them.
 
 ## Dependency order
 
-```text
-1 conditions/operations authoring ─┐
-2 Project data workspace ──────────┴─> 3 SA/MCP/docs
+Each unit's prerequisites, matching its "Depends on" line above:
 
-4 tile wire ─> 5 tile query/preview/authoring
+| Unit | Needs |
+| --- | --- |
+| 1 conditions/operations authoring | — |
+| 2 Project data workspace | — |
+| 3 SA, MCP, docs | 1, 2 |
+| 4 tile wire | — |
+| 5 tile query/preview/authoring | 4 |
+| 6 media capture | — |
+| 7 attachment emission and link UX | 6, 12 |
+| 8 user types and personas | — |
+| 9 organization and locations store | 8 |
+| 10 usercase, owner sets, wire | 9 |
+| 11 automations | 8, 9 |
+| 12 deployment core and artifact | 8, 9, 11 |
+| 13 push and provisioning drivers | 12 |
+| 14 App setup UI, SA, MCP, docs | 8, 9, 10, 11, 12, 13 |
+| 15 form links and sections | — |
+| 16 nested menus and linked-form reuse | 15 |
+| 17 session endpoints and deep links | 13, 16 |
+| 18 multi-select, related cases, profile | 13 |
 
-6 media capture ─> 7 attachment emission ─────┐
-                                              │
-8 user types/personas ─> 9 organization ─> 10 usercase/owner sets/wire
-                    └──────────┬───────────────┘
-                               └─> 11 automations
+Six units have no outstanding prerequisites and can start in any order: 1, 2, 4,
+6, 8, and 15. They are also the six independent entry points — every other unit
+descends from one of them.
 
-{8, 9, 11} ─> 12 deployment core ─> 13 push drivers ─> 14 App setup UI
-                                          │
-                                          ├─> 7 (target-aware URLs)
-                                          └─> 18 multi-select/related/profile
+Two chains dominate the critical path. The deployment chain
+(8 → 9 → 11 → 12 → 13) gates units 7, 14, 17, and 18, so anything needing a real
+HQ target waits on it. The navigation chain (15 → 16 → 17) is independent until
+17, which needs both.
 
-15 form links + sections ─> 16 nested menus ─> 17 session endpoints
-                                                      ↑
-                                          13 push drivers ─┘
-```
-
-Units 1–3, 4–5, 6, 8, and 15 have no outstanding dependencies and can start in any
-order. Everything downstream of unit 12 needs a real HQ deployment target.
+Units 3, 5, 7, 14, 17, and 18 are leaves — nothing waits on them, so each can land
+whenever its own prerequisites are met. Unit 10 sits off the deployment chain's
+critical path: only the App setup UI waits on it, so it can follow unit 9 at any
+point without holding up unit 12.
 
 ---
 
