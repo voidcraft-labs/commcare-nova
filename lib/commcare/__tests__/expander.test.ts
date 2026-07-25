@@ -3580,7 +3580,7 @@ describe("form_links emission", () => {
 							postSubmit: "module",
 							formLinks: [
 								{
-									condition: "/data/outcome = 'yes'",
+									condition: eq(sessionUser("region"), literal("north")),
 									target: {
 										type: "form",
 										moduleUuid: asUuid(moduleUuid),
@@ -3623,10 +3623,17 @@ describe("form_links emission", () => {
 		// followup form is index 1 within module 0.
 		expect(hq.modules[0].forms[0].form_links).toEqual([
 			{
-				condition: "/data/outcome = 'yes'",
+				condition:
+					"instance('commcaresession')/session/user/data/region = 'north'",
 				target: { type: "form", moduleIndex: 0, formIndex: 1 },
 			},
 		]);
+		// `post_form_workflow` is what makes HQ read `form_links` at all:
+		// `form_workflow_frames` returns the static frame and ignores every
+		// link under any other workflow. The authored `postSubmit` survives
+		// as the fallback slot instead.
+		expect(hq.modules[0].forms[0].post_form_workflow).toBe("form");
+		expect(hq.modules[0].forms[0].post_form_workflow_fallback).toBe("module");
 	});
 
 	it("emits module-target links with module index only", () => {
@@ -3693,7 +3700,7 @@ describe("form_links emission", () => {
 							postSubmit: "module",
 							formLinks: [
 								{
-									condition: "/data/severity = 'high'",
+									condition: eq(sessionUser("region"), literal("north")),
 									target: {
 										type: "form",
 										moduleUuid: asUuid(moduleUuid),
@@ -3718,7 +3725,8 @@ describe("form_links emission", () => {
 		const hq = expandDoc(doc);
 		expect(hq.modules[0].forms[0].form_links).toEqual([
 			{
-				condition: "/data/severity = 'high'",
+				condition:
+					"instance('commcaresession')/session/user/data/region = 'north'",
 				target: { type: "form", moduleIndex: 0, formIndex: 1 },
 				datums: [{ name: "case_id", xpath: "/data/patient_id" }],
 			},

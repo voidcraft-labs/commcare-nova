@@ -11,11 +11,11 @@
  *
  * CommCare Core defines three stack-operation kinds — `<create>`,
  * `<push>`, `<clear>`. All three are typed for completeness; only
- * `<create>` is emitted. Simple post-submit destinations produce one
- * unconditional `<create>`; form-link-enabled forms produce one
- * `<create if="...">` per link plus a fallback `<create if="not(c1) and
- * not(c2)...">` that runs the `postSubmit` destination when no link
- * condition matches.
+ * `<create>` is emitted. A form with no links produces the one frame its
+ * post-submit destination names, or none at all for `app_home`; a
+ * link-bearing form produces one `<create if="...">` per link carrying the
+ * EXCLUSIVE guard `lib/domain/formLinkProjection.ts` derived, plus the
+ * fallback frame when one is still reachable.
  *
  * `<entry>` and `<stack>` are CONSTRUCTED as `domhandler` element trees
  * (`buildEntryElement`, `buildStackElement`) and serialized once by the
@@ -190,8 +190,6 @@ export interface EntryDefinition {
 }
 
 // ── Derivation Functions ───────────────────────────────────────────────
-
-const _SESSION_REF = "instance('commcaresession')/session/data";
 
 /**
  * Build the case-loading datum's nodeset:

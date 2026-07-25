@@ -253,6 +253,17 @@ export function rewriteFormReferenceSlots(
 				}
 				break;
 			case "form_link_condition":
+				// A Predicate, like the display condition beside it — the
+				// XPath arm below would skip it silently and a case-property
+				// rename would leave the link's `prop` leaves naming a
+				// property that no longer exists.
+				for (const entry of readSlotValues(form, slot.path)) {
+					changed += renameCasePropertyInPredicate(
+						entry.value as Parameters<typeof renameCasePropertyInPredicate>[0],
+						ctx.caseLeafRename.rename,
+					);
+				}
+				break;
 			case "form_link_datum_xpath":
 			case "assessment_user_score":
 			case "deliver_entity_id":

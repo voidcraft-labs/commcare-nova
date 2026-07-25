@@ -841,11 +841,11 @@ describe("compileCcz", () => {
 
 	// When a form declares formLinks, the expander emits them into
 	// HqForm.form_links and the compiler threads them into the suite-
-	// level `<stack>` block: one conditional `<create>` per link plus a
-	// fallback whose condition negates every link condition. This test
+	// level `<stack>` block: one guarded `<create>` per link plus the
+	// fallback frame, whose guard negates every link condition. This test
 	// asserts the end-to-end wiring — it doesn't re-assert the per-op
 	// shape (session.test covers that at the derivation boundary).
-	it("threads form_links into suite.xml as conditional stack frames", () => {
+	it("threads form_links into suite.xml as guarded stack frames", () => {
 		const moduleUuid = "mod-fl";
 		const intakeUuid = "frm-intake";
 		const followupUuid = "frm-followup";
@@ -864,7 +864,7 @@ describe("compileCcz", () => {
 							postSubmit: "module",
 							formLinks: [
 								{
-									condition: "/data/refer = 'yes'",
+									condition: eq(sessionUser("region"), literal("north")),
 									target: {
 										type: "form",
 										moduleUuid: asUuid(moduleUuid),
@@ -890,16 +890,18 @@ describe("compileCcz", () => {
 		const zip = new AdmZip(buf);
 		const suite = zip.readAsText("suite.xml");
 
-		// The intake form's <entry> has a <stack> with the conditional
+		// The intake form's <entry> has a <stack> with the guarded
 		// form-link frame targeting module 0, form 1 (followup). XPath
 		// single-quote literals round-trip as `&apos;` inside the
 		// double-quoted attribute value the serializer emits.
-		expect(suite).toContain(`if="/data/refer = &apos;yes&apos;"`);
+		const guard =
+			"instance(&apos;commcaresession&apos;)/session/user/data/region = &apos;north&apos;";
+		expect(suite).toContain(`if="${guard}"`);
 		expect(suite).toContain('<command value="&apos;m0&apos;"/>');
 		expect(suite).toContain('<command value="&apos;m0-f1&apos;"/>');
-		// And a fallback frame firing the 'module' destination when the
-		// condition is false.
-		expect(suite).toContain(`if="not(/data/refer = &apos;yes&apos;)"`);
+		// And the fallback frame firing the 'module' destination when the
+		// guard is false.
+		expect(suite).toContain(`if="not(${guard})"`);
 	});
 
 	// The compiler must still package a valid archive when a form carries

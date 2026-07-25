@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseType, Module, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/predicate";
 import {
 	describeUnwrittenProperty,
 	unwrittenProperties,
@@ -205,7 +206,10 @@ describe("unwrittenProperties — reads that count", () => {
 							fields: [f({ id: "note", kind: "text" })],
 							formLinks: [
 								{
-									condition: "#medication_order/order_status = 'delivered'",
+									condition: eq(
+										prop("medication_order", "order_status"),
+										literal("delivered"),
+									),
 									target: { type: "module", moduleUuid },
 								},
 							],

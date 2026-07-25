@@ -15,6 +15,7 @@
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { sequenceOrderKeys } from "@/lib/doc/order/append";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -105,10 +106,18 @@ export interface FormSpec {
 	};
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
-	/** Authored with string conditions/datum XPaths (the concise spec
-	 *  shape); `buildDoc` parses them against the assembled form. */
+	/**
+	 * Identity and sequence are minted for you: links land in spec order
+	 * with ascending fractional keys, so a fixture says what it means
+	 * ("this link comes second") without spelling a key. `condition` is a
+	 * typed `Predicate` like every other navigation condition; a datum's
+	 * `xpath` is still authored as text and parsed against the assembled
+	 * form, because it names a session variable rather than describing a
+	 * case.
+	 */
 	formLinks?: Array<{
-		condition?: string;
+		uuid?: string;
+		condition?: FormLink["condition"];
 		target: FormLink["target"];
 		datums?: Array<{ name: string; xpath: string }>;
 	}>;
@@ -228,7 +237,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 					postSubmit: formSpec.postSubmit,
 				}),
 				...(formSpec.formLinks !== undefined && {
-					formLinks: formSpec.formLinks as unknown as FormLink[],
+					formLinks: buildFormLinks(formSpec.formLinks),
 				}),
 			};
 
@@ -259,6 +268,26 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		}
 	}
 	return doc;
+}
+
+/**
+ * Mint each spec link's identity and its place in the sequence.
+ *
+ * Sequence is load-bearing rather than cosmetic here — link *i*'s guard
+ * negates every earlier condition — so the keys ascend with spec order
+ * and a fixture reads the way it emits.
+ */
+function buildFormLinks(specs: NonNullable<FormSpec["formLinks"]>): FormLink[] {
+	const orders = sequenceOrderKeys(specs.length);
+	return specs.map((spec, index) => ({
+		uuid: asUuid(spec.uuid ?? nextUuid("lnk")),
+		order: orders[index],
+		...(spec.condition !== undefined && { condition: spec.condition }),
+		target: spec.target,
+		...(spec.datums !== undefined && {
+			datums: spec.datums as unknown as FormLink["datums"],
+		}),
+	}));
 }
 
 /**

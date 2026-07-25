@@ -2,7 +2,22 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
-import { buildDoc, caseListConfig, f, xp } from "../../__tests__/docHelpers";
+import {
+	eq,
+	exists,
+	isNull,
+	literal,
+	matchNone,
+	prop,
+	term,
+} from "@/lib/domain/predicate";
+import {
+	buildDoc,
+	caseListConfig,
+	type FormSpec,
+	f,
+	xp,
+} from "../../__tests__/docHelpers";
 import { errorIdentity, evaluateBoundary } from "../validator/gate";
 import { runValidation } from "../validator/runner";
 
@@ -978,6 +993,98 @@ describe("post_submit validation", () => {
 // ── Form link validation ──────────────────────────────────────────
 
 describe("form_links validation", () => {
+	/**
+	 * Two forms in a "patient" module, plus a "household" module the links
+	 * can point at. Links are authored through the spec so each one gets
+	 * real identity and a real place in the sequence — which is what the
+	 * exclusivity rules below are about.
+	 */
+	type LinkSpec = FormSpec["formLinks"];
+
+	const M0 = "mod-src";
+	const F0 = "frm-src";
+	const F1 = "frm-dest";
+	const M1 = "mod-cases";
+	const F2 = "frm-followup";
+
+	/** The source form is a follow-up on "patient", so a guard has a case to read. */
+	function docWithLinks(
+		links: LinkSpec,
+		sourceType: "followup" | "survey" = "followup",
+	) {
+		return buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					uuid: M0,
+					name: "M0",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: F0,
+							name: "F0",
+							type: sourceType,
+							postSubmit: "module",
+							formLinks: links,
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+						{
+							uuid: F1,
+							name: "F1",
+							type: sourceType,
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+				{
+					uuid: M1,
+					name: "M1",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: F2,
+							name: "F2",
+							type: "followup",
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "status", label: "Status", data_type: "text" },
+					],
+				},
+				{
+					name: "household",
+					parent_type: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+	}
+
+	const toF1 = {
+		type: "form" as const,
+		moduleUuid: asUuid(M0),
+		formUuid: asUuid(F1),
+	};
+	const toM1 = { type: "module" as const, moduleUuid: asUuid(M1) };
+
+	const linkCodes = (doc: BlueprintDoc) =>
+		runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+			.filter((e) => e.code.startsWith("FORM_LINK"))
+			.map((e) => e.code);
+
 	it("catches empty form_links array", () => {
 		const doc = update(
 			surveyDoc([f({ kind: "text", id: "q", label: "Q" })]),
@@ -989,135 +1096,192 @@ describe("form_links validation", () => {
 		expect(errors.find((e) => e.code === "FORM_LINK_EMPTY")).toBeDefined();
 	});
 
-	it("catches non-existent target module", () => {
-		const doc = update(
-			surveyDoc([f({ kind: "text", id: "q", label: "Q" })]),
-			(d) => {
-				d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [
-					{
-						target: {
-							type: "form",
-							moduleUuid: asUuid("ghost-module"),
-							formUuid: asUuid("ghost-form"),
-						},
-					},
-				];
+	it("catches a target module that is no longer in the app", () => {
+		const doc = docWithLinks([
+			{
+				target: {
+					type: "form",
+					moduleUuid: asUuid("ghost-module"),
+					formUuid: asUuid("ghost-form"),
+				},
 			},
+		]);
+		expect(linkCodes(doc)).toContain("FORM_LINK_TARGET_NOT_FOUND");
+	});
+
+	it("catches a target form that is no longer in its module", () => {
+		const doc = docWithLinks([
+			{
+				target: {
+					type: "form",
+					moduleUuid: asUuid(M0),
+					formUuid: asUuid("nonexistent-form"),
+				},
+			},
+		]);
+		expect(linkCodes(doc)).toContain("FORM_LINK_TARGET_NOT_FOUND");
+	});
+
+	it("catches a self-referencing link", () => {
+		const doc = docWithLinks([
+			{
+				target: {
+					type: "form",
+					moduleUuid: asUuid(M0),
+					formUuid: asUuid(F0),
+				},
+			},
+		]);
+		expect(linkCodes(doc)).toContain("FORM_LINK_SELF_REFERENCE");
+	});
+
+	it("accepts a single unconditional link with no fallback destination", () => {
+		// There is nothing to fall back FROM: the one link always fires,
+		// so the old "conditional links need a post_submit fallback" rule
+		// has no counterpart. Exhaustiveness is a property of the guards.
+		const doc = docWithLinks([{ target: toM1 }]);
+		expect(linkCodes(doc)).toEqual([]);
+	});
+
+	it("refuses a link sitting below one that always applies", () => {
+		// Every matching `<create>` pushes its own frame and frames pop
+		// LIFO, so an unconditional link is the exhaustive `else` and
+		// anything after it can never be reached.
+		const doc = docWithLinks([
+			{ target: toM1 },
+			{
+				condition: eq(prop("patient", "status"), literal("open")),
+				target: toF1,
+			},
+		]);
+		expect(linkCodes(doc)).toEqual(["FORM_LINK_UNREACHABLE"]);
+	});
+
+	it("accepts a conditional link followed by an unconditional one", () => {
+		const doc = docWithLinks([
+			{
+				condition: eq(prop("patient", "status"), literal("open")),
+				target: toF1,
+			},
+			{ target: toM1 },
+		]);
+		expect(linkCodes(doc)).toEqual([]);
+	});
+
+	it("refuses a condition that can never match", () => {
+		const doc = docWithLinks([{ condition: matchNone(), target: toM1 }]);
+		expect(linkCodes(doc)).toContain("FORM_LINK_CONDITION_ALWAYS_FALSE");
+	});
+
+	it("refuses a search answer, which is gone by the time the form submits", () => {
+		const doc = docWithLinks([
+			{
+				condition: eq(term({ kind: "input", name: "city_q" }), literal("x")),
+				target: toM1,
+			},
+		]);
+		expect(linkCodes(doc)).toContain(
+			"FORM_LINK_CONDITION_SEARCH_INPUT_UNAVAILABLE",
 		);
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
-		expect(err).toBeDefined();
-		expect(err?.message).toContain("ghost-module");
 	});
 
-	it("catches non-existent target form", () => {
-		const doc = surveyDoc([f({ kind: "text", id: "q", label: "Q" })]);
-		const moduleUuid = doc.moduleOrder[0];
-		const doc2 = update(doc, (d) => {
-			d.forms[d.formOrder[moduleUuid][0]].formLinks = [
-				{
-					target: {
-						type: "form",
-						moduleUuid,
-						formUuid: asUuid("nonexistent-form"),
-					},
-				},
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
-		expect(err).toBeDefined();
-		expect(err?.message).toContain("nonexistent-form");
+	it("refuses a read of a case type the form has no anchor for", () => {
+		const doc = docWithLinks([
+			{
+				condition: eq(prop("household", "case_name"), literal("x")),
+				target: toM1,
+			},
+		]);
+		expect(linkCodes(doc)).toContain(
+			"FORM_LINK_CONDITION_CASE_DATA_UNAVAILABLE",
+		);
 	});
 
-	it("catches self-referencing link", () => {
-		const doc = surveyDoc([f({ kind: "text", id: "q", label: "Q" })]);
-		const moduleUuid = doc.moduleOrder[0];
-		const formUuid = doc.formOrder[moduleUuid][0];
-		const doc2 = update(doc, (d) => {
-			d.forms[formUuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid } },
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.find((e) => e.code === "FORM_LINK_SELF_REFERENCE"),
-		).toBeDefined();
-	});
-
-	it("catches conditional links without post_submit fallback", () => {
+	it("refuses any case read on a form with no case at all", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
 				{
+					uuid: M0,
 					name: "M0",
 					forms: [
 						{
+							uuid: F0,
 							name: "F0",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-						{
-							name: "F1",
-							type: "survey",
+							formLinks: [
+								{
+									condition: eq(prop("patient", "status"), literal("open")),
+									target: { type: "module", moduleUuid: asUuid(M0) },
+								},
+							],
 							fields: [f({ kind: "text", id: "q", label: "Q" })],
 						},
 					],
 				},
 			],
 		});
-		const moduleUuid = doc.moduleOrder[0];
-		const [f0Uuid, f1Uuid] = doc.formOrder[moduleUuid];
-		const doc2 = update(doc, (d) => {
-			d.forms[f0Uuid].formLinks = [
-				{
-					condition: xp("x = 1"),
-					target: { type: "form", moduleUuid, formUuid: f1Uuid },
-				},
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.find((e) => e.code === "FORM_LINK_NO_FALLBACK"),
-		).toBeDefined();
+		expect(linkCodes(doc)).toContain(
+			"FORM_LINK_CONDITION_CASE_DATA_UNAVAILABLE",
+		);
 	});
 
-	it("accepts conditional links when post_submit fallback is set", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M0",
-					forms: [
-						{
-							name: "F0",
-							type: "survey",
-							postSubmit: "module",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-						{
-							name: "F1",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
+	it("accepts a relationship walk, which the display condition could not offer", () => {
+		// The guard anchors on a concrete session case id, so relation
+		// walks, counts, and presence tests are all available here even
+		// though the same form's display condition refuses them.
+		const doc = docWithLinks([
+			{
+				condition: exists({
+					kind: "subcase",
+					identifier: "parent",
+					ofCaseType: "household",
+				}),
+				target: toM1,
+			},
+		]);
+		expect(linkCodes(doc)).toEqual([]);
+	});
+
+	it("refuses a condition CommCare cannot evaluate on a device", () => {
+		const doc = docWithLinks([
+			{
+				condition: isNull(prop("patient", "status")),
+				target: toM1,
+			},
+		]);
+		expect(linkCodes(doc)).toContain("FORM_LINK_CONDITION_NOT_ON_DEVICE");
+	});
+
+	it("refuses supplied datums that never say which case to open", () => {
+		// `_get_datums_matched_to_manual_values` raises here and fails HQ's
+		// entire suite build, so the gate refuses the document rather than
+		// letting the upload be the discovery mechanism.
+		const doc = docWithLinks([
+			{
+				target: {
+					type: "form",
+					moduleUuid: asUuid(M1),
+					formUuid: asUuid(F2),
 				},
-			],
-		});
-		const moduleUuid = doc.moduleOrder[0];
-		const [f0Uuid, f1Uuid] = doc.formOrder[moduleUuid];
-		const doc2 = update(doc, (d) => {
-			d.forms[f0Uuid].formLinks = [
-				{
-					condition: xp("x = 1"),
-					target: { type: "form", moduleUuid, formUuid: f1Uuid },
+				datums: [{ name: "other_id", xpath: "/data/x" }],
+			},
+		]);
+		expect(linkCodes(doc)).toContain("FORM_LINK_DATUM_INCOMPLETE");
+	});
+
+	it("accepts supplied datums that name the destination's case", () => {
+		const doc = docWithLinks([
+			{
+				target: {
+					type: "form",
+					moduleUuid: asUuid(M1),
+					formUuid: asUuid(F2),
 				},
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.find((e) => e.code === "FORM_LINK_NO_FALLBACK"),
-		).toBeUndefined();
+				datums: [{ name: "case_id", xpath: "/data/x" }],
+			},
+		]);
+		expect(linkCodes(doc)).toEqual([]);
 	});
 
 	it("detects circular form links at app level", () => {
@@ -1125,34 +1289,44 @@ describe("form_links validation", () => {
 			appName: "Test",
 			modules: [
 				{
+					uuid: M0,
 					name: "M0",
 					forms: [
 						{
+							uuid: F0,
 							name: "F0",
 							type: "survey",
+							formLinks: [
+								{
+									target: {
+										type: "form",
+										moduleUuid: asUuid(M0),
+										formUuid: asUuid(F1),
+									},
+								},
+							],
 							fields: [f({ kind: "text", id: "q", label: "Q" })],
 						},
 						{
+							uuid: F1,
 							name: "F1",
 							type: "survey",
+							formLinks: [
+								{
+									target: {
+										type: "form",
+										moduleUuid: asUuid(M0),
+										formUuid: asUuid(F0),
+									},
+								},
+							],
 							fields: [f({ kind: "text", id: "q", label: "Q" })],
 						},
 					],
 				},
 			],
 		});
-		const moduleUuid = doc.moduleOrder[0];
-		const [f0Uuid, f1Uuid] = doc.formOrder[moduleUuid];
-		const doc2 = update(doc, (d) => {
-			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
-			];
-			d.forms[f1Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
+		expect(linkCodes(doc)).toContain("FORM_LINK_CIRCULAR");
 	});
 
 	it("detects a self-loop form link (A → A)", () => {
@@ -1161,143 +1335,56 @@ describe("form_links validation", () => {
 		// here pins that behavior so a future change to the form-level
 		// rule doesn't silently unwire app-level cycle coverage of
 		// self-links.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M0",
-					forms: [
-						{
-							name: "F0",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
+		const doc = docWithLinks([
+			{
+				target: {
+					type: "form",
+					moduleUuid: asUuid(M0),
+					formUuid: asUuid(F0),
 				},
-			],
-		});
-		const moduleUuid = doc.moduleOrder[0];
-		const [f0Uuid] = doc.formOrder[moduleUuid];
-		const doc2 = update(doc, (d) => {
-			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
+			},
+		]);
+		expect(linkCodes(doc)).toContain("FORM_LINK_CIRCULAR");
 	});
 
 	it("detects a 3-chain cycle (A → B → C → A)", () => {
+		const [A, B, C] = ["frm-a", "frm-b", "frm-c"];
+		const chain = (from: string, to: string) => ({
+			uuid: from,
+			name: from,
+			type: "survey" as const,
+			formLinks: [
+				{
+					target: {
+						type: "form" as const,
+						moduleUuid: asUuid(M0),
+						formUuid: asUuid(to),
+					},
+				},
+			],
+			fields: [f({ kind: "text", id: "q", label: "Q" })],
+		});
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
 				{
+					uuid: M0,
 					name: "M0",
-					forms: [
-						{
-							name: "F0",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-						{
-							name: "F1",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-						{
-							name: "F2",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
+					forms: [chain(A, B), chain(B, C), chain(C, A)],
 				},
 			],
 		});
-		const moduleUuid = doc.moduleOrder[0];
-		const [f0Uuid, f1Uuid, f2Uuid] = doc.formOrder[moduleUuid];
-		const doc2 = update(doc, (d) => {
-			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
-			];
-			d.forms[f1Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f2Uuid } },
-			];
-			d.forms[f2Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.find((e) => e.code === "FORM_LINK_CIRCULAR")).toBeDefined();
+		expect(linkCodes(doc)).toContain("FORM_LINK_CIRCULAR");
 	});
 
-	it("accepts valid form links", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M0",
-					forms: [
-						{
-							name: "F0",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-						{
-							name: "F1",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
-				},
-			],
-		});
-		const moduleUuid = doc.moduleOrder[0];
-		const [f0Uuid, f1Uuid] = doc.formOrder[moduleUuid];
-		const doc2 = update(doc, (d) => {
-			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.filter((e) => e.code.startsWith("FORM_LINK"))).toEqual([]);
+	it("accepts a link to a form in another module", () => {
+		const doc = docWithLinks([{ target: toF1 }]);
+		expect(linkCodes(doc)).toEqual([]);
 	});
 
-	it("accepts module target links", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M0",
-					forms: [
-						{
-							name: "F0",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
-				},
-				{
-					name: "M1",
-					forms: [
-						{
-							name: "F0",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
-				},
-			],
-		});
-		const m0 = doc.moduleOrder[0];
-		const m1 = doc.moduleOrder[1];
-		const f0Uuid = doc.formOrder[m0][0];
-		const doc2 = update(doc, (d) => {
-			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "module", moduleUuid: m1 } },
-			];
-		});
-		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.filter((e) => e.code.startsWith("FORM_LINK"))).toEqual([]);
+	it("accepts a module target link", () => {
+		const doc = docWithLinks([{ target: toM1 }]);
+		expect(linkCodes(doc)).toEqual([]);
 	});
 });
 

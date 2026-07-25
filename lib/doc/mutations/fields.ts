@@ -991,9 +991,11 @@ function ensureCatalogProperty(doc: BlueprintDoc, field: Field): void {
  * leaf under a different group is untouched; every prose slot is
  * regex-located first so only the embedded hashtag refs are rewritten
  * while the surrounding text is preserved verbatim. The containing form's own wiring slots
- * (form-link conditions/datums, Connect expressions,
- * `closeCondition.field`) are rewritten in the same pass — they
- * reference this form's fields (see `FormSlotRewriteContext`).
+ * (form-link datums, Connect expressions, `closeCondition.field`) are
+ * rewritten in the same pass — they reference this form's fields (see
+ * `FormSlotRewriteContext`). A form-link CONDITION is not among them: it
+ * evaluates in the session context at end of form, where the submitted
+ * instance is out of scope, so it names case data and never a field.
  *
  * `tracking` is passed in so multiple invocations (primary rename plus
  * each peer rename plus the cascade's `#case/` pass) share one view of
@@ -1249,10 +1251,10 @@ function cascadeCasePropertyRename(
 		// one. A field touched here may also have been touched by a
 		// form-local pass earlier (peer renames rewrite their own forms);
 		// adding to `touchedFields` dedupes so `xpathFieldsRewritten`
-		// counts each field once, not once per pass. Form wiring carries
-		// case hashtags too (Connect expressions and form-link conditions
-		// validate against case refs), so the same rewriter runs over the
-		// form's XPath wiring slots — `closeCondition.field` is a form-
+		// counts each field once, not once per pass. Form wiring reads case
+		// data too — Connect expressions carry case hashtags and a form-link
+		// condition is a Predicate over the case — so the same rewriter runs
+		// over the form's wiring slots; `closeCondition.field` is a form-
 		// local field id, untouched by a case pass (peer renames handle
 		// their own forms' close conditions).
 		const formUuid = doc.forms[carrierUuid as Uuid]

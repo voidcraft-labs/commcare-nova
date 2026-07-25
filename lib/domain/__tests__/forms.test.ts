@@ -6,8 +6,13 @@
 // than the shape of Zod's own combinator output.
 
 import { describe, expect, it } from "vitest";
-import { asUuid, formSchema, isCaseFirstModule } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
+import {
+	asUuid,
+	formSchema,
+	isCaseFirstModule,
+	orderedFormLinks,
+} from "@/lib/domain";
+import { eq, literal, prop, sessionUser } from "@/lib/domain/predicate";
 import { opaqueXPathExpression } from "../xpath";
 
 describe("formSchema — formLinks", () => {
@@ -24,38 +29,94 @@ describe("formSchema — formLinks", () => {
 		formUuid: asUuid("frm-2"),
 	};
 
-	it("accepts an empty condition expression — emitters read it as unconditional", () => {
-		// No commit boundary stores an empty condition (an empty commit
-		// clears the slot), and both emitters collapse a degenerate empty
-		// expression to "unconditional": the session emitter's truthy
-		// check over the printed text, and the expander's explicit
-		// empty-printed-condition drop.
-		const result = formSchema.safeParse({
-			...baseForm,
-			formLinks: [{ condition: opaqueXPathExpression(""), target: linkTarget }],
-		});
-		expect(result.success).toBe(true);
+	const link = (extra: Record<string, unknown>) => ({
+		uuid: asUuid("lnk-1"),
+		order: "a0",
+		target: linkTarget,
+		...extra,
 	});
 
 	it("accepts an absent condition (unconditional link)", () => {
 		const result = formSchema.safeParse({
 			...baseForm,
-			formLinks: [{ target: linkTarget }],
+			formLinks: [link({})],
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it("accepts a non-empty condition (conditional link)", () => {
+	it("accepts a typed Predicate condition", () => {
+		const condition = eq(prop("patient", "outcome"), literal("yes"));
+		const result = formSchema.safeParse({
+			...baseForm,
+			formLinks: [link({ condition })],
+		});
+		expect(result.success).toBe(true);
+		if (result.success)
+			expect(result.data.formLinks?.[0].condition).toEqual(condition);
+	});
+
+	it("rejects a condition stored as XPath text", () => {
+		// The condition shares the display conditions' vocabulary, so the
+		// same identity guarantee applies: a rename resolves at print time
+		// because the reference is a typed leaf, never a string that would
+		// have to be rewritten.
 		const result = formSchema.safeParse({
 			...baseForm,
 			formLinks: [
-				{
-					condition: opaqueXPathExpression("/data/outcome = 'yes'"),
-					target: linkTarget,
-				},
+				link({ condition: opaqueXPathExpression("/data/outcome = 'yes'") }),
 			],
 		});
-		expect(result.success).toBe(true);
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects a link with no identity or no order key", () => {
+		// Both are what make a link addressable by an identity-keyed
+		// mutation and orderable independently of array position. A link
+		// missing either could not be moved or updated without rewriting
+		// the whole list.
+		expect(
+			formSchema.safeParse({
+				...baseForm,
+				formLinks: [{ order: "a0", target: linkTarget }],
+			}).success,
+		).toBe(false);
+		expect(
+			formSchema.safeParse({
+				...baseForm,
+				formLinks: [{ uuid: asUuid("lnk-1"), target: linkTarget }],
+			}).success,
+		).toBe(false);
+	});
+});
+
+describe("orderedFormLinks", () => {
+	const target = {
+		type: "module" as const,
+		moduleUuid: asUuid("mod-1"),
+	};
+
+	it("sorts by order key, not by array position", () => {
+		const ordered = orderedFormLinks({
+			formLinks: [
+				{ uuid: asUuid("lnk-b"), order: "a2", target },
+				{ uuid: asUuid("lnk-a"), order: "a1", target },
+			],
+		});
+		expect(ordered.map((link) => link.uuid)).toEqual(["lnk-a", "lnk-b"]);
+	});
+
+	it("breaks an order-key tie on uuid so the sequence is total", () => {
+		// Sequence decides which guard negates which, so two links holding
+		// one key must still resolve to exactly one order on every surface
+		// — a comparator returning 0 here would let the emitter and the
+		// preview disagree about which branch a worker takes.
+		const ordered = orderedFormLinks({
+			formLinks: [
+				{ uuid: asUuid("lnk-z"), order: "a1", target },
+				{ uuid: asUuid("lnk-a"), order: "a1", target },
+			],
+		});
+		expect(ordered.map((link) => link.uuid)).toEqual(["lnk-a", "lnk-z"]);
 	});
 });
 

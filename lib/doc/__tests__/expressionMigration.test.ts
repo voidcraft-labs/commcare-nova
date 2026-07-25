@@ -168,16 +168,11 @@ function richDoc(): BlueprintDoc {
 					{
 						name: "Quiz",
 						type: "survey",
-						formLinks: [
-							{
-								condition: "#form/score > 50",
-								target: {
-									type: "module",
-									moduleUuid: asUuid("99999999-9999-4999-8999-999999999999"),
-								},
-								datums: [{ name: "case_id", xpath: "/data/score" }],
-							},
-						],
+						// No end-of-form link here: links have no string era to
+						// migrate FROM. They reached their stored shape with no
+						// population to convert, so manufacturing a legacy one
+						// would prove byte-identity for a document that never
+						// existed.
 						connect: {
 							assessment: {
 								id: "clinic_quiz",

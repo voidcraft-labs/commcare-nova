@@ -43,6 +43,7 @@ const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
 const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
 const C = (s: string) => asUuid(`col${s}-0000-0000-0000-000000000000`);
 const S = (s: string) => asUuid(`sin${s}-0000-0000-0000-000000000000`);
+const L = (s: string) => asUuid(`lnk${s}-0000-0000-0000-000000000000`);
 
 /** Same loose fixture builder as `mutations-fields.test.ts`. */
 function field_(
@@ -299,12 +300,19 @@ describe("repeat slots follow renames at print", () => {
 // ── Form-level wiring: form links, close condition, connect ───────
 
 describe("renameField rewrites the owning form's form-level wiring", () => {
-	it("form_links[].condition follows a rename at print, with zero rewrites", () => {
+	it("leaves a form-link condition alone — it names case data, never a field", () => {
+		// The stack `if` evaluates in the session context at end of form,
+		// where neither runtime puts the submitted instance in scope. A
+		// field rename therefore has nothing to chase here, and a rewrite
+		// would be repointing a case read at a form question.
+		const condition = eq(prop("patient", "refer"), literal("yes"));
 		const start: BlueprintDoc = {
 			...docWithForm({
 				formLinks: [
 					{
-						condition: "/data/refer = 'yes' and #form/refer != ''",
+						uuid: L("1"),
+						order: "a0",
+						condition,
 						target: { type: "module", moduleUuid: M("X") },
 					},
 				] as unknown as Form["formLinks"],
@@ -313,10 +321,7 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			fieldOrder: { [F("1")]: [Q("r")] },
 		};
 		const { next, meta } = rename(start, Q("r"), "referral");
-		const condition = next.forms[F("1")]?.formLinks?.[0]?.condition;
-		expect(condition && printXPath(condition, xpathPrintContext(next))).toBe(
-			"/data/referral = 'yes' and #form/referral != ''",
-		);
+		expect(next.forms[F("1")]?.formLinks?.[0]?.condition).toEqual(condition);
 		expect(meta?.formWiringRewritten).toBe(0);
 	});
 
@@ -325,6 +330,8 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			...docWithForm({
 				formLinks: [
 					{
+						uuid: L("1"),
+						order: "a0",
 						target: {
 							type: "form",
 							moduleUuid: M("X"),
@@ -346,43 +353,6 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 		// The datum NAME is the target entry's session-variable token
 		// (wire vocabulary), not a field reference.
 		expect(link?.datums?.[0]?.name).toBe("case_id");
-	});
-
-	it("does NOT touch another form's link conditions (source-form scoping)", () => {
-		// Form-link conditions evaluate against the form that OWNS the
-		// link (CCHQ end-of-form navigation: workflow.py passes
-		// link.xpath verbatim into the source form's stack frame). Form 2
-		// has its own field named `age` and a link condition referencing
-		// it; renaming form 1's `age` must not touch form 2's wiring.
-		const base = docWithForm();
-		const start: BlueprintDoc = {
-			...base,
-			forms: {
-				...base.forms,
-				[F("2")]: {
-					uuid: F("2"),
-					name: "F2",
-					type: "survey",
-					formLinks: [
-						{
-							condition: "/data/age > 17",
-							target: { type: "module", moduleUuid: M("X") },
-						},
-					],
-				} as unknown as Form,
-			},
-			fields: {
-				[Q("a1")]: field_(Q("a1"), "age", { kind: "int" }),
-				[Q("a2")]: field_(Q("a2"), "age", { kind: "int" }),
-			},
-			formOrder: { [M("X")]: [F("1"), F("2")] },
-			fieldOrder: { [F("1")]: [Q("a1")], [F("2")]: [Q("a2")] },
-		};
-		const { next } = rename(start, Q("a1"), "years");
-		const otherCondition = next.forms[F("2")]?.formLinks?.[0]?.condition;
-		expect(
-			otherCondition && printXPath(otherCondition, xpathPrintContext(next)),
-		).toBe("/data/age > 17");
 	});
 
 	it("a close condition follows its field's rename with zero rewrites — the ref is its uuid", () => {
@@ -457,12 +427,15 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 });
 
 describe("moveField re-anchors form-level wiring", () => {
-	it("re-anchors form link conditions and connect slots across a depth change", () => {
+	it("re-anchors connect slots across a depth change and leaves a link condition alone", () => {
+		const condition = eq(prop("patient", "score"), literal("5"));
 		const start: BlueprintDoc = {
 			...docWithForm({
 				formLinks: [
 					{
-						condition: "#form/score > 5",
+						uuid: L("1"),
+						order: "a0",
+						condition,
 						target: { type: "module", moduleUuid: M("X") },
 					},
 				] as unknown as Form["formLinks"],
@@ -484,15 +457,14 @@ describe("moveField re-anchors form-level wiring", () => {
 				toIndex: 0,
 			});
 		});
-		const movedCondition = next.forms[F("1")]?.formLinks?.[0]?.condition;
-		expect(
-			movedCondition && printXPath(movedCondition, xpathPrintContext(next)),
-		).toBe("#form/grp/score > 5");
 		const movedForm = next.forms[F("1")];
 		if (!movedForm) throw new Error("fixture form missing");
 		expect(formExpressionSource(movedForm, "deliver_entity_name", next)).toBe(
 			"/data/grp/score",
 		);
+		// A depth change moves form paths; the link condition names a case
+		// property, which has no path to re-anchor.
+		expect(movedForm.formLinks?.[0]?.condition).toEqual(condition);
 	});
 });
 
@@ -848,11 +820,13 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		expect(meta?.cascadedAcrossForms).toBe(true);
 	});
 
-	it("rewrites case hashtags in another form's form-level wiring", () => {
-		// A form in a matching-caseType module references the renamed
-		// case property in its form-link condition via `#case/` — the
-		// cascade's hashtag pass must reach form-level slots, not just
-		// field slots.
+	it("rewrites a case-property read in another form's link condition", () => {
+		// A form in a matching-caseType module reads the renamed case
+		// property from its form-link condition — the cascade must reach
+		// form-level Predicate slots, not just field slots. Its structural
+		// rewrite is the whole mechanism: the leaf carries `(caseType,
+		// property)` identity, so the rename edits the leaf rather than
+		// any text.
 		const base = cascadeDoc({});
 		const start: BlueprintDoc = {
 			...base,
@@ -864,7 +838,9 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 					type: "followup",
 					formLinks: [
 						{
-							condition: "#case/age > 17 and #patient/age > 17",
+							uuid: L("1"),
+							order: "a0",
+							condition: eq(prop("patient", "age"), literal("17")),
 							target: { type: "module", moduleUuid: M("X") },
 						},
 					],
@@ -874,10 +850,9 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 			fieldOrder: { ...base.fieldOrder, [F("3")]: [] },
 		};
 		const { next, meta } = rename(start, Q("src"), "years");
-		const f3Condition = next.forms[F("3")]?.formLinks?.[0]?.condition;
-		expect(
-			f3Condition && printXPath(f3Condition, xpathPrintContext(next)),
-		).toBe("#case/years > 17 and #patient/years > 17");
+		expect(next.forms[F("3")]?.formLinks?.[0]?.condition).toEqual(
+			eq(prop("patient", "years"), literal("17")),
+		);
 		expect(meta?.formWiringRewritten).toBe(1);
 		expect(meta?.cascadedAcrossForms).toBe(true);
 	});

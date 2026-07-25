@@ -113,7 +113,7 @@ function seedDoc(): BlueprintDoc {
 						closeCondition: { field: "outcome", answer: "done" },
 						formLinks: [
 							{
-								condition: "#form/age > 17 and #patient/age > 17",
+								condition: eq(prop("patient", "age"), literal("17")),
 								target: {
 									type: "module",
 									moduleUuid: asUuid("mod00000-0000-4000-8000-00000000000a"),
