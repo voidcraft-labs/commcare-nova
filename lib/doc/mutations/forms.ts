@@ -121,6 +121,7 @@ export function applyFormMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
+			applyFormLinkChange(form, mut.formLinkChange);
 			const change = mut.caseOperationChange;
 			if (change === undefined) return;
 			const operations = form.caseOperations ?? [];
@@ -165,18 +166,72 @@ export function applyFormMutation(
 			}
 			return;
 		}
-		case "setFormMedia": {
-			// Set or clear the form's menu media (tile `icon` + `audioLabel`).
-			// Mirrors `setModuleMedia` one level down: explicit `AssetId | null`
-			// slots so a clear survives JSON over the SSE wire (a generic
-			// `updateForm` patch would encode it as `{ key: undefined }`, which
-			// `JSON.stringify` drops). Each `null` maps to `undefined` so the
-			// cleared slot drops off the form.
-			const form = draft.forms[mut.uuid];
-			if (!form) return;
-			form.icon = mut.icon ?? undefined;
-			form.audioLabel = mut.audioLabel ?? undefined;
+		case "setFormMedia":
+			applySetFormMedia(draft, mut);
+			return;
+	}
+}
+
+/**
+ * Apply one identity-keyed end-of-form link edit.
+ *
+ * Stale events are no-ops rather than errors, and never birth an empty
+ * array: two members can be editing one form's links at once, and an
+ * `update` or `move` naming a link the other member already removed must
+ * merge as "nothing to do" rather than resurrecting it. Removing the last
+ * link deletes the slot so the doc round-trips to the shape it had before
+ * links existed.
+ */
+function applyFormLinkChange(
+	form: Draft<BlueprintDoc>["forms"][string],
+	change: Extract<Mutation, { kind: "updateForm" }>["formLinkChange"],
+): void {
+	if (change === undefined) return;
+	const links = form.formLinks ?? [];
+	switch (change.operation) {
+		case "add":
+			if (!links.some((link) => link.uuid === change.value.uuid)) {
+				links.push(change.value);
+				form.formLinks = links;
+			}
+			return;
+		case "update": {
+			const index = links.findIndex((link) => link.uuid === change.uuid);
+			if (index === -1) return;
+			links[index] = change.value;
+			form.formLinks = links;
+			return;
+		}
+		case "remove": {
+			const index = links.findIndex((link) => link.uuid === change.uuid);
+			if (index !== -1) links.splice(index, 1);
+			if (links.length === 0) delete form.formLinks;
+			else form.formLinks = links;
+			return;
+		}
+		case "move": {
+			const link = links.find((candidate) => candidate.uuid === change.uuid);
+			if (link === undefined) return;
+			link.order = change.order;
+			form.formLinks = links;
 			return;
 		}
 	}
+}
+
+/**
+ * Set or clear the form's menu media (tile `icon` + `audioLabel`).
+ * Mirrors `setModuleMedia` one level down: explicit `AssetId | null` slots
+ * so a clear survives JSON over the SSE wire (a generic `updateForm` patch
+ * would encode it as `{ key: undefined }`, which `JSON.stringify` drops).
+ * Each `null` maps to `undefined` so the cleared slot drops off the form.
+ */
+function applySetFormMedia(
+	draft: Draft<BlueprintDoc>,
+	mut: Extract<Mutation, { kind: "setFormMedia" }>,
+): void {
+	const form = draft.forms[mut.uuid];
+	if (!form) return;
+	form.icon = mut.icon ?? undefined;
+	form.audioLabel = mut.audioLabel ?? undefined;
 }

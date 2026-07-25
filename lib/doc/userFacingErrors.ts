@@ -437,12 +437,24 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} is set to head back to its module after submitting, but that module has no form list to land on. Send people to "Previous Screen" or "App Home" instead.`,
 	FORM_LINK_EMPTY: (e) =>
 		`${q(formName(e))} has follow-on links turned on but none added. Add a link, or turn the setting off.`,
-	FORM_LINK_NO_FALLBACK: (e) =>
-		`${q(formName(e))} has conditional follow-on links but no fallback. Set where people go when none of the conditions match.`,
 	FORM_LINK_TARGET_NOT_FOUND: (e) =>
 		`A follow-on link in ${q(formName(e))} points to a form or module that's gone. Update it.`,
 	FORM_LINK_SELF_REFERENCE: (e) =>
 		`A follow-on link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
+	FORM_LINK_UNREACHABLE: (e) =>
+		`A follow-on link in ${q(formName(e))} sits below one that always applies, so it could never be used. Give the one above it a condition, or move this one up.`,
+	FORM_LINK_DATUM_INCOMPLETE: (e) =>
+		`A follow-on link in ${q(formName(e))} sets its own session values but never says which case to open. Add one named "case_id", or drop the custom values.`,
+	FORM_LINK_CONDITION_ALWAYS_FALSE: (e) =>
+		`A follow-on link in ${q(formName(e))} has a condition that can never be true, so nobody would ever be sent there. Change the condition or remove the link.`,
+	FORM_LINK_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
+		`A follow-on link in ${q(formName(e))} reads case information that isn't available when the form is submitted. Read a value from the case this form works on.`,
+	FORM_LINK_CONDITION_SEARCH_INPUT_UNAVAILABLE: (e) =>
+		`A follow-on link in ${q(formName(e))} uses a search answer, which is long gone by the time the form is submitted. Use a case value instead.`,
+	FORM_LINK_CONDITION_TYPE_ERROR: (e) =>
+		`A follow-on link's condition in ${q(formName(e))} compares values that don't go together. Check the rule.`,
+	FORM_LINK_CONDITION_NOT_ON_DEVICE: (e) =>
+		`A follow-on link's condition in ${q(formName(e))} uses something CommCare can't work out on a device. Simplify the rule.`,
 	CONNECT_ID_MISSING: (e) =>
 		`The Connect ${det(e, "connectKind", "")} in ${q(formName(e))} needs an ID. Give it one — unique across the app, 50 characters or fewer.`,
 	CONNECT_ID_TOO_LONG: (e) =>

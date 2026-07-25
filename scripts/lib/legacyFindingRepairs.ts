@@ -375,11 +375,29 @@ export const REPAIR_JUDGMENTS: Readonly<
 	FORM_LINK_EMPTY: owner("the link's target is content"),
 	FORM_LINK_TARGET_NOT_FOUND: owner("re-pointing the link is content"),
 	FORM_LINK_CIRCULAR: owner("which edge of the loop to break is content"),
-	FORM_LINK_NO_FALLBACK: owner(
-		"whether to add a fallback or make a condition exhaustive is content",
-	),
 	FORM_LINK_SELF_REFERENCE: owner(
 		"whether the form should loop to itself or go elsewhere is content",
+	),
+	FORM_LINK_UNREACHABLE: owner(
+		"which link should cover the remaining cases is content",
+	),
+	FORM_LINK_DATUM_INCOMPLETE: owner(
+		"which case the destination should open is content",
+	),
+	FORM_LINK_CONDITION_ALWAYS_FALSE: owner(
+		"whether the branch was meant to be reachable is content",
+	),
+	FORM_LINK_CONDITION_CASE_DATA_UNAVAILABLE: owner(
+		"which value the rule should read instead is content",
+	),
+	FORM_LINK_CONDITION_SEARCH_INPUT_UNAVAILABLE: owner(
+		"which value the rule should read instead is content",
+	),
+	FORM_LINK_CONDITION_TYPE_ERROR: owner(
+		"which side of the comparison is wrong is content",
+	),
+	FORM_LINK_CONDITION_NOT_ON_DEVICE: owner(
+		"how to express the rule portably is content",
 	),
 	CONNECT_MISSING_LEARN: owner(
 		"sub-config names and descriptions are content — collected from the user, never invented",

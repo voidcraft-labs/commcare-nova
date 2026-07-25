@@ -36,6 +36,7 @@ import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { validateCaseOperations } from "./caseOperations";
 import { formDisplayCondition } from "./displayConditions";
+import { formLinkValidation } from "./formLinks";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
 
 // ── Helpers ────────────────────────────────────────────────────────

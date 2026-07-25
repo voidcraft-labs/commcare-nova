@@ -278,7 +278,10 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"audioLabel",
 	"name",
 	"order",
+	// Both ordered collections travel as identity-keyed semantic changes
+	// rather than a wholesale array patch — see `lib/doc/types.ts`.
 	"caseOperations",
+	"formLinks",
 ]);
 
 // ── Field media diff ─────────────────────────────────────────────────
@@ -536,6 +539,7 @@ export function diffDocsToMutations(
 		}
 		updates.push(
 			...diffCaseOperations(prev.forms[uuid], next.forms[uuid], uuid),
+			...diffFormLinks(prev.forms[uuid], next.forms[uuid], uuid),
 		);
 		if (menuMediaChanged(p, n)) {
 			media.push({
@@ -778,6 +782,64 @@ function diffCaseOperations(
 							},
 						},
 			);
+		}
+	}
+	return mutations;
+}
+
+/**
+ * Diff a form's end-of-form links into identity-keyed changes.
+ *
+ * Simpler than the case-operation twin because `order` is REQUIRED on a
+ * link: there is no "the order key was cleared" case that has to fall
+ * back into a full update, so a pure reorder is always a `move`.
+ */
+function diffFormLinks(prev: Form, next: Form, formUuid: Uuid): Mutation[] {
+	const before = new Map(
+		(prev.formLinks ?? []).map((link) => [link.uuid, link]),
+	);
+	const after = new Map(
+		(next.formLinks ?? []).map((link) => [link.uuid, link]),
+	);
+	const mutations: Mutation[] = [];
+	for (const [uuid] of before) {
+		if (after.has(uuid)) continue;
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			formLinkChange: { operation: "remove", uuid },
+		});
+	}
+	for (const [uuid, link] of after) {
+		const prior = before.get(uuid);
+		if (prior === undefined) {
+			mutations.push({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				formLinkChange: { operation: "add", value: cloneEntity(link) },
+			});
+			continue;
+		}
+		if (!deepEqual({ ...prior, order: "" }, { ...link, order: "" })) {
+			mutations.push({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				formLinkChange: {
+					operation: "update",
+					uuid,
+					value: cloneEntity(link),
+				},
+			});
+		} else if (prior.order !== link.order) {
+			mutations.push({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				formLinkChange: { operation: "move", uuid, order: link.order },
+			});
 		}
 	}
 	return mutations;
