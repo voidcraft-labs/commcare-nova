@@ -46,21 +46,20 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
-	type CalculatedTemporalType,
 	type ColumnDisplayContext,
 	projectColumnDisplay,
 	renderColumnCell,
-	resolveCalculatedTemporalType,
 } from "@/components/builder/case-list-config/columnCellRenderer";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
-import { caseColumnLabel } from "@/components/preview/shared/caseColumnLabel";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
+import { caseColumnLabel } from "@/components/preview/shared/caseColumnLabel";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
+import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
@@ -132,7 +131,6 @@ import {
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
-import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
 
 /** Canvas width where search sits beside the results instead of above
  *  them — the same responsive truth the running app follows. */
@@ -140,6 +138,9 @@ const SPLIT_MIN_WIDTH = 760;
 /** Keep real case populations bounded in both the SQL payload and the DOM. */
 const CASE_LIST_PAGE_SIZE = 50;
 const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
+/** Stable empty catalog slice — a fresh `[]` per render would defeat the
+ *  display context's memo. */
+const NO_CASE_PROPERTIES: readonly CaseProperty[] = [];
 
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
@@ -213,41 +214,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
-	const effectiveCaseType = effectiveCaseTypes.find(
-		(candidate) => candidate.name === mod?.caseType,
-	);
 	const config = mod?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
-	const displayToday = useLocalCalendarDay();
-	const calculatedTemporalTypes = useMemo(() => {
-		const types = new Map<Column["uuid"], CalculatedTemporalType>();
-		if (config === undefined) return types;
-		const typeContext = {
-			caseTypes: [...effectiveCaseTypes],
-			currentCaseType: effectiveCaseType?.name,
-			// Calculated-column expressions cannot read worker search inputs.
-			// Keeping this empty matches their validator slot constraint.
-			knownInputs: [],
-		};
-		for (const column of config.columns) {
-			const temporalType = resolveCalculatedTemporalType(column, typeContext);
-			if (temporalType !== undefined) types.set(column.uuid, temporalType);
-		}
-		return types;
-	}, [config, effectiveCaseType?.name, effectiveCaseTypes]);
-	const columnDisplayContext = useMemo<ColumnDisplayContext>(
-		() => ({
-			calculatedTemporalTypes,
-			caseProperties:
-				effectiveCaseType?.properties ?? caseType?.properties ?? [],
-			today: displayToday,
-		}),
-		[
-			calculatedTemporalTypes,
-			caseType?.properties,
-			displayToday,
-			effectiveCaseType?.properties,
-		],
+	const columnDisplayContext = useColumnDisplayContext(
+		config,
+		mod?.caseType,
+		caseType?.properties ?? NO_CASE_PROPERTIES,
 	);
 	const { signIn } = useAuth();
 	/* Whoever Preview is running as — the member, or the persona they
@@ -1937,23 +1909,12 @@ function ResultsTable({
 							</li>
 						);
 					}
-					const visibleSummary = visibleColumns
-						.map((column) =>
-							projectColumnDisplay(
-								column,
-								row,
-								columnDisplayContext,
-							).text.trim(),
-						)
-						.filter(Boolean)
-						.slice(0, 3)
-						.join(", ");
-					const caseReference =
-						visibleSummary || row.case_name.trim() || "this case";
-					const primaryActionLabel =
-						rowAction === "detail"
-							? `View details for ${caseReference}`
-							: `Continue with ${caseReference}`;
+					const primaryActionLabel = primaryRowActionLabel(
+						visibleColumns,
+						row,
+						columnDisplayContext,
+						rowAction,
+					);
 					return (
 						<li
 							key={row.case_id}
@@ -1969,6 +1930,168 @@ function ResultsTable({
 								type="button"
 								variant="ghost"
 								aria-label={primaryActionLabel}
+								data-case-result-action={row.case_id}
+								onClick={(event) => onOpenCase(row, event.currentTarget)}
+								disabled={busy}
+								className="absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet-bright/75 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+							/>
+							{content}
+						</li>
+					);
+				})}
+			</ul>
+		</div>
+	);
+}
+
+/**
+ * What the row's own action announces. The name comes from what the list
+ * actually shows, so a worker hears the row they are choosing rather than
+ * a stored id — and both row shapes (columns and tile) derive it the same
+ * way, so switching layouts never changes what a screen reader says.
+ */
+function primaryRowActionLabel(
+	columns: readonly Column[],
+	row: CaseRowWithCalculated,
+	context: ColumnDisplayContext,
+	rowAction: "detail" | "form" | "none",
+): string {
+	const summary = columns
+		.map((column) => projectColumnDisplay(column, row, context).text.trim())
+		.filter(Boolean)
+		.slice(0, 3)
+		.join(", ");
+	const caseReference = summary || row.case_name.trim() || "this case";
+	return rowAction === "detail"
+		? `View details for ${caseReference}`
+		: `Continue with ${caseReference}`;
+}
+
+// ── Tile results ──────────────────────────────────────────────────
+
+/** The geometry + column set one tile-laid-out list draws every row with. */
+interface ResultsTileLayout {
+	readonly projection: TileGridProjection;
+	readonly columns: readonly TileResultsColumn[];
+}
+
+/**
+ * The Results list when the case list carries a tile layout: one tile per
+ * row, drawn from the authored grid instead of a row of columns.
+ *
+ * ## Responsive behavior
+ *
+ * The tile does not reflow, collapse, or scale at any width. A tile is a
+ * phone-first layout — the device that runs it is 360 CSS pixels wide, and
+ * a preview that rearranged the grid to fit a builder canvas would stop
+ * showing what a worker sees, which is the whole point of running the app
+ * here. So width changes the tile's surroundings, never its geometry:
+ *
+ *   - **Compact (container under 600px, Material's first boundary).** The
+ *     row's gutters tighten so the pane spends its width on content. The
+ *     list holds a legibility floor of 18rem: below that the list scrolls
+ *     horizontally inside its own container — the same containment wide
+ *     content uses everywhere — rather than squeezing a 12-column grid to
+ *     roughly a character per column. A builder canvas is wider than the
+ *     floor even on a 320px handset, so the floor is a guarantee, not a
+ *     state a worker normally meets.
+ *   - **Medium and up (600 / 840 / 1200 / 1600).** The gutters relax and
+ *     the tile is capped at a 48rem measure. A 12-column tile stretched to
+ *     1600px gives a single-column cell 130px, which no device draws and
+ *     which turns short values into isolated islands; the extra width
+ *     becomes room around the list instead. Web Apps' own case list is
+ *     likewise capped until its small-screen mode goes full-width.
+ */
+function ResultsTiles({
+	rows,
+	tile,
+	caseProperties,
+	columnDisplayContext,
+	rowAction,
+	onOpenCase,
+	busy,
+}: {
+	readonly rows: readonly CaseRowWithCalculated[];
+	readonly tile: ResultsTileLayout;
+	readonly caseProperties: readonly CaseProperty[];
+	readonly columnDisplayContext: ColumnDisplayContext;
+	readonly rowAction: "detail" | "form" | "none";
+	readonly onOpenCase: (
+		row: CaseRowWithCalculated,
+		trigger: HTMLButtonElement,
+	) => void;
+	readonly busy: boolean;
+}) {
+	const clickable = rowAction !== "none";
+	/* The action name reads the values a worker can actually see; a hidden
+	 * sort carrier holds a square but shows nothing, so it names nothing. */
+	const spokenColumns = tile.columns
+		.filter((entry) => !entry.valueHidden)
+		.map((entry) => entry.column);
+	return (
+		<div
+			data-case-results="tile"
+			data-refreshing={busy || undefined}
+			aria-busy={busy}
+			inert={busy ? true : undefined}
+			className={`@container/results overflow-x-auto overflow-y-clip rounded-lg border border-pv-input-border bg-pv-surface transition-opacity ${busy ? "opacity-60" : ""}`}
+		>
+			<ul className="m-0 w-fit min-w-[18rem] list-none p-0" aria-label="Cases">
+				{rows.map((row) => {
+					const content = (
+						<>
+							<CaseTile
+								projection={tile.projection}
+								columns={tile.columns}
+								row={row}
+								caseProperties={caseProperties}
+								displayContext={columnDisplayContext}
+								surface="results"
+								className="relative z-10"
+							/>
+							<span
+								aria-hidden="true"
+								className="pointer-events-none absolute top-3 right-3 z-10 grid place-items-center text-nova-text-muted"
+							>
+								{clickable && (
+									<Icon icon={tablerChevronRight} width="14" height="14" />
+								)}
+							</span>
+						</>
+					);
+					const rowClassName =
+						"relative block h-auto w-full min-w-0 whitespace-normal rounded-none border-x-0 border-t-0 border-b border-nova-violet/[0.07] py-3 pr-9 pl-3 text-left font-normal last:border-b-0 @min-[37.5rem]/results:py-4 @min-[37.5rem]/results:pl-5";
+					if (!clickable) {
+						return (
+							<li
+								key={row.case_id}
+								data-case-result-row="informational"
+								className={rowClassName}
+							>
+								{content}
+							</li>
+						);
+					}
+					return (
+						<li
+							key={row.case_id}
+							data-case-result-row="interactive"
+							className={`${rowClassName} ${INTERACTIVE_RESULT_ROW_CLASSES}`}
+						>
+							{/* Same sibling rule the column layout follows: the full-size
+							 * row action sits beneath the tile, and an authored cell
+							 * control (a phone link, a value explanation) opts back into
+							 * pointer events above it. A tile changes a row's shape, not
+							 * what may be nested inside its primary button. */}
+							<Button
+								type="button"
+								variant="ghost"
+								aria-label={primaryRowActionLabel(
+									spokenColumns,
+									row,
+									columnDisplayContext,
+									rowAction,
+								)}
 								data-case-result-action={row.case_id}
 								onClick={(event) => onOpenCase(row, event.currentTarget)}
 								disabled={busy}

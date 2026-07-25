@@ -112,6 +112,17 @@ export function tileMembership(columns: readonly Column[]): TileMembership {
 }
 
 /**
+ * Every member of the tile, placed or not, in Results order — the
+ * sequence a preset arranges against.
+ */
+export function tileMemberUuids(columns: readonly Column[]): readonly Uuid[] {
+	return [...columns]
+		.sort(byListColumnOrder)
+		.filter((column) => tileParticipation(column) !== null)
+		.map((column) => column.uuid);
+}
+
+/**
  * The accessible name of one cell — the field and the squares it holds,
  * so a screen reader announces a move as a change of place rather than
  * an unexplained focus event.
@@ -242,6 +253,32 @@ export function planTilePlacement(
 	});
 	if (!verdict.ok) return verdict;
 	return { ok: true, cell: { ...target.cell, ...verdict.cell } };
+}
+
+/**
+ * Adjudicate a placement for ANY column, member or not.
+ *
+ * The numeric controls reach cells the grid cannot draw — a saved place
+ * on a field currently hidden from Results, or on any field while the
+ * case list is showing rows — so they cannot go through the member list
+ * the way a drag does. Everything else is identical: the same bounds,
+ * the same overlap check against the tile's members, the same words.
+ */
+export function planColumnTilePlacement(args: {
+	readonly columns: readonly Column[];
+	readonly column: Column;
+	readonly geometry: TileGeometry;
+}): TilePlacementVerdict {
+	const { columns, column, geometry } = args;
+	const verdict = evaluateTilePlacement({
+		label: columnLabel(column),
+		candidate: geometry,
+		others: tileMembership(columns).placed.filter(
+			(entry) => entry.uuid !== column.uuid,
+		),
+	});
+	if (!verdict.ok) return verdict;
+	return { ok: true, cell: { ...column.tile, ...verdict.cell } };
 }
 
 /** Shift one member by whole squares. */

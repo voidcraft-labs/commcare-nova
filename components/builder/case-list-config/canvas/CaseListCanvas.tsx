@@ -5,6 +5,10 @@
 // the global Preview and the selected row's formatting stays in the properties
 // rail. No table geometry, wire names, positional badges, or hidden columns
 // leak into the experience.
+//
+// Arrangement is a choice this canvas owns. A case list shows its fields as
+// rows or as a tile, and the switch sits beside the information it rearranges
+// — the same reason order is dragged here and never set from a panel.
 
 "use client";
 

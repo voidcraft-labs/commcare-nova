@@ -19,10 +19,11 @@
 import { columnTileMutations } from "@/lib/doc/caseListColumnMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import { type Column, type TileCell, tileCell } from "@/lib/domain";
-import { tileMembership, tileParticipation } from "./tileModel";
 import {
 	type TileGeometry,
 	nextFreeTilePlacement,
+	tileMemberUuids,
+	tileMembership,
 } from "./tileModel";
 import {
 	TILE_MAX_FIELDS,
@@ -35,7 +36,7 @@ export type TilePlanOutcome =
 	| { readonly ok: true; readonly mutations: readonly Mutation[] }
 	| { readonly ok: false; readonly reason: string };
 
-/** Write one column's placement, or clear it with `null`. */
+/** Write one column's placement, or clear it with `undefined`. */
 export function tileCellMutations(
 	moduleUuid: Uuid,
 	column: Column,
@@ -55,7 +56,7 @@ export function tileCellMutations(
  * same batch.
  *
  * A tile with nothing on it yet is seeded whole, so it opens as a
- * readable arrangement rather than a pile in the corner. A tile that
+ * readable arrangement rather than a pile in one corner. A tile that
  * already carries places keeps them and fills only the gaps.
  */
 export function planTileLayoutEnable(args: {
@@ -73,12 +74,6 @@ export function planTileLayoutEnable(args: {
 				"Add information to Results before turning on the tile — a tile needs at least one field to lay out.",
 		};
 	}
-	if (memberCount > TILE_MAX_FIELDS) {
-		return {
-			ok: false,
-			reason: `A tile has room for ${TILE_MAX_FIELDS} fields, and Results shows ${memberCount}. Hide some information from Results first.`,
-		};
-	}
 
 	const byUuid = new Map(columns.map((column) => [column.uuid, column]));
 	const mutations: Mutation[] = [];
@@ -86,10 +81,7 @@ export function planTileLayoutEnable(args: {
 	if (placed.length === 0) {
 		const arrangement = seedTileArrangement(memberCount);
 		if (arrangement === null) {
-			return {
-				ok: false,
-				reason: `A tile has room for ${TILE_MAX_FIELDS} fields, and Results shows ${memberCount}. Hide some information from Results first.`,
-			};
+			return { ok: false, reason: tooManyFieldsReason(memberCount) };
 		}
 		const assigned = assignTileArrangement(
 			unplaced.map((entry) => entry.uuid),
@@ -163,26 +155,18 @@ export function planTilePreset(args: {
 	readonly preset: TilePreset;
 }): TilePlanOutcome {
 	const { moduleUuid, columns, preset } = args;
-	const members = [
-		...tileMembership(columns).placed,
-		...tileMembership(columns).unplaced,
-	];
-	// Rebuild the member sequence in Results order across both buckets —
-	// a preset arranges the whole tile, placed and unplaced alike.
-	const ordered = orderedMemberUuids(columns);
-	const arrangement = preset.arrange(ordered.length);
+	const members = tileMemberUuids(columns);
+	const arrangement = preset.arrange(members.length);
 	if (arrangement === null) {
 		return {
 			ok: false,
-			reason: `${preset.label} has no room for ${ordered.length} ${ordered.length === 1 ? "field" : "fields"}.`,
+			reason: `${preset.label} has no room for ${members.length} ${members.length === 1 ? "field" : "fields"}.`,
 		};
 	}
-	void members;
 
 	const byUuid = new Map(columns.map((column) => [column.uuid, column]));
-	const assigned = assignTileArrangement(ordered, arrangement);
 	const mutations: Mutation[] = [];
-	for (const [uuid, geometry] of assigned) {
+	for (const [uuid, geometry] of assignTileArrangement(members, arrangement)) {
 		const column = byUuid.get(uuid);
 		if (column === undefined) continue;
 		const next =
@@ -223,19 +207,8 @@ export function planTilePlaceField(args: {
 	return { ok: true, mutations: tileCellMutations(moduleUuid, column, free) };
 }
 
-/** Members in the order the short detail emits them. */
-function orderedMemberUuids(columns: readonly Column[]): readonly Uuid[] {
-	const { placed, unplaced } = tileMembership(columns);
-	const ranking = new Map<Uuid, number>();
-	let rank = 0;
-	for (const column of columns) {
-		if (tileParticipation(column) === null) continue;
-		ranking.set(column.uuid, rank++);
-	}
-	return [
-		...placed.map((entry) => entry.uuid),
-		...unplaced.map((entry) => entry.uuid),
-	].sort((a, b) => (ranking.get(a) ?? 0) - (ranking.get(b) ?? 0));
+function tooManyFieldsReason(memberCount: number): string {
+	return `A tile has room for ${TILE_MAX_FIELDS} fields, and Results shows ${memberCount}. Hide some information from Results first.`;
 }
 
 function cellOf(geometry: TileGeometry): TileCell {

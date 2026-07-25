@@ -7,6 +7,7 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
+import { PersistentCaseTile } from "@/components/preview/shared/PersistentCaseTile";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
@@ -728,9 +729,40 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		</>
 	);
 
+	/* The module's persistent case tile — the same tile Results draws, kept
+	 * on screen above every form in the module (`persistOnForms`). Preview
+	 * only: edit mode has no bound case, and a band that appeared while
+	 * authoring would claim a case the author never chose. It carries no
+	 * motion of its own, so a reduced-motion preference has nothing to
+	 * suppress; it adds a uniform offset above the field list, which the
+	 * flipbook's anchor-based scroll sync already corrects for on a mode
+	 * flip. */
+	const persistentTile =
+		mode === "preview" &&
+		mod?.caseListConfig?.tile?.persistOnForms === true &&
+		effectiveCaseId !== undefined ? (
+			<PersistentCaseTile
+				appId={appId}
+				caseType={mod.caseType}
+				caseId={effectiveCaseId}
+				config={mod.caseListConfig}
+				caseTypes={caseTypes}
+				fallbackProperties={
+					caseTypes.find((candidate) => candidate.name === mod.caseType)
+						?.properties ?? []
+				}
+			/>
+		) : null;
+
+	/* `min-h-full` + a growing frame rather than a hard `h-full`: the tile
+	 * band above sticks to the scroller, and a sticky element can only
+	 * travel as far as its containing block, so that block has to span the
+	 * form's real height. The frame still fills a short form (it is the
+	 * flex child that grows), so the submit row keeps its footer position. */
 	return (
-		<div className="h-full">
-			<ContentFrame width="5xl" className="flex flex-col h-full">
+		<div className="flex min-h-full flex-col">
+			{persistentTile}
+			<ContentFrame width="5xl" className="flex flex-1 flex-col">
 				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider>{formBody}</FormLayoutProvider>
 			</ContentFrame>

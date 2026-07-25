@@ -67,14 +67,16 @@ export function CaseTile({
 	surface,
 	className,
 }: CaseTileProps) {
-	const byUuid = new Map(columns.map((entry) => [entry.column.uuid, entry]));
+	const byUuid = new Map<string, TileResultsColumn>(
+		columns.map((entry) => [entry.column.uuid, entry]),
+	);
 	return (
 		<div
 			data-case-tile={surface}
 			data-tile-columns={projection.columns}
 			data-tile-rows={projection.rows}
 			style={tileGridStyle(projection)}
-			className={`min-w-[18rem] w-full max-w-3xl text-[14px] text-nova-text-secondary ${className ?? ""}`}
+			className={`w-full max-w-3xl text-[14px] text-nova-text-secondary ${className ?? ""}`}
 		>
 			{projection.cells.map((cell) => {
 				const entry = byUuid.get(cell.columnUuid);
