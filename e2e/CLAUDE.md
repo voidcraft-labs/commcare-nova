@@ -39,14 +39,17 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   instance.
 - **No new RTL/jsdom tests.** UI logic is tested as `f(state)` in Vitest; real UI
   behavior is tested here in Playwright. Don't add `@testing-library/react` DOM tests.
-- **The cross-Project move journey runs with the switch genuinely ON.** `seed.ts`
-  turns `project_moves_enabled` on through the SAME transaction the rollout
-  controller runs (`enableLookupReferenceActivationInTransaction` under the
-  session cutover gate) and seeds a second owned Project as the destination — a
-  switched-off run would pass vacuously on the refusal branch. The test switches
-  the active Project to verify arrival, which writes to the SHARED seeded
-  session, so it switches back to `Personal` before finishing; any test that
-  changes the active Project must do the same.
+- **The cross-Project move journey needs only a destination.** `seed.ts` mints a
+  second Project the seeded user OWNS (`Smoke Destination`, at a fixed slug so a
+  re-run replaces it instead of piling up) — owning both ends is what satisfies
+  the move's both-Projects capability + source-owner-retention rules — plus one
+  throwaway "Move Me" app per Playwright attempt (`MOVE_APP_COUNT`), since a moved
+  app is gone from the source Project and a retry needs its own, exactly like the
+  delete test. The test proves arrival WITHOUT switching the active Project (that
+  writes to the SHARED seeded session every later test reads): it reopens the
+  moved app in the builder, which authorizes through the app's CURRENT Project, so
+  an app stranded anywhere this user doesn't belong would 404 there. A test that
+  must change the active Project has to switch back to `Personal` before finishing.
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by

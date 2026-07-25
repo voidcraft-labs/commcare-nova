@@ -35,7 +35,6 @@ import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { UNTITLED_APP_NAME } from "@/lib/db/apps";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
-import { declareLookupReferenceWriter } from "@/lib/db/lookupReferenceWriter";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppReservation, AppRunLock } from "@/lib/db/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -68,21 +67,16 @@ export interface SeedAppOptions {
 }
 
 export interface AppStateTestDb {
+	/** One transaction on the per-test handle. */
+	withDeclaredWriter<T>(
+		body: (tx: Transaction<AppDatabase>) => Promise<T>,
+	): Promise<T>;
 	/** The injected `Kysely<AppDatabase>` for the current test. Throws outside a test body. */
 	db(): Kysely<AppDatabase>;
 	/** The per-test `pg.Pool` for raw queries. Throws outside a test body. */
 	pool(): Pool;
 	/** The per-test database URI (for a second connection in contention tests). */
 	uri(): string;
-	/**
-	 * One transaction with the lookup writer version declared — the way any
-	 * direct fixture write to a guarded table (`apps`, `blueprint_entities`,
-	 * `accepted_mutations`, destructive lookup DDL) must run at the deployed
-	 * writer floor.
-	 */
-	withDeclaredWriter<T>(
-		body: (tx: Transaction<AppDatabase>) => Promise<T>,
-	): Promise<T>;
 	/** Insert an `apps` row at a controlled run/credit state; returns its id. */
 	seedApp(opts?: SeedAppOptions): Promise<string>;
 	/**
@@ -168,17 +162,6 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		return injected;
 	};
 
-	async function withDeclaredWriter<T>(
-		body: (tx: Transaction<AppDatabase>) => Promise<T>,
-	): Promise<T> {
-		return db()
-			.transaction()
-			.execute(async (tx) => {
-				await declareLookupReferenceWriter(tx);
-				return body(tx);
-			});
-	}
-
 	async function seedApp(opts: SeedAppOptions = {}): Promise<string> {
 		const id = opts.id ?? DEFAULT_APP_ID;
 		const appName = opts.app_name ?? "";
@@ -193,15 +176,6 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		await db()
 			.transaction()
 			.execute(async (tx) => {
-				// Direct fixture writes deliberately bypass the app API. Declare the
-				// nonce-aware reader in the same transaction so the production holder
-				// trigger stamps rather than downgrades an active fixture to v0, and
-				// the writer version so the raised database floor admits the insert.
-				await declareLookupReferenceWriter(tx);
-				const runtimeReaderVersion = opts.run_holder_nonce ? "1" : "0";
-				await sql`SELECT set_config('nova.runtime_reader_version', ${runtimeReaderVersion}, true)`.execute(
-					tx,
-				);
 				await tx
 					.insertInto("apps")
 					.values({
@@ -255,12 +229,9 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 			(sum, m) => sum + (persistable.formOrder[m]?.length ?? 0),
 			0,
 		);
-		// One declared transaction: the raised writer floor guards both the app
-		// insert and the entity rows.
 		await db()
 			.transaction()
 			.execute(async (tx) => {
-				await declareLookupReferenceWriter(tx);
 				await tx
 					.insertInto("apps")
 					.values({
@@ -402,10 +373,12 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 	}
 
 	return {
+		withDeclaredWriter: <T>(
+			body: (tx: Transaction<AppDatabase>) => Promise<T>,
+		): Promise<T> => db().transaction().execute(body),
 		db,
 		pool: () => handle.pool,
 		uri: () => handle.uri,
-		withDeclaredWriter,
 		seedApp,
 		seedAppWithBlueprint,
 		seedProjectMember,

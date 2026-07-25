@@ -3437,42 +3437,6 @@ describe("submitFormAction", () => {
 		} satisfies CaseStore;
 	}
 
-	it("authorizes membership but skips the doc read for an answer-carrying survey while the flag is off", async () => {
-		const { getSession } = await import("@/lib/auth-utils");
-		const { withProjectContext } = await import("@/lib/case-store");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		activationFlagsMock.mockResolvedValue({
-			carrierCommitsEnabled: false,
-			caseOperationsEnabled: false,
-		});
-		const { doc, formUuid, noteUuid } = operationSurveyDoc();
-		loadAppMock.mockResolvedValue({ blueprint: doc });
-		const store = stubCaseStore();
-		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
-
-		const { submitFormAction } = await import("../caseDataBinding");
-		const result = await submitFormAction(
-			{
-				kind: "survey",
-				formUuid,
-				operationAnswers: {
-					root: [{ fieldUuid: noteUuid, value: "first" }],
-					repeats: [],
-				},
-			},
-			APP_ID,
-		);
-		expect(result).toEqual({ kind: "survey" });
-		// An answer-carrying survey is post-gate: membership resolved…
-		expect(resolveAppScopeMock).toHaveBeenCalledTimes(1);
-		// …but the emergency-disable flag kept the committed doc unread
-		// and the envelope untouched (ordinary-only semantics).
-		expect(loadAppMock).not.toHaveBeenCalled();
-		expect(store.applySubmission).not.toHaveBeenCalled();
-	});
-
 	it("builds the program only after membership passes and returns the survey arm from an executed program", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");

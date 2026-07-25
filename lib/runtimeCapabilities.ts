@@ -24,12 +24,8 @@ export const EDIT_RUN_LEASE_SECONDS = RUNTIME_CAPABILITIES.editRunLeaseSeconds;
 export const BUILD_STALENESS_SECONDS =
 	RUNTIME_CAPABILITIES.buildStalenessSeconds;
 
-export type {
-	RuntimeCapabilityManifest,
-	RuntimeCapabilityVersions,
-} from "@/lib/runtimeCapabilities/core.mts";
+export type { RuntimeCapabilityManifest } from "@/lib/runtimeCapabilities/core.mts";
 export {
 	canonicalRuntimeCapabilityManifest,
-	parseRevisionCapabilityLabels,
 	parseRuntimeCapabilityVersion,
 } from "@/lib/runtimeCapabilities/core.mts";

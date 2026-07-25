@@ -425,8 +425,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which isn't a valid name. Use letters, numbers, underscores, or hyphens, starting with a letter.`,
 	CASE_PROPERTY_TOO_LONG: (e) =>
 		`${q(formName(e))} saves to a name that's way too long. Give it a shorter one.`,
-	CASE_OPERATIONS_NOT_ACTIVE: () =>
-		"Case operations aren't switched on for this workspace yet. Remove them for now, or try again once they're available.",
 	CASE_OPERATION_DUPLICATE_UUID: () =>
 		"Two case operations have the same identity. Remove one and add it again.",
 	CASE_OPERATION_INVALID_ID: () =>
@@ -541,8 +539,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
-	LOOKUP_CARRIER_COMMIT_NOT_ACTIVE: () =>
-		"Lookup-powered choices and calculations aren't editable yet. Keep the current lookup setup unchanged, or remove it.",
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: () =>
 		"Lookup-powered choices and calculations aren't ready to export yet. Remove the lookup-powered setting before exporting.",
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>

@@ -42,7 +42,6 @@ import {
 } from "@/lib/case-store/errors";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
-import { readLookupActivationFlags } from "@/lib/db/lookupActivation";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import {
 	caseOperationConditionalGuardUuids,
@@ -903,12 +902,9 @@ export interface BuiltSubmissionOperations {
  * COMMITTED doc — the server is the structural authority, consuming
  * only the client's answer values and iteration counts. Returns an
  * empty result (the `operations` arm stays absent) when the mutation
- * carries no form identity (an older bundle — the receiver-v3 cutoff
- * owns that skew), the doc's form holds no operations, the client
- * collected no answer bags for an operation-bearing form (doc-snapshot
- * skew — the pure half's guard), or `case_operations_enabled` is off
- * (the emergency-disable semantics: an operation-bearing doc submits
- * ordinary-only while disabled).
+ * carries no form identity, the doc's form holds no operations, or the
+ * client collected no answer bags for an operation-bearing form
+ * (doc-snapshot skew — the pure half's guard).
  *
  * Everything structural derives from the S04 analyses over the
  * committed doc: canonical `(order, uuid)` operation sequence,
@@ -927,9 +923,6 @@ export async function buildSubmissionOperationProgram(args: {
 }): Promise<BuiltSubmissionOperations> {
 	if (args.mutation.formUuid === undefined) return {};
 
-	const activation = await readLookupActivationFlags();
-	if (!activation.caseOperationsEnabled) return {};
-
 	const app = await loadApp(args.appId);
 	if (!app?.blueprint) return {};
 	return buildCaseOperationProgramFromDoc({
@@ -944,8 +937,8 @@ export async function buildSubmissionOperationProgram(args: {
 
 /**
  * The pure half: derive the program from ONE committed blueprint. The
- * I/O wrapper above owns the flag read and the doc load; acceptance
- * tests drive this directly against the storage executor.
+ * I/O wrapper above owns the doc load; acceptance tests drive this
+ * directly against the storage executor.
  */
 export function buildCaseOperationProgramFromDoc(args: {
 	readonly blueprint: PersistableDoc;

@@ -5,21 +5,10 @@
  */
 export interface RuntimeCapabilityManifest {
 	readonly schemaVersion: 1;
-	readonly writerVersion: number;
-	readonly streamReceiverVersion: number;
-	readonly runtimeReaderVersion: number;
-	readonly streamRegistryVersion: number;
 	readonly cloudRunRequestSeconds: number;
 	readonly streamLeaseGraceSeconds: number;
 	readonly editRunLeaseSeconds: number;
 	readonly buildStalenessSeconds: number;
-}
-
-export interface RuntimeCapabilityVersions {
-	readonly writerVersion: number;
-	readonly streamReceiverVersion: number;
-	readonly runtimeReaderVersion: number;
-	readonly streamRegistryVersion: number;
 }
 
 export type RuntimeCapabilityManifestParseResult =
@@ -28,10 +17,6 @@ export type RuntimeCapabilityManifestParseResult =
 
 const MANIFEST_KEYS = [
 	"schemaVersion",
-	"writerVersion",
-	"streamReceiverVersion",
-	"runtimeReaderVersion",
-	"streamRegistryVersion",
 	"cloudRunRequestSeconds",
 	"streamLeaseGraceSeconds",
 	"editRunLeaseSeconds",
@@ -42,22 +27,14 @@ const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const CLOUD_RUN_REQUEST_SECONDS_MAX = 3_600;
 const STREAM_LEASE_GRACE_SECONDS_MAX = 3_600;
 const RUN_LIVENESS_SECONDS_MAX = 24 * 60 * 60;
-const MANIFEST_LABEL_HASH_LENGTH = 16;
+const _MANIFEST_LABEL_HASH_LENGTH = 16;
 
 export const RUNTIME_CAPABILITY_LABEL_KEYS = Object.freeze({
-	writerVersion: "nova_writer",
-	streamReceiverVersion: "nova_stream_receiver",
-	runtimeReaderVersion: "nova_runtime_reader",
-	streamRegistryVersion: "nova_stream_registry",
 	manifestHash: "nova_manifest",
 	buildId: "nova_build",
 } as const);
 
 export const RUNTIME_CAPABILITY_ENV_KEYS = Object.freeze({
-	writerVersion: "NOVA_WRITER_VERSION",
-	streamReceiverVersion: "NOVA_STREAM_RECEIVER_VERSION",
-	runtimeReaderVersion: "NOVA_RUNTIME_READER_VERSION",
-	streamRegistryVersion: "NOVA_STREAM_REGISTRY_VERSION",
 	cloudRunRequestSeconds: "NOVA_CLOUD_RUN_REQUEST_SECONDS",
 	streamLeaseGraceSeconds: "NOVA_STREAM_LEASE_GRACE_SECONDS",
 	streamLeaseTtlSeconds: "NOVA_STREAM_LEASE_TTL_SECONDS",
@@ -68,14 +45,6 @@ export const RUNTIME_CAPABILITY_ENV_KEYS = Object.freeze({
 
 /** Per-Cloud-Build identity baked into the runner image. */
 export const RUNTIME_BUILD_ID_ENV_KEY = "NOVA_BUILD_ID";
-
-/**
- * The rendered `gcloud run deploy --labels` argument. The deploy step attaches
- * it so every serving revision DECLARES the capabilities of the image it runs;
- * the rollout controller reads those labels back to prove a floor raise is safe
- * for the exact set of traffic-receiving revisions.
- */
-export const RUNTIME_REVISION_LABELS_ENV_KEY = "NOVA_REVISION_LABELS";
 
 /** Immutable runner-image copy used to reject runtime env overrides. */
 export const RUNTIME_BUILD_ID_FILE_PATH = "/app/.nova-build-id";
@@ -151,34 +120,6 @@ export function parseRuntimeCapabilityManifest(
 	if (unknown.length > 0) issues.push(`unknown keys: ${unknown.join(", ")}`);
 
 	const schemaVersion = validateInteger(input, "schemaVersion", 1, 1, issues);
-	const writerVersion = validateInteger(
-		input,
-		"writerVersion",
-		0,
-		POSTGRES_INTEGER_MAX,
-		issues,
-	);
-	const streamReceiverVersion = validateInteger(
-		input,
-		"streamReceiverVersion",
-		0,
-		POSTGRES_INTEGER_MAX,
-		issues,
-	);
-	const runtimeReaderVersion = validateInteger(
-		input,
-		"runtimeReaderVersion",
-		0,
-		POSTGRES_INTEGER_MAX,
-		issues,
-	);
-	const streamRegistryVersion = validateInteger(
-		input,
-		"streamRegistryVersion",
-		0,
-		POSTGRES_INTEGER_MAX,
-		issues,
-	);
 	const cloudRunRequestSeconds = validateInteger(
 		input,
 		"cloudRunRequestSeconds",
@@ -207,10 +148,6 @@ export function parseRuntimeCapabilityManifest(
 	if (
 		issues.length > 0 ||
 		schemaVersion === null ||
-		writerVersion === null ||
-		streamReceiverVersion === null ||
-		runtimeReaderVersion === null ||
-		streamRegistryVersion === null ||
 		cloudRunRequestSeconds === null ||
 		streamLeaseGraceSeconds === null ||
 		editRunLeaseSeconds === null ||
@@ -223,10 +160,6 @@ export function parseRuntimeCapabilityManifest(
 		ok: true,
 		manifest: Object.freeze({
 			schemaVersion: 1,
-			writerVersion,
-			streamReceiverVersion,
-			runtimeReaderVersion,
-			streamRegistryVersion,
 			cloudRunRequestSeconds,
 			streamLeaseGraceSeconds,
 			editRunLeaseSeconds,
@@ -251,10 +184,6 @@ export function canonicalRuntimeCapabilityManifest(
 ): string {
 	return JSON.stringify({
 		schemaVersion: manifest.schemaVersion,
-		writerVersion: manifest.writerVersion,
-		streamReceiverVersion: manifest.streamReceiverVersion,
-		runtimeReaderVersion: manifest.runtimeReaderVersion,
-		streamRegistryVersion: manifest.streamRegistryVersion,
 		cloudRunRequestSeconds: manifest.cloudRunRequestSeconds,
 		streamLeaseGraceSeconds: manifest.streamLeaseGraceSeconds,
 		editRunLeaseSeconds: manifest.editRunLeaseSeconds,
@@ -269,10 +198,9 @@ export function streamLeaseTtlSeconds(
 }
 
 /**
- * Revision labels and environment declarations are untrusted control-plane
- * strings. Missing, signed, fractional, padded, overflowing, or otherwise
- * malformed values are capability v0 — never an exception and never a partial
- * parse such as `parseInt("1-old") === 1`.
+ * Environment declarations are untrusted control-plane strings.
+ * Missing, signed, fractional, padded, overflowing, or otherwise malformed
+ * values are treated conservatively — never an exception.
  */
 export function parseRuntimeCapabilityVersion(value: unknown): number {
 	if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) {
@@ -282,36 +210,6 @@ export function parseRuntimeCapabilityVersion(value: unknown): number {
 	return Number.isSafeInteger(parsed) && parsed <= POSTGRES_INTEGER_MAX
 		? parsed
 		: 0;
-}
-
-function declarationsFromKeys(
-	input: unknown,
-	keys: {
-		readonly writerVersion: string;
-		readonly streamReceiverVersion: string;
-		readonly runtimeReaderVersion: string;
-		readonly streamRegistryVersion: string;
-	},
-): RuntimeCapabilityVersions {
-	const record = isPlainRecord(input) ? input : {};
-	return Object.freeze({
-		writerVersion: parseRuntimeCapabilityVersion(record[keys.writerVersion]),
-		streamReceiverVersion: parseRuntimeCapabilityVersion(
-			record[keys.streamReceiverVersion],
-		),
-		runtimeReaderVersion: parseRuntimeCapabilityVersion(
-			record[keys.runtimeReaderVersion],
-		),
-		streamRegistryVersion: parseRuntimeCapabilityVersion(
-			record[keys.streamRegistryVersion],
-		),
-	});
-}
-
-export function parseRevisionCapabilityLabels(
-	input: unknown,
-): RuntimeCapabilityVersions {
-	return declarationsFromKeys(input, RUNTIME_CAPABILITY_LABEL_KEYS);
 }
 
 function requireManifestHash(manifestHash: string): string {
@@ -326,16 +224,6 @@ export function runtimeCapabilityEnvironmentFromHash(
 	manifestHash: string,
 ): Readonly<Record<string, string>> {
 	return Object.freeze({
-		[RUNTIME_CAPABILITY_ENV_KEYS.writerVersion]: String(manifest.writerVersion),
-		[RUNTIME_CAPABILITY_ENV_KEYS.streamReceiverVersion]: String(
-			manifest.streamReceiverVersion,
-		),
-		[RUNTIME_CAPABILITY_ENV_KEYS.runtimeReaderVersion]: String(
-			manifest.runtimeReaderVersion,
-		),
-		[RUNTIME_CAPABILITY_ENV_KEYS.streamRegistryVersion]: String(
-			manifest.streamRegistryVersion,
-		),
 		[RUNTIME_CAPABILITY_ENV_KEYS.cloudRunRequestSeconds]: String(
 			manifest.cloudRunRequestSeconds,
 		),
@@ -356,22 +244,9 @@ export function runtimeCapabilityEnvironmentFromHash(
 	});
 }
 
-function requireLabelValue(value: string, name: string): string {
-	if (
-		value.length < 1 ||
-		value.length > 63 ||
-		!/^[a-z0-9](?:[-_a-z0-9]{0,61}[a-z0-9])?$/.test(value)
-	) {
-		throw new Error(`${name} is not a valid Google Cloud label value`);
-	}
-	return value;
-}
-
 /**
  * Cloud Build supplies one lowercase UUID as `$BUILD_ID`. Keep that identity
- * exact rather than accepting an arbitrary label-safe alias: the same value is
- * baked into the image, attached to its Cloud Run revision, and compared by
- * the rollout controller.
+ * exact rather than accepting an arbitrary label-safe alias.
  */
 export function requireRuntimeBuildId(value: unknown): string {
 	if (
@@ -383,53 +258,4 @@ export function requireRuntimeBuildId(value: unknown): string {
 		throw new Error("buildId must be one lowercase UUID");
 	}
 	return value;
-}
-
-export function runtimeCapabilityRevisionLabelsFromHash(
-	manifest: RuntimeCapabilityManifest,
-	manifestHash: string,
-	buildId: string,
-): Readonly<Record<string, string>> {
-	const manifestLabelHash = requireManifestHash(manifestHash).slice(
-		0,
-		MANIFEST_LABEL_HASH_LENGTH,
-	);
-	return Object.freeze({
-		[RUNTIME_CAPABILITY_LABEL_KEYS.writerVersion]: String(
-			manifest.writerVersion,
-		),
-		[RUNTIME_CAPABILITY_LABEL_KEYS.streamReceiverVersion]: String(
-			manifest.streamReceiverVersion,
-		),
-		[RUNTIME_CAPABILITY_LABEL_KEYS.runtimeReaderVersion]: String(
-			manifest.runtimeReaderVersion,
-		),
-		[RUNTIME_CAPABILITY_LABEL_KEYS.streamRegistryVersion]: String(
-			manifest.streamRegistryVersion,
-		),
-		[RUNTIME_CAPABILITY_LABEL_KEYS.manifestHash]: manifestLabelHash,
-		[RUNTIME_CAPABILITY_LABEL_KEYS.buildId]: requireLabelValue(
-			requireRuntimeBuildId(buildId),
-			"buildId",
-		),
-	});
-}
-
-/**
- * Render the label set as gcloud's `KEY=VALUE,…` argument. Sorted so two builds
- * of one manifest produce byte-identical deploy arguments, and re-validated
- * here because this string is what actually reaches the control plane.
- */
-export function runtimeCapabilityRevisionLabelArgument(
-	labels: Readonly<Record<string, string>>,
-): string {
-	return Object.entries(labels)
-		.map(([key, value]) => {
-			if (!/^[a-z][-_a-z0-9]{0,62}$/.test(key)) {
-				throw new Error(`${key} is not a valid Google Cloud label key`);
-			}
-			return `${key}=${requireLabelValue(value, key)}`;
-		})
-		.sort()
-		.join(",");
 }

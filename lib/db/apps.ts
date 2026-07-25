@@ -44,7 +44,6 @@ import {
 	describeMediaExpectationFailures,
 	type MediaAttachExpectation,
 } from "@/lib/media/attachVerdicts";
-import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 import {
 	assertPersistenceSafeMutationIdentities,
 	describeIntroducedErrors,
@@ -109,17 +108,12 @@ import {
 	rowReservation,
 	rowRunLock,
 } from "./leaseView";
-import { readLookupActivationForShare } from "./lookupActivation";
 import {
 	LookupReferenceWriteError,
 	lockLookupTablesForReferenceWrite,
 	readStoredLookupReferenceTargets,
 	replaceLookupReferenceEdges,
 } from "./lookupReferenceEdges";
-import {
-	CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
-	declareLookupReferenceWriter,
-} from "./lookupReferenceWriter";
 import {
 	addReferencingApp,
 	addReferencingAppInTransaction,
@@ -140,11 +134,7 @@ import {
 	withAppTx,
 } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
-import {
-	lockProjectMoveCompatibility,
-	lockProjectMoveMemberships,
-} from "./projectMoveAdmission";
-import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
+import { lockProjectMoveMemberships } from "./projectMoveAdmission";
 import {
 	type ExactRunHolderIdentity,
 	exactRunHolderMatches,
@@ -161,7 +151,6 @@ import {
 	type RunHolderIdentity,
 	runLeaseState,
 } from "./runLiveness";
-import { declareRuntimeReader } from "./runtimeReaderVersion";
 import type { AcceptedMutationDoc, AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -574,10 +563,9 @@ export async function withAuthorizedAppEditSideEffect<T>(
 			"You no longer have edit access to this app's Project.",
 		);
 		const lease = runLeaseState(leaseView(fresh));
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		if (
 			chatRunHolder !== undefined &&
-			!exactRunHolderMatches(lease.holderIdentity, chatRunHolder, enforceNonce)
+			!exactRunHolderMatches(lease.holderIdentity, chatRunHolder)
 		) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
 		}
@@ -612,11 +600,8 @@ export async function deleteMediaAssetForChatRun(args: {
 			"edit",
 			"You no longer have edit access to this app's Project.",
 		);
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, args.holder, enforceNonce)
-		) {
+		if (!exactRunHolderMatches(lease.holderIdentity, args.holder)) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
 		}
 		const result = await deleteMediaAssetMetadataInTransaction(tx, {
@@ -810,10 +795,6 @@ export async function createApp(
 	const persistable = toPersistableDoc(prepared.nextDoc);
 	const denorm = denormalize(persistable);
 	await withAppTx(async (tx) => {
-		await declareLookupReferenceWriter(tx);
-		if ((opts?.status ?? "generating") === "generating") {
-			await declareRuntimeReader(tx);
-		}
 		await assertProjectCapabilityInTransaction(
 			tx,
 			owner,
@@ -843,12 +824,10 @@ export async function createApp(
 			projectId,
 			candidateTargets,
 		);
-		const activation = await readLookupActivationForShare(tx);
 		const verdict = evaluatePreparedMutationCandidate(
 			emptyDoc,
 			prepared,
 			lookupContext,
-			activation,
 		);
 		if (!verdict.ok) {
 			throw new Error(
@@ -927,18 +906,12 @@ async function writeCommittedBatch(
 		/** Exact chat holder authority. The conditional app-row write is the final
 		 * SQL compare-and-set after every entity/reference preparation step. */
 		expectedHolder?: ExactRunHolderIdentity;
-		enforceHolderNonce?: boolean;
 		extraAppFields?: Partial<{
 			project_id: string;
 			lock_expire_at: Date;
 		}>;
 	},
 ): Promise<void> {
-	/* Every current-revision app write that can touch a present holder declares
-	 * v1, including same-generation commits. An absent GUC is the deployed v0
-	 * signal; the database trigger must never infer "current" from an unchanged
-	 * identity. Keep the declaration ahead of every mutation-batch DML. */
-	await declareRuntimeReader(tx);
 	const { upserts, deletedUuids } = diffBlueprints(
 		args.prevDoc,
 		args.committedDoc,
@@ -985,10 +958,7 @@ async function writeCommittedBatch(
 		.where("id", "=", args.appId);
 	if (args.expectedHolder !== undefined) {
 		appUpdate = appUpdate.where(
-			expectedRunHolderPredicate(
-				args.expectedHolder,
-				args.enforceHolderNonce ?? false,
-			),
+			expectedRunHolderPredicate(args.expectedHolder),
 		);
 	}
 	const appUpdateResult = await appUpdate.executeTakeFirst();
@@ -1114,7 +1084,6 @@ export async function commitGuardedBatch(
 
 	const commitOnce = (): Promise<InternalResult> =>
 		withAppTx(async (tx) => {
-			await declareLookupReferenceWriter(tx);
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) {
 				throw new Error(
@@ -1149,14 +1118,9 @@ export async function commitGuardedBatch(
 				);
 			}
 			const lease = runLeaseState(leaseView(fresh));
-			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 			if (
 				args.chatRunHolder !== undefined &&
-				!exactRunHolderMatches(
-					lease.holderIdentity,
-					args.chatRunHolder,
-					enforceNonce,
-				)
+				!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
 			) {
 				throw new RunHolderLostError(lease.present ? "superseded" : "released");
 			}
@@ -1210,12 +1174,10 @@ export async function commitGuardedBatch(
 				fresh.project_id,
 				lookupTargets,
 			);
-			const activation = await readLookupActivationForShare(tx);
 			const verdict = evaluatePreparedMutationCandidate(
 				freshDoc,
 				prepared,
 				lookupContext,
-				activation,
 			);
 			if (!verdict.ok) {
 				throw new BlueprintCommitRejectedError(
@@ -1289,7 +1251,6 @@ export async function commitGuardedBatch(
 				exactRunHolderMatches(
 					commitLease?.holderIdentity ?? null,
 					args.chatRunHolder,
-					enforceNonce,
 				);
 			await replaceLookupReferenceEdges(tx, {
 				appId,
@@ -1308,7 +1269,6 @@ export async function commitGuardedBatch(
 				kind,
 				...(args.chatRunHolder !== undefined && {
 					expectedHolder: args.chatRunHolder,
-					enforceHolderNonce: enforceNonce,
 				}),
 				...(ownsEditLock && {
 					extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
@@ -1414,7 +1374,6 @@ export async function appendSyntheticBatch(
 		persistable?: PersistedBlueprint;
 	};
 	const result = await withAppTx(async (tx): Promise<InternalResult> => {
-		await declareLookupReferenceWriter(tx);
 		const fresh = await lockAppRow(tx, args.appId);
 		if (!fresh) {
 			throw new Error("[appendSyntheticBatch] app row is unavailable");
@@ -1498,12 +1457,10 @@ export async function appendSyntheticBatch(
 			fresh.project_id,
 			lookupTargets,
 		);
-		const activation = await readLookupActivationForShare(tx);
 		const verdict = evaluatePreparedMutationCandidate(
 			previousDoc,
 			prepared,
 			lookupContext,
-			activation,
 		);
 		if (!verdict.ok) {
 			throw new BlueprintCommitRejectedError(
@@ -1720,7 +1677,6 @@ export async function repairLookupReferenceEdges(
 	appId: string,
 ): Promise<RepairLookupReferenceEdgesResult> {
 	return withAppTx(async (tx) => {
-		await declareLookupReferenceWriter(tx);
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) {
 			throw new Error("[repairLookupReferenceEdges] app row is unavailable");
@@ -1756,18 +1712,12 @@ export async function repairLookupReferenceEdges(
 	});
 }
 
-/** Production-capability wrapper; database floors and flags still own admission. */
+/** Production-capability wrapper. */
 export async function prepareAppProjectMove(
 	args: ProjectMoveCoreArgs,
 ): Promise<PrepareProjectMoveResult> {
 	return withAppTx(async (tx) => {
-		await declareLookupReferenceWriter(tx);
-		return prepareAppProjectMoveInTransaction(
-			tx,
-			args,
-			CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
-			RUNTIME_CAPABILITIES.streamReceiverVersion,
-		);
+		return prepareAppProjectMoveInTransaction(tx, args);
 	});
 }
 
@@ -1775,8 +1725,6 @@ export async function prepareAppProjectMove(
 export async function prepareAppProjectMoveInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: ProjectMoveCoreArgs,
-	declaredWriterVersion: number,
-	streamReceiverVersion: number,
 ): Promise<PrepareProjectMoveResult> {
 	const fresh = await lockAppRow(tx, args.appId);
 	if (!fresh) throw new CommitReauthError("App not found.");
@@ -1801,11 +1749,6 @@ export async function prepareAppProjectMoveInTransaction(
 		);
 	}
 	await authorizeProjectMoveGovernance(tx, args);
-	await lockProjectMoveCompatibility(tx, {
-		appId: args.appId,
-		declaredWriterVersion,
-		streamReceiverVersion,
-	});
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
 	const { doc } = await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
@@ -1850,22 +1793,17 @@ export async function repairAppCaseTenancy(
 	});
 }
 
-/** Production-capability wrapper; database floors and flags still own admission. */
+/** Production-capability wrapper. */
 export async function commitAppProjectMove(
 	appId: string,
 	args: Omit<ProjectMoveCommitArgs, "appId">,
 ): Promise<CommitMoveResult> {
 	const batchId = crypto.randomUUID();
 	return withAppTx(async (tx) => {
-		await declareLookupReferenceWriter(tx);
 		return commitAppProjectMoveInTransaction(
 			tx,
 			{ ...args, appId },
-			{
-				batchId,
-				declaredWriterVersion: CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
-				streamReceiverVersion: RUNTIME_CAPABILITIES.streamReceiverVersion,
-			},
+			{ batchId },
 		);
 	});
 }
@@ -1874,11 +1812,7 @@ export async function commitAppProjectMove(
 export async function commitAppProjectMoveInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: ProjectMoveCommitArgs,
-	capabilities: {
-		readonly batchId: string;
-		readonly declaredWriterVersion: number;
-		readonly streamReceiverVersion: number;
-	},
+	capabilities: { readonly batchId: string },
 ): Promise<CommitMoveResult> {
 	const fresh = await lockAppRow(tx, args.appId);
 	if (!fresh) throw new CommitReauthError("App not found.");
@@ -1903,11 +1837,6 @@ export async function commitAppProjectMoveInTransaction(
 		);
 	}
 	await authorizeProjectMoveGovernance(tx, args);
-	await lockProjectMoveCompatibility(tx, {
-		appId: args.appId,
-		declaredWriterVersion: capabilities.declaredWriterVersion,
-		streamReceiverVersion: capabilities.streamReceiverVersion,
-	});
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
 
@@ -1978,12 +1907,10 @@ export async function commitAppProjectMoveInTransaction(
 		args.toProjectId,
 		EMPTY_LOOKUP_REFERENCE_TARGETS,
 	);
-	const activation = await readLookupActivationForShare(tx);
 	const verdict = evaluatePreparedMutationCandidate(
 		previousDoc,
 		prepared,
 		destinationContext,
-		activation,
 	);
 	if (!verdict.ok) {
 		throw new BlueprintCommitRejectedError(
@@ -2147,11 +2074,6 @@ export async function claimAndReserveRun(
 				"edit",
 				"You no longer have edit access to this app's Project.",
 			);
-			/* Fixed rollout lock order: app row -> compatibility row -> credit
-			 * rows. The subsequent holder-stamp trigger also reads compatibility;
-			 * taking SHARE now prevents a queued cutover writer from inverting that
-			 * order against a terminal/refund transaction. */
-			await readRunHolderNonceEnforcementForShare(tx);
 			const lease = runLeaseState(leaseView(fresh));
 			/* Busy — with one carve-out: the claimant's OWN paused run does not
 			 * block. A paused run is process-less and its ask card may be gone
@@ -2174,7 +2096,6 @@ export async function claimAndReserveRun(
 				reapable.push(...scan.reapable);
 				if (scan.live) throw new GenerationInProgressError();
 			}
-			await declareRuntimeReader(tx);
 			await debitAndBookReservation(tx, {
 				appId,
 				userId: actorUserId,
@@ -2285,15 +2206,12 @@ export async function reserveForNewBuild(
 			"You no longer have edit access to this app's Project.",
 		);
 		const lease = runLeaseState(leaseView(fresh));
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const expectedHolder = {
 			mode: "build",
 			runId,
 			nonce: holderNonce,
 		} as const;
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
-		) {
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			throw new RunConflictError(
 				lease.reapableStaleBuild,
 				lease.reapableStrandedEdit,
@@ -2303,7 +2221,6 @@ export async function reserveForNewBuild(
 		const scan = await scanActiveGeneration(tx, actorUserId, appId);
 		reapable.push(...scan.reapable);
 		if (scan.live) throw new GenerationInProgressError();
-		await declareRuntimeReader(tx);
 		await debitAndBookReservation(tx, {
 			appId,
 			userId: actorUserId,
@@ -2349,8 +2266,6 @@ export async function completeAndSettleRun(
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return "released";
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
-		await declareRuntimeReader(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const expectedHolder = {
 			mode: "build",
@@ -2358,11 +2273,7 @@ export async function completeAndSettleRun(
 			nonce: holderNonce,
 		} as const;
 		if (
-			!exactRunHolderMatches(
-				lease.holderIdentity,
-				expectedHolder,
-				enforceNonce,
-			) ||
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
 			!lease.terminalWriteOwned(runId)
 		) {
 			if (
@@ -2370,18 +2281,13 @@ export async function completeAndSettleRun(
 				lease.mode === "none" &&
 				lease.reaperResolved &&
 				fresh.run_id === runId &&
-				(!enforceNonce || fresh.run_holder_nonce === holderNonce)
+				fresh.run_holder_nonce === holderNonce
 			) {
 				const result = await tx
 					.updateTable("apps")
 					.set({ status: "complete", error_type: null })
 					.where("id", "=", appId)
-					.where(
-						expectedReapedBuildCompletionPredicate(
-							expectedHolder,
-							enforceNonce,
-						),
-					)
+					.where(expectedReapedBuildCompletionPredicate(expectedHolder))
 					.executeTakeFirst();
 				return updatedExactlyOne(result) ? "owned" : "released";
 			}
@@ -2391,7 +2297,7 @@ export async function completeAndSettleRun(
 			.updateTable("apps")
 			.set({ status: "complete", error_type: null, res_settled: true })
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.executeTakeFirst();
 		return updatedExactlyOne(result) ? "owned" : "superseded";
 	});
@@ -2411,20 +2317,16 @@ export async function refreshEditLease(
 	await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const expectedHolder = { mode: "edit", runId, nonce: holderNonce } as const;
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
-		) {
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			return;
 		}
-		await declareRuntimeReader(tx);
 		await tx
 			.updateTable("apps")
 			.set({ lock_expire_at: new Date(editLeaseDeadlineMs()) })
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.execute();
 	});
 }
@@ -2445,24 +2347,20 @@ export async function refreshBuildLiveness(
 	await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return;
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const expectedHolder = {
 			mode: "build",
 			runId,
 			nonce: holderNonce,
 		} as const;
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
-		) {
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			return;
 		}
-		await declareRuntimeReader(tx);
 		await tx
 			.updateTable("apps")
 			.set({ updated_at: new Date() })
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.execute();
 	});
 }
@@ -2487,23 +2385,15 @@ export async function clearRunLock(
 		await withAppTx(async (tx) => {
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) return;
-			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 			const lease = runLeaseState(leaseView(fresh));
 			const expectedHolder = {
 				mode: "edit",
 				runId,
 				nonce: holderNonce,
 			} as const;
-			if (
-				!exactRunHolderMatches(
-					lease.holderIdentity,
-					expectedHolder,
-					enforceNonce,
-				)
-			) {
+			if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 				return;
 			}
-			await declareRuntimeReader(tx);
 			await tx
 				.updateTable("apps")
 				.set({
@@ -2512,7 +2402,7 @@ export async function clearRunLock(
 					lock_expire_at: null,
 				})
 				.where("id", "=", appId)
-				.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+				.where(expectedRunHolderPredicate(expectedHolder))
 				.execute();
 		});
 	} catch (err) {
@@ -2534,20 +2424,14 @@ export async function clearRunLockAndSettle(
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return "released";
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const expectedHolder = { mode: "edit", runId, nonce: holderNonce } as const;
 		if (
-			!exactRunHolderMatches(
-				lease.holderIdentity,
-				expectedHolder,
-				enforceNonce,
-			) ||
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
 			!lease.terminalWriteOwned(runId)
 		) {
 			return lease.present ? "superseded" : "released";
 		}
-		await declareRuntimeReader(tx);
 		const reservation = rowReservation(fresh);
 		const result = await tx
 			.updateTable("apps")
@@ -2558,7 +2442,7 @@ export async function clearRunLockAndSettle(
 				...(reservation && !reservation.settled && { res_settled: true }),
 			})
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.executeTakeFirst();
 		return updatedExactlyOne(result) ? "owned" : "superseded";
 	});
@@ -2626,41 +2510,27 @@ export async function reacquireLease(
 			"edit",
 			"You no longer have edit access to this app's Project.",
 		);
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
-		/* First prove the historical mode/run/actor pause identity. During the
-		 * compatibility window this is the authority contract, and a legacy
-		 * browser may omit the nonce entirely. Once enforcement is enabled, the
-		 * same proof distinguishes "refresh your old tab" from a genuinely
-		 * superseded/released run without weakening the exact nonce check below. */
+		/* Prove the mode/run/actor pause identity BEFORE the nonce. That proof is
+		 * what separates "refresh your stale tab" from a run another holder
+		 * genuinely superseded or a reaper released — collapsing the two would
+		 * report every taken-over round as a client-refresh problem. It does not
+		 * weaken the exact nonce check below, which still runs on every resume. */
 		if (!lease.ownedByResume(runId, mode, actorUserId, null, false)) {
 			return { outcome: lease.present ? "superseded" : "released" };
 		}
 		if (
-			enforceNonce &&
-			(presentedHolderNonce === null ||
-				!lease.ownedByResume(
-					runId,
-					mode,
-					actorUserId,
-					presentedHolderNonce,
-					true,
-				))
+			presentedHolderNonce === null ||
+			!lease.ownedByResume(runId, mode, actorUserId, presentedHolderNonce, true)
 		) {
 			return { outcome: "refresh_required" };
 		}
-		/* A v1 holder already has a server nonce; an old v0 holder is upgraded
-		 * in this same app-locked resume write. Never trust a client-supplied
-		 * value while compatibility mode ignores nonce authority. */
-		const effectiveHolderNonce = enforceNonce
-			? (presentedHolderNonce as string)
-			: (lease.holderIdentity?.nonce ?? crypto.randomUUID());
+		const effectiveHolderNonce = presentedHolderNonce;
 		const expectedHolder = {
 			mode,
 			runId,
 			nonce: effectiveHolderNonce,
 		} as const;
-		await declareRuntimeReader(tx);
 		let result: UpdateResult;
 		if (mode === "edit") {
 			result = await tx
@@ -2671,13 +2541,7 @@ export async function reacquireLease(
 					run_holder_nonce: effectiveHolderNonce,
 				})
 				.where("id", "=", appId)
-				.where(
-					expectedPausedRunResumePredicate(
-						expectedHolder,
-						actorUserId,
-						enforceNonce,
-					),
-				)
+				.where(expectedPausedRunResumePredicate(expectedHolder, actorUserId))
 				.executeTakeFirst();
 		} else {
 			result = await tx
@@ -2688,13 +2552,7 @@ export async function reacquireLease(
 					run_holder_nonce: effectiveHolderNonce,
 				})
 				.where("id", "=", appId)
-				.where(
-					expectedPausedRunResumePredicate(
-						expectedHolder,
-						actorUserId,
-						enforceNonce,
-					),
-				)
+				.where(expectedPausedRunResumePredicate(expectedHolder, actorUserId))
 				.executeTakeFirst();
 		}
 		return updatedExactlyOne(result)
@@ -2720,7 +2578,6 @@ export async function failApp(
 		return await withAppTx(async (tx) => {
 			const fresh = await lockAppRow(tx, appId);
 			if (!fresh) return false;
-			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 			const lease = runLeaseState(leaseView(fresh));
 			const expectedHolder = {
 				mode: "build",
@@ -2728,21 +2585,16 @@ export async function failApp(
 				nonce: holderNonce,
 			} as const;
 			if (
-				!exactRunHolderMatches(
-					lease.holderIdentity,
-					expectedHolder,
-					enforceNonce,
-				) ||
+				!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
 				!lease.buildFailureWriteOwned(runId)
 			) {
 				return false;
 			}
-			await declareRuntimeReader(tx);
 			const result = await tx
 				.updateTable("apps")
 				.set({ status: "error", error_type: errorType })
 				.where("id", "=", appId)
-				.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+				.where(expectedRunHolderPredicate(expectedHolder))
 				.executeTakeFirst();
 			return updatedExactlyOne(result);
 		});
@@ -2784,7 +2636,6 @@ export async function recoverAppStatus(
 	return await withAppTx(async (tx) => {
 		const fresh = await lockAppRow(tx, appId);
 		if (!fresh) return { kind: "not_found" };
-		await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const recoveringBuildHolder = lease.holderIdentity?.mode === "build";
 		let holderPredicate: RawBuilder<boolean>;
@@ -2795,20 +2646,13 @@ export async function recoverAppStatus(
 					holder: lease.holderIdentity,
 				};
 			}
-			/* Operator recovery is deliberately stricter than rolling serving
-			 * compatibility: it is new manual code and requires the full concrete
-			 * triple even before the fleet-wide nonce cutover. A v0 holder cannot be
-			 * recovered safely because its generation is unknowable. */
-			if (
-				expectedHolder.nonce === null ||
-				!exactRunHolderMatches(lease.holderIdentity, expectedHolder, true)
-			) {
+			if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 				return {
 					kind: "holder_token_mismatch",
 					holder: lease.holderIdentity,
 				};
 			}
-			holderPredicate = expectedRunHolderPredicate(expectedHolder, true);
+			holderPredicate = expectedRunHolderPredicate(expectedHolder);
 		} else if (expectedHolder !== null) {
 			return { kind: "holder_state_changed" };
 		} else {
@@ -2819,7 +2663,6 @@ export async function recoverAppStatus(
 			return { kind: "already_complete" };
 		}
 
-		await declareRuntimeReader(tx);
 		const result = await tx
 			.updateTable("apps")
 			.set({
@@ -2876,15 +2719,11 @@ export async function setAwaitingInput(
 			"edit",
 			"You no longer have edit access to this app's Project.",
 		);
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(fresh));
 		const expectedHolder = { mode, runId, nonce: holderNonce } as const;
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
-		) {
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			return lease.present ? "superseded" : "released";
 		}
-		await declareRuntimeReader(tx);
 		const result = await tx
 			.updateTable("apps")
 			.set(
@@ -2893,7 +2732,7 @@ export async function setAwaitingInput(
 					: { awaiting_input: false, updated_at: new Date() },
 			)
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.executeTakeFirst();
 		return updatedExactlyOne(result) ? "owned" : "superseded";
 	});

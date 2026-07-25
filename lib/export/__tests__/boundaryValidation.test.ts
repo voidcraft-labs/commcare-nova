@@ -352,7 +352,7 @@ describe("prepareExportBoundary", () => {
 	});
 
 	it.each(["hq-json", "hq-upload"] as const)(
-		"keeps dormant lookup carriers closed for %s exports with a mode-aware finding",
+		"keeps lookup carriers closed for %s exports with a mode-aware finding",
 		async (mode) => {
 			vi.mocked(getLookupDefinitions).mockResolvedValue(
 				CARRIER_SNAPSHOT as never,
@@ -366,7 +366,7 @@ describe("prepareExportBoundary", () => {
 			});
 
 			expect(result.ok).toBe(false);
-			if (result.ok) throw new Error("expected dormant export rejection");
+			if (result.ok) throw new Error("expected carrier export rejection");
 			const finding = result.violations.find(
 				(candidate) => candidate.code === "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
 			);

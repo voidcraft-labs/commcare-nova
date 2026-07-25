@@ -96,7 +96,6 @@ const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
 const { claimAndReserveRun, createApp } = await import("@/lib/db/apps");
-const { declareRuntimeReader } = await import("@/lib/db/runtimeReaderVersion");
 const { appendThreadResponse, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
@@ -410,7 +409,6 @@ describe("live tail", () => {
 		 * retains the nonce for the answer POST. A direct hot reconnect to the
 		 * completed stream must still rehydrate this exact generation. */
 		await appDb.transaction().execute(async (tx) => {
-			await declareRuntimeReader(tx);
 			await tx
 				.updateTable("apps")
 				.set({ awaiting_input: true })

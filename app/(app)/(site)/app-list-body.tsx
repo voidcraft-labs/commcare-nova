@@ -30,8 +30,6 @@ interface AppListBodyProps {
 	canDeleteApp: boolean;
 	/** Whether this member governs app placement in the active Project. */
 	canMoveApp: boolean;
-	/** Whether the runtime switch admits cross-Project moves at all. */
-	movesEnabled: boolean;
 	/** The other Projects they may move an app into. */
 	moveTargets: AppProjectMoveTarget[];
 }
@@ -43,7 +41,6 @@ export function AppListBody({
 	deleted,
 	canDeleteApp,
 	canMoveApp,
-	movesEnabled,
 	moveTargets,
 }: AppListBodyProps) {
 	const [view, setView] = useState<View>("active");
@@ -53,15 +50,12 @@ export function AppListBody({
 	const projectMove = useMemo(
 		() =>
 			canMoveApp
-				? movesEnabled
-					? ({
-							enabled: true,
-							targets: moveTargets,
-							onMove: moveApp,
-						} as const)
-					: ({ enabled: false } as const)
+				? ({
+						targets: moveTargets,
+						onMove: moveApp,
+					} as const)
 				: undefined,
-		[canMoveApp, movesEnabled, moveTargets],
+		[canMoveApp, moveTargets],
 	);
 
 	/* Tab strip is suppressed entirely when the user has nothing in the

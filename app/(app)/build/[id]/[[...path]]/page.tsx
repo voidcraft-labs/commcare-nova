@@ -46,7 +46,6 @@ import {
 	loadThread,
 } from "@/lib/db/threads";
 import type { AppDoc } from "@/lib/db/types";
-import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import { log } from "@/lib/logger";
 
 export default async function BuilderPage({
@@ -107,7 +106,6 @@ export default async function BuilderPage({
 		role: string;
 		canEdit: boolean;
 		baseSeq: number;
-		activation?: LookupActivationState;
 	};
 	try {
 		const snapshot = await resolveAuthorizedAppSnapshot(
@@ -121,7 +119,6 @@ export default async function BuilderPage({
 			role: snapshot.role,
 			canEdit: snapshot.canEdit,
 			baseSeq: snapshot.baseSeq,
-			activation: snapshot.activation,
 		};
 	} catch (err) {
 		if (err instanceof AppAccessError) notFound();

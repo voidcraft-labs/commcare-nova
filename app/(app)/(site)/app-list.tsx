@@ -19,7 +19,6 @@ import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
-import { readProjectMovesEnabled } from "@/lib/db/lookupActivation";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
@@ -45,15 +44,6 @@ export async function AppList({ projectId, userId }: AppListProps) {
 		listDeletedApps(projectId, { limit: PAGE_SIZE }),
 		listUserProjects(userId),
 	]);
-	/* Read the switch HERE, not only in the Server Action: between a deploy and
-	 * the rollout controller's enable phase — and after any emergency disable —
-	 * an armed destination picker would take the user through the data-sharing
-	 * disclosure and a Move click before refusing.
-	 *
-	 * Sequenced after the batch above ON PURPOSE: that batch is already exactly
-	 * `POOL_MAX_PER_INSTANCE` wide, so a fourth parallel query would wait on a
-	 * connection while holding the render open. */
-	const movesEnabled = await readProjectMovesEnabled();
 
 	/* Placement is a governance act, so only members who hold it in BOTH Projects
 	 * see the control — and the destination list is exactly the other Projects
@@ -91,7 +81,6 @@ export async function AppList({ projectId, userId }: AppListProps) {
 				deleted={deletedRes.apps}
 				canDeleteApp={canDeleteApp}
 				canMoveApp={canMoveApp}
-				movesEnabled={movesEnabled}
 				moveTargets={moveTargets}
 			/>
 		</>

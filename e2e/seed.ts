@@ -43,10 +43,7 @@ import {
 	completeAndSettleRun,
 	createApp,
 } from "@/lib/db/apps";
-import { withDeploymentCutoverSession } from "@/lib/db/deploymentCutoverGate";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
-import { getAppDb } from "@/lib/db/pg";
-import { enableLookupReferenceActivationInTransaction } from "@/lib/db/rolloutCompatibility";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -637,21 +634,10 @@ async function main(): Promise<void> {
 		);
 	}
 
-	/* Cross-Project move journey. The seeded user owns a second Project, so the
+	/* Cross-Project move journey: the seeded user owns a second Project, so the
 	 * destination list is non-empty and the database's dual-`delete` +
-	 * owner-retention rules are satisfied. Activation runs through the real
-	 * controller transaction rather than a hand-written UPDATE, so the smoke
-	 * proves the enabled path exactly as production reaches it. */
+	 * owner-retention rules are satisfied. */
 	const moveDestinationProjectId = await seedMoveDestinationProject();
-	await withDeploymentCutoverSession(await getAppDb(), (session) =>
-		session
-			.transaction()
-			.execute((tx) =>
-				enableLookupReferenceActivationInTransaction(tx, [
-					"project_moves_enabled",
-				]),
-			),
-	);
 	const moveAppIds: string[] = [];
 	for (let i = 0; i < MOVE_APP_COUNT; i++) {
 		moveAppIds.push(

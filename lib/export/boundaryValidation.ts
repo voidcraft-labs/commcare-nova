@@ -14,8 +14,6 @@
  * loads every external validation resource before any wire emitter runs.
  */
 
-import { readLookupActivationFlags } from "@/lib/db/lookupActivation";
-import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import "server-only";
 
 import {
@@ -129,7 +127,6 @@ async function collectViolationsWithRegistry(
 	lookupReferenceExtractors: LookupReferenceExtractorRegistry,
 	mode?: ExportMode,
 	lookupRows?: LookupRowVerdictInput,
-	activation?: LookupActivationState,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
@@ -159,7 +156,6 @@ async function collectViolationsWithRegistry(
 		mediaAssets,
 		lookupContext,
 		lookupReferenceExtractors,
-		activation,
 	);
 	const budgetError = exportBudgetError(rows);
 	return [
@@ -177,10 +173,10 @@ interface LookupRowVerdictInput {
 
 /**
  * The mode's complete lookup verdict. `ccz` embeds lookup data, so it swaps
- * the dormant-carrier rejection for the row-dependent checks a definitions
- * snapshot cannot prove: select-source option validity over complete tables
- * and the aggregate embedded-fixture budget. `hq-json` and `hq-upload` keep
- * rejecting every carrier until S20 pushes and maps the resources.
+ * the carrier rejection for the row-dependent checks a definitions snapshot
+ * cannot prove: select-source option validity over complete tables and the
+ * aggregate embedded-fixture budget. `hq-json` and `hq-upload` keep rejecting
+ * every carrier until S20 pushes and maps the resources.
  */
 function lookupExportFindings(
 	doc: BlueprintDoc,
@@ -188,12 +184,46 @@ function lookupExportFindings(
 	lookupRows: LookupRowVerdictInput | undefined,
 ): ValidationError[] {
 	if (mode === undefined) return [];
-	if (mode !== "ccz") return dormantLookupCarrierExportFindings(doc, mode);
+	if (mode !== "ccz") return lookupCarrierExportFindings(doc, mode);
 	if (lookupRows === undefined) return [];
 	return [
 		...lookupSelectSourceRowFindings(doc, lookupRows.fixtureData),
 		...lookupFixtureBudgetFindings(lookupRows.fixtures),
 	];
+}
+
+const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
+	ccz: "a downloadable app",
+	"hq-json": "an HQ import file",
+	"hq-upload": "a direct HQ upload",
+};
+
+/**
+ * The HQ export targets stay closed while lookup resources cannot be pushed
+ * or mapped. The selected Nova export intent is part of both the finding
+ * details and its identity so the boundary never silently collapses three
+ * distinct decisions.
+ */
+function lookupCarrierExportFindings(
+	doc: BlueprintDoc,
+	mode: ExportMode,
+): ValidationError[] {
+	return collectDormantLookupCarriers(doc).map((carrier) =>
+		validationError(
+			"LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
+			carrier.location.scope,
+			`Lookup-powered choices and calculations cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. Remove the lookup-powered setting before exporting.`,
+			carrier.location,
+			{
+				exportMode: mode,
+				carrierOwnerUuid: carrier.ownerUuid,
+				carrierOwnerKind: carrier.ownerKind,
+				carrierSlot: carrier.slot,
+				carrierSubpath: carrier.subpath,
+				carrierFingerprint: carrier.fingerprint,
+			},
+		),
+	);
 }
 
 const BUDGET_AXIS_LABELS = {
@@ -321,11 +351,7 @@ async function prepareWithRegistry(
 
 	/* This subordinate loader evaluates the complete document gate with both
 	 * the exact lookup context and the Project-filtered media rows. It returns
-	 * findings only; operational media reads continue to throw. The activation
-	 * flags condition the dormant-vocabulary gates: once operations/carriers
-	 * are admitted, a ccz export of a doc carrying them passes (the hq modes'
-	 * carrier rejection below stays unconditional until S20). */
-	const activation = await readLookupActivationFlags();
+	 * findings only; operational media reads continue to throw. */
 	const violations = await collectViolationsWithRegistry(
 		input.doc,
 		input.access.projectId,
@@ -335,7 +361,6 @@ async function prepareWithRegistry(
 		fixtureData === undefined || lookupWire === undefined
 			? undefined
 			: { fixtureData, fixtures: lookupWire.fixtures },
-		activation,
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
@@ -361,41 +386,6 @@ async function prepareWithRegistry(
 			...(lookupWire !== undefined && { lookupWire }),
 		},
 	};
-}
-
-const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
-	ccz: "a downloadable app",
-	"hq-json": "an HQ import file",
-	"hq-upload": "a direct HQ upload",
-};
-
-/**
- * The HQ export targets stay closed while lookup resources cannot be pushed
- * or mapped; `ccz` embeds its fixtures locally and no longer takes this
- * finding. The selected Nova export intent is part of both the finding
- * details and identity so the boundary never silently collapses three
- * distinct decisions.
- */
-function dormantLookupCarrierExportFindings(
-	doc: BlueprintDoc,
-	mode: ExportMode,
-): ValidationError[] {
-	return collectDormantLookupCarriers(doc).map((carrier) =>
-		validationError(
-			"LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
-			carrier.location.scope,
-			`Lookup-powered choices and calculations cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. Remove the lookup-powered setting before exporting.`,
-			carrier.location,
-			{
-				exportMode: mode,
-				carrierOwnerUuid: carrier.ownerUuid,
-				carrierOwnerKind: carrier.ownerKind,
-				carrierSlot: carrier.slot,
-				carrierSubpath: carrier.subpath,
-				carrierFingerprint: carrier.fingerprint,
-			},
-		),
-	);
 }
 
 /** Prepare one authoritative export using the immutable production registry. */

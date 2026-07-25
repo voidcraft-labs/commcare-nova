@@ -288,11 +288,6 @@ describe("Project membership advisory gate", () => {
 			| Promise<{ ok: true } | { ok: false; error: unknown }>
 			| undefined;
 		try {
-			// The autocommit write below changes mutation_seq, which the raised
-			// writer floor guards; declare v1 for this client's session.
-			await writer.query(
-				"SELECT set_config('nova.writer_version', '1', false)",
-			);
 			const writerPid = await backendPid(writer);
 			await h
 				.db()

@@ -20,10 +20,7 @@ import {
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AppSummary } from "@/lib/db/apps";
-import {
-	CROSS_PROJECT_MOVE_DISCLOSURE,
-	CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
-} from "@/lib/projects/moveTargets";
+import { CROSS_PROJECT_MOVE_DISCLOSURE } from "@/lib/projects/moveTargets";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
 
@@ -42,18 +39,13 @@ export interface AppProjectMoveTarget {
 }
 
 /**
- * The Project-placement affordance, shown only to members who govern it. The
- * switched-off arm still shows the control and explains why, rather than
- * arming a destination picker whose Move button the server would refuse.
+ * The Project-placement affordance, shown only to members who govern it.
  */
-export type AppProjectMoveAffordance =
-	| {
-			enabled: true;
-			/** Other Projects where this member also holds the capability. */
-			targets: readonly AppProjectMoveTarget[];
-			onMove: (appId: string, toProjectId: string) => Promise<MoveResult>;
-	  }
-	| { enabled: false };
+export type AppProjectMoveAffordance = {
+	/** Other Projects where this member also holds the capability. */
+	targets: readonly AppProjectMoveTarget[];
+	onMove: (appId: string, toProjectId: string) => Promise<MoveResult>;
+};
 
 interface AppCardProps {
 	app: Pick<
@@ -114,9 +106,7 @@ export function AppCard({
 	const isFailed = app.status === "error";
 	const updatedAt = new Date(app.updated_at);
 	const displayName = app.app_name || "Untitled";
-	const moveLabel = projectMove?.enabled
-		? `Move ${displayName} to another Project`
-		: `About moving ${displayName}`;
+	const moveLabel = `Move ${displayName} to another Project`;
 
 	/* Keep navigation available while the placement popover is open. The card's
 	 * DOM shape is stable because the primary Link is an overlay sibling rather
@@ -128,7 +118,7 @@ export function AppCard({
 	const errorMessage = cardState.type === "error" ? cardState.message : null;
 
 	const handleMove = async () => {
-		if (!projectMove?.enabled || !moveTargetId) return;
+		if (!projectMove || !moveTargetId) return;
 		setCardState({ type: "movingApp" });
 		try {
 			const result = await projectMove.onMove(app.id, moveTargetId);
@@ -282,13 +272,7 @@ export function AppCard({
 									);
 								}}
 							>
-								<SimpleTooltip
-									content={
-										projectMove.enabled
-											? "Move to another Project"
-											: "About moving this app"
-									}
-								>
+								<SimpleTooltip content="Move to another Project">
 									<PopoverTrigger
 										ref={moveTriggerRef}
 										render={
@@ -324,11 +308,7 @@ export function AppCard({
 											Moving between Projects
 										</PopoverTitle>
 									</PopoverHeader>
-									{!projectMove.enabled ? (
-										<PopoverDescription className="leading-relaxed text-nova-text-secondary">
-											{CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE}
-										</PopoverDescription>
-									) : projectMove.targets.length === 0 ? (
+									{projectMove.targets.length === 0 ? (
 										<PopoverDescription className="leading-relaxed text-nova-text-secondary">
 											There's nowhere to move this app yet. A destination has to
 											be a Project where you're an admin or owner too.

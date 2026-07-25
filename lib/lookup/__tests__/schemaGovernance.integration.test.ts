@@ -7,16 +7,12 @@ import { sql } from "kysely";
 import { Client, type Notification } from "pg";
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import {
-	LOOKUP_STREAM_CHANNEL,
-	setTransactionWriterVersion,
-} from "@/lib/db/pg";
+import { LOOKUP_STREAM_CHANNEL } from "@/lib/db/pg";
 import {
 	type LookupColumnId,
 	lookupColumnIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
-	applyLookupSchemaGovernance,
 	applyLookupSchemaGovernanceInTransaction,
 	LookupSchemaGovernanceError,
 	type LookupSchemaGovernanceOperation,
@@ -40,7 +36,7 @@ const ROW_WRITER: LookupScope = {
 	...GOVERNOR,
 	actorId: "row-seed-writer",
 };
-const EDITOR: LookupScope = {
+const _EDITOR: LookupScope = {
 	...GOVERNOR,
 	actorId: "schema-editor",
 	role: "editor",
@@ -51,7 +47,7 @@ const TEXT_COLUMN: LookupColumnDraft = {
 	label: "Name",
 	dataType: "text",
 };
-const MISSING_COLUMN_ID = lookupColumnIdSchema.parse(
+const _MISSING_COLUMN_ID = lookupColumnIdSchema.parse(
 	"018f0f43-7b7c-7abc-8def-0123456789ab",
 );
 
@@ -76,19 +72,6 @@ async function createTable(
 	});
 }
 
-async function enableSchemaActions(): Promise<void> {
-	await h
-		.db()
-		.updateTable("lookup_reference_compatibility")
-		.set({
-			minimum_writer_version: 1,
-			destructive_schema_actions_enabled: true,
-			updated_at: new Date(),
-		})
-		.where("id", "=", 1)
-		.execute();
-}
-
 async function runV1Core(
 	operation: LookupSchemaGovernanceOperation,
 	scope: LookupScope = GOVERNOR,
@@ -97,8 +80,7 @@ async function runV1Core(
 		.db()
 		.transaction()
 		.execute(async (tx) => {
-			await setTransactionWriterVersion(tx, 1);
-			return applyLookupSchemaGovernanceInTransaction(tx, scope, operation, 1);
+			return applyLookupSchemaGovernanceInTransaction(tx, scope, operation);
 		});
 }
 
@@ -141,7 +123,7 @@ async function nextLookupNotification(
 	});
 }
 
-async function backendPid(client: Client): Promise<number> {
+async function _backendPid(client: Client): Promise<number> {
 	const result = await client.query<{ pid: number }>(
 		"SELECT pg_backend_pid() AS pid",
 	);
@@ -150,7 +132,7 @@ async function backendPid(client: Client): Promise<number> {
 	return pid;
 }
 
-async function waitUntilBackendBlockedBy(
+async function _waitUntilBackendBlockedBy(
 	observer: Client,
 	blockingPid: number,
 ): Promise<number> {
@@ -174,7 +156,7 @@ async function waitUntilBackendBlockedBy(
 	);
 }
 
-async function waitUntilBlockedBy(
+async function _waitUntilBlockedBy(
 	observer: Client,
 	waitingPid: number,
 	blockingPid: number,
@@ -193,57 +175,6 @@ async function waitUntilBlockedBy(
 }
 
 describe("lookup schema governance", () => {
-	it("keeps production write-free while disabled and uses shared writer v1 after explicit enablement", async () => {
-		const table = await createTable();
-		const created = await createLookupRow(ROW_WRITER, {
-			tableId: table.id,
-			expectedTableRevision: table.tableRevision,
-			toIndex: 0,
-			values: rowValues([
-				[table.columns[0].id, "Alpha"],
-				[table.columns[1].id, "A"],
-			]),
-		});
-		const before = await getLookupTable(GOVERNOR, table.id);
-		const operation = {
-			kind: "remove-column",
-			tableId: table.id,
-			columnId: table.columns[1].id,
-			expectedTableRevision: created.tableRevision,
-		} satisfies LookupSchemaGovernanceOperation;
-
-		const denied = await expectGovernanceError(
-			applyLookupSchemaGovernance(EDITOR, operation),
-			"not_found",
-		);
-		await expectGovernanceError(
-			applyLookupSchemaGovernance(GOVERNOR, operation),
-			"schema_actions_disabled",
-		);
-		expect(await getLookupTable(GOVERNOR, table.id)).toEqual(before);
-
-		await enableSchemaActions();
-		const deniedCore = await expectGovernanceError(
-			runV1Core(operation, EDITOR),
-			"not_found",
-		);
-		const missing = await expectGovernanceError(
-			runV1Core({ ...operation, columnId: MISSING_COLUMN_ID }),
-			"not_found",
-		);
-		expect(denied.message).toBe(missing.message);
-		expect(deniedCore.message).toBe(missing.message);
-		await expect(
-			applyLookupSchemaGovernance(GOVERNOR, operation),
-		).resolves.toMatchObject({
-			kind: "remove-column",
-			columnId: table.columns[1].id,
-		});
-		expect((await getLookupTable(GOVERNOR, table.id)).columnCount).toBe(
-			before.columnCount - 1,
-		);
-	});
-
 	it("reports only exact blocking app ids and ignores edges to another column", async () => {
 		const table = await createTable([
 			TEXT_COLUMN,
@@ -279,7 +210,6 @@ describe("lookup schema governance", () => {
 				app_id: appZ,
 			})
 			.execute();
-		await enableSchemaActions();
 
 		const tableBlocked = await expectGovernanceError(
 			runV1Core({
@@ -334,7 +264,6 @@ describe("lookup schema governance", () => {
 			values: rowValues([[table.columns[0].id, "Alpha"]]),
 		});
 		const before = await getLookupTable(GOVERNOR, table.id);
-		await enableSchemaActions();
 
 		await expectGovernanceError(
 			runV1Core({
@@ -384,7 +313,6 @@ describe("lookup schema governance", () => {
 			.where("table_id", "=", table.id)
 			.execute();
 		const beforeById = new Map(rawBefore.map((row) => [row.id, row]));
-		await enableSchemaActions();
 
 		const listener = new Client({ connectionString: h.uri() });
 		await listener.connect();
@@ -509,7 +437,6 @@ describe("lookup schema governance", () => {
 				AND table_id = ${table.id}
 			ORDER BY id
 		`.execute(h.db());
-		await enableSchemaActions();
 
 		const result = await runV1Core({
 			kind: "retype-column",
@@ -575,7 +502,6 @@ describe("lookup schema governance", () => {
 			values: rowValues([[notesId, "No name cell"]]),
 		});
 		const before = await getLookupTable(GOVERNOR, table.id);
-		await enableSchemaActions();
 
 		const error = await expectGovernanceError(
 			runV1Core({
@@ -600,7 +526,6 @@ describe("lookup schema governance", () => {
 			values: rowValues([[table.columns[0].id, "Alpha"]]),
 		});
 		const before = await getLookupTable(GOVERNOR, table.id);
-		await enableSchemaActions();
 
 		const result = await runV1Core({
 			kind: "delete-table",
@@ -633,115 +558,5 @@ describe("lookup schema governance", () => {
 				(SELECT count(*)::integer FROM lookup_rows) AS rows
 		`.execute(h.db());
 		expect(remaining.rows[0]).toEqual({ tables: 0, columns: 0, rows: 0 });
-	});
-
-	it("lets an admitted removal finish before a concurrent compatibility disable", async () => {
-		const table = await createTable();
-		await enableSchemaActions();
-		const blocker = new Client({ connectionString: h.uri() });
-		const disabler = new Client({ connectionString: h.uri() });
-		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([
-			blocker.connect(),
-			disabler.connect(),
-			observer.connect(),
-		]);
-		try {
-			await blocker.query("BEGIN");
-			await blocker.query(
-				`SELECT id FROM lookup_columns
-				 WHERE project_id = $1 AND table_id = $2 AND id = $3
-				 FOR UPDATE`,
-				[GOVERNOR.projectId, table.id, table.columns[1].id],
-			);
-			const blockerPid = await backendPid(blocker);
-			const operation = runV1Core({
-				kind: "remove-column",
-				tableId: table.id,
-				columnId: table.columns[1].id,
-				expectedTableRevision: table.tableRevision,
-			}).then(
-				(value) => ({ ok: true as const, value, error: undefined }),
-				(error: unknown) => ({ ok: false as const, value: undefined, error }),
-			);
-			const operationPid = await waitUntilBackendBlockedBy(
-				observer,
-				blockerPid,
-			);
-			const disablerPid = await backendPid(disabler);
-			const disable = disabler
-				.query(
-					`UPDATE lookup_reference_compatibility
-					 SET destructive_schema_actions_enabled = false
-					 WHERE id = 1`,
-				)
-				.then(
-					() => ({ ok: true as const, error: undefined }),
-					(error: unknown) => ({ ok: false as const, error }),
-				);
-			await waitUntilBlockedBy(observer, disablerPid, operationPid);
-			await blocker.query("COMMIT");
-
-			const operationOutcome = await operation;
-			const disableOutcome = await disable;
-			expect(operationOutcome.ok).toBe(true);
-			expect(disableOutcome.ok).toBe(true);
-			expect((await getLookupTable(GOVERNOR, table.id)).columnCount).toBe(1);
-			const compatibility = await h
-				.db()
-				.selectFrom("lookup_reference_compatibility")
-				.select("destructive_schema_actions_enabled")
-				.where("id", "=", 1)
-				.executeTakeFirstOrThrow();
-			expect(compatibility.destructive_schema_actions_enabled).toBe(false);
-		} finally {
-			await Promise.allSettled([
-				blocker.query("ROLLBACK"),
-				disabler.query("ROLLBACK"),
-				observer.query("ROLLBACK"),
-			]);
-			await Promise.all([blocker.end(), disabler.end(), observer.end()]);
-		}
-	});
-
-	it("observes a compatibility disable that wins before the core's FOR SHARE lock and writes nothing", async () => {
-		const table = await createTable();
-		await enableSchemaActions();
-		const before = await getLookupTable(GOVERNOR, table.id);
-		const disabler = new Client({ connectionString: h.uri() });
-		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([disabler.connect(), observer.connect()]);
-		try {
-			await disabler.query("BEGIN");
-			await disabler.query(
-				`UPDATE lookup_reference_compatibility
-				 SET destructive_schema_actions_enabled = false
-				 WHERE id = 1`,
-			);
-			const disablerPid = await backendPid(disabler);
-			const operation = runV1Core({
-				kind: "remove-column",
-				tableId: table.id,
-				columnId: table.columns[1].id,
-				expectedTableRevision: table.tableRevision,
-			}).then(
-				(value) => ({ ok: true as const, value, error: undefined }),
-				(error: unknown) => ({ ok: false as const, value: undefined, error }),
-			);
-			await waitUntilBackendBlockedBy(observer, disablerPid);
-			await disabler.query("COMMIT");
-			const outcome = await operation;
-			expect(outcome.ok).toBe(false);
-			expect(outcome.error).toMatchObject({
-				code: "schema_actions_disabled",
-			});
-			expect(await getLookupTable(GOVERNOR, table.id)).toEqual(before);
-		} finally {
-			await Promise.allSettled([
-				disabler.query("ROLLBACK"),
-				observer.query("ROLLBACK"),
-			]);
-			await Promise.all([disabler.end(), observer.end()]);
-		}
 	});
 });

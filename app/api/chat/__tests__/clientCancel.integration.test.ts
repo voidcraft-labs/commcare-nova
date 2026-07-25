@@ -30,9 +30,7 @@ import {
 	createPerTestAppDb,
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
-import { declareLookupReferenceWriter } from "@/lib/db/lookupReferenceWriter";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
-import { declareRuntimeReader } from "@/lib/db/runtimeReaderVersion";
 
 const {
 	resolveOpenAIKeyMock,
@@ -367,7 +365,6 @@ async function chunkRows(streamId: string) {
 
 async function seedSerializeWaitEdit() {
 	await appDb.transaction().execute(async (tx) => {
-		await declareLookupReferenceWriter(tx);
 		await tx
 			.insertInto("apps")
 			.values({
@@ -687,7 +684,6 @@ describe("pause-stamp ownership admission", () => {
 		setAwaitingInputMock.mockImplementationOnce(
 			async (appId: string): Promise<"superseded"> => {
 				await appDb.transaction().execute(async (tx) => {
-					await declareRuntimeReader(tx);
 					await tx
 						.updateTable("apps")
 						.set({
@@ -725,7 +721,6 @@ describe("pause-stamp ownership admission", () => {
 		setAwaitingInputMock.mockImplementationOnce(
 			async (appId: string): Promise<"released"> => {
 				await appDb.transaction().execute(async (tx) => {
-					await declareRuntimeReader(tx);
 					await tx
 						.updateTable("apps")
 						.set({
@@ -772,7 +767,6 @@ describe("pause-stamp ownership admission", () => {
 describe("free-continuation resume admission", () => {
 	it("fails closed on an unexpected re-acquire error without touching the holder or its credits", async () => {
 		await appDb.transaction().execute(async (tx) => {
-			await declareLookupReferenceWriter(tx);
 			await tx
 				.insertInto("apps")
 				.values({

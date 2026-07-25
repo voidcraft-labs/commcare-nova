@@ -92,6 +92,7 @@ describe("listApps", () => {
 			project_id: PROJECT,
 			status: "generating",
 			run_id: "fresh-paused-run",
+			run_holder_nonce: "00000000-0000-4000-8000-000000000001",
 			awaiting_input: true,
 			updated_at: new Date(),
 		});
@@ -100,6 +101,7 @@ describe("listApps", () => {
 			project_id: PROJECT,
 			status: "generating",
 			run_id: "abandoned-paused-run",
+			run_holder_nonce: "00000000-0000-4000-8000-000000000002",
 			awaiting_input: true,
 			updated_at: staleClock(),
 		});
@@ -108,6 +110,7 @@ describe("listApps", () => {
 			project_id: PROJECT,
 			status: "generating",
 			run_id: "killed-run",
+			run_holder_nonce: "00000000-0000-4000-8000-000000000003",
 			awaiting_input: false,
 			updated_at: staleClock(),
 		});

@@ -454,6 +454,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 				lock_run_id: "e1",
 				lock_actor_user_id: OWNER,
 				lock_expire_at: nearExpiry,
+				run_holder_nonce: HOLDER_NONCE,
 			})
 			.where("id", "=", appId)
 			.execute();
