@@ -21,9 +21,13 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
+import tablerCheck from "@iconify-icons/tabler/check";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerLayoutGrid from "@iconify-icons/tabler/layout-grid";
 import { useId, useState } from "react";
 import {
+	CONSOLE_MENU_ITEM_CLS,
+	CONSOLE_TRIGGER_CLS,
 	INSPECTOR_INPUT_CLS,
 	INSPECTOR_LABEL_CLS,
 	InspectorHint,
@@ -32,6 +36,12 @@ import {
 	ToggleRow,
 } from "@/components/builder/inspector/inspectorChrome";
 import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
 import {
 	type Column,
@@ -190,15 +200,8 @@ export function TileCellInspector({
 
 				<div className="space-y-2">
 					<span className={INSPECTOR_LABEL_CLS}>Text size</span>
-					<SegmentedRow<FontSizeChoice>
-						legend="Text size for this field"
+					<TextSizePicker
 						value={cell.fontSize ?? INHERIT_FONT_SIZE}
-						options={[
-							{ value: INHERIT_FONT_SIZE, label: "Same as list" },
-							{ value: "small", label: "Small" },
-							{ value: "medium", label: "Medium" },
-							{ value: "large", label: "Large" },
-						]}
 						onChange={(choice) => {
 							if (choice === INHERIT_FONT_SIZE) {
 								const { fontSize: _cleared, ...rest } = cell;
@@ -208,9 +211,6 @@ export function TileCellInspector({
 							onPlace({ ...cell, fontSize: choice });
 						}}
 					/>
-					<InspectorHint>
-						Same as list keeps this field at whatever size the case list uses.
-					</InspectorHint>
 				</div>
 
 				<ToggleRow
@@ -301,6 +301,103 @@ function SavedPlaceSection({
 		</InspectorSection>
 	);
 }
+
+/**
+ * Text size, with inheriting the list's size as a real first choice.
+ *
+ * A menu rather than a segmented row because the honest name for an
+ * absent size is a phrase, not a word, and four segments in a 300px rail
+ * would clip it. The runtime has no `medium` fallback — an absent size
+ * produces an empty declaration the browser discards — so presenting one
+ * of the three sizes as the default would be a lie.
+ */
+function TextSizePicker({
+	value,
+	onChange,
+}: {
+	readonly value: FontSizeChoice;
+	readonly onChange: (next: FontSizeChoice) => void;
+}) {
+	const current = TEXT_SIZE_CHOICES.find((choice) => choice.value === value);
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				aria-label={`Text size: ${current?.label ?? "Same as the list"}`}
+				className={CONSOLE_TRIGGER_CLS}
+			>
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block text-nova-text">{current?.label}</span>
+					<span className="block whitespace-normal break-words text-[13px] leading-5 text-nova-text-muted">
+						{current?.description}
+					</span>
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					aria-hidden="true"
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="start"
+				sideOffset={4}
+				preferredMinWidth="17rem"
+			>
+				{TEXT_SIZE_CHOICES.map((choice) => (
+					<DropdownMenuItem
+						key={choice.value}
+						onClick={() => onChange(choice.value)}
+						disabled={choice.value === value}
+						className={`${CONSOLE_MENU_ITEM_CLS} ${
+							choice.value === value
+								? "bg-nova-violet/10 text-nova-violet-bright"
+								: ""
+						}`}
+					>
+						<span className="min-w-0 flex-1 text-left">
+							<span className="block whitespace-normal break-words">
+								{choice.label}
+							</span>
+							<span
+								className={`block whitespace-normal break-words text-[13px] leading-5 ${
+									choice.value === value
+										? "text-nova-violet-bright"
+										: "text-nova-text-muted"
+								}`}
+							>
+								{choice.description}
+							</span>
+						</span>
+						{choice.value === value && (
+							<Icon
+								icon={tablerCheck}
+								width="14"
+								height="14"
+								className="shrink-0 text-nova-violet-bright"
+							/>
+						)}
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+const TEXT_SIZE_CHOICES: ReadonlyArray<{
+	readonly value: FontSizeChoice;
+	readonly label: string;
+	readonly description: string;
+}> = [
+	{
+		value: INHERIT_FONT_SIZE,
+		label: "Same as the list",
+		description: "Whatever size the case list already uses",
+	},
+	{ value: "small", label: "Small", description: "Quieter than the list" },
+	{ value: "medium", label: "Medium", description: "A standard size" },
+	{ value: "large", label: "Large", description: "Stands out on the tile" },
+];
 
 function TileIssueList({ issues }: { readonly issues: readonly string[] }) {
 	return (
