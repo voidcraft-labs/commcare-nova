@@ -1023,10 +1023,18 @@ export async function submitFormAction(
 		// recoverable loss of an attachment. Promoting first and failing the
 		// case write would instead durably keep files for a submission that
 		// never happened.
+		// `actorUserId`, NOT `ownerId`. The attachment rows were created with
+		// the signed-in member's id, and that same value both authorizes the
+		// Project membership and scopes the reconcile — so passing the
+		// preview's `ownerId` would key an authorization decision on authored
+		// blueprint content AND match zero rows whenever a persona is
+		// selected, silently expiring every attachment the worker just made.
+		// The two ids are identical when previewing as yourself, which is
+		// precisely why that bug would hide.
 		await settleSubmittedAttachments({
 			appId,
 			mutation,
-			actorUserId: identity.ownerId,
+			actorUserId: identity.actorUserId,
 			projectId: scope.projectId,
 		});
 

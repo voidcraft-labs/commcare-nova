@@ -1479,6 +1479,15 @@ export function schemaHealingCaseStore(
  * makes a failed copy resolve as "not promoted", which is honest: the row
  * never claims an attachment that does not exist.
  *
+ * An earlier version tried to fix that by reordering the writes *after*
+ * the promotion — copy, record the key, drop the original — which turned
+ * an immediate loss into a loss a day later and felt like a fix because
+ * the failure moved further away. **Delayed silent loss is still silent
+ * loss.** If you are tempted to add a compensating step here, that is the
+ * signal the ordering is wrong rather than the signal it needs shoring
+ * up: the correct shape removed a failure window instead of narrowing
+ * one, and removed a function with it.
+ *
  * So the sequence is: read the candidates, copy each one's bytes, then
  * promote exactly the subset that copied and discard the rest in one
  * transaction. `keptNames` therefore carries the successfully-copied
@@ -1498,13 +1507,45 @@ export function schemaHealingCaseStore(
 export async function settleSubmittedAttachments(args: {
 	appId: string;
 	mutation: SubmissionMutation;
+	/**
+	 * The signed-in member — `identity.actorUserId`, never `ownerId`.
+	 *
+	 * It both authorizes Project membership and scopes the reconcile to the
+	 * rows this member staged, and the attachment rows were created with
+	 * exactly this id. Passing the preview's `ownerId` would key an
+	 * authorization decision on authored blueprint content AND match zero
+	 * rows whenever a persona is selected, silently expiring every
+	 * attachment the worker just made. The two are identical when previewing
+	 * as yourself, which is why that mistake hides from every test that does
+	 * not use a persona.
+	 */
 	actorUserId: string;
 	projectId: string;
 }): Promise<void> {
 	const { entryKey, attachmentNames } = args.mutation;
 	if (entryKey === undefined) return;
-	const named = new Set(attachmentNames ?? []);
+	try {
+		await settleOrThrow(args, entryKey, new Set(attachmentNames ?? []));
+	} catch (err) {
+		// Never fail the submission from here. The case write has already
+		// committed, so throwing would report failure for a submission that
+		// SUCCEEDED and invite a re-submit that duplicates the case — strictly
+		// worse than losing the attachments, which the staging TTL collects.
+		// Logged at error (so it reaches Sentry) because a worker's files are
+		// on their way to expiry and nothing else will say so.
+		log.error("[attachments] settlement failed after a committed submission", {
+			err,
+			appId: args.appId,
+			entryKey,
+		});
+	}
+}
 
+async function settleOrThrow(
+	args: { appId: string; actorUserId: string; projectId: string },
+	entryKey: string,
+	named: ReadonlySet<string>,
+): Promise<void> {
 	const candidates = await listSettlementCandidates({
 		appId: args.appId,
 		entryKey,
@@ -1517,21 +1558,21 @@ export async function settleSubmittedAttachments(args: {
 	// promoting a row that points nowhere.
 	const copiedNames: string[] = [];
 	const stagedKeyByName = new Map<string, string>();
+	const durableKeyByName = new Map<string, string>();
 	await Promise.allSettled(
 		candidates
 			.filter((candidate) => named.has(candidate.attachmentName))
 			.map(async (candidate) => {
+				const durable = captureObjectKeyFor(
+					candidate.projectId,
+					candidate.attachmentId,
+					candidate.extension,
+				);
 				try {
-					await copyAssetObject(
-						candidate.gcsObjectKey,
-						captureObjectKeyFor(
-							candidate.projectId,
-							candidate.attachmentId,
-							candidate.extension,
-						),
-					);
+					await copyAssetObject(candidate.gcsObjectKey, durable);
 					copiedNames.push(candidate.attachmentName);
 					stagedKeyByName.set(candidate.attachmentName, candidate.gcsObjectKey);
+					durableKeyByName.set(candidate.attachmentName, durable);
 				} catch (err) {
 					log.warn("[attachments] promotion copy failed", {
 						err,
@@ -1549,31 +1590,45 @@ export async function settleSubmittedAttachments(args: {
 		keptNames: copiedNames,
 	});
 
-	// Cleanup only, past the point where anything can be lost: a promoted
-	// row already names its durable copy, and a discarded one is gone from
-	// the table. A failure here leaves an object the staging TTL collects.
+	// Cleanup only, past the point where anything can be lost: a promoted row
+	// already names its durable copy, and a discarded one is gone from the
+	// table.
+	const promotedNames = new Set(
+		settled.promoted.map((attachment) => attachment.attachmentName),
+	);
 	await Promise.allSettled([
 		...settled.promoted.map(async (attachment) => {
 			const stagedKey = stagedKeyByName.get(attachment.attachmentName);
 			if (stagedKey === undefined) return;
-			try {
-				await deleteAsset(stagedKey);
-			} catch (err) {
+			await deleteAsset(stagedKey).catch((err: unknown) => {
 				log.warn("[attachments] staging cleanup failed", {
 					err,
 					attachmentId: attachment.attachmentId,
 				});
-			}
+			});
 		}),
 		...settled.discarded.map(async (attachment) => {
-			try {
-				await deleteAsset(attachment.gcsObjectKey);
-			} catch (err) {
+			await deleteAsset(attachment.gcsObjectKey).catch((err: unknown) => {
 				log.warn("[attachments] discard cleanup failed", {
 					err,
 					attachmentId: attachment.attachmentId,
 				});
-			}
+			});
 		}),
+		// Copying before promoting means bytes can reach the durable key for a
+		// row the transaction then declines to promote — a concurrent clear
+		// landing between the unlocked candidate read and the locked reconcile.
+		// The durable prefix has NO TTL, so a speculative copy that did not
+		// land has to be cleaned up here or it leaks permanently.
+		...[...durableKeyByName.entries()]
+			.filter(([name]) => !promotedNames.has(name))
+			.map(async ([, durableKey]) => {
+				await deleteAsset(durableKey).catch((err: unknown) => {
+					log.warn("[attachments] unpromoted copy cleanup failed", {
+						err,
+						durableKey,
+					});
+				});
+			}),
 	]);
 }
