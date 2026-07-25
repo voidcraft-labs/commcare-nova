@@ -864,11 +864,14 @@ function tileStyleChildren(
 	// `tileCellFor`'s single decision, shared with the HQ JSON writer and the
 	// preview renderer so the three cannot disagree.
 	//
-	// This branch is unreachable today only because `longDetail.ts` never puts
-	// a `tileLayout` on its context. It stays because that is an accident of
-	// one caller, not the contract: long-detail tiles are out of scope, and a
-	// future caller threading the layout through must not be able to emit one
-	// by omission.
+	// Long-detail tiles are out of scope by contract — see
+	// `docs/plans/complex-app/00-contracts.md`, deliberate target gaps:
+	// "Tiles apply to the short and search details; the case-detail view emits
+	// a plain field list." CommCare would accept a `custom` tile there, so
+	// nothing upstream forbids it; this branch is what makes the excluded case
+	// unrepresentable rather than merely unreached. `longDetail.ts` also never
+	// puts a `tileLayout` on its context, but that is the same rule applied a
+	// second time, not the reason for this one.
 	if (ctx.detailKind !== "short") return [];
 	const cell = tileCellFor(column, ctx.tileLayout);
 	if (cell === undefined) return [];
