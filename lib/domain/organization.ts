@@ -455,3 +455,55 @@ export function ancestorLevels(
 	}
 	return chain;
 }
+
+/**
+ * Whether a place at `childLevelUuid` may sit under a place at
+ * `parentLevelUuid`.
+ *
+ * The rule is STRICT ANCESTRY, not immediate parentage — an intermediate
+ * level may be skipped. That is a real hierarchy rather than a leniency:
+ * health structures routinely have optional rungs, where some regions run
+ * districts and some do not, and the fixture carries it faithfully because
+ * every level's `{code}_id` attribute is blank-filled before self and each
+ * ancestor are written (`fixtures.py::_get_fixture_node`). A facility with no
+ * district emits `district_id=''`, and an expression joining on it finds
+ * nothing — which is the truth.
+ *
+ * What strict ancestry rules out is a level repeating inside one chain, and
+ * that has a concrete failure. The attribute writes in that same loop go
+ * self-first then upward, each unconditionally assigning `{code}_id`, so an
+ * ancestor sharing the child's code OVERWRITES the child's own id in its own
+ * lineage attribute: a facility under another facility emits
+ * `facility_id = <the parent's>`, and every two-hop join through that
+ * attribute silently resolves to the wrong element. Two levels can never
+ * share a code, so strict ancestry is exactly what keeps a chain's codes
+ * distinct.
+ *
+ * One predicate, two consumers: the store enforces it and the authoring
+ * surface's parent picker filters by it, so an author is never offered a
+ * placement the store will refuse.
+ *
+ * **A skipped rung is a deployment constraint, not a wire one.** The fixture
+ * carries it faithfully, so preview and local `.ccz` export are correct — but
+ * HQ refuses to CREATE one. Both its web form and its v0.6 location API route
+ * through `util.py::get_location_type`, which admits only the types
+ * `forms.py::LocationForm.get_allowed_types` returns for the chosen parent,
+ * and that query filters `parent_type=parent.location_type` — the immediate
+ * child types alone. A push of a ragged tree therefore fails with "Location
+ * type not valid for the selected parent." Nova still models the real
+ * hierarchy rather than making an author invent a placeholder district whose
+ * id every `district_id` join would then wrongly resolve; the constraint is
+ * surfaced as a deployment prerequisite instead of being smuggled into the
+ * data model.
+ */
+export function levelMayNestUnder(
+	childLevelUuid: string,
+	parentLevelUuid: string,
+	levels: Record<string, OrganizationLevel>,
+): boolean {
+	const child = levels[childLevelUuid];
+	if (child === undefined) return false;
+	return ancestorLevels(child, levels).some(
+		(ancestor) => ancestor.uuid === parentLevelUuid,
+	);
+}
