@@ -215,9 +215,10 @@ export const setCaseListTileTool = {
 			// what the SA continues against.
 			const committedConfig =
 				commit.newDoc.modules[moduleUuid]?.caseListConfig ?? config;
-			// A hidden field with no place is only a problem when Default order
-			// still needs it — the same split the validator's coverage rule makes —
-			// so the reported list is the fields a worker would actually see.
+			// Only a field the tile SHOWS needs a place, which is the coverage
+			// rule's own scope: a field hidden from Results emits as the zero-width
+			// sort carrier and renders nothing, so ordering by something a worker
+			// can't see keeps working on a tile.
 			const unplacedColumnUuids = committedConfig.columns
 				.filter(
 					(column) =>
