@@ -24,6 +24,7 @@
 import type {
 	CaseOperationMoveVerdict,
 	CaseOperationReferenceSlot,
+	CaseOperationReviewName,
 } from "@/lib/doc/caseOperationReview";
 import type { Uuid } from "@/lib/doc/types";
 
@@ -36,7 +37,7 @@ export function listNames(names: readonly string[]): string {
 
 function quotedNames(
 	uuids: readonly Uuid[],
-	nameOf: (uuid: Uuid) => string | undefined,
+	nameOf: CaseOperationReviewName,
 ): string {
 	const names = uuids.map((uuid) => {
 		const name = nameOf(uuid);
@@ -51,9 +52,21 @@ function quotedNames(
  */
 export function moveRefusal(
 	verdict: CaseOperationMoveVerdict | undefined,
-	nameOf: (uuid: Uuid) => string | undefined,
+	nameOf: CaseOperationReviewName,
 ): string | undefined {
 	if (verdict === undefined || verdict.ok) return undefined;
+	return moveRefusalReason(verdict, nameOf);
+}
+
+/**
+ * The same sentence for a verdict already known to be a refusal, so a
+ * caller inside the refused branch does not have to fall back on copy
+ * that could never be right.
+ */
+export function moveRefusalReason(
+	verdict: Extract<CaseOperationMoveVerdict, { ok: false }>,
+	nameOf: CaseOperationReviewName,
+): string {
 	const names = quotedNames(verdict.blockingUuids, nameOf);
 	if (verdict.reason === "dependent-reference") {
 		return names.length === 0
@@ -65,17 +78,9 @@ export function moveRefusal(
 		: `The submitted form cannot carry this order: it would put this change on the wrong side of ${names}.`;
 }
 
-/** The keyboard announcement for a refused move — same facts, spoken. */
-export function moveRefusalAnnouncement(
-	operationName: string,
-	verdict: CaseOperationMoveVerdict | undefined,
-	nameOf: (uuid: Uuid) => string | undefined,
-): string | undefined {
-	const refusal = moveRefusal(verdict, nameOf);
-	return refusal === undefined
-		? undefined
-		: `${operationName} did not move. ${refusal}`;
-}
+// The spoken form of a refusal lives in `keyboardMove.ts`, which owns the
+// whole outcome (moved / already at the edge / refused) so the sentence an
+// author HEARS and the edit that actually happened come from one decision.
 
 /** Where a consumer holds its reference, in the author's words. */
 export function referenceSlotPhrase(slot: CaseOperationReferenceSlot): string {

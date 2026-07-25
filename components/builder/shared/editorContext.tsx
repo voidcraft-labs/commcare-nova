@@ -33,6 +33,7 @@ import {
 	expressionReadsCaseData,
 	expressionReadsRelatedCaseData,
 	type ResolvedType,
+	type TypeContext,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { presentCheckErrorForEditor } from "./checkErrorPresentation";
@@ -41,9 +42,15 @@ import {
 	GLOBAL_SCOPE_CASE_DATA_REASON,
 	SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
 } from "./editorSchemas";
+import type { OperationValueScope } from "./expressionEditorSchemas";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
+
+/** Shared empty list so a provider without form answers keeps one stable
+ *  identity across renders (the context memo depends on it). */
+const EMPTY_FORM_FIELDS: readonly EditorFormFieldDecl[] = [];
 
 /**
  * Per-path user-facing diagnostic list. Raw `CheckError.message`
@@ -84,6 +91,21 @@ interface PredicateEditContextValue {
 	/** Declared search inputs in scope at the editor's mount site. */
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	/**
+	 * Form answers this editor may read, ALREADY narrowed by the mounting
+	 * surface to the ones its slot admits — a case operation running once
+	 * per submission drops every answer that has one value per repeat
+	 * iteration, because the commit gate refuses that reference. Empty on
+	 * every surface that reads no form answers at all.
+	 */
+	readonly formFields: readonly EditorFormFieldDecl[];
+	/**
+	 * The submission-local vocabulary, present only inside a case
+	 * operation: the acting user, no owner, and the case an earlier create
+	 * made. Absent everywhere else, where the type checker refuses all
+	 * three.
+	 */
+	readonly operationScope: OperationValueScope | undefined;
+	/**
 	 * Whether this slot evaluates against a case row (`"per-case"`) or
 	 * once before any case is selected (`"global"`). Kind menus and
 	 * seeds read it through the schemas' `PredicateEditContext`; value
@@ -122,6 +144,8 @@ interface PredicateEditProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly operationScope?: OperationValueScope;
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
@@ -148,6 +172,8 @@ export function PredicateEditProvider({
 	caseTypes,
 	currentCaseType,
 	knownInputs,
+	formFields = EMPTY_FORM_FIELDS,
+	operationScope,
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
 	validityIndex,
@@ -175,6 +201,8 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			formFields,
+			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
 			validityIndex,
@@ -185,6 +213,8 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			formFields,
+			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
 			validityIndex,
@@ -329,20 +359,69 @@ export function usePredicateEditContext(): PredicateEditContextValue {
 export function useResolvedType(
 	expr: ValueExpression | undefined,
 ): ResolvedType | undefined {
-	const { caseTypes, currentCaseType, knownInputs } = usePredicateEditContext();
+	const typeContext = useEditorTypeContext();
 	return useMemo(() => {
 		if (expr === undefined) return undefined;
-		return checkExpression(
-			expr,
-			{
-				caseTypes: [...caseTypes],
-				knownInputs: [...knownInputs],
+		return checkExpression(expr, typeContext, [], []);
+	}, [expr, typeContext]);
+}
+
+/**
+ * The `TypeContext` this editor's scope resolves against — the same
+ * inputs the commit gate's validator composes, so the offered-set and
+ * the accept-set cannot drift.
+ *
+ * Every editor that runs the checker (the workbench, the expression
+ * editor, `useResolvedType`) builds it here rather than assembling its
+ * own literal: a surface that quietly omitted `formFields` would render
+ * every authored form answer as "not available in this expression
+ * context" while the document itself is perfectly valid.
+ */
+export function useEditorTypeContext(): TypeContext {
+	const {
+		caseTypes,
+		currentCaseType,
+		knownInputs,
+		formFields,
+		operationScope,
+	} = usePredicateEditContext();
+	return useMemo(
+		() =>
+			buildEditorTypeContext({
+				caseTypes,
 				currentCaseType,
-			},
-			[],
-			[],
-		);
-	}, [expr, caseTypes, currentCaseType, knownInputs]);
+				knownInputs,
+				formFields,
+				operationScope,
+			}),
+		[caseTypes, currentCaseType, knownInputs, formFields, operationScope],
+	);
+}
+
+/** Pure twin of `useEditorTypeContext` for editors that compose the
+ *  context before mounting the provider. */
+export function buildEditorTypeContext(args: {
+	readonly caseTypes: readonly CaseType[];
+	readonly currentCaseType: string;
+	readonly knownInputs: readonly EditorSearchInputDecl[];
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly operationScope?: OperationValueScope | undefined;
+}): TypeContext {
+	const { formFields = [], operationScope } = args;
+	return {
+		caseTypes: [...args.caseTypes],
+		knownInputs: [...args.knownInputs],
+		currentCaseType: args.currentCaseType,
+		formFields: new Map(
+			formFields.map((field) => [field.uuid, field.dataType]),
+		),
+		...(operationScope !== undefined && {
+			operationIds: new Set(
+				operationScope.creates.map((create) => create.uuid),
+			),
+			caseOperationValues: true,
+		}),
+	};
 }
 
 /**

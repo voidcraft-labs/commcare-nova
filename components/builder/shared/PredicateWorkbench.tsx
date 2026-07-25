@@ -49,6 +49,7 @@ import {
 import { firstComparisonDefault } from "./cards/comparisonSeed";
 import { SearchInputMenu } from "./cards/WhenInputPresentCard";
 import {
+	buildEditorTypeContext,
 	buildValidityIndex,
 	PredicateEditProvider,
 	useEditorErrorsAt,
@@ -61,6 +62,8 @@ import {
 	predicateCardSchemas,
 	predicateUnavailableReason,
 } from "./editorSchemas";
+import type { OperationValueScope } from "./expressionEditorSchemas";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import {
 	appendKindIndex,
 	appendKindSlot,
@@ -336,6 +339,12 @@ export interface PredicateWorkbenchProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** Form answers this rule may read — already narrowed by the owning
+	 *  surface to the ones its slot admits. */
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Present only inside a case operation, where the submission's own
+	 *  vocabulary is available. */
+	readonly operationScope?: OperationValueScope;
 	/** Runtime that evaluates this rule. Search-backed rules consult the
 	 *  boundary verdict before offering a guaranteed-invalid value source. */
 	readonly evaluationTarget?: "on-device" | "case-search";
@@ -370,6 +379,8 @@ export function PredicateWorkbench({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	formFields,
+	operationScope,
 	evaluationTarget = "on-device",
 	caseDataScope = "per-case",
 	rootLabel = DEFAULT_RULE_ROOT_LABEL,
@@ -402,12 +413,15 @@ export function PredicateWorkbench({
 	);
 
 	const typeContext = useMemo(
-		() => ({
-			caseTypes: [...caseTypes],
-			knownInputs: [...knownInputs],
-			currentCaseType,
-		}),
-		[caseTypes, currentCaseType, knownInputs],
+		() =>
+			buildEditorTypeContext({
+				caseTypes,
+				knownInputs,
+				currentCaseType,
+				formFields,
+				operationScope,
+			}),
+		[caseTypes, currentCaseType, knownInputs, formFields, operationScope],
 	);
 	const validity = useMemo(
 		() => checkPredicate(value, typeContext),
@@ -423,10 +437,20 @@ export function PredicateWorkbench({
 			caseTypes,
 			currentCaseType: focusedCaseType,
 			knownInputs,
+			formFields,
+			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
 		}),
-		[caseTypes, focusedCaseType, knownInputs, caseDataScope, allowsNeverMatch],
+		[
+			caseTypes,
+			focusedCaseType,
+			knownInputs,
+			formFields,
+			operationScope,
+			caseDataScope,
+			allowsNeverMatch,
+		],
 	);
 	const admitCaseSearchExpression = useCallback(
 		(path: EditorPath, next: ValueExpression) => {
@@ -579,6 +603,8 @@ export function PredicateWorkbench({
 			caseTypes={caseTypes}
 			currentCaseType={focusedCaseType}
 			knownInputs={knownInputs}
+			formFields={formFields}
+			operationScope={operationScope}
 			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
 			validityIndex={validityIndex}

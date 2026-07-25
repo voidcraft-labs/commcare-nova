@@ -78,6 +78,8 @@ import {
 	withinDistanceDefault,
 } from "./cards/WithinDistanceCard";
 import { hasConditionSeed } from "./conditionSeed";
+import type { OperationValueScope } from "./expressionEditorSchemas";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import { hasRelatedCaseType } from "./relationSeed";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
@@ -138,6 +140,11 @@ export interface PredicateEditContext {
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly caseDataScope: CaseDataScope;
+	/** Form answers this slot may read, already narrowed to the ones its
+	 *  surface admits. Absent means the slot reads no form answers. */
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Present only inside a case operation — see `ExpressionEditContext`. */
+	readonly operationScope?: OperationValueScope;
 	/**
 	 * Whether a rule that can never match is meaningful in this slot.
 	 *

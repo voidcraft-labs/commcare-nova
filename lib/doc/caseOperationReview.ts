@@ -42,6 +42,14 @@ import {
 	moveCaseOperationMutation,
 } from "./caseOperationMutations";
 
+/**
+ * How an operation is named in a sentence about it. Returns `undefined`
+ * for an operation the caller cannot resolve — a refusal still has to
+ * read as a sentence, so the copy layer supplies its own fallback rather
+ * than printing a uuid.
+ */
+export type CaseOperationReviewName = (uuid: Uuid) => string | undefined;
+
 /** Which slot of a consuming operation holds the reference. */
 export type CaseOperationReferenceSlot =
 	| { readonly kind: "target" }

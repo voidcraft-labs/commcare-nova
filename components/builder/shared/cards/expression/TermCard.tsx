@@ -35,6 +35,7 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDatabase from "@iconify-icons/tabler/database";
+import tablerForms from "@iconify-icons/tabler/forms";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
@@ -78,6 +79,7 @@ import {
 	type CasePropertyDataType,
 	canonicalCasePropertyName,
 	effectiveDataType,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
@@ -108,6 +110,10 @@ import {
 	usePredicateEditContext,
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
+import {
+	formFieldDisambiguator,
+	formFieldDisplayLabel,
+} from "../../formFieldPresentation";
 import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
@@ -818,6 +824,14 @@ function computeModeAdmission(
 	const hasAcceptedInput =
 		constraint.accepts === "any" ||
 		ctx.knownInputs.some((i) => acceptsType(constraint, i.data_type ?? "text"));
+	/* The decl list arrives already narrowed to the answers this slot may
+	 * read (repeat correlation is the mounting surface's call), so the only
+	 * question left here is the slot's own type. */
+	const hasAcceptedFormField = (ctx.formFields ?? []).some(
+		(field) =>
+			constraint.accepts === "any" ||
+			acceptsType(constraint, field.dataType ?? "text"),
+	);
 	const textAdmitted = constraintAdmitsType(constraint, "text");
 	const typeAdmission: ModeAdmission = {
 		literal:
@@ -831,10 +845,15 @@ function computeModeAdmission(
 		property: hasAcceptedProperty
 			? { admitted: true }
 			: { admitted: false, reason },
-		field: {
-			admitted: false,
-			reason: "Form answers are selected when configuring case operations",
-		},
+		field: hasAcceptedFormField
+			? { admitted: true }
+			: {
+					admitted: false,
+					reason:
+						(ctx.formFields ?? []).length === 0
+							? "Form answers are available when a case operation saves them"
+							: reason,
+				},
 		input: hasAcceptedInput ? { admitted: true } : { admitted: false, reason },
 		"session-context": textAdmitted
 			? { admitted: true }
@@ -897,11 +916,20 @@ function buildTermDefault(
 				canonicalCasePropertyName(property?.name ?? ""),
 			);
 		}
-		case "field":
-			// Form-field references are authored only by the case-operation editor.
-			// This unreachable seed exists so the generic round-trip editor remains
-			// exhaustive without inventing a user-authored reference.
-			return formField(asUuid("00000000-0000-4000-8000-000000000000"));
+		case "field": {
+			// The first answer whose type the slot accepts. A surface with no
+			// admissible answer never offers the source, so the placeholder uuid
+			// below is unreachable through the menu — it exists so the seed stays
+			// total, and the checker names it plainly if a document carries one.
+			const admissible = (ctx.formFields ?? []).find(
+				(field) =>
+					constraint.accepts === "any" ||
+					acceptsType(constraint, field.dataType ?? "text"),
+			);
+			return formField(
+				admissible?.uuid ?? asUuid("00000000-0000-4000-8000-000000000000"),
+			);
+		}
 		case "input": {
 			const matching = ctx.knownInputs.find((i) =>
 				constraint.accepts === "any"
@@ -966,11 +994,11 @@ function ModeMenu({
 				icon: tablerDatabase,
 			},
 		];
-		if (mode === "field") {
+		if (mode === "field" || ctx.formFields.length > 0) {
 			base.push({
 				mode: "field",
 				label: termModeLabel("field", sourceContext),
-				icon: tablerVariable,
+				icon: tablerForms,
 			});
 		}
 		if (mode === "input" || ctx.knownInputs.length > 0) {
@@ -991,7 +1019,7 @@ function ModeMenu({
 			icon: tablerSparkles,
 		});
 		return base;
-	}, [ctx.knownInputs, mode, sourceContext]);
+	}, [ctx.formFields.length, ctx.knownInputs, mode, sourceContext]);
 
 	const activeItem = items.find((i) => i.mode === mode) ?? items[0];
 
@@ -1163,11 +1191,11 @@ function TermBodyInput({
 			);
 		case "field":
 			return (
-				<Input
+				<FormFieldRefMenu
 					value={term.uuid}
-					readOnly
-					aria-label="Referenced form field"
-					aria-invalid={invalid || undefined}
+					onChange={(uuid) => onChange(formField(uuid))}
+					constraint={constraint}
+					invalid={invalid}
 				/>
 			);
 		case "input":
@@ -1343,6 +1371,158 @@ function InputRefMenu({
 									{it.data_type && (
 										<span className="text-xs text-nova-text-muted">
 											{SEARCH_ANSWER_TYPE_LABELS[it.data_type]}
+										</span>
+									)}
+								</DropdownMenuItem>
+							);
+						})}
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
+	);
+}
+
+/**
+ * Form-answer dropdown. The context's decl list IS the admission list —
+ * the mounting surface has already dropped every answer this slot may
+ * not read — so this menu only narrows further by the slot's own type.
+ *
+ * A saved answer that has since been deleted keeps its identity visible
+ * with a recovery line rather than collapsing to an empty placeholder:
+ * the reference is what the author wrote, and silently blanking it would
+ * hide the repair.
+ */
+function FormFieldRefMenu({
+	value,
+	onChange,
+	constraint,
+	invalid,
+}: {
+	readonly value: Uuid;
+	readonly onChange: (uuid: Uuid) => void;
+	readonly constraint: SlotConstraint;
+	readonly invalid: boolean;
+}) {
+	const ctx = usePredicateEditContext();
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const items = useMemo(
+		() =>
+			ctx.formFields.filter(
+				(field) =>
+					field.uuid === value ||
+					constraint.accepts === "any" ||
+					acceptsType(constraint, field.dataType ?? "text"),
+			),
+		[ctx.formFields, constraint, value],
+	);
+	const current = items.find((field) => field.uuid === value);
+	const currentLabel =
+		current === undefined
+			? undefined
+			: formFieldDisplayLabel(current.uuid, ctx.formFields);
+	const missing = current === undefined;
+	const triggerClass = [
+		"group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm text-nova-text whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
+		invalid
+			? "border-nova-rose/40"
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
+	].join(" ");
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				ref={triggerRef}
+				aria-label={`Form answer: ${currentLabel ?? "Choose a form answer"}${missing ? ", no longer in this form" : ""}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
+					/>
+				}
+			>
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block break-words text-nova-violet-bright">
+						{currentLabel ?? "Choose a form answer"}
+					</span>
+					{missing ? (
+						<span className="block text-xs font-normal text-nova-rose">
+							No longer in this form
+						</span>
+					) : null}
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					style={{ minWidth: "var(--anchor-width)" }}
+				>
+					<DropdownMenuPopup className="min-w-0">
+						{missing ? (
+							<div
+								className={
+									items.length > 0
+										? "border-b border-white/[0.06] px-3 py-2.5"
+										: "px-3 py-2.5"
+								}
+								role="presentation"
+							>
+								<div className="break-words text-sm font-medium text-nova-text">
+									That answer is no longer in this form
+								</div>
+								<div className="mt-1 text-[13px] leading-5 text-nova-text-secondary">
+									{items.length > 0
+										? "Choose another answer below, or add the question back"
+										: "Choose another value source, or add the question back"}
+								</div>
+							</div>
+						) : items.length === 0 ? (
+							<div
+								className="px-3 py-2.5 text-[13px] leading-5 text-nova-text-secondary"
+								role="presentation"
+							>
+								No form answers fit here. Choose another value source.
+							</div>
+						) : null}
+						{items.map((field) => {
+							const isActive = field.uuid === value;
+							const disambiguator = formFieldDisambiguator(
+								field,
+								ctx.formFields,
+							);
+							return (
+								<DropdownMenuItem
+									key={field.uuid}
+									onClick={() => onChange(field.uuid)}
+									className={
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
+									}
+								>
+									<span className="min-w-0 flex-1 break-words">
+										<span className="block">
+											{formFieldDisplayLabel(field.uuid, ctx.formFields)}
+										</span>
+										{disambiguator !== undefined && (
+											<span className="block text-xs text-nova-text-muted">
+												{disambiguator}
+											</span>
+										)}
+									</span>
+									{field.dataType !== undefined && (
+										<span className="text-xs text-nova-text-muted">
+											{SEARCH_ANSWER_TYPE_LABELS[field.dataType]}
 										</span>
 									)}
 								</DropdownMenuItem>

@@ -26,12 +26,14 @@
 import {
 	CASE_TYPE_REGEX,
 	isReservedXFormNodeName,
+	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
 	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
 import { RESERVED_CASE_TYPE_NAMES } from "@/lib/commcare/validator/reservedNamespaces";
+import { RESERVED_OPERATION_PROPERTIES } from "@/lib/commcare/validator/rules/caseOperations";
 import { declarersOf } from "@/lib/doc/referenceIndex";
 import {
 	type BlueprintDoc,
@@ -390,3 +392,192 @@ export {
 	type UserPropertySlugVerdict,
 	userPropertySlugVerdict,
 } from "@/lib/commcare/validator/userPropertySlug";
+
+// ── Case-operation ids ──────────────────────────────────────────────────
+//
+// An operation's id is its author-facing handle — the name a refusal
+// speaks ("'update_client' uses this change's result") and the name the
+// emitted XForm node carries. It is therefore both a person-facing label
+// and an XML element name, and it must be unique within its form so two
+// changes can never be confused for one another in a refusal. The
+// validator enforces the same three rules as backstops
+// (`CASE_OPERATION_INVALID_ID`, `CASE_OPERATION_DUPLICATE_ID`); this
+// verdict lets the rename input refuse inline instead.
+
+/** Why a proposed case-operation id can't be used. */
+export type CaseOperationIdRejectionCode =
+	| "empty"
+	| "illegal_format"
+	| "reserved_prefix"
+	| "duplicate";
+
+export type CaseOperationIdVerdict =
+	| { ok: true }
+	| { ok: false; code: CaseOperationIdRejectionCode; userMessage: string };
+
+const CASE_OPERATION_ID_OK: CaseOperationIdVerdict = { ok: true };
+
+/**
+ * Adjudicate a case-operation id against the wire's element-name rules
+ * and the ids already used by the same form. `taken` must exclude the
+ * operation being renamed, so keeping its current name is never a
+ * duplicate.
+ */
+export function caseOperationIdVerdict(
+	id: string,
+	taken: ReadonlySet<string>,
+): CaseOperationIdVerdict {
+	const trimmed = id.trim();
+	if (trimmed.length === 0) {
+		return {
+			ok: false,
+			code: "empty",
+			userMessage: "Give this change a name.",
+		};
+	}
+	if (!XML_ELEMENT_NAME_REGEX.test(trimmed)) {
+		return {
+			ok: false,
+			code: "illegal_format",
+			userMessage:
+				"Start with a letter; use only letters, digits, underscores, hyphens, or dots.",
+		};
+	}
+	if (trimmed.startsWith(RESERVED_XFORM_NODE_PREFIX)) {
+		return {
+			ok: false,
+			code: "reserved_prefix",
+			userMessage: `Names starting with "${RESERVED_XFORM_NODE_PREFIX}" are reserved.`,
+		};
+	}
+	if (taken.has(trimmed)) {
+		return {
+			ok: false,
+			code: "duplicate",
+			userMessage: `"${trimmed}" is already used by another change in this form.`,
+		};
+	}
+	return CASE_OPERATION_ID_OK;
+}
+
+/** Why a proposed case-operation write property can't be used. */
+export type CaseOperationPropertyRejectionCode =
+	| "empty"
+	| "illegal_format"
+	| "reserved"
+	| "too_long"
+	| "duplicate";
+
+export type CaseOperationPropertyVerdict =
+	| { ok: true }
+	| {
+			ok: false;
+			code: CaseOperationPropertyRejectionCode;
+			userMessage: string;
+	  };
+
+const CASE_OPERATION_PROPERTY_OK: CaseOperationPropertyVerdict = { ok: true };
+
+/**
+ * Adjudicate a case property a case operation would write.
+ *
+ * Reserved properties are the ones the operation's own facets own (the
+ * name, the owner) or that the two runtimes disagree about, so writing
+ * one through the generic slot would mean two different things on a
+ * device and on HQ. `alreadyWritten` is the set this operation already
+ * writes: one operation may not write the same property twice.
+ */
+export function caseOperationWritePropertyVerdict(
+	property: string,
+	alreadyWritten: ReadonlySet<string>,
+): CaseOperationPropertyVerdict {
+	const trimmed = property.trim();
+	if (trimmed.length === 0) {
+		return { ok: false, code: "empty", userMessage: "Enter a property name." };
+	}
+	if (
+		!XML_ELEMENT_NAME_REGEX.test(trimmed) ||
+		!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(trimmed)
+	) {
+		return {
+			ok: false,
+			code: "illegal_format",
+			userMessage:
+				"Start with a letter; use only letters, digits, underscores, or hyphens.",
+		};
+	}
+	if (trimmed.length > MAX_CASE_PROPERTY_LENGTH) {
+		return {
+			ok: false,
+			code: "too_long",
+			userMessage: `Keep it to ${MAX_CASE_PROPERTY_LENGTH} characters or fewer.`,
+		};
+	}
+	if (RESERVED_OPERATION_PROPERTIES.has(trimmed)) {
+		return {
+			ok: false,
+			code: "reserved",
+			userMessage: `"${trimmed}" is set by this change itself, not saved as a property.`,
+		};
+	}
+	if (alreadyWritten.has(trimmed)) {
+		return {
+			ok: false,
+			code: "duplicate",
+			userMessage: `This change already saves "${trimmed}".`,
+		};
+	}
+	return CASE_OPERATION_PROPERTY_OK;
+}
+
+/** Whether a property is owned by an operation facet rather than a write. */
+export function isReservedCaseOperationProperty(property: string): boolean {
+	return RESERVED_OPERATION_PROPERTIES.has(property);
+}
+
+/**
+ * Adjudicate a link identifier — the name of one connection between two
+ * cases ("parent", "host", "referred_by"). It is an XML element name on
+ * the wire, capped by CommCare's index-identifier length, and unique
+ * within its operation: two links of one change cannot share a name,
+ * because the second would replace the first.
+ */
+export function caseOperationLinkIdentifierVerdict(
+	identifier: string,
+	taken: ReadonlySet<string>,
+): CaseOperationIdVerdict {
+	const trimmed = identifier.trim();
+	if (trimmed.length === 0) {
+		return { ok: false, code: "empty", userMessage: "Name this connection." };
+	}
+	if (!XML_ELEMENT_NAME_REGEX.test(trimmed)) {
+		return {
+			ok: false,
+			code: "illegal_format",
+			userMessage:
+				"Start with a letter; use only letters, digits, underscores, hyphens, or dots.",
+		};
+	}
+	if (trimmed.startsWith(RESERVED_XFORM_NODE_PREFIX)) {
+		return {
+			ok: false,
+			code: "reserved_prefix",
+			userMessage: `Names starting with "${RESERVED_XFORM_NODE_PREFIX}" are reserved.`,
+		};
+	}
+	if (trimmed.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH) {
+		return {
+			ok: false,
+			code: "illegal_format",
+			userMessage: `Keep it to ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters or fewer.`,
+		};
+	}
+	if (taken.has(trimmed)) {
+		return {
+			ok: false,
+			code: "duplicate",
+			userMessage: `This change already has a connection called "${trimmed}".`,
+		};
+	}
+	return CASE_OPERATION_ID_OK;
+}

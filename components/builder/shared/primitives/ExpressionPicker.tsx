@@ -91,6 +91,7 @@ import {
 } from "../cards/expression/TermCard";
 import { reseedValueForConstraint } from "../cards/reseed";
 import {
+	buildEditorTypeContext,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
 	useExpressionFocusTarget,
@@ -262,12 +263,10 @@ export function ExpressionPicker({
 			caseTypes: ctx.caseTypes,
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
+			formFields: ctx.formFields,
+			operationScope: ctx.operationScope,
 		};
-		const typeCtx = {
-			caseTypes: [...ctx.caseTypes],
-			currentCaseType: ctx.currentCaseType,
-			knownInputs: [...ctx.knownInputs],
-		};
+		const typeCtx = buildEditorTypeContext(ctx);
 		const pendingTermSourceLabel = termSourceLabel(
 			pendingTermReplacement?.source ?? value,
 		);
@@ -276,7 +275,8 @@ export function ExpressionPicker({
 			: expressionCardSchemaList
 					.filter(
 						(schema) =>
-							schema.kind !== "term" && isAuthorableExpressionKind(schema.kind),
+							schema.kind !== "term" &&
+							isAuthorableExpressionKind(schema.kind, ctx),
 					)
 					.map((s) => {
 						const typeAdmission = admitsValueExpressionKind(s.kind, constraint);
@@ -591,12 +591,10 @@ function KindReplaceMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		formFields: ctx.formFields,
+		operationScope: ctx.operationScope,
 	};
-	const typeCtx = {
-		caseTypes: [...ctx.caseTypes],
-		currentCaseType: ctx.currentCaseType,
-		knownInputs: [...ctx.knownInputs],
-	};
+	const typeCtx = buildEditorTypeContext(ctx);
 	const currentKind = currentValue.kind;
 	const pendingSourceLabel =
 		pendingReplacement === null
@@ -659,7 +657,7 @@ function KindReplaceMenu({
 								.filter(
 									(schema) =>
 										schema.kind === currentKind ||
-										isAuthorableExpressionKind(schema.kind),
+										isAuthorableExpressionKind(schema.kind, ctx),
 								)
 								.map((schema) => {
 									const isCurrent = schema.kind === currentKind;

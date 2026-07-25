@@ -1,0 +1,241 @@
+// components/builder/case-operations/seeds.ts
+//
+// Born-valid case operations, writes, and links.
+//
+// The app is valid by construction, so "add a change" cannot land a
+// half-configured operation and let the author discover the rejection
+// later. Each seed here is a complete operation the validator accepts on
+// its own, which is why the add affordance asks WHAT the change does
+// before it commits anything: the answer decides the action, the target,
+// and which facets are legal (`caseOperations.ts::validateFacets`).
+//
+// `caseOperationCatalogMutations` declares a brand-new case type and any
+// undeclared write property in the same batch, so a seed may name a type
+// or property the catalog has not seen yet and still commit as one
+// gated candidate.
+//
+// Seeds carry placeholder CONTENT (a create's case name), never
+// placeholder STRUCTURE. The author edits the words; they never have to
+// discover a missing required slot.
+
+import { newUuid } from "@/components/builder/case-list-config/uuid";
+import {
+	type CaseOperation,
+	type CaseOperationLink,
+	type CaseOperationWrite,
+	type CaseTarget,
+	humanizeId,
+	type Uuid,
+} from "@/lib/domain";
+import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
+
+/** What an author is choosing when they add a change. */
+export type CaseOperationSeedKind =
+	| { readonly kind: "create"; readonly caseType: string }
+	| { readonly kind: "update-session"; readonly caseType: string }
+	| { readonly kind: "close-session"; readonly caseType: string };
+
+/**
+ * An XML-safe, form-unique slug for a new operation.
+ *
+ * The id is the author-facing handle the refusal copy and the wire both
+ * use, so it starts from what the author just chose ("Create a referral"
+ * → `create_referral`) rather than an opaque token.
+ */
+export function nextOperationId(
+	base: string,
+	taken: ReadonlySet<string>,
+): string {
+	const slug = base
+		.toLocaleLowerCase()
+		.replace(/[^a-z0-9_-]+/g, "_")
+		.replace(/^[^a-z_]+/, "")
+		.replace(/_+/g, "_")
+		.replace(/^_|_$/g, "");
+	const root = slug.length > 0 ? slug : "change";
+	if (!taken.has(root)) return root;
+	let suffix = 2;
+	while (taken.has(`${root}_${suffix}`)) suffix += 1;
+	return `${root}_${suffix}`;
+}
+
+/** The case name a fresh create carries until the author replaces it. */
+function seededCaseName(caseType: string): ValueExpression {
+	return term(literal(humanizeId(caseType)));
+}
+
+/**
+ * One complete operation for the chosen intent.
+ *
+ * `create` is the only action that takes a `new` target, and it is the
+ * only one that may carry a case name — the other two forbid both, so
+ * each intent produces exactly the facets its action admits.
+ */
+export function seedCaseOperation(
+	seed: CaseOperationSeedKind,
+	takenIds: ReadonlySet<string>,
+): CaseOperation {
+	const uuid = newUuid();
+	switch (seed.kind) {
+		case "create":
+			return {
+				uuid,
+				id: nextOperationId(`create_${seed.caseType}`, takenIds),
+				action: "create",
+				caseType: seed.caseType,
+				target: { kind: "new" },
+				name: seededCaseName(seed.caseType),
+			};
+		case "update-session":
+			return {
+				uuid,
+				id: nextOperationId(`update_${seed.caseType}`, takenIds),
+				action: "update",
+				caseType: seed.caseType,
+				target: { kind: "session" },
+			};
+		case "close-session":
+			return {
+				uuid,
+				id: nextOperationId(`close_${seed.caseType}`, takenIds),
+				action: "close",
+				caseType: seed.caseType,
+				target: { kind: "session" },
+			};
+	}
+}
+
+/**
+ * A write of `property`, seeded with an empty value of the property's own
+ * type so the row is type-correct the moment it lands. The author fills
+ * in the value; an empty text value is legal on the wire (it blanks the
+ * property), so nothing here is a lie about what would submit.
+ */
+export function seedCaseOperationWrite(
+	property: string,
+	value: ValueExpression,
+): CaseOperationWrite {
+	return { property, value };
+}
+
+/**
+ * A link seeded as an UNLINK (`target: null`), which is the only shape
+ * that is complete without asking a second question. Choosing what to
+ * link to is the author's next step, and the row says so.
+ */
+export function seedCaseOperationLink(
+	identifier: string,
+	targetType: string,
+): CaseOperationLink {
+	return { identifier, targetType, target: null, relationship: "child" };
+}
+
+/** A link identifier unique within one operation. */
+export function nextLinkIdentifier(taken: ReadonlySet<string>): string {
+	if (!taken.has("parent")) return "parent";
+	let suffix = 2;
+	while (taken.has(`parent_${suffix}`)) suffix += 1;
+	return `parent_${suffix}`;
+}
+
+/**
+ * The facets an action admits, applied to an existing operation.
+ *
+ * Changing the action is a real authoring gesture (an update that should
+ * have been a close keeps its final property writes), so it re-shapes the
+ * operation rather than refusing. Everything the destination action
+ * forbids is dropped; the caller confirms first when that drops authored
+ * content.
+ */
+export function reshapeForAction(
+	operation: CaseOperation,
+	action: CaseOperation["action"],
+	fallbackTarget: CaseTarget,
+): CaseOperation {
+	const base = {
+		...operation,
+		action,
+		rename: undefined,
+		retype: undefined,
+		name: undefined,
+		owner: undefined,
+		links: operation.links,
+	} satisfies CaseOperation;
+	if (action === "create") {
+		return stripUndefined({
+			...base,
+			target: { kind: "new" },
+			name: operation.name ?? seededCaseName(operation.caseType),
+			owner: operation.owner,
+		});
+	}
+	const target: CaseTarget =
+		operation.target.kind === "new" ? fallbackTarget : operation.target;
+	if (action === "update") {
+		return stripUndefined({
+			...base,
+			target,
+			owner: operation.owner,
+			rename: operation.rename,
+			retype: operation.retype,
+		});
+	}
+	// Close forbids owner, rename, retype, and links — but keeps its writes,
+	// so "record the outcome and close" stays one operation.
+	return stripUndefined({ ...base, target, links: undefined });
+}
+
+/** What changing to `action` would discard, in the author's words. */
+export function actionChangeLosses(
+	operation: CaseOperation,
+	action: CaseOperation["action"],
+): readonly string[] {
+	const losses: string[] = [];
+	if (action !== "create" && operation.target.kind === "new") {
+		losses.push("the new case it makes");
+	}
+	if (action === "create" && operation.target.kind !== "new") {
+		losses.push("the case it points at");
+	}
+	if (action !== "create" && operation.name !== undefined) {
+		losses.push("the name it sets");
+	}
+	if (action === "close") {
+		if (operation.owner !== undefined) losses.push("the owner it sets");
+		if ((operation.links?.length ?? 0) > 0) losses.push("its links");
+	}
+	if (action !== "update" && operation.rename !== undefined) {
+		losses.push("the new name it gives the case");
+	}
+	if (action !== "update" && operation.retype !== undefined) {
+		losses.push("the type change");
+	}
+	return losses;
+}
+
+/** Drop explicitly-undefined keys so the stored object stays exact. */
+function stripUndefined(operation: CaseOperation): CaseOperation {
+	return Object.fromEntries(
+		Object.entries(operation).filter(([, value]) => value !== undefined),
+	) as CaseOperation;
+}
+
+/** Every operation id already in use, for slug uniqueness. */
+export function takenOperationIds(
+	operations: readonly CaseOperation[],
+): ReadonlySet<string> {
+	return new Set(operations.map((operation) => operation.id));
+}
+
+/** Every uuid this operation could name as an `op` target. */
+export function priorCreateUuids(
+	operations: readonly CaseOperation[],
+	before: Uuid,
+): readonly Uuid[] {
+	const uuids: Uuid[] = [];
+	for (const operation of operations) {
+		if (operation.uuid === before) break;
+		if (operation.action === "create") uuids.push(operation.uuid);
+	}
+	return uuids;
+}

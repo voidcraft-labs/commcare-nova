@@ -41,6 +41,7 @@ import type {
 	CaseType,
 	LookupColumnId,
 	LookupTableId,
+	Uuid,
 } from "@/lib/domain";
 import {
 	isDateTyped,
@@ -93,6 +94,7 @@ import {
 	UnwrapListCard,
 	unwrapListDefault,
 } from "./cards/expression/UnwrapListCard";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -105,6 +107,19 @@ export interface ExpressionEditContext {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly SearchInputDecl[];
+	/** Form answers this slot may read, already narrowed to the ones its
+	 *  surface admits. Absent means the slot reads no form answers. */
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Present only inside a case operation, where the submission's own
+	 *  vocabulary — the acting user, no owner, and the case an earlier
+	 *  create made — is available. `creates` lists the operations already
+	 *  in scope, in execution order. */
+	readonly operationScope?: OperationValueScope;
+}
+
+/** The submission-local vocabulary a case-operation expression may use. */
+export interface OperationValueScope {
+	readonly creates: readonly { readonly uuid: Uuid; readonly label: string }[];
 }
 
 /**
@@ -578,11 +593,25 @@ export const expressionCardSchemaList: readonly ExpressionCardSchema<
 	ValueExpression["kind"]
 >[];
 
-/** Product-level authoring boundary for kind-replacement menus. Keep
- *  the current `roundTripOnly` kind visible as a recovery source, but
- *  call sites must exclude it from all new-target lists. */
+/**
+ * Product-level authoring boundary for kind-replacement menus. Keep the
+ * current `roundTripOnly` kind visible as a recovery source, but call
+ * sites must exclude it from all new-target lists.
+ *
+ * Three kinds are authorable only inside a case operation, because
+ * outside one the type checker refuses them outright: `acting-user` and
+ * `unowned` need `caseOperationValues`, and `id-of` needs the producing
+ * create to already be in scope. Their entries stay `roundTripOnly` —
+ * that is the boundary for every OTHER surface — and this scope check is
+ * what opens them where they mean something.
+ */
 export function isAuthorableExpressionKind(
 	kind: ValueExpression["kind"],
+	ctx?: Pick<ExpressionEditContext, "operationScope">,
 ): boolean {
-	return expressionCardSchemas[kind].authoring === "authorable";
+	if (expressionCardSchemas[kind].authoring === "authorable") return true;
+	const scope = ctx?.operationScope;
+	if (scope === undefined) return false;
+	if (kind === "acting-user" || kind === "unowned") return true;
+	return kind === "id-of" && scope.creates.length > 0;
 }

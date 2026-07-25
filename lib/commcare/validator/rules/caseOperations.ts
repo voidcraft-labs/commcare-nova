@@ -61,7 +61,15 @@ const RESERVED_OPERATION_CASE_TYPES: ReadonlySet<string> = new Set([
 	"user-owner-mapping-case",
 ]);
 
-const RESERVED_OPERATION_PROPERTIES: ReadonlySet<string> = new Set([
+/**
+ * Case properties an operation may never write, because the operation's
+ * own facets own them (`case_name` is the name/rename slot, `owner_id`
+ * the owner slot) or the two runtimes disagree about what they mean
+ * (`category` / `state`). Exported so the authoring surfaces disable
+ * them in the property picker rather than letting the commit gate
+ * reject the write afterwards.
+ */
+export const RESERVED_OPERATION_PROPERTIES: ReadonlySet<string> = new Set([
 	...RESERVED_CASE_PROPERTIES,
 	"location_id",
 	"hq_user_id",
