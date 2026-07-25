@@ -1460,11 +1460,13 @@ test.describe("authenticated builder", () => {
 			});
 			await patient.focus();
 			await patient.press("ArrowDown");
+			// Twice on purpose: the canvas states the reason where the author
+			// is looking, and the live region announces the same words.
 			await expect(
 				page.getByText(
 					"Patient would sit on top of Village. Two fields can’t share a square on a tile — one would be drawn over the other.",
 				),
-			).toBeVisible();
+			).toHaveCount(2);
 			// Refused means unmoved, not moved-and-reverted.
 			await expect(patient).toBeVisible();
 			await expect(patient).toBeFocused();
