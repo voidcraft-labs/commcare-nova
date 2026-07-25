@@ -11,7 +11,7 @@ just in what the file contains.
 | --- | --- | --- |
 | **Image** | Attaches a photo from their device | JPG, JPEG, PNG |
 | **Audio** | Attaches an audio file | MP3, WAV, OGG, AMR, QCP, 3GA |
-| **Video** | Attaches a video file | MP4, MPEG, M4V, MPG, 3GP, 3G2 |
+| **Video** | Attaches a video file | MP4, MPG, MPEG, MPG4, MPEG4, M4V, 3GP, 3GPP, 3GP2, 3G2 |
 | **File** | Attaches a document | PDF, DOCX, XLSX, HTML, RTF, TXT, MSG |
 | **Signature** | Signs on a drawing pad in the app | Produces a PNG |
 
@@ -101,15 +101,25 @@ answered and submitted together, avoids most of this.
 
 ## Clearing a required attachment
 
-If an attachment question is marked required and a worker clears it,
-CommCare removes the file but reports the question as still needing an
-answer. The worker sees a "required" message and can attach a new file,
-which is the outcome you want — but the form is briefly in a state where
-it names a file that is no longer there.
+There is a bug in CommCare worth knowing about, because it affects what
+you tell workers to do.
 
-The practical advice: mark an attachment required when the work genuinely
-needs it, and expect workers to replace rather than clear. Replacing an
-attachment — picking a new file over the old one — is clean.
+If an attachment question is marked required and a worker clears it,
+CommCare deletes the file but the question goes on reporting the old
+one. The worker sees a "required" message. If they attach a new file,
+everything is fine and nothing was lost. But if they leave it and submit
+the form anyway, the form is accepted — and the answer points at a file
+that is no longer there.
+
+So the advice is not "avoid required attachments" — requiring a photo is
+a perfectly ordinary thing to need. It is:
+
+- **Tell workers to replace, not clear.** Picking a new file over an old
+  one works correctly and is the gesture you want them in the habit of.
+- Treat **Clear** as something a worker uses when they are about to
+  attach something else, not as a way to leave a question blank.
+
+Replacing an attachment is clean on every runtime.
 
 ## In the builder
 

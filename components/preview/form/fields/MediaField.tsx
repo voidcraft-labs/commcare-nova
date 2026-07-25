@@ -4,8 +4,8 @@ import { type Field, fieldRegistry } from "@/lib/domain";
 import { useEditMode } from "@/lib/session/hooks";
 
 /**
- * Placeholder card for media-capture kinds (image/audio/video/barcode/
- * signature). The preview engine has no native capture affordance for
+ * Placeholder card for the capture kinds (image/audio/video/signature/
+ * file) plus barcode. The preview engine has no capture affordance for
  * these, so we render the icon + kind label with an "(not available in
  * preview)" note outside of edit mode. `geopoint` is NOT routed here —
  * it has a real interactive picker (`geopoint/GeopointField`).
