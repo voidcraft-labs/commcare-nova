@@ -133,6 +133,7 @@ import {
 } from "./seeds";
 import { TileCellInspector } from "./tile/TileCellInspector";
 import type { CaseListArrangement } from "./tile/TileLayoutToggle";
+import { nextFreeTilePlacement, tileMembership } from "./tile/tileModel";
 import {
 	planTileLayoutDisable,
 	planTileLayoutEnable,
@@ -791,6 +792,32 @@ function useController(
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
+	/* Joining Results while the case list is a tile means taking a place on
+	 * it — an unplaced field the tile shows is a commit-gate rejection, so
+	 * every add and reveal carries its placement in the same batch. Returns
+	 * `undefined` when Results is showing rows (nothing to place) and `null`
+	 * when the tile has no room left. */
+	const resultsTilePlacement = (): TileCell | null | undefined => {
+		if (config.tile === undefined) return undefined;
+		return nextFreeTilePlacement(
+			tileMembership(config.columns).placed.map((entry) => entry.cell),
+		);
+	};
+	const tileFullReason =
+		resultsTilePlacement() === null
+			? "The tile has no room left. Make a field smaller before adding more information."
+			: undefined;
+	const addResultsDisabledReason = addDisabledReason ?? tileFullReason;
+
+	/** Give a column the place it needs before it joins Results. */
+	const placedForResults = (column: Column): Column => {
+		if (column.tile !== undefined) return column;
+		const place = resultsTilePlacement();
+		return place === undefined || place === null
+			? column
+			: ({ ...column, tile: place } as Column);
+	};
+
 	const routeColumnToRepair = (
 		surface: ColumnSurface,
 		column: Column,
@@ -836,7 +863,11 @@ function useController(
 		).find((column) => column.uuid === replacement.uuid);
 		if (revealed === undefined) return;
 		const revealOutcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, current, revealed),
+			columnSnapshotMutations(
+				moduleUuid,
+				current,
+				repair.surface === "list" ? placedForResults(revealed) : revealed,
+			),
 		);
 		if (revealOutcome.ok) {
 			setWorkspaceAnnouncement(
@@ -863,7 +894,8 @@ function useController(
 			},
 		});
 	};
-	const addSeededColumn = (surface: ColumnSurface, seed: Column) => {
+	const addSeededColumn = (surface: ColumnSurface, seedColumn: Column) => {
+		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
 		const mutation = seededColumnAddMutation(moduleUuid, config, surface, seed);
 		const outcome = commitMany([mutation]);
 		if (outcome.ok) {
@@ -965,7 +997,11 @@ function useController(
 		 * config warnings. Ask the SAME gate silently before revealing one: a
 		 * refusal becomes a repair route, never a toast plus a dead click. */
 		const outcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, column, shown),
+			columnSnapshotMutations(
+				moduleUuid,
+				column,
+				surface === "list" ? placedForResults(shown) : shown,
+			),
 		);
 		if (!outcome.ok) {
 			routeColumnToRepair(surface, column, outcome.messages);
@@ -1466,6 +1502,7 @@ function useController(
 		applyTilePreset,
 		setTilePersistOnForms,
 		addDisabledReason,
+		addResultsDisabledReason,
 		opensResultsAutomatically,
 		searchConditionSurface,
 		resultsDependencyReview,
@@ -1639,6 +1676,7 @@ export function CaseListWorkspaceCanvas() {
 		applyTilePreset,
 		setTilePersistOnForms,
 		addDisabledReason,
+		addResultsDisabledReason,
 		opensResultsAutomatically,
 		resultsDependencyReview,
 		configureSearchAction,
@@ -1737,7 +1775,7 @@ export function CaseListWorkspaceCanvas() {
 							onSelect={setSel}
 							onAddColumn={(property) => addColumn("list", property)}
 							onAddCalculated={() => addCalculatedColumn("list")}
-							addColumnDisabledReason={addDisabledReason}
+							addColumnDisabledReason={addResultsDisabledReason}
 							onMoveColumn={(uuid, toIndex) =>
 								moveColumn("list", uuid, toIndex)
 							}

@@ -18,6 +18,7 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { nextFreeTilePlacement, tileMembership } from "../tile/tileModel";
 import {
 	planTileLayoutDisable,
 	planTileLayoutEnable,
@@ -144,6 +145,62 @@ describe("turning the tile on", () => {
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
 		expect(accepts(doc, plan.mutations).ok).toBe(true);
+	});
+});
+
+describe("joining Results while it is a tile", () => {
+	// The workspace's add and reveal paths carry a placement for exactly
+	// this reason: an unplaced field the tile shows is a gate rejection, so
+	// a bare add would refuse the author's ordinary gesture.
+	function tiledDoc() {
+		const { doc, moduleUuid } = docWithColumns([
+			column("case_name", "Patient name", {
+				listOrder: "a",
+				tile: { x: 0, y: 0, width: 12, height: 1 },
+			}),
+		]);
+		const enabled = accepts(doc, [
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+		]);
+		if (!enabled.ok) throw new Error("tile did not turn on");
+		return { doc: enabled.nextDoc, moduleUuid };
+	}
+
+	it("is refused when the new field has no place", () => {
+		const { doc, moduleUuid } = tiledDoc();
+		const verdict = accepts(doc, [
+			{
+				kind: "addColumn",
+				moduleUuid,
+				column: column("village", "Village", { listOrder: "b" }),
+			},
+		]);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) return;
+		expect(
+			verdict.introduced.some(
+				(finding) => finding.code === "CASE_LIST_TILE_COLUMN_NOT_PLACED",
+			),
+		).toBe(true);
+	});
+
+	it("is accepted when the field arrives carrying one", () => {
+		const { doc, moduleUuid } = tiledDoc();
+		const occupied = tileMembership(
+			doc.modules[moduleUuid]?.caseListConfig?.columns ?? [],
+		).placed.map((entry) => entry.cell);
+		const place = nextFreeTilePlacement(occupied);
+		expect(place).toEqual({ x: 0, y: 1, width: 12, height: 1 });
+		if (place === null) return;
+		const verdict = accepts(doc, [
+			{
+				kind: "addColumn",
+				moduleUuid,
+				column: column("village", "Village", { listOrder: "b" }),
+				tileCell: place,
+			},
+		]);
+		expect(verdict.ok).toBe(true);
 	});
 });
 

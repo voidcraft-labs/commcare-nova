@@ -1425,10 +1425,10 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("group", { name: /^Tile layout, 12 columns/ }),
 			).toBeVisible();
-			await expect(page.getByRole("button", { name: "Tile" })).toHaveAttribute(
-				"aria-pressed",
-				"true",
-			);
+			// `exact` matters: the seeded module is called "Patient tile".
+			await expect(
+				page.getByRole("button", { name: "Tile", exact: true }),
+			).toHaveAttribute("aria-pressed", "true");
 			// The occupied extent, not the 12-column authoring canvas — the
 			// same fact the running list's grid is built from.
 			await expect(
