@@ -66,6 +66,13 @@ vi.mock("@/lib/session/hooks", () => ({
 	useBuilderIsReady: () => true,
 	useCanEdit: () => mocks.canEdit,
 	useProjectScopeEpoch: () => 0,
+	/* The identity menu beside the Preview toggle reads these. It renders
+	 * nothing outside Preview, which is the state this suite measures the
+	 * header in, so the toggle's own width is what the layout assertions
+	 * see either way. */
+	usePreviewing: () => false,
+	usePreviewPersonaUuid: () => undefined,
+	useSetPreviewPersonaUuid: () => () => {},
 }));
 vi.mock("@/lib/ui/hooks/useIsBreakpoint", () => ({
 	useIsBreakpoint: (_mode: string, breakpoint: number) =>

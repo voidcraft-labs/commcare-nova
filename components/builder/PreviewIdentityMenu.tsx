@@ -34,14 +34,24 @@ import {
 
 const AS_ME = "Preview as me";
 
+/**
+ * The Preview gate is its own component so the body's subscriptions —
+ * the persona list, the selection, the router — only exist while the
+ * control does. The header is mounted for the whole session, and it has
+ * no business re-rendering on every blueprint edit for a menu that is
+ * invisible the entire time the author is editing.
+ */
 export function PreviewIdentityMenu() {
 	const previewing = usePreviewing();
+	if (!previewing) return null;
+	return <PreviewIdentityMenuBody />;
+}
+
+function PreviewIdentityMenuBody() {
 	const personas = usePersonas();
 	const selected = usePreviewPersonaUuid();
 	const setSelected = useSetPreviewPersonaUuid();
 	const navigate = useNavigate();
-
-	if (!previewing) return null;
 
 	const active =
 		selected === undefined
