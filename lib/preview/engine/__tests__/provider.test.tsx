@@ -24,6 +24,7 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
@@ -90,10 +91,15 @@ function makeWrapper() {
 	docStore.getState().load(DOC);
 	docStore.temporal.getState().resume();
 
+	/* The session provider is in the real stack above this one and the
+	 * provider now reads it: the acting identity is "Preview as me" or a
+	 * selected persona, and which one is ephemeral session state. */
 	const Wrapper = ({ children }: { children: ReactNode }) => (
-		<BlueprintDocContext value={docStore}>
-			<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
-		</BlueprintDocContext>
+		<BuilderSessionProvider>
+			<BlueprintDocContext value={docStore}>
+				<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+			</BlueprintDocContext>
+		</BuilderSessionProvider>
 	);
 	return { docStore, Wrapper };
 }
@@ -169,11 +175,13 @@ describe("BuilderFormEngineProvider", () => {
 		}
 
 		render(
-			<BlueprintDocContext value={docStore}>
-				<BuilderFormEngineProvider>
-					<TestHarness />
-				</BuilderFormEngineProvider>
-			</BlueprintDocContext>,
+			<BuilderSessionProvider>
+				<BlueprintDocContext value={docStore}>
+					<BuilderFormEngineProvider>
+						<TestHarness />
+					</BuilderFormEngineProvider>
+				</BlueprintDocContext>
+			</BuilderSessionProvider>,
 		);
 
 		expect(captured).not.toBeNull();
@@ -195,11 +203,13 @@ describe("BuilderFormEngineProvider", () => {
 			},
 		} as unknown as ReconcilerContextValue;
 		const Wrapper = ({ children }: { children: ReactNode }) => (
-			<BlueprintDocContext value={docStore}>
-				<ReconcilerContext value={reconcilerContext}>
-					<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
-				</ReconcilerContext>
-			</BlueprintDocContext>
+			<BuilderSessionProvider>
+				<BlueprintDocContext value={docStore}>
+					<ReconcilerContext value={reconcilerContext}>
+						<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+					</ReconcilerContext>
+				</BlueprintDocContext>
+			</BuilderSessionProvider>
 		);
 		const { result } = renderHook(() => useBuilderFormEngine(), {
 			wrapper: Wrapper,
