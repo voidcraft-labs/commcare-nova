@@ -1210,10 +1210,16 @@ function useController(
 				}
 				return;
 			}
+			const persisted = config.tile?.persistOnForms === true;
 			if (config.tile === undefined) return;
 			if (commitMany([...planTileLayoutDisable(moduleUuid)]).ok) {
+				// Every cell survives, but the tile's own setting cannot: with no
+				// tile there is nothing to keep on screen. Say so rather than
+				// letting it disappear quietly.
 				setWorkspaceAnnouncement(
-					"Results now shows rows. The tile arrangement is kept.",
+					persisted
+						? "Results now shows rows. The tile arrangement is kept, and the tile no longer stays on screen during forms."
+						: "Results now shows rows. The tile arrangement is kept.",
 				);
 			}
 		},

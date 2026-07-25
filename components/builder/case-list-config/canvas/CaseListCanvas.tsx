@@ -171,6 +171,11 @@ export function CaseListCanvas({
 								<TileLayoutToggle
 									value={tile === undefined ? "rows" : "tile"}
 									tileDisabledReason={tileDisabledReason}
+									rowsConsequence={
+										tile?.persistOnForms === true
+											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen during this module’s forms."
+											: undefined
+									}
 									onChange={onArrangementChange}
 								/>
 							)}

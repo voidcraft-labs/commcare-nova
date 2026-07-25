@@ -1402,6 +1402,91 @@ test.describe("authenticated builder", () => {
 		});
 	});
 
+	/**
+	 * The tile's AUTHORING surface, which the parity test above never
+	 * enters. Everything asserted here is something a state test cannot
+	 * see: that a keyboard gesture round-trips through the real commit gate
+	 * and comes back with the cell's new place in its accessible name, that
+	 * a refused gesture states its reason and leaves the cell where it was,
+	 * and that focus survives the commit.
+	 *
+	 * It deliberately restores the arrangement it found, because the seed's
+	 * tile module is shared with the parity test above.
+	 */
+	test("the tile grid moves a field by keyboard and states a refused move", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.tileResults);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await test.step("Results is arranged as a tile, and says how wide it draws", async () => {
+			await expect(
+				page.getByRole("group", { name: /^Tile layout, 12 columns/ }),
+			).toBeVisible();
+			await expect(page.getByRole("button", { name: "Tile" })).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			// The occupied extent, not the 12-column authoring canvas — the
+			// same fact the running list's grid is built from.
+			await expect(
+				page.getByText(/This tile uses 6 columns and 3 rows/),
+			).toBeVisible();
+		});
+
+		const phone = page.getByRole("button", {
+			name: "Phone number, columns 1 to 6, row 3",
+		});
+
+		await test.step("an arrow key moves the field and renames its place", async () => {
+			await phone.focus();
+			await phone.press("ArrowDown");
+			const moved = page.getByRole("button", {
+				name: "Phone number, columns 1 to 6, row 4",
+			});
+			await expect(moved).toBeVisible();
+			// The commit replaced the doc; the cell must still hold focus.
+			await expect(moved).toBeFocused();
+			await expect(
+				page.getByText(/This tile uses 6 columns and 4 rows/),
+			).toBeVisible();
+		});
+
+		await test.step("a move onto an occupied square is refused, and says why", async () => {
+			const patient = page.getByRole("button", {
+				name: "Patient, columns 1 to 4, row 1",
+			});
+			await patient.focus();
+			await patient.press("ArrowDown");
+			await expect(
+				page.getByText(
+					"Patient would sit on top of Village. Two fields can’t share a square on a tile — one would be drawn over the other.",
+				),
+			).toBeVisible();
+			// Refused means unmoved, not moved-and-reverted.
+			await expect(patient).toBeVisible();
+			await expect(patient).toBeFocused();
+		});
+
+		await test.step("the arrangement returns to where it started", async () => {
+			const moved = page.getByRole("button", {
+				name: "Phone number, columns 1 to 6, row 4",
+			});
+			await moved.focus();
+			await moved.press("ArrowUp");
+			await expect(
+				page.getByRole("button", {
+					name: "Phone number, columns 1 to 6, row 3",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText(/This tile uses 6 columns and 3 rows/),
+			).toBeVisible();
+		});
+	});
+
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {
 		await page.goto("/build/new");
 		await expect(page).toHaveURL(/\/build\/new/);

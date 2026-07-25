@@ -12,7 +12,17 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLayoutGrid from "@iconify-icons/tabler/layout-grid";
 import tablerLayoutRows from "@iconify-icons/tabler/layout-rows";
-import { useId } from "react";
+import { useId, useRef, useState } from "react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
@@ -21,16 +31,23 @@ export type CaseListArrangement = "rows" | "tile";
 export function TileLayoutToggle({
 	value,
 	tileDisabledReason,
+	rowsConsequence,
 	onChange,
 }: {
 	readonly value: CaseListArrangement;
 	/** Present when the case list cannot currently be laid out as a tile;
 	 *  the option stays visible and explains itself. */
 	readonly tileDisabledReason: string | undefined;
+	/** Present when going back to rows takes a tile setting with it — the
+	 *  cells always survive, but a setting that only a tile can carry
+	 *  cannot, so the author confirms it first. */
+	readonly rowsConsequence: string | undefined;
 	readonly onChange: (next: CaseListArrangement) => void;
 }) {
 	const legendId = useId();
 	const reasonId = useId();
+	const rowsRef = useRef<HTMLButtonElement>(null);
+	const [confirmingRows, setConfirmingRows] = useState(false);
 
 	return (
 		<div className="min-w-0">
@@ -44,11 +61,18 @@ export function TileLayoutToggle({
 					How Results arranges its information
 				</legend>
 				<ArrangementOption
+					ref={rowsRef}
 					label="Rows"
 					icon={tablerLayoutRows}
 					active={value === "rows"}
-					hint="One line per field, in the order you arrange them"
-					onClick={() => onChange("rows")}
+					hint="One line per field. Your tile arrangement is kept."
+					onClick={() => {
+						if (rowsConsequence !== undefined) {
+							setConfirmingRows(true);
+							return;
+						}
+						onChange("rows");
+					}}
 				/>
 				<ArrangementOption
 					label="Tile"
@@ -70,11 +94,33 @@ export function TileLayoutToggle({
 					{tileDisabledReason}
 				</p>
 			)}
+			<AlertDialog open={confirmingRows} onOpenChange={setConfirmingRows}>
+				<AlertDialogContent finalFocus={rowsRef} className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Show Results as rows?
+						</AlertDialogTitle>
+						<AlertDialogDescription>{rowsConsequence}</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								setConfirmingRows(false);
+								onChange("rows");
+							}}
+						>
+							Show rows
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }
 
 function ArrangementOption({
+	ref,
 	label,
 	icon,
 	active,
@@ -82,6 +128,7 @@ function ArrangementOption({
 	disabled = false,
 	onClick,
 }: {
+	readonly ref?: React.Ref<HTMLButtonElement>;
 	readonly label: string;
 	readonly icon: Parameters<typeof Icon>[0]["icon"];
 	readonly active: boolean;
@@ -92,6 +139,7 @@ function ArrangementOption({
 	return (
 		<SimpleTooltip content={hint}>
 			<Button
+				ref={ref}
 				type="button"
 				variant="ghost"
 				size="xl"
