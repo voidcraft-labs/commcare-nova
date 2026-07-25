@@ -60,9 +60,9 @@ function generatingIsFresh(
 export interface RunHolderIdentity {
 	readonly mode: "build" | "edit";
 	readonly runId: string | null;
-	/** Concrete on every nonce-capable claim. Null denotes a legacy v0 holder:
-	 * compatibility mode may admit/reap it by mode + run id so rollout can drain
-	 * it, but post-cutover exact nonce authority can never match it. */
+	/** Concrete on every claim. Null denotes a holder written before the nonce
+	 * existed — liveness still reports it so the state is visible, but exact
+	 * nonce authority can never match it, so no writer may act on it. */
 	readonly nonce: string | null;
 }
 

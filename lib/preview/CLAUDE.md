@@ -57,9 +57,8 @@ form's uuid plus plain-JSON per-scope operation answer bindings
 multi-select as token arrays), and the SERVER builds the case-operation
 program from the COMMITTED doc (`buildSubmissionOperationProgram`:
 S04 analyses + `buildCaseTypeMap` + the identity's session values,
-`ordinary.caseType` populated for the rolling proof) whenever
-`case_operations_enabled` is on — a survey with a program executes it,
-and the envelope's typed `SubmissionRejectedError` surfaces as the
+`ordinary.caseType` populated for the rolling proof) — a survey with a
+program executes it, and the envelope's typed `SubmissionRejectedError` surfaces as the
 `submission-rejected` result arm with whole-rollback copy in
 `FormScreen`. The close transition itself stays the
 store's: it atomically owns both `closed_on` and the canonical

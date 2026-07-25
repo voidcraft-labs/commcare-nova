@@ -2,9 +2,9 @@ import { type RawBuilder, sql } from "kysely";
 import type { RunHolderIdentity } from "./runLiveness";
 
 /** A concrete-run holder token carried by runtime writers and reaper scans.
- * Persisted holders with `runId: null` are corrupt/unprovable. `nonce: null` is
- * reserved for observed legacy v0 holders and is admissible only while the
- * compatibility switch still projects authority to mode + run id. */
+ * Persisted holders missing a `runId` or a `nonce` are corrupt/unprovable: every
+ * claim mints a server nonce, so an absent one cannot identify a generation and
+ * never narrows to this token. */
 export interface ExactRunHolderIdentity {
 	readonly mode: "build" | "edit";
 	readonly runId: string;

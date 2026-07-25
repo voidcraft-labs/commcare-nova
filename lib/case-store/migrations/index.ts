@@ -38,6 +38,7 @@ import * as lookupReferenceFloors from "./20260723120000_lookup_reference_floors
 import * as opaqueCaseIds from "./20260724030000_opaque_case_ids";
 import * as caseOperationsFlag from "./20260724130000_case_operations_flag";
 import * as removeLookupRolloutApparatus from "./20260725000000_remove_lookup_rollout_apparatus";
+import * as clearLegacyNullNonceHolders from "./20260725060000_clear_legacy_null_nonce_holders";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -67,6 +68,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260724130000_case_operations_flag": caseOperationsFlag,
 	"20260725000000_remove_lookup_rollout_apparatus":
 		removeLookupRolloutApparatus,
+	"20260725060000_clear_legacy_null_nonce_holders": clearLegacyNullNonceHolders,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {
