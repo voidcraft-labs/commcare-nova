@@ -27,6 +27,7 @@ import {
 	type Transaction,
 } from "kysely";
 import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
+import type { EntityRowKind } from "@/lib/db/blueprintRows";
 import type { Mutation } from "@/lib/doc/types";
 import type { CaseType, ConnectType } from "@/lib/domain";
 import type { Location } from "@/lib/routing/types";
@@ -99,16 +100,21 @@ export interface AppsTable {
 export interface BlueprintEntitiesTable {
 	app_id: string;
 	uuid: string;
-	kind: "module" | "form" | "field";
+	/** The kind union lives on `EntityRowKind` in `lib/db/blueprintRows.ts`
+	 *  beside the decompose/assemble pair, and the SQL `CHECK` constraint
+	 *  mirrors it. */
+	kind: EntityRowKind;
 	parent_uuid: string | null;
 	/** Index within the parent's membership array at write time — the arrays
 	 *  round-trip byte-identically (display sequence is still derived from the
 	 *  entities' fractional `order` keys, exactly as before; this preserves the
-	 *  array itself, including position-seeded backfill inputs). */
+	 *  array itself, including position-seeded backfill inputs). The flat user
+	 *  collections have no membership array and store a constant 0. */
 	ordinal: number;
-	// The entity record verbatim (a `Module` / `Form` / `Field`); typed loosely
-	// here because the three kinds share one table — the assembler Zod-parses
-	// the assembled doc at the boundary, not per row.
+	// The entity record verbatim (a `Module` / `Form` / `Field` / `UserProperty`
+	// / `UserType` / `Persona`); typed loosely here because every kind shares
+	// one table — the assembler Zod-parses the assembled doc at the boundary,
+	// not per row.
 	data: JSONColumnType<Record<string, unknown>>;
 }
 

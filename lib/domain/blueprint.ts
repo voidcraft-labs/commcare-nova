@@ -18,6 +18,7 @@ import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { assetIdSchema } from "./multimedia";
 import type { ReferenceIndex } from "./referenceIndex";
+import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
@@ -106,6 +107,22 @@ export const blueprintDocSchema = z
 		 * for Nova's web-apps target.
 		 */
 		logo: assetIdSchema.optional(),
+
+		/**
+		 * Who runs the app (`./users.ts`): the user-data property catalog,
+		 * the user types built on it, and the named preview personas that
+		 * act as those types.
+		 *
+		 * All three are flat UUID-keyed records with no membership array —
+		 * sequence comes from each entity's fractional `order` key — and all
+		 * three are OPTIONAL and omitted when empty, so an app that declares
+		 * none serializes byte-identically to one authored before they
+		 * existed. Read them through `userPropertiesOf` / `userTypesOf` /
+		 * `personasOf` rather than defaulting at the call site.
+		 */
+		userProperties: z.record(z.string(), userPropertySchema).optional(),
+		userTypes: z.record(z.string(), userTypeSchema).optional(),
+		personas: z.record(z.string(), personaSchema).optional(),
 
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})

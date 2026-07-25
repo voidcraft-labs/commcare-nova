@@ -14,6 +14,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import tablerLayoutSidebarLeftExpand from "@iconify-icons/tabler/layout-sidebar-left-expand";
+import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerTable from "@iconify-icons/tabler/table";
 import { memo } from "react";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
@@ -28,7 +29,9 @@ import {
 	useIsCaseListSelected,
 	useIsFormSelected,
 	useLocation,
+	useNavigate,
 } from "@/lib/routing/hooks";
+import { APP_SETUP_LABEL } from "@/lib/routing/types";
 
 export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 	const moduleIds = useModuleIds();
@@ -57,7 +60,28 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 					<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
 				))}
 			</div>
+			{/* App setup keeps its own footer cell rather than joining the
+			 *  module groups above: collapsing the tree trades width for
+			 *  labels, never for the distinction between app content and app
+			 *  administration. */}
+			<div className="flex w-full shrink-0 flex-col items-center border-t border-nova-border py-2">
+				<AppSetupRailButton />
+			</div>
 		</aside>
+	);
+}
+
+function AppSetupRailButton() {
+	const navigate = useNavigate();
+	const loc = useLocation();
+	return (
+		<RailButton
+			label={APP_SETUP_LABEL}
+			active={loc.kind === "app-setup"}
+			onClick={() => navigate.openAppSetup()}
+		>
+			<Icon icon={tablerSettings} width="17" height="17" />
+		</RailButton>
 	);
 }
 

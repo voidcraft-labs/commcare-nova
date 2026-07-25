@@ -24,7 +24,19 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import type { Location } from "@/lib/routing/types";
+import {
+	APP_SETUP_SECTIONS,
+	type AppSetupSection,
+	DEFAULT_APP_SETUP_SECTION,
+	type Location,
+} from "@/lib/routing/types";
+
+/** The reserved first path segment the App setup workspace owns. */
+const APP_SETUP_SEGMENT = "setup";
+
+function isAppSetupSection(value: string): value is AppSetupSection {
+	return (APP_SETUP_SECTIONS as readonly string[]).includes(value);
+}
 
 /**
  * Minimal doc subset for validation and recovery — only needs entity
@@ -53,6 +65,8 @@ export function serializePath(loc: Location): string[] {
 	switch (loc.kind) {
 		case "home":
 			return [];
+		case "app-setup":
+			return [APP_SETUP_SEGMENT, loc.section];
 		case "module":
 			return [loc.moduleUuid];
 		case "cases":
@@ -178,6 +192,23 @@ export function parsePathToLocation(
 	doc: LocationParseDoc,
 ): Location {
 	if (segments.length === 0) return { kind: "home" };
+
+	/* `setup` is a reserved literal, matched BEFORE any uuid lookup: a
+	 * module uuid is a branded string with no format constraint, so a
+	 * doc-map lookup first would let an entity named `setup` shadow the
+	 * workspace. A bare `/setup` opens the default section, and a section
+	 * nobody recognizes opens it too — landing on the workspace the URL
+	 * clearly asked for beats bouncing to home. */
+	if (segments[0] === APP_SETUP_SEGMENT) {
+		const section = segments[1];
+		return {
+			kind: "app-setup",
+			section:
+				section !== undefined && isAppSetupSection(section)
+					? section
+					: DEFAULT_APP_SETUP_SECTION,
+		};
+	}
 
 	const first = segments[0] as Uuid;
 
@@ -323,6 +354,10 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 	switch (loc.kind) {
 		case "home":
 			return true;
+		case "app-setup":
+			/* App administration references no blueprint entity, so there is
+			 * nothing for the doc to invalidate. */
+			return true;
 		case "module":
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "cases":
@@ -371,6 +406,9 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
  */
 export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	if (loc.kind === "home") return loc;
+	/* App setup names no entity, so it survives every doc change. This must
+	 * come before the module read below — there is no `moduleUuid` to read. */
+	if (loc.kind === "app-setup") return loc;
 
 	/* Module uuid is shared by module, cases, and form screens. If the
 	 * module has been deleted, nothing below it can be recovered — the

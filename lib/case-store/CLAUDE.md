@@ -7,7 +7,7 @@ JS evaluator, no parity tests.
 
 ## Public surface — barrel
 
-External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId)` — the tenant-bound reads/writes store; `withSchemaContext()` — the actor-free, app-scoped schema-ops store with a dynamic current-Project fence), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
+External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId, ownerId?)` — the tenant-bound reads/writes store; `withSchemaContext()` — the actor-free, app-scoped schema-ops store with a dynamic current-Project fence), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
 
 **The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included, whether the writer is a field or a typed dormant case operation (the compiler's casts stay in lockstep with the type checker), implicit standard entries excluded (their values live in scalar columns, never the JSONB document — a map entry would compile a standard-name reference to a silently-NULL JSONB read, and on the schema-write side would put `format` constraints + a GIN index per text-typed standard name on every case type). Standard-name references resolve instead through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the name→column map mirroring CCHQ's own field-alias table (`commcare-hq/.../app_manager/detail_screen.py`: `name`→`case_name`, `date_opened`/`date-opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`/`external-id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-null`/`is-blank` arms (timestamp columns collapse `is-blank` to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays. The alias shadows any same-named JSONB key, exactly as the device shadows it.
 
@@ -92,10 +92,21 @@ close, populate, and reset use the same fence. Parked-value replace updates the
 case and archives the review entry in one transaction.
 
 `owner_id` is the **CommCare case-owner** — a SEPARATE axis written
-on every insert (the acting user today), reserved for future
+on every insert, reserved for future
 location-/group-based access carving. It is never a tenant filter and
 never to be repurposed/dropped. The two axes are orthogonal:
 `project_id` (tenant / sharing) × `owner_id` (case ownership).
+
+**The bound store carries two identities, and they are not
+interchangeable.** `withProjectContext(projectId, actorUserId, ownerId?)`
+binds `actorUserId` — the Nova member — as the identity EVERY
+authorization fence keys on, and `ownerId` (defaulting to the member) as
+the CommCare worker whose `owner_id` new rows carry and whom
+`acting-user` resolves to. Previewing as a persona is exactly this split:
+the worker is a persona UUID, which is authored blueprint content, while
+the signed-in member still authorizes. `requireActorUserId()` and
+`requireOwnerId()` are separate on purpose — collapsing them would let an
+app choose whose data a request reads.
 
 **Schema row work is the deliberate app-scoped exception.** `applySchemaChange` / `dropSchema` (the
 `SchemaCaseStore` slice, built by `withSchemaContext()`) migrate

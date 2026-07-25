@@ -25,6 +25,7 @@ import Link from "next/link";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
 import { ExportPanel } from "@/components/builder/ExportPanel";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
+import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
 import { Button } from "@/components/shadcn/button";
@@ -129,7 +130,15 @@ export function BuilderHeader({
 						: "justify-self-center"
 				}
 			>
-				{showToolbar && <PreviewToggle onSetPreviewing={onSetPreviewing} />}
+				{showToolbar && (
+					<div className="flex min-w-0 items-center gap-1">
+						<PreviewToggle onSetPreviewing={onSetPreviewing} />
+						{/* Sits beside the toggle because it answers the question the
+						 *  toggle raises: the app is running — as whom? It renders
+						 *  nothing outside Preview. */}
+						<PreviewIdentityMenu />
+					</div>
+				)}
 			</div>
 			<div
 				data-header-document-actions

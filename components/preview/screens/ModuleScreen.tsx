@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { motion } from "motion/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
@@ -13,7 +13,6 @@ import {
 } from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Skeleton } from "@/components/shadcn/skeleton";
-import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import {
@@ -24,12 +23,10 @@ import {
 import type { Uuid } from "@/lib/doc/types";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
-import {
-	previewAsMe,
-	previewSessionValues,
-} from "@/lib/preview/engine/identity";
+import { previewSessionValues } from "@/lib/preview/engine/identity";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
@@ -62,16 +59,10 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
 	const lookup = usePreviewLookupStatus();
-	const { user } = useAuth();
-	// Better Auth resolves a cached session synchronously on the browser's
-	// first paint while SSR has none — keep the first render identity-free
-	// (the shared hydration rule) and apply session gating after mount.
-	const [authMounted, setAuthMounted] = useState(false);
-	useEffect(() => setAuthMounted(true), []);
-	const session = useMemo(
-		() => previewSessionValues(previewAsMe(authMounted ? user : null)),
-		[authMounted, user],
-	);
+	/* Whoever Preview is running as — the member, or the persona they
+	 * picked. One identity across every preview surface. */
+	const identity = useSelectedPreviewIdentity();
+	const session = useMemo(() => previewSessionValues(identity), [identity]);
 
 	/* The running preview gates the forms-first form menu exactly as a
 	 * device would (`<command relevant>`). Forms-first conditions are

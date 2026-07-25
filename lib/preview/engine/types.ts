@@ -1,3 +1,5 @@
+import type { AppSetupSection } from "@/lib/routing/types";
+
 /** One rendered choice of a lookup-backed select, in authored row order.
  *  `key` is the source row's stable id — lookup rows, unlike static
  *  options, guarantee neither unique nor non-blank values, so display
@@ -97,6 +99,10 @@ export type PreviewScreen =
 	 *  of the config kinds above (edit-mode only; preview shows the
 	 *  running case list for its URL, like the config kinds do). */
 	| { type: "dataReview"; moduleIndex: number }
+	/** The App setup workspace — app administration, so it names no module
+	 *  and has no running-app counterpart. Edit mode only: Preview leaves
+	 *  it for the app home, because there is nothing here to run. */
+	| { type: "appSetup"; section: AppSetupSection }
 	| { type: "form"; moduleIndex: number; formIndex: number; caseId?: string };
 
 /** Returns the immediate parent screen in the hierarchy, or undefined if already at home. */
@@ -105,6 +111,7 @@ export function getParentScreen(
 ): PreviewScreen | undefined {
 	switch (screen.type) {
 		case "module":
+		case "appSetup":
 			return { type: "home" };
 		case "caseList":
 		case "searchConfig":
@@ -130,6 +137,8 @@ export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
 		return a.moduleIndex === b.moduleIndex;
 	if (a.type === "dataReview" && b.type === "dataReview")
 		return a.moduleIndex === b.moduleIndex;
+	if (a.type === "appSetup" && b.type === "appSetup")
+		return a.section === b.section;
 	if (a.type === "form" && b.type === "form")
 		return (
 			a.moduleIndex === b.moduleIndex &&
@@ -156,6 +165,8 @@ export function screenKey(screen: PreviewScreen): string {
 			return `detailConfig-${screen.moduleIndex}`;
 		case "dataReview":
 			return `dataReview-${screen.moduleIndex}`;
+		case "appSetup":
+			return `appSetup-${screen.section}`;
 		case "form":
 			return `form-${screen.moduleIndex}-${screen.formIndex}`;
 	}

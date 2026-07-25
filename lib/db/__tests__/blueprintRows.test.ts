@@ -180,3 +180,91 @@ describe("blueprint entity-row round trip", () => {
 		expect(() => decomposeBlueprint(broken)).toThrow(/refusing to persist/);
 	});
 });
+
+/**
+ * The three flat user collections round-trip like any other entity, with
+ * one extra rule the others don't need: an app that declares none must
+ * assemble to exactly the doc it did before they existed. That is what
+ * keeps a tab still running pre-collection code from meeting a shape its
+ * strict schema refuses — and it is the reason the doc slots are optional
+ * rather than always-present empty records.
+ */
+describe("the user collections", () => {
+	const PROPERTY = asUuid("a1111111-1111-4111-8111-111111111111");
+	const TYPE = asUuid("a2222222-2222-4222-8222-222222222222");
+	const PERSONA = asUuid("a3333333-3333-4333-8333-333333333333");
+
+	function docWithUsers(): BlueprintDoc {
+		const doc = emptyDoc("rt-users");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		applyMutations(doc, [
+			{
+				kind: "addUserProperty",
+				property: {
+					uuid: PROPERTY,
+					order: "a0",
+					slug: "region",
+					label: "Region",
+					choices: ["north", "south"],
+				},
+			},
+			{
+				kind: "addUserType",
+				userType: {
+					uuid: TYPE,
+					order: "a0",
+					name: "CHW",
+					values: { [PROPERTY]: "north" },
+				},
+			},
+			{
+				kind: "addPersona",
+				persona: {
+					uuid: PERSONA,
+					order: "a0",
+					name: "Asha",
+					userTypeUuid: TYPE,
+					values: { [PROPERTY]: "south" },
+				},
+			},
+		]);
+		return doc;
+	}
+
+	it("round-trips all three through their own row kinds", () => {
+		const doc = docWithUsers();
+		const persistable = toPersistableDoc(doc);
+		const rows = decomposeBlueprint(persistable);
+		expect(
+			rows.filter((row) => row.uuid === PROPERTY).map((row) => row.kind),
+		).toEqual(["user_property"]);
+		expect(
+			rows.filter((row) => row.uuid === TYPE).map((row) => row.kind),
+		).toEqual(["user_type"]);
+		expect(
+			rows.filter((row) => row.uuid === PERSONA).map((row) => row.kind),
+		).toEqual(["persona"]);
+		expect(roundTrip(doc)).toEqual(persistable);
+	});
+
+	it("omits an empty collection entirely rather than assembling an empty record", () => {
+		const doc = emptyDoc("rt-users-empty");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		const assembled = roundTrip(doc);
+		expect(Object.hasOwn(assembled, "userProperties")).toBe(false);
+		expect(Object.hasOwn(assembled, "userTypes")).toBe(false);
+		expect(Object.hasOwn(assembled, "personas")).toBe(false);
+	});
+
+	it("gives the slot back when the last entry is removed", () => {
+		const doc = docWithUsers();
+		applyMutations(doc, [
+			{ kind: "removePersona", uuid: PERSONA },
+			{ kind: "removeUserType", uuid: TYPE },
+			{ kind: "removeUserProperty", uuid: PROPERTY },
+		]);
+		const assembled = roundTrip(doc);
+		expect(Object.hasOwn(assembled, "userProperties")).toBe(false);
+		expect(Object.hasOwn(assembled, "personas")).toBe(false);
+	});
+});

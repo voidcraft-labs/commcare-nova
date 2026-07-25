@@ -122,6 +122,41 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 
+	// ── Worker information, roles, personas ──────────────────────────
+	// The rule's own message already carries the specific reason (an illegal
+	// character, a reserved word, a length cap), so these repeat the shape
+	// rather than the detail and let the validator's sentence say the rest.
+	USER_PROPERTY_SLUG_INVALID: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `CommCare won't accept ${q(slug)} as the name a piece of worker information is saved under. Pick a different one — letters, numbers, and underscores work.`
+			: "CommCare won't accept the name one piece of worker information is saved under. Pick a different one.";
+	},
+	USER_PROPERTY_SLUG_DUPLICATE: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `Two pieces of worker information both save under ${q(slug)}. CommCare treats names as the same whatever their capitalization, so give one of them a different name.`
+			: "Two pieces of worker information save under the same name. Give one of them a different name.";
+	},
+	USER_TYPE_NAME_DUPLICATE: (e) => {
+		const name = det(e, "name", "");
+		return name
+			? `Two roles are both called ${q(name)}. Give each one a name of its own, so you can tell them apart when assigning one to a persona.`
+			: "Two roles share a name. Give each one a name of its own.";
+	},
+	PERSONA_NAME_DUPLICATE: (e) => {
+		const name = det(e, "name", "");
+		return name
+			? `Two personas are both called ${q(name)}. Give each one a name of its own, so you can tell which you're previewing as.`
+			: "Two personas share a name. Give each one a name of its own.";
+	},
+	PERSONA_USER_TYPE_UNKNOWN: () =>
+		"A persona is assigned to a role that no longer exists. Pick a role for them, or leave their role empty.",
+	USER_DATA_UNKNOWN_PROPERTY: () =>
+		"A role or persona carries a value for a piece of worker information that no longer exists. Remove the value, or add that information back.",
+	USER_DATA_INVALID_CHOICE: () =>
+		"A role or persona has a value that isn't one of the accepted options. Pick one from the list, or add it to the list first.",
+
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,

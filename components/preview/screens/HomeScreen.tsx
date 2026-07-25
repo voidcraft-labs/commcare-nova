@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import { motion } from "motion/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { EditableTitle } from "@/components/builder/EditableTitle";
@@ -10,7 +10,6 @@ import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResour
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
-import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
@@ -21,11 +20,9 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { moduleDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
-import {
-	previewAsMe,
-	previewSessionValues,
-} from "@/lib/preview/engine/identity";
+import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
@@ -47,16 +44,12 @@ export function HomeScreen() {
 	const caseFirstModules = useCaseFirstModuleUuids();
 	const logo = useAppLogo();
 	const lookup = usePreviewLookupStatus();
-	const { user } = useAuth();
-	// Better Auth resolves a cached session synchronously on the browser's
-	// first paint while SSR has none — keep the first render identity-free
-	// (the shared hydration rule) and apply session gating after mount.
-	const [authMounted, setAuthMounted] = useState(false);
-	useEffect(() => setAuthMounted(true), []);
-	const session = useMemo(
-		() => previewSessionValues(previewAsMe(authMounted ? user : null)),
-		[authMounted, user],
-	);
+	/* Whoever Preview is running as — the member, or the persona they
+	 * picked. The hook owns the hydration rule (Better Auth resolves a
+	 * cached session synchronously on the browser's first paint while SSR
+	 * has none) so every preview surface reads one identity. */
+	const identity = useSelectedPreviewIdentity();
+	const session = useMemo(() => previewSessionValues(identity), [identity]);
 
 	/* The running preview gates the module list exactly as a device would
 	 * (`<menu relevant>`); edit mode ("authoring surfaces never hide")

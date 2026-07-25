@@ -42,11 +42,13 @@ const ACTOR = "worker-1";
 const SESSION_CASE = "50000000-0000-0000-0000-000000000001";
 
 const IDENTITY: ResolvedPreviewIdentity = {
+	actorUserId: ACTOR,
 	ownerId: ACTOR,
 	session: {
 		context: { userid: ACTOR, username: "ada" },
 		user: { role: "supervisor" },
 	},
+	usercase: { role: "supervisor" },
 };
 
 function makeStore(): CaseStore {

@@ -9,9 +9,11 @@ Stateless, domain-agnostic React hooks + the imperative UI singletons they subsc
 - Shared right-rail width constants (`inspector.tsx`) — chat and the docked inspector resolve to the SAME width so selecting something never reflows the canvas. The inspector itself is rendered directly from shared selection state by the chat sidebar (`components/builder/inspector/activeInspector.tsx`); there is no claim/portal coordination here. See `components/builder/CLAUDE.md` § Inspector rail.
 - DOM observers (`useIsBreakpoint`).
 - Input-interaction models (`useCommitField` — the commit/cancel/checkmark pattern).
-- Keyboard / focus / menu navigation primitives (`useMenuNavigation`, `useKeyboardShortcuts`).
+- Keyboard / focus / menu navigation primitives (`useMenuNavigation`, `useKeyboardShortcuts`, `useInlineConfirmFocus`).
 - Thin subscribers to the imperative singletons (`useToasts` over `toastStore`).
 - Library wrappers with no domain binding (`useTiptapEditor`).
+
+**A destructive action that confirms IN PLACE uses `hooks/useInlineConfirmFocus`.** The builder's confirm-in-place pattern swaps the trigger button for a panel, which unmounts the trigger and drops focus to the document body — a keyboard or screen-reader user is returned to the top of the page while a destructive question sits on screen they never heard. The hook focuses the panel on open and returns focus to the trigger on close. It exists here rather than beside any one panel because the defect looks fine at every individual site and is only visible across them. A confirmation that opens a real dialog needs none of this: Base UI's dialog primitives own focus entry and return.
 
 A hook that subscribes to doc state → `lib/doc/hooks/`.
 A hook that subscribes to session state → `lib/session/hooks.tsx`.

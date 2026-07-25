@@ -19,6 +19,7 @@ import {
 } from "@/lib/doc/caseSearchConfigMutations";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { columnSurfaceOrderMutation } from "@/lib/doc/order/columnSurface";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
@@ -36,7 +37,11 @@ import {
 	xpathExpressionSchema,
 } from "@/lib/domain";
 import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
-import { type Mutation, mutationSchema } from "../types";
+import {
+	canonicalMutationSchema,
+	type Mutation,
+	mutationSchema,
+} from "../types";
 
 const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
 const COLUMN = asUuid("20000000-0000-4000-8000-000000000000");
@@ -1199,4 +1204,135 @@ describe("mutation rolling compatibility", () => {
 			}).success,
 		).toBe(false);
 	});
+});
+
+/**
+ * The user collections are the first NEW top-level collections in the
+ * document, so they are the first vocabulary that could not ride an
+ * existing discriminator: a user type is not a refinement of a module, a
+ * form, or a field, and encoding one as such would put a lie in the
+ * durable log. They therefore mint ordinary new discriminators, and the
+ * exposure that buys is bounded by two properties this block pins.
+ *
+ * What CAN be proved here is what follows. What cannot — that an old
+ * reducer no-ops on a kind it has never seen — is not a property of any
+ * code in this repository, which is exactly why the doc slots are optional
+ * and omitted when empty: an app that declares none is byte-identical to
+ * one authored before they existed, so nothing reaches a pre-collection
+ * reader at all.
+ */
+describe("user collections — the new-discriminator contract", () => {
+	const PROPERTY = asUuid("a1111111-1111-4111-8111-111111111111");
+	const TYPE = asUuid("a2222222-2222-4222-8222-222222222222");
+	const PERSONA = asUuid("a3333333-3333-4333-8333-333333333333");
+
+	const batch: Mutation[] = [
+		{
+			kind: "addUserProperty",
+			property: {
+				uuid: PROPERTY,
+				order: "a0",
+				slug: "region",
+				label: "Region",
+			},
+		},
+		{
+			kind: "addUserType",
+			userType: {
+				uuid: TYPE,
+				order: "a0",
+				name: "CHW",
+				values: { [PROPERTY]: "north" },
+			},
+		},
+		{
+			kind: "addPersona",
+			persona: { uuid: PERSONA, order: "a0", name: "Asha", userTypeUuid: TYPE },
+		},
+		{
+			kind: "updateUserProperty",
+			uuid: PROPERTY,
+			patch: { label: "District" },
+		},
+		{ kind: "updateUserType", uuid: TYPE, patch: { values: null } },
+		{ kind: "updatePersona", uuid: PERSONA, patch: { userTypeUuid: null } },
+		{ kind: "removePersona", uuid: PERSONA },
+		{ kind: "removeUserType", uuid: TYPE },
+		{ kind: "removeUserProperty", uuid: PROPERTY },
+	];
+
+	it("every arm parses under both envelopes", () => {
+		// The rolling envelope is the wire and PUT parser; the canonical one is
+		// the durable replay/log parser. These collections carry no Predicate
+		// or ValueExpression, so the two projections are the same schema — and
+		// this asserts that rather than assuming it.
+		for (const mutation of batch) {
+			expect(mutationSchema.safeParse(mutation).success, mutation.kind).toBe(
+				true,
+			);
+			expect(
+				canonicalMutationSchema.safeParse(mutation).success,
+				mutation.kind,
+			).toBe(true);
+		}
+	});
+
+	it("a null clear survives the JSON hop the wire actually takes", () => {
+		//  drops an undefined-valued key, so a cleared slot can
+		// only cross the SSE stream and the persisted jsonb as an explicit null.
+		const clears = batch.filter((m) => m.kind.startsWith("update"));
+		for (const mutation of clears) {
+			const parsed = mutationSchema.safeParse(
+				JSON.parse(JSON.stringify(mutation)),
+			);
+			expect(parsed.success, mutation.kind).toBe(true);
+		}
+		const cleared = fold(usersDoc(), [
+			{ kind: "updateUserType", uuid: TYPE, patch: { values: null } },
+		]);
+		expect(cleared.userTypes?.[TYPE]).not.toHaveProperty("values");
+	});
+
+	it("a doc that declares none stays byte-identical to one that never could", () => {
+		const before = emptyDoc();
+		const after = fold(before, [
+			{
+				kind: "addPersona",
+				persona: { uuid: PERSONA, order: "a0", name: "Asha" },
+			},
+			{ kind: "removePersona", uuid: PERSONA },
+		]);
+		// Compared at the persistence boundary, which is where the property
+		// matters: `toPersistableDoc` strips the derived slots that never
+		// serialize anywhere.
+		expect(JSON.stringify(toPersistableDoc(after))).toBe(
+			JSON.stringify(toPersistableDoc(before)),
+		);
+	});
+
+	function fold(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
+		return produce(doc, (draft) => {
+			applyMutations(draft, mutations);
+		});
+	}
+
+	function emptyDoc(): BlueprintDoc {
+		return {
+			appId: "rolling",
+			appName: "Rolling",
+			connectType: null,
+			caseTypes: null,
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+		};
+	}
+
+	function usersDoc(): BlueprintDoc {
+		return fold(emptyDoc(), batch.slice(0, 3));
+	}
 });

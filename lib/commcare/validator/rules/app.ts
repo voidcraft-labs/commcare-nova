@@ -13,6 +13,7 @@ import {
 	fieldKindMatchesPropertyType,
 	readCasePropertyOn,
 } from "./fieldKindMatchesPropertyType";
+import { USER_RULES } from "./users";
 
 function noModules(doc: BlueprintDoc): ValidationError[] {
 	// CommCare HQ rejects an application with no modules at build time
@@ -356,4 +357,8 @@ export const APP_RULES = [
 	// full app's writer set, so the rule is app-scoped rather than
 	// module-scoped.
 	fieldKindMatchesPropertyType,
+	// Who runs the app: the user-data property catalog, the roles built on
+	// it, and the personas that act as those roles. App-scoped because none
+	// of the three belongs to a module or a form.
+	...USER_RULES,
 ];

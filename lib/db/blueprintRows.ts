@@ -21,11 +21,39 @@ import { blueprintDocSchema } from "@/lib/domain/blueprint";
 
 export interface EntityRow {
 	uuid: string;
-	kind: "module" | "form" | "field";
+	kind: EntityRowKind;
 	parent_uuid: string | null;
 	ordinal: number;
 	data: Record<string, unknown>;
 }
+
+/**
+ * The entity kinds a blueprint decomposes into.
+ *
+ * The first three carry the runnable app and encode their hierarchy in
+ * `(parent_uuid, ordinal)`. The last three are the flat user collections
+ * (`lib/domain/users.ts`): they have no parent and no membership array, so
+ * they persist with a null parent and a constant ordinal, and their
+ * sequence lives entirely in each entity's fractional `order` key — the
+ * same derived-sequence model every other collection follows.
+ */
+export type EntityRowKind =
+	| "module"
+	| "form"
+	| "field"
+	| "user_property"
+	| "user_type"
+	| "persona";
+
+/** Which doc slot each flat user collection round-trips through. */
+const FLAT_COLLECTIONS = [
+	["user_property", "userProperties"],
+	["user_type", "userTypes"],
+	["persona", "personas"],
+] as const satisfies readonly (readonly [
+	EntityRowKind,
+	"userProperties" | "userTypes" | "personas",
+])[];
 
 /** The `apps`-row scalar slice of the doc (everything that isn't an entity). */
 export interface BlueprintScalars {
@@ -124,6 +152,17 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 			});
 		}
 	}
+	for (const [kind, slot] of FLAT_COLLECTIONS) {
+		for (const [uuid, entity] of Object.entries(doc[slot] ?? {})) {
+			rows.push({
+				uuid,
+				kind,
+				parent_uuid: null,
+				ordinal: 0,
+				data: entity as unknown as Record<string, unknown>,
+			});
+		}
+	}
 	return rows;
 }
 
@@ -140,12 +179,29 @@ export function assembleBlueprint(
 	const modules: Record<string, unknown> = {};
 	const forms: Record<string, unknown> = {};
 	const fields: Record<string, unknown> = {};
+	/* Derived from `FLAT_COLLECTIONS`, never hand-listed beside it: a kind
+	 * added to the table but missed in a literal initializer would leave its
+	 * accumulator absent, so every row of that kind would be dropped while
+	 * the classifier below still looked correct — a silent loss, which is the
+	 * one failure mode this projection must not have. */
+	const flat: Record<string, Record<string, unknown>> = Object.fromEntries(
+		FLAT_COLLECTIONS.map(([, slot]) => [slot, {}]),
+	);
+	const flatSlotByKind = new Map<string, string>(FLAT_COLLECTIONS);
 	const moduleRows: EntityRow[] = [];
 	const formsByModule = new Map<string, EntityRow[]>();
 	const fieldsByParent = new Map<string, EntityRow[]>();
 
 	for (const row of rows) {
-		if (row.kind === "module") {
+		// Every kind branches explicitly. Falling through to `fields` was the
+		// old shape's default and is exactly the trap a new kind would spring:
+		// a persona read as a field parses as neither, and the whole app stops
+		// loading rather than losing one row.
+		const flatSlot = flatSlotByKind.get(row.kind);
+		if (flatSlot !== undefined) {
+			const collection = flat[flatSlot];
+			if (collection !== undefined) collection[row.uuid] = row.data;
+		} else if (row.kind === "module") {
 			modules[row.uuid] = row.data;
 			moduleRows.push(row);
 		} else if (row.kind === "form") {
@@ -210,6 +266,16 @@ export function assembleBlueprint(
 		formOrder,
 		fieldOrder,
 		...(scalars.logo !== null && { logo: scalars.logo }),
+		/* Omitted when empty, so an app that declares no user properties,
+		 * types, or personas assembles to exactly the doc it did before those
+		 * collections existed — the same shape `logo` keeps for an app with no
+		 * logo. Every reader takes absent as empty, so the two shapes would
+		 * otherwise be a distinction without a difference that still diffed. */
+		...Object.fromEntries(
+			Object.entries(flat).filter(
+				([, collection]) => Object.keys(collection).length > 0,
+			),
+		),
 	});
 }
 

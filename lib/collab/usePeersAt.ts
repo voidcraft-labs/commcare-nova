@@ -34,7 +34,9 @@ export interface PeerTarget {
  * Resolve a `Location` to the single entity a marker should sit on, or `null`
  * when the peer occupies no blueprint entity.
  *
- *  - `home` → `null` (roster-only; the app home names no entity).
+ *  - `home` / `app-setup` → `null` (roster-only). The app home and the App
+ *    setup workspace both name no blueprint entity — app administration is
+ *    not app content, so there is no tree row to mark.
  *  - `module` / `cases` / `search-config` / `detail-config` /
  *    `module-condition` → the MODULE. The case-list workspace tabs and a
  *    `cases` `caseId` are case DATA, not a blueprint entity, so they all
@@ -48,6 +50,7 @@ export interface PeerTarget {
 export function peerTarget(location: Location): PeerTarget | null {
 	switch (location.kind) {
 		case "home":
+		case "app-setup":
 			return null;
 		case "module":
 		case "cases":

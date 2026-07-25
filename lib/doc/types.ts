@@ -30,8 +30,11 @@ import {
 	lookupOptionsSourceSchema,
 	mediaSchema,
 	moduleSchema,
+	personaSchema,
 	searchInputDefSchema,
 	selectOptionSchema,
+	userPropertySchema,
+	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
 import {
@@ -291,6 +294,20 @@ const carrierBlindCaseOperationChangeSchema = caseOperationChangeSchemaFor(
 const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 	carrierBlindCaseSearchConfigSchema,
 );
+
+// User properties, user types, and personas hold no Predicate or
+// ValueExpression, so their patches are identical under both envelopes —
+// there is no carrier-blind projection to build. Every clearable slot is
+// null-as-delete-safe: an absent `order` sorts last by uuid, an absent
+// `required` is not required, an absent `choices` is free text, an absent
+// `description` is none, an absent `userTypeUuid` is no role, and an
+// absent `values` bag is read as empty by `userTypesOf` / `personasOf`'s
+// consumers. The required slots (`slug`, `label`, `name`) stay
+// non-nullable, so a stray `null` for one is a parse error rather than a
+// corrupting assign.
+const userPropertyUpdatePatchSchema = clearablePartialPatch(userPropertySchema);
+const userTypeUpdatePatchSchema = clearablePartialPatch(userTypeSchema);
+const personaUpdatePatchSchema = clearablePartialPatch(personaSchema);
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
@@ -1021,6 +1038,46 @@ function createMutationSchema({
 			parent_type: z.string().nullable().optional(),
 			relationship: z.enum(["child", "extension"]).nullable().optional(),
 		}),
+		// ─── User properties, user types, and personas ───────────────────────
+		//
+		// Three flat UUID-keyed collections (`lib/domain/users.ts`), each with
+		// the same add / update / remove trio. There is no `move*` kind: these
+		// collections carry no membership array, so a reorder is an `update`
+		// whose patch names only `order` — which merges with a concurrent
+		// content edit by construction, the same reason columns split their
+		// move from their content update.
+		//
+		// Removal never cascades inside the reducer. A property removal
+		// rewrites every value bag that referenced it, and a user-type removal
+		// is refused while personas still reference it; both decisions are made
+		// at the batch-building layer (`lib/doc/userMutations.ts`) and travel as
+		// explicit granular mutations, so historical replay reduces an old
+		// removal to the same doc it always did and a concurrent edit to a
+		// different collection merges rather than being clobbered.
+		z.object({
+			kind: z.literal("addUserProperty"),
+			property: userPropertySchema,
+		}),
+		z.object({
+			kind: z.literal("updateUserProperty"),
+			uuid: uuidSchema,
+			patch: userPropertyUpdatePatchSchema.default(() => ({})),
+		}),
+		z.object({ kind: z.literal("removeUserProperty"), uuid: uuidSchema }),
+		z.object({ kind: z.literal("addUserType"), userType: userTypeSchema }),
+		z.object({
+			kind: z.literal("updateUserType"),
+			uuid: uuidSchema,
+			patch: userTypeUpdatePatchSchema.default(() => ({})),
+		}),
+		z.object({ kind: z.literal("removeUserType"), uuid: uuidSchema }),
+		z.object({ kind: z.literal("addPersona"), persona: personaSchema }),
+		z.object({
+			kind: z.literal("updatePersona"),
+			uuid: uuidSchema,
+			patch: personaUpdatePatchSchema.default(() => ({})),
+		}),
+		z.object({ kind: z.literal("removePersona"), uuid: uuidSchema }),
 		// ─── Granular case-list collections ──────────────────────────────────
 		//
 		// `caseListConfig.columns` / `.searchInputs` are membership arrays whose

@@ -1,13 +1,17 @@
 // lib/preview/engine/__tests__/identity.test.ts
 //
-// The ResolvedPreviewIdentity contract: the sole provider's derivation
-// and refusal arms, the sparse (never blank-coerced) user-data map, the
-// anonymous projection, and the material-equality comparator that keeps
-// re-derived identities from rebuilding evaluation state.
+// The ResolvedPreviewIdentity contract: the separation of the authorizing
+// member from the acting worker, both providers' derivations and refusal
+// arms, the two wire projections (`session/user/data` vs the usercase),
+// the honesty rules about values Nova cannot know, the anonymous
+// projection, and the material-equality comparator that keeps re-derived
+// identities from rebuilding evaluation state.
 
 import { describe, expect, it } from "vitest";
+import { asUuid, type UserCollections } from "@/lib/domain";
 import {
 	previewAsMe,
+	previewAsPersona,
 	previewSessionValues,
 	samePreviewIdentity,
 } from "../identity";
@@ -17,6 +21,74 @@ const FULL_USER = {
 	name: "Amina Diallo",
 	email: "amina@example.org",
 };
+
+const REGION = asUuid("11111111-1111-4111-8111-111111111111");
+const CADRE = asUuid("22222222-2222-4222-8222-222222222222");
+const CHW = asUuid("33333333-3333-4333-8333-333333333333");
+const ASHA = asUuid("44444444-4444-4444-8444-444444444444");
+
+const DOC: UserCollections = {
+	userProperties: {
+		[REGION]: { uuid: REGION, slug: "region", label: "Region" },
+		[CADRE]: { uuid: CADRE, slug: "cadre", label: "Cadre" },
+	},
+	userTypes: {
+		[CHW]: {
+			uuid: CHW,
+			name: "CHW",
+			values: { [REGION]: "north", [CADRE]: "community" },
+		},
+	},
+	personas: {
+		[ASHA]: {
+			uuid: ASHA,
+			name: "Asha Kumar",
+			userTypeUuid: CHW,
+			values: { [REGION]: "south" },
+		},
+	},
+};
+
+const ASHA_PERSONA = DOC.personas?.[ASHA];
+if (ASHA_PERSONA === undefined) throw new Error("fixture persona missing");
+
+/**
+ * The security invariant of this unit, written to fail loudly rather than
+ * to describe shape: `actorUserId` authorizes and is always a real Nova
+ * account, while `ownerId` is authored blueprint content. Collapsing the
+ * two would let an app choose whose data a preview request may read.
+ */
+describe("the authorizing member and the acting worker are separate", () => {
+	it("previewing as a persona keeps the signed-in member as the actor", () => {
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		expect(identity?.actorUserId).toBe(FULL_USER.id);
+		expect(identity?.ownerId).toBe(ASHA);
+		expect(identity?.actorUserId).not.toBe(identity?.ownerId);
+		expect(identity?.personaUuid).toBe(ASHA);
+	});
+
+	it("no authored persona value can become the actor", () => {
+		const identity = previewAsPersona(
+			FULL_USER,
+			{ ...ASHA_PERSONA, name: "someone-elses-user-id" },
+			DOC,
+		);
+		expect(identity?.actorUserId).toBe(FULL_USER.id);
+	});
+
+	it("refuses without a persisted member, whatever the persona says", () => {
+		expect(previewAsPersona(null, ASHA_PERSONA, DOC)).toBeNull();
+		expect(previewAsPersona(undefined, ASHA_PERSONA, DOC)).toBeNull();
+		expect(previewAsPersona({ id: "   " }, ASHA_PERSONA, DOC)).toBeNull();
+	});
+
+	it("previewing as yourself makes the two the same identity", () => {
+		const identity = previewAsMe(FULL_USER, DOC);
+		expect(identity?.actorUserId).toBe(FULL_USER.id);
+		expect(identity?.ownerId).toBe(FULL_USER.id);
+		expect(identity?.personaUuid).toBeUndefined();
+	});
+});
 
 describe("previewAsMe", () => {
 	it("projects the signed-in user into the session vocabulary", () => {
@@ -29,25 +101,6 @@ describe("previewAsMe", () => {
 			deviceid: "nova-preview",
 			appversion: "preview",
 		});
-		expect(identity?.session.user).toEqual({
-			userid: "worker-42",
-			username: "amina@example.org",
-			email: "amina@example.org",
-			name: "Amina Diallo",
-			first_name: "Amina",
-			last_name: "Diallo",
-		});
-	});
-
-	it("keeps user-data keys ABSENT when the worker has no value", () => {
-		const identity = previewAsMe({ id: "worker-1" });
-		// No email/name: the keys must not exist — never coerced to "".
-		expect(identity?.session.user).toEqual({
-			userid: "worker-1",
-			username: "worker-1",
-		});
-		expect("email" in (identity?.session.user ?? {})).toBe(false);
-		expect("first_name" in (identity?.session.user ?? {})).toBe(false);
 	});
 
 	it("prefers email over name over id for the username", () => {
@@ -62,6 +115,106 @@ describe("previewAsMe", () => {
 		expect(previewAsMe(undefined)).toBeNull();
 		expect(previewAsMe({ id: "" })).toBeNull();
 		expect(previewAsMe({ id: "   ", name: "Ghost" })).toBeNull();
+	});
+
+	it("carries no authored worker data — a member is not a worker", () => {
+		// Every DECLARED property is still present-and-empty (see below); the
+		// member simply has no values of their own to layer over them.
+		const identity = previewAsMe(FULL_USER, DOC);
+		expect(identity?.session.user.region).toBe("");
+		expect(identity?.session.user.cadre).toBe("");
+	});
+});
+
+describe("session values are honest", () => {
+	it("layers a persona's overrides over its role's defaults", () => {
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		expect(identity?.session.user.region).toBe("south");
+		expect(identity?.session.user.cadre).toBe("community");
+	});
+
+	it("gives a declared property with no value a present, empty slot", () => {
+		// HQ's `user_data.py::UserData.to_dict` seeds every schema field to ''
+		// before layering authored values, so a declared-but-unset property is
+		// present-and-empty on the wire while an undeclared key is absent.
+		const identity = previewAsMe(FULL_USER, DOC);
+		expect(identity?.session.user.region).toBe("");
+		expect(identity?.session.user).not.toHaveProperty("undeclared_thing");
+	});
+
+	it("leaves the project slug absent — there is no deployment target", () => {
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		expect(identity?.session.user).not.toHaveProperty("commcare_project");
+		expect(identity?.usercase).not.toHaveProperty("commcare_project");
+	});
+
+	it("marks an ordinary worker standard, not demo — and never absent", () => {
+		// HQ sends `user_type` only for a practice user, but the CLIENT seeds
+		// it: every `User.java` constructor calls `setUserType(STANDARD)`, a
+		// plain `properties.put`, and `UserXmlParser::parse` builds the User
+		// before applying any `<data key>`. So the device always has the key,
+		// and a condition on it must behave the same in Preview.
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		expect(identity?.session.user.user_type).toBe("standard");
+		expect(identity?.session.user.user_type).not.toBe("demo");
+	});
+
+	it("leaves location keys absent from the SESSION block while nobody is assigned", () => {
+		// `get_user_session_data` writes all three or none.
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		for (const key of [
+			"commcare_location_id",
+			"commcare_location_ids",
+			"commcare_primary_case_sharing_id",
+		]) {
+			expect(identity?.session.user).not.toHaveProperty(key);
+		}
+	});
+
+	it("carries the location keys EMPTY on the usercase, where HQ writes them unconditionally", () => {
+		// The asymmetry that is easy to get backwards:
+		// `_get_user_case_fields` takes an `else` branch to `''` for all three
+		// rather than omitting them, so the usercase has the keys and the
+		// session block does not.
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		for (const key of [
+			"commcare_location_id",
+			"commcare_location_ids",
+			"commcare_primary_case_sharing_id",
+		]) {
+			expect(identity?.usercase[key]).toBe("");
+		}
+	});
+
+	it("supplies the two framework keys it genuinely knows", () => {
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		expect(identity?.session.user.commcare_user_type).toBe("commcare");
+		expect(identity?.session.user.commcare_profile).toBe("");
+	});
+
+	it("binds session/context/userid to the acting worker", () => {
+		expect(
+			previewAsPersona(FULL_USER, ASHA_PERSONA, DOC)?.session.context.userid,
+		).toBe(ASHA);
+		expect(previewAsMe(FULL_USER, DOC)?.session.context.userid).toBe(
+			FULL_USER.id,
+		);
+	});
+});
+
+describe("the session block and the usercase are two projections", () => {
+	it("shares the authored data and differs in built-in keys", () => {
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		// The same worker's authored data, either way.
+		expect(identity?.session.user.region).toBe("south");
+		expect(identity?.usercase.region).toBe("south");
+		// The registration block prefixes its own keys; the usercase does not.
+		expect(identity?.session.user.commcare_first_name).toBe("Asha");
+		expect(identity?.session.user).not.toHaveProperty("first_name");
+		expect(identity?.usercase.first_name).toBe("Asha");
+		expect(identity?.usercase.last_name).toBe("Kumar");
+		expect(identity?.usercase).not.toHaveProperty("commcare_first_name");
+		expect(identity?.usercase.hq_user_id).toBe(ASHA);
 	});
 });
 
@@ -102,6 +255,28 @@ describe("samePreviewIdentity", () => {
 			samePreviewIdentity(
 				previewAsMe(FULL_USER),
 				previewAsMe({ ...FULL_USER, name: "Amina D." }),
+			),
+		).toBe(false);
+	});
+
+	it("distinguishes two personas of the same member", () => {
+		const asha = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		const bimal = previewAsPersona(
+			FULL_USER,
+			{ uuid: asUuid("55555555-5555-4555-8555-555555555555"), name: "Bimal" },
+			DOC,
+		);
+		expect(samePreviewIdentity(asha, bimal)).toBe(false);
+		expect(
+			samePreviewIdentity(asha, previewAsPersona(FULL_USER, ASHA_PERSONA, DOC)),
+		).toBe(true);
+	});
+
+	it("distinguishes previewing as yourself from previewing as a persona", () => {
+		expect(
+			samePreviewIdentity(
+				previewAsMe(FULL_USER, DOC),
+				previewAsPersona(FULL_USER, ASHA_PERSONA, DOC),
 			),
 		).toBe(false);
 	});

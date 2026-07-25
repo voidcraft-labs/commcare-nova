@@ -2,8 +2,7 @@
 
 **PR:** `Automations as blueprint objects with a regenerated HQ setup artifact`
 
-**Depends on:** unit 8 (location criteria) and unit 7 (user-data filters). ·
-**Blocks:** units 11 and 13.
+**Depends on:** unit 8 (location criteria). · **Blocks:** units 11 and 13.
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure
 > rule there states that automations never pretend to execute inside Preview.
@@ -46,7 +45,8 @@ automation executes locally.
   exposes every case property as `{case.<prop>}` plus `{case.owner.*}`,
   `{case.parent.*}`, `{case.host.*}`, and `{recipient.*}`.
   `Schedule.user_data_filter` evaluates against custom user data, or the usercase
-  via `use_user_case_for_filter`.
+  via `use_user_case_for_filter` — in both cases the slugs it addresses are the
+  app's user-property catalog (`lib/domain/users.ts`), which already ships.
 - Plan tiers differ per arm: case-update rules require `DATA_CLEANUP` (Pro+),
   conditional alerts require `REMINDERS_FRAMEWORK` (Standard+), and SMS delivery
   additionally requires `OUTBOUND_SMS` at send time — so an email-only alert needs

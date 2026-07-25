@@ -69,6 +69,9 @@ when required resources and ordering are verified end to end.
   ride on. Web users come in via `InvitationResource` POST, which resolves `role`
   by **name** against the domain's roles and fails without one, so a Nova user type
   cannot supply it. No REST resource exists for the user-data field schema.
+  That web-user gap is why the shipped user-property catalog does not author
+  `required_for`: Nova provisions mobile workers only, so the pushed value is
+  always `["commcare_user"]`.
 
 **Observed:** an author pushes an app whose selects are backed by a Project lookup
 table, and the table exists on HQ before the app that references it.
