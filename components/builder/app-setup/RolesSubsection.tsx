@@ -22,7 +22,12 @@ import type { Uuid } from "@/lib/doc/types";
 import type { UserDataValues, UserType } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
+import {
+	EntryRow,
+	Subsection,
+	SubsectionEmpty,
+	useInlineConfirmFocus,
+} from "./subsection";
 import { ValueField } from "./ValueField";
 
 export function RolesSubsection() {
@@ -100,6 +105,7 @@ function RoleRow({
 	const descriptionId = useId();
 	const [confirmingRemove, setConfirmingRemove] = useState(false);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
+	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingRemove);
 
 	const write = (patch: Parameters<typeof mutations.updateUserType>[1]) => {
 		if (!sessionApi.getState().canEdit) return;
@@ -195,12 +201,23 @@ function RoleRow({
 
 				{canEdit &&
 					(confirmingRemove ? (
-						<div className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3">
+						<div
+							ref={panelRef}
+							tabIndex={-1}
+							className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3 outline-none"
+						>
 							<p className="text-[13px] leading-relaxed text-nova-text">
 								Remove {role.name}?
 							</p>
+							{/* `role="alert"` rather than a polite region: this appears
+							 * only after someone presses Remove and nothing else on
+							 * screen changes, so a passive announcement would let the
+							 * refusal pass unnoticed and the press read as a no-op. */}
 							{refusal !== undefined && (
-								<p className="text-[13px] leading-relaxed text-nova-rose">
+								<p
+									role="alert"
+									className="text-[13px] leading-relaxed text-nova-rose"
+								>
 									{refusal}
 								</p>
 							)}
@@ -236,6 +253,7 @@ function RoleRow({
 						</div>
 					) : (
 						<Button
+							ref={triggerRef}
 							type="button"
 							variant="ghost"
 							size="lg"

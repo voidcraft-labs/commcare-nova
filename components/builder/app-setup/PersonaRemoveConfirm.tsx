@@ -2,10 +2,13 @@
  * Removing a persona, with the consequence stated before it happens.
  *
  * Cases the persona owns are deliberately left where they are. That is
- * what CommCare does when a worker leaves a project — the cases keep
- * naming them — so reassigning or deleting rows here would make Preview
- * show something a device never would. The confirmation counts them and
- * says plainly that nobody will see them until they are given a new owner.
+ * Nova's own rule rather than HQ parity — HQ deactivating a worker leaves
+ * their cases alone, but HQ DELETING one soft-deletes every case they own
+ * (`users/models.py::CommCareUser.retire`). A persona is a design and test
+ * actor rather than a person who left an organization, and the cases it
+ * created are the author's own test data, so destroying them here would be
+ * a surprise. The confirmation counts them and says plainly that nobody
+ * will see them until they are given a new owner.
  *
  * The count is fetched when the confirmation opens rather than on every
  * render: it is a real query, and it only matters at the moment of the
@@ -13,7 +16,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { type RefObject, useEffect, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -23,6 +26,7 @@ import type { Persona } from "@/lib/domain";
 import { countCasesOwnedByAction } from "@/lib/preview/engine/caseDataBinding";
 import { useAppId } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import { useInlineConfirmFocus } from "./subsection";
 
 type OwnedCount =
 	| { state: "counting" }
@@ -31,10 +35,12 @@ type OwnedCount =
 
 export function PersonaRemoveConfirm({ persona }: { persona: Persona }) {
 	const [confirming, setConfirming] = useState(false);
+	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
 
 	if (!confirming) {
 		return (
 			<Button
+				ref={triggerRef}
 				type="button"
 				variant="ghost"
 				size="lg"
@@ -47,15 +53,21 @@ export function PersonaRemoveConfirm({ persona }: { persona: Persona }) {
 	}
 
 	return (
-		<ConfirmPanel persona={persona} onCancel={() => setConfirming(false)} />
+		<ConfirmPanel
+			persona={persona}
+			panelRef={panelRef}
+			onCancel={() => setConfirming(false)}
+		/>
 	);
 }
 
 function ConfirmPanel({
 	persona,
+	panelRef,
 	onCancel,
 }: {
 	persona: Persona;
+	panelRef: RefObject<HTMLDivElement | null>;
 	onCancel: () => void;
 }) {
 	const appId = useAppId();
@@ -88,7 +100,11 @@ function ConfirmPanel({
 	}, [appId, persona.uuid, caseTypes]);
 
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3">
+		<div
+			ref={panelRef}
+			tabIndex={-1}
+			className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3 outline-none"
+		>
 			<p className="text-[13px] leading-relaxed text-nova-text">
 				Remove {persona.name}?
 			</p>

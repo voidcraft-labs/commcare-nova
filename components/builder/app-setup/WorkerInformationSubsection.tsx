@@ -31,7 +31,12 @@ import type { Uuid } from "@/lib/doc/types";
 import { BUILT_IN_USER_PROPERTIES, type UserProperty } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
+import {
+	EntryRow,
+	Subsection,
+	SubsectionEmpty,
+	useInlineConfirmFocus,
+} from "./subsection";
 
 export function WorkerInformationSubsection() {
 	const properties = useUserProperties();
@@ -111,6 +116,7 @@ function PropertyRow({
 	const choicesId = useId();
 	const [slugDraft, setSlugDraft] = useState(property.slug);
 	const [confirmingRemove, setConfirmingRemove] = useState(false);
+	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingRemove);
 
 	/* The peers a name must be unique against exclude this entry itself,
 	 * so re-committing an unchanged name is never a duplicate. */
@@ -260,7 +266,11 @@ function PropertyRow({
 
 				{canEdit &&
 					(confirmingRemove ? (
-						<div className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3">
+						<div
+							ref={panelRef}
+							tabIndex={-1}
+							className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3 outline-none"
+						>
 							<p className="text-[13px] leading-relaxed text-nova-text">
 								Remove {property.label}? Every value roles and personas recorded
 								for it is removed with it.
@@ -291,6 +301,7 @@ function PropertyRow({
 						</div>
 					) : (
 						<Button
+							ref={triggerRef}
 							type="button"
 							variant="ghost"
 							size="lg"
