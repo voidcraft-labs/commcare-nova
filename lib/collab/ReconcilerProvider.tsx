@@ -45,7 +45,6 @@ import {
 	type Reconciler,
 	type ReconcilerDeps,
 } from "@/lib/collab/reconciler";
-import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation, Uuid } from "@/lib/doc/types";
@@ -58,7 +57,6 @@ import {
 	deactivateBuilderHistoryScope,
 	pushBuilderHistory,
 } from "@/lib/routing/useClientPath";
-import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 import {
 	BuilderSessionContext,
 	type BuilderSessionStoreApi,
@@ -216,24 +214,6 @@ export function createReconcilerRuntime(
 		sessionStore.getState().revokeAccess();
 	}
 
-	/** The server sends this only when the compiled receiver is below its floor.
-	 *  Keep the latch for the browser session and key it by receiver version: a
-	 *  newly deployed bundle gets a fresh key, while a genuinely stuck old bundle
-	 *  cannot reload forever. Storage failure fails closed instead of looping. */
-	function hardRefreshForReceiverUpgrade(): boolean {
-		const id = appIdBox.current;
-		if (!id || typeof window === "undefined") return false;
-		const key = `nova:stream-upgrade:${id}:receiver-${RUNTIME_CAPABILITIES.streamReceiverVersion}`;
-		try {
-			if (window.sessionStorage.getItem(key) === "1") return false;
-			window.sessionStorage.setItem(key, "1");
-			window.location.reload();
-			return true;
-		} catch {
-			return false;
-		}
-	}
-
 	// Forward reference so the deps' `resubscribe` and the mount effect share
 	// one `openStream`; assigned just below.
 	let reconciler: Reconciler;
@@ -276,7 +256,6 @@ export function createReconcilerRuntime(
 		closeOwnedStream();
 		const query = new URLSearchParams({
 			since: String(cursor),
-			receiverVersion: String(RUNTIME_CAPABILITIES.streamReceiverVersion),
 		});
 		const es = new EventSource(`/api/apps/${id}/stream?${query}`);
 		eventSource = es;
@@ -331,7 +310,6 @@ export function createReconcilerRuntime(
 					reconciler.onRevoked();
 					return;
 				}
-				if (hardRefreshForReceiverUpgrade()) return;
 				reconciler.onClientUpgradeRequired();
 				return;
 			}
@@ -596,17 +574,11 @@ export function createReconcilerRuntime(
 		) {
 			throw new Error("reload returned an incomplete access snapshot");
 		}
-		/* Optional server-fact rider: the dormant-vocabulary activation
-		 * snapshot. Malformed or absent (older servers) simply omits — the
-		 * session keeps its fail-closed default and the server re-verdict
-		 * wins regardless. */
-		const activation = parseActivationSnapshot(data.activation);
 		return {
 			kind: "authorized" as const,
 			projectId: data.projectId,
 			role: data.role,
 			canEdit: data.canEdit,
-			...(activation !== undefined && { activation }),
 			blueprint: blueprintDocSchema.parse(data.blueprint),
 			seq: data.baseSeq,
 		};
@@ -740,23 +712,6 @@ export function createReconcilerRuntime(
 		presenceSubs,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
-	};
-}
-
-function parseActivationSnapshot(
-	value: unknown,
-): LookupActivationState | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
-	const record = value as Record<string, unknown>;
-	if (
-		typeof record.carrierCommitsEnabled !== "boolean" ||
-		typeof record.caseOperationsEnabled !== "boolean"
-	) {
-		return undefined;
-	}
-	return {
-		carrierCommitsEnabled: record.carrierCommitsEnabled,
-		caseOperationsEnabled: record.caseOperationsEnabled,
 	};
 }
 

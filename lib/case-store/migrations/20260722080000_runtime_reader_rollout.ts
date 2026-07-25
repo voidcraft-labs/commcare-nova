@@ -13,10 +13,12 @@
 // the time a TRUNCATE trigger fires.
 
 import { type Kysely, sql } from "kysely";
-import {
-	DEPLOYMENT_CUTOVER_GATE_KEY,
-	DEPLOYMENT_CUTOVER_GATE_NAMESPACE,
-} from "../../db/deploymentCutoverGate";
+
+// Big-endian ASCII `NOVA` / `CUTO`, in PostgreSQL's signed int32 range. Held
+// here rather than imported: an applied migration's SQL must keep emitting the
+// same bytes on a fresh database, so it cannot depend on application code.
+const DEPLOYMENT_CUTOVER_GATE_NAMESPACE = 0x4e4f5641;
+const DEPLOYMENT_CUTOVER_GATE_KEY = 0x4355544f;
 
 const CUTOVER_LOCK_FUNCTION = "nova_lock_deployment_cutover_gate";
 const EPOCH_TRUNCATE_FUNCTION = "nova_reject_runtime_epoch_truncate";

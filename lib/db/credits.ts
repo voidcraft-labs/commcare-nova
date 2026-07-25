@@ -23,7 +23,6 @@ import {
 } from "./leaseView";
 import { getCurrentPeriod } from "./period";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
-import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
 import {
 	type ExactRunHolderIdentity,
 	exactRunHolderMatches,
@@ -32,7 +31,6 @@ import {
 	updatedExactlyOne,
 } from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
-import { declareRuntimeReader } from "./runtimeReaderVersion";
 import type { AppReservation, CreditGrantDoc } from "./types";
 
 /**
@@ -223,9 +221,6 @@ export async function debitAndBookReservation(
 		priorMarker,
 		owner,
 	} = args;
-	// An absent declaration is the deployed-v0 signal at the migration gate.
-	// Declare before any credit or holder DML in this transaction.
-	await declareRuntimeReader(tx);
 
 	let priorRefundSameRow = 0;
 	let crossRefund: { user: string; period: string; amount: number } | undefined;
@@ -314,15 +309,10 @@ export async function refundReservation(
 	await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return;
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
 		const expectedHolder = { mode, runId, nonce: holderNonce } as const;
 		if (
-			!exactRunHolderMatches(
-				lease.holderIdentity,
-				expectedHolder,
-				enforceNonce,
-			) ||
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
 			!lease.terminalWriteOwned(runId)
 		) {
 			return;
@@ -330,7 +320,6 @@ export async function refundReservation(
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
 		if (!reservation || reservation.settled || !chargedUserId) return;
-		await declareRuntimeReader(tx);
 		await refundToMonth(
 			tx,
 			chargedUserId,
@@ -341,7 +330,7 @@ export async function refundReservation(
 			.updateTable("apps")
 			.set({ res_settled: true })
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.executeTakeFirst();
 		requireExactHolderWrite("refundReservation", result);
 	});
@@ -368,24 +357,18 @@ export async function settleAndRelease(
 	return await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return { settled: false, outcome: "released" };
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
 		const expectedHolder = {
 			mode: opts.mode,
 			runId,
 			nonce: holderNonce,
 		} as const;
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, expectedHolder, enforceNonce)
-		) {
+		if (!exactRunHolderMatches(lease.holderIdentity, expectedHolder)) {
 			return {
 				settled: false,
 				outcome: lease.present ? "superseded" : "released",
 			};
 		}
-		// Keep the declaration ahead of both the refund ledger write and the
-		// terminal holder update: absence is how the trigger identifies v0.
-		await declareRuntimeReader(tx);
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
 		if (reservation && !reservation.settled && chargedUserId) {
@@ -414,7 +397,7 @@ export async function settleAndRelease(
 				.updateTable("apps")
 				.set({ ...settleField, ...releaseField })
 				.where("id", "=", appId)
-				.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+				.where(expectedRunHolderPredicate(expectedHolder))
 				.executeTakeFirst();
 			requireExactHolderWrite("settleAndRelease", result);
 		}
@@ -440,15 +423,10 @@ export async function refundStaleReservation(
 	return await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return "state_changed";
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
 		if (
 			expectedHolder.mode !== "edit" ||
-			!exactRunHolderMatches(
-				lease.holderIdentity,
-				expectedHolder,
-				enforceNonce,
-			) ||
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
 			!lease.reapableStrandedEdit
 		) {
 			return "state_changed";
@@ -456,7 +434,6 @@ export async function refundStaleReservation(
 		const reservation = rowReservation(row) as AppReservation;
 		const chargedUserId = reservation.userId ?? row.owner;
 		if (!chargedUserId) return "state_changed";
-		await declareRuntimeReader(tx);
 		await refundToMonth(
 			tx,
 			chargedUserId,
@@ -474,7 +451,7 @@ export async function refundStaleReservation(
 				awaiting_input: false,
 			})
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.executeTakeFirst();
 		requireExactHolderWrite("refundStaleReservation", result);
 		return "reaped";
@@ -501,22 +478,16 @@ export async function refundStaleGeneration(
 	return await withAppTx(async (tx) => {
 		const row = await lockLeaseRow(tx, appId);
 		if (!row) return "state_changed";
-		const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 		const lease = runLeaseState(leaseView(row));
 		if (
 			expectedHolder.mode !== "build" ||
-			!exactRunHolderMatches(
-				lease.holderIdentity,
-				expectedHolder,
-				enforceNonce,
-			) ||
+			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
 			!lease.reapableStaleBuild
 		) {
 			return "state_changed";
 		}
 		const reservation = rowReservation(row);
 		const chargedUserId = reservation?.userId ?? row.owner;
-		await declareRuntimeReader(tx);
 		if (reservation && !reservation.settled && chargedUserId) {
 			await refundToMonth(
 				tx,
@@ -536,7 +507,7 @@ export async function refundStaleGeneration(
 					: {}),
 			})
 			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder, enforceNonce))
+			.where(expectedRunHolderPredicate(expectedHolder))
 			.executeTakeFirst();
 		requireExactHolderWrite("refundStaleGeneration", result);
 		return "reaped";

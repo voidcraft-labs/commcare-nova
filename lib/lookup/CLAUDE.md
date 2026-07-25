@@ -52,14 +52,15 @@ column removal, or column retype. Established table-tag and column-wire-name
 changes require the existing `delete` capability; all row operations and
 non-identity edits require `edit`; reads require `view`.
 
-## Dormant reference and schema-governance infrastructure
+## Reference edges and schema governance
 
 `lookup_table_references` and `lookup_column_references` store only stable
 Project/table/column/app UUID identity, never names, wire names, carrier paths,
 or caller-provided edge deltas. A column edge is constrained to an existing
 table edge. Authoritative app commits replace each app's complete freshly
 extracted edge sets in their own transaction; S05a's immutable production
-registry covers every dormant lookup carrier.
+registry covers every lookup carrier. Both are app-state tables, not Project
+lookup resources, and must not be exposed through this package's table/row APIs.
 
 `schemaGovernance.ts` is a package-private, server-only seam with no action,
 route, MCP tool, or public barrel export. It reuses `writerTransaction.ts`, the
@@ -68,14 +69,12 @@ Both its wrapper and transaction core require the scope's `delete` capability
 before taking a lock and collapse an insufficient role to the same not-found
 shape as a missing or foreign resource.
 Its complete lock prefix is Project state `FOR UPDATE` -> exact table `FOR
-UPDATE` -> compatibility singleton `FOR SHARE` -> exact table/column edges. It
-never takes an app lock. Blocker results contain the sorted exact app-id set
-only; a fresh carrier-path re-walk belongs to confirmation UX.
+UPDATE` -> exact table/column edges. It never takes an app lock. Blocker results
+contain the sorted exact app-id set only; a fresh carrier-path re-walk belongs to
+confirmation UX.
 
-The production wrapper declares shared writer v1 from the runtime manifest.
-The destructive-action database flag remains false, so production stays
-write-free unless that separate compatibility control is explicitly changed;
-the transaction core remains the seeded integration seam for exact race
+No caller reaches the production wrapper, so the seam stays write-free outside
+tests; its transaction core is the seeded integration seam for exact race
 coverage.
 
 Inside that closed seam, an unreferenced table deletion uses the existing
@@ -87,12 +86,6 @@ reports affected rows/cells/freed bytes. Column retype inspects only present
 cells through typed-input validation, never coercion or stored-value rewriting,
 and changes the definition only after every value passes. Projection changes
 remain allowed while referenced and do not rewrite edges.
-
-This infrastructure does not activate lookup carriers, public destructive
-operations, or cross-Project moves. Stream-capability leases and the singleton
-compatibility floors live alongside app-state tables;
-they are not Project lookup resources and must not be exposed through this
-package's table/row APIs.
 
 ## Values, ordering, and limits
 

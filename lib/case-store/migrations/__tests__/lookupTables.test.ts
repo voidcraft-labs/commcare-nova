@@ -403,7 +403,6 @@ describe("lookup persistence migration", () => {
 
 		// Destructive lookup DDL sits behind the deployed writer floor; declare
 		// v1 (transaction-local, so it ends with this test's transaction).
-		await pgClient.query("SELECT set_config('nova.writer_version', '1', true)");
 		await pgClient.query(
 			"DELETE FROM lookup_tables WHERE project_id = $1 AND id = $2",
 			["project-a", tableId],

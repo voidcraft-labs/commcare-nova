@@ -1,9 +1,5 @@
 {
 	"schemaVersion": 1,
-	"writerVersion": 1,
-	"streamReceiverVersion": 3,
-	"runtimeReaderVersion": 1,
-	"streamRegistryVersion": 1,
 	"cloudRunRequestSeconds": 3600,
 	"streamLeaseGraceSeconds": 300,
 	"editRunLeaseSeconds": 900,

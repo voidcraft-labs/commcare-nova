@@ -5,7 +5,6 @@ import {
 	canonicalRuntimeCapabilityManifest,
 	type RuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
-	runtimeCapabilityRevisionLabelsFromHash,
 } from "@/lib/runtimeCapabilities/core.mts";
 import { hashCanonicalRuntimeCapabilityManifest } from "@/lib/runtimeCapabilities/serverHash.mts";
 
@@ -27,16 +26,5 @@ export function runtimeCapabilityEnvironment(
 	return runtimeCapabilityEnvironmentFromHash(
 		manifest,
 		hashRuntimeCapabilityManifest(manifest),
-	);
-}
-
-export function runtimeCapabilityRevisionLabels(
-	manifest: RuntimeCapabilityManifest,
-	buildId: string,
-): Readonly<Record<string, string>> {
-	return runtimeCapabilityRevisionLabelsFromHash(
-		manifest,
-		hashRuntimeCapabilityManifest(manifest),
-		buildId,
 	);
 }

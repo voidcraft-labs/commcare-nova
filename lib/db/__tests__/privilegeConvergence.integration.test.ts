@@ -558,9 +558,6 @@ describe("database privilege convergence", () => {
 					DROP INDEX ${sql.id(CASE_RUNTIME_SCHEMA)}.privilege_probe_idx
 				`.execute(tx);
 				await sql`
-					SELECT id FROM public.lookup_reference_compatibility
-				`.execute(tx);
-				await sql`
 					SELECT audited_complete_at
 					FROM public.media_reference_index_state
 				`.execute(tx);
@@ -583,23 +580,7 @@ describe("database privilege convergence", () => {
 			await expect(
 				asRole(h.db, config.runtimeRole, async (tx) => {
 					await sql`
-						UPDATE public.lookup_reference_compatibility
-						SET updated_at = clock_timestamp()
-						WHERE id = 1
-					`.execute(tx);
-				}),
-			).rejects.toMatchObject({ code: "42501" });
-			await expect(
-				asRole(h.db, config.runtimeRole, async (tx) => {
-					await sql`
 						SELECT name FROM public.kysely_migration LIMIT 1
-					`.execute(tx);
-				}),
-			).rejects.toMatchObject({ code: "42501" });
-			await expect(
-				asRole(h.db, config.runtimeRole, async (tx) => {
-					await sql`
-						SELECT public.nova_lock_deployment_cutover_gate()
 					`.execute(tx);
 				}),
 			).rejects.toMatchObject({ code: "42501" });

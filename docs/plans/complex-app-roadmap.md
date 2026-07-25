@@ -2,7 +2,7 @@
 
 > **Authoritative living plan.** Last rebaselined 2026-07-24 against deployed
 > Nova `62ffaff0` (PR #316). All of S01 through S06 is shipped: the lookup
-> maintenance floors hold their final values, local CCZ export emits the
+> reference edges are exact across the whole fleet, local CCZ export emits the
 > preservable lookup wire, case identity is opaque text end to end, preview
 > reads the real signed-in worker, and every submission lands through the
 > atomic envelope. S07 is `in progress` under its recorded readiness
@@ -331,7 +331,7 @@ when it changes what authors see or do.
 S00 -> S01 -> S02
 
 S02c1 -> {S03 display conditions, S04 case operations}
-{S02, S04} -> S05a dormant carriers/compatibility -> S05b local wire -> S05c carrier cutover
+{S02, S04} -> S05a lookup carriers -> S05b local wire -> S05c carrier cutover
 {S03, S04, S05c} -> S06 atomic submission/resolved preview identity -> S07 preview
 {S03, S04, S07} -> S08 conditions/operations authoring
 {S05c, S07} -> S09 Project data authoring
@@ -353,15 +353,13 @@ S06 -> S15 users/personas -> S16 organization/location store
 ```
 
 S02 through S06 are shipped. S05's exported-value, select-fallback,
-filter-scope, dependency, snapshot, and aggregate-fixture contracts are
-pinned, the local lookup wire is live in ccz export, and the maintenance
-floors hold their final values in production. S06's storage widening,
-identity contract, and atomic envelope are live, and its clean production
-rescan — S07's activation precondition — is recorded.
-S11-S14 and S15-S21 may
-overlap only when their worktrees do not share subsystem ownership. S22 needs a
-readiness rebaseline before delegation.
-Compiler verification stays serialized across wire slices.
+filter-scope, dependency, snapshot, and aggregate-fixture contracts are pinned,
+the local lookup wire is live in ccz export, and the reference edges are exact
+across every persisted app. S06's storage widening, identity contract, and
+atomic envelope are live, and its clean production rescan — S07's activation
+precondition — is recorded. S11-S14 and S15-S21 may overlap only when their
+worktrees do not share subsystem ownership. S22 needs a readiness rebaseline
+before delegation. Compiler verification stays serialized across wire slices.
 
 ## Slice ledger
 
@@ -372,7 +370,7 @@ Compiler verification stays serialized across wire slices.
 | S02 | External validation context and exact references | S01 | shipped | PR-01/02, F5 |
 | S03 | Display conditions: domain and wire | S02c1 | shipped | PR-01/03, F1 |
 | S04 | Case operations: domain and wire | S02c1 | shipped | PR-01/03, F4 |
-| S05a | Dormant lookup carriers and compatibility | S02/S04 | shipped | PR-01/03, F5 |
+| S05a | Lookup carriers, references, and validation | S02/S04 | shipped | PR-01/03, F5 |
 | S05b | Lookup expression, itemset, and local-fixture wire | S05a | shipped | PR-01/03, F5 |
 | S05c | Lookup carrier cutover and edge preparation | S05b | shipped | PR-01/03, F5 |
 | S06 | Atomic submission envelope and resolved preview identity | S03/S04/S05c | shipped | PR-04, F1/F4 |
@@ -744,22 +742,21 @@ destructive lookup-schema actions remain unavailable.
 
 S02a shipped as PR #298 at squash `07c45ef6`: Cloud Build
 `99ae1f72-048b-4515-8652-1f3caa669b99` ran migration execution
-`commcare-nova-migrate-cccx4` successfully before deploying healthy 100%-traffic
-revision `commcare-nova-00352-gpk`; production probes and the post-deploy error
-query passed, and its branches/worktrees were cleaned. S02b then shipped as PR
-#299 at squash `dd5fbecf`: all CI gates passed, Cloud Build
+`commcare-nova-migrate-cccx4` successfully before deploying healthy
+100%-traffic revision `commcare-nova-00352-gpk`; production probes and the
+post-deploy error query passed, and its branches/worktrees were cleaned. S02b
+then shipped as PR #299 at squash `dd5fbecf`: all CI gates passed, Cloud Build
 `22a9ca50-3dbb-4012-a363-fd5517d4f13c` ran migration execution
-`commcare-nova-migrate-rnqqd` successfully before deploying healthy 100%-traffic
-revision `commcare-nova-00353-plw`; app/docs/MCP contract probes passed, the new
-revision had no error logs, and the read-only production edge audit found all
-401 persisted apps clean. Its branches/worktrees were cleaned. S02c1 then
-shipped in PR #300 at squash `81e5ad8b`, including authorization serialization,
-runtime capability and stream admission, authoritative reload, and dormant
-holder-generation safety; healthy 100%-traffic revision
-`commcare-nova-00354-dq4` passed app/docs/MCP probes and its production error
-check. S02c2 shipped in PR #301 at squash `e9a6377a`: Cloud Build
-`030b9622-1aaf-43b2-8137-7ef4a4615f74` completed its blocking migration
-execution and deployed healthy 100%-traffic revision
+`commcare-nova-migrate-rnqqd` successfully before deploying healthy
+100%-traffic revision `commcare-nova-00353-plw`; app/docs/MCP contract probes
+passed, the new revision had no error logs, and the read-only production edge
+audit found all 401 persisted apps clean. Its branches/worktrees were cleaned.
+S02c1 then shipped in PR #300 at squash `81e5ad8b`, including authorization
+serialization, authoritative reload, and run-holder generation safety; healthy
+100%-traffic revision `commcare-nova-00354-dq4` passed app/docs/MCP probes and
+its production error check. S02c2 shipped in PR #301 at squash `e9a6377a`:
+Cloud Build `030b9622-1aaf-43b2-8137-7ef4a4615f74` completed its blocking
+migration execution and deployed healthy 100%-traffic revision
 `commcare-nova-00356-q6p`. S02c3 shipped in PR #304 at squash `97591f10`
 through Cloud Build `c0b35218-5c0f-4d68-ab7e-0932d000aa13`, successful
 migration execution `commcare-nova-migrate-b6whk`, and healthy 100%-traffic
@@ -897,11 +894,10 @@ Lock resource UUIDs lexically. The global protocol is:
 
 This covers guarded autosave/chat/MCP, synthetic migrations, and Project flips.
 Synthetic migrations and recovery writers use the guarded path and advance the
-app sequence; a direct entity-table write is additionally covered by the
-database compatibility floor below. Split candidate preparation from verdict
-evaluation so no reducer that can mint UUIDs is applied twice. S02 proves both
-seeded introduction-versus-delete winner orders through the production lock/
-edge protocol; S05 repeats them using real carriers.
+app sequence. Split candidate preparation from verdict evaluation so no reducer
+that can mint UUIDs is applied twice. S02 proves both seeded
+introduction-versus-delete winner orders through the production lock/edge
+protocol; S05 repeats them using real carriers.
 
 Authoritative mutation payloads are replay-deterministic: every identity they
 create is carried in the payload. `duplicateField` remains a UI-only gesture;
@@ -915,18 +911,18 @@ deterministic batches.
 
 Atomic creation is the sole app-lock exception. It constructs and applies its
 seed exactly once outside the retryable transaction closure. Inside one
-transaction it declares the writer version, freshly authorizes the exact Project,
-inserts the still-uncommitted app row as its serialization root, locks candidate
-lookup tables `FOR KEY SHARE` in UUID order, loads fresh context, validates, and
+transaction it freshly authorizes the exact Project, inserts the
+still-uncommitted app row as its serialization root, locks candidate lookup
+tables `FOR KEY SHARE` in UUID order, loads fresh context, validates, and
 inserts entities and exact edges. Any failure rolls back the app insertion. S05
 uses this same path for carrier-bearing seeds.
 
-A legacy app with `project_id = null` receives an unavailable lookup context and
-may commit only an empty structural target set; an authoritative write still
-clears any stale stored edges. During S02b the dormant Project-move writer
-declares writer v0 and permits a Project flip only when structural and stored
-lookup target sets are both empty, clearing source edges before the flip. S02c
-replaces that restriction with the complete dual-Project protocol.
+A legacy app with `project_id = null` receives an unavailable lookup context
+and may commit only an empty structural target set; an authoritative write
+still clears any stale stored edges. During S02b the Project-move
+writer permits a Project flip only when structural and stored lookup target
+sets are both empty, clearing source edges before the flip. S02c replaces that
+restriction with the complete dual-Project protocol.
 
 #### Schema behavior
 
@@ -950,14 +946,11 @@ applicable edges and remain runtime-disabled until S07 activation:
   path to no schema. S09 owns confirmation UX.
 
 S02b implements those operations only as package-private governance. Its
-production wrapper declares shared writer v0, locks the compatibility row
-`FOR SHARE`, and fails closed while the activation flag is false; it never
-smuggles a local writer-v1 override past the compatibility floor. The transaction core
-is integration-tested under explicit writer v1 plus enabled compatibility.
-Column removal advances both definition and rows revisions because it changes
-schema and row JSON. Blocker diagnostics return exact app ids only; the
-actionable carrier re-walk belongs to S09 and never reverses the resource-to-app
-lock order.
+production wrapper fails closed until S07 opens the gate; the transaction core
+is integration-tested directly. Column removal advances both definition and
+rows revisions because it changes schema and row JSON. Blocker diagnostics
+return exact app ids only; the actionable carrier re-walk belongs to S09 and
+never reverses the resource-to-app lock order.
 
 The neutral export boundary has three explicit modes: `ccz`, `hq-json`, and
 `hq-upload`. It loads definitions even for an empty target set, validates with
@@ -970,16 +963,15 @@ resource-push contract permits them.
 
 #### Cross-Project moves and transport
 
-S02 builds and tests the final move path but leaves true moves disabled through
-S07 activation. Governance is source `delete` plus destination `delete`, repeated
-inside the transaction with IDOR-opaque failures. A source owner may relocate to
-any destination where they hold `delete`; a non-owner source admin may do so only
-when every source owner remains a destination member. The production wrapper
-rejects while `project_moves_enabled = false` before resolving/copying media or
-performing any other side effect. Only a package-private transaction core may be
-exercised in S02c tests, under explicit writer v1, receiver v1, enabled
-compatibility, and no active incompatible lease. A true move also requires the
-locked app to have `deleted_at IS NULL`.
+S02 builds and tests the final move path but leaves true moves unavailable until
+S07 owns the destination workspace and its disclosure. Governance is source
+`delete` plus destination `delete`, repeated inside the transaction with
+IDOR-opaque failures. A source owner may relocate to any destination where they
+hold `delete`; a non-owner source admin may do so only when every source owner
+remains a destination member. The production wrapper rejects before
+resolving/copying media or performing any other side effect, so only a
+package-private transaction core is exercised in S02c tests. A true move also
+requires the locked app to have `deleted_at IS NULL`.
 
 All Project-membership DML and membership-dependent app transactions share one
 fixed transaction-scoped advisory gate. The import-light helper owns one stable
@@ -1068,7 +1060,7 @@ the Project flip, case-row tenancy, presence purge, migration row, and
 notifications commit atomically. Pre-copy fails unless every real source asset
 is ready, source-Project-owned, and movable; the final transaction locks and
 revalidates every destination asset and creates destination reverse references.
-Threads are app-owned history and move with the app; the S07 activation UI and
+Threads are app-owned history and move with the app; the S07 move UI and
 public docs must disclose that both conversation history and chat-attached files
 move to the destination Project. The move's media closure is therefore the union
 of blueprint references and canonical
@@ -1168,116 +1160,79 @@ destination editor/viewer, source-only, same-Project migration, transient
 failure, downgrade/upgrade with retained pending edits, and one-EventSource
 ownership.
 
-#### Receiver capabilities and rollback floor
+#### Stream registration and runtime timing
 
-Receiver capabilities are cumulative and separate from writer/runtime versions:
+Stream registration commits before the first frame: lock `apps FOR SHARE`, take
+the Project membership serialization lock, and freshly resolve scope/view
+authorization inside that transaction. Carrier commits and moves hold
+`apps FOR UPDATE`, so registration serializes against them rather than racing a
+scope change it cannot observe.
 
-- v0 is omitted, malformed, or pre-registry;
-- v1 is S02 Project reload/reset safe and is the minimum for a move;
-- v2 can parse, preserve, and replay dormant S05 lookup carriers, but does not
-  admit their commits;
-- v3 is the S07 total browser receiver, including every client-side committed-
-  state consumer and preview execution, and is the minimum for a carrier commit.
+One version-controlled runtime-capability manifest owns the deployed timing
+declarations: a 3,600-second Cloud Run request cap, a 300-second
+`stream_lease_grace`, the distinct 15-minute renewable edit-run liveness lease,
+and the 10-minute renewable build-staleness horizon. Cloud Build pins
+`--timeout=3600`; the server route and operations tooling derive from the same
+manifest rather than duplicating the values. Only `streamLeaseTtlSeconds` derives
+as request cap plus stream grace, exactly 3,900 seconds; neither run-liveness
+clock derives from it. Teardown disowns and closes the transport before the
+request ends.
 
-Every browser EventSource URL carries exactly one `receiverVersion` declaration
-from that browser bundle's compiled capability manifest. Missing, duplicate,
-or malformed declarations are v0. A serving revision supports the minimum of
-its compiled receiver and its strictly parsed deployed-environment declaration,
-and supports only v0 unless both compiled and deployed stream-registry versions
-are at least 1. The lease admits the minimum of browser and serving support, so
-a new server cannot attribute v1 to an old open browser bundle.
+**S02c1 implementation status (2026-07-22):** Shipped in PR #300 and deployed
+by Cloud Build as revision `commcare-nova-00354-dq4` at 100% traffic.
+Production verification covered the main, docs, and MCP host contracts, the
+blocking migration execution, revision health, and an empty ERROR-level
+revision log query. `config/runtime-capabilities.json` is now the strict,
+version-controlled source for the 3,600-second request cap, the 300-second
+stream grace, the independently declared 900-second renewable edit lease, and
+the independently declared 600-second build-staleness horizon. The browser-safe
+shared parser produces canonical bytes and rejects an invalid checked-in
+manifest; a Node-only leaf hashes those bytes for the manifest identity. Only
+request cap plus stream grace derives the 3,900-second stream lease TTL;
+`lib/db/constants.ts` projects the two run-liveness fields to its legacy
+minute-valued API without authoring either value. Cloud Build validates the
+manifest and bakes its generated declarations into the image, and Next's two
+required static route literals are guarded against drift. The stream route
+registers in the same app and membership lock set after session authentication,
+cadence compares the captured Project/role/canEdit tuple, and migration
+delivery reauthorizes before advancing its cursor. S02c2 hardens the ordinary
+Cloud Build → blocking migration Job → Cloud Run deploy path, pins the request
+timeout, and verifies the baked manifest/build identity at startup.
 
-Add a durable stream-capability lease keyed by app and a database-minted
-connection UUID; the server never accepts client-asserted connection identity.
-Registration commits before the first frame: lock `apps FOR
-SHARE`, take the Project membership serialization lock, freshly resolve
-scope/view authorization in that transaction, lock the compatibility-state row
-`FOR SHARE`, reject a receiver below its persistent floor, and insert the lease.
-Carrier commits and moves hold `apps FOR UPDATE` while reading the same state and
-the app's unexpired leases. This serializes registration with admission.
-One version-controlled runtime-capability manifest owns the deployed reader,
-receiver, stream-registry, and writer versions plus a 3,600-second Cloud Run
-request cap, a 300-second `stream_lease_grace`, the distinct 15-minute renewable
-edit-run liveness lease, and the 10-minute renewable build-staleness horizon.
-Cloud Build pins `--timeout=3600`; server route, leases, deploy labels, and
-operations tooling derive from the same manifest rather than duplicating the
-values. Only `streamLeaseTtlSeconds` derives as request cap plus stream grace,
-exactly 3,900 seconds; neither run-liveness clock derives from it. Teardown
-first disowns/closes the transport, then best-effort deletes its own lease, while
-expiry covers crashes and cleanup failure without expiring a still-live request.
-
-**S02c1 implementation status (2026-07-22):**
-Shipped in PR #300 and deployed by Cloud Build as revision
-`commcare-nova-00354-dq4` at 100% traffic. Production verification covered the
-main, docs, and MCP host contracts, the blocking migration execution, revision
-health, and an empty ERROR-level revision log query. The production
-compatibility state remained intentionally dormant: every floor was `0`, every
-activation flag was false, there were no runtime epochs or active stream
-leases, and seven present legacy holders remained visible as v0 blockers.
-`config/runtime-capabilities.json` is now the strict, version-controlled source
-for writer `0`, stream receiver `1`, runtime reader `1`, stream registry `1`,
-the 3,600-second request cap, the 300-second stream grace, the independently
-declared 900-second renewable edit lease, and the independently declared
-600-second build-staleness horizon. The browser-safe shared parser produces
-canonical bytes and rejects an invalid checked-in manifest; a Node-only leaf
-hashes those bytes for the manifest identity. Missing/malformed revision label
-or environment version declarations read as v0. Only request cap plus stream
-grace derives the 3,900-second stream lease; `lib/db/constants.ts` projects the
-two run-liveness fields to its legacy minute-valued API without authoring either
-value. Cloud Build validates the manifest and bakes its generated declarations
-into the image; Next's two required static route literals and the writer
-declaration are guarded against drift. The pure server receiver resolver now
-enforces exact-one browser parsing and the browser/compiled/deployed minimum.
-The stream route uses it after session authentication and registers a
-database-minted lease in the same app, membership, and compatibility lock set;
-below-floor requests receive only the terminal seq-less upgrade revocation.
-Lease timestamps use PostgreSQL statement time after lock wait, teardown
-deletes the exact lease only after disowning the transport, cadence compares the
-captured Project/role/canEdit tuple without re-reading the floor, and migration
-delivery reauthorizes before advancing its cursor. Registration also performs a
-separate best-effort purge of at most 256 expired leases through the
-`expires_at` index with `SKIP LOCKED`; purge failure cannot roll back or reject
-the already-decided admission. `ReconcilerProvider` now appends the manifest's
-compiled receiver version to every EventSource URL, so new browser bundles
-declare v1; already-open pre-wiring bundles still declare v0 by omission. This
-foundation does **not** change traffic, raise a floor, or enable a flag. S02c2
-hardens the ordinary Cloud Build → blocking migration Job → Cloud Run deploy
-path, pins the request timeout, and verifies the baked manifest/build identity
-at startup. It does not add a Nova-specific traffic control plane.
-
-The runtime-holder callsite slice is now source-complete too: every current
-holder-touching transaction declares runtime reader v1 before DML, including
+The runtime-holder callsite slice is now source-complete too: every claim mints
+a private UUID generation stored beside stable `runId` attribution, across
 creation, claim/replacement, reservation, paused reacquisition, same-holder
-blueprint commits, heartbeats/pause writes, and terminal/failure/reaper/recovery
-paths. Each claim mints a private UUID generation stored beside stable `runId`
-attribution.
-`runHolderWrites.ts` is the shared SQL compare-and-set boundary for terminal,
-failure, pause/heartbeat, recovery, and reaper writes. Reaper scans and queues
-carry the concrete holder they observed instead of a bare app id, and credit
-reapers roll ledger changes back if the admitted app-row write affects zero
-rows. A missing run id remains corrupt; a concrete run id with null nonce is a
-legacy v0 holder that remains census-visible and reapable.
-`recover-app` has no direct app writer: a present holder requires explicit
-matching mode, run-id, and UUID nonce flags, and the database service re-proves
-that exact generation under lock and in SQL.
+blueprint commits, heartbeats/pause writes, and
+terminal/failure/reaper/recovery paths. `runHolderWrites.ts` is the shared SQL
+compare-and-set boundary for terminal, failure, pause/heartbeat, recovery, and
+reaper writes. Reaper scans and queues carry the concrete holder they observed
+instead of a bare app id, and credit reapers roll ledger changes back if the
+admitted app-row write affects zero rows. A missing run id or a missing nonce
+remains corrupt. `recover-app` has no direct app writer: a present holder
+requires explicit matching mode, run-id, and UUID nonce flags, and the database
+service re-proves that exact generation under lock and in SQL.
 
-Nonce storage is intentionally non-activating. The irreversible
-`run_holder_nonce_enforced` compatibility switch defaults false, so runtime
-admission and CAS still honor legacy `(mode, runId)` and accept an old paused
-browser continuation with no nonce. Such a v0 resume upgrades itself with a
-server nonce in the same app-locked write. The holder-stamp trigger includes the
-pause/lease columns used by the deployed v0 resume (`awaiting_input`,
-`lock_expire_at`, and `updated_at`). Deployed v0 sets no runtime GUC, so the
-trigger treats an absent declaration as v0 and clears any inherited nonce/stamp
-even when stable mode/run identity did not change. After a later total-consumer
-activation unit drains the request epoch, v0/null-nonce holders, and old
-receiver leases, it may raise the runtime-reader floor and enable the switch;
-from then on, missing/mismatched nonces fail closed with an explicit refresh.
-S02c2 deliberately exposes no floor-raise or nonce-activation command and has
-no database privilege to perform either. Focused
-pure/integration tests and the app-DML structural guard ship with the slice;
-execution remains part of the integration/CI verification gate. This work
-changes no floor, switch, traffic, or production state.
+The nonce is permanent run-holder identity. The database owns the
+holder-identity state machine, using the effective `(mode, runId, nonce)`
+derived from locked run fields: edit uses `lock_run_id`; build uses
+`res_run_id`, falling back to root `run_id` only for the just-created
+pre-reservation generating state. Runtime admission and the compare-and-set
+both key on that full triple, and a missing or mismatched nonce fails closed
+with an explicit refresh. A claim or replacement mints a fresh nonce and stamps
+it; every same-generation heartbeat preserves the existing stamp; an
+identity-owned terminal transition clears the stamp and retains the nonce
+tombstone. Every terminal/failure/reaper API includes the expected holder
+identity in its locked conditional write, so a stale writer affects zero rows
+and cannot clear or fail a replacement holder. The holder-stamp trigger
+includes the pause/lock columns a paused browser continuation writes
+(`awaiting_input`, `lock_expire_at`, and `updated_at`), so a resume cannot
+retain a generation it does not own. SA runs can outlive the browser connection
+that started them, so an old detached run remains visible after its initiating
+HTTP request ends; `MAX_RUN_MINUTES` remains a renewable edit-liveness lease
+reclaimed by `runLeaseState` and the canonical reaper, never a bound on the
+request that opened it. Focused pure/integration tests and the app-DML
+structural guard ship with the slice; execution remains part of the
+integration/CI verification gate.
 
 Chat blueprint writes now carry an explicit `ChatRunHolderCapability` in
 addition to their durable attribution `runId`; MCP continues to stamp `runId`
@@ -1285,26 +1240,23 @@ without claiming chat-lease authority. The capability includes the private
 nonce generation. It is sent live to the authenticated POST caller but is not
 stored in the view-scoped durable chunk log: that log carries an inert,
 count-preserving thread-id + SHA-256-digest marker, and reconnect rehydrates it
-from the retained thread nonce and current app holder only for the owning actor.
-The digest prevents an old same-run stream from receiving a successor
-generation. Direct commits check the
-compatibility-admitted projection under the app lock and repeat it in
-`writeCommittedBatch`'s SQL compare-and-set;
-once activated, that is the exact `(mode, runId, nonce)`. Migration-bearing
-commits check the same capability before
-their locked Phase A; if ownership changes after Phase A, the final guarded
-commit rejects and the existing compensation restores the current committed
-schema/data shape. Thread-marker persistence likewise locks the app, reads the
-compatibility switch, and proves the admitted holder before locking the thread.
-A loser may merge real transcript content into an existing same-app thread, but
-cannot install or clear the successor's run/stream/nonce marker; it terminates
-after that merge commits. Every build claim stamps root `run_id` immediately,
-so a successor that emits no mutations still invalidates an older zombie after
-the successor is reaped. The only absent-holder completion remains the existing
-false-reap self-heal: it requires a free error row, a marker that the reaper
-itself cleared, and matching root `run_id`. A pre-settled stale build retains
-`res_run_id`, deliberately does not satisfy that signature, and is not
-self-healable.
+from the retained thread nonce and current app holder only for the owning
+actor. The digest prevents an old same-run stream from receiving a successor
+generation. Direct commits prove the exact `(mode, runId, nonce)` under the app
+lock and repeat it in `writeCommittedBatch`'s SQL compare-and-set.
+Migration-bearing commits check the same capability before their locked Phase
+A; if ownership changes after Phase A, the final guarded commit rejects and the
+existing compensation restores the current committed schema/data shape.
+Thread-marker persistence likewise locks the app and proves the admitted holder
+before locking the thread. A loser may merge real transcript content into an
+existing same-app thread, but cannot install or clear the successor's
+run/stream/nonce marker; it terminates after that merge commits. Every build
+claim stamps root `run_id` immediately, so a successor that emits no mutations
+still invalidates an older zombie after the successor is reaped. The only
+absent-holder completion remains the existing false-reap self-heal: it requires
+a free error row, a marker that the reaper itself cleared, and matching root
+`run_id`. A pre-settled stale build retains `res_run_id`, deliberately does not
+satisfy that signature, and is not self-healable.
 
 The S02c1 client foundation now carries the RSC authorization tuple and cursor
 as one snapshot, owns one reactive BuilderSession capability/phase/Project
@@ -1319,77 +1271,14 @@ hydration; Project toasts; and builder history. Every async completion is
 abortable or checks its captured runtime generation before publishing. The S05
 definition cache must join this same registry before carriers activate. PUT 403,
 404, and `app_changed` preserve pending work and enter that reload; only typed
-`commit_rejected` drops one batch. A confirmed GET/view loss is terminal. Every
-EventSource URL declares the compiled receiver version; an upgrade rejection
-masks and clears Project state before one session-latched hard refresh, then
-falls back to a distinct blocking refresh-required screen instead of looping or
-misreporting access loss. The public Projects guide now labels Project moves as
-staged/unavailable while `project_moves_enabled` remains false; S02c3 replaces
-that notice with the final workflow only when activation is real.
+`commit_rejected` drops one batch. A confirmed GET/view loss is terminal. The
+public Projects guide labels Project moves as unavailable; S07 replaces that
+notice with the final workflow.
 
-SA runs can outlive the browser connection that started them, so request and
-stream bounds alone cannot prove a runtime-reader drain. Every app run holder
-stores the runtime-reader version declared transaction-locally by its claimant;
-missing/unset is v0. The database owns the holder-identity state machine, using
-the effective `(mode, runId, nonce)` derived from locked run fields: edit uses
-`lock_run_id`; build uses `res_run_id`, falling back to root `run_id` only for
-the just-created pre-reservation generating state. A v1 declaration identifies
-the current writer, not ownership of an unchanged holder. Below cutoff, an exact
-unchanged legacy holder therefore remains v0 and census-visible; a below-floor
-old stamp fails after cutoff. Only a new/replaced v1 holder requires a concrete
-run id + nonce and stamps the transaction-local version. An undeclared
-holder-touching write is deployed v0 and clears any inherited nonce/stamp even
-when stable thread attribution leaves mode/run unchanged. Every current
-same-generation heartbeat explicitly declares v1 and preserves the admitted
-existing stamp; an identity-owned terminal transition declares v1, clears the
-stamp, and retains the nonce tombstone. Every terminal/failure/reaper API
-includes the expected holder identity in its locked conditional write, so a
-stale writer affects zero rows and cannot clear or fail a replacement holder.
-Runtime-floor status combines that stamp with fresh `runLeaseState`; every
-present holder carrying a
-missing/below-floor version blocks activation, including live, paused, reapable,
-and corrupt-present states. Old code cannot evade the model:
-before a floor raise it leaves the v0 stamp, and after a floor raise its claim
-fails closed. Thus an old detached run remains visible even after its initiating
-HTTP request ends; `MAX_RUN_MINUTES` remains a renewable edit-liveness lease,
-never an absolute deployment-drain bound.
-
-Pre-registry draining starts only after `continuous_registry_traffic_since`
-marks uninterrupted 100% registry-capable traffic. For the initial v0 cutoff,
-that interval must first reach 3,900 seconds, so no invisible pre-registry stream
-can remain. Raising `minimum_stream_receiver_version` is an admission cutoff only;
-it never activates vocabulary. The compatibility-state transaction raises the
-receiver floor while every feature flag stays disabled. A concurrent lower-
-version registration either commits first and becomes part of the bounded drain,
-or observes the new floor and receives no state/lease. After the cutoff, wait the
-3,900-second cap-plus-grace interval and require no unexpired lower-version lease.
-Any reconnect below the floor receives the v0-understood terminal `revoked`
-frame with reason `client-upgrade-required`, consumes no blueprint, destination,
-or history frame, closes without retry, clears/freezes Project state, and
-requires a hard refresh.
-
-v1 is sufficient for moves; receivers below v2 block the S05 preservation floor,
-and receivers below v3 block S07 carrier activation. Cover both registration/
-admission winner orders, abort cleanup failure, old-server overlap, and the
-forced-refresh no-loop path.
-
-The already-landed runtime traffic-epoch and holder-census primitives remain
-dormant database safety inputs; S02c performs no runtime-floor prepare or raise.
-Nova does not build a reusable traffic controller merely to exercise them. A
-future feature that requires an irreversible nonzero floor raises it directly
-in its own release.
-
-Add persistent lookup-reference compatibility state with monotonic
-`minimum_writer_version`, `minimum_stream_receiver_version`, and
-`minimum_runtime_reader_version`, plus initially-false carrier-commit,
-schema-action, and Project-move activation flags. Build revisions declare their
-supported versions, including stream-registry support; a missing or malformed
-declaration is zero. The service keeps its default `run.app` URL disabled. Its
-strengthened `/warmup` startup probe fails on a malformed baked declaration,
-build-identity override, or database unavailability; Cloud Run waits for that
-probe before moving traffic through its standard deployment path. S02c ships
-with all floors at `0` and all activation flags false and performs no production
-floor raise. Deploying code alone never activates vocabulary.
+The service keeps its default `run.app` URL disabled. Its strengthened
+`/warmup` startup probe fails on a malformed baked manifest, build-identity
+override, or database unavailability; Cloud Run waits for that probe before
+moving traffic through its standard deployment path.
 
 S02c2 also closes the current unknown-Host bypass in the multi-host proxy:
 production accepts only the three configured public hosts plus the platform's
@@ -1405,47 +1294,26 @@ runtime schema materialization still creates and drops indexes concurrently, so
 that table lives in an isolated runtime-owned schema where the web process may
 create indexes without receiving DDL authority beside fixed objects in `public`.
 
-The database writer guard covers app insertion, every `blueprint_entities`
-write, `accepted_mutations` insertion, mutation-sequence/Project-id advance, and
-destructive lookup-table/column writes. It reads a transaction-local version,
-defaulting to `0` when unset; pooled transactions must prove the setting neither
-leaks nor survives commit. S02b's reference-aware writers explicitly declare
-version `0`; S05 changes the one shared writer constant to `1` before registering
-real extractors. A direct synthetic migration declares the deployed writer
-version or uses the guarded commit path. After the clean S05 edge migration
-raises only the writer and stream-receiver floors, old writers fail closed but
-carrier commits stay disabled. With the deployment-cutover lock held, S07 first
-raises the total-consumer runtime-reader and v3 stream floors while every feature
-flag remains false. After old streams/requests/runs drain and scans remain clean,
-a second compatibility-state transaction flips the selected activation flags.
-Cover missing/old rollback declarations, cutoff/activation atomicity,
-unset/leaked transaction settings, and an old reader never observing a newly
-committed carrier.
-
 #### Review units and verification
 
 S02 ships in three sequential review units from merged `main`:
 
-1. **S02a — identities and dormant storage:** runtime ids/brands,
-   definition-only service reads, exact edge and stream-lease tables,
-   multi-axis compatibility-state row and disabled activation flags, supporting
-   app uniqueness/indexes, and the database writer-version trigger active at
-   floor `0`. It adds no production extractor or edge writer, and old code with
-   no transaction setting continues as version `0`. **Shipped in PR #298.**
-2. **S02b — validation and authoritative writes:**
-   an empty production target-extractor registry, shared edge materializer plus seeded harness, apply-once
-   candidate preparation, consistent context threading, the atomic-creation
-   exception, exact-set replacement across every existing app writer, explicit
-   writer-version `0` declaration, schema-governance internals, export-boundary
-   generalization, and the zero-carrier edge audit. **Shipped in PR #299.**
-3. **S02c — move and transport safety (shipped):** exact
-   membership serialization, capability manifest, stream leases, and
-   runtime-holder versioning,
+1. **S02a — identities and reference storage:** runtime ids/brands,
+   definition-only service reads, the exact edge tables, and supporting app
+   uniqueness/indexes. It adds no production extractor or edge writer.
+   **Shipped in PR #298.**
+2. **S02b — validation and authoritative writes:** an empty production
+   target-extractor registry, shared edge materializer plus seeded harness,
+   apply-once candidate preparation, consistent context threading, the
+   atomic-creation exception, exact-set replacement across every existing app
+   writer, schema-governance internals, export-boundary generalization, and the
+   zero-carrier edge audit. **Shipped in PR #299.**
+3. **S02c — move and transport safety (shipped):** exact membership
+   serialization, the runtime-capability manifest and run-holder identity,
    authoritative reload and mutable editability, per-operation case/presence
    tenancy, transactional media deletion, dual-Project owner/run governance,
-   the fully tested but still-disabled move path, and permanent deployment/
-   database-identity hardening. Production floors remain `0` and flags remain
-   false.
+   the fully tested but not-yet-reachable move path, and permanent deployment/
+   database-identity hardening.
 
 S02c shipped as three sequential PRs from each newly deployed `main`, with small
 independently reviewed commits inside each PR. This keeps the transport,
@@ -1453,62 +1321,57 @@ deployment-security, and tenant-move risk surfaces reviewable:
 
 1. **S02c1 — authorization and transport foundation:** roadmap/concurrency
    matrix; auth-membership serialization; authoritative app transactions and
-   reload snapshots; the capability manifest; compatibility, stream-lease, and
-   runtime-holder primitives; receiver-v1 admission and migration
-   classification; and mutable client writability. **Shipped in PR #300.**
-2. **S02c2 — deployment hardening:** immutable build identity and startup health,
-   strict production Host routing, build/migration/runtime identity separation,
-   migration-owned fixed schema plus the isolated runtime case-index schema,
-   the ordinary blocking migration/Cloud Run deploy path, and structural
-   verification. Apply the reviewed IAM/Cloud SQL bootstrap before merging the
-   pipeline switch. Every floor remains `0` and every activation flag false.
-   **Shipped in PR #301.**
-3. **S02c3 — tenant-safe dormant move:** per-operation case authorization and
+   reload snapshots; the runtime-capability manifest; run-holder identity
+   primitives; migration classification; and mutable client writability.
+   **Shipped in PR #300.**
+2. **S02c2 — deployment hardening:** immutable build identity and startup
+   health, strict production Host routing, build/migration/runtime identity
+   separation, migration-owned fixed schema plus the isolated runtime
+   case-index schema, the ordinary blocking migration/Cloud Run deploy path,
+   and structural verification. Apply the reviewed IAM/Cloud SQL bootstrap
+   before merging the pipeline switch. **Shipped in PR #301.**
+3. **S02c3 — tenant-safe move:** per-operation case authorization and
    transactional presence, atomic move and run normalization, exact media
-   protocol, and same-Project repair. True moves remain disabled. **Shipped in
-   PR #304.** The dormant v1 core
-   commits Project flip, case tenancy, blueprint/thread media remaps, presence
-   purge, migration history, reverse references, and notifications atomically;
-   production still declares writer v0 and the static move policy still rejects
-   before media work.
+   protocol, and same-Project repair. True moves remain unreachable until S07
+   builds the destination workspace. **Shipped in PR #304.** The core commits
+   Project flip, case tenancy, blueprint/thread media remaps, presence purge,
+   migration history, reverse references, and notifications atomically; the
+   static move policy still rejects before media work.
 
 Within those PRs, commit and review in this order:
 
-1. roadmap/concurrency matrix and capability-manifest contract;
+1. roadmap/concurrency matrix and runtime-capability manifest contract;
 2. auth-membership serialization plus authoritative app transaction helpers;
-3. compatibility, stream-lease, runtime-holder, and cutover-lock primitives;
-4. receiver-v1 admission, migration classification, authoritative reload, and
-   mutable client writability;
+3. run-holder identity primitives;
+4. migration classification, authoritative reload, and mutable client
+   writability;
 5. startup/Host hardening, deployment identity separation, fixed-schema
    ownership convergence, and structural CI guards;
 6. per-operation case authorization and transactional presence;
-7. dormant atomic move, run normalization, exact media protocol, and
+7. the atomic move, run normalization, exact media protocol, and
    same-Project repair; and
 8. integrated verification and independent whole-slice review.
 
-Use one pure invocation and one shared-Postgres invocation per review unit; never
-start competing containers or browsers on the 16 GB machine. Across S02 cover
-context/finding identity, missing/foreign parity, edge constraints and exact-set
-replacement, apply-once UUIDs, every writer, both seeded race orders, projection
-renames, zero-edge schema actions, floor behavior, structural/stored mismatch,
+Use one pure invocation and one shared-Postgres invocation per review unit;
+never start competing containers or browsers on the 16 GB machine. Across S02
+cover context/finding identity, missing/foreign parity, edge constraints and
+exact-set replacement, apply-once UUIDs, every writer, both seeded race orders,
+projection renames, zero-edge schema actions, structural/stored mismatch,
 role/owner/membership/run-lease matrices, membership/case/presence races,
 TRUNCATE rejection without advisory waiting, media-delete/move winner orders,
 concurrent case-patch preservation, atomic parked replacement/dismissal,
 transactional introduced-media references, complete deletion re-walks, and
 object-key cleanup/upload/extraction/move winner orders, transactional
-notification visibility,
-compatible/incompatible stream leases,
-registration/admission winner orders, stream teardown/expiry, runtime-holder
-new-identity/same-identity/supersede/heartbeat/finalize/reap behavior,
-ownership-safe stale terminal writes, every unstamped present run reading as v0,
-per-target runtime epoch behavior, destination reload versus true
-revoke, upgrade-required no-loop, PUT-403 downgrade/upgrade-before-cadence,
-transient retry, unsaved role transitions, and cursor independence.
+notification visibility, registration winner orders, stream teardown,
+runtime-holder new-identity/same-identity/supersede/heartbeat/finalize/reap
+behavior, ownership-safe stale terminal writes, destination reload versus true
+revoke, PUT-403 downgrade/upgrade-before-cadence, transient retry, unsaved role
+transitions, and cursor independence.
 
 Then typecheck, scoped lint, and one affected leak pass. S02c stays at provider,
-route, and shared-Postgres integration because production move activation remains
-closed; S07 owns the first sequential desktop/compact browser move/reload journey
-through an actually enabled path. Each unit gets independent review, green CI,
+route, and shared-Postgres integration because no move destination is reachable
+yet; S07 owns the first sequential desktop/compact browser move/reload journey
+through the finished path. Each unit gets independent review, green CI,
 squash merge, blocking migration/Cloud Run follow-through, production probes/
 error check, and cleanup.
 
@@ -1710,26 +1573,25 @@ any DML, including default-owner stamping, rather than relying on the looser cur
 Postgres columns. Authored retypes additionally require `wirePortable`: no
 source-only parking and no conversion, because CommCare changes only `case_type` and
 would otherwise retain a different lexical/property projection from Nova. The richer
-pure plan remains available for a future shared wire representation. The pure storage
-seam and wire are complete, but
-`CASE_OPERATIONS_NOT_ACTIVE` intentionally keeps operation-bearing candidates
-uncommittable: S06 must execute one atomic submission envelope (including the exact-
-schema retype subset) and complete the opaque-case-id migration/audit enumerated
-in its slice before authored ids can reach storage; S07 must add preview execution before S08 opens builder,
-SA, or MCP authoring. No public docs change is due while the feature is dormant.
+pure plan remains available for a future shared wire representation. The pure
+storage seam and wire are complete, and the remaining execution consumers are
+named: S06 owns the atomic submission envelope (including the exact-schema
+retype subset) and the opaque-case-id migration/audit enumerated in its slice
+before authored ids can reach storage; S07 owns preview execution before S08
+opens builder, SA, or MCP authoring. No public docs change is due until those
+authoring surfaces exist.
 
 ### S05 — lookup carriers, table expressions, itemsets, and wire foundations
 
 **Status:** S05a shipped in PR #311 at `06a6ee4f`; S05b shipped in PR #312 at
-`97d6bb89`; S05c shipped in PR #316 at `62ffaff0` — the maintenance floors
-hold their final values in production.
-Domain/wire readiness closed on 2026-07-23. S05a adds carrier schemas,
-history-compatible mutations, persistence/replay, reference ownership, and
-validation with every carrier commit and export gate still closed. S05b adds
-the local wire: ccz export lowers preservable carriers and emits
-suite-embedded fixtures, while UI, SA/MCP vocabulary, preview/SQL activation,
-and carrier commits stay closed. HQ JSON and upload reject the carriers
-until S20 owns resource push/mapping.
+`97d6bb89`; S05c shipped in PR #316 at `62ffaff0` — the reference edges are
+exact across every persisted app in production. Domain/wire readiness closed on
+2026-07-23. S05a adds carrier schemas, history-compatible mutations,
+persistence/replay, reference ownership, and validation with every carrier
+commit and export gate still closed. S05b adds the local wire: ccz export
+lowers preservable carriers and emits suite-embedded fixtures, while UI, SA/MCP
+vocabulary, preview/SQL activation, and carrier commits stay closed. HQ JSON
+and upload reject the carriers until S20 owns resource push/mapping.
 
 S05 introduces the first production UUID-backed lookup carriers: table-backed
 select sources with value/label column ids, table-lookup expressions with a
@@ -1767,19 +1629,17 @@ synthesizes fallback options from table rows or inserts sentinel choices. S09's
 source-mode switch preserves the authored inline list. XForm emission produces
 either the static `<item>` children or one `<itemset>`, never both.
 
-The current nested field schemas are strict, so inline fallback content alone
-does not make a carrier mutation safe for an old receiver. `addField` and
-`updateField` carry the source through optional top-level semantic extensions on
-those existing discriminators; their nested field/patch stays in the old strict
-shape. The exact extension contract is
-`addField.optionsSource?: LookupOptionsSource` and
-`updateField.optionsSource?: LookupOptionsSource | null`: absence means no
-source edit, a source means set or replace, and explicit `null` means clear while
-preserving the inline options. A current reducer reconstructs or merges the
-source while an old reducer safely applies only the inline fallback. Diffing,
-JSON round trips, current replay, old-parser/reducer fallback, and raw SSE
-dispatch must cover set, replace, and clear. This is a receiver-floor bridge,
-not permission to run an old binary after carrier writers activate.
+The current nested field schemas are strict, so a carrier cannot ride inside
+one without changing an already-accepted shape. `addField` and `updateField`
+carry the source through optional top-level semantic extensions on those
+existing discriminators; their nested field/patch stays in the old strict
+shape. The exact extension contract is `addField.optionsSource?:
+LookupOptionsSource` and `updateField.optionsSource?: LookupOptionsSource |
+null`: absence means no source edit, a source means set or replace, and
+explicit `null` means clear while preserving the inline options. A reducer
+reconstructs or merges the source, while accepted history without the extension
+replays exactly as it always did. Diffing, JSON round trips, replay, historical
+fallback, and raw SSE dispatch must cover set, replace, and clear.
 
 Before carrier commits activate, every exhaustive consumer must implement the
 carrier or deliberately reject it through the commit gate: hydration,
@@ -1882,34 +1742,29 @@ compiled-artifact budget.
 
 Implementation remains split into independently reviewed units:
 
-1. **S05a — dormant carriers and compatibility (shipped):** add every carrier and
+1. **S05a — lookup carriers and validation (shipped):** add every carrier and
    AST schema/identity, top-level mutation extension,
    hydration/persistence/replay/diff behavior, exhaustive walks/rewrites and
-   reference extraction, validation/type checking, explicit downstream
-   rejection behavior, and receiver-v2 compatibility while commit and export
-   gates remain closed. The immutable production extractor and the one shared
-   capability manifest's writer-v1 / stream-receiver-v2 declarations land as
-   one support checkpoint, with every authoritative writer still using its
-   shared declaration helper. Every database floor and feature flag remains
-   zero/off.
+   reference extraction, validation/type checking, and explicit downstream
+   rejection behavior while commit and export gates remain closed. The
+   immutable production extractor lands as one support checkpoint.
 2. **S05b — local wire (shipped):** add lowering/emission for the
    already-preservable table expressions, predicates, and itemsets; instance
    accumulation; the one-snapshot multi-table reader; deterministic fixture
-   serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while HQ
-   JSON/upload and authoring remain closed.
+   serialization/budgets; local-CCZ emission; and Core/HQ-shape oracles while
+   HQ JSON/upload and authoring remain closed.
 3. **S05c — carrier cutover and edge preparation (shipped):** ship the final
-   edge state in one release — the read-only structural-versus-stored scan, the
-   explicit edge migration under each app lock with a clean rescan, and the
-   final floor and activation values — and leave carrier commits
-   runtime-disabled for S07. No nonzero floor is authorized by S05a or S05b.
+   edge state in one release — the read-only structural-versus-stored scan and
+   the explicit edge migration under each app lock with a clean rescan — and
+   leave carrier commits closed for S07.
 
 #### S05a execution checkpoint — 2026-07-23
 
 Commits `fe0a7027` through `a94e1fda` on `agent/s05a-lookup-carriers`
 form the reviewed S05a implementation merged as squash `06a6ee4f`. They own:
 
-- the three dormant domain carriers and their stable table/column identities;
-- required inline select fallbacks plus the rolling-compatible top-level
+- the three lookup domain carriers and their stable table/column identities;
+- required inline select fallbacks plus the history-compatible top-level
   `addField` / `updateField` extension, exact set/replace/clear diff and replay;
 - carrier-aware predicate walks, simplification, relation normalization,
   reference-slot traversal, type resolution, nested-lookup rejection, and the
@@ -1917,9 +1772,9 @@ form the reviewed S05a implementation merged as squash `06a6ee4f`. They own:
 - JSON-Schema-representable UUIDv7 normalization for the lookup identities now
   embedded in the recursive Predicate and ValueExpression definitions;
 - carrier-blind builder field-add inputs and non-authorable generic expression
-  fallbacks, including inline-only duplication of a receiver-preserved select;
+  fallbacks, including inline-only duplication of a carrier-bearing select;
 - a structural, recursively carrier-blind Predicate / ValueExpression family
-  for the rolling mutation envelope and all nine SA/MCP write tools, while a
+  for the public mutation envelope and all nine SA/MCP write tools, while a
   separate canonical mutation schema preserves the full vocabulary for reducer
   and durable-log replay;
 - carrier-blind `getField`, `getForm`, and `getModule` projections shared by
@@ -1931,9 +1786,7 @@ form the reviewed S05a implementation merged as squash `06a6ee4f`. They own:
   predicates;
 - the immutable 17-slot production extractor over complete normalized entity
   maps, with stable semantic operation anchors and exact nested occurrences;
-- writer-v1 and stream-receiver-v2 declarations in the shared capability
-  manifest while all database floors and feature flags remain zero/off;
-- commit-only fingerprinted dormant-carrier findings that permit unrelated
+- commit-only fingerprinted carrier findings that permit unrelated
   repairs to historical documents but reject every new or changed carrier; and
 - mode-aware `ccz`, `hq-json`, and `hq-upload` export rejection before media
   resolution or emission, plus real JSONB carrier coverage through hydration,
@@ -1942,7 +1795,7 @@ form the reviewed S05a implementation merged as squash `06a6ee4f`. They own:
 
 The foundation checkpoint passed its 21-file, 515-test matrix. The boundary
 slice passed a 20-file, 382-test matrix covering canonical replay,
-rolling envelopes, misplaced-carrier rejection, all nine SA/MCP write schemas,
+public envelopes, misplaced-carrier rejection, all nine SA/MCP write schemas,
 chat/MCP prompt grammar, raw MCP registration, all three read projections, and
 legacy fallbacks. TypeScript and scoped Biome pass, and independent review
 closed the replay/schema-generation defects it found before returning no
@@ -1990,7 +1843,7 @@ Re-verified Nova seams: the three-mode export boundary
 (`lib/export/boundaryValidation.ts`) loads rows-free definitions in one
 REPEATABLE READ snapshot and already forbids a second post-validation lookup
 read; `PreparedExportBoundary.lookupSnapshot` reaches no emitter yet; every
-dormant-carrier rejection site is explicit (`xform/builder.ts` optionsSource
+carrier rejection site is explicit (`xform/builder.ts` optionsSource
 throw, `expression/onDeviceEmitter.ts` and `predicate/termEmitter.ts` arms,
 `predicate/instances.ts` accumulation guards, mode-bearing
 `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`); no reader returns multi-table rows in one
@@ -2049,8 +1902,8 @@ Pinned S05b wire decisions:
   cross-check embedded fixtures, itemsets, and `item-list:` instance
   declarations.
 
-S05b ships no migration, raises no floor, changes no mutation vocabulary, and
-keeps `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` untouched, so production behavior is
+S05b ships no migration, changes no mutation vocabulary, and keeps
+`LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` untouched, so production behavior is
 unchanged until S05c/S07 open their gates; the wire path is proven by focused
 tests and oracles over directly constructed carrier documents.
 
@@ -2103,136 +1956,66 @@ table-column term out of its fixture-row scope.
 Drafted blind against merged `main` (`97d6bb89`), then adjudicated against
 claim extraction from PR-01/PR-02/PR-03 and the F5 memo. No extracted claim
 contradicts the blind draft; the edge-store claims — stored-versus-structural
-reconciliation before the edges are trusted, old writers silently decaying the
-edge store, scans racing concurrent edits — are already embodied below.
+reconciliation before the edges are trusted, scans racing concurrent edits —
+are already embodied below.
 
-The audit narrows the slice: extractor registration and the writer-constant
-bump already shipped in S05a.
+The audit narrows the slice: extractor registration already shipped in S05a.
 `lib/doc/lookupReferences.ts::PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS` is the
-frozen production registry, `config/runtime-capabilities.json` already
-declares writer 1 / stream-receiver 2, and every authoritative writer in
-`lib/db/apps.ts` calls `declareLookupReferenceWriter`. S05c's remaining work
-is exactly: the production scan, a dedicated edge-repair writer plus its
-one-off migrate script, the two floor raises, and deletion of the cutover
-choreography the direct release strands. S05c introduces no wire emission and
-changes none — `lib/commcare` is untouched and no CCHQ re-verification
-applies.
+frozen production registry, and every authoritative writer in `lib/db/apps.ts`
+already replaces its exact edge sets. S05c's remaining work is exactly: the
+production scan and a dedicated edge-repair writer plus its one-off migrate
+script. S05c introduces no wire emission and changes none — `lib/commcare` is
+untouched and no CCHQ re-verification applies.
 
 Mechanics, resolved:
 
-- **Floors.** One new deploy-blocking Kysely migration raises the
-  compatibility singleton to `minimum_writer_version = 1` and
-  `minimum_stream_receiver_version = 2` through monotonic `GREATEST` updates;
-  `minimum_runtime_reader_version` stays 0 and every activation flag stays
-  false. The migration Job runs between image push and revision cutover, and
-  the only serving code already declares the new versions, so the
-  raise-never-precedes-declaring-code rule holds structurally with no
-  operator step. `lib/db/rolloutCompatibility.ts` is deliberately not the
-  vehicle: its initial-cutoff branch demands a
-  `continuous_registry_traffic_since` stamp nothing in production ever wrote,
-  and the pre-registry streams it guards against cannot exist — every
-  revision since S02c1 registers leases and the 3,600-second request cap
-  bounds any stream's life.
 - **Edge repair.** A new app-locked server-only `lib/db` writer
-  (`repairLookupReferenceEdges`): app row `FOR UPDATE` →
-  `declareLookupReferenceWriter` → assemble and hydrate the committed doc →
-  `extractLookupReferenceTargets` → `lockLookupTablesForReferenceWrite` →
-  `replaceLookupReferenceEdges`. No entity write, no history row, no sequence
-  advance — edges are derived state. `appendSyntheticBatch` cannot carry this
-  repair: its zero-mutation arm returns before edge replacement runs.
+  (`repairLookupReferenceEdges`): app row `FOR UPDATE` → assemble and hydrate
+  the committed doc → `extractLookupReferenceTargets` →
+  `lockLookupTablesForReferenceWrite` → `replaceLookupReferenceEdges`. No
+  entity write, no history row, no sequence advance — edges are derived state.
+  `appendSyntheticBatch` cannot carry this repair: its zero-mutation arm
+  returns before edge replacement runs.
 - **Scan and script.** `scripts/scan-lookup-reference-edges.ts` is reused
   verbatim as scan and rescan (its stale S02b-era header updates); the paired
-  one-off `scripts/migrate-lookup-reference-edges.ts` drives the repair
-  writer over exactly the scan's mismatch list and is removed after the clean
-  rescan. Expected mismatch population is zero — 401/401 apps scanned clean
-  at S02b and no carrier has ever committed — so the migration exists to
-  prove that and to be the repair tool if the scan disproves it. Run order:
-  production scan → merge (blocking migration raises floors, revision
-  deploys) → migrate over any reported mismatches → clean rescan.
-- **Multiplayer.** The writer-floor raise is invisible to live sessions:
-  every deployed writer declares v1. The receiver floor is an admission
-  cutoff only — admitted leases survive, and a reconnecting pre-#311 bundle
-  receives the terminal seq-less `revoked` frame with
-  `client-upgrade-required` and the one-shot hard-refresh path. Open runs are
-  untouched because the runtime-reader floor stays 0. A transaction with an
-  unset or 0 writer version on any guarded table fails closed with SQLSTATE
-  55000, which also fences a service rollback to a pre-#311 image — the
-  intended one-way property.
-- **Authorization.** The floor raise executes as the migration identity in
-  the ordinary blocking Job. The scan reads production through gcloud IAM;
-  the migrate script uses the established ephemeral impersonated-SA recipe;
-  the repair writer has no route, action, or MCP exposure, and the database
-  guard independently requires its v1 declaration.
-- **Deletions.** The direct release strands the initial-cutoff choreography,
-  removed in this slice: the `minimum_stream_receiver_version === 0` branch
-  of `raiseMinimumStreamReceiverVersionInTransaction` with its
-  `registry_epoch_missing`/`registry_epoch_too_young` codes, the
-  registry-interval half of
-  `reconcileReceivingRevisionCapabilitiesInTransaction` (the runtime-epoch
-  half stays for S07), and the `continuous_registry_traffic_since` column
-  plus its projections, dropped in the same forward migration. Kept
-  deliberately: the runtime-reader epoch/census/raise machinery (S07
-  consumes it), `disableLookupReferenceActivationFlag` (S07's emergency
-  path), the top-level `optionsSource` mutation extension (permanent durable
-  history format), and the lease admission machinery.
+  one-off `scripts/migrate-lookup-reference-edges.ts` drives the repair writer
+  over exactly the scan's mismatch list and is removed after the clean rescan.
+  Expected mismatch population is zero — 401/401 apps scanned clean at S02b and
+  no carrier has ever committed — so the migration exists to prove that and to
+  be the repair tool if the scan disproves it. Run order: production scan →
+  merge and deploy → migrate over any reported mismatches → clean rescan.
+- **Multiplayer.** Live sessions observe nothing. The repair writer touches
+  only derived edges under the app lock every ordinary writer already takes,
+  advances no sequence, and emits no frame, so an open builder stream sees no
+  reload, no revocation, and no cursor movement.
+- **Authorization.** The scan reads production through gcloud IAM; the migrate
+  script uses the established ephemeral impersonated-SA recipe; the repair
+  writer has no route, action, or MCP exposure.
 
 A user observes nothing new: carrier commits, destructive schema actions, and
-true moves stay disabled for S07, and no UI, SA, or MCP vocabulary changes.
+true moves stay closed for S07, and no UI, SA, or MCP vocabulary changes.
 Verification: the pre-merge scan and post-migrate rescan both exit 0 and are
-recorded in the execution checkpoint; the production singleton reads
-`(1, 2, 0, false, false, false, false)`; integration tests pin the
-undeclared-writer SQLSTATE 55000 failure on each guarded table at the raised
-floor, migration replay idempotence, receiver-1 rejection versus receiver-2
-admission with mid-stream lease survival, and the carrier commit gate still
-closed at the final floors; standard deploy probes complete the list. No
-Playwright journey — nothing user-reachable changes.
+recorded in the execution checkpoint; integration tests pin the repair writer's
+repaired, unchanged, and fail-closed outcomes and the carrier commit gate still
+closed; standard deploy probes complete the list. No Playwright journey —
+nothing user-reachable changes.
 
 #### S05c implementation checkpoint — 2026-07-23
 
 The implementation on `agent/s05c-lookup-cutover` delivers, per the closure:
 
-- `lib/case-store/migrations/20260723120000_lookup_reference_floors.ts`: the
-  deploy-blocking monotonic raise to writer 1 / stream-receiver 2 and the
-  `continuous_registry_traffic_since` drop, replay-idempotent for the
-  ledger-erase replay;
-- `lib/db/rolloutCompatibility.ts` stripped of the stranded initial-cutoff
-  choreography — the registry-epoch branch with its two error codes, the
-  registry-interval half of revision reconciliation, and the
-  `streamRegistryVersion` field on receiving-revision capabilities — while
-  the runtime-epoch machinery stays for S07;
 - `lib/db/apps.ts::repairLookupReferenceEdges`, the app-locked server-only
   edge-repair writer (no entity, history, or sequence writes), plus the
   paired one-off `scripts/migrate-lookup-reference-edges.ts` (dry-run by
   default, scan-identical collection, converges to a clean rescan or fails);
 - the durable scan's stale header corrected and the `lib/db`,
-  `lib/case-store`, and `lib/lookup` docs moved to the final-floor state;
-- the test fleet moved to the deployed floors: direct fixture writes declare
-  writer v1 (a shared `withDeclaredWriter` harness helper), stream suites
-  admit at receiver 2 and race the 2-to-3 cutoff, migration suites pin the
-  migrated `(1, 2, 0)` baseline with every flag false, and the repair writer
-  gains repaired/unchanged/fail-closed coverage.
+  `lib/case-store`, and `lib/lookup` docs moved to the final edge state; and
+- the repair writer's repaired/unchanged/fail-closed test coverage.
 
-The closure's verification list caught one production-critical defect beyond
-the plan: stream admission clamped the compiled receiver capability to a
-strictly parsed copy of the deployed environment, and that parse silently
-resolved to v0 both in production (`process.env` is a host object whose
-prototype fails a plain-record test on the deployed Node) and in every
-environment with no baked declaration at all (local dev, CI smoke — where
-the raised floor revoked every builder stream into the refresh-required
-screen). The clamp itself was purposeless: the startup probe already refuses
-to serve an instance whose environment differs from the compiled manifest,
-so the serving capability now comes from the compiled manifest alone and the
-caller-less environment parser is deleted.
-
-Independent adversarial review (four dimension finders, every finding
-verified twice by independent verifiers) raised three findings; two were
-refuted and one was confirmed unanimously and fixed pre-merge: the migration
-originally raised the floors before dropping the column, and an old-revision
-writer-guard `FOR SHARE` read wedged between the two statements formed a
-tuple-then-table lock cycle whose deadlock victim could be the
-deploy-blocking Job. The column drop now precedes the raise, so guard reads
-queue behind the ALTER's table lock. The pre-merge read-only production scan
-passed: 404/404 persisted apps compared clean.
+Independent adversarial review (four dimension finders, every finding verified
+twice by independent verifiers) returned no remaining findings, and the
+pre-merge read-only production scan passed: 404/404 persisted apps compared
+clean.
 
 S05's closed-gate verification uses real carriers to replace edges
 transactionally and repeat both production race orders. It adds carrier schema/
@@ -2240,10 +2023,9 @@ context matrices, reference-index fuzz, history replay, every
 carrier's edges, stale optimistic versus fresh server context, foreign opacity,
 projection rename safety, snapshot consistency, deterministic fixture bytes,
 exact aggregate-budget bounds including many small tables, and the full web/MCP
-export matrix. S07 repeats the admission preflight before opening commits and
-retains matching-and-empty structural/stored targets, compatible active streams,
-fresh dual-Project governance, no run lease, and atomic case/presence handling
-for moves.
+export matrix. S07 repeats the edge preflight before opening commits and retains
+matching-and-empty structural/stored targets, fresh dual-Project governance, no
+run lease, and atomic case/presence handling for moves.
 
 ### S06 — atomic submission envelope and resolved preview identity
 
@@ -2291,7 +2073,7 @@ The first activation may execute only S04's `wirePortable` retype subset (exact
 retained JSON property types, no cast and no parking). Do not interpret the richer
 storage `safe` plan as device parity: CommCare's case XML changes `case_type` but
 does not remove source-only properties or cast shared values. Conversion/parking
-retypes remain dormant until a later slice defines and tests one shared wire
+retypes stay unconstructible until a later slice defines and tests one shared wire
 representation across device and Nova. Multi-select form answers bind to the SQL
 expression compiler as string arrays and must be serialized/cast explicitly to
 JSONB inside the atomic executor.
@@ -2308,29 +2090,27 @@ sorts operations by `(order, uuid)`), the v1 exclusion of retypes and
 authored create ids (S04 shipped both), and the catalog-driven subcase
 relationship fix (no catalog relationship vocabulary exists — only operation
 links carry authored `child`/`extension`, so the hardcoded `child` on the
-subcase edge is the only representable value and stays). Two blind-draft
-errors were corrected the same way: `cases_quarantine` no longer exists
-(dropped by `20260721000000_parked_case_values`, so the widening covers
-exactly five columns), and the envelope needs no writer-version
-declaration — the S05c guard triggers cover app-state and lookup tables,
-never the cases family.
+subcase edge is the only representable value and stays). One blind-draft
+error was corrected the same way: `cases_quarantine` no longer exists
+(dropped by `20260721000000_parked_case_values`), so the widening covers
+exactly five columns.
 
 The audit narrows the slice: every helper the charter names already shipped
 in S04 with its pinned vectors (`deriveAuthoredCaseId`,
 `prepareCaseOperationTextValue`, `validateResolvedCaseOperationTypeSequence`,
 `planCaseRetype().wirePortable`), wire emission is complete in
 `lib/commcare/xform/caseOps.ts` including the empty-`<update/>` missing-case
-guard and the trailing link-identity guards, the dormant domain vocabulary,
+guard and the trailing link-identity guards, the domain vocabulary,
 order proofs, mutation arms, and the server-descriptor reauthorization seam
 (`validateCaseOperationTargetDescriptor`) all exist, and the read-side
 session identity plumbing (`previewSearchSessionValues` →
 `previewCaseStoreBindings`) plus acting-user owner stamping
 (`creationStamps`) are live. S06 changes no wire emission — `lib/commcare`
 is untouched and the recorded wire facts below are the only CCHQ
-re-verification the slice needs. The `CASE_OPERATIONS_NOT_ACTIVE` gate does
-NOT open in S06: S07 owns the expression evaluator, the engine's operation
-descriptor emission, and activation, so S06's clean production rescan is the
-gate's precondition, not its opening.
+re-verification the slice needs. Operations stay unauthorable through S06:
+S07 owns the expression evaluator and the engine's operation descriptor
+emission, so S06's clean production rescan is a precondition for reaching
+them, not the last one.
 
 Wire facts, verified against the checkouts: a case id on the wire is an
 opaque free-text string — `CaseXmlParser::parse` +
@@ -2355,89 +2135,85 @@ reproduces.
 Mechanics, resolved:
 
 - **Identity.** One server-side `ResolvedPreviewIdentity` resolved from the
-  authenticated session at the Server Action boundary, consolidating the
-  three current derivations (`previewSearchSessionValues`, the SQL
-  `TermBindings`, and the `gatedCaseStore` actor) and replacing the form
-  engine's hardcoded `demo_user` map so form XPath `#user/*` and the meta
-  userID read the real signed-in worker. "Preview as me" is the sole S06
-  provider behind a typed seam; the provider contract refuses any identity
-  without a persisted owner id, which is where S15's named personas later
-  plug in — no session-only pseudo-persona exists. User-data keys stay
-  ABSENT when the worker has no value (never coerced to empty), preserving
-  the wire's absent-node comparison split, and the contract exposes no
-  `window_width` and no case-count arm (the S03 correction stands). Owner
-  stamping: a create's owner defaults to the resolved identity; an explicit
-  owner expression overrides it; an update writes `owner_id` only when
-  explicitly set; `unowned` maps to `-`; every effective owner passes
-  `prepareCaseOperationTextValue`.
-- **Envelope.** One tenant-bound CaseStore method applies a whole submission
-  in ONE transaction under the store's existing lock order and
-  in-transaction reauthorization: the ordinary form action (registration
-  primary+children, followup update+children, close including final writes)
-  and the advanced operations execute in the canonical `(order, uuid)`
-  sequence from one pre-submission snapshot. Per operation: create →
-  property writes → rename/retype (scalar columns; retype executes ONLY the
-  `wirePortable` subset, never `planCaseRetype().safe`) → close last →
-  links. Targets resolve server-side in-transaction: `new` mints `uuidv7()`
-  or calls `deriveAuthoredCaseId` and aborts on blank/over-205 keys BEFORE
-  any DML; `op` reads the transaction's allocation record (the same record
-  `id-of` reads; `id-of` never appears in target or link expressions);
-  `session` uses the loaded case; `expression` evaluates in the transaction
-  and reauthorizes through `validateCaseOperationTargetDescriptor`. Repeats
-  expand into physical order and
-  `validateResolvedCaseOperationTypeSequence` runs over the
-  server-authorized descriptors before any write. Link CRUD is
-  identifier-keyed (upsert; remove on null target) and persists each link's
-  AUTHORED `child`/`extension` relationship — the first writer to put a
-  non-`child` value in `case_indices.relationship`. Operation conditions
-  evaluate explicitly from the snapshot, never via render visibility.
-  Multi-select answers serialize `JSON.stringify(...)::jsonb` explicitly in
-  the executor. A duplicate authored id within the store merges on insert
-  (create-of-existing wire parity). The schema-heal retry moves from the
-  individual store call to the envelope boundary — a retry re-runs the
-  whole envelope, safe once nothing partial persists — and any failure
-  rolls back the entire submission with a typed error arm.
+  authenticated session at the Server Action boundary, consolidating the three
+  current derivations (`previewSearchSessionValues`, the SQL `TermBindings`,
+  and the `gatedCaseStore` actor) and replacing the form engine's hardcoded
+  `demo_user` map so form XPath `#user/*` and the meta userID read the real
+  signed-in worker. "Preview as me" is the sole S06 provider behind a typed
+  seam; the provider contract refuses any identity without a persisted owner
+  id, which is where S15's named personas later plug in — no session-only
+  pseudo-persona exists. User-data keys stay ABSENT when the worker has no
+  value (never coerced to empty), preserving the wire's absent-node comparison
+  split, and the contract exposes no `window_width` and no case-count arm (the
+  S03 correction stands). Owner stamping: a create's owner defaults to the
+  resolved identity; an explicit owner expression overrides it; an update
+  writes `owner_id` only when explicitly set; `unowned` maps to `-`; every
+  effective owner passes `prepareCaseOperationTextValue`.
+- **Envelope.** One tenant-bound CaseStore method applies a whole submission in
+  ONE transaction under the store's existing lock order and in-transaction
+  reauthorization: the ordinary form action (registration primary+children,
+  followup update+children, close including final writes) and the advanced
+  operations execute in the canonical `(order, uuid)` sequence from one
+  pre-submission snapshot. Per operation: create → property writes →
+  rename/retype (scalar columns; retype executes ONLY the `wirePortable`
+  subset, never `planCaseRetype().safe`) → close last → links. Targets resolve
+  server-side in-transaction: `new` mints `uuidv7()` or calls
+  `deriveAuthoredCaseId` and aborts on blank/over-205 keys BEFORE any DML; `op`
+  reads the transaction's allocation record (the same record `id-of` reads;
+  `id-of` never appears in target or link expressions); `session` uses the
+  loaded case; `expression` evaluates in the transaction and reauthorizes
+  through `validateCaseOperationTargetDescriptor`. Repeats expand into physical
+  order and `validateResolvedCaseOperationTypeSequence` runs over the
+  server-authorized descriptors before any write. Link CRUD is identifier-keyed
+  (upsert; remove on null target) and persists each link's AUTHORED
+  `child`/`extension` relationship — the first writer to put a non-`child`
+  value in `case_indices.relationship`. Operation conditions evaluate
+  explicitly from the snapshot, never via render visibility. Multi-select
+  answers serialize `JSON.stringify(...)::jsonb` explicitly in the executor. A
+  duplicate authored id within the store merges on insert (create-of-existing
+  wire parity). The schema-heal retry moves from the individual store call to
+  the envelope boundary — a retry re-runs the whole envelope, safe once nothing
+  partial persists — and any failure rolls back the entire submission with a
+  typed error arm.
 - **Storage widening.** A read-only scan, then ONE deploy-blocking Kysely
   migration widening exactly `cases.case_id`, `cases.parent_case_id`,
   `case_indices.case_id`, `case_indices.ancestor_id`, and
-  `parked_case_values.case_id` to `text`, rebuilding the touched PK/indexes
-  and the one FK, and retaining `uuidv7()::text` as the generated-id
-  default. Every statement schema-qualifies its objects
-  (`nova_case_runtime.cases` vs `public.*` per the PR #301 privilege
-  boundary) instead of trusting the connection search path. The
-  `ALTER TYPE`s take ACCESS EXCLUSIVE with a table rewrite; at dogfood
-  scale that is fast, and the old revision's only `::uuid` casts
-  (`conversionImpact`, `bulkUpdateProperties`) sit on schema-migration
+  `parked_case_values.case_id` to `text`, rebuilding the touched PK/indexes and
+  the one FK, and retaining `uuidv7()::text` as the generated-id default. Every
+  statement schema-qualifies its objects (`nova_case_runtime.cases` vs
+  `public.*` per the PR #301 privilege boundary) instead of trusting the
+  connection search path. The `ALTER TYPE`s take ACCESS EXCLUSIVE with a table
+  rewrite; at dogfood scale that is fast, and the old revision's only `::uuid`
+  casts (`conversionImpact`, `bulkUpdateProperties`) sit on schema-migration
   paths idle during a deploy. The migration is replay-idempotent for the
-  ledger-erase replay and needs NO floor raise — column types change, no
-  write protocol does. The same PR deletes `readCaseData`'s `UUID_PATTERN`
+  ledger-erase replay. The same PR deletes `readCaseData`'s `UUID_PATTERN`
   gate, both `::uuid` casts, and the documented insertion-order-by-uuid
   contract.
 - **Ordering.** The durable ordering fact is `(opened_on, case_id)`:
-  `opened_on` is already stamped on every insert (`creationStamps`,
-  mirroring device `date_opened`), so the no-sort default becomes an
-  explicit `ORDER BY opened_on, case_id` instead of heap order, and the
-  paging tie-breaker keeps `case_id` purely as a deterministic total-order
-  key with no time claim. No new column.
-- **URL symmetry.** Case ids cross exactly one URL boundary — the
-  client-side builder path (`lib/routing`) — and cross it raw today,
-  symmetric only because UUIDs are URL-safe. `serializePath`/`buildUrl`
-  encode the segment; `parsePathToLocation` and the pathname readers decode
-  it. No API route or Server Action carries a case id in a path or search
-  param (they ride plain JSON bodies), and `BuilderPage` never reads
-  `params.path`, so the routing module is the whole audit surface.
+  `opened_on` is already stamped on every insert (`creationStamps`, mirroring
+  device `date_opened`), so the no-sort default becomes an explicit `ORDER BY
+  opened_on, case_id` instead of heap order, and the paging tie-breaker keeps
+  `case_id` purely as a deterministic total-order key with no time claim. No
+  new column.
+- **URL symmetry.** Case ids cross exactly one URL boundary — the client-side
+  builder path (`lib/routing`) — and cross it raw today, symmetric only because
+  UUIDs are URL-safe. `serializePath`/`buildUrl` encode the segment;
+  `parsePathToLocation` and the pathname readers decode it. No API route or
+  Server Action carries a case id in a path or search param (they ride plain
+  JSON bodies), and `BuilderPage` never reads `params.path`, so the routing
+  module is the whole audit surface.
 - **Multiplayer.** The envelope writes case data, not blueprint state: no
-  `accepted_mutations` rows, no stream frames, no compatibility-floor
-  interaction, and live builder sessions observe nothing until the
-  running-app view re-queries. Write concurrency is the store's existing
-  in-transaction reauthorization plus the per-`(project, app)` relationship
-  advisory lock. The widening ships through the standard blocking Job; open
-  tabs are type-agnostic (the Kysely contract is already `string`).
+  `accepted_mutations` rows, no stream frames, and live builder sessions
+  observe nothing until the running-app view re-queries. Write concurrency is
+  the store's existing in-transaction reauthorization plus the per-`(project,
+  app)` relationship advisory lock. The widening ships through the standard
+  blocking Job; open tabs are type-agnostic (the Kysely contract is already
+  `string`).
 - **Authorization.** The envelope executes as the acting user through the
   existing `gatedCaseStore` → `withProjectContext` → in-transaction
   `authorizeMutation` fence; no new route, action, or MCP surface. The scan
-  reads production via gcloud IAM; the widening runs as the migration
-  identity in the blocking Job.
+  reads production via gcloud IAM; the widening runs as the migration identity
+  in the blocking Job.
 
 A user observes exactly two changes: preview form XPath reads their real
 identity instead of `demo_user`, and followup/close submissions land
@@ -2465,33 +2241,21 @@ Implement the shared rewrite/fold/SQL-residue evaluator, table choices, atomic
 case effects, failure parity, and resolved-identity scoping over real case rows.
 Test the full absent-value matrix and effect ordering. `Preview as me` is active;
 S15 plugs named personas into the same contract without changing evaluator call
-sites. Authoring-only reveal behavior remains a visibly separate mode. After
+sites. Authoring-only reveal behavior remains a visibly separate mode. Once
 preview evaluation, case-store SQL, schema materialization, and every remaining
-committed-state consumer are total and 100% traffic serves the v3 browser/runtime
-reader, take the deployment-cutover lock and freshly re-read the complete Cloud
-Run traffic split plus every receiving revision's declared capabilities. Abort
-unless every target is compatible; keep the lock through that check and the
-compatibility-state transaction that raises both the stream receiver floor to v3
-and `minimum_runtime_reader_version` with every feature flag still disabled.
-Traffic tooling cannot route a lower reader across this cutoff.
-Wait the longest enforced stream, request, or run lifetime plus grace, require no
-unexpired receiver below v3, and re-run the clean edge/capability/floor preflight.
-That bounded drain must cover every request-scoped old server reader; any
-background reader without the same enforced lifetime must register a durable
-revision/version lease and also drain to zero. Only then does a second
-compatibility-state transaction enable carrier commits, zero-reference schema
-actions, and zero-reference moves. Builder inputs remain closed until S09 and
-SA/MCP inputs until S10.
+committed-state consumer are total, the commit gates come out: carrier commits
+and zero-reference destructive schema actions become constructible, and
+zero-reference cross-Project moves gain their destination workspace, each behind
+a fresh clean edge scan. Builder inputs remain closed until S09 and SA/MCP
+inputs until S10.
 
 #### S07 readiness closure — 2026-07-24
 
 Drafted blind against merged `main` (`7b0c7a15`) with three structural maps of
-the preview engine, the case-operations gate, and the activation machinery,
+the preview engine, the case-operations gate, and the commit-gate boundary,
 then adjudicated against claim extraction from PR-04, the F1/F4/F5 memo
 sections, and the ACA research memo (114 claims, harvested in a separate
-context). The activation half of the draft stands unchallenged — the legacy
-documents contain no compatibility-floor, drain, or traffic-check claims at
-all. Three extracted claims correct the blind draft and are adopted:
+context). Three extracted claims correct the blind draft and are adopted:
 
 - **The running preview needs the hidden-items reveal.** Under "Preview as
   me" the signed-in worker has no custom user data until S15, so the
@@ -2551,131 +2315,86 @@ sequence proof (the `operations` arm of `ApplySubmissionArgs` has no
 production supplier); the S04 doc analyses the program builder needs
 (`orderedCaseOperations`, `caseOperationMultiplicityScopes`,
 `caseOperationConditionalGuardUuids`,
-`caseOperationExpressionSnapshotTypes`); the S04/S05b wire; and the
-activation machinery — compatibility singleton at `(writer 1, receiver 2,
-reader 0, flags false)` with DB CHECKs already demanding receiver ≥ 3 and
-reader ≥ 1 for carrier commits, the cutover-gate advisory lock and
-statement triggers, both floor-raise transactions, the epoch/census
-primitives, the emergency flag-disable path, the lease admission and
-upgrade-refresh no-loop client path, and the revision label vocabulary.
+`caseOperationExpressionSnapshotTypes`); and the S04/S05b wire.
 Missing, exactly: display-condition evaluation; lookup choices (the
 renderer throws today); SQL compiler `table-lookup`/`table-column` arms;
 the doc→`CaseOperationProgram` builder; a `SubmissionRejectedError` client
-arm; the session-form cutover controller; any Cloud Run traffic/capability
-reader (deploys attach no capability labels today); and any production
-reader of the activation flags.
+arm; the destination workspace behind the move policy; and the removal of
+the two doc-layer commit gates.
 
 Mechanics, resolved:
 
-- **Flag-conditioned admission is the end state.** "Deploying code alone
-  never activates vocabulary" and the emergency disable path both require
-  data switches with real readers, so the two unconditional doc-layer
-  commit gates become compatibility-conditioned: the
-  `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` findings are emitted only while
-  `carrier_commits_enabled` is false, and `CASE_OPERATIONS_NOT_ACTIVE`
-  only while a new fourth flag `case_operations_enabled` is false — one
-  replay-idempotent migration adds the column plus its CHECK (enabled ⇒
-  receiver ≥ 3 and reader ≥ 1) and extends the emergency-disable union.
-  Operations need the same v3 cutoff as carriers: a v2 bundle submits an
-  operation-bearing form ordinary-only, which is silent non-execution. The
-  server re-verdict reads flags in-transaction (the commit path already
-  FOR-SHAREs the singleton through the writer guard — no new lock edge);
-  client optimistic verdicts read a server snapshot riding the existing
-  external-context projection, and the server wins. CCZ export of
-  operation/carrier-bearing docs passes once the flags are on;
-  `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE` on hq-json/hq-upload stays until S20.
-- **Table choices are client-evaluated over loaded rows.** One Server
-  Action returns definitions plus complete ordered rows for the app's
-  referenced tables through the existing REPEATABLE READ reader
-  (`getLookupFixtureData`), Project-membership-authorized, generation-keyed
-  in the builder session and joined to the reconciler reset registry (the
-  recorded "S05 definition cache joins the registry" obligation). The
-  engine evaluates itemset filters per row client-side — bind
-  form-field/session/user terms, fold, evaluate residual same-table column
-  comparisons — with the fixture boundary's blank semantics, and evaluates
-  `table-lookup` expressions in every client-evaluated slot (calculates,
-  defaults, display conditions) over the same snapshot; wire vocabulary
-  (`item-list:`) never enters the preview. Choices become a real engine
-  expression: S05's validation-only `optionsSource.filter` field edges
+- **The commit gates come out with the last consumer.** The two doc-layer
+  commit gates exist only because a consumer was missing: carrier commits
+  waited on preview and SQL execution, operation commits on the submission
+  program. The release that makes those consumers total deletes both findings
+  outright, so a committed carrier or operation is simply valid everywhere it
+  can be reached. CCZ export of operation/carrier-bearing docs passes once they
+  are gone; `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE` on hq-json/hq-upload stays until
+  S20.
+- **Table choices are client-evaluated over loaded rows.** One Server Action
+  returns definitions plus complete ordered rows for the app's referenced
+  tables through the existing REPEATABLE READ reader (`getLookupFixtureData`),
+  Project-membership-authorized, generation-keyed in the builder session and
+  joined to the reconciler reset registry (the recorded "S05 definition cache
+  joins the registry" obligation). The engine evaluates itemset filters per row
+  client-side — bind form-field/session/user terms, fold, evaluate residual
+  same-table column comparisons — with the fixture boundary's blank semantics,
+  and evaluates `table-lookup` expressions in every client-evaluated slot
+  (calculates, defaults, display conditions) over the same snapshot; wire
+  vocabulary (`item-list:`) never enters the preview. Choices become a real
+  engine expression: S05's validation-only `optionsSource.filter` field edges
   promote to runtime DAG edges (`reportCycles` already proves the superset
-  acyclic), the dependency-change re-query mirrors the device's
-  prompt-rebuild re-filter, and a selected value no longer in the choices
-  becomes unselected. `FieldRenderer` consumes engine state instead of
-  throwing.
+  acyclic), the dependency-change re-query mirrors the device's prompt-rebuild
+  re-filter, and a selected value no longer in the choices becomes unselected.
+  `FieldRenderer` consumes engine state instead of throwing.
 - **SQL residue.** The AST→Kysely compiler gains `table-lookup` (correlated
-  first-match scalar subquery over the Project's lookup rows by
-  `(order_key, row uuid)`, typed result-column extraction) and
-  `table-column` (row-relative, legal only inside the enclosing lookup's
-  `where`). This serves case-list filters, calculated columns, and sort
-  keys — and the envelope's operation expressions, where Postgres-resident
-  lookup data never round-trips to the client.
+  first-match scalar subquery over the Project's lookup rows by `(order_key,
+  row uuid)`, typed result-column extraction) and `table-column` (row-relative,
+  legal only inside the enclosing lookup's `where`). This serves case-list
+  filters, calculated columns, and sort keys — and the envelope's operation
+  expressions, where Postgres-resident lookup data never round-trips to the
+  client.
 - **Display conditions evaluate client-side at navigation render.** Module
-  conditions over session/user identity values gate the home screen's
-  module list; form conditions additionally over the selected case row
-  (direct self reads only — the shipped validator closes the contexts)
-  gate the case-list screen's post-selection form menu and auto-continue,
-  and the module screen's forms-first list. Raw absent-node semantics are
-  preserved (absent string-unpacks to `""`, numeric ordering yields NaN;
-  no presence guards), matching the emitted menu wire. An evaluation error
-  fails loudly — checker-gated conditions make it a bug surface, never a
-  silently-shown item. The selected row arrives through the existing
-  membership-gated case reads; no new read path.
+  conditions over session/user identity values gate the home screen's module
+  list; form conditions additionally over the selected case row (direct self
+  reads only — the shipped validator closes the contexts) gate the case-list
+  screen's post-selection form menu and auto-continue, and the module screen's
+  forms-first list. Raw absent-node semantics are preserved (absent
+  string-unpacks to `""`, numeric ordering yields NaN; no presence guards),
+  matching the emitted menu wire. An evaluation error fails loudly —
+  checker-gated conditions make it a bug surface, never a silently-shown item.
+  The selected row arrives through the existing membership-gated case reads; no
+  new read path.
 - **The program builder is server-side; the client supplies answers only.**
   `SubmissionMutation` gains plain-JSON per-scope iteration bindings (root
   bindings plus per-repeat arrays of complete `fieldUuid → value` maps —
-  arrays, not Maps, for the WAF; live instance counts cover all three
-  repeat modes). The server is the structural authority: it loads the
-  committed doc, derives operations, guards, snapshot types, and scope
-  order from the S04 analyses, consumes only the client's answer values
-  and iteration counts, populates `ordinary.caseType` for the rolling
-  proof, and attaches `sessionUser`/`sessionContext`/`viewerTimeZone` from
-  the server-resolved identity. No operations or flag off → the arm stays
-  absent. `mapSubmitFormError` gains the `SubmissionRejectedError` arm
-  with person-readable per-rejection copy; whole-envelope rollback already
-  matches the device's atomic transaction failure.
-- **Activation is a post-deploy operator controller, not a migration.** The
-  deploy-blocking Job runs before the new revision takes traffic, so a
-  Job-time receiver raise would revoke every open tab into possibly-stale
-  bundles; S05c's Job-borne raise was safe only because every serving
-  revision already declared its floors. The manifest bumps
-  `streamReceiverVersion` 2→3 in the release that makes the browser total;
-  `cloudbuild.yaml`'s deploy step gains `--labels` from
-  `runtimeCapabilityRevisionLabels` so revisions carry capability labels,
-  and the controller implements `ReadReceivingRevisionCapabilities` over
-  `gcloud run services describe` plus `parseRevisionCapabilityLabels`. The
-  durable phased controller under `scripts/rollout/` (dry-run default,
-  resumable, migration identity via the impersonated-SA recipe — the
-  control tables are SELECT-only for the runtime role): session-form
-  cutover lock on one dedicated connection (new session variant of
-  `deploymentCutoverGate`; the xact variants stack on the same session by
-  design) → fresh traffic/capability read →
-  `reconcileReceivingRevisionCapabilities` →
-  `prepareRuntimeReaderTrafficEpoch(1)` → after epoch age ≥ 3,600 s, ONE
-  transaction raising receiver→3 and reader→1 with every flag still false
-  → a 3,900 s drain (stream cap plus grace, covering requests) → verify no
-  unexpired lease below v3 (the `floor_drain` index), a census clean of
-  below-v1 and null-nonce holders, clean
-  `scan-lookup-reference-edges --prod` and `scan-case-id-storage --prod`
-  (consuming the S06 scan; the script is removed after this run), and a
-  fresh capability/floor preflight → the SECOND transaction enabling
-  `carrier_commits_enabled`, `destructive_schema_actions_enabled`,
-  `project_moves_enabled`, `case_operations_enabled`, and
-  `run_holder_nonce_enforced` (S02c's "later total-consumer activation
-  unit" is this one; the switch's reader-floor precondition is satisfied
-  by the raise).
-- **Moves activate with disclosure.** `moveAppToProject` reads the flags at
-  the action boundary and threads enablement into `appProjectMovePolicy`;
-  `lockProjectMoveCompatibility` stays the in-transaction authority, and
-  `assertMoveLookupClosureEmpty` keeps lookup-referencing apps unmovable
-  with person-readable copy. The site move dialog gains real cross-Project
-  destination selection plus the disclosure that conversation history and
-  chat-attached files move with the app; the Projects guide's
-  staged/unavailable notice becomes the final workflow. S07 owns the first
-  desktop/compact Playwright move/reload journey through the actually
-  enabled path, run in its real env-gated mode.
-- **Schema actions open inert.** `destructive_schema_actions_enabled` flips
-  in the second transaction; `applyLookupSchemaGovernance` stays
-  package-private with no user surface until S09 owns the confirmation UX.
+  arrays, not Maps, for the WAF; live instance counts cover all three repeat
+  modes). The server is the structural authority: it loads the committed doc,
+  derives operations, guards, snapshot types, and scope order from the S04
+  analyses, consumes only the client's answer values and iteration counts,
+  populates `ordinary.caseType` for the rolling proof, and attaches
+  `sessionUser`/`sessionContext`/`viewerTimeZone` from the server-resolved
+  identity. No operations → the arm stays absent. `mapSubmitFormError` gains
+  the `SubmissionRejectedError` arm with person-readable per-rejection copy;
+  whole-envelope rollback already matches the device's atomic transaction
+  failure.
+- **Moves open with disclosure.** `appProjectMovePolicy` stops refusing
+  cross-Project destinations while the move transaction's own locked
+  re-evaluation stays the authority, and `assertMoveLookupClosureEmpty` keeps
+  lookup-referencing apps unmovable with person-readable copy; a busy run, a
+  corrupt holder, and an ownerless source Project each get their own copy. The
+  site move control becomes a real destination picker — an inline radio list
+  over the Projects where the member also governs placement, because a second
+  floating surface opened from inside the popover renders beneath it — plus the
+  disclosure that case data, media, and conversation history including
+  chat-attached files move with the app. The Projects guide's unavailable
+  notice becomes the final workflow. S07 owns the first desktop/compact
+  Playwright move/reload journey through the finished path, run in its real
+  env-gated mode.
+- **Schema actions open without a surface.** The governance transaction stops
+  failing closed, but `applyLookupSchemaGovernance` stays package-private with
+  no user surface until S09 owns the confirmation UX.
 
 Implementation splits into three independently reviewed units:
 
@@ -2685,33 +2404,28 @@ Implementation splits into three independently reviewed units:
    `table-lookup`/`table-column` arms.
 2. **S07b — preview totality, write side:** the submission bindings and
    server-side program builder with `ordinary.caseType`; the
-   `SubmissionRejectedError` mapping and failure-parity copy; the
-   flag-conditioned gates and the `case_operations_enabled` migration; the
-   receiver-v3 manifest bump; the absent-value matrix and effect-ordering
+   `SubmissionRejectedError` mapping and failure-parity copy; the removal of
+   both doc-layer commit gates; the absent-value matrix and effect-ordering
    acceptance.
-3. **S07c — activation:** deploy labels and the capability reader; the
-   session-lock controller; move policy/UI/docs and the Playwright
-   journey; production execution of the phased raises, drain, and flag
-   enable; post-activation verification (singleton reads
-   `(1, 3, 1)` with the nonce switch and all four flags true, clean
-   rescans, standard probes); scan-script cleanup and the roadmap
-   execution checkpoint.
+3. **S07c — moves and closure:** move policy, the destination picker and its
+   disclosure, public docs, and the Playwright move/reload journey; the clean
+   `scan-lookup-reference-edges --prod` and `scan-case-id-storage --prod`
+   rescans with the S06 scan script's removal; standard probes; and the
+   roadmap execution checkpoint.
 
 A user observes: the running preview hides display-conditioned modules and
-forms exactly as a device would, with the reveal affordance for gated
-items, while authoring surfaces keep showing everything; lookup-backed
-selects render live filtered choices; submissions on operation-bearing
-docs execute atomically with typed person-readable failures; cross-Project
-moves become genuinely available with the history/attachments disclosure;
-and the public docs describe all of it. Verification: unit and per-test-
-database integration suites per surface (the evaluator fold matrix
-including absent-key semantics; choices filter binding, dependency
-re-query, ordering, and the unselect-on-removal rule; program-builder
-guard/snapshot/scope derivation pinned against the S04 analyses; the
-flag-conditioned gate matrix on both editors' verdict paths); the
-multiplayer, leak, and smoke suites; the Playwright move journey; the
-recorded activation runbook outputs; and the post-activation production
-state reads. S22 still awaits its separate readiness rebaseline.
+forms exactly as a device would, with the reveal affordance for gated items,
+while authoring surfaces keep showing everything; lookup-backed selects render
+live filtered choices; submissions on operation-bearing docs execute atomically
+with typed person-readable failures; cross-Project moves become genuinely
+available with the history/attachments disclosure; and the public docs describe
+all of it. Verification: unit and per-test-database integration suites per
+surface (the evaluator fold matrix including absent-key semantics; choices
+filter binding, dependency re-query, ordering, and the unselect-on-removal
+rule; program-builder guard/snapshot/scope derivation pinned against the S04
+analyses; the commit verdicts on both editors' paths); the multiplayer, leak,
+and smoke suites; the Playwright move journey; and the clean post-deploy
+rescans. S22 still awaits its separate readiness rebaseline.
 
 ### S08 — conditions and operations authoring
 
@@ -2853,8 +2567,8 @@ projector owns these guards for local suite emission and the HQ JSON expander;
 tests cover both paths. Links must gain durable UUID/order identity under the
 roadmap's closed identity contract; any legacy-array-order bridge is transitional
 compatibility for existing documents, never the resulting identity model. Then
-add form sections with fractional order and staged mutation
-compatibility. Define relevance skipping, Next/Back validation, earliest-invalid
+add form sections with fractional order and history-compatible mutations.
+Define relevance skipping, Next/Back validation, earliest-invalid
 Submit routing, mutation re-anchoring, preview persistence, and accessibility
 before UI implementation.
 
@@ -2886,229 +2600,187 @@ grows; keep every HQ JSON/compiler projection identical.
 ## Change log
 
 - **2026-07-24 — S07 readiness closed:** The audit ran under the recorded
-  discipline: a blind draft from merged `main` (`7b0c7a15`) grounded in
-  three structural maps (preview engine, case-operations gate, activation
-  machinery), with PR-04, the F1/F4/F5 memo sections, and the ACA memo
-  harvested as 114 source-anchored claims in a separate context. Three
-  claims corrected the draft (the hidden-items reveal affordance, the
-  case-list-screen form-condition locus including auto-continue gating,
-  and per-form-session choice-row stability); six legacy families were
-  retired by primary evidence (the no-persona omniscient mode, the
-  SQL-residue menu-condition model with its batched action and case-count
-  entry point, client-folded identity terms, server-side choice
-  resolution, the `window_width` arm, and the subcase-relationship fix);
-  and the one new wire question was verified in source — the platform's
-  extension-close cascade is a frozen default-off domain toggle, so the
-  envelope's target-only close IS device parity and no cascade lands in
-  S07. The closure resolves the flag-conditioned admission end state
-  (including the new `case_operations_enabled` flag), the client-evaluated
-  choices model, the SQL-residue compiler arms, the server-side program
-  builder, the post-deploy activation controller, and the S07a/b/c unit
-  split. S07 flips to `in progress` on `agent/s07-preview-execution`.
-- **2026-07-24 — S07b shipped (preview totality, write side):** PR #330
-  merged (squash `965fc9e1`) and deployed — deployment
-  `06c23670-a34f-4556-afe4-54307fcc78d3` serves all three hosts healthy,
-  and the blocking migration Job applied `20260724130000_case_operations_flag`.
-  The submission write path is complete and dormant:
-  `case_operations_enabled` (default false, CHECK-tied to the v3-receiver/
-  v1-reader floors) joins the emergency-disable union; the manifest's
-  `streamReceiverVersion` bumps to 3 while the DB floor deliberately stays
-  2 (`min(browser, manifest)` admission keeps pre-v3 tabs until S07c's
-  raise-and-drain); `CASE_OPERATIONS_NOT_ACTIVE` /
-  `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE` are now flag-conditioned, with the
-  activation snapshot read `FOR SHARE` in the four authoritative commit
-  transactions. `SubmissionMutation` carries the form uuid plus complete
-  per-scope operation answer bags (plain JSON — the edge-WAF rule), and
-  the SERVER builds the `CaseOperationProgram` from the COMMITTED doc via
-  the S04 analyses into the S06 envelope; `SubmissionRejectedError`
-  surfaces as the typed `submission-rejected` arm with whole-rollback
-  copy. The high-effort review's three majors all landed as fixes: the
-  membership gate now precedes the program build (closing a one-bit
-  cross-tenant survey oracle with an ordering-pin test), an
-  answers-absent doc-snapshot skew submits ordinary-only (empty bindings
-  would blank-write, and blank projects to key-absent — silent property
-  deletion), and the rejection joined the Sentry classifier's typed
-  user-domain set. Post-merge CI surfaced one more structural fact: the
-  activation reads must live in the marker-free
-  `lib/db/lookupActivation.ts` leaf because the tsx-run smoke seed and
-  inspect scripts import `apps.ts` (`server-only` throws under plain
-  Node). Remaining S07 unit: S07c (activation).
-- **2026-07-24 — S07a shipped (preview totality, read side):** PR #328
-  merged (squash `5a11aae5`) and deployed — deployment
-  `8246057d-69e8-4275-abba-12a2ba0ca1bf` serves all three hosts healthy
-  (no schema change, so the migration Job was a no-op). The running
-  preview now executes lookup-backed choices and navigation display
-  conditions through ONE printing path (the shared on-device predicate
-  emitter, fixture-row scoped, evaluated per loaded row by the preview
-  evaluator — `item-list:` vocabulary never enters the browser), with
-  `table-lookup` folding to plain text literals under Core's
-  empty-node-set unpack parity. Choices are engine values on promoted
-  runtime DAG edges with unselect-on-removal; display conditions gate
-  the home module list, the forms-first menu, and the case-first
-  post-selection menu + auto-continue against the selected row, with
-  the hidden-items reveal and per-form-session snapshot stability. The
-  SQL compiler's lookup arms gained their production suppliers
-  (per-request `lookupTableSchemas` for config slots; server-side
-  fixture folding for the excluded-owner expression). The high-effort
-  review's central finding shaped the final model: decidability keys
-  on snapshot COVERAGE, not presence — an uncovered carrier is the
-  loading state everywhere and the controller heals the active engine
-  when covering data arrives, leaving the requireTable/requireColumn
-  throws a genuine validator-bypass surface. Remaining S07 units:
-  S07b (write side) on `agent/s07b-write-side`, then S07c
-  (activation).
-- **2026-07-24 — S06 shipped:** PR #323 merged (`7b0c7a15`) and
-  deployed; the migration Job execution succeeded (no schema change),
-  revision `commcare-nova-00373-t82` serves 100% with all three hosts
-  healthy and zero new-revision errors. That closes the slice: storage
-  activation (PR #321), the resolved preview identity (PR #322), and
-  the atomic submission envelope (PR #323) are all production-verified,
-  and the ledger row flips to `shipped`. S07's activation
-  precondition — the clean production rescan — was recorded with
-  PR #321.
+  discipline: a blind draft from merged `main` (`7b0c7a15`) grounded in three
+  structural maps (preview engine, case-operations gate, commit-gate boundary),
+  with PR-04, the F1/F4/F5 memo sections, and the ACA memo harvested as 114
+  source-anchored claims in a separate context. Three claims corrected the
+  draft (the hidden-items reveal affordance, the case-list-screen
+  form-condition locus including auto-continue gating, and per-form-session
+  choice-row stability); six legacy families were retired by primary evidence
+  (the no-persona omniscient mode, the SQL-residue menu-condition model with
+  its batched action and case-count entry point, client-folded identity terms,
+  server-side choice resolution, the `window_width` arm, and the
+  subcase-relationship fix); and the one new wire question was verified in
+  source — the platform's extension-close cascade is a frozen default-off
+  domain toggle, so the envelope's target-only close IS device parity and no
+  cascade lands in S07. The closure resolves the client-evaluated choices
+  model, the SQL-residue compiler arms, the server-side program builder, the
+  move disclosure, and the S07a/b/c unit split. S07 flips to `in progress` on
+  `agent/s07-preview-execution`.
+- **2026-07-24 — S07b shipped (preview totality, write side):** PR #330 merged
+  (squash `965fc9e1`) and deployed — deployment
+  `06c23670-a34f-4556-afe4-54307fcc78d3` serves all three hosts healthy. The
+  submission write path is complete and reachable: both doc-layer commit gates
+  are gone now that every committed-state consumer is total, so an operation-
+  or carrier-bearing document simply commits. `SubmissionMutation` carries the
+  form uuid plus complete per-scope operation answer bags (plain JSON — the
+  edge-WAF rule), and the SERVER builds the `CaseOperationProgram` from the
+  COMMITTED doc via
+  the S04 analyses into the S06 envelope; `SubmissionRejectedError` surfaces as
+  the typed `submission-rejected` arm with whole-rollback copy. The high-effort
+  review's three majors all landed as fixes: the membership gate now precedes
+  the program build (closing a one-bit cross-tenant survey oracle with an
+  ordering-pin test), an answers-absent doc-snapshot skew submits ordinary-only
+  (empty bindings would blank-write, and blank projects to key-absent — silent
+  property deletion), and the rejection joined the Sentry classifier's typed
+  user-domain set. Remaining S07 unit: S07c (moves and closure).
+- **2026-07-24 — S07a shipped (preview totality, read side):** PR #328 merged
+  (squash `5a11aae5`) and deployed — deployment
+  `8246057d-69e8-4275-abba-12a2ba0ca1bf` serves all three hosts healthy (no
+  schema change, so the migration Job was a no-op). The running preview now
+  executes lookup-backed choices and navigation display conditions through ONE
+  printing path (the shared on-device predicate emitter, fixture-row scoped,
+  evaluated per loaded row by the preview evaluator — `item-list:` vocabulary
+  never enters the browser), with `table-lookup` folding to plain text literals
+  under Core's empty-node-set unpack parity. Choices are engine values on
+  promoted runtime DAG edges with unselect-on-removal; display conditions gate
+  the home module list, the forms-first menu, and the case-first post-selection
+  menu + auto-continue against the selected row, with the hidden-items reveal
+  and per-form-session snapshot stability. The SQL compiler's lookup arms
+  gained their production suppliers (per-request `lookupTableSchemas` for
+  config slots; server-side fixture folding for the excluded-owner expression).
+  The high-effort review's central finding shaped the final model: decidability
+  keys on snapshot COVERAGE, not presence — an uncovered carrier is the loading
+  state everywhere and the controller heals the active engine when covering
+  data arrives, leaving the requireTable/requireColumn throws a genuine
+  validator-bypass surface. Remaining S07 units: S07b (write side) on
+  `agent/s07b-write-side`, then S07c (moves and closure).
+- **2026-07-24 — S06 shipped:** PR #323 merged (`7b0c7a15`) and deployed; the
+  migration Job execution succeeded (no schema change), revision
+  `commcare-nova-00373-t82` serves 100% with all three hosts healthy and zero
+  new-revision errors. That closes the slice: storage activation (PR #321), the
+  resolved preview identity (PR #322), and the atomic submission envelope (PR
+  #323) are all production-verified, and the ledger row flips to `shipped`.
+  S07's activation precondition — the clean production rescan — was recorded
+  with PR #321.
 - **2026-07-24 — S06 atomic submission envelope (last of three units):**
   `agent/s06-atomic-envelope` extends the CaseStore contract with
-  `applySubmission` — one tenant-bound transaction for the whole
-  submission under the standard lock order, replacing the three-write
-  followup/close sequence (and `insertWithChildren`, which the
-  registration arm subsumes; the method is removed). The executor
-  (`lib/case-store/postgres/submissionEnvelope.ts`) implements the
-  closure's envelope mechanics end to end: physical expansion over the
-  multiplicity scopes (root first, repeats iteration-major),
-  TypeScript-side identity allocation with `deriveAuthoredCaseId`'s
-  blank/over-205 outcomes aborting pre-DML (the pinned TS↔XPath vector
-  runs against the executor), in-transaction evaluation of every
-  condition/value/target through the AST→Kysely compiler against the
-  pre-submission snapshot (`TermBindings.actingUserId` populated from
-  the store's bound actor — `acting-user` is now reachable),
-  server-side target resolution + reauthorization
-  (`validateCaseOperationTargetDescriptor`, hold-excluded expression
-  loads), the resolved rolling-type proof
+  `applySubmission` — one tenant-bound transaction for the whole submission
+  under the standard lock order, replacing the three-write followup/close
+  sequence (and `insertWithChildren`, which the registration arm subsumes; the
+  method is removed). The executor
+  (`lib/case-store/postgres/submissionEnvelope.ts`) implements the closure's
+  envelope mechanics end to end: physical expansion over the multiplicity
+  scopes (root first, repeats iteration-major), TypeScript-side identity
+  allocation with `deriveAuthoredCaseId`'s blank/over-205 outcomes aborting
+  pre-DML (the pinned TS↔XPath vector runs against the executor),
+  in-transaction evaluation of every condition/value/target through the
+  AST→Kysely compiler against the pre-submission snapshot
+  (`TermBindings.actingUserId` populated from the store's bound actor —
+  `acting-user` is now reachable), server-side target resolution +
+  reauthorization (`validateCaseOperationTargetDescriptor`, hold-excluded
+  expression loads), the resolved rolling-type proof
   (`validateResolvedCaseOperationTypeSequence`) over the whole physical
-  sequence including the type-sensitive ordinary action as its final
-  implicit consumer, `prepareCaseOperationTextValue` on every
-  name/rename/owner including the default acting-user owner, the
-  wirePortable-only retype (retained document validated against the
-  destination schema; conversion/parking stays dormant),
-  identifier-keyed link CRUD persisting authored `child`/`extension`
-  (a `parent` identifier maintains the denormalized first parent),
-  create-of-existing merges for duplicate authored ids (across and
-  within envelopes), explicit multi-select JSONB serialization, and a
-  typed whole-rollback contract (`SubmissionRejectedError`). The
-  preview submit path routes through the envelope
-  (`submissionEnvelopeArgs`; the schema heal now retries at the
-  envelope boundary), so followup/close submissions land atomically —
-  the user-observable change the closure names. Operations stay
-  unauthorable until S07 opens the gate; the program arm is pinned by
-  the per-test-database suite
-  (`lib/case-store/postgres/__tests__/submissionEnvelope.test.ts`).
-  Adversarial review confirmed three wire-parity defects, all fixed
-  and pinned: a retyping operation now applies its writes, rename, and
-  type change as one destination-typed unit (the wire's single
-  `<update>` block — writes were previously validated and shed under
-  the source schema); a blank-evaluated write projects to key-absent
-  (omitted on create, removed on update) instead of failing typed
-  validation the device would accept; and a link-only operation
-  advances `modified_on` (the per-block `@date_modified` stamp). Two
-  confirmed coverage gaps closed: distinct-per-iteration repeat
-  expansion (per-iteration bindings, correlation, iteration-major
-  records) and the held blank-key failure on a skipped conditional
-  create.
-- **2026-07-24 — S06 resolved preview identity shipped:** PR #322
-  merged (`ec6a4074`) and deployed; migration Job execution succeeded
-  (no schema change), revision healthy across all three hosts with
-  zero new-revision errors. Preview form XPath now reads the real
-  signed-in worker.
+  sequence including the type-sensitive ordinary action as its final implicit
+  consumer, `prepareCaseOperationTextValue` on every name/rename/owner
+  including the default acting-user owner, the wirePortable-only retype
+  (retained document validated against the destination schema;
+  conversion/parking stays unimplemented), identifier-keyed link CRUD persisting
+  authored `child`/`extension` (a `parent` identifier maintains the
+  denormalized first parent), create-of-existing merges for duplicate authored
+  ids (across and within envelopes), explicit multi-select JSONB serialization,
+  and a typed whole-rollback contract (`SubmissionRejectedError`). The preview
+  submit path routes through the envelope (`submissionEnvelopeArgs`; the schema
+  heal now retries at the envelope boundary), so followup/close submissions
+  land atomically — the user-observable change the closure names. Operations
+  stay unauthorable until S07 opens the gate; the program arm is pinned by the
+  per-test-database suite
+  (`lib/case-store/postgres/__tests__/submissionEnvelope.test.ts`). Adversarial
+  review confirmed three wire-parity defects, all fixed and pinned: a retyping
+  operation now applies its writes, rename, and type change as one
+  destination-typed unit (the wire's single `<update>` block — writes were
+  previously validated and shed under the source schema); a blank-evaluated
+  write projects to key-absent (omitted on create, removed on update) instead
+  of failing typed validation the device would accept; and a link-only
+  operation advances `modified_on` (the per-block `@date_modified` stamp). Two
+  confirmed coverage gaps closed: distinct-per-iteration repeat expansion
+  (per-iteration bindings, correlation, iteration-major records) and the held
+  blank-key failure on a skipped conditional create.
+- **2026-07-24 — S06 resolved preview identity shipped:** PR #322 merged
+  (`ec6a4074`) and deployed; migration Job execution succeeded (no schema
+  change), revision healthy across all three hosts with zero new-revision
+  errors. Preview form XPath now reads the real signed-in worker.
 - **2026-07-24 — S06 resolved preview identity (second of three units):**
-  `agent/s06-preview-identity` establishes the closure's identity
-  contract: `lib/preview/engine/identity.ts` owns
-  `ResolvedPreviewIdentity` with providers as the sole constructors —
-  `previewAsMe` activates "Preview as me" and refuses an unpersisted id
-  (the S15 persona seam; no session-only pseudo-persona, no
-  `window_width`, no case-count arm). The three prior derivations
-  consolidate onto it: every case-data Server Action resolves the
-  identity once (`resolvePreviewIdentity`), `gatedCaseStore` takes the
-  identity instead of a bare user id, the search/session projection is
-  the identity's own, and the form engine's hardcoded `demo_user` map is
-  gone — `#user/*` reads the real signed-in worker (seeded in the
-  provider's `useState` initializer so a warm-session mount builds once;
-  material change rebuilds, re-derivation no-ops, a cold session
-  resolving mid-entry restores user-touched values via the engine's
-  shared snapshot path, and replacing a non-null identity discards so
-  no worker's entries leak into another's session), while submission
-  identity remains the server-resolved actor that already stamps
-  `owner_id` (the engine emits no meta block — there is no client meta
-  to fix). User-data keys stay
-  absent when the worker has no value. The dormant
-  `TermBindings.actingUserId` stays unpopulated: `acting-user` is valid
-  only inside case operations, so the envelope unit wires it where it
+  `agent/s06-preview-identity` establishes the closure's identity contract:
+  `lib/preview/engine/identity.ts` owns `ResolvedPreviewIdentity` with
+  providers as the sole constructors — `previewAsMe` activates "Preview as me"
+  and refuses an unpersisted id (the S15 persona seam; no session-only
+  pseudo-persona, no `window_width`, no case-count arm). The three prior
+  derivations consolidate onto it: every case-data Server Action resolves the
+  identity once (`resolvePreviewIdentity`), `gatedCaseStore` takes the identity
+  instead of a bare user id, the search/session projection is the identity's
+  own, and the form engine's hardcoded `demo_user` map is gone — `#user/*`
+  reads the real signed-in worker (seeded in the provider's `useState`
+  initializer so a warm-session mount builds once; material change rebuilds,
+  re-derivation no-ops, a cold session resolving mid-entry restores
+  user-touched values via the engine's shared snapshot path, and replacing a
+  non-null identity discards so no worker's entries leak into another's
+  session), while submission identity remains the server-resolved actor that
+  already stamps `owner_id` (the engine emits no meta block — there is no
+  client meta to fix). User-data keys stay absent when the worker has no value.
+  `TermBindings.actingUserId` stays unpopulated: `acting-user` is
+  valid only inside case operations, so the envelope unit wires it where it
   becomes reachable. The atomic envelope remains the slice's last unit.
-- **2026-07-24 — S06 storage activation shipped:** PR #321 merged
-  (`6ee9770e`) and deployed; the deploy-blocking Job applied the
-  widening and the production rescan
-  (`scripts/scan-case-id-storage.ts --prod`) came back clean — all five
-  identity columns `text` with zero non-UUID values in the existing
-  rows, the `(uuidv7())::text` default, and the
-  `parked_case_values` FK intact. S07's activation precondition (a
-  clean production rescan) is satisfied; the scan script stays until
-  that activation consumes it.
+- **2026-07-24 — S06 storage activation shipped:** PR #321 merged (`6ee9770e`)
+  and deployed; the deploy-blocking Job applied the widening and the production
+  rescan (`scripts/scan-case-id-storage.ts --prod`) came back clean — all five
+  identity columns `text` with zero non-UUID values in the existing rows, the
+  `(uuidv7())::text` default, and the `parked_case_values` FK intact. S07's
+  activation precondition (a clean production rescan) is satisfied; the scan
+  script stays until that activation consumes it.
 - **2026-07-24 — S06 storage activation (first of three units):**
-  `agent/s06-opaque-ids` widens the identity family to `text` per the
-  closure — the schema-resolving, replay-guarded `opaque_case_ids`
-  migration with `uuidv7()::text` retained as the generated-id default;
-  both `::uuid` casts and `readCaseData`'s UUID gate deleted; the
-  `(opened_on, case_id)` ordering fact emitted explicitly by the store's
-  unsorted query and led by `date_opened` in the preview sort-key builder;
-  the builder URL's case-id segment percent-encoded/decoded symmetrically;
-  and `scripts/scan-case-id-storage.ts` as the durable pre/post scan.
-  Acceptance suites pin URL-significant authored ids through CRUD, edge
-  derivation, parking/cascade, retenancy, ordering, and the routing
-  round-trip. The identity contract and the atomic envelope follow as the
-  slice's remaining units.
+  `agent/s06-opaque-ids` widens the identity family to `text` per the closure —
+  the schema-resolving, replay-guarded `opaque_case_ids` migration with
+  `uuidv7()::text` retained as the generated-id default; both `::uuid` casts
+  and `readCaseData`'s UUID gate deleted; the `(opened_on, case_id)` ordering
+  fact emitted explicitly by the store's unsorted query and led by
+  `date_opened` in the preview sort-key builder; the builder URL's case-id
+  segment percent-encoded/decoded symmetrically; and
+  `scripts/scan-case-id-storage.ts` as the durable pre/post scan. Acceptance
+  suites pin URL-significant authored ids through CRUD, edge derivation,
+  parking/cascade, retenancy, ordering, and the routing round-trip. The
+  identity contract and the atomic envelope follow as the slice's remaining
+  units.
 - **2026-07-24 — S06 readiness closed:** The audit ran under the recorded
   discipline: a blind draft derived from merged `main` (`9a959e89`) and the
   CommCare checkouts, with PR-04, F1/F4, and the ACA memo harvested as
-  source-anchored claims in a separate context, and every conflict settled
-  by primary evidence — four legacy claims retired as stale and two
-  blind-draft errors corrected (`cases_quarantine` is already dropped, so
-  the widening covers exactly five columns; the envelope needs no
-  writer-version declaration because the guard triggers never covered the
-  cases family). The closure pins the `ResolvedPreviewIdentity` contract
-  and "Preview as me", the one-transaction submission envelope, the
-  opaque-id widening with the `(opened_on, case_id)` ordering fact and the
-  routing encode/decode symmetry, and holds `CASE_OPERATIONS_NOT_ACTIVE`
-  closed for S07. S06 is `ready`.
-- **2026-07-24 — S05c shipped:** PR #316 passed the full CI matrix after its
-  Smoke failure exposed the second production-critical find of the slice: the
-  stream admission's deployed-environment clamp resolved to receiver v0
-  anywhere without a baked declaration (and in production via the host-object
-  `process.env` parse), so the raised floor revoked every builder stream in
-  the smoke environment. The clamp was deleted — the compiled manifest is the
-  serving declaration and the startup probe is the sole environment
-  authority — and the local Playwright suite went 25/25 including the
-  four-user multiplayer storm. Adversarial review (four finders, double
-  independent verification) confirmed and fixed one migration lock-ordering
-  hazard pre-merge. Shipped at squash `62ffaff0` through successful Cloud
+  source-anchored claims in a separate context, and every conflict settled by
+  primary evidence — four legacy claims retired as stale and one blind-draft
+  error corrected (`cases_quarantine` is already dropped, so the widening
+  covers exactly five columns). The closure pins the `ResolvedPreviewIdentity`
+  contract and "Preview as me", the
+  one-transaction submission envelope, the opaque-id widening with the
+  `(opened_on, case_id)` ordering fact and the routing encode/decode symmetry,
+  and leaves operations unauthorable for S07. S06 is `ready`.
+- **2026-07-24 — S05c shipped:** PR #316 passed the full CI matrix, and the
+  local Playwright suite went 25/25 including the four-user multiplayer storm.
+  Adversarial review (four finders, double independent verification) returned
+  no remaining findings. Shipped at squash `62ffaff0` through successful Cloud
   Build `45221f0e-2102-4d27-ac9b-074abd1eac10`, migration execution
   `commcare-nova-migrate-fgw2p`, and healthy 100%-traffic revision
-  `commcare-nova-00366-9mf`. Main, docs, and MCP metadata probes returned
-  HTTP 200 and the new revision had no error logs. The production singleton
-  reads `(1, 2, 0)` with every activation flag false, the registry-epoch
-  column is gone, and the pre-merge and post-deploy read-only edge scans were
-  both clean at 404/404 apps — zero mismatches, so the one-off
-  `migrate-lookup-reference-edges` script was removed unrun. S06 is the next
-  slice.
+  `commcare-nova-00366-9mf`. Main, docs, and MCP metadata probes returned HTTP
+  200 and the new revision had no error logs. The pre-merge and post-deploy
+  read-only edge scans were both clean at 404/404 apps — zero mismatches, so
+  the one-off `migrate-lookup-reference-edges` script was removed unrun. S06 is
+  the next slice.
 - **2026-07-23 — S05c readiness closed / implementation owned:** The audit ran
   under the now-recorded blind-then-archaeology discipline: the closure was
   drafted from current `main` alone, legacy PR-01/PR-02/PR-03 and F5 were
   harvested as source-anchored claims in a separate context, and adjudication
-  found no contradiction. The audit narrowed the slice — extractor
-  registration and the writer-constant bump already shipped in S05a — leaving
-  the production scan, the app-locked edge-repair writer and one-off migrate
-  script, the two monotonic floor raises in one deploy-blocking migration,
-  and deletion of the stranded initial-cutoff choreography including the
-  `continuous_registry_traffic_since` column. `agent/s05c-lookup-cutover`
-  owns implementation.
+  found no contradiction. The audit narrowed the slice — extractor registration
+  already shipped in S05a — leaving the production scan and the app-locked
+  edge-repair writer with its one-off migrate script.
+  `agent/s05c-lookup-cutover` owns implementation.
 - **2026-07-23 — S05b shipped:** PR #312 passed independent adversarial review
   (five confirmed wire defects fixed and regression-pinned pre-merge) and every
   CI gate including the changed-test async-leak sweep, whose one failure was
@@ -3121,8 +2793,7 @@ grows; keep every HQ JSON/compiler projection identical.
   preservable lookup expressions, predicate terms, and itemsets over
   suite-embedded fixtures from one REPEATABLE READ snapshot under the exact
   aggregate budgets; carrier commits, authoring surfaces, preview/SQL
-  execution, HQ JSON/upload, database floors, and feature flags remain closed
-  or zero/off. S05c is the next slice.
+  execution, and HQ JSON/upload remain closed. S05c is the next slice.
 - **2026-07-23 — S05b readiness closed / implementation owned:** The local-wire
   audit re-verified the export-boundary, emitter-rejection, instance-
   accumulation, and lookup-reader seams against deployed `06a6ee4f`, and the
@@ -3134,8 +2805,7 @@ grows; keep every HQ JSON/compiler projection identical.
   one-snapshot definitions-plus-rows reader, boundary-time row-validity and
   aggregate-budget findings, and the on-device-only conversion matrix.
   Implementation is in progress on `agent/s05b-lookup-wire` with every commit
-  gate, HQ path, preview/SQL boundary, database floor, and feature flag
-  unchanged.
+  gate, HQ path, and preview/SQL boundary unchanged.
 - **2026-07-23 — S05a shipped / S05b readiness audit owned:** PR #311 passed
   consolidated contract review and every final CI gate, then shipped at squash
   `06a6ee4f` through successful Cloud Build
@@ -3144,60 +2814,56 @@ grows; keep every HQ JSON/compiler projection identical.
   `commcare-nova-00361-wrv`. Main, docs, and MCP metadata probes returned HTTP
   200 and the new revision had no error logs. S05b's local-wire readiness audit
   now owns `agent/s05b-lookup-wire`; S05a's carrier commit gates, runtime
-  execution, authoring surfaces, HQ JSON/upload, database floors, and feature
-  flags remain closed or zero/off exactly as designed.
+  execution, authoring surfaces, and HQ JSON/upload remain closed exactly as
+  designed.
 - **2026-07-23 — S05a implementation complete / final review:** Draft PR #311
   now includes the rows-free lookup type and scope policies, validation-only
   dependency-cycle integration, explicit lookup-context case-workspace
-  verdicts, and the raw HTTP SSE, generation dispatcher, and Postgres log replay
-  matrix through commit `a94e1fda`. The validation and transport tranches each
-  completed independent review with no remaining findings. The prior draft CI's
-  two add-field replay regressions were reproduced and fixed without changing
-  carrier behavior. Consolidated audit then found and closed a predicate-rooted
-  instance-accumulation bypass, inaccurate dormant-lookup diagnostic copy, and
-  a malformed-input editor crash; focused normal and async-leak verification plus
-  independent follow-up review are green. Fresh PR CI is the remaining merge
-  gate. Every carrier commit and export gate remains closed, every database
-  floor and feature flag remains zero/off, and no UI, runtime evaluation, SQL
-  execution, wire emission, or authoring surface is activated.
+  verdicts, and the raw HTTP SSE, generation dispatcher, and Postgres log
+  replay matrix through commit `a94e1fda`. The validation and transport
+  tranches each completed independent review with no remaining findings. The
+  prior draft CI's two add-field replay regressions were reproduced and fixed
+  without changing carrier behavior. Consolidated audit then found and closed a
+  predicate-rooted instance-accumulation bypass, inaccurate lookup
+  diagnostic copy, and a malformed-input editor crash; focused normal and
+  async-leak verification plus independent follow-up review are green. Fresh PR
+  CI is the remaining merge gate. Every carrier commit and export gate remains
+  closed, and no UI, runtime evaluation, SQL execution, wire emission, or
+  authoring surface is activated.
 - **2026-07-23 — S05a extractor/gate checkpoint reviewed:** Draft PR #311 at
-  commit `c27217b6` registers all 17 production carrier extractors, declares
-  writer v1 and stream receiver v2 with every database floor and feature flag
-  unchanged, and closes commit plus all export boundaries around dormant
-  carriers. Canonical
+  commit `c27217b6` registers all 17 production carrier extractors and closes
+  commit plus all export boundaries around the new carriers. Canonical
   fingerprints distinguish carrier changes from unrelated historical repairs.
   Real JSONB carriers now exercise authoritative edge backfill/removal, both
-  deletion race orders, missing/foreign parity, and Project-move closure without
-  mocking the extractor. Independent integrated review is clean. Rows-free type
-  policy/dependency validation and the remaining raw-SSE/dispatcher/log
-  compatibility cases are the two unfinished S05a units.
+  deletion race orders, missing/foreign parity, and Project-move closure
+  without mocking the extractor. Independent integrated review is clean.
+  Rows-free type policy/dependency validation and the remaining
+  raw-SSE/dispatcher/log replay cases are the two unfinished S05a units.
 - **2026-07-23 — S05a ready / S22 census complete:** S05 domain/wire readiness
-  now pins the inline select fallback, mutation compatibility, fixture lexical
-  semantics, option validity, answer/repeat/dependency rules, one-snapshot
-  reader, and aggregate limits of 10,000 rows, 100,000 cells, and 16 MiB exact
-  fixture bytes. S05a is ready with all carrier and export gates closed; S05b
-  remains dependency-blocked and S05c remains owner-decision-blocked before any
-  production cutover or nonzero floor. S22's production read-only census found
-  no current or historical form links across 404 apps; its identity
-  implementation remains blocked on the explicit
-  mixed-version-versus-maintenance cutover choice.
+  now pins the inline select fallback, mutation history compatibility, fixture
+  lexical semantics, option validity, answer/repeat/dependency rules,
+  one-snapshot reader, and aggregate limits of 10,000 rows, 100,000 cells, and
+  16 MiB exact fixture bytes. S05a is ready with all carrier and export gates
+  closed; S05b and S05c remain dependency-blocked behind it. S22's production
+  read-only census found no current or historical form links across 404 apps;
+  its identity implementation remains blocked on the durable UUID/order shape.
 - **2026-07-23 — S04 shipped / S22 form-link readiness started:** PR #303
-  shipped dormant case-operation domain and wire support at squash `85b2fe3b`
+  shipped case-operation domain and wire support at squash `85b2fe3b`
   through successful Cloud Build `cefd6e18-49ac-4809-a600-fbfbe7c10708`,
   migration execution `commcare-nova-migrate-bp46g`, and healthy 100%-traffic
   revision `commcare-nova-00359-8d7`. Production probes and revision error logs
-  passed. S22's form-link readiness rebaseline now owns
-  `agent/s22-form-links`; implementation remains blocked pending the migration
-  and rolling contract for durable link UUID/order identity. S05 remains blocked
-  on its recorded exported-value, fallback, filter-scope, and aggregate-budget
-  decisions and now explicitly depends on S04's shared predicate/expression
-  baseline.
+  passed. S22's form-link readiness rebaseline now owns `agent/s22-form-links`;
+  implementation remains blocked pending the migration and history contract for
+  durable link UUID/order identity. S05 remains blocked on its recorded
+  exported-value, fallback, filter-scope, and aggregate-budget decisions and
+  now explicitly depends on S04's shared predicate/expression baseline.
 - **2026-07-22 — S02c3 shipped / S04 review-ready:** PR #304 shipped the
-  tenant-safe dormant move and exact media protocol at squash `97591f10`
+  tenant-safe move and exact media protocol at squash `97591f10`
   through successful Cloud Build `c0b35218-5c0f-4d68-ab7e-0932d000aa13`,
   migration execution `commcare-nova-migrate-b6whk`, and healthy 100%-traffic
-  revision `commcare-nova-00358-clk`. True Project moves remain disabled. S04
-  is rebased on that production baseline and remains review-ready.
+  revision `commcare-nova-00358-clk`. True Project moves remain unreachable
+  until S07 builds the destination workspace. S04 is rebased on that production
+  baseline and remains review-ready.
 - **2026-07-22 — S02c2 and S03 shipped:** Deployment hardening shipped in PR
   #301 at `e9a6377a` through successful Cloud Build
   `030b9622-1aaf-43b2-8137-7ef4a4615f74`, migration execution
@@ -3208,74 +2874,76 @@ grows; keep every HQ JSON/compiler projection identical.
   `commcare-nova-migrate-mc6jj`, and healthy 100%-traffic revision
   `commcare-nova-00357-6lr`.
 - **2026-07-22 — S04 domain/wire implementation reviewed:** A dedicated
-  `agent/s04` worktree now owns the dormant case-operation unit: typed identity,
-  targets, links, repeat correlation and AST leaves; rolling-compatible
-  mutations and exact references; operation-aware property derivation and the
-  atomic retype plan; tenant-authoritative runtime target validation; and
-  source-level cx2 emission with canonical child/document order, typed dynamic
-  targets, conditional transition guards, and current
-  Core/Vellum oracle coverage. Review-driven hardening now also pins directional
-  storage assignment and multi-select JSONB bindings, nested `id-of` target rejection,
-  255-character case-type/index constraints, scalar-metadata-safe retype planning,
-  fixed-column name/owner normalization and atomic bounds guards, and the
-  exact-schema-only `wirePortable` retype gate. The operation commit gate and all public
-  authoring surfaces remain closed pending S06/S07 execution. Independent code review
-  approved the corrected unit and the focused 17-file verification lane passed, so the
-  slice is review-ready.
+  `agent/s04` worktree now owns the case-operation unit: typed
+  identity, targets, links, repeat correlation and AST leaves;
+  history-compatible mutations and exact references; operation-aware property
+  derivation and the atomic retype plan; tenant-authoritative runtime target
+  validation; and source-level cx2 emission with canonical child/document
+  order, typed dynamic targets, conditional transition guards, and current
+  Core/Vellum oracle coverage. Review-driven hardening now also pins
+  directional storage assignment and multi-select JSONB bindings, nested
+  `id-of` target rejection, 255-character case-type/index constraints,
+  scalar-metadata-safe retype planning, fixed-column name/owner normalization
+  and atomic bounds guards, and the exact-schema-only `wirePortable` retype
+  gate. The operation commit gate and all public authoring surfaces remain
+  closed pending S06/S07 execution. Independent code review approved the
+  corrected unit and the focused 17-file verification lane passed, so the slice
+  is review-ready.
 - **2026-07-22 — S02b shipped / S02c owned:** Integrated the required lookup
   context/finding identity through every validation boundary; exact edge
   replacement, same-transaction Project reauthorization, apply-once candidate
-  preparation, deterministic synthetic history, and dormant empty-only Project
+  preparation, deterministic synthetic history, and empty-only Project
   moves through every authoritative app writer; closed schema-governance
   internals; the three-mode export preparation boundary; and the read-only
   fleet edge scanner. The scanner includes soft-deleted apps, compares
   structural and stored targets from one read-only repeatable-read snapshot,
-  and exposes `--prod` without a repair path. Typecheck and scoped Biome passed;
-  the leak detector passed 14 pure files / 141 tests and 9 shared-Postgres files
-  / 101 tests with one worker; scanner, inspector, and repair-script import/help
-  smokes passed. Independent writer, export, and final integrated reviews found
-  no actionable issue. PR #299 then passed every CI gate and shipped at squash
-  `dd5fbecf` through build `22a9ca50-3dbb-4012-a363-fd5517d4f13c`, successful
-  migration `commcare-nova-migrate-rnqqd`, and healthy 100%-traffic revision
+  and exposes `--prod` without a repair path. Typecheck and scoped Biome
+  passed; the leak detector passed 14 pure files / 141 tests and 9
+  shared-Postgres files / 101 tests with one worker; scanner, inspector, and
+  repair-script import/help smokes passed. Independent writer, export, and
+  final integrated reviews found no actionable issue. PR #299 then passed every
+  CI gate and shipped at squash `dd5fbecf` through build
+  `22a9ca50-3dbb-4012-a363-fd5517d4f13c`, successful migration
+  `commcare-nova-migrate-rnqqd`, and healthy 100%-traffic revision
   `commcare-nova-00353-plw`. App/docs/MCP probes, revision error logs, and the
   read-only 401-app production edge scan passed; all S02b branches/worktrees
   were cleaned. The S02c re-audit froze shared/exclusive membership
   serialization, per-operation case safety, atomic move/media behavior, mutable
-  editability, receiver leases, runtime-holder stamps, and permanent deployment
-  identity/startup hardening. Fresh branches own the still-disabled
-  implementation.
+  editability, run-holder identity, and permanent deployment identity/startup
+  hardening. Fresh branches own the still-unreachable implementation.
 - **2026-07-22 — S02a shipped / S02b owned:** PR #298 shipped the distinct
-  lookup identities, rows-free definition snapshot, dormant exact-reference and
-  stream-lease storage, compatibility floors/flags, and database writer guard at
-  squash `07c45ef6`. Build `99ae1f72-048b-4515-8652-1f3caa669b99`, migration
-  `commcare-nova-migrate-cccx4`, revision `commcare-nova-00352-gpk`, production
-  probes, and error logs passed; all S02a branches/worktrees were cleaned. The
-  S02b readiness audit then froze deterministic persisted mutations,
-  same-snapshot validation, null-Project and dormant-move behavior,
+  lookup identities, rows-free definition snapshot, and exact-reference
+  storage at squash `07c45ef6`. Build `99ae1f72-048b-4515-8652-1f3caa669b99`,
+  migration `commcare-nova-migrate-cccx4`, revision `commcare-nova-00352-gpk`,
+  production probes, and error logs passed; all S02a branches/worktrees were
+  cleaned. The S02b readiness audit then froze deterministic persisted
+  mutations, same-snapshot validation, null-Project and move behavior,
   fail-closed private schema governance, exact app-id blocker diagnostics, and
   the three-mode neutral export boundary. At that point, fresh branch
   `agent/s02b` took ownership from merged `main`.
 - **2026-07-22 — S01 shipped / S02 infrastructure contract:** PR #295 shipped
-  lookup persistence through healthy revision `commcare-nova-00350-xgz`. PR #296
-  then passed review and CI, but its first Cloud Build was deliberately cancelled
-  before the migration Job when a rolling-version audit found that an already-open
-  tab could retain its source-Project broker latch across a later app move. PR
-  #297 closed that handoff on every reload/revocation boundary and rejected stale
-  EventSource callbacks; squash `7422c4c2` deployed through successful build
-  `4a6ab710`, migration `commcare-nova-migrate-clvkd`, and healthy 100%-traffic
-  revision `commcare-nova-00351-dcq`. Production host/auth probes and error logs
-  passed, and all S01 branches/worktrees were cleaned. The follow-on S02 audit
-  froze an infrastructure-only slice, deferred carrier/wire foundations to S05
-  and runtime activation to S07, and split delivery into independently reviewed S02a
-  identity/storage, S02b validation/commit, and S02c move/transport units.
+  lookup persistence through healthy revision `commcare-nova-00350-xgz`. PR
+  #296 then passed review and CI, but its first Cloud Build was deliberately
+  cancelled before the migration Job when a transport audit found that an
+  already-open tab could retain its source-Project broker latch across a later
+  app move. PR #297 closed that handoff on every reload/revocation boundary and
+  rejected stale EventSource callbacks; squash `7422c4c2` deployed through
+  successful build `4a6ab710`, migration `commcare-nova-migrate-clvkd`, and
+  healthy 100%-traffic revision `commcare-nova-00351-dcq`. Production host/auth
+  probes and error logs passed, and all S01 branches/worktrees were cleaned.
+  The follow-on S02 audit froze an infrastructure-only slice, deferred
+  carrier/wire foundations to S05 and runtime activation to S07, and split
+  delivery into independently reviewed S02a identity/storage, S02b
+  validation/commit, and S02c move/transport units.
 - **2026-07-21 — S01 readiness:** Re-audited lookup persistence against the
-  Postgres app-state store, Project roles/lifecycle, app-move saga, Server Action
-  limit, order-key implementation, shared listener, and builder stream. Froze the
-  Project-clock/full-snapshot revision model, UUID-keyed row values, raw CSV
-  contract, role matrix, temporary move experience, global Project-deletion guard,
-  rolling-deploy behavior, and two review units; S00 is production-verified and
-  S01 is now owned in progress.
+  Postgres app-state store, Project roles/lifecycle, app-move saga, Server
+  Action limit, order-key implementation, shared listener, and builder stream.
+  Froze the Project-clock/full-snapshot revision model, UUID-keyed row values,
+  raw CSV contract, role matrix, temporary move experience, global
+  Project-deletion guard, rolling-deploy behavior, and two review units; S00 is
+  production-verified and S01 is now owned in progress.
 - **2026-07-21 — S00:** Replaced the stale fifteen-PR execution model after the
-  Firestore-to-Postgres migration and subsequent builder, mutation, data-review,
-  agent, and deployment changes. Recorded the approved identity, persona,
-  deployment, tile, attachment, UX, resource, review, and delivery contracts.
+  Firestore-to-Postgres migration and subsequent builder, mutation,
+  data-review, agent, and deployment changes. Recorded the approved identity,
+  persona, deployment, tile, attachment, UX, resource, review, and delivery
+  contracts.

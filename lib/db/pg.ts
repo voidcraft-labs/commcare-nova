@@ -34,8 +34,6 @@ import { delay } from "@/lib/utils/delay";
 
 /** Server-set timestamp: read as `Date`, write as `Date`/ISO, omit when defaulted. */
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
-/** Caller-required timestamp: unlike `Timestamp`, INSERT has no undefined arm. */
-type RequiredTimestamp = ColumnType<Date, Date | string, Date | string>;
 /** Legacy `bigint` counters whose bounded readers intentionally `Number(...)`. */
 type BigIntColumn = ColumnType<string | number, number, number>;
 /** Lookup revisions stay exact decimal strings on every application boundary. */
@@ -48,8 +46,6 @@ type DefaultedLookupRevisionColumn = ColumnType<
 >;
 /** Server-defaulted UUIDv7 identity: optional on INSERT, immutable on UPDATE. */
 type DefaultedUuidV7Column = ColumnType<string, string | undefined, never>;
-/** Server-only UUIDv7 default: callers may omit it but cannot supply identity. */
-type ServerDefaultedUuidV7Column = ColumnType<string, undefined, never>;
 
 export interface AppsTable {
 	id: string;
@@ -96,8 +92,6 @@ export interface AppsTable {
 		string | null | undefined,
 		string | null
 	>;
-	/** Database-stamped capability of the exact currently-present run holder. */
-	run_runtime_reader_version: ColumnType<number | null, undefined, never>;
 	created_at: Timestamp;
 	updated_at: Timestamp;
 }
@@ -378,54 +372,6 @@ export interface LookupColumnReferencesTable {
 	app_id: string;
 }
 
-/**
- * A live builder stream's receiver-version lease. `connection_id` is minted by
- * the server/database, never accepted as client identity.
- */
-export interface LookupStreamCapabilityLeasesTable {
-	app_id: string;
-	connection_id: ServerDefaultedUuidV7Column;
-	receiver_version: number;
-	expires_at: RequiredTimestamp;
-	created_at: Timestamp;
-}
-
-/**
- * The one persistent compatibility row. Floors only increase; ordinary feature
- * flags may turn back off for emergency response without lowering a floor. The
- * run-holder nonce switch is a protocol cutover and is irreversible once true.
- */
-export interface LookupReferenceCompatibilityTable {
-	id: ColumnType<1, 1 | undefined, never>;
-	minimum_writer_version: ColumnType<number, number | undefined, number>;
-	minimum_stream_receiver_version: ColumnType<
-		number,
-		number | undefined,
-		number
-	>;
-	minimum_runtime_reader_version: ColumnType<
-		number,
-		number | undefined,
-		number
-	>;
-	run_holder_nonce_enforced: ColumnType<boolean, boolean | undefined, boolean>;
-	carrier_commits_enabled: ColumnType<boolean, boolean | undefined, boolean>;
-	destructive_schema_actions_enabled: ColumnType<
-		boolean,
-		boolean | undefined,
-		boolean
-	>;
-	project_moves_enabled: ColumnType<boolean, boolean | undefined, boolean>;
-	case_operations_enabled: ColumnType<boolean, boolean | undefined, boolean>;
-	updated_at: Timestamp;
-}
-
-/** One explicitly prepared uninterrupted traffic epoch per runtime target. */
-export interface RuntimeReaderTrafficEpochsTable {
-	target_version: number;
-	continuous_traffic_since: ColumnType<Date, undefined, never>;
-}
-
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
@@ -449,67 +395,6 @@ export interface AppDatabase {
 	lookup_rows: LookupRowsTable;
 	lookup_table_references: LookupTableReferencesTable;
 	lookup_column_references: LookupColumnReferencesTable;
-	lookup_stream_capability_leases: LookupStreamCapabilityLeasesTable;
-	lookup_reference_compatibility: LookupReferenceCompatibilityTable;
-	runtime_reader_traffic_epochs: RuntimeReaderTrafficEpochsTable;
-}
-
-/**
- * The custom Postgres setting read by the database writer-version guards.
- * Keep this literal in lockstep with the immutable migration that creates the
- * guards; migrations must not import mutable runtime constants.
- */
-export const WRITER_VERSION_GUC = "nova.writer_version";
-
-/** Transaction-local declaration consumed by the run-holder stamp trigger. */
-export const RUNTIME_READER_VERSION_GUC = "nova.runtime_reader_version";
-
-/**
- * Declare this code's compatibility version for the CURRENT transaction.
- * `set_config(..., true)` is PostgreSQL's parameterized `SET LOCAL`: the value
- * resets on commit/rollback and cannot leak through the shared connection pool.
- */
-export async function setTransactionWriterVersion(
-	tx: Transaction<AppDatabase>,
-	version: number,
-): Promise<void> {
-	if (
-		!Number.isSafeInteger(version) ||
-		version < 0 ||
-		version > 2_147_483_647
-	) {
-		throw new RangeError("writer version must be a nonnegative int4");
-	}
-	await sql`SELECT set_config(${WRITER_VERSION_GUC}, ${String(version)}, true)`.execute(
-		tx,
-	);
-}
-
-/**
- * Declare this code's runtime-reader compatibility for the CURRENT transaction
- * before every holder-touching DML, including same-holder heartbeats and
- * terminal writes. Absence is the deployed-v0 signal. A declared v1 holder
- * must carry the server-minted nonce; an unchanged declared generation
- * preserves its original stamp rather than restamping it.
- */
-export async function setTransactionRuntimeReaderVersion(
-	tx: Transaction<AppDatabase>,
-	version: number,
-): Promise<void> {
-	if (
-		!Number.isSafeInteger(version) ||
-		version < 0 ||
-		version > 2_147_483_647
-	) {
-		throw new RangeError("runtime reader version must be a nonnegative int4");
-	}
-	await sql`
-		SELECT set_config(
-			${RUNTIME_READER_VERSION_GUC},
-			${String(version)},
-			true
-		)
-	`.execute(tx);
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;

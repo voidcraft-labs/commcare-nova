@@ -103,7 +103,6 @@ export type ValidationErrorCode =
 	| "DUPLICATE_FIELD_ID"
 	| "CASE_PROPERTY_BAD_FORMAT"
 	| "CASE_PROPERTY_TOO_LONG"
-	| "CASE_OPERATIONS_NOT_ACTIVE"
 	| "CASE_OPERATION_DUPLICATE_UUID"
 	| "CASE_OPERATION_INVALID_ID"
 	| "CASE_OPERATION_DUPLICATE_ID"
@@ -294,10 +293,9 @@ export type ValidationErrorCode =
 	| "LOOKUP_TABLE_NOT_AVAILABLE"
 	| "LOOKUP_COLUMN_NOT_AVAILABLE"
 	| "LOOKUP_COLUMN_TYPE_MISMATCH"
-	// Dormant lookup-carrier policy. The commit code is produced only by the
-	// delta gate; the export code is produced only by the mode-aware Nova
-	// export boundary.
-	| "LOOKUP_CARRIER_COMMIT_NOT_ACTIVE"
+	// The HQ export targets cannot push or map lookup resources yet, so the
+	// mode-aware Nova export boundary rejects every carrier for `hq-json` and
+	// `hq-upload`. `ccz` embeds its fixtures locally and never takes this.
 	| "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
 	// Row-dependent lookup findings, produced only by the ccz export
 	// boundary: rows live outside the document, so these are functions of

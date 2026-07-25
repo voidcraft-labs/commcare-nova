@@ -153,7 +153,7 @@ async function main() {
 			);
 			process.exit(1);
 		}
-		if (!exactRunHolderMatches(holder, expectedHolder, true)) {
+		if (!exactRunHolderMatches(holder, expectedHolder)) {
 			console.error(
 				`\n✗ Holder token mismatch. Expected ${expectedHolder.mode}:${expectedHolder.runId}:${expectedHolder.nonce}, but the locked snapshot is ${exactHolder.mode}:${exactHolder.runId}:${exactHolder.nonce}. Nothing was written.`,
 			);

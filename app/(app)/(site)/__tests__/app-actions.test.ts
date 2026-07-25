@@ -118,24 +118,7 @@ describe("moveApp temporary Project policy", () => {
 		mocks.readProjectMovesEnabled.mockResolvedValue(true);
 	});
 
-	it("authorizes the source before returning the switched-off block", async () => {
-		mocks.readProjectMovesEnabled.mockResolvedValue(false);
-
-		const result = await moveApp("app-1", "project-target");
-
-		expect(mocks.resolveAppAccess).toHaveBeenCalledWith(
-			"app-1",
-			"user-1",
-			"delete",
-		);
-		expect(result).toMatchObject({
-			success: false,
-			code: "cross_project_move_unavailable",
-		});
-		expect(mocks.moveAppToProject).not.toHaveBeenCalled();
-	});
-
-	it("moves the app once the switch is on", async () => {
+	it("moves the app", async () => {
 		await expect(moveApp("app-1", "project-target")).resolves.toEqual({
 			success: true,
 			kind: "moved",
@@ -145,20 +128,8 @@ describe("moveApp temporary Project policy", () => {
 			fromProjectId: "project-source",
 			toProjectId: "project-target",
 			actorUserId: "user-1",
-			movesEnabled: true,
 		});
 		expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
-	});
-
-	it("asks for a refresh when an older tab still holds the app's stream", async () => {
-		mocks.moveAppToProject.mockRejectedValue(
-			new mocks.ProjectMoveCompatibilityError("incompatible_receiver"),
-		);
-
-		await expect(moveApp("app-1", "project-target")).resolves.toMatchObject({
-			success: false,
-			code: "stale_client",
-		});
 	});
 
 	it("keeps source denials opaque instead of revealing the move policy", async () => {
@@ -184,7 +155,6 @@ describe("moveApp temporary Project policy", () => {
 			fromProjectId: "project-source",
 			toProjectId: "project-source",
 			actorUserId: "user-1",
-			movesEnabled: true,
 		});
 		expect(mocks.revalidatePath).toHaveBeenCalledWith("/");
 	});

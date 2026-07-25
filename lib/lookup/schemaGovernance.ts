@@ -2,10 +2,6 @@ import "server-only";
 
 import { sql, type Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import {
-	CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
-	declareLookupReferenceWriter,
-} from "@/lib/db/lookupReferenceWriter";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
 import {
 	type LookupColumnId,
@@ -175,18 +171,6 @@ function assertDeleteCapability(scope: LookupScope): void {
 	}
 }
 
-function assertDeclaredWriterVersion(version: number): void {
-	if (
-		!Number.isSafeInteger(version) ||
-		version < 0 ||
-		version > 2_147_483_647
-	) {
-		throw new RangeError(
-			"lookup schema governance writer version must be a nonnegative int4",
-		);
-	}
-}
-
 function normalizeOperation(
 	operation: LookupSchemaGovernanceOperation,
 ): NormalizedOperation {
@@ -242,27 +226,6 @@ async function lockTargetTable(
 		);
 	} catch (error) {
 		translateLockedTableError(error);
-	}
-}
-
-async function lockEnabledCompatibility(
-	tx: Transaction<AppDatabase>,
-	declaredWriterVersion: number,
-): Promise<void> {
-	const compatibility = await tx
-		.selectFrom("lookup_reference_compatibility")
-		.select(["minimum_writer_version", "destructive_schema_actions_enabled"])
-		.where("id", "=", 1)
-		.forShare()
-		.executeTakeFirst();
-	if (
-		!compatibility?.destructive_schema_actions_enabled ||
-		declaredWriterVersion < compatibility.minimum_writer_version
-	) {
-		throw new LookupSchemaGovernanceError(
-			"schema_actions_disabled",
-			"Lookup schema actions are not enabled for this writer.",
-		);
 	}
 }
 
@@ -576,36 +539,25 @@ export async function applyLookupSchemaGovernance(
 	assertDeleteCapability(scope);
 	const normalized = normalizeOperation(operation);
 	return withAppTx(async (tx) => {
-		await declareLookupReferenceWriter(tx);
-		return applyLookupSchemaGovernanceInTransaction(
-			tx,
-			scope,
-			normalized,
-			CURRENT_LOOKUP_REFERENCE_WRITER_VERSION,
-		);
+		return applyLookupSchemaGovernanceInTransaction(tx, scope, normalized);
 	});
 }
 
 /**
- * Transaction core for the package's seeded integration harness. The caller
- * must set the transaction-local database writer declaration to the exact
- * `declaredWriterVersion` before entry. This function never acquires an app
- * lock: Project state -> table -> compatibility -> exact edges is its complete
- * lock prefix.
+ * Transaction core for the package's seeded integration harness. This function
+ * never acquires an app lock: Project state -> table -> exact edges is its
+ * complete lock prefix.
  */
 export async function applyLookupSchemaGovernanceInTransaction(
 	tx: Transaction<AppDatabase>,
 	scope: LookupScope,
 	operationInput: LookupSchemaGovernanceOperation,
-	declaredWriterVersion: number,
 ): Promise<LookupSchemaGovernanceResult> {
 	assertScope(scope);
 	assertDeleteCapability(scope);
-	assertDeclaredWriterVersion(declaredWriterVersion);
 	const operation = normalizeOperation(operationInput);
 	const projectState = await lockLookupProjectState(tx, scope.projectId);
 	const table = await lockTargetTable(tx, scope.projectId, operation);
-	await lockEnabledCompatibility(tx, declaredWriterVersion);
 
 	switch (operation.kind) {
 		case "delete-table":

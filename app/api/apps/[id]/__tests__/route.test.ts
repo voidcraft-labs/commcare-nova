@@ -51,10 +51,6 @@ beforeEach(() => {
 		canEdit: false,
 		baseSeq: 42,
 		actorUserId: "user-1",
-		activation: {
-			carrierCommitsEnabled: false,
-			caseOperationsEnabled: false,
-		},
 		app: {
 			owner: "owner-1",
 			project_id: "project-1",
@@ -93,10 +89,6 @@ describe("GET /api/apps/[id]", () => {
 			projectId: "project-1",
 			role: "viewer",
 			canEdit: false,
-			activation: {
-				carrierCommitsEnabled: false,
-				caseOperationsEnabled: false,
-			},
 			blueprint: BLUEPRINT,
 			baseSeq: 42,
 			app_name: "Nutrition visits",

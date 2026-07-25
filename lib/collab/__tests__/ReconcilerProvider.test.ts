@@ -155,7 +155,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		});
 		expect(docStore.getState().appName).toBe("Built locally");
 		expect(FakeEventSource.instances[0]?.url).toBe(
-			"/api/apps/app-created/stream?since=7&receiverVersion=3",
+			"/api/apps/app-created/stream?since=7",
 		);
 		runtime.suspend();
 	});
@@ -205,9 +205,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 
 		runtime.start();
 		const sourceStream = FakeEventSource.instances[0];
-		expect(sourceStream.url).toBe(
-			"/api/apps/app-1/stream?since=0&receiverVersion=3",
-		);
+		expect(sourceStream.url).toBe("/api/apps/app-1/stream?since=0");
 		sourceStream.emit("lookup-revision", JSON.stringify(SOURCE_MANIFEST));
 		sourceStream.emit("presence", JSON.stringify(SOURCE_PRESENCE));
 		expect(lookupSnapshots).toEqual([SOURCE_MANIFEST]);

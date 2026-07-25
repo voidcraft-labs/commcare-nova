@@ -90,7 +90,7 @@ Conditions become wrapper relevance and write conditions become child relevance.
 
 Operation assignment typing follows storage direction, not the symmetric comparison table: exact representations, integer-to-decimal, and text/single-select strings are portable; decimal-to-int, scalar-to-multi-select, null-as-clear, and any incompatible branch are not. A direct multi-select form answer may write a multi-select property, but concat/coercion cannot turn its Nova JSON array into CommCare's token string implicitly. `concat` is the explicit boolean-to-text boundary; boolean primitives hidden under numeric/date coercion remain rejected. Retype has a second parity gate: only `planCaseRetype(...).wirePortable` plans emit, meaning every existing JSON property retains the exact same type and no value needs conversion or parking. CommCare's wire changes only `case_type`; source-only or converted values would otherwise remain lexically present on device while Nova changed its active projection. Scalar case metadata such as `case_name` is outside that JSON plan and survives normally.
 
-The wire facts were reverified for S04 against `commcare-core` `CaseXmlParser.java` at `130df00962a289381a8e0936c3ea5d3f53d96f73`, Vellum `saveToCase.js` plus `tests/static/saveToCase/create_property.xml` at `3e69aa1c166e24ca062a2aa0b34b2aba0bceb431`, and CommCare HQ at `0fa01e0e8aea95ed9013d564145ad6cffeb91371`. Those sources establish only the accepted transaction wire and processing order; Nova's typed operation model and authoring semantics remain independent. `CASE_OPERATIONS_NOT_ACTIVE` is flag-conditioned since S07b: it keeps operation-bearing candidates out of committed apps only while `case_operations_enabled` is false (the activation snapshot threads `RunValidationOptions.activation` → the rule; the carrier commit finding in `evaluateCommit` conditions on `carrier_commits_enabled` the same way, both fail-closed when omitted). The atomic executor and its production supplier are live; no public builder, SA, or MCP authoring input is open yet.
+The wire facts were reverified for S04 against `commcare-core` `CaseXmlParser.java` at `130df00962a289381a8e0936c3ea5d3f53d96f73`, Vellum `saveToCase.js` plus `tests/static/saveToCase/create_property.xml` at `3e69aa1c166e24ca062a2aa0b34b2aba0bceb431`, and CommCare HQ at `0fa01e0e8aea95ed9013d564145ad6cffeb91371`. Those sources establish only the accepted transaction wire and processing order; Nova's typed operation model and authoring semantics remain independent. Operations commit through the ordinary rules: `validateCaseOperations` runs on every form carrying them, and its `CASE_OPERATION_*` findings gate a commit exactly like any other soundness code — there is no separate admission gate over operation-bearing candidates. The atomic executor and its production supplier are live; no public builder, SA, or MCP authoring input is open yet.
 
 ### Repeat-context subcase splice + nest decision
 
@@ -182,17 +182,18 @@ reject. Ordinary operation terms remain exact-repeat-only because their current
 wire bindings cannot safely address an enclosing repeat from a nested
 operation.
 
-The carrier commit policy is deliberately split from those structural rules.
-`evaluateCommit` adds delta-based `LOOKUP_CARRIER_COMMIT_NOT_ACTIVE`
-findings whose identity is stable owner + authored slot + canonical whole-slot
-fingerprint: an unchanged historical carrier survives unrelated or inline-
-fallback edits, but add/replace and nested filter/operator/literal changes are
-new findings. The finding stays outside the ordinary runner so the absolute
-export boundary can return its own carrier verdict instead of a duplicate
-commit-policy error. On exports the verdict is mode-split: `hq-json` and
-`hq-upload` reject every carrier with `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE` until
-S20 pushes and maps the resources, while `ccz` emits (below) and takes only
-the row-dependent `environment`-class findings.
+Those structural rules are the whole commit policy: `evaluateCommit` adds no
+carrier-specific finding, so an authored carrier lands like any other document
+content once its identities resolve. The export boundary owns the verdict a
+rows-free snapshot cannot prove, and it is mode-split by which mode reads
+rows. `ccz` reads every referenced table's complete rows, builds the fixture
+blocks (below), and takes the row-dependent select-source and aggregate-budget
+findings — `environment`-class, since rows change outside the document and
+must never gate a commit. `hq-json` and `hq-upload` read the rows-free
+definitions snapshot alone and derive no wire naming, so they reject every
+authored carrier with the mode-bearing `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`
+until S20 pushes and maps the resources — a carrier never reaches those
+emitters unresolved.
 
 Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions even for an empty target set (plus complete ordered rows in one snapshot on `ccz`), passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media and lookup resources. Emitters consume that returned generation and never perform a second lookup read; operational lookup failures stop before expansion, compilation, or HQ import.
 

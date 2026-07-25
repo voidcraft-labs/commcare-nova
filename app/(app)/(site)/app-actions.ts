@@ -24,21 +24,14 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
-import { readProjectMovesEnabled } from "@/lib/db/lookupActivation";
 import {
 	AppBusyError,
 	AppRunStateCorruptError,
 	CaseDataStrandedError,
-	CrossProjectAppMoveBlockedError,
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
-import { ProjectMoveCompatibilityError } from "@/lib/db/projectMoveAdmission";
 import { log } from "@/lib/logger";
-import {
-	appProjectMovePolicy,
-	CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
-	CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
-} from "@/lib/projects/moveTargets";
+import { appProjectMovePolicy } from "@/lib/projects/moveTargets";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -56,7 +49,6 @@ export type MoveAppErrorCode =
 	| "unauthenticated"
 	| "invalid_input"
 	| "not_found"
-	| typeof CROSS_PROJECT_MOVE_UNAVAILABLE_CODE
 	| "busy"
 	| "run_state_corrupt"
 	| "stale_client"
@@ -214,26 +206,13 @@ export async function moveApp(
 			throw err;
 		}
 
-		const movesEnabled = await readProjectMovesEnabled();
-		const policy = appProjectMovePolicy(
-			access.projectId,
-			toProjectId,
-			movesEnabled,
-		);
-		if (policy.kind === "cross_project_blocked") {
-			return {
-				success: false,
-				code: policy.code,
-				error: policy.message,
-			};
-		}
+		const policy = appProjectMovePolicy(access.projectId, toProjectId);
 
 		await moveAppToProject({
 			appId,
 			fromProjectId: access.projectId,
 			toProjectId,
 			actorUserId: session.user.id,
-			movesEnabled,
 		});
 		revalidatePath("/");
 		return {
@@ -244,13 +223,6 @@ export async function moveApp(
 					: "same_project_recovered",
 		};
 	} catch (err) {
-		if (err instanceof CrossProjectAppMoveBlockedError) {
-			return {
-				success: false,
-				code: err.code,
-				error: err.message,
-			};
-		}
 		if (err instanceof AppBusyError) {
 			return {
 				success: false,
@@ -277,20 +249,6 @@ export async function moveApp(
 				error:
 					"This app's last Solutions Architect run left an inconsistent record, so it can't move yet. Contact support.",
 			};
-		}
-		if (err instanceof ProjectMoveCompatibilityError) {
-			return err.code === "disabled"
-				? {
-						success: false,
-						code: CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
-						error: CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
-					}
-				: {
-						success: false,
-						code: "stale_client",
-						error:
-							"Someone still has this app open in an older tab. Ask them to refresh, then try again.",
-					};
 		}
 		if (err instanceof CaseDataStrandedError) {
 			return {

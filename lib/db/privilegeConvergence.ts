@@ -104,7 +104,6 @@ const APPLICATION_TABLES = [
 	"lookup_rows",
 	"lookup_table_references",
 	"lookup_column_references",
-	"lookup_stream_capability_leases",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
@@ -114,11 +113,7 @@ const APPLICATION_TABLES = [
  * separate schema prevents that grant from covering migration-owned objects. */
 export const RUNTIME_CASE_TABLES = ["cases"] as const;
 
-const CONTROL_TABLES = [
-	"lookup_reference_compatibility",
-	"media_reference_index_state",
-	"runtime_reader_traffic_epochs",
-] as const;
+const CONTROL_TABLES = ["media_reference_index_state"] as const;
 
 const MIGRATION_TABLES = [
 	"kysely_migration",
@@ -303,18 +298,11 @@ export function assertDatabaseRolePolicy(
 }
 
 const EXPECTED_PUBLIC_ROUTINES = [
-	"nova_guard_lookup_reference_compatibility_row",
-	"nova_require_lookup_reference_writer_version",
-	"nova_lock_deployment_cutover_gate",
-	"nova_reject_runtime_epoch_truncate",
-	"nova_stamp_runtime_reader_holder",
 	"nova_lock_auth_member_membership_gate",
 	"nova_reject_auth_member_truncate",
 ] as const;
 
 const RUNTIME_ROUTINES = [
-	"nova_require_lookup_reference_writer_version",
-	"nova_stamp_runtime_reader_holder",
 	"nova_lock_auth_member_membership_gate",
 	"nova_reject_auth_member_truncate",
 ] as const;
@@ -831,9 +819,7 @@ async function convergePrivilegesInTransaction(
 		`.execute(tx);
 	}
 	await sql`
-		GRANT SELECT ON TABLE public.lookup_reference_compatibility,
-			public.media_reference_index_state,
-			public.runtime_reader_traffic_epochs
+		GRANT SELECT ON TABLE public.media_reference_index_state
 		TO ${sql.id(config.runtimeRole)}
 	`.execute(tx);
 

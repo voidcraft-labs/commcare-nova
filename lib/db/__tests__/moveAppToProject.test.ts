@@ -20,7 +20,6 @@ vi.mock("../apps", () => ({
 
 import {
 	AppBusyError,
-	CrossProjectAppMoveBlockedError,
 	moveAppToProject,
 	runCrossProjectMove,
 } from "../moveAppToProject";
@@ -45,20 +44,7 @@ describe("moveAppToProject production policy", () => {
 		});
 	});
 
-	it("blocks a cross-Project request before any storage work while switched off", async () => {
-		await expect(
-			moveAppToProject({ ...crossProjectArgs, movesEnabled: false }),
-		).rejects.toMatchObject({
-			name: CrossProjectAppMoveBlockedError.name,
-			code: "cross_project_move_unavailable",
-		});
-		expect(mocks.prepareAppProjectMove).not.toHaveBeenCalled();
-		expect(mocks.copyAssetsIntoProject).not.toHaveBeenCalled();
-		expect(mocks.commitAppProjectMove).not.toHaveBeenCalled();
-		expect(mocks.repairAppCaseTenancy).not.toHaveBeenCalled();
-	});
-
-	it("runs the real move once the switch is on", async () => {
+	it("runs the real move", async () => {
 		mocks.prepareAppProjectMove.mockResolvedValue({
 			kind: "ready",
 			requiredAssetIds: ["source"],
@@ -67,7 +53,7 @@ describe("moveAppToProject production policy", () => {
 		mocks.copyAssetsIntoProject.mockResolvedValue(new Map());
 		mocks.commitAppProjectMove.mockResolvedValue({ kind: "moved" });
 
-		await moveAppToProject({ ...crossProjectArgs, movesEnabled: true });
+		await moveAppToProject({ ...crossProjectArgs });
 
 		expect(mocks.commitAppProjectMove).toHaveBeenCalledWith(
 			"app-1",
@@ -77,16 +63,14 @@ describe("moveAppToProject production policy", () => {
 	});
 
 	it("routes exact same-Project recovery through the app-locked repair", async () => {
-		for (const movesEnabled of [true, false]) {
-			await moveAppToProject({ ...sameProjectArgs, movesEnabled });
-		}
+		await moveAppToProject({ ...sameProjectArgs });
 
 		expect(mocks.repairAppCaseTenancy).toHaveBeenNthCalledWith(
 			1,
 			"app-1",
 			"user-1",
 		);
-		expect(mocks.repairAppCaseTenancy).toHaveBeenCalledTimes(2);
+		expect(mocks.repairAppCaseTenancy).toHaveBeenCalledTimes(1);
 		expect(mocks.copyAssetsIntoProject).not.toHaveBeenCalled();
 		expect(mocks.commitAppProjectMove).not.toHaveBeenCalled();
 	});

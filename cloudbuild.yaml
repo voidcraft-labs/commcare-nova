@@ -81,10 +81,6 @@ steps:
           --build-arg NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$$NEXT_SERVER_ACTIONS_ENCRYPTION_KEY" \
           --build-arg NEXT_DEPLOYMENT_ID="$BUILD_ID" \
           --build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID" \
-          --build-arg NOVA_WRITER_VERSION="$$NOVA_WRITER_VERSION" \
-          --build-arg NOVA_STREAM_RECEIVER_VERSION="$$NOVA_STREAM_RECEIVER_VERSION" \
-          --build-arg NOVA_RUNTIME_READER_VERSION="$$NOVA_RUNTIME_READER_VERSION" \
-          --build-arg NOVA_STREAM_REGISTRY_VERSION="$$NOVA_STREAM_REGISTRY_VERSION" \
           --build-arg NOVA_CLOUD_RUN_REQUEST_SECONDS="$$NOVA_CLOUD_RUN_REQUEST_SECONDS" \
           --build-arg NOVA_STREAM_LEASE_GRACE_SECONDS="$$NOVA_STREAM_LEASE_GRACE_SECONDS" \
           --build-arg NOVA_STREAM_LEASE_TTL_SECONDS="$$NOVA_STREAM_LEASE_TTL_SECONDS" \
@@ -188,7 +184,6 @@ steps:
           --update-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
           --no-default-url --ingress=internal-and-cloud-load-balancing \
           --min-instances=1 --max-instances=5 \
-          --labels="$$NOVA_REVISION_LABELS" \
           --timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s" \
           --no-cpu-throttling \
           --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest \

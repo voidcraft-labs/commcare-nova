@@ -31,7 +31,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { RunHolderLostError } from "../commitGuard";
 import { deleteMediaAssetForActor } from "../mediaDeletion";
 import { getAppDb } from "../pg";
-import { declareRuntimeReader } from "../runtimeReaderVersion";
 import {
 	appendThreadResponse,
 	listThreadMetas,
@@ -44,6 +43,7 @@ import {
 } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
+const NONCE = "00000000-0000-4000-8000-0000000000aa";
 const h = setupAppStateTestDb("threads_");
 const APP = "app-threads";
 const OTHER_APP = "app-other";
@@ -138,7 +138,6 @@ async function upsertThreadTurn(
 	const wasAtRest =
 		original.status !== "generating" && original.lock_run_id === null;
 	await db.transaction().execute(async (tx) => {
-		if (args.holderNonce) await declareRuntimeReader(tx);
 		if (args.threadType === "build") {
 			await tx
 				.updateTable("apps")
@@ -171,7 +170,6 @@ async function upsertThreadTurn(
 	const written = await persistOwnedThreadTurn(args);
 	if (wasAtRest) {
 		await db.transaction().execute(async (tx) => {
-			if (args.holderNonce) await declareRuntimeReader(tx);
 			await tx
 				.updateTable("apps")
 				.set({
@@ -300,6 +298,7 @@ describe("thread attachment admission", () => {
 			threadId: "thread-with-document",
 			runId: "run-document",
 			streamId: "stream-document",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [attachmentMsg("message-document", assetId)],
 		});
@@ -338,6 +337,7 @@ describe("thread attachment admission", () => {
 				threadId: "thread-missing-document",
 				runId: "run-missing-document",
 				streamId: "stream-missing-document",
+				holderNonce: NONCE,
 				threadType: "build",
 				messages: [attachmentMsg("message-missing", "missing-document")],
 			}),
@@ -353,6 +353,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-1",
 			streamId: "stream-1",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "a clinic registration app")],
 		});
@@ -372,6 +373,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-1",
 			streamId: "stream-1",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "first ask")],
 		});
@@ -382,6 +384,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-2",
 			streamId: "stream-2",
+			holderNonce: NONCE,
 			threadType: "edit",
 			messages: [
 				userMsg("m1", "first ask"),
@@ -410,6 +413,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-a",
 			streamId: "stream-a",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [
 				userMsg("m1", "first ask"),
@@ -423,6 +427,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-b",
 			streamId: "stream-b",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "first ask"), userMsg("m4", "session B's turn")],
 		});
@@ -438,6 +443,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-a",
 			streamId: "stream-a",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [
 				userMsg("m1", "ask"),
@@ -458,6 +464,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-b",
 			streamId: "stream-b",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [
 				userMsg("m1", "ask"),
@@ -477,6 +484,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-1",
 			streamId: "stream-1",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "mine")],
 		});
@@ -486,6 +494,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-x",
 			streamId: "stream-x",
+			holderNonce: NONCE,
 			threadType: "edit",
 			messages: [userMsg("mx", "hijack attempt")],
 		});
@@ -504,6 +513,7 @@ describe("upsertThreadTurn", () => {
 			threadId: T1,
 			runId: "run-owner",
 			streamId: "stream-owner",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "owner turn")],
 		});
@@ -512,6 +522,7 @@ describe("upsertThreadTurn", () => {
 			threadId: "other-thread",
 			runId: "run-successor",
 			streamId: "stream-successor",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m2", "successor turn")],
 		});
@@ -522,6 +533,7 @@ describe("upsertThreadTurn", () => {
 				threadId: T1,
 				runId: "run-stale",
 				streamId: "stream-stale",
+				holderNonce: NONCE,
 				threadType: "build",
 				messages: [userMsg("mx", "must not cross apps")],
 			}),
@@ -534,74 +546,6 @@ describe("upsertThreadTurn", () => {
 		expect(ownerThread?.messages.map((message) => message.id)).toEqual(["m1"]);
 		expect(ownerThread?.active_stream_id).toBe("stream-owner");
 	});
-
-	it("merges a lost holder's transcript without replacing the successor marker", async () => {
-		const sharedRunId = "same-public-run";
-		await upsertThreadTurn({
-			appId: APP,
-			threadId: T1,
-			runId: sharedRunId,
-			streamId: "stream-old",
-			holderNonce: HOLDER_NONCE,
-			threadType: "build",
-			messages: [userMsg("m1", "first turn")],
-		});
-
-		// Exercise the nonce half of exact-holder identity: the successor reuses
-		// the public run id but owns a fresh generation capability.
-		const db = await getAppDb();
-		await db
-			.updateTable("lookup_reference_compatibility")
-			.set({
-				minimum_runtime_reader_version: 1,
-				run_holder_nonce_enforced: true,
-			})
-			.where("id", "=", 1)
-			.execute();
-		await upsertThreadTurn({
-			appId: APP,
-			threadId: T1,
-			runId: sharedRunId,
-			streamId: "stream-successor",
-			holderNonce: OTHER_NONCE,
-			threadType: "build",
-			messages: [userMsg("m1", "first turn"), userMsg("m2", "successor turn")],
-		});
-
-		await expect(
-			persistOwnedThreadTurn({
-				appId: APP,
-				threadId: T1,
-				runId: sharedRunId,
-				streamId: "stream-stale",
-				holderNonce: HOLDER_NONCE,
-				threadType: "build",
-				messages: [
-					userMsg("m1", "first turn"),
-					userMsg("m3", "stale tab's real turn"),
-				],
-			}),
-		).rejects.toMatchObject({
-			name: new RunHolderLostError().name,
-			outcome: "superseded",
-		});
-
-		const row = await db
-			.selectFrom("threads")
-			.select(["run_id", "active_stream_id", "active_holder_nonce", "messages"])
-			.where("thread_id", "=", T1)
-			.executeTakeFirstOrThrow();
-		expect(row).toMatchObject({
-			run_id: sharedRunId,
-			active_stream_id: "stream-successor",
-			active_holder_nonce: OTHER_NONCE,
-		});
-		expect((row.messages as UIMessage[]).map((message) => message.id)).toEqual([
-			"m1",
-			"m2",
-			"m3",
-		]);
-	});
 });
 
 describe("appendThreadResponse", () => {
@@ -611,6 +555,7 @@ describe("appendThreadResponse", () => {
 			threadId: T1,
 			runId: "run-1",
 			streamId: "stream-1",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "build me an app")],
 		});
@@ -651,6 +596,7 @@ describe("appendThreadResponse", () => {
 			threadId: T1,
 			runId: "run-1",
 			streamId: "stream-2",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [
 				userMsg("m1", "build me an app"),
@@ -698,6 +644,7 @@ describe("appendThreadResponse", () => {
 			threadId: T1,
 			runId: "run-2",
 			streamId: "stream-2",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [
 				userMsg("m1", "build me an app"),
@@ -815,7 +762,6 @@ describe("loaders", () => {
 		const reaped = await seedPausedThread("reaped");
 		const db = await getAppDb();
 		await db.transaction().execute(async (tx) => {
-			await declareRuntimeReader(tx);
 			await tx
 				.updateTable("apps")
 				.set({ awaiting_input: false })
@@ -847,6 +793,7 @@ describe("loaders", () => {
 			threadId: "t-old",
 			runId: "run-1",
 			streamId: "s1",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "older"), assistantMsg("m2", "ok")],
 		});
@@ -861,6 +808,7 @@ describe("loaders", () => {
 			threadId: "t-new",
 			runId: "run-2",
 			streamId: "s2",
+			holderNonce: NONCE,
 			threadType: "edit",
 			messages: [userMsg("m3", "newer")],
 		});
@@ -888,6 +836,7 @@ describe("loaders", () => {
 			threadId: T1,
 			runId: "run-1",
 			streamId: "stream-1",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "hello")],
 		});
@@ -914,6 +863,7 @@ describe("loaders", () => {
 			threadId: "t-stranded",
 			runId: "run-dead",
 			streamId: "stream-dead",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "a build the deploy killed")],
 		});
@@ -946,6 +896,7 @@ describe("loaders", () => {
 			threadId: "t-stranded",
 			runId: "run-redrive",
 			streamId: "stream-redrive",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "a build the deploy killed")],
 		});
@@ -967,6 +918,7 @@ describe("loaders", () => {
 			threadId: "t-stranded-2",
 			runId: "run-dead",
 			streamId: "stream-dead-2",
+			holderNonce: NONCE,
 			threadType: "edit",
 			messages: [userMsg("m1", "an edit the deploy killed")],
 		});
@@ -986,6 +938,7 @@ describe("loaders", () => {
 			threadId: "t-bail",
 			runId: "run-owner",
 			streamId: "stream-owner",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "build it")],
 		});
@@ -1054,6 +1007,7 @@ describe("loaders", () => {
 			threadId: "t-live",
 			runId: "run-live",
 			streamId: "stream-live",
+			holderNonce: NONCE,
 			threadType: "build",
 			messages: [userMsg("m1", "a build mid-flight")],
 		});

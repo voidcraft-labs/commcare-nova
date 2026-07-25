@@ -6,7 +6,6 @@ import { asUuid } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
-	actingUser,
 	concat,
 	dateAdd,
 	double,
@@ -21,7 +20,6 @@ import {
 	tableLookup,
 	term,
 	today,
-	unowned,
 	unwrapList,
 } from "@/lib/domain/predicate";
 import type { ValidationErrorCode } from "../errors";
@@ -315,16 +313,6 @@ function mapFieldToCaseType(
 }
 
 describe("case-operation activation and identity", () => {
-	it("keeps every otherwise-valid operation commit-gated until runtime activation", () => {
-		expect(codesFor([update()])).toEqual(["CASE_OPERATIONS_NOT_ACTIVE"]);
-		expect(codesFor([update({ owner: actingUser() })])).toEqual([
-			"CASE_OPERATIONS_NOT_ACTIVE",
-		]);
-		expect(codesFor([update({ owner: unowned() })])).toEqual([
-			"CASE_OPERATIONS_NOT_ACTIVE",
-		]);
-	});
-
 	it("rejects duplicate UUIDs, duplicate ids, and unsafe wire ids", () => {
 		expectCode("CASE_OPERATION_DUPLICATE_UUID", [
 			create(),
@@ -357,12 +345,7 @@ describe("case-operation activation and identity", () => {
 				}),
 				update({ order: "b" }),
 			]),
-		).toEqual(
-			expect.arrayContaining([
-				"CASE_OPERATIONS_NOT_ACTIVE",
-				"CASE_OPERATION_EXECUTION_ORDER",
-			]),
-		);
+		).toContain("CASE_OPERATION_EXECUTION_ORDER");
 
 		expect(
 			codesFor([
@@ -1292,15 +1275,6 @@ describe("case-operation links and on-device totality", () => {
 		]);
 	});
 
-	it("admits multiple declared operations on one target because order is semantic", () => {
-		expect(
-			codesFor([
-				update(),
-				update({ uuid: THIRD, id: "rename_patient", order: "c" }),
-			]),
-		).toEqual(["CASE_OPERATIONS_NOT_ACTIVE"]);
-	});
-
 	it("rejects statically blank or overlong name, rename, and owner facets", () => {
 		for (const operation of [
 			create({ name: term(literal(" \t\r\n ")) }),
@@ -1310,15 +1284,6 @@ describe("case-operation links and on-device totality", () => {
 		]) {
 			expectCode("CASE_OPERATION_EXPRESSION_TYPE", [operation]);
 		}
-
-		expect(
-			codesFor([
-				update({
-					rename: term(literal(`  ${"x".repeat(255)}  `)),
-					owner: term(literal("owner")),
-				}),
-			]),
-		).toEqual(["CASE_OPERATIONS_NOT_ACTIVE"]);
 	});
 
 	it("rejects schema-valid expressions that the on-device emitter cannot execute", () => {

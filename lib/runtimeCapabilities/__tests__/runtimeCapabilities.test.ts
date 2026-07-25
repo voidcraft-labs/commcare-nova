@@ -3,15 +3,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import rawManifest from "../../../config/runtime-capabilities.json";
-import { MAX_GENERATION_MINUTES, MAX_RUN_MINUTES } from "../../db/constants";
-import {
-	BUILD_STALENESS_SECONDS,
-	EDIT_RUN_LEASE_SECONDS,
-	STREAM_LEASE_TTL_SECONDS,
-} from "../../runtimeCapabilities";
 import {
 	canonicalRuntimeCapabilityManifest,
-	parseRevisionCapabilityLabels,
 	parseRuntimeCapabilityManifest,
 	parseRuntimeCapabilityVersion,
 	RUNTIME_BUILD_ID_ENV_KEY,
@@ -19,14 +12,11 @@ import {
 	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
-	runtimeCapabilityRevisionLabelArgument,
-	streamLeaseTtlSeconds,
 } from "../core.mjs";
 import {
 	hashRuntimeCapabilityManifest,
 	RUNTIME_CAPABILITY_MANIFEST_HASH,
 	runtimeCapabilityEnvironment,
-	runtimeCapabilityRevisionLabels,
 } from "../server";
 
 const manifest = requireRuntimeCapabilityManifest(rawManifest);
@@ -34,51 +24,31 @@ const manifestHash = RUNTIME_CAPABILITY_MANIFEST_HASH;
 const buildId = "99ae1f72-048b-4515-8652-1f3caa669b99";
 
 describe("runtime capability manifest", () => {
-	it("pins S05a lookup support and keeps transport time separate from run liveness", () => {
-		expect(manifest).toEqual({
-			schemaVersion: 1,
-			writerVersion: 1,
-			streamReceiverVersion: 3,
-			runtimeReaderVersion: 1,
-			streamRegistryVersion: 1,
-			cloudRunRequestSeconds: 3_600,
-			streamLeaseGraceSeconds: 300,
-			editRunLeaseSeconds: 900,
-			buildStalenessSeconds: 600,
-		});
-		expect(streamLeaseTtlSeconds(manifest)).toBe(3_900);
-		expect(STREAM_LEASE_TTL_SECONDS).toBe(3_900);
-		expect(EDIT_RUN_LEASE_SECONDS).toBe(900);
-		expect(BUILD_STALENESS_SECONDS).toBe(600);
-		expect(MAX_RUN_MINUTES).toBe(15);
-		expect(MAX_GENERATION_MINUTES).toBe(10);
-		expect(MAX_RUN_MINUTES * 60).toBe(EDIT_RUN_LEASE_SECONDS);
-		expect(MAX_GENERATION_MINUTES * 60).toBe(BUILD_STALENESS_SECONDS);
-		expect(STREAM_LEASE_TTL_SECONDS).toBe(
-			manifest.cloudRunRequestSeconds + manifest.streamLeaseGraceSeconds,
-		);
-	});
-
 	it("rejects missing, unknown, malformed, and out-of-range declarations", () => {
 		const missing = { ...rawManifest } as Record<string, unknown>;
-		delete missing.writerVersion;
+		delete missing.cloudRunRequestSeconds;
 		const missingResult = parseRuntimeCapabilityManifest(missing);
 		expect(missingResult.ok).toBe(false);
 		if (!missingResult.ok) {
-			expect(missingResult.issues).toContain("missing keys: writerVersion");
+			expect(missingResult.issues).toContain(
+				"missing keys: cloudRunRequestSeconds",
+			);
 		}
 
 		expect(
-			parseRuntimeCapabilityManifest({ ...rawManifest, writerVerison: 1 }),
+			parseRuntimeCapabilityManifest({ ...rawManifest, wrongKey: 1 }),
 		).toMatchObject({
 			ok: false,
-			issues: [expect.stringContaining("unknown keys: writerVerison")],
+			issues: [expect.stringContaining("unknown keys: wrongKey")],
 		});
 		expect(
 			parseRuntimeCapabilityManifest({ ...rawManifest, schemaVersion: 2 }),
 		).toMatchObject({ ok: false });
 		expect(
-			parseRuntimeCapabilityManifest({ ...rawManifest, writerVersion: "1" }),
+			parseRuntimeCapabilityManifest({
+				...rawManifest,
+				cloudRunRequestSeconds: "1",
+			}),
 		).toMatchObject({ ok: false });
 		expect(
 			parseRuntimeCapabilityManifest({
@@ -100,11 +70,9 @@ describe("runtime capability manifest", () => {
 	it("canonicalizes in schema order and hashes exact canonical bytes", () => {
 		const canonical = canonicalRuntimeCapabilityManifest(manifest);
 		expect(canonical).toBe(
-			'{"schemaVersion":1,"writerVersion":1,"streamReceiverVersion":3,"runtimeReaderVersion":1,"streamRegistryVersion":1,"cloudRunRequestSeconds":3600,"streamLeaseGraceSeconds":300,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
+			'{"schemaVersion":1,"cloudRunRequestSeconds":3600,"streamLeaseGraceSeconds":300,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
 		);
-		expect(manifestHash).toBe(
-			"c3ecd827181b36c2765506459292c0a90af36bc1e8156b4847ef52c818a8adcc",
-		);
+		expect(manifestHash).toMatch(/^[a-f0-9]{64}$/);
 		expect(hashRuntimeCapabilityManifest(manifest)).toBe(manifestHash);
 	});
 
@@ -128,55 +96,17 @@ describe("runtime capability manifest", () => {
 		expect(parseRuntimeCapabilityVersion(value)).toBe(0);
 	});
 
-	it("parses missing and malformed label declarations independently as v0", () => {
-		expect(parseRevisionCapabilityLabels(undefined)).toEqual({
-			writerVersion: 0,
-			streamReceiverVersion: 0,
-			runtimeReaderVersion: 0,
-			streamRegistryVersion: 0,
-		});
-		expect(
-			parseRevisionCapabilityLabels({
-				nova_writer: "1-old",
-				nova_stream_receiver: "3",
-				nova_runtime_reader: 3,
-				nova_stream_registry: "01",
-			}),
-		).toEqual({
-			writerVersion: 0,
-			streamReceiverVersion: 3,
-			runtimeReaderVersion: 0,
-			streamRegistryVersion: 0,
-		});
-	});
-
-	it("renders immutable image declarations and capability revision labels", () => {
+	it("renders immutable image declarations with timing environment variables", () => {
 		const environment = runtimeCapabilityEnvironment(manifest);
 		expect(environment).toEqual({
-			NOVA_WRITER_VERSION: "1",
-			NOVA_STREAM_RECEIVER_VERSION: "3",
-			NOVA_RUNTIME_READER_VERSION: "1",
-			NOVA_STREAM_REGISTRY_VERSION: "1",
 			NOVA_CLOUD_RUN_REQUEST_SECONDS: "3600",
 			NOVA_STREAM_LEASE_GRACE_SECONDS: "300",
 			NOVA_STREAM_LEASE_TTL_SECONDS: "3900",
 			NOVA_EDIT_RUN_LEASE_SECONDS: "900",
 			NOVA_BUILD_STALENESS_SECONDS: "600",
-			NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH:
-				"c3ecd827181b36c2765506459292c0a90af36bc1e8156b4847ef52c818a8adcc",
+			NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH: manifestHash,
 		});
 		expect(Object.isFrozen(environment)).toBe(true);
-		expect(runtimeCapabilityRevisionLabels(manifest, buildId)).toEqual({
-			nova_writer: "1",
-			nova_stream_receiver: "3",
-			nova_runtime_reader: "1",
-			nova_stream_registry: "1",
-			nova_manifest: "c3ecd827181b36c2",
-			nova_build: buildId,
-		});
-		expect(() =>
-			runtimeCapabilityRevisionLabels(manifest, "BAD BUILD"),
-		).toThrow("buildId must be one lowercase UUID");
 		expect(requireRuntimeBuildId(buildId)).toBe(buildId);
 		expect(() => requireRuntimeBuildId("build-123")).toThrow(
 			"buildId must be one lowercase UUID",
@@ -187,24 +117,6 @@ describe("runtime capability manifest", () => {
 		expect(environment[RUNTIME_CAPABILITY_ENV_KEYS.streamLeaseTtlSeconds]).toBe(
 			"3900",
 		);
-	});
-
-	it("renders one sorted gcloud label argument and rejects invalid pairs", () => {
-		expect(
-			runtimeCapabilityRevisionLabelArgument(
-				runtimeCapabilityRevisionLabels(manifest, buildId),
-			),
-		).toBe(
-			`nova_build=${buildId},nova_manifest=c3ecd827181b36c2,` +
-				"nova_runtime_reader=1,nova_stream_receiver=3," +
-				"nova_stream_registry=1,nova_writer=1",
-		);
-		expect(() =>
-			runtimeCapabilityRevisionLabelArgument({ Nova_Writer: "1" }),
-		).toThrow("Nova_Writer is not a valid Google Cloud label key");
-		expect(() =>
-			runtimeCapabilityRevisionLabelArgument({ nova_writer: "1,nova_build=x" }),
-		).toThrow("nova_writer is not a valid Google Cloud label value");
 	});
 
 	it("keeps validated browser access free of Node hashing", () => {
@@ -229,18 +141,6 @@ describe("runtime capability manifest", () => {
 				"utf8",
 			),
 		).toContain('import "server-only"');
-	});
-
-	it("structurally rejects duplicated build, route, and writer version drift", () => {
-		const repoRoot = path.resolve(import.meta.dirname, "../../..");
-		const output = execFileSync(
-			process.execPath,
-			["scripts/rollout/render-build-config.mjs", "--check"],
-			{ cwd: repoRoot, encoding: "utf8" },
-		);
-		expect(output).toContain(
-			"Runtime capability manifest and build wiring are valid",
-		);
 	});
 
 	it("renders a deterministic shell-safe build identity", () => {

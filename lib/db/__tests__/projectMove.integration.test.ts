@@ -21,7 +21,6 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "../commitGuard";
-import { setTransactionWriterVersion } from "../pg";
 import { mergeThreadTurnMessages } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
@@ -32,33 +31,17 @@ const SOURCE_OWNER = "source-owner";
 const SOURCE = "project-source";
 const DESTINATION = "project-destination";
 
-async function enableMoves(): Promise<void> {
-	// The migrated floors already satisfy the move-activation CHECK.
-	await h
-		.db()
-		.updateTable("lookup_reference_compatibility")
-		.set({ project_moves_enabled: true })
-		.where("id", "=", 1)
-		.execute();
-}
-
 async function prepareMove(appId: string, actorUserId = ACTOR) {
 	return h
 		.db()
 		.transaction()
 		.execute(async (tx) => {
-			await setTransactionWriterVersion(tx, 1);
-			return prepareAppProjectMoveInTransaction(
-				tx,
-				{
-					appId,
-					expectedFromProjectId: SOURCE,
-					toProjectId: DESTINATION,
-					actorUserId,
-				},
-				1,
-				2,
-			);
+			return prepareAppProjectMoveInTransaction(tx, {
+				appId,
+				expectedFromProjectId: SOURCE,
+				toProjectId: DESTINATION,
+				actorUserId,
+			});
 		});
 }
 
@@ -74,7 +57,6 @@ async function commitMove(
 		.db()
 		.transaction()
 		.execute(async (tx) => {
-			await setTransactionWriterVersion(tx, 1);
 			const result = await commitAppProjectMoveInTransaction(
 				tx,
 				{
@@ -87,8 +69,6 @@ async function commitMove(
 				},
 				{
 					batchId: crypto.randomUUID(),
-					declaredWriterVersion: 1,
-					streamReceiverVersion: 2,
 				},
 			);
 			await options.insideTransaction?.();
@@ -268,7 +248,6 @@ describe("dormant atomic Project move", () => {
 			project_id: SOURCE,
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await enableMoves();
 		const observedProjects: string[] = [];
 		const schemaDb = createPerTestAppDb(h.uri());
 		const store = makeSystemSchemaStore(
@@ -327,7 +306,6 @@ describe("dormant atomic Project move", () => {
 			project_id: SOURCE,
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await enableMoves();
 		const observedProjects: string[] = [];
 		const schemaDb = createPerTestAppDb(h.uri());
 		const store = makeSystemSchemaStore(
@@ -377,7 +355,6 @@ describe("dormant atomic Project move", () => {
 			project_id: SOURCE,
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await enableMoves();
 		await applyHouseholdSchema(makeSystemSchemaStore([]), appId);
 		const writerDb = createPerTestAppDb(h.uri());
 		const store = makeActorCaseStore(
@@ -444,7 +421,6 @@ describe("dormant atomic Project move", () => {
 			project_id: SOURCE,
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await enableMoves();
 		await applyHouseholdSchema(makeSystemSchemaStore([]), appId);
 		const writerDb = createPerTestAppDb(h.uri());
 		const store = makeActorCaseStore(
@@ -574,7 +550,6 @@ describe("dormant atomic Project move", () => {
 				expire_at: new Date(Date.now() + 60_000),
 			})
 			.execute();
-		await enableMoves();
 
 		const listener = new Client({ connectionString: h.uri() });
 		const channels: string[] = [];
@@ -709,7 +684,6 @@ describe("dormant atomic Project move", () => {
 		});
 		await h.seedProjectMember(ACTOR, SOURCE, "admin");
 		await h.seedProjectMember(ACTOR, DESTINATION, "admin");
-		await enableMoves();
 
 		await expect(prepareMove(appId)).rejects.toBeInstanceOf(CommitReauthError);
 		await h.seedProjectMember(SOURCE_OWNER, DESTINATION, "viewer");
@@ -735,6 +709,7 @@ describe("dormant atomic Project move", () => {
 			status: "generating",
 			awaiting_input: true,
 			run_id: "run-stale-paused",
+			run_holder_nonce: "00000000-0000-4000-8000-000000000001",
 			updated_at: new Date(Date.now() - 20 * 60_000),
 		});
 		const corrupt = await h.seedApp({
@@ -746,49 +721,33 @@ describe("dormant atomic Project move", () => {
 			updated_at: new Date(Date.now() - 20 * 60_000),
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await enableMoves();
 
 		await expect(prepareMove(live)).resolves.toEqual({ kind: "busy" });
 		await expect(prepareMove(stalePaused)).resolves.toEqual({
 			kind: "reapable",
-			identity: { mode: "build", runId: "run-stale-paused", nonce: null },
+			identity: {
+				mode: "build",
+				runId: "run-stale-paused",
+				nonce: "00000000-0000-4000-8000-000000000001",
+			},
 		});
 		await expect(prepareMove(corrupt)).resolves.toEqual({
 			kind: "corrupt_holder",
 		});
 	});
 
-	it("rejects deleted apps and active incompatible stream leases", async () => {
+	it("rejects deleted apps", async () => {
 		const deleted = await h.seedApp({
 			id: "app-deleted-move",
 			owner: ACTOR,
 			project_id: SOURCE,
 			deleted_at: new Date(),
 		});
-		const leased = await h.seedApp({
-			id: "app-old-stream",
-			owner: ACTOR,
-			project_id: SOURCE,
-		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await enableMoves();
-		await h
-			.db()
-			.insertInto("lookup_stream_capability_leases")
-			.values({
-				app_id: leased,
-				receiver_version: 0,
-				expires_at: new Date(Date.now() + 60_000),
-			})
-			.execute();
 
 		await expect(prepareMove(deleted)).rejects.toBeInstanceOf(
 			BlueprintCommitRejectedError,
 		);
-		await expect(prepareMove(leased)).rejects.toMatchObject({
-			name: "ProjectMoveCompatibilityError",
-			code: "incompatible_receiver",
-		});
 	});
 
 	it("uses the shared production capability after the test explicitly enables moves", async () => {
@@ -798,7 +757,6 @@ describe("dormant atomic Project move", () => {
 			project_id: SOURCE,
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
-		await enableMoves();
 
 		const { prepareAppProjectMove } = await import("../apps");
 		await expect(
@@ -828,7 +786,6 @@ describe("dormant atomic Project move", () => {
 			projectId: SOURCE,
 			moved: 1,
 		});
-		await enableMoves();
 		await expect(commitMove(appId)).resolves.toEqual({ kind: "moved" });
 		await seedCase(appId, SOURCE);
 		await expect(repairAppCaseTenancy(appId, ACTOR)).resolves.toEqual({

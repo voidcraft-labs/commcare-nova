@@ -77,10 +77,6 @@ describe("database privilege convergence contract", () => {
 			classification: "application",
 		});
 		expect(audited).toContainEqual({
-			name: "runtime_reader_traffic_epochs",
-			classification: "control",
-		});
-		expect(audited).toContainEqual({
 			name: "media_upload_aliases",
 			classification: "application",
 		});

@@ -34,7 +34,6 @@ vi.mock("@/lib/auth-utils", () => ({
 
 const { POST, DELETE } = await import("../route");
 const { commitAppProjectMoveInTransaction } = await import("@/lib/db/apps");
-const { setTransactionWriterVersion } = await import("@/lib/db/pg");
 
 /** Per-tab session ids are shape-pinned to UUIDs. */
 const SESS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -59,23 +58,12 @@ async function freshAppId(): Promise<string> {
 	return appId;
 }
 
-async function enableMoves(): Promise<void> {
-	// The migrated floors already satisfy the move-activation CHECK.
-	await h
-		.db()
-		.updateTable("lookup_reference_compatibility")
-		.set({ project_moves_enabled: true })
-		.where("id", "=", 1)
-		.execute();
-}
-
 async function commitMove(
 	db: Kysely<AppDatabase>,
 	appId: string,
 	insideTransaction?: () => Promise<void>,
 ) {
 	return db.transaction().execute(async (tx) => {
-		await setTransactionWriterVersion(tx, 1);
 		const result = await commitAppProjectMoveInTransaction(
 			tx,
 			{
@@ -88,8 +76,6 @@ async function commitMove(
 			},
 			{
 				batchId: crypto.randomUUID(),
-				declaredWriterVersion: 1,
-				streamReceiverVersion: 2,
 			},
 		);
 		await insideTransaction?.();
@@ -303,7 +289,6 @@ describe("/presence route (Postgres)", () => {
 		const appId = await freshAppId();
 		await h.seedProjectMember(USER, PROJECT, "owner");
 		await h.seedProjectMember(USER, DESTINATION, "owner");
-		await enableMoves();
 		const moverDb = createPerTestAppDb(h.uri());
 		const gateKey = 7_311_201;
 		const gate = new Client({ connectionString: h.uri() });
@@ -364,7 +349,6 @@ describe("/presence route (Postgres)", () => {
 		const appId = await freshAppId();
 		await h.seedProjectMember(USER, PROJECT, "owner");
 		await h.seedProjectMember(USER, DESTINATION, "owner");
-		await enableMoves();
 		const moverDb = createPerTestAppDb(h.uri());
 		const observer = new Client({ connectionString: h.uri() });
 		await observer.connect();

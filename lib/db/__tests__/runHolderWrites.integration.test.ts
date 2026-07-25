@@ -9,7 +9,6 @@
  * pair lost.
  */
 
-import { sql } from "kysely";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import {
@@ -32,18 +31,6 @@ const NEW_RUN = "run-holder-new";
 const OLD_NONCE = "00000000-0000-4000-8000-000000000001";
 const NEW_NONCE = "00000000-0000-4000-8000-000000000002";
 const period = getCurrentPeriod();
-
-async function enableNonceEnforcement(): Promise<void> {
-	await h
-		.db()
-		.updateTable("lookup_reference_compatibility")
-		.set({
-			minimum_runtime_reader_version: 1,
-			run_holder_nonce_enforced: true,
-		})
-		.where("id", "=", 1)
-		.execute();
-}
 
 type Outcome<T> =
 	| { readonly ok: true; readonly value: T }
@@ -318,41 +305,6 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 });
 
 describe("exact-holder terminal and operator compare-and-set", () => {
-	it("keeps legacy mode/run reaper authority before nonce activation", async () => {
-		const appId = "legacy-build-reaper";
-		await h.seedCreditMonth(ACTOR, period, {
-			allowance: 2000,
-			consumed: CREDITS_PER_BUILD,
-			bonus: 0,
-		});
-		await h.seedApp({
-			id: appId,
-			owner: ACTOR,
-			project_id: PROJECT,
-			status: "generating",
-			run_holder_nonce: NEW_NONCE,
-			updated_at: new Date(Date.now() - 60 * 60_000),
-			reservation: {
-				period,
-				reserved: CREDITS_PER_BUILD,
-				settled: false,
-				userId: ACTOR,
-				runId: OLD_RUN,
-			},
-		});
-
-		await expect(
-			refundStaleGeneration(appId, {
-				mode: "build",
-				runId: OLD_RUN,
-				nonce: OLD_NONCE,
-			}),
-		).resolves.toBe("reaped");
-
-		expect((await h.readAppRow(appId))?.status).toBe("error");
-		expect(await h.readConsumed(ACTOR, period)).toBe(0);
-	});
-
 	it("a delayed build reaper cannot reap a same-run-id successor with a new nonce", async () => {
 		const appId = "delayed-build-reaper";
 		await h.seedCreditMonth(ACTOR, period, {
@@ -380,18 +332,10 @@ describe("exact-holder terminal and operator compare-and-set", () => {
 		// Only the server-minted nonce distinguishes it from the queued old reap.
 		await h
 			.db()
-			.transaction()
-			.execute(async (tx) => {
-				await sql`SELECT set_config('nova.runtime_reader_version', '1', true)`.execute(
-					tx,
-				);
-				await tx
-					.updateTable("apps")
-					.set({ run_holder_nonce: NEW_NONCE })
-					.where("id", "=", appId)
-					.execute();
-			});
-		await enableNonceEnforcement();
+			.updateTable("apps")
+			.set({ run_holder_nonce: NEW_NONCE })
+			.where("id", "=", appId)
+			.execute();
 		await expect(
 			refundStaleGeneration(appId, {
 				mode: "build",

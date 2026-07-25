@@ -30,17 +30,15 @@
  *   - Presence roster snapshots in the projected client shape (`updatedAt` is
  *     epoch millis, no `expire_at`); a row with a malformed `location` is
  *     skipped and the roster continues.
- *   - Connect admission authorizes before the receiver floor. A below-floor
- *     browser gets exactly one seq-less terminal revocation and no lease/read/
- *     subscription; an admitted browser gets a database-minted lease.
- *   - Teardown: abort, cancel, and partial setup failure disown subscriptions,
- *     pumps, and intervals before deleting only their exact lease.
+ *   - Connect admission is authorization-only: a denied user gets the IDOR-safe
+ *     404, with no stream body.
+ *   - Teardown: abort and cancel each disown the subscriptions, pumps, and
+ *     intervals.
  *
  * Session/account resolution and the membership-row read are mocked; the route
- * still runs its real app/compatibility transaction and capability-lease DML
- * against the per-test Postgres. The route's cursor/frame logic, reload and
- * revocation state machine, lease lifecycle, teardown, plus the real
- * LISTEN/NOTIFY path are the code under test.
+ * still runs its real authorization transaction against the per-test Postgres.
+ * The route's cursor/frame logic, reload and revocation state machine,
+ * teardown, plus the real LISTEN/NOTIFY path are the code under test.
  *
  * Runs on the per-test-database harness booted by the case-store testcontainer
  * `globalSetup` — the app-state migrations create the `apps` / `accepted_mutations`
@@ -67,7 +65,6 @@ import {
 	type PerTestAppDb,
 } from "@/lib/db/__tests__/perTestAppDb";
 import { RETENTION_COUNT } from "@/lib/db/constants";
-import { declareLookupReferenceWriter } from "@/lib/db/lookupReferenceWriter";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
@@ -106,11 +103,22 @@ vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 	getSessionSafe: getSessionSafeMock,
 }));
-vi.mock("@/lib/db/appAccess", () => ({
-	resolveAppScope: resolveAppScopeMock,
-	resolveAppScopeInTransaction: resolveAppScopeInTransactionMock,
-	AppAccessError: MockAppAccessError,
-}));
+/* `reauthorizeStreamScope` keeps its real shape — `withAppTx` around
+ * `resolveAppScopeInTransaction` — so a test programs ONE mock and it drives the
+ * connect gate, the migration reauthorization, and the cadence re-check alike,
+ * each on a genuine transaction against the per-test database. */
+vi.mock("@/lib/db/appAccess", async () => {
+	const { withAppTx } = await import("@/lib/db/pg");
+	return {
+		resolveAppScope: resolveAppScopeMock,
+		resolveAppScopeInTransaction: resolveAppScopeInTransactionMock,
+		reauthorizeStreamScope: (appId: string, userId: string) =>
+			withAppTx((tx) =>
+				resolveAppScopeInTransactionMock(tx, appId, userId, "view"),
+			),
+		AppAccessError: MockAppAccessError,
+	};
+});
 vi.mock("@/lib/db/api-keys", () => ({
 	isUserActive: isUserActiveMock,
 }));
@@ -180,15 +188,6 @@ const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "stream_relay_" });
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
 
-async function streamLeaseRows(appId: string) {
-	return appDb
-		.selectFrom("lookup_stream_capability_leases")
-		.select(["connection_id", "receiver_version"])
-		.where("app_id", "=", appId)
-		.orderBy("connection_id")
-		.execute();
-}
-
 /** A minimal session shape the route reads (`session.user.id`). */
 function sessionFor(userId: string) {
 	return { user: { id: userId } } as never;
@@ -204,7 +203,6 @@ async function seedApp(head: number): Promise<string> {
 		status: "complete",
 	});
 	await appDb.transaction().execute(async (tx) => {
-		await declareLookupReferenceWriter(tx);
 		await tx
 			.updateTable("apps")
 			.set({ mutation_seq: head, project_id: null })
@@ -226,7 +224,6 @@ async function writeEntry(
 ): Promise<void> {
 	const kind = opts.kind ?? "autosave";
 	await appDb.transaction().execute(async (tx) => {
-		await declareLookupReferenceWriter(tx);
 		await tx
 			.insertInto("accepted_mutations")
 			.values({
@@ -396,7 +393,6 @@ async function collectUntil(
 		userId?: string;
 		since?: number;
 		lastEventId?: string;
-		receiverVersion?: string | null;
 		predicate: (frames: Frame[]) => boolean;
 		timeoutMs?: number;
 		onOpen?: (frames: () => Frame[]) => Promise<void> | void;
@@ -408,9 +404,6 @@ async function collectUntil(
 	const url = new URL(`http://localhost/api/apps/${appId}/stream`);
 	if (opts.since !== undefined)
 		url.searchParams.set("since", String(opts.since));
-	if (opts.receiverVersion !== null) {
-		url.searchParams.set("receiverVersion", opts.receiverVersion ?? "2");
-	}
 	const req = new Request(url, { headers, signal: controller.signal });
 
 	requireSessionMock.mockResolvedValue(sessionFor(opts.userId ?? USER));
@@ -1336,31 +1329,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		},
 	);
 
-	it("does not evict an admitted connection when the receiver floor rises", async () => {
-		const appId = await seedApp(0);
-
-		const { frames } = await collectUntil(appId, {
-			since: 0,
-			receiverVersion: "2",
-			timeoutMs: 800,
-			async onOpen() {
-				await appDb
-					.updateTable("lookup_reference_compatibility")
-					.set({ minimum_stream_receiver_version: 3 })
-					.where("id", "=", 1)
-					.executeTakeFirstOrThrow();
-			},
-			predicate: () => false,
-		});
-
-		expect(
-			frames.some(
-				(frame) => frame.event === "reload" || frame.event === "revoked",
-			),
-		).toBe(false);
-	});
-
-	it("authenticates before the floor verdict and returns the IDOR-safe 404", async () => {
+	it("returns the IDOR-safe 404 when connect-time authorization denies", async () => {
 		const appId = await seedApp(0);
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		resolveAppScopeInTransactionMock.mockRejectedValue(
@@ -1368,9 +1337,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		);
 
 		const res = await GET(
-			new Request(
-				`http://localhost/api/apps/${appId}/stream?receiverVersion=0`,
-			),
+			new Request(`http://localhost/api/apps/${appId}/stream`),
 			{ params: Promise.resolve({ id: appId }) },
 		);
 		// Drain the error response body so its stream's pull promise settles under
@@ -1378,79 +1345,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		await res.text();
 		expect(res.status).toBe(404);
 		expect(res.headers.get("Content-Type")).not.toBe("text/event-stream");
-		expect(await streamLeaseRows(appId)).toEqual([]);
-	});
-
-	it("emits only a seq-less upgrade revocation below the receiver floor", async () => {
-		const appId = await seedApp(0);
-		let durableReadAttempts = 0;
-		__setStreamReadTestHooksForTests({
-			beforeMutationRead() {
-				durableReadAttempts += 1;
-			},
-			beforeLookupManifestRead() {
-				durableReadAttempts += 1;
-			},
-			afterAppStreamSubscribe() {
-				durableReadAttempts += 1;
-			},
-		});
-		requireSessionMock.mockResolvedValue(sessionFor(USER));
-
-		const res = await GET(
-			new Request(
-				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=0`,
-			),
-			{ params: Promise.resolve({ id: appId }) },
-		);
-		const frames = parseFrames(await res.text());
-
-		expect(res.status).toBe(200);
-		expect(res.headers.get("Content-Type")).toContain("text/event-stream");
-		expect(frames).toEqual([
-			{
-				event: "revoked",
-				data: { reason: "client-upgrade-required" },
-			},
-		]);
-		expect(durableReadAttempts).toBe(0);
-		expect(await streamLeaseRows(appId)).toEqual([]);
-	});
-
-	it("tears down the partial subscription and exact lease when stream setup throws", async () => {
-		const appId = await seedApp(0);
-		const sentinel = await appDb
-			.insertInto("lookup_stream_capability_leases")
-			.values({
-				app_id: appId,
-				receiver_version: 1,
-				expires_at: new Date(Date.now() + 60_000),
-			})
-			.returning("connection_id")
-			.executeTakeFirstOrThrow();
-		__setStreamReadTestHooksForTests({
-			afterAppStreamSubscribe() {
-				throw new Error("injected post-subscribe setup failure");
-			},
-		});
-		requireSessionMock.mockResolvedValue(sessionFor(USER));
-
-		const res = await GET(
-			new Request(
-				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=2`,
-			),
-			{ params: Promise.resolve({ id: appId }) },
-		);
-		await res.text().catch(() => "");
-
-		await vi.waitFor(async () => {
-			expect(await streamLeaseRows(appId)).toEqual([
-				{
-					connection_id: sentinel.connection_id,
-					receiver_version: 1,
-				},
-			]);
-		});
 	});
 
 	it("tears down pumps, subscriptions, intervals, and the abort listener on abort only", async () => {
@@ -1471,12 +1365,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
 		const res = await GET(
-			new Request(
-				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=2`,
-				{
-					signal: controller.signal,
-				},
-			),
+			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
+				signal: controller.signal,
+			}),
 			{ params: Promise.resolve({ id: appId }) },
 		);
 		const reader = res.body?.getReader();
@@ -1500,9 +1391,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		await writeLookupTable(PROJECT, "after_abort");
 		await delay(400);
 		expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtAbort);
-		await vi.waitFor(async () => {
-			expect(await streamLeaseRows(appId)).toEqual([]);
-		});
 	});
 
 	it("tears down on stream cancel without requiring request abort", async () => {
@@ -1522,30 +1410,21 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
 		const res = await GET(
-			new Request(
-				`http://localhost/api/apps/${appId}/stream?since=0&receiverVersion=2`,
-				{
-					signal: controller.signal,
-				},
-			),
+			new Request(`http://localhost/api/apps/${appId}/stream?since=0`, {
+				signal: controller.signal,
+			}),
 			{ params: Promise.resolve({ id: appId }) },
 		);
 		const reader = res.body?.getReader();
 		if (!reader) throw new Error("stream had no body");
 
 		await vi.waitFor(() => expect(mutationAttempts).toBe(1));
-		const registered = await streamLeaseRows(appId);
-		expect(registered).toHaveLength(1);
-		expect(registered[0]?.receiver_version).toBe(2);
 		await reader.cancel();
 		expect(controller.signal.aborted).toBe(false);
 		const attemptsAtCancel = { mutationAttempts, lookupAttempts };
 		await writeLookupTable(PROJECT, "after_cancel");
 		await delay(400);
 		expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtCancel);
-		await vi.waitFor(async () => {
-			expect(await streamLeaseRows(appId)).toEqual([]);
-		});
 		/* A second consumer-level cancel is a no-op at the stream layer; the
 		 * route's teardown is independently idempotent for cancel+abort races. */
 		controller.abort();

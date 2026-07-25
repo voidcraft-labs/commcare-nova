@@ -76,17 +76,6 @@ async function seedCredits(userId: string, consumed: number): Promise<void> {
 const readConsumed = (userId: string) => h.readConsumed(userId, period);
 const readStatus = async () => (await h.readAppRow(APP_ID))?.status;
 const readAwaiting = async () => (await h.readAppRow(APP_ID))?.awaiting_input;
-async function enableNonceEnforcement(): Promise<void> {
-	await h
-		.db()
-		.updateTable("lookup_reference_compatibility")
-		.set({
-			minimum_runtime_reader_version: 1,
-			run_holder_nonce_enforced: true,
-		})
-		.where("id", "=", 1)
-		.execute();
-}
 
 describe("claimAndReserveRun + reservation lifecycle", () => {
 	// A never-seeded credit row reads as a full allowance, so a claim that
@@ -439,6 +428,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_BUILD);
 		await seedApp({
 			status: "generating",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -468,6 +458,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_BUILD);
 		await seedApp({
 			status: "generating",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -499,6 +490,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_EDIT);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
 				period,
@@ -524,6 +516,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({
 			status: "complete",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(-1) },
 			reservation: {
 				period,
@@ -555,6 +548,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({
 			status: "complete",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(-1) },
 			reservation: {
 				period,
@@ -604,6 +598,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			awaiting_input: true,
 			// The paused build's clock froze past the staleness window.
 			updated_at: staleClock(),
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -654,6 +649,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({
 			status: "complete",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
 				period,
@@ -683,7 +679,14 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		expect(await readAwaiting()).toBeFalsy();
 		// The superseded round's late answer bails instead of double-running.
 		expect(
-			await reacquireLease(APP_ID, "p", null, "edit", OWNER, PROJECT_ID),
+			await reacquireLease(
+				APP_ID,
+				"p",
+				HOLDER_NONCE,
+				"edit",
+				OWNER,
+				PROJECT_ID,
+			),
 		).toEqual({ outcome: "superseded" });
 	});
 
@@ -696,6 +699,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			// Recently paused — the staleness clock is FRESH, so only the
 			// supersede (not a reap) can free it.
 			updated_at: new Date(),
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -721,7 +725,14 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		});
 		expect(await readAwaiting()).toBeFalsy();
 		expect(
-			await reacquireLease(APP_ID, "p", null, "build", OWNER, PROJECT_ID),
+			await reacquireLease(
+				APP_ID,
+				"p",
+				HOLDER_NONCE,
+				"build",
+				OWNER,
+				PROJECT_ID,
+			),
 		).toEqual({ outcome: "superseded" });
 	});
 
@@ -731,6 +742,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({
 			status: "complete",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
 				period,
@@ -768,6 +780,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			status: "generating",
 			awaiting_input: true,
 			updated_at: staleClock(),
+			run_holder_nonce: HOLDER_NONCE,
 		});
 		await refundStaleGeneration("app-paused-reap", {
 			mode: "build",
@@ -785,6 +798,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			owner: OWNER,
 			status: "generating",
 			updated_at: staleClock(),
+			run_holder_nonce: HOLDER_NONCE,
 		});
 		await refundStaleGeneration("app-hardkill-reap", {
 			mode: "build",
@@ -805,6 +819,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({
 			status: "complete",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
 				period,
@@ -828,6 +843,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_BUILD);
 		await seedApp({
 			status: "generating",
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -857,6 +873,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, 0);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
 				runId: "dead-edit",
 				actorUserId: MEMBER,
@@ -887,6 +904,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_EDIT);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
 				period,
@@ -913,6 +931,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			// Run Y hard-killed inside its own [claim, reserve) window left run X's
 			// unsettled marker under Y's (now lapsed) lock. Both runs are dead; the
 			// hold must still reap or it strands for the whole month.
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
 				runId: "taker-run-Y",
 				actorUserId: OWNER,
@@ -942,6 +961,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_EDIT);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
 				runId: "dead-edit",
 				actorUserId: OWNER,
@@ -1049,6 +1069,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		const { clearRunLock } = await import("../apps");
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "r", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
 				period,
@@ -1074,6 +1095,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_EDIT);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
 				period,
@@ -1103,6 +1125,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		// the holder's user id (the route's is-this-you comparison).
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
 		});
 
@@ -1122,6 +1145,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_EDIT);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
 				runId: "long-edit",
 				actorUserId: OWNER,
@@ -1154,6 +1178,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			status: "generating",
 			awaiting_input: true,
 			updated_at: new Date(Date.now() - 60_000),
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -1167,12 +1192,12 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			await reacquireLease(
 				APP_ID,
 				"build-run",
-				null,
+				HOLDER_NONCE,
 				"build",
 				OWNER,
 				PROJECT_ID,
 			),
-		).toMatchObject({ outcome: "owned", holderNonce: expect.any(String) });
+		).toMatchObject({ outcome: "owned", holderNonce: HOLDER_NONCE });
 		expect(await readAwaiting()).toBeFalsy();
 		expect(await readStatus()).toBe("generating");
 		// updated_at re-armed to ~now (the frozen-during-pause clock restarts).
@@ -1188,6 +1213,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({
 			status: "complete",
 			awaiting_input: true,
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
 				runId: "edit-paused",
 				actorUserId: OWNER,
@@ -1199,65 +1225,52 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			await reacquireLease(
 				APP_ID,
 				"edit-paused",
-				null,
+				HOLDER_NONCE,
 				"edit",
 				OWNER,
 				PROJECT_ID,
 			),
-		).toMatchObject({ outcome: "owned", holderNonce: expect.any(String) });
+		).toMatchObject({ outcome: "owned", holderNonce: HOLDER_NONCE });
 		expect(await readAwaiting()).toBeFalsy();
 		// The lease was RE-STAMPED to a fresh future deadline — not left lapsed.
 		const lock = await h.readRunLock(APP_ID);
 		expect(lock?.expireAt.getTime()).toBeGreaterThan(Date.now());
 	});
 
-	it("reacquireLease requires the exact nonce after irreversible activation", async () => {
+	it("reacquireLease refuses a resume presenting the wrong generation's nonce, or none", async () => {
 		const { reacquireLease } = await import("../apps");
+		// Mode, run id, actor, and the pause all still match — the NONCE is the
+		// only thing that doesn't. It alone must refuse the resume, and touch
+		// nothing: the pause and its lease stand for the holder that owns them.
+		const pausedExpiry = lockExpiry(5);
 		await seedApp({
 			status: "complete",
 			awaiting_input: true,
 			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
-				runId: "activated-edit",
+				runId: "edit-paused",
 				actorUserId: OWNER,
-				expireAt: lockExpiry(5),
+				expireAt: pausedExpiry,
 			},
 		});
-		await enableNonceEnforcement();
 
-		expect(
-			await reacquireLease(
-				APP_ID,
-				"activated-edit",
-				null,
-				"edit",
-				OWNER,
-				PROJECT_ID,
-			),
-		).toEqual({ outcome: "refresh_required" });
-		expect(
-			await reacquireLease(
-				APP_ID,
-				"activated-edit",
-				REPLACEMENT_NONCE,
-				"edit",
-				OWNER,
-				PROJECT_ID,
-			),
-		).toEqual({ outcome: "refresh_required" });
-		expect(await readAwaiting()).toBe(true);
-
-		expect(
-			await reacquireLease(
-				APP_ID,
-				"activated-edit",
-				HOLDER_NONCE,
-				"edit",
-				OWNER,
-				PROJECT_ID,
-			),
-		).toEqual({ outcome: "owned", holderNonce: HOLDER_NONCE });
-		expect(await readAwaiting()).toBe(false);
+		for (const presented of [REPLACEMENT_NONCE, null]) {
+			expect(
+				await reacquireLease(
+					APP_ID,
+					"edit-paused",
+					presented,
+					"edit",
+					OWNER,
+					PROJECT_ID,
+				),
+			).toEqual({ outcome: "refresh_required" });
+			expect(await readAwaiting()).toBe(true);
+			const held = await h.readRunLock(APP_ID);
+			expect(held?.runId).toBe("edit-paused");
+			expect(held?.expireAt.getTime()).toBe(pausedExpiry.getTime());
+			expect((await h.readAppRow(APP_ID))?.run_holder_nonce).toBe(HOLDER_NONCE);
+		}
 	});
 
 	it("reacquireLease distinguishes a timeout-RELEASED run from a takeover-SUPERSEDED one", async () => {
@@ -1270,6 +1283,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			status: "generating",
 			awaiting_input: true,
 			updated_at: staleClock(),
+			run_holder_nonce: HOLDER_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,
@@ -1287,7 +1301,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			await reacquireLease(
 				APP_ID,
 				"late-answer",
-				null,
+				HOLDER_NONCE,
 				"build",
 				OWNER,
 				PROJECT_ID,
@@ -1309,7 +1323,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			await reacquireLease(
 				APP_ID,
 				"late-answer",
-				null,
+				HOLDER_NONCE,
 				"build",
 				OWNER,
 				PROJECT_ID,
@@ -1324,6 +1338,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		// A live edit whose lease is close to lapsing (1 min left).
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
 			run_lock: {
 				runId: "edit-live",
 				actorUserId: OWNER,
@@ -1340,10 +1355,12 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 
 	it("refreshEditLease does NOT extend a lock a co-member takeover now holds (ownership-gated)", async () => {
 		const { refreshEditLease } = await import("../apps");
-		// The lock is now a DIFFERENT run's (a takeover overwrote runId).
+		// The lock is now a DIFFERENT run's (a takeover overwrote runId + minted
+		// its own holder nonce).
 		const takenExpiry = lockExpiry(2);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: REPLACEMENT_NONCE,
 			run_lock: {
 				runId: "co-member-run",
 				actorUserId: MEMBER,
@@ -1362,7 +1379,13 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 
 	it("refreshEditLease is a clean no-op for a BUILD (no run_lock to match)", async () => {
 		const { refreshEditLease } = await import("../apps");
-		await seedApp({ status: "generating" });
+		// The build's own run id and nonce — only the MODE discriminates, so the
+		// no-op can't be explained away by a mismatched identity.
+		await seedApp({
+			status: "generating",
+			run_id: "some-build-run",
+			run_holder_nonce: HOLDER_NONCE,
+		});
 		await refreshEditLease(APP_ID, "some-build-run", HOLDER_NONCE);
 		expect(await h.readRunLock(APP_ID)).toBeUndefined();
 	});
@@ -1378,6 +1401,8 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedApp({
 			status: "generating",
 			updated_at: staleClock(),
+			run_id: "dead-build",
+			run_holder_nonce: HOLDER_NONCE,
 		});
 
 		const claim = await claimAndReserveRun(
@@ -1407,6 +1432,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 			owner: MEMBER,
 			status: "generating",
 			updated_at: new Date(),
+			run_holder_nonce: REPLACEMENT_NONCE,
 			reservation: {
 				period,
 				reserved: CREDITS_PER_BUILD,

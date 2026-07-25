@@ -118,12 +118,8 @@ writes no row and advances no sequence. `repairLookupReferenceEdges` is the
 app-locked maintenance sibling for derived edge state only: it rederives the
 structural target set from the committed blueprint and replaces the stored
 edge sets, writing no entity, history, or sequence. It is server-only and
-script-driven, with no route, action, or MCP exposure. The cross-Project move
-runs when its database flag is on: the Server Action reads the switch for
-person-readable copy, but `lockProjectMoveCompatibility` re-reads it `FOR SHARE`
-in the move transaction and is the authority. It also requires compatible
-writer/receiver versions and no incompatible live stream; the production wrapper
-declares the manifest's current writer/receiver versions. Under the app lock it takes the membership gate, locks the actor and all
+script-driven, with no route, action, or MCP exposure. The cross-Project move enables an admin/owner of both ends to move the app plus its case,
+media, and chat data as one transaction. It requires no incompatible live stream. Under the app lock it takes the membership gate, locks the actor and all
 source-owner membership pairs across both Projects, enforces dual `delete` plus
 owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
@@ -147,13 +143,7 @@ them, and cannot create in `public`, so the trigger is backed by a privilege
 boundary.
 Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
-`CREATE` only in that isolated case schema for concurrent index DDL and receives
-read-only access to compatibility state, not control-table mutation — which is
-why the rollout controller runs as the MIGRATION identity. The four activation
-flags (destructive-schema, carrier-commit, Project-move, case-operations) plus
-the run-holder nonce switch are turned on only by that controller;
-`case_operations_enabled` shares the carrier CHECK's v3-receiver/v1-reader
-floors.
+`CREATE` only in that isolated case schema for concurrent index DDL.
 
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
@@ -166,130 +156,52 @@ fresh `commitGuardedBatch`. An admission denial or Phase-A/outer-commit failure
 therefore has nothing to compensate; a Phase-B or blueprint-commit failure
 compensates the already-durable reports.
 
-`lookup_stream_capability_leases` carries an
-app-scoped, database-minted connection UUID plus a required receiver version and
-expiry; it is compatibility state, not lookup data or blueprint state.
-`streamReceiverCapabilities.ts` is the pure server admission boundary: it
-requires exactly one strict browser `receiverVersion` and admits the minimum
-of the browser declaration and the compiled manifest's registry-gated
-receiver capability. The baked image environment is deliberately not
-consulted — the startup probe proves it identical to the compiled manifest
-before an instance serves, and environments with no baked declaration (local
-dev, CI) must not fail closed to v0 under a nonzero floor.
-`streamCapabilityLeases.ts` owns the stateful half. Registration composes
-`apps FOR SHARE` -> serialized fresh Project membership/view authorization ->
-compatibility `FOR SHARE` -> floor verdict/lease insert in one transaction.
-Postgres mints the UUID and derives `created_at` plus the exact manifest TTL
-from statement time after lock waits. A below-floor request has no lease or
-stream setup; the route returns only a seq-less `client-upgrade-required`
-revocation. An admitted stream captures Project/role/canEdit and reloads when
-that tuple changes, but cadence reauthorization deliberately does not read the
-receiver floor, so raising it cannot evict an already-admitted connection.
-Migration rows reauthorize before advancing their private cursor; transient
-failure leaves the row pending for retry. Teardown disowns subscriptions,
-pumps, timers, and transport first, then best-effort deletes the exact
-app/connection lease; expiry is the crash fallback. Each registration then
-runs a separately committed, best-effort purge of at most 256 expired rows.
-Its `expires_at`-ordered candidate query uses the expiry index and `SKIP
-LOCKED`; it never shares the admission transaction's app/membership/floor lock
-set, and an operational purge failure cannot reject an admitted stream.
 
-`lookup_reference_compatibility` is one permanent `id = 1` row. Its writer,
-stream-receiver, and runtime-reader floors are nonnegative and monotonic; flags
-may be turned off but can turn on only at their database-enforced floor
-thresholds. Statement-level database guards protect app creation/deletion,
-`apps.mutation_seq`/`project_id` changes, every blueprint-entity write,
-accepted-mutation inserts, and destructive lookup table/column writes. Each
-guard locks the singleton `FOR SHARE`, making a floor increase a linearizable
-cutoff; missing state and stale writers fail with non-retryable SQLSTATE
-`55000`. An unset writer is version 0. Later writers must call
-`setTransactionWriterVersion(tx, version)` inside their transaction; its
-`set_config(..., true)` value is transaction-local and must never be installed
-as a pooled session setting. `lookupReferenceWriter.ts` is the one transaction
-declaration seam. All authoritative call sites use
-`declareLookupReferenceWriter(tx)`, whose current value derives from
-`config/runtime-capabilities.json` through the validated runtime accessor; it never
-owns a second numeric literal. Migrations seed the database floors at
-`minimum_writer_version = 1` and `minimum_stream_receiver_version = 2` (the
-`lookup_reference_floors` migration) with the runtime-reader floor at 0 and
-every switch off. The receiver floor deliberately trails the manifest's receiver
-v3 — admission takes `min(browser, manifest)`, so pre-v3 tabs stay admitted
-until the rollout controller's raise-and-drain lifts the floor. A migration
-never raises a floor: the deploy-blocking Job runs BEFORE its revision takes
-traffic, so a Job-time raise would revoke every open tab into a pre-cutoff
-bundle. Direct DML against a guarded table —
-tests and hand-run SQL included — must declare writer v1 or fail closed with
-SQLSTATE `55000`.
-
-Runtime-reader rollout state is database-owned too. `runLeaseState` derives the
-holder identity: edit is `(edit, lock_run_id, run_holder_nonce)`; build is
-`(build, res_run_id, run_holder_nonce)`, with `run_id` used only while a
-generating build has no reservation marker. `runId` remains stable attribution;
-the server-minted UUID nonce is the per-claim generation. The
-`apps_runtime_reader_holder_stamp` row trigger reads transaction-local
-`nova.runtime_reader_version`, checks the runtime floor under `FOR SHARE`, and
-uses the declaration as writer capability—not proof of ownership over an
-existing holder. Below cutoff, an exact unchanged legacy holder stays v0 and
-census-visible; an unchanged old stamp below the active floor fails closed. A
-new/replaced v1 holder requires a concrete run id + nonce and receives the
-current stamp. An absent declaration is deployed v0 and clears any inherited
-nonce/stamp (even when a stable thread id makes mode/run appear unchanged).
-Release clears the stamp—but
-retains the nonce tombstone—when the holder disappears. Existing null-nonce
-holders are not backfilled and census as v0; replay clears only present
-null-nonce stamps, so a v1 holder survives migration replay. The trigger
-includes `awaiting_input`, `lock_expire_at`, and `updated_at` because the
-deployed v0 paused-resume SQL
-sets no runtime GUC while updating only those columns. `runtimeReaderVersion.ts`
-derives the v1 declaration from the capability manifest. Every current
-holder-touching path calls `declareRuntimeReader(tx)` before DML: generating
-creation, build/edit claim, reservation, paused reacquisition, same-holder
-blueprint commits, heartbeats/pause writes, and terminal/failure/reaper/recovery
-writes. Complete/template creation does not declare because it creates no
-holder. Every build claim also stamps root `run_id` before emitting any mutation,
-so a later no-mutation successor remains the durable latest-claim identity after
+Run generation is holder identity. `runLeaseState` derives it: edit is
+`(edit, lock_run_id, run_holder_nonce)`; build is `(build, res_run_id,
+run_holder_nonce)`, with `run_id` used only while a generating build has no
+reservation marker. `runId` remains stable attribution; the server-minted UUID
+nonce is the per-claim generation. Every holder-touching path uses
+`(mode, runId, nonce)` identity: generating creation, build/edit claim,
+reservation, paused reacquisition, same-holder blueprint commits,
+heartbeats/pause writes, and terminal/failure/reaper/recovery writes.
+Complete/template creation does not use identity because it creates no holder.
+Every build claim also stamps root `run_id` before emitting any mutation, so a
+later no-mutation successor remains the durable latest-claim identity after
 reap.
 
-`runHolderWrites.ts` owns the shared SQL compare-and-set predicates.
-`lookup_reference_compatibility.run_holder_nonce_enforced` defaults false: in
-that compatibility state admission/CAS uses legacy `(mode, runId)`, and after
-its irreversible activation it requires `(mode, runId, nonce)`. The database
-constraint forbids activation below runtime-reader floor 1. Every lifecycle
-transaction locks the app row first and then reads compatibility `FOR SHARE`
-before credit rows or its holder write. Terminal, failure, heartbeat, pause,
-and reaper updates repeat the admitted predicate; credit writers throw on a
+`runHolderWrites.ts` owns the shared SQL compare-and-set predicates for
+holder identity. Every lifecycle transaction locks the app row first before
+credit rows or its holder write. Terminal, failure, heartbeat, pause, and
+reaper updates use `(mode, runId, nonce)` identity; credit writers throw on a
 zero-row result so their earlier ledger refund rolls back too. Operator
-recovery is deliberately stricter and always requires the exact generation,
-even before activation. An absent holder is never terminal authority, and a
-present holder with a missing/blank run id is corrupt rather than canonically
-reapable; a concrete run id with null nonce is a legacy v0 holder and MUST stay
-reapable while compatibility is false so rollout can drain it. Chat mutation
-commits carry a separate full `ChatRunHolderCapability`; ordinary `runId`
-remains attribution because MCP also stamps one without owning a chat lease.
-Migration Phase A checks that capability while holding the app row, and the
-final guarded app-row write repeats it as a SQL compare-and-set;
-entity/reference/history work rolls back on a lost CAS. The sole absent-holder
-exception is the falsely-reaped-build self-heal, whose SQL predicate proves the
-free row, marker-cleared reaper signature, and exact last `run_id` (plus nonce
-after activation). A stale build whose marker was already settled keeps
-`res_run_id`; that is deliberately not the reaper signature and is
-non-self-healable. Reaper scans and conflict nudge/list queues narrow the observed holder
-to a concrete identity before enqueueing it and carry that token all the way to
-the locked write, so an arbitrarily delayed reap cannot target a later holder
-that also went stale. `scripts/recover-app.ts` writes only through
-`recoverAppStatus`: a present holder requires explicit `--holder-mode`,
-`--holder-run-id`, and UUID `--holder-nonce` flags, and the service rechecks the
-exact generation under the app lock and in SQL. A v0/null-nonce holder is not
-operator-recoverable through this command.
+recovery is deliberately strict and always requires the exact generation. An
+absent holder is never terminal authority, and a present holder with a
+missing/blank run id is corrupt rather than reapable. Chat mutation commits
+carry a separate full `ChatRunHolderCapability`; ordinary `runId` remains
+attribution because MCP also stamps one without owning a chat lease. Migration
+Phase A checks that capability while holding the app row, and the final
+guarded app-row write repeats it as a SQL compare-and-set; entity/reference/history
+work rolls back on a lost CAS. The sole absent-holder exception is the
+falsely-reaped-build self-heal, whose SQL predicate proves the free row,
+marker-cleared reaper signature, and exact last `run_id` plus nonce. A stale
+build whose marker was already settled keeps `res_run_id`; that is deliberately
+not the reaper signature and is non-self-healable. Reaper scans and conflict
+nudge/list queues narrow the observed holder to a concrete identity before
+enqueueing it and carry that token all the way to the locked write, so an
+arbitrarily delayed reap cannot target a later holder that also went stale.
+`scripts/recover-app.ts` writes only through `recoverAppStatus`: a present
+holder requires explicit `--holder-mode`, `--holder-run-id`, and UUID
+`--holder-nonce` flags, and the service rechecks the exact generation under the
+app lock and in SQL.
 
 Threads persist the active nonce in a dedicated `active_holder_nonce` column.
-`upsertThreadTurn` locks the app row, reads compatibility `FOR SHARE`, and proves
-the admitted holder before taking the thread lock or installing its marker. A
-lost holder may merge its real incoming transcript into an existing same-app
-thread, but the merge-only arm cannot replace or clear the successor's
-`run_id`, `active_stream_id`, or `active_holder_nonce`; it commits that merge and
-then throws `RunHolderLostError` so the route stops before publishing the stale
-capability.
+`upsertThreadTurn` locks the app row and proves the admitted holder before
+taking the thread lock or installing its marker. A lost holder may merge its
+real incoming transcript into an existing same-app thread, but the merge-only
+arm cannot replace or clear the successor's `run_id`, `active_stream_id`, or
+`active_holder_nonce`; it commits that merge and then throws
+`RunHolderLostError` so the route stops before publishing the stale capability.
 `loadThread` projects it only when fresh app authority says this exact run and
 nonce is paused by the requesting actor; co-members, unscoped loaders,
 mismatches, unpaused holders, and reaped holders receive no nonce. A paused
@@ -300,57 +212,11 @@ carrying only the thread id and a SHA-256 nonce digest. The reconnect route
 rehydrates it through the retained-thread/current-holder actor proof. Other
 Project viewers receive the inert marker, so shared replay stays count-identical
 without sharing continuation authority; an old same-run stream's digest also
-cannot resolve to a successor generation. Every client activation from a
-server-loaded thread adopts `run_id` and the optional `holder_nonce` together;
-an omitted nonce authoritatively clears any capability from the prior
-activation rather than retaining it by accident.
+cannot resolve to a successor generation. A client resuming from a
+server-loaded thread adopts `run_id` and `holder_nonce` together, so it can
+never carry a stale generation's continuation authority into a new one.
 
-`runtimeReaderHolders.ts` is the fail-closed census projection over
-`runLeaseState`: every present holder blocks a higher target when its effective
-version is lower, including live, paused, reapable, corrupt, unstamped, and
-soft-deleted rows. Reapable classification precedes paused/live. Floor raising
-must never use the 10/15-minute renewable liveness horizons as total drain
-bounds.
 
-`rolloutCompatibility.ts` is the only named compatibility-operation service.
-It is a CONTROL-PLANE module: `scripts/rollout/activate-lookup-references.ts`
-drives every operation in it, and the request path uses exactly one export
-(`readStreamReceiverCompatibilityForShare`, for stream registration). That is
-why it carries no `server-only` marker — the tsx controller could not load it
-otherwise, the same trade `lookupActivation.ts` and `threads.ts` document. The
-activation-FLAG reads stay in `lookupActivation.ts` so the request path depends
-on the reads without the cutover machinery.
-Its status read is one repeatable-read snapshot. Traffic reconciliation and
-runtime-epoch preparation invoke their control-plane snapshot callback only
-after taking the fixed deployment-cutover gate; that callback must perform a
-fresh read when invoked and must never return a pre-captured/cached split. A
-`ReceivingRevisionCapability` carries BOTH the reader and receiver declarations
-because those are independent authored manifest fields — a revision can satisfy
-one floor and be revoked by the other — and the controller re-checks both
-immediately before it raises anything, since the floors are monotonic and an
-hour of enforced waiting separates `prepare` from `raise`. Their
-in-transaction variants are what the controller drives: it holds the SESSION
-form of the gate on one pinned connection
-(`withDeploymentCutoverSession`, acquired with `pg_try_advisory_lock` so a
-second cutover aborts instead of queueing) and its transactions re-take the
-gate's transaction form on that same session, which is re-entrant by design.
-Reconciliation deletes invalid runtime epochs but never auto-creates one.
-Runtime floor raise locks cutover → compatibility `FOR UPDATE` → plain
-MVCC holder census (never app rows); the stream-receiver floor raise is a plain
-monotonic write under the same gate and never evicts an admitted lease.
-`enableLookupReferenceActivationInTransaction` is the ONLY enable path and has
-no pool-backed sibling. It re-proves each requested switch's floor thresholds
-(person-readable codes over the database CHECKs) and re-proves the LEASE drain,
-because raising the receiver floor deliberately does not evict admitted leases,
-so below-floor connections legitimately outlive the raise. It deliberately does
-NOT re-prove the holder census: the runtime floor raise already drained it under
-the same `FOR UPDATE` cutoff and the stamp trigger then refuses every new
-below-floor holder, so a blocker there is unrepresentable rather than unlikely —
-the controller reports the census and the audit scans instead. Emergency flag
-disablement stays available on its own. Stream registration
-must compose `apps FOR SHARE` → membership gate/read →
-`readStreamReceiverCompatibilityForShare(tx)` → floor verdict → lease insert in
-one transaction.
 
 **`chat_stream_chunks` is the resumable-chat log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
@@ -451,8 +317,7 @@ clarification round-trip.
 `claimAndReserveRun(appId, mode, runId, actorUserId, cost, expectedProjectId,
 holderNonce)`
 (and its new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
-transaction: fresh Project `edit` authorization, compatibility `FOR SHARE`,
-then the busy check
+transaction: fresh Project `edit` authorization, then the busy check
 (`lease.live`, or a paused run of ANOTHER actor →
 `RunConflictError`; the claimant's OWN paused run is SUPERSEDED instead — an
 abandoned `askQuestions` round must not lock its own user out until the lease
@@ -526,27 +391,27 @@ settle, one commit), `settleAndRelease` (the failed-run writer: refund-if-
 unsettled + settle + edit-lock release in one commit; its required mode and
 `settled` return answer the separate question "does this admitted holder
 capability still own the outcome—safe to `failApp`?"), and the flush-driven
-`refundReservation`. Every SQL update repeats legacy mode/run authority while
-the compatibility switch is false and the full nonce generation after it is
-true; credit-mutating writers require exactly one affected row so a lost CAS
-rolls the refund back. A reaped-then-re-claimed run's stale terminal write
-therefore affects zero rows rather than clobbering its successor. A failed EDIT
-never flips its `complete` app to `error` (that would brick a working app over
-a transient model error).
+`refundReservation`. Every SQL update uses `(mode, runId, nonce)` identity;
+credit-mutating writers require exactly one affected row so a lost CAS rolls
+the refund back. A reaped-then-re-claimed run's stale terminal write therefore
+affects zero rows rather than clobbering its successor. A failed EDIT never
+flips its `complete` app to `error` (that would brick a working app over a
+transient model error).
 
 **Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
 `refundStaleGeneration` (stale build: refund + `generating → error` +
 `paused_timeout` classification for an abandoned pause) and
 `reapStaleReservation` → `refundStaleReservation` (stranded edit: refund +
 settle + release the lapsed lock) require the exact holder identity captured by
-their scan, compare it again under the app lock, and repeat it in the SQL CAS.
-They also re-derive `reapable*` off that locked row, so even a delayed reaper
-cannot claw back a later holder that has independently gone stale. Both key on
-the LAPSED LEASE, not `awaiting_input`, so they free hard-killed AND
-abandoned-paused runs; both CLEAR the reaped marker's `runId` (the reaper's
-signature for the self-heal + non-lenient holder read) when the reaper settles
-an unsettled marker. A build marker already settled by its own failure flush
-retains its `runId`; it deliberately cannot masquerade as a false reap or
+their scan, compare it again under the app lock with `(mode, runId, nonce)`, and
+repeat it in the SQL CAS. They also re-derive `reapable*` off that locked row,
+so even a delayed reaper cannot claw back a later holder that has independently
+gone stale. Both key on the LAPSED LEASE, not `awaiting_input`, so they free
+hard-killed AND abandoned-paused runs; both CLEAR the reaped marker's `runId`
+(the reaper's signature for the self-heal + non-lenient holder read) when the
+reaper settles an unsettled marker. A build marker already settled by its own
+failure flush retains its `runId`; it deliberately cannot masquerade as a false
+reap or
 self-heal. Refunds always target the
 marker's charged actor (`res_user_id`, falling back to `owner` for markers that
 lack it). A missing marker run id is still refundable for an edit whose lock
@@ -557,10 +422,8 @@ nor pre-reservation root id fails closed as corrupt and is never queued.
 calls `reacquireLease`: one transaction asserting `ownedByResume` (keyed on
 the RESUME's own mode), freshly authorizing its actor, and, on success,
 re-establishing the mode's horizon +
-clearing `awaiting_input`. Before activation, a legacy browser may omit the
-nonce; a v0 pause is upgraded with a server-minted nonce in this same locked
-write and the authoritative value is returned to the client. After activation,
-a missing/mismatch returns `"refresh_required"`. Other lost resumes touch
+clearing `awaiting_input`. A missing or mismatched nonce returns
+`"refresh_required"`. Other lost resumes touch
 nothing and distinguish `"superseded"` (another holder) from `"released"` (the
 reap freed it).
 

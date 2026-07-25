@@ -11,15 +11,11 @@
  * the poke carries no data, so no notification content is ever lost; a missed
  * poke degrades to the next poke or the reconnect catch-up, never to lost data.
  *
- * Connect-time authorization, receiver-floor admission, and capability-lease
- * insertion share one transaction: app FOR SHARE, serialized fresh Project
- * membership, compatibility FOR SHARE, then verdict + insert. The database
- * mints the connection UUID and both timestamps. A ~10 s cadence re-checks the
- * session plus the captured Project/role/canEdit tuple; a confirmed view loss
- * revokes, while an authorized tuple change reloads. The cadence deliberately
- * does not re-read the receiver floor: a later floor raise cuts off reconnects
- * but never evicts a connection admitted below the old floor. Ban/deletion is a
- * separate `isUserActive` signal. A transient backend blip skips the tick.
+ * Connect-time authorization checks app membership (the user must have access).
+ * A ~10 s cadence re-checks the session plus the current Project/role/canEdit
+ * tuple; a confirmed view loss revokes, while an authorized tuple change reloads.
+ * Ban/deletion is a separate `isUserActive` signal. A transient backend blip
+ * skips the tick.
  *
  * The 60-minute Cloud Run request cap surfaces as a transparent EventSource
  * reconnect via the `Last-Event-ID` header (where `requireSession` re-runs);
@@ -43,15 +39,14 @@ import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
 import type { PresenceEntry } from "@/lib/collab/presenceTypes";
 import { isUserActive } from "@/lib/db/api-keys";
-import { AppAccessError, type TransactionalAppScope } from "@/lib/db/appAccess";
+import {
+	AppAccessError,
+	reauthorizeStreamScope,
+	type TransactionalAppScope,
+} from "@/lib/db/appAccess";
 import { createCoalescedStreamPump } from "@/lib/db/coalescedStreamPump";
 import { RETENTION_COUNT } from "@/lib/db/constants";
 import { getAppDb } from "@/lib/db/pg";
-import {
-	deleteStreamCapabilityLease,
-	reauthorizeStreamScope,
-	registerStreamCapabilityLease,
-} from "@/lib/db/streamCapabilityLeases";
 import {
 	subscribeAppStream,
 	subscribeLookupProject,
@@ -62,7 +57,6 @@ import {
 	runBeforeMigrationReauthorizationTestHook,
 	runBeforeMutationReadTestHook,
 } from "@/lib/db/streamReadTestHooks";
-import { resolveEffectiveStreamReceiverVersion } from "@/lib/db/streamReceiverCapabilities";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
@@ -159,7 +153,7 @@ const STREAM_HEADERS = {
 } as const;
 
 /** One terminal, seq-less SSE frame for a request rejected after authentication. */
-function terminalStreamResponse(event: string, data: unknown): Response {
+function _terminalStreamResponse(event: string, data: unknown): Response {
 	return new Response(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`, {
 		headers: STREAM_HEADERS,
 	});
@@ -173,34 +167,17 @@ export async function GET(
 		const session = await requireSession(req);
 		const { id: appId } = await params;
 		const userId = session.user.id;
-		/* Resolve every request-local wire input before committing the lease. */
 		const cursor = parseCursor(req);
-		const receiverVersion = resolveEffectiveStreamReceiverVersion(
-			new URL(req.url).searchParams,
-		);
 
-		/* The transaction re-authorizes view BEFORE reading the compatibility floor.
-		 * An `AppAccessError` therefore retains the route's IDOR-safe 404 even when
-		 * this browser is also below the floor. */
-		const registration = await registerStreamCapabilityLease({
-			appId,
-			userId,
-			receiverVersion,
-		});
-		if (registration.kind === "receiver-below-floor") {
-			/* This is the only post-auth floor rejection wire: one seq-less frame,
-			 * with no lease, data read, or LISTEN subscription. */
-			return terminalStreamResponse("revoked", {
-				reason: "client-upgrade-required",
-			});
-		}
+		/* Re-authorize app membership. An `AppAccessError` retains the route's
+		 * IDOR-safe 404 if the user lacks access. */
+		const scope = await reauthorizeStreamScope(appId, userId);
 
 		return openStream({
 			appId,
 			userId,
 			cursor,
-			scope: registration.scope,
-			connectionId: registration.connectionId,
+			scope,
 			req,
 		});
 	} catch (err) {
@@ -226,10 +203,9 @@ function openStream(args: {
 	userId: string;
 	cursor: number;
 	scope: TransactionalAppScope;
-	connectionId: string;
 	req: Request;
 }): Response {
-	const { appId, userId, cursor, scope, connectionId, req } = args;
+	const { appId, userId, cursor, scope, req } = args;
 	const head = scope.baseSeq;
 	const lookupScope: LookupScope = {
 		projectId: scope.projectId,
@@ -238,15 +214,6 @@ function openStream(args: {
 	};
 
 	const encoder = new TextEncoder();
-	function deleteLeaseBestEffort(): void {
-		void deleteStreamCapabilityLease(appId, connectionId).catch((err) => {
-			log.warn("[stream] capability lease cleanup failed", {
-				appId,
-				connectionId,
-				err: err instanceof Error ? err.message : String(err),
-			});
-		});
-	}
 
 	/* `start` populates this so `cancel` can tear down too — see the `cancel`
 	 * handler at the bottom. `teardown` is idempotent, so a double invocation
@@ -304,8 +271,6 @@ function openStream(args: {
 
 				function teardown(): void {
 					if (closed) return;
-					/* Disown first: every late pump/cadence continuation observes `closed`,
-					 * and every subscription/timer is detached before lease cleanup begins. */
 					closed = true;
 					mutationPump?.close();
 					lookupPump?.close();
@@ -322,9 +287,6 @@ function openStream(args: {
 					} catch {
 						/* Already closed by the platform (client gone) — nothing to do. */
 					}
-					/* Cleanup is deliberately best-effort after transport closure. A failed
-					 * exact delete cannot resurrect this connection; expiry is the fallback. */
-					deleteLeaseBestEffort();
 				}
 				/* Expose teardown to `cancel` (a consumer/platform `cancel()` that does
 				 * not also abort `req.signal`). */
@@ -650,10 +612,8 @@ function openStream(args: {
 		});
 	} catch (err) {
 		/* `ReadableStream.start` runs during construction. If setup throws after
-		 * attaching any subscription, the installed teardown disowns everything;
-		 * an earlier throw still removes the already-committed lease exactly. */
+		 * attaching any subscription, the installed teardown disowns everything. */
 		if (teardownRef.current) teardownRef.current();
-		else deleteLeaseBestEffort();
 		throw err;
 	}
 
@@ -661,7 +621,6 @@ function openStream(args: {
 		return new Response(stream, { headers: STREAM_HEADERS });
 	} catch (err) {
 		if (teardownRef.current) teardownRef.current();
-		else deleteLeaseBestEffort();
 		throw err;
 	}
 }

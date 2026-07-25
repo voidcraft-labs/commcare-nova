@@ -391,10 +391,6 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_PROPERTY_TOO_LONG: mechanical(
 		`truncate to the ${MAX_CASE_PROPERTY_LENGTH}-character cap — identifier surgery, deduplicated against siblings`,
 	),
-	// ── Dormant case-operation rules ────────────────────────────────
-	CASE_OPERATIONS_NOT_ACTIVE: owner(
-		"activation requires the atomic preview/runtime executor; deleting the authored operation program would change behavior",
-	),
 	CASE_OPERATION_DUPLICATE_UUID: owner(
 		"operation UUIDs are reference identity, and an ambiguous duplicate cannot be safely reminted and rewritten mechanically",
 	),
@@ -513,9 +509,6 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	LOOKUP_COLUMN_TYPE_MISMATCH: owner(
 		"choosing a compatible column or changing the carrier's expected type changes authored behavior",
-	),
-	LOOKUP_CARRIER_COMMIT_NOT_ACTIVE: owner(
-		"activation requires the lookup runtime evaluator; deleting or rewriting the preserved carrier would change authored behavior",
 	),
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: owner(
 		"the selected export target does not support lookup carriers yet; deleting or rewriting the preserved carrier would change authored behavior",

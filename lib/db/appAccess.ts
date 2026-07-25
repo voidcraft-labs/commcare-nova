@@ -15,9 +15,7 @@
 import type { Transaction } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import type { LookupActivationState } from "@/lib/doc/lookupReferences";
 import { loadApp, loadAppInTransaction, loadAppProjectId } from "./apps";
-import { readLookupActivationForShare } from "./lookupActivation";
 import type { AppDatabase } from "./pg";
 import { withAppTx } from "./pg";
 import {
@@ -68,15 +66,11 @@ export interface TransactionalAppScope extends ProjectAccess {
 
 /**
  * The complete builder/reload snapshot: authorization metadata and the app doc
- * assembled under the same app-row + membership lock set. `activation` is the
- * dormant-vocabulary flag snapshot the client's optimistic commit gate
- * consumes — advisory (the authoritative commit re-reads in-transaction and
- * wins), but taken in this same transaction so it can't straddle a flip.
+ * assembled under the same app-row + membership lock set.
  */
 export interface AuthorizedAppSnapshot extends AppAccess {
 	readonly canEdit: boolean;
 	readonly baseSeq: number;
-	readonly activation: LookupActivationState;
 }
 
 /**
@@ -193,8 +187,7 @@ export async function resolveAuthorizedAppSnapshot(
 		) {
 			throw new Error("Authorized app snapshot lock invariant was violated.");
 		}
-		const activation = await readLookupActivationForShare(tx);
-		return { app, ...scope, activation };
+		return { app, ...scope };
 	});
 }
 
@@ -248,4 +241,14 @@ export async function userInProject(
 		if (err instanceof AppAccessError) return false;
 		throw err;
 	}
+}
+
+/** Fresh serialized Project/role/capability snapshot for cadence or migration. */
+export async function reauthorizeStreamScope(
+	appId: string,
+	userId: string,
+): Promise<TransactionalAppScope> {
+	return withAppTx((tx) =>
+		resolveAppScopeInTransaction(tx, appId, userId, "view"),
+	);
 }

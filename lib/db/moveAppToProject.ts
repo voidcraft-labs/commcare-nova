@@ -1,15 +1,8 @@
-// Cross-Project move orchestration. Whether a true move may run is runtime
-// state, read at the Server Action boundary and threaded in here;
-// `lockProjectMoveCompatibility` re-reads the same switch inside the move
-// transaction and remains the authority.
+// Cross-Project move orchestration.
 
 import { log } from "@/lib/logger";
 import { copyAssetsIntoProject } from "@/lib/media/moveMedia";
-import {
-	appProjectMovePolicy,
-	CROSS_PROJECT_MOVE_UNAVAILABLE_CODE,
-	CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
-} from "@/lib/projects/moveTargets";
+import { appProjectMovePolicy } from "@/lib/projects/moveTargets";
 import {
 	commitAppProjectMove,
 	normalizeReapableRunForProjectMove,
@@ -35,16 +28,6 @@ export class AppRunStateCorruptError extends Error {
 	}
 }
 
-/** Defense-in-depth refusal when the move switch is off. */
-export class CrossProjectAppMoveBlockedError extends Error {
-	readonly name = "CrossProjectAppMoveBlockedError";
-	readonly code = CROSS_PROJECT_MOVE_UNAVAILABLE_CODE;
-
-	constructor() {
-		super(CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE);
-	}
-}
-
 /** Retained for the existing action contract; atomic repair no longer strands. */
 export class CaseDataStrandedError extends Error {
 	readonly name = "CaseDataStrandedError";
@@ -63,22 +46,13 @@ export interface MoveAppToProjectArgs {
 }
 
 /**
- * Production entry point. A cross-Project request with the switch off stops
- * before any database, media, or GCS work. Exact same-Project calls are not
- * moves: they take the app-locked case-only repair and derive the destination
- * from the fresh row.
+ * Production entry point. Exact same-Project calls are not moves: they take
+ * the app-locked case-only repair and derive the destination from the fresh row.
  */
 export async function moveAppToProject(
-	args: MoveAppToProjectArgs & { readonly movesEnabled: boolean },
+	args: MoveAppToProjectArgs,
 ): Promise<void> {
-	const policy = appProjectMovePolicy(
-		args.fromProjectId,
-		args.toProjectId,
-		args.movesEnabled,
-	);
-	if (policy.kind === "cross_project_blocked") {
-		throw new CrossProjectAppMoveBlockedError();
-	}
+	const policy = appProjectMovePolicy(args.fromProjectId, args.toProjectId);
 	if (policy.kind === "cross_project_move") {
 		await runCrossProjectMove(args);
 		return;
@@ -89,9 +63,7 @@ export async function moveAppToProject(
 /**
  * The move itself: prepare under the app lock, copy media bytes outside the
  * transaction, then commit atomically — retrying when the app's run holder or
- * media closure changed underneath. Every database wrapper it calls declares
- * this runtime's real capabilities and re-proves admission, so calling it
- * directly with the switch off still fails closed.
+ * media closure changed underneath.
  */
 export async function runCrossProjectMove(
 	args: MoveAppToProjectArgs,

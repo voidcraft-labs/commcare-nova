@@ -25,18 +25,12 @@
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { collectDormantLookupCarriers } from "@/lib/doc/dormantLookupCarriers";
 import type {
-	LookupActivationState,
 	LookupReferenceExtractorRegistry,
 	LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	type ValidationError,
-	type ValidationErrorCode,
-	validationError,
-} from "./errors";
+import type { ValidationError, ValidationErrorCode } from "./errors";
 import type { ValidationScope } from "./index";
 import { type RunValidationOptions, runValidation } from "./runner";
 
@@ -198,7 +192,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	DUPLICATE_FIELD_ID: "soundness",
 	CASE_PROPERTY_BAD_FORMAT: "soundness",
 	CASE_PROPERTY_TOO_LONG: "soundness",
-	CASE_OPERATIONS_NOT_ACTIVE: "soundness",
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",
@@ -356,7 +349,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_TABLE_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
-	LOOKUP_CARRIER_COMMIT_NOT_ACTIVE: "soundness",
 	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
@@ -652,16 +644,16 @@ export function errorIdentity(err: ValidationError): string {
 				part("column", det?.columnId),
 			);
 			break;
-		case "LOOKUP_CARRIER_COMMIT_NOT_ACTIVE":
+
 		case "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE":
+			// The export intent is part of the identity so the boundary never
+			// silently collapses the three modes' distinct decisions.
 			parts.push(
 				part("owner", det?.carrierOwnerUuid),
 				part("slot", det?.carrierSlot),
 				part("subpath", det?.carrierSubpath),
 				part("fingerprint", det?.carrierFingerprint),
-				...(err.code === "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
-					? [part("mode", det?.exportMode)]
-					: []),
+				part("mode", det?.exportMode),
 			);
 			break;
 
@@ -723,7 +715,6 @@ export interface EvaluateCommitArgs {
 	 * no server snapshot; the authoritative commit reads the singleton
 	 * in-transaction and the server verdict wins over a stale client value.
 	 */
-	readonly activation?: LookupActivationState;
 }
 
 export type CommitVerdict =
@@ -780,36 +771,18 @@ export function evaluateCommit({
 	lookupContext,
 	lookupReferenceExtractors,
 	scope,
-	activation,
 }: EvaluateCommitArgs): CommitVerdict {
 	const options: RunValidationOptions | undefined =
-		scope === "full" &&
-		lookupReferenceExtractors === undefined &&
-		activation === undefined
+		scope === "full" && lookupReferenceExtractors === undefined
 			? undefined
 			: {
 					...(scope !== "full" && { scope }),
 					...(lookupReferenceExtractors !== undefined && {
 						lookupReferenceExtractors,
 					}),
-					...(activation !== undefined && { activation }),
 				};
-	/* Carrier commits admitted: the dormancy inventory stops minting on
-	 * BOTH sides, so historical carriers stay editable and new ones stop
-	 * being findings — the emergency disable re-mints them on the next
-	 * commit without a deploy. */
-	const carrierFindings = (doc: BlueprintDoc) =>
-		activation?.carrierCommitsEnabled === true
-			? []
-			: dormantLookupCarrierCommitFindings(doc);
-	const prev = [
-		...runValidation(prevDoc, lookupContext, options),
-		...carrierFindings(prevDoc),
-	];
-	const next = [
-		...runValidation(nextDoc, lookupContext, options),
-		...carrierFindings(nextDoc),
-	];
+	const prev = runValidation(prevDoc, lookupContext, options);
+	const next = runValidation(nextDoc, lookupContext, options);
 
 	const gating = diffIntroduced(prev, next).filter((err) => {
 		const cls = classifyError(err.code);
@@ -817,33 +790,6 @@ export function evaluateCommit({
 	});
 
 	return gating.length === 0 ? { ok: true } : { ok: false, introduced: gating };
-}
-
-/**
- * Temporary support-only policy: carrier-shaped historical docs remain
- * repairable, but no commit may add or semantically change a carrier before
- * the runtime evaluator is active. Keeping this outside `runValidation`
- * prevents the absolute export boundary from returning both a commit-policy
- * finding and its own mode-specific export finding.
- */
-function dormantLookupCarrierCommitFindings(
-	doc: BlueprintDoc,
-): ValidationError[] {
-	return collectDormantLookupCarriers(doc).map((carrier) =>
-		validationError(
-			"LOOKUP_CARRIER_COMMIT_NOT_ACTIVE",
-			carrier.location.scope,
-			"Lookup-powered choices and calculations are preserved internally, but editing their lookup behavior is not active yet. Keep the existing lookup setup unchanged or remove it.",
-			carrier.location,
-			{
-				carrierOwnerUuid: carrier.ownerUuid,
-				carrierOwnerKind: carrier.ownerKind,
-				carrierSlot: carrier.slot,
-				carrierSubpath: carrier.subpath,
-				carrierFingerprint: carrier.fingerprint,
-			},
-		),
-	);
 }
 
 // ── Boundary gate ──────────────────────────────────────────────────
@@ -866,13 +812,11 @@ export function evaluateBoundary(
 	manifest: ReadonlyMap<string, MediaAssetRecord>,
 	lookupContext: LookupValidationContext,
 	lookupReferenceExtractors?: LookupReferenceExtractorRegistry,
-	activation?: LookupActivationState,
 ): ValidationError[] {
 	return runValidation(doc, lookupContext, {
 		mediaAssets: manifest,
 		...(lookupReferenceExtractors !== undefined && {
 			lookupReferenceExtractors,
 		}),
-		...(activation !== undefined && { activation }),
 	});
 }

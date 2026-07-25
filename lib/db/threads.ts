@@ -48,7 +48,6 @@ import {
 	getAssetsInTransaction,
 } from "./mediaAssets";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
-import { readRunHolderNonceEnforcementForShare } from "./runHolderNonceEnforcement";
 import { exactRunHolderMatches } from "./runHolderWrites";
 import { runLeaseState } from "./runLiveness";
 import {
@@ -208,7 +207,7 @@ export async function upsertThreadTurn(args: {
 	runId: string;
 	streamId: string;
 	/** Chat passes the exact holder; optional only for old fixtures/importers. */
-	holderNonce?: string;
+	holderNonce: string;
 	threadType: "build" | "edit";
 	messages: UIMessage[];
 	/** Project captured by chat admission; omitted only by legacy fixtures. */
@@ -233,17 +232,12 @@ export async function upsertThreadTurn(args: {
 		}
 		let holderLost: "superseded" | "released" | null = "released";
 		if (app) {
-			const enforceNonce = await readRunHolderNonceEnforcementForShare(tx);
 			const lease = runLeaseState(leaseView(app));
-			holderLost = exactRunHolderMatches(
-				lease.holderIdentity,
-				{
-					mode: args.threadType,
-					runId: args.runId,
-					nonce: args.holderNonce ?? null,
-				},
-				enforceNonce,
-			)
+			holderLost = exactRunHolderMatches(lease.holderIdentity, {
+				mode: args.threadType,
+				runId: args.runId,
+				nonce: args.holderNonce,
+			})
 				? null
 				: lease.present
 					? "superseded"
@@ -297,7 +291,7 @@ export async function upsertThreadTurn(args: {
 					summary: summarize(args.messages),
 					run_id: args.runId,
 					active_stream_id: args.streamId,
-					active_holder_nonce: args.holderNonce ?? null,
+					active_holder_nonce: args.holderNonce,
 					messages: JSON.stringify(args.messages),
 				})
 				.execute();
@@ -319,7 +313,7 @@ export async function upsertThreadTurn(args: {
 				updated_at: now,
 				run_id: args.runId,
 				active_stream_id: args.streamId,
-				active_holder_nonce: args.holderNonce ?? null,
+				active_holder_nonce: args.holderNonce,
 				messages: JSON.stringify(merged),
 			})
 			.where("thread_id", "=", args.threadId)
