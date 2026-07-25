@@ -391,6 +391,7 @@ async function main(): Promise<void> {
 		caseType: CASE_WORKSPACE_SEED.caseType,
 		columnUuids: CASE_WORKSPACE_SEED.columns,
 		searchInputUuids: CASE_WORKSPACE_SEED.searchInputs,
+		tile: CASE_WORKSPACE_SEED.tile,
 		caseIds: caseWorkspaceCaseIds,
 		caseCount: caseWorkspaceCaseIds.length,
 		routes: caseWorkspaceRoutes(caseWorkspaceAppId, firstCaseId),

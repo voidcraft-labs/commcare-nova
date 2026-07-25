@@ -63,6 +63,14 @@ export type ValidationErrorCode =
 	| "CASE_LIST_EXPRESSION_NOT_ON_DEVICE"
 	| "CASE_LIST_STRICT_NULL_NOT_PORTABLE"
 	| "CASE_LIST_CSQL_NOT_REPRESENTABLE"
+	// Case-tile layout rules. Geometry rules run on every stored cell,
+	// tile layout on or off, so switching the layout back on can never
+	// be rejected for a cell the author cannot currently see. The
+	// coverage rule runs only while the layout is on, and only for
+	// columns the tile shows.
+	| "CASE_LIST_TILE_CELL_OUT_OF_GRID"
+	| "CASE_LIST_TILE_CELLS_OVERLAP"
+	| "CASE_LIST_TILE_COLUMN_NOT_PLACED"
 	| "FIELD_KIND_PROPERTY_TYPE_MISMATCH"
 	| "FIELD_KIND_WRITERS_DISAGREE"
 	// Case-search-config rules — fire only when `caseSearchConfig`
@@ -198,6 +206,7 @@ export type ValidationErrorCode =
 	| "SUITE_DETAIL_NO_TITLE"
 	| "SUITE_FIELD_NO_HEADER"
 	| "SUITE_FIELD_NO_TEMPLATE"
+	| "SUITE_FIELD_STYLE_INVALID"
 	| "SUITE_ENTRY_NO_DISPLAY"
 	| "SUITE_INVALID_XPATH"
 	| "SUITE_NON_PATH_XPATH"

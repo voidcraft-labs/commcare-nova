@@ -64,4 +64,30 @@ describe("withPreservedIdentity", () => {
 		expect(result.uuid).toBe("s-1");
 		expect("order" in result).toBe(false);
 	});
+
+	it("carries a tile placement through a rebuild that dropped it", () => {
+		// A column the tile SHOWS must hold a place; a display-style change
+		// that lost the cell would be refused by the commit gate outright.
+		const existing = {
+			uuid: "c-1",
+			kind: "plain",
+			tile: { x: 0, y: 2, width: 6, height: 1, fontSize: "large" },
+		};
+		const rebuilt = { uuid: "c-999", kind: "date" } as typeof existing;
+		expect(withPreservedIdentity(existing, rebuilt).tile).toEqual({
+			x: 0,
+			y: 2,
+			width: 6,
+			height: 1,
+			fontSize: "large",
+		});
+	});
+
+	it("adds no tile slot to an item that never had one", () => {
+		const result = withPreservedIdentity(
+			{ uuid: "s-1", kind: "simple" },
+			{ uuid: "other", kind: "advanced" },
+		);
+		expect("tile" in result).toBe(false);
+	});
 });

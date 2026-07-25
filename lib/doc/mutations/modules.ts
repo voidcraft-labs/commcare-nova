@@ -5,6 +5,7 @@ import {
 	caseSearchConfigHasAuthoredSettings,
 	isOwnerOnlyCaseSearchConfig,
 	normalizeOwnerOnlyCaseSearchConfig,
+	type TileCell,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -88,6 +89,13 @@ export function applyModuleMutation(
 						column.detailOrder = surfaceOrders.detailOrder;
 					}
 				}
+				applyColumnTileCells(columnByUuid, mut.columnTileCells);
+			}
+			if (
+				mut.caseListTile !== undefined &&
+				module.caseListConfig !== undefined
+			) {
+				module.caseListConfig.tile = structuredClone(mut.caseListTile);
 			}
 			if (mut.caseSearchConfigValue !== undefined) {
 				module.caseSearchConfig = structuredClone(mut.caseSearchConfigValue);
@@ -172,6 +180,10 @@ export function applyModuleMutation(
 						if (surfaceOrders.detailOrder !== undefined) {
 							column.detailOrder = surfaceOrders.detailOrder;
 						}
+					}
+					applyColumnTileCells(columnByUuid, mut.columnTileCells);
+					if (mut.caseListTile !== undefined) {
+						config.tile = structuredClone(mut.caseListTile);
 					}
 					target[key] = config;
 					continue;
@@ -334,6 +346,7 @@ export function applyModuleMutation(
 			if (mut.surfaceOrders?.detailOrder !== undefined) {
 				column.detailOrder = mut.surfaceOrders.detailOrder;
 			}
+			if (mut.tileCell !== undefined) column.tile = { ...mut.tileCell };
 			config.columns.push(column);
 			return;
 		}
@@ -357,15 +370,31 @@ export function applyModuleMutation(
 				else current.sort = structuredClone(mut.sortPatch);
 				return;
 			}
-			// Always preserve CURRENT order keys. New emitters also mark content-only
-			// replacements to preserve CURRENT visibility; an unmarked event retains
-			// the pre-granular full-body behavior for persisted replay / old clients.
-			// Delete absent current keys too: a stale payload may still carry one.
+			if (mut.tilePatch !== undefined) {
+				if (mut.tilePatch === null) delete current.tile;
+				else current.tile = structuredClone(mut.tilePatch);
+				return;
+			}
+			// Always preserve CURRENT order keys and tile placement. New emitters also
+			// mark content-only replacements to preserve CURRENT visibility; an
+			// unmarked event retains the pre-granular full-body behavior for persisted
+			// replay / old clients. Delete absent current keys too: a stale payload may
+			// still carry one.
+			//
+			// Tile placement is unconditionally preserved rather than opt-in because
+			// it has no fallback spelling at all: an origin/main receiver that applied
+			// this same event dropped the cell from its own copy, so its next content
+			// edit would arrive here cell-free. Preserving on every content update is
+			// what stops that round trip from silently un-placing a column.
 			const replacement = { ...mut.column, uuid: mut.uuid };
 			for (const key of ["order", "listOrder", "detailOrder"] as const) {
 				if (current[key] === undefined) delete replacement[key];
 				else replacement[key] = current[key];
 			}
+			if (current.tile === undefined) delete replacement.tile;
+			// `current` is an Immer draft, whose Proxy `structuredClone` rejects.
+			// A tile cell is a flat value object, so a shallow copy detaches it.
+			else replacement.tile = { ...current.tile };
 			if (mut.preserveVisibility) {
 				// Visibility true is canonicalized as absence by the dedicated mutation.
 				for (const key of ["visibleInList", "visibleInDetail"] as const) {
@@ -505,13 +534,39 @@ export function applyModuleMutation(
 			if (!config) return;
 			// Apply the patch key-by-key: a `null` (wire spelling of a clear —
 			// JSON drops `undefined`) DELETES the slot, any other value sets it.
+			// The tile layout is one more such slot; it rides top-level only so an
+			// origin/main parser can strip it off the `.strict()` patch body.
 			const target = config as unknown as Record<string, unknown>;
-			for (const [key, value] of Object.entries(mut.patch)) {
+			const slots: Record<string, unknown> =
+				mut.tilePatch === undefined
+					? mut.patch
+					: { ...mut.patch, tile: mut.tilePatch };
+			for (const [key, value] of Object.entries(slots)) {
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
 			return;
 		}
+	}
+}
+
+/**
+ * Replays the top-level tile-cell extension onto a wholesale module or
+ * case-list write, whose nested fallback body is deliberately cell-free
+ * so an origin/main strict schema can parse it.
+ *
+ * An entry naming a column the fallback does not carry is skipped rather
+ * than throwing — the schema already rejects that payload at the wire, and
+ * reducers stay total so historical replay can never block.
+ */
+function applyColumnTileCells(
+	columnByUuid: ReadonlyMap<string, { tile?: TileCell }>,
+	entries: readonly { readonly uuid: string; readonly tile: TileCell }[] = [],
+): void {
+	for (const entry of entries) {
+		const column = columnByUuid.get(entry.uuid);
+		if (column === undefined) continue;
+		column.tile = structuredClone(entry.tile);
 	}
 }
 
