@@ -499,6 +499,91 @@ search, and Postgres for the preview (`lib/case-store/sql`). Search-button displ
 conditions, results availability, and default ordering are authored in the case
 workspace; `content/docs/case-workspace.mdx` is the user-facing guide.
 
+### Case tiles
+
+A module's case list is laid out either as a row of columns or as a **tile** — a
+12 × 12 grid where each Results field occupies a rectangle. The layout lives on
+`caseListConfig.tile` and its presence IS the switch; each column carries its own
+`tile` cell (`{x, y, width, height}` plus optional alignment, text size, border,
+and shading). Placement is deliberately separate from the `listOrder` /
+`detailOrder` keys: a cell is where a field sits on the tile, an order key is
+where it sits in a sequence.
+
+One short detail drives all three tile surfaces. `models/modules.py::Module.search_detail`
+deep-copies it for search results, and `caseListConfig.tile.persistOnForms` turns
+the same detail into the persistent tile above every form in the module
+(`detail-persistent` on each case-loading datum;
+`cloudcare/.../formplayer/menus/views.js::PersistentCaseTileView` renders it in a
+sticky region, suppressed only inside HQ's own App Preview pane, which Nova does
+not target). The case-detail screen stays a plain field list.
+
+Nova emits only HQ's `custom` tile vocabulary — `case_tile_template = "custom"`
+plus per-column grid fields — and never the named templates `person_simple` or
+`icon_text_grid`, whose slots are filled by name and whose emission carries a
+hardcoded profile-image cell and a literal `m0-f0` registration action. Layout
+presets are builder gestures that fill per-column placement; there is no template
+slug in the schema, so a preset and a hand-drawn layout take one wire path. HQ's
+regeneration is not toggle-gated — `suite_xml/sections/details.py::DetailContributor.build_detail`
+fires `CaseTileHelper` on a bare truthiness check of `detail.case_tile_template`,
+and `feature_support.py::CommCareFeatureSupportMixin.supports_grouped_case_tiles`
+gates only HQ's own authoring template — so an uploaded Nova tile emits on any
+domain with no setup artifact first.
+
+The wire facts that shape the emitter:
+
+- **`<style>` and `<grid>` are one indivisible unit.**
+  `commcare-core/.../org/commcare/xml/DetailFieldParser.java::DetailFieldParser.parseStyle`
+  runs `GridParser` unconditionally after `StyleParser`, and
+  `GridParser::parse` opens with `checkNode("grid")` and then reads all four
+  coordinates through unguarded `Integer.parseInt` calls. A `<style>` with no
+  `<grid>` is an install-time `InvalidStructureException`; a `<grid>` missing one
+  attribute is a raw `NumberFormatException` that escapes the parser's structured
+  error path. HQ can emit both (its custom branch guards on `any(... is not None ...)`
+  across the four, not `all(...)`). Nova cannot: `TileCell` carries the four as
+  required slots of one object, so the partial state is unrepresentable. The
+  corollary binds authoring too — alignment, text size, border, and shading are
+  reachable only for a placed cell, because they have no wire spelling without
+  one. A field is a tile cell iff all four are set
+  (`DetailField::isCaseTileField`, against a `-1` unset sentinel).
+- **The rendered grid is the occupied extent, not the 12-column canvas.**
+  `Detail.java::Detail.getMaxWidthHeight` derives it from the cells, Formplayer
+  ships it as `maxWidth`/`maxHeight`, and `views.js::buildCellGridStyle` builds
+  `repeat(maxWidth, 1fr)`. A tile ending at column 6 renders six equal columns
+  filling the width. `lib/preview/caseTileLayout.ts` is the one projection the
+  running list and the authoring canvas both derive from, so they cannot disagree.
+- **The 12-column cap is Nova's own.** CommCare Core has no column-count
+  constant, and HQ has no server-side grid validation at all — its only
+  enforcement is a Knockout dropdown range, and its parity assertion
+  (`tests/test_suite_case_tiles.py::SuiteCaseTilesTest.test_case_tile_column_count`)
+  lints only the two shipped named templates and never sees a `custom` tile.
+  Nova enforces 12 columns and 12 rows itself, plus no-overlap and full coverage,
+  in `lib/commcare/validator/rules/case-list/caseTileLayout.ts`.
+- **Vertical alignment is authored in Nova's words and emitted in the wire's.**
+  `top` / `middle` / `bottom` emit as `start` / `center` / `end`, because
+  `views.js::getValidFieldAlignment` silently rewrites anything outside
+  `constants.js::ALLOWED_FIELD_ALIGNMENTS` (`start`, `end`, `center`, `left`,
+  `right`) to `start` — HQ's own shipped `icon_text_grid` template emits
+  `vert-align="top"` and its renderer ignores it. A clean instance of the wire
+  binding where HQ's authoring shape does not.
+- **Border and shading are a tile-wide switch at the runtime.**
+  `views.js::buildCellLayout` computes one `borderInTile` / `shadingInTile` over
+  the whole tile; if any cell asks for either, every cell changes layout mode.
+  Nova's renderer reproduces that rather than reading the flags per cell.
+- **Absent text size means inherit, not medium.** An absent `font-size` produces
+  an empty `font-size: ;` declaration the browser discards. The `medium` default
+  exists only in HQ's authoring UI.
+
+Emitted bytes are asserted against HQ's own fixtures —
+`suite-case-tiles.xml` for the `<style>`/`<grid>` shape,
+`case-tile-case-detail.xml` for `show-border` / `show-shading`, and
+`case_tile_pulldown_session.xml` for `detail-persistent`.
+
+Two scope fences are deliberate. Long-detail tiles stay out: CommCare allows
+`custom` on the case-detail screen, and Nova keeps that screen a field list.
+Pull-down (`detail-inline`) stays out because it is a navigation change rather
+than a layout one — it replaces the case-detail confirm screen by folding the
+long detail into the persistent tile.
+
 ### Media
 
 Assets are Project-scoped: bytes in GCS, a metadata row in Postgres, and
@@ -667,16 +752,16 @@ camelCase chat tools and the snake_case MCP projection, with public docs and one
 integrated end-to-end flow. **The file holds** the two pieces of engineering under
 that packaging: the SA identity bridge and the null-clears contract.
 
-### 4 — Case tiles
+### 4 — Grouped case tiles
 
 [`complex-app/04-case-tiles.md`](complex-app/04-case-tiles.md)
 · depends on nothing · blocks nothing
 
-Tile layout authoring, preview, and wire in one PR; grouped tiles in a second.
-**The file holds** the `<style>`/`<grid>` field contract, the `header-rows`
-attribute and the fixture that misspells it, why grouping must happen at the data
-layer rather than after a page is fetched, where the 12-column cap actually comes
-from, and why Nova emits only HQ's `custom` tile vocabulary.
+Group a child case list under its shared parent, with the header rows drawn from
+the group's first case. **The file holds** the `header-rows` attribute and the
+core fixture that misspells it, the companion entry datum, why grouping must
+happen at the data layer rather than after a page is fetched, and why the group
+key must be a real case index.
 
 ### 5 — Capture, storage, and submission lifecycle
 
@@ -818,7 +903,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [1 case-operation authoring](complex-app/01-conditions-and-operations-authoring.md) | — |
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
 | [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 1, 2 |
-| [4 case tiles](complex-app/04-case-tiles.md) | — |
+| [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 5, 11 |
 | [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
@@ -841,11 +926,11 @@ The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates uni
 chain (14 → 15) runs independently until unit 16, which needs both.
 
 Units 3, 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
-whenever its own prerequisites are met. Case tiles (unit 4) are both an entry
-point and a leaf: nothing blocks them and nothing waits on them, which makes them
-the natural filler whenever the deployment chain is blocked on something external.
-Unit 9 sits off the critical path too — only the App setup UI waits on it, so it
-can follow unit 8 without holding up unit 11.
+whenever its own prerequisites are met. Grouped case tiles (unit 4) are both an
+entry point and a leaf: nothing blocks them and nothing waits on them, which makes
+them the natural filler whenever the deployment chain is blocked on something
+external. Unit 9 sits off the critical path too — only the App setup UI waits on
+it, so it can follow unit 8 without holding up unit 11.
 
 ---
 

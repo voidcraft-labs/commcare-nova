@@ -2,8 +2,8 @@
  * Shared input schemas + uuid helpers for the case-list-config SA
  * tools.
  *
- * The case-list config has three slots — `columns`, `filter?`,
- * `searchInputs` — and the SA tool surface decomposes into:
+ * The case-list config has four slots — `columns`, `filter?`,
+ * `searchInputs`, `tile?` — and the SA tool surface decomposes into:
  *
  *   - One wholesale tool for `filter` (`setCaseListFilter`) — a filter
  *     is one Predicate, so the wholesale shape fits.
@@ -12,6 +12,12 @@
  *     `columns` and `searchInputs`. The add tools take a list (one item is
  *     a length-1 array); the rest keep each call's payload small + the SA's
  *     working memory of authored uuids tractable.
+ *   - One layout tool for `tile` (`setCaseListTile`), which also carries
+ *     the per-field placements. Placement lives with the layout rather than
+ *     on the column ops because the two are judged together: while the tile
+ *     is on, every field shown in Results needs a place, and no two fields
+ *     may share a square — so turning the tile on, and every later
+ *     rearrangement, has to land as one batch.
  *
  * The ops route their array-walk + error-shaping through the
  * `addColumnsMutation` / `addSearchInputsMutation` family in
@@ -34,11 +40,15 @@ import { z } from "zod";
 import {
 	type Column,
 	canonicalCasePropertyName,
+	caseTileLayoutSchema,
 	columnSchema,
 	DEFAULT_SEARCH_MODE_KIND,
 	type SearchInputDef,
 	type SearchInputType,
 	searchInputDefSchema,
+	TILE_GRID_COLUMNS,
+	TILE_GRID_ROWS,
+	tileCellSchema,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -117,37 +127,159 @@ const columnToolOwnedSlots = {
 	detailOrder: true,
 } as const;
 
+/* The per-arm omits are bound to named consts rather than mapped over
+ * `columnSchema.options`, for the same reason the positional destructure above
+ * exists: `Iterable<ZodObject>.map(...)` collapses the per-arm narrowing into a
+ * union `omit` can't dispatch through. Binding them also lets the update-path
+ * union below drop one more slot from the SAME arms without restating them. */
+const plainColumnInputArm = plainColumnArm.omit(columnToolOwnedSlots);
+const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots);
+const phoneColumnInputArm = phoneColumnArm.omit(columnToolOwnedSlots);
+const idMappingColumnInputArm = idMappingColumnArm.omit(columnToolOwnedSlots);
+const imageMapColumnInputArm = imageMapColumnArm.omit(columnToolOwnedSlots);
+const intervalColumnInputArm = intervalColumnArm.omit(columnToolOwnedSlots);
+const calculatedColumnInputArm = calculatedColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({ expression: carrierBlindValueExpressionInputSchema });
+
+/**
+ * A definition absent from both worker-facing screens has no job unless
+ * Default order still consumes it as a sort carrier. Keep the domain and
+ * wire tolerant of old docs, but do not let SA/MCP author the exact hidden
+ * clutter Nova's visual workspace deliberately removes.
+ *
+ * Shared by both column-input unions so the add and update surfaces reject the
+ * same shape with the same words.
+ */
+function refineColumnScreenMembership(
+	column: { visibleInList?: boolean; visibleInDetail?: boolean; sort?: unknown },
+	ctx: z.RefinementCtx,
+): void {
+	if (
+		column.visibleInList === false &&
+		column.visibleInDetail === false &&
+		column.sort === undefined
+	) {
+		ctx.addIssue({
+			code: "custom",
+			message:
+				"A field must appear on Results or Details. Remove the definition instead of creating an off-screen field; a field may stay off-screen only while Default order uses it.",
+			path: ["visibleInList"],
+		});
+	}
+}
+
 export const columnInputSchema = z
 	.discriminatedUnion("kind", [
-		plainColumnArm.omit(columnToolOwnedSlots),
-		dateColumnArm.omit(columnToolOwnedSlots),
-		phoneColumnArm.omit(columnToolOwnedSlots),
-		idMappingColumnArm.omit(columnToolOwnedSlots),
-		imageMapColumnArm.omit(columnToolOwnedSlots),
-		intervalColumnArm.omit(columnToolOwnedSlots),
-		calculatedColumnArm
-			.omit(columnToolOwnedSlots)
-			.extend({ expression: carrierBlindValueExpressionInputSchema }),
+		plainColumnInputArm,
+		dateColumnInputArm,
+		phoneColumnInputArm,
+		idMappingColumnInputArm,
+		imageMapColumnInputArm,
+		intervalColumnInputArm,
+		calculatedColumnInputArm,
 	])
-	.superRefine((column, ctx) => {
-		// A definition absent from both worker-facing screens has no job unless
-		// Default order still consumes it as a sort carrier. Keep the domain and
-		// wire tolerant of old docs, but do not let SA/MCP author the exact hidden
-		// clutter Nova's visual workspace deliberately removes.
-		if (
-			column.visibleInList === false &&
-			column.visibleInDetail === false &&
-			column.sort === undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				message:
-					"A field must appear on Results or Details. Remove the definition instead of creating an off-screen field; a field may stay off-screen only while Default order uses it.",
-				path: ["visibleInList"],
-			});
-		}
-	});
+	.superRefine(refineColumnScreenMembership);
 export type ColumnInput = z.infer<typeof columnInputSchema>;
+
+/**
+ * The same column body with the tile cell dropped as well — the shape the
+ * REPLACE surface (`updateCaseListColumn`) takes.
+ *
+ * A column's tile placement is preserved across every content replacement (the
+ * `updateColumn` reducer carries the current cell onto the incoming body
+ * unconditionally, because the cell has no origin-compatible spelling to travel
+ * in). A `tile` supplied here would therefore be read, echoed back in the
+ * message, and silently discarded. Placement is authored through
+ * `setCaseListTile`, which is also the only shape that can move two fields at
+ * once — and a swap has to land in one batch, since no two cells may share a
+ * square. The ADD surface keeps `tile` because a column joining a case list that
+ * is ALREADY laid out as a tile has to be born placed, or the commit gate
+ * rejects the add for a field with nowhere to sit.
+ */
+export const columnUpdateInputSchema = z
+	.discriminatedUnion("kind", [
+		plainColumnInputArm.omit({ tile: true }),
+		dateColumnInputArm.omit({ tile: true }),
+		phoneColumnInputArm.omit({ tile: true }),
+		idMappingColumnInputArm.omit({ tile: true }),
+		imageMapColumnInputArm.omit({ tile: true }),
+		intervalColumnInputArm.omit({ tile: true }),
+		calculatedColumnInputArm.omit({ tile: true }),
+	])
+	.superRefine(refineColumnScreenMembership);
+export type ColumnUpdateInput = z.infer<typeof columnUpdateInputSchema>;
+
+// ── Tile layout input shapes ────────────────────────────────────────
+//
+// The tile is the case list's OTHER layout: instead of a row of columns,
+// each Results field occupies a rectangle on a fixed grid. Two things are
+// authored, and `setCaseListTile` takes both in one call because the commit
+// gate judges them together — while the tile layout is on, every field shown
+// in Results must have a place, so turning it on and placing the fields is
+// one act.
+//
+// The five presentation slots live INSIDE the cell and nowhere else. CommCare
+// cannot spell alignment, text size, border, or shading for a field that has
+// no rectangle (`<style>` is invalid without a complete `<grid>` child —
+// `lib/commcare/suite/case-list/tileStyle.ts`), so an unplaced field carrying
+// presentation is a state with no wire form. Keeping them in the cell object
+// is what makes it unrepresentable.
+
+/**
+ * One field's rectangle on the tile grid — the domain `TileCell` with
+ * SA-facing descriptions layered on.
+ *
+ * Grid BOUNDS are deliberately not restated as schema maxima. A cell can leave
+ * the grid two ways (origin or span), overlap is a second geometry failure, and
+ * `lib/commcare/validator/rules/case-list/caseTileLayout.ts` already owns one
+ * message for each that names the offending field by its header. A partial
+ * parse-time bound would answer the same mistake in a second, worse voice.
+ */
+export const tileCellInputSchema = tileCellSchema.extend({
+	x: tileCellSchema.shape.x.describe(
+		`Column the field starts in, counting from 0 at the left edge. The grid is ${TILE_GRID_COLUMNS} columns wide, so x + width may not pass ${TILE_GRID_COLUMNS}.`,
+	),
+	y: tileCellSchema.shape.y.describe(
+		`Row the field starts in, counting from 0 at the top. The grid is ${TILE_GRID_ROWS} rows tall, so y + height may not pass ${TILE_GRID_ROWS}.`,
+	),
+	width: tileCellSchema.shape.width.describe(
+		"How many columns the field spans. No two fields may cover the same square.",
+	),
+	height: tileCellSchema.shape.height.describe(
+		"How many rows the field spans. No two fields may cover the same square.",
+	),
+	horizontalAlign: tileCellSchema.shape.horizontalAlign.describe(
+		"Where the text sits across the field's own rectangle. Leave it out unless the field should sit somewhere other than the start of its rectangle.",
+	),
+	verticalAlign: tileCellSchema.shape.verticalAlign.describe(
+		"Where the text sits down the field's own rectangle. Leave it out unless the field should sit somewhere other than the top.",
+	),
+	fontSize: tileCellSchema.shape.fontSize.describe(
+		"Text size for this field. Leave it out and the field reads at the same size as the rest of the list — there is no default size that gets filled in, so only set it where a field should stand out or recede.",
+	),
+	showBorder: tileCellSchema.shape.showBorder.describe(
+		"Draw a box around this field. Turning it on for ANY field puts the WHOLE tile into boxed layout, which re-spaces every other field on the tile too — so decide it for the tile, not for one field.",
+	),
+	showShading: tileCellSchema.shape.showShading.describe(
+		"Shade this field's box. Tile-wide in the same way `showBorder` is: one shaded field re-spaces the whole tile.",
+	),
+});
+
+/**
+ * The tile layout itself — the domain `CaseTileLayout` with an SA-facing
+ * description. PRESENCE is the switch, so the object carries only the extra
+ * choices a tile offers; an empty object is a perfectly ordinary tile.
+ */
+export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
+	persistOnForms: caseTileLayoutSchema.shape.persistOnForms.describe(
+		"Keep the tile on screen above every form in this module, so the worker can see which case they are filling the form in for. Leave it out for a tile that shows only on the case list.",
+	),
+});
+
+/* `tilePlacementInputSchema` pairs a cell with the uuid it belongs to; it is
+ * declared beside `uuidInputSchema` at the foot of this file, which is where
+ * that shared addressing schema lives. */
 
 const [simpleSearchInputArm, advancedSearchInputArm] =
 	searchInputDefSchema.options;
@@ -326,6 +458,27 @@ export function newUuid(): Uuid {
  * value into the branded `Uuid`-typed mutation builders.
  */
 export const uuidInputSchema = z.string().min(1);
+
+/**
+ * One field's placement instruction for `setCaseListTile`. `cell` is
+ * required-and-nullable: naming a field means deciding where it sits, and
+ * `null` is how a field comes off the tile. A field the call does not name
+ * keeps the place it already has.
+ */
+export const tilePlacementInputSchema = z
+	.object({
+		columnUuid: uuidInputSchema.describe(
+			"Uuid of the case-list field to place. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
+		),
+		cell: tileCellInputSchema
+			.nullable()
+			.describe(
+				"Where this field sits on the grid, or null to take it off the tile entirely (it keeps its place in the case list, it just has no rectangle).",
+			),
+	})
+	.strict();
+
+export type TilePlacementInput = z.infer<typeof tilePlacementInputSchema>;
 
 // ── Uuid-keyed array helpers ────────────────────────────────────────
 //

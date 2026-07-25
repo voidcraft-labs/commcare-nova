@@ -38,7 +38,7 @@ import {
 } from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
-	columnInputSchema,
+	columnUpdateInputSchema,
 	moduleNotFoundResult,
 	stampColumnUuid,
 	uuidInputSchema,

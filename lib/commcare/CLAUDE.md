@@ -126,6 +126,16 @@ Registration narrowing: the form's own new case isn't in `casedb` at form-init, 
 
 Both detail surfaces (`<detail id="m{n}_case_short">` / `m{n}_case_long`) share one per-kind column emitter via a `DetailKind` discriminator — five precise branch sites cover the long-detail-only `template_form="phone"`, the short-detail-only sort wrap, the long-detail no-sort short-circuit, and the locale-id substring choice. Don't fork the emitters per surface.
 
+### Case-tile emission
+
+`suite/case-list/tileStyle.ts` is the ONLY place the package emits CommCare's grid vocabulary, and `<style>` + `<grid>` is one indivisible wire unit, not an element with an optional child: `commcare-core .../xml/DetailFieldParser.java::parseStyle` runs `GridParser` unconditionally after `StyleParser`, `GridParser::parse` opens with `checkNode("grid")`, and all four coordinates go through UNGUARDED `Integer.parseInt`. So a `<style>` with no `<grid>` is an install-time `InvalidStructureException` and a `<grid>` missing one attribute is a raw `NumberFormatException` outside the parser's structured-error path. CCHQ can emit both (its custom branch guards on `any(... is not None ...)`, not `all(...)`); Nova can't, because `TileCell` carries the four as required slots of one object. The corollary reaches authoring: the five presentation attributes are reachable only for a placed cell, so no surface may offer alignment / size / border / shading on an unplaced column.
+
+Three gates gate the `<style>` child: the column has a cell, the case list has a `tile` layout, and the detail is SHORT. Cells persist while the layout is off (switching tiles off keeps the drawing) and emit nothing until it is on; the case-detail screen stays a plain field list even though CCHQ allows `custom` there. `case_tile_template` is written only on the HQ-JSON short detail, and `Module.search_detail`'s deepcopy is what carries the tile to search results — never a second projection.
+
+Nova's authoring words for vertical alignment (`top`/`middle`/`bottom`) map to `start`/`center`/`end` at emission through `TILE_VERTICAL_ALIGN_WIRE`, because `cloudcare .../menus/views.js::getValidFieldAlignment` silently rewrites anything outside `constants.js::ALLOWED_FIELD_ALIGNMENTS` to `start` — CCHQ's own `icon_text_grid` template emits a `vert-align` its renderer ignores. An unset presentation slot stays OFF the wire: an absent `font-size` makes the cell inherit the list's size, which is a different rendering from any named size, so emitting a default would change what a worker sees.
+
+`css-id` is the sixth attribute `StyleParser` reads. Nova doesn't emit it — Formplayer serializes `Tile.cssId` and cloudcare consumes it nowhere, so an authoring surface for it would be an affordance with no effect.
+
 ### Case-search emission
 
 The `<remote-request>` block's `<session>` AND-composes the unified filter with every advanced-arm search input's predicate AND every simple-arm input whose `(mode, via)` shape needs explicit-predicate emission, before the CSQL emitter.
@@ -312,7 +322,7 @@ Two workarounds live on the import endpoint because HQ's decorators on it are in
 HQ features the pipeline does not cover yet — the validator's `app`/`module`/`form`/`field` rules gate additions as they land:
 
 - Shadow modules, parent-select cycles
-- Case tile configuration, smart links, case list field actions
+- Grouped case tiles (`<detail><group>`), smart links, case list field actions
 - Sort field format regex, multimedia, multi-language
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
