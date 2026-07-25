@@ -40,16 +40,20 @@ interface AppListProps {
 const PAGE_SIZE = 50;
 
 export async function AppList({ projectId, userId }: AppListProps) {
-	const [activeRes, deletedRes, projects, movesEnabled] = await Promise.all([
+	const [activeRes, deletedRes, projects] = await Promise.all([
 		listApps(projectId, { limit: PAGE_SIZE, sort: "updated_desc" }),
 		listDeletedApps(projectId, { limit: PAGE_SIZE }),
 		listUserProjects(userId),
-		/* Read the switch HERE, not only in the Server Action: between a deploy
-		 * and the rollout controller's enable phase — and after any emergency
-		 * disable — an armed destination picker would take the user through the
-		 * data-sharing disclosure and a Move click before refusing. */
-		readProjectMovesEnabled(),
 	]);
+	/* Read the switch HERE, not only in the Server Action: between a deploy and
+	 * the rollout controller's enable phase — and after any emergency disable —
+	 * an armed destination picker would take the user through the data-sharing
+	 * disclosure and a Move click before refusing.
+	 *
+	 * Sequenced after the batch above ON PURPOSE: that batch is already exactly
+	 * `POOL_MAX_PER_INSTANCE` wide, so a fourth parallel query would wait on a
+	 * connection while holding the render open. */
+	const movesEnabled = await readProjectMovesEnabled();
 
 	/* Placement is a governance act, so only members who hold it in BOTH Projects
 	 * see the control — and the destination list is exactly the other Projects

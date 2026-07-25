@@ -37,7 +37,7 @@ interface SeedManifest {
 	scrollQuestionFinalOption: string;
 	moveAppName: string;
 	moveProjectName: string;
-	moveAppId: string;
+	moveAppIds: string[];
 	moveDestinationProjectId: string;
 	caseWorkspace: {
 		routes: {
@@ -1439,14 +1439,22 @@ test.describe("authenticated builder", () => {
 	 * The cross-Project move, end to end, on a database where the activation
 	 * switch is genuinely ON (`e2e/seed.ts` flips it through the same transaction
 	 * the rollout controller runs) — a switched-off run would pass vacuously on
-	 * the refusal branch and prove nothing about the move.
+	 * the refusal branch.
 	 *
 	 * Compact first, then desktop, in ONE sequential journey: the app leaves the
-	 * source list, survives a reload as gone, and is found in the destination
-	 * Project through the switcher. Its case data, media, and history travel with
-	 * it, which is why the disclosure is asserted before the move commits.
+	 * source list and STAYS gone across a reload, while still opening in the
+	 * builder. That pair is the arrival proof — the builder authorizes through the
+	 * app's CURRENT Project and the viewer's membership in it, so an app that had
+	 * landed anywhere this user does not belong would 404 instead.
+	 *
+	 * Deliberately does NOT switch the active Project to look: that writes to the
+	 * SHARED seeded session, which every later test reads.
+	 *
+	 * The seed mints one throwaway app per Playwright attempt (`MOVE_APP_COUNT`),
+	 * since a moved app is gone from the source Project — the same idempotency
+	 * rule the delete test follows.
 	 */
-	test("an owner moves an app to another Project and finds it there", async ({
+	test("an owner moves an app to another Project and it stays moved", async ({
 		page,
 	}) => {
 		// Compact width: the placement control and its popover must be reachable
@@ -1454,13 +1462,31 @@ test.describe("authenticated builder", () => {
 		await page.setViewportSize({ width: 390, height: 780 });
 		await page.goto("/");
 
-		const moveControl = page.getByRole("button", {
-			name: `Move ${seed.moveAppName} to another Project`,
-		});
+		const moveControl = page
+			.getByRole("button", {
+				name: `Move ${seed.moveAppName} to another Project`,
+			})
+			.first();
 		await expect(moveControl).toBeVisible();
 		const box = await moveControl.boundingBox();
 		expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
 		expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+		const moveHeadings = page.getByRole("heading", {
+			name: seed.moveAppName,
+			level: 3,
+		});
+		await expect(moveHeadings.first()).toBeVisible();
+		const before = await moveHeadings.count();
+		expect(before).toBeGreaterThan(0);
+
+		// Capture WHICH app this attempt is about to move — a retry consumes the
+		// next throwaway card, so a fixed seeded id would name the wrong one.
+		const movedHref = await page
+			.getByRole("link", { name: `Open ${seed.moveAppName}` })
+			.first()
+			.getAttribute("href");
+		expect(movedHref).toMatch(/^\/build\//);
 
 		await page.setViewportSize({ width: 1280, height: 900 });
 		await moveControl.click();
@@ -1479,41 +1505,20 @@ test.describe("authenticated builder", () => {
 		await moveButton.click();
 
 		// The real moveApp Server Action → move transaction → revalidatePath("/").
-		const movedHeading = page.getByRole("heading", {
-			name: seed.moveAppName,
-			level: 3,
-		});
-		await expect(movedHeading).toHaveCount(0, { timeout: 20_000 });
+		await expect(moveHeadings).toHaveCount(before - 1, { timeout: 20_000 });
 
-		// A reload proves the app left this Project durably, not just optimistically.
+		// A reload proves the app left this Project durably, not optimistically.
 		await page.reload();
 		await expect(
 			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
 		).toBeVisible();
-		await expect(movedHeading).toHaveCount(0);
+		await expect(moveHeadings).toHaveCount(before - 1);
 
-		// …and arrived: switch the active Project and the app is listed there,
-		// openable at the same id it always had.
-		const switcher = page.getByRole("button", { name: "Switch Project" });
-		await switcher.click();
-		await page.getByRole("button", { name: seed.moveProjectName }).click();
-		// The switcher label is the settled signal: the list re-renders from a
-		// server round-trip, so asserting on it first would race the refresh.
-		await expect(switcher).toHaveText(seed.moveProjectName, {
-			timeout: 20_000,
-		});
-		await expect(movedHeading).toBeVisible({ timeout: 20_000 });
+		// …and arrived somewhere this user still belongs: the builder authorizes
+		// through the app's CURRENT Project, so a stranded app would 404 here.
+		await page.goto(movedHref ?? "");
 		await expect(
-			page.getByRole("link", { name: `Open ${seed.moveAppName}` }),
-		).toHaveAttribute("href", `/build/${seed.moveAppId}`);
-
-		// Switching writes the active Project onto the shared seeded SESSION, so
-		// restore it — otherwise every later test would list a different Project.
-		await switcher.click();
-		await page.getByRole("button", { name: "Personal" }).click();
-		await expect(switcher).toHaveText("Personal", { timeout: 20_000 });
-		await expect(
-			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
-		).toBeVisible({ timeout: 20_000 });
+			page.getByRole("button", { name: "Account menu" }),
+		).toBeVisible();
 	});
 });

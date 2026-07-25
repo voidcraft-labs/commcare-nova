@@ -55,7 +55,7 @@ import {
 	caseWorkspaceCaseRows,
 	caseWorkspaceRoutes,
 } from "./lib/caseWorkspaceSeed";
-import { DELETE_APP_COUNT } from "./lib/config";
+import { DELETE_APP_COUNT, MOVE_APP_COUNT } from "./lib/config";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
 
@@ -652,10 +652,15 @@ async function main(): Promise<void> {
 				]),
 			),
 	);
-	const moveAppId = await createApp(SEED.userId, seedProjectId, randomUUID(), {
-		appName: SEED.moveAppName,
-		status: "complete",
-	});
+	const moveAppIds: string[] = [];
+	for (let i = 0; i < MOVE_APP_COUNT; i++) {
+		moveAppIds.push(
+			await createApp(SEED.userId, seedProjectId, randomUUID(), {
+				appName: SEED.moveAppName,
+				status: "complete",
+			}),
+		);
+	}
 
 	// Emit storageState (consumed by the `authed` Playwright project) + a seed
 	// manifest the tests read for the concrete ids.
@@ -674,7 +679,7 @@ async function main(): Promise<void> {
 				olderThreadId,
 				scrollAppId,
 				scrollQuestionThreadId,
-				moveAppId,
+				moveAppIds,
 				moveDestinationProjectId,
 				baseUrl,
 			},
