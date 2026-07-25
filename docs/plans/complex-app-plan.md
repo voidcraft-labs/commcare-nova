@@ -597,12 +597,30 @@ Web Apps tile templates honor the contract explicitly, branching on
 identical branch in `tile_grouped_item.html`, so grouping inherits it unchanged.
 
 This is what lets Nova's zero-width sort carrier work on a tile with no special
-case: the field emits with no `<style>`, occupies no cell (its
-`-grid-style-N` class has no rule, because `views.js::buildCellLayout` filters
-null tile entries before building the style block, and
-`formplayer-common/grid.scss::.box` adds no box size), and the ordering still
-applies because the runtime sorts entities before it draws them. Ordering by a
-field workers never see behaves the same on a tile as in a row of columns.
+case: the field occupies no cell (its `-grid-style-N` class has no rule, because
+`views.js::buildCellLayout` filters null tile entries before building the style
+block, and `formplayer-common/grid.scss::.box` adds no box size), and the
+ordering still applies because the runtime sorts entities before it draws them.
+Ordering by a field workers never see behaves the same on a tile as in a row of
+columns.
+
+**That only holds because the emitter refuses a `<style>` for a column hidden
+from Results**, and the refusal is load-bearing rather than incidental —
+`lib/commcare/suite/case-list/columns.ts::tileStyleChildren` gates on
+`visibleInList` alongside cell-presence, layout-presence, and short-detail. A
+hidden column keeps its stored cell (hiding and unhiding restores the drawing),
+so without that gate a carrier that happened to retain a placement would emit a
+complete `<style><grid>`. All four coordinates set makes it a tile cell by
+`DetailField::isCaseTileField`, at which point it claims a real `grid-area`,
+enlarges the extent `Detail.getMaxWidthHeight` computes, and joins the tile-wide
+border/shading switch — while its `width="0"` content still renders inside
+`d-none`. The visible consequence is a tile silently widened, or every cell
+boxed, by a column no worker can see; and the overlap rule cannot catch it,
+because that check deliberately walks only the columns the tile shows. The two
+invariants are therefore a pair: the visible-only overlap check is sound **only**
+while emission is visible-only, and `lib/preview/caseTileRendering.ts::tileResultsColumns`
+strips a hidden carrier's cell for the same reason. Weakening either one alone
+reintroduces an invisible column that moves the layout.
 
 The fact reaches past tiles. Any column that must ride the detail without being
 shown — so its value is available to sorting, to a calculation, or to a later
