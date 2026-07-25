@@ -45,6 +45,26 @@ failed in, and retrying never requires re-importing the app.
 Existing export guards stay until unit 12 can satisfy them: you cannot upload an
 app that references a resource you have not pushed.
 
+Two organization prerequisites are **required** rather than advisory, so a
+failure of either lands the deployment in `incomplete` and withholds `released`
+and `runnable`:
+
+- **A level that caps descendant case access needs a toggle on the target.**
+  Nova's "cases reach down to this level" compiles to
+  `LocationType.expand_view_child_data_to`, which only the
+  `USH_RESTORE_FILE_LOCATION_CASE_SYNC_RESTRICTION` arm of
+  `users/models.py::CouchUser._get_case_owning_locations` honours — the default
+  path walks `get_queryset_descendants(...)` with no bound at all. Without the
+  toggle the cap silently does nothing and workers receive cases from levels the
+  author excluded, so this is a named target-domain prerequisite in the setup
+  artifact, exactly like `MM_CASE_PROPERTIES`.
+- **A ragged tree cannot be created through the location push.** A place that
+  skips an intermediate level is legal in Nova, previews correctly, and exports
+  to a `.ccz` faithfully, but HQ's location API refuses to create one — see
+  [the deliberate target gaps](00-contracts.md#deliberate-target-gaps) for the
+  anchors and the reasoning. Preflight it before external mutation and report
+  which places are affected.
+
 **Observed:** an author connects an HQ domain, sees exactly what Nova will create
 there and what they must set up by hand, and can retry a failed phase without
 re-importing the app.

@@ -48,6 +48,7 @@ import {
 	assertRemovedLevelsUnused,
 	extractLocationReferenceTargets,
 	replaceLocationReferenceEdges,
+	shedRemovedLocationPropertyValues,
 } from "@/lib/organization/commitIntegrity";
 import {
 	assertPersistenceSafeMutationIdentities,
@@ -1325,6 +1326,11 @@ export async function commitGuardedBatchInTransaction(
 	await replaceLocationReferenceEdges(tx, {
 		appId,
 		targets: extractLocationReferenceTargets(verdict.nextDoc),
+	});
+	await shedRemovedLocationPropertyValues(tx, {
+		appId,
+		previousDoc: freshDoc,
+		candidateDoc: verdict.nextDoc,
 	});
 	await writeCommittedBatch(tx, {
 		appId,

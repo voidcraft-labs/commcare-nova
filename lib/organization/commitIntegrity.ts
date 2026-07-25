@@ -1,9 +1,10 @@
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { AppDatabase } from "@/lib/db/pg";
 import {
 	assignedLocationUuids,
 	type BlueprintDoc,
+	locationPropertiesOf,
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
@@ -21,14 +22,16 @@ import {
  *     on undeletable. The edges are replaced as a COMPLETE set on every
  *     authoritative commit, so they are derived state that any unrelated
  *     commit reconverges — the same contract lookup edges have.
- *   - **rows -> document.** A location row names a level. Removing a level
- *     while places still stand at it is refused here rather than enforced by
- *     a foreign key, because the commit rewrites `blueprint_entities` from
- *     its own diff and a `RESTRICT` edge would fire on ordinary unrelated
- *     edits.
+ *   - **rows -> document.** A location row names a level, and its value bag
+ *     names location properties. Removing a level while places still stand at
+ *     it is refused here rather than enforced by a foreign key, because the
+ *     commit rewrites `blueprint_entities` from its own diff and a `RESTRICT`
+ *     edge would fire on ordinary unrelated edits; removing a property sheds
+ *     the values that named it, because a property uuid is never reissued and
+ *     an orphaned value is unreachable forever.
  *
- * Both run after the verdict and before the entity write, so a rejection
- * leaves nothing behind.
+ * All of it runs after the verdict and before the entity write, so a rejection
+ * leaves nothing behind and a shed never outlives the removal that caused it.
  */
 
 /**
@@ -104,6 +107,48 @@ export async function replaceLocationReferenceEdges(
 			targets.map((locationId) => ({ app_id: appId, location_id: locationId })),
 		)
 		.execute();
+}
+
+/**
+ * Shed the values of every location property this commit removed.
+ *
+ * A value bag is keyed by property UUID, and a removed property's uuid is
+ * never reissued — Nova mints a fresh one for every property an author adds —
+ * so a value left behind is unreachable forever: no catalog entry names it, no
+ * fixture field emits it, and no later property can adopt it. It is dead
+ * weight that every read of every row would carry.
+ *
+ * Shedding it here rather than lazily is the same choice `lib/lookup`'s column
+ * removal makes, and for the same reason: the write that removes the
+ * declaration is the one moment the set of orphaned keys is exactly known.
+ *
+ * `jsonb - text[]` removes the keys that are present and ignores the rest, so
+ * this is one statement over the app's rows regardless of how many carried a
+ * value. The `?|` guard keeps it from rewriting rows that had none, which is
+ * almost all of them.
+ */
+export async function shedRemovedLocationPropertyValues(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly appId: string;
+		readonly previousDoc: BlueprintDoc;
+		readonly candidateDoc: BlueprintDoc;
+	},
+): Promise<void> {
+	const { appId, previousDoc, candidateDoc } = args;
+	const surviving = locationPropertiesOf(candidateDoc);
+	const removed = Object.keys(locationPropertiesOf(previousDoc)).filter(
+		(uuid) => surviving[uuid] === undefined,
+	);
+	if (removed.length === 0) return;
+
+	await sql`
+		UPDATE app_locations
+		SET "values" = "values" - ${sql.val(removed)}::text[],
+			updated_at = now()
+		WHERE app_id = ${appId}
+			AND "values" ?| ${sql.val(removed)}::text[]
+	`.execute(tx);
 }
 
 /**

@@ -1336,3 +1336,181 @@ describe("user collections — the new-discriminator contract", () => {
 		return fold(emptyDoc(), batch.slice(0, 3));
 	}
 });
+
+/**
+ * The organization collections mint new discriminators for the same reason
+ * the user collections do — a level is not a refinement of a module, a form,
+ * or a field — and the same four properties are what make that safe. This
+ * block pins the three that are properties of code here.
+ *
+ * The fourth, that an old reducer no-ops on a kind it has never seen, is not
+ * a property of anything in this repository; the doc slots being optional and
+ * omitted when empty is what carries it, and the byte-identity test below is
+ * the observable half of that.
+ */
+describe("organization collections — the new-discriminator contract", () => {
+	const REGION = asUuid("b1111111-1111-4111-8111-111111111111");
+	const DISTRICT = asUuid("b2222222-2222-4222-8222-222222222222");
+	const PROPERTY = asUuid("b3333333-3333-4333-8333-333333333333");
+
+	const batch: Mutation[] = [
+		{
+			kind: "addOrganizationLevel",
+			level: {
+				uuid: REGION,
+				order: "a0",
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+		},
+		{
+			kind: "addOrganizationLevel",
+			level: {
+				uuid: DISTRICT,
+				order: "a1",
+				code: "district",
+				name: "District",
+				parentLevelUuid: REGION,
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "down-to", levelUuid: REGION },
+				},
+				addressBook: {
+					reach: "shared-branch",
+					fromLevelUuid: REGION,
+					downToLevelUuid: REGION,
+				},
+			},
+		},
+		{
+			kind: "addLocationProperty",
+			property: {
+				uuid: PROPERTY,
+				order: "a0",
+				slug: "beds",
+				label: "Beds",
+				levelUuids: [DISTRICT],
+			},
+		},
+		{
+			kind: "updateOrganizationLevel",
+			uuid: DISTRICT,
+			patch: { description: "Second rung" },
+		},
+		// The two clears that matter: a level's parentage, and a property's
+		// level restriction. Each means something specific when absent —
+		// "a top level", and "applies everywhere".
+		{
+			kind: "updateOrganizationLevel",
+			uuid: DISTRICT,
+			patch: { parentLevelUuid: null },
+		},
+		{
+			kind: "updateLocationProperty",
+			uuid: PROPERTY,
+			patch: { levelUuids: null },
+		},
+		{ kind: "removeLocationProperty", uuid: PROPERTY },
+		{ kind: "removeOrganizationLevel", uuid: DISTRICT },
+		{ kind: "removeOrganizationLevel", uuid: REGION },
+	];
+
+	it("every arm parses under both envelopes", () => {
+		// These collections carry no Predicate or ValueExpression, so the
+		// rolling and canonical projections are the same schema — asserted
+		// rather than assumed, because a later slot that DID carry one would
+		// break this silently.
+		for (const mutation of batch) {
+			expect(mutationSchema.safeParse(mutation).success, mutation.kind).toBe(
+				true,
+			);
+			expect(
+				canonicalMutationSchema.safeParse(mutation).success,
+				mutation.kind,
+			).toBe(true);
+		}
+	});
+
+	it("a null clear survives the JSON hop the wire actually takes", () => {
+		// JSON.stringify drops an undefined-valued key, so a cleared slot can
+		// only cross the SSE stream and the persisted jsonb as an explicit null.
+		for (const mutation of batch.filter((m) => m.kind.startsWith("update"))) {
+			expect(
+				mutationSchema.safeParse(JSON.parse(JSON.stringify(mutation))).success,
+				mutation.kind,
+			).toBe(true);
+		}
+		const seeded = fold(emptyDoc(), batch.slice(0, 3));
+		const cleared = fold(seeded, [
+			{
+				kind: "updateOrganizationLevel",
+				uuid: DISTRICT,
+				patch: { parentLevelUuid: null },
+			},
+			{
+				kind: "updateLocationProperty",
+				uuid: PROPERTY,
+				patch: { levelUuids: null },
+			},
+		]);
+		expect(cleared.organizationLevels?.[DISTRICT]).not.toHaveProperty(
+			"parentLevelUuid",
+		);
+		expect(cleared.locationProperties?.[PROPERTY]).not.toHaveProperty(
+			"levelUuids",
+		);
+	});
+
+	it("survives the round trip a clear actually makes, not just the in-memory one", () => {
+		// The in-memory assertion above passes even when the feature is broken
+		// on the wire, which is the whole hazard: serialize the CLEARED doc and
+		// parse it back, so a slot that only looks absent locally is caught.
+		const seeded = fold(emptyDoc(), batch.slice(0, 3));
+		const cleared = fold(seeded, [
+			{
+				kind: "updateOrganizationLevel",
+				uuid: DISTRICT,
+				patch: { parentLevelUuid: null },
+			},
+		]);
+		const round = JSON.parse(
+			JSON.stringify(toPersistableDoc(cleared)),
+		) as Record<string, Record<string, Record<string, unknown>>>;
+		expect(round.organizationLevels?.[DISTRICT]).not.toHaveProperty(
+			"parentLevelUuid",
+		);
+	});
+
+	it("a doc that declares none stays byte-identical to one that never could", () => {
+		const before = emptyDoc();
+		const after = fold(before, [batch[0], batch[8]]);
+		expect(JSON.stringify(toPersistableDoc(after))).toBe(
+			JSON.stringify(toPersistableDoc(before)),
+		);
+	});
+
+	function fold(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
+		return produce(doc, (draft) => {
+			applyMutations(draft, mutations);
+		});
+	}
+
+	function emptyDoc(): BlueprintDoc {
+		return {
+			appId: "rolling",
+			appName: "Rolling",
+			connectType: null,
+			caseTypes: null,
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+		};
+	}
+});
