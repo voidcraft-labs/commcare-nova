@@ -156,6 +156,37 @@ describe("case-tile HQ JSON projection", () => {
 		}
 	});
 
+	it("writes no placement for a hidden column that kept its cell", () => {
+		// The third consumer of the visible-only emission invariant. A column
+		// hidden from Results that still owns a Default-order rule stays in the
+		// persisted detail — CCHQ needs the field to sort by it — but its
+		// placement must NOT ride along: CCHQ's own regeneration would build a
+		// `<style><grid>` from any non-null coordinate, and
+		// `Detail.java::getMaxWidthHeight` sums every field's extent, so an
+		// invisible column would widen the uploaded tile past the local `.ccz`.
+		const doc = tiledDoc({}, [tileCell(0, 0, 6, 1), tileCell(6, 0, 6, 1)]);
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module.caseListConfig;
+		if (config === undefined) throw new Error("expected a case-list config");
+		config.columns[1] = {
+			...config.columns[1],
+			visibleInList: false,
+			sort: { direction: "asc", priority: 0 },
+		};
+		const { caseDetails } = projectCaseListForHq(module, doc);
+
+		// The carrier is still persisted, so the sort survives.
+		expect(caseDetails.short.columns).toHaveLength(2);
+		// The visible column keeps its placement.
+		expect(caseDetails.short.columns[0].grid_x).toBe(0);
+		// The hidden carrier carries none of the four.
+		const carrier = caseDetails.short.columns[1];
+		expect(carrier.grid_x).toBeNull();
+		expect(carrier.grid_y).toBeNull();
+		expect(carrier.width).toBeNull();
+		expect(carrier.height).toBeNull();
+	});
+
 	it("keeps an unplaced column's grid slots null", () => {
 		const { caseDetails } = project({}, [tileCell(0, 0, 12, 1), undefined]);
 		expect(caseDetails.short.columns[0].grid_x).toBe(0);

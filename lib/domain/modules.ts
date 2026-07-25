@@ -330,6 +330,54 @@ export function tileCellsOverlap(a: TileCell, b: TileCell): boolean {
 }
 
 /**
+ * THE tile-cell admission decision: the cell a column contributes to a
+ * tile, or `undefined` when it contributes none.
+ *
+ * Every surface that turns a column into a tile cell reads this and
+ * nothing else — the suite emitter, the HQ JSON writer, and the preview
+ * renderer. It exists because three paths each deciding independently is
+ * how they diverge: each of the three answered this question separately
+ * at some point, and the HQ JSON path — the PRIMARY delivery path —
+ * answered it wrongly while the other two were right, so an uploaded app
+ * drew a different tile from the one the author arranged. A fourth
+ * delivery path or a fourth renderer must not be able to reintroduce
+ * that, so the decision has exactly one home.
+ *
+ * Two conditions, and each is load-bearing:
+ *
+ *   - **The case list has a tile layout.** Cells persist while the layout
+ *     is off so switching back restores the drawing, but they describe
+ *     nothing until it is on.
+ *   - **The column is shown in Results.** A column hidden from Results
+ *     holds no square, even when it kept a placement from before it was
+ *     hidden. It still reaches the wire when it drives Default order —
+ *     as CommCare's own zero-width carrier — and that carrier must stay
+ *     cell-less: a complete `<grid>` makes it a tile field by
+ *     `DetailField::isCaseTileField`, at which point it claims a real
+ *     `grid-area`, enlarges the extent
+ *     `Detail.java::getMaxWidthHeight` computes across ALL fields, and
+ *     joins the tile-wide border/shading switch — while its content
+ *     renders inside a `d-none` wrapper. An invisible column would move
+ *     the layout.
+ *
+ * This is also what makes the validator's overlap rule sound: that rule
+ * walks only Results-visible columns, which is correct precisely because
+ * no emission path gives a hidden column a cell.
+ *
+ * Which detail SURFACE is being composed is a separate axis and stays
+ * with the emitter — tiles apply to the short detail, and the
+ * case-detail screen is a plain field list whatever the case list does.
+ */
+export function tileCellFor(
+	column: Pick<Column, "tile" | "visibleInList">,
+	layout: CaseTileLayout | undefined,
+): TileCell | undefined {
+	if (layout === undefined) return undefined;
+	if (column.visibleInList === false) return undefined;
+	return column.tile;
+}
+
+/**
  * The grid a set of cells actually occupies, in columns x rows.
  *
  * This is DERIVED, never authored, and every renderer must derive it

@@ -604,23 +604,36 @@ ordering still applies because the runtime sorts entities before it draws them.
 Ordering by a field workers never see behaves the same on a tile as in a row of
 columns.
 
-**That only holds because the emitter refuses a `<style>` for a column hidden
-from Results**, and the refusal is load-bearing rather than incidental —
-`lib/commcare/suite/case-list/columns.ts::tileStyleChildren` gates on
-`visibleInList` alongside cell-presence, layout-presence, and short-detail. A
-hidden column keeps its stored cell (hiding and unhiding restores the drawing),
-so without that gate a carrier that happened to retain a placement would emit a
-complete `<style><grid>`. All four coordinates set makes it a tile cell by
+**That only holds because a hidden column contributes no cell to any surface**,
+and that refusal is load-bearing rather than incidental. A hidden column keeps
+its stored cell — hiding and unhiding restores the drawing — so without the
+refusal a carrier that retained a placement would emit a complete
+`<style><grid>`. All four coordinates set makes it a tile cell by
 `DetailField::isCaseTileField`, at which point it claims a real `grid-area`,
-enlarges the extent `Detail.getMaxWidthHeight` computes, and joins the tile-wide
-border/shading switch — while its `width="0"` content still renders inside
-`d-none`. The visible consequence is a tile silently widened, or every cell
-boxed, by a column no worker can see; and the overlap rule cannot catch it,
-because that check deliberately walks only the columns the tile shows. The two
-invariants are therefore a pair: the visible-only overlap check is sound **only**
-while emission is visible-only, and `lib/preview/caseTileRendering.ts::tileResultsColumns`
-strips a hidden carrier's cell for the same reason. Weakening either one alone
-reintroduces an invisible column that moves the layout.
+enlarges the extent `Detail.getMaxWidthHeight` computes across every field, and
+joins the tile-wide border/shading switch — while its `width="0"` content still
+renders inside `d-none`. The visible consequence is a tile silently widened, or
+every cell boxed, by a column no worker can see; and the overlap rule cannot
+catch it, because that check deliberately walks only the columns the tile shows.
+
+**The decision therefore has exactly one home**:
+`lib/domain/modules.ts::tileCellFor` answers "does this column hold a square?"
+and all three emission paths call it — the suite emitter
+(`suite/case-list/columns.ts::tileStyleChildren`), the HQ JSON writer
+(`hqJson/caseList.ts::applyTileLayoutToShortDetail`), and the preview
+(`lib/preview/caseTileRendering.ts::tileResultsColumns`). It is one predicate
+because it was briefly three: each path decided independently, and the HQ JSON
+writer — the **primary** delivery path — decided wrongly while the other two
+were right, so an uploaded app drew a different tile from the local `.ccz` and
+the preview. Three paths agreeing by hand is not an invariant, it is a
+coincidence with a short half-life. `lib/commcare/__tests__/tileEmissionParity.test.ts`
+asserts the agreement directly on one document carrying that exact shape, and
+the suite fuzz now generates hidden sort carriers that retain their placement,
+which it never did while the divergence shipped.
+
+The validator's visible-only overlap walk is sound **only** while that predicate
+governs every path; a fourth delivery path or renderer must call it rather than
+re-derive it.
 
 The fact reaches past tiles. Any column that must ride the detail without being
 shown — so its value is available to sorting, to a calculation, or to a later

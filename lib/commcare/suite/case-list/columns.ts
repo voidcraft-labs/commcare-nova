@@ -111,6 +111,7 @@ import {
 	type Column,
 	resolveCommCareDatePattern,
 	TIME_SINCE_UNIT_DAYS,
+	tileCellFor,
 } from "@/lib/domain";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
@@ -857,20 +858,21 @@ function tileStyleChildren(
 	column: Column,
 	ctx: CaseListEmitContext,
 ): readonly Element[] {
-	if (column.tile === undefined) return [];
-	if (ctx.tileLayout === undefined) return [];
+	// Which detail surface this is stays here — tiles apply to the short
+	// detail, and the case-detail screen is a plain field list whatever the
+	// case list does. WHETHER the column contributes a cell at all is
+	// `tileCellFor`'s single decision, shared with the HQ JSON writer and the
+	// preview renderer so the three cannot disagree.
+	//
+	// This branch is unreachable today only because `longDetail.ts` never puts
+	// a `tileLayout` on its context. It stays because that is an accident of
+	// one caller, not the contract: long-detail tiles are out of scope, and a
+	// future caller threading the layout through must not be able to emit one
+	// by omission.
 	if (ctx.detailKind !== "short") return [];
-	// A column hidden from Results never occupies a cell, even when it kept a
-	// placement from before it was hidden. It still reaches the wire as the
-	// zero-width sort carrier when it drives Default order, and that carrier
-	// must stay style-less: a `<style><grid>` would make it a tile field
-	// (`DetailField::isCaseTileField`), which claims a real `grid-area`,
-	// enlarges the tile's computed extent, and joins the tile-wide
-	// border/shading switch — all while its `width="0"` content renders inside
-	// a `d-none` wrapper. The author would be moving an invisible hole around
-	// their layout.
-	if (column.visibleInList === false) return [];
-	return [buildTileStyleBlock(column.tile)];
+	const cell = tileCellFor(column, ctx.tileLayout);
+	if (cell === undefined) return [];
+	return [buildTileStyleBlock(cell)];
 }
 
 export function buildColumnField(args: {

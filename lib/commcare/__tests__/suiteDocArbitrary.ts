@@ -454,6 +454,15 @@ interface ModuleGenSpec {
 	 * overlap, every Results column placed) for any generated column count.
 	 */
 	readonly tile: false | { readonly persistOnForms: boolean };
+	/**
+	 * Whether the module hides its last Results column while leaving that
+	 * column's Default-order rule AND its tile placement in place — the
+	 * zero-width sort carrier that retained a cell. That is the exact shape
+	 * whose placement must never reach any emission path, and it was
+	 * unreachable here until this flag existed, which is why a real
+	 * divergence shipped past the fuzz.
+	 */
+	readonly hiddenSortCarrier: boolean;
 	/** Whether the module's home tile carries an icon. */
 	readonly hasIcon: boolean;
 	/** Whether the module's home tile carries an audio label. */
@@ -513,6 +522,7 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 			arbitrary: fc.record({ persistOnForms: fc.boolean() }),
 		},
 	),
+	hiddenSortCarrier: fc.boolean(),
 	hasIcon: fc.boolean(),
 	hasAudioLabel: fc.boolean(),
 	hasDisplayCondition: fc.boolean(),
@@ -630,8 +640,30 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 						}),
 					}));
 
+		// Hide the last column while leaving its sort and its placement on the
+		// document. It keeps riding the detail so the runtime can order by it,
+		// but no emission path may give it a square: `tileCellFor` is the one
+		// decision, and the oracles below prove every path honors it. Needs two
+		// columns so Results keeps a visible one, and takes a priority past the
+		// assigned run so `sortPriorityUniqueness` still holds.
+		const carrierColumns =
+			!modSpec.hiddenSortCarrier || tileColumns.length < 2
+				? tileColumns
+				: tileColumns.map((column, i) =>
+						i === tileColumns.length - 1
+							? {
+									...column,
+									visibleInList: false,
+									sort: column.sort ?? {
+										direction: "asc" as const,
+										priority: sortCount + 1,
+									},
+								}
+							: column,
+					);
+
 		const caseListConfig: CaseListConfig = {
-			columns: tileColumns,
+			columns: carrierColumns,
 			searchInputs,
 			...(filter !== undefined ? { filter } : {}),
 			...(modSpec.tile === false

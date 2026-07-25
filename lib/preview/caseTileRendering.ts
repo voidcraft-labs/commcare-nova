@@ -41,13 +41,24 @@
 //      own box.
 
 import type { CSSProperties } from "react";
-import type { Column } from "@/lib/domain";
+import { type CaseTileLayout, type Column, tileCellFor } from "@/lib/domain";
 import {
 	type TileCellProjection,
 	type TileGridProjection,
 	tileGridTemplateColumns,
 	tileGridTemplateRows,
 } from "./caseTileLayout";
+
+/**
+ * The layout `tileResultsColumns` adjudicates against.
+ *
+ * This function is only reached for a case list that HAS a tile — its
+ * callers branch on `config.tile` before rendering a tile at all — so the
+ * layout's presence is a precondition here rather than a parameter. It is
+ * spelled out so the call into `tileCellFor` reads as the same decision
+ * the emitters make, with the same shape of input.
+ */
+const TILE_LAYOUT_ON: CaseTileLayout = {};
 
 /** One column a tile draws, with what the tile does about its value. */
 export interface TileResultsColumn {
@@ -86,9 +97,14 @@ export function tileResultsColumns(
 	return listOrderedColumns.flatMap<TileResultsColumn>((column) => {
 		const hidden = column.visibleInList === false;
 		if (hidden && column.sort === undefined) return [];
-		if (!hidden) return [{ column, valueHidden: false }];
-		const { tile: _unemittedCell, ...carrier } = column;
-		return [{ column: carrier as Column, valueHidden: true }];
+		// `tileCellFor` is the ONE decision about whether a column holds a
+		// square, shared with both emitters. Reading it here — rather than
+		// re-testing `visibleInList` and reaching a matching answer by hand — is
+		// what stops this surface drifting away from what the wire does.
+		const cell = tileCellFor(column, TILE_LAYOUT_ON);
+		if (cell !== undefined) return [{ column, valueHidden: hidden }];
+		const { tile: _unemittedCell, ...carried } = column;
+		return [{ column: carried as Column, valueHidden: hidden }];
 	});
 }
 

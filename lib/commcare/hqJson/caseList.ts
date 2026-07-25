@@ -62,6 +62,7 @@ import {
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	resolveCommCareDatePattern,
+	tileCellFor,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -926,8 +927,19 @@ function applyTileLayoutToShortDetail(
 	if (tile === undefined) return;
 	shortDetail.case_tile_template = "custom";
 	if (tile.persistOnForms === true) shortDetail.persist_tile_on_forms = true;
+	// `hqShortSourceColumns` deliberately keeps a column hidden from Results
+	// that owns a `sort`, because CCHQ needs the field in order to sort by it —
+	// it rides as `format: "invisible"`, CCHQ's own `HideShortColumn` shape.
+	// Writing its PLACEMENT is the thing that would break: CCHQ's regeneration
+	// builds a `Style` when any coordinate is non-null
+	// (`suite_xml/features/case_tiles.py::CaseTileHelper.build_case_tile_detail`),
+	// `detail_screen.py::Invisible` inherits the field that carries it, and
+	// `Detail.java::getMaxWidthHeight` sums every field's extent with no width
+	// filter — so an invisible column would widen the UPLOADED tile past what
+	// the local `.ccz` and the preview draw. `tileCellFor` is the one place
+	// that decision lives.
 	for (const [index, source] of shortSourceColumns.entries()) {
-		const cell = source.tile;
+		const cell = tileCellFor(source, tile);
 		const target = shortDetail.columns[index];
 		if (cell === undefined || target === undefined) continue;
 		target.grid_x = cell.x;
