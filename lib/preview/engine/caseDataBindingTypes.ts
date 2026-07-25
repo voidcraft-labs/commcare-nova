@@ -361,11 +361,32 @@ export interface SubmissionOperationAnswers {
 	}>;
 }
 
+/**
+ * The two attachment slots every arm carries.
+ *
+ * `entryKey` names this form entry's attachment scope
+ * (`EngineController.entryKey`) and `attachmentNames` lists the names the
+ * surviving RELEVANT answers hold. Together they let the server settle the
+ * entry: promote exactly what the submission named, discard the rest.
+ *
+ * Both are optional so a client that predates them submits normally —
+ * nothing is promoted, and the staged rows expire on their own. Neither is
+ * authority: the server matches names against the acting member's own rows
+ * in the app's Project, so a forged list can neither promote nor preserve
+ * another member's attachment.
+ *
+ * They are plain strings by necessity as well as by taste. A `File` or a
+ * `Map` argument makes React encode the Server Action as
+ * `multipart/form-data`, whose part headers the edge WAF reads as header
+ * injection — which is also why the bytes never travel this way at all.
+ */
 export type SubmissionMutation =
 	| {
 			kind: "registration";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
 			primary: {
 				caseType: string;
 				caseName?: string;
@@ -381,6 +402,8 @@ export type SubmissionMutation =
 			kind: "followup";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
 			caseId: string;
 			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
@@ -394,6 +417,8 @@ export type SubmissionMutation =
 			kind: "close";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
 			caseId: string;
 			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
@@ -411,6 +436,8 @@ export type SubmissionMutation =
 			kind: "survey";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
 	  };
 
 /**

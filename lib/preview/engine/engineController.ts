@@ -42,6 +42,7 @@
  * There is no conversion to a legacy nested-form shape. The engine walks
  * a rose-tree built at construction time — see `fieldTree.ts`.
  */
+import { randomUUID } from "node:crypto";
 import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -286,6 +287,35 @@ export class EngineController {
 	private activeFormUuid: Uuid | undefined;
 	private activeCaseData: CaseDataByType | undefined;
 
+	/**
+	 * Identifies THIS form entry to the attachment lane.
+	 *
+	 * One activation is one entry, so the key is minted in `activateForm`
+	 * and dropped in `deactivate`. That is the exact scope submission-time
+	 * reconciliation settles: every attachment staged under this key that
+	 * the submission does not name is discarded.
+	 *
+	 * The lifecycle below is load-bearing and worth being explicit about,
+	 * because a future change to it silently changes the attachment
+	 * contract. **This controller does not resume a form.** `activateForm`
+	 * begins by calling `deactivate`, which resets the whole runtime store,
+	 * and nothing persists answers to storage — so leaving a form and
+	 * returning starts a new entry with a new key, and the previous entry's
+	 * staged attachments become unreferenced. Reconciliation and the
+	 * staging TTL are what collect them.
+	 *
+	 * If preview ever gains resume, it must carry the entry key forward
+	 * with the answers or every resumed attachment is orphaned. Resume is
+	 * also the point at which a signature question first becomes able to
+	 * hold an answer it cannot draw: the real runtime shows a blank pad
+	 * over a live signature (`entries.js::SignatureEntry`'s `afterRender`
+	 * sets `signatureData = null` and reads nothing back), so the faithful
+	 * behavior then is to leave the pad blank — not to helpfully restore
+	 * it. Today no such state exists, which is why nothing here simulates
+	 * one.
+	 */
+	private currentEntryKey: string | undefined;
+
 	/** Field UUIDs with active per-field subscriptions. */
 	private trackedUuids = new Set<string>();
 
@@ -407,6 +437,7 @@ export class EngineController {
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
+		this.currentEntryKey = randomUUID();
 
 		/* Build the FormEngine input from the doc store */
 		const input = buildEngineInput(s, formUuid);
@@ -450,7 +481,14 @@ export class EngineController {
 		this.pathToUuid.clear();
 		this.activeFormUuid = undefined;
 		this.activeCaseData = undefined;
+		this.currentEntryKey = undefined;
 		this.store.setState({}, true);
+	}
+
+	/** This form entry's attachment scope, or `undefined` when no form is
+	 *  active. Capture widgets stage against it; submission reconciles it. */
+	get entryKey(): string | undefined {
+		return this.currentEntryKey;
 	}
 
 	// ── Public actions (called by components) ────────────────────────
@@ -601,7 +639,10 @@ export class EngineController {
 				}),
 			);
 		}
-		return this.engine.computeSubmissionMutation(args);
+		return this.engine.computeSubmissionMutation({
+			...args,
+			entryKey: this.currentEntryKey,
+		});
 	}
 
 	// ── Per-field subscriptions ──────────────────────────────────────

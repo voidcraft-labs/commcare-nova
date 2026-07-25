@@ -37,6 +37,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	casePropertyDataTypes,
 	expressionSource,
+	isCaptureFieldKind,
 	orderedCaseOperations,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
@@ -667,9 +668,78 @@ export class FormEngine {
 		};
 	}
 
+	/**
+	 * The attachment names this submission actually carries.
+	 *
+	 * Walks every capture question, including one instance per live repeat
+	 * iteration, and collects the non-empty answers of the questions that
+	 * are still RELEVANT. That set is what the server promotes; everything
+	 * else staged under this form entry is discarded.
+	 *
+	 * ## Why this consults visibility when the case-property collector does not
+	 *
+	 * The case-property walk deliberately ignores `state.visible`, for a
+	 * storage reason: an omitted key is the only JSONB shape that passes
+	 * AJV strict-mode validation, so a hidden field's value still lands.
+	 * That reason has nothing to say about attachments, and the wire
+	 * semantics here point the other way — an irrelevant question's node is
+	 * omitted from the submitted instance entirely
+	 * (`XFormSerializingVisitor::serializeNode` returns null for a
+	 * non-relevant node), so its attachment is genuinely not part of the
+	 * submission.
+	 *
+	 * Nova then diverges from the platform in one direction, on purpose.
+	 * The real runtime uploads the FILE anyway, because
+	 * `FormSubmissionHelper::getMultiPartFormBody` enumerates the session's
+	 * media directory rather than the answers — so an irrelevant question's
+	 * bytes, and a deleted repeat instance's, still ride the submission,
+	 * still consume one of the 50 attachment slots, and land in HQ
+	 * referenced by nothing. Replicating that would import a known defect
+	 * into a lane with no reason to inherit it.
+	 */
+	collectAttachmentNames(): string[] {
+		const names: string[] = [];
+		const states = this.store.getState();
+		const walk = (nodes: FieldTreeNode[], prefix: string): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				const fieldPath = `${prefix}/${f.id}`;
+				if (f.kind === "repeat") {
+					const count = this.instance.getRepeatCount(fieldPath);
+					for (let i = 0; i < count; i++) {
+						walk(node.children ?? [], `${fieldPath}[${i}]`);
+					}
+					continue;
+				}
+				if (node.children) {
+					walk(node.children, fieldPath);
+					continue;
+				}
+				if (!isCaptureFieldKind(f.kind)) continue;
+				if (states[fieldPath]?.visible === false) continue;
+				const raw = this.instance.get(fieldPath);
+				if (typeof raw === "string" && raw !== "") names.push(raw);
+			}
+		};
+		walk(this.tree, "/data");
+		return names;
+	}
+
 	computeSubmissionMutation(args: {
 		caseId?: string;
 		caseTypes: ReadonlyArray<CaseType>;
+		/**
+		 * This form entry's attachment scope, supplied by the CONTROLLER
+		 * rather than owned here.
+		 *
+		 * The engine is recreated mid-entry whenever the blueprint changes
+		 * during live preview (that is what makes an edited `default_value`
+		 * visible immediately), so a key minted here would rotate under the
+		 * worker and orphan every attachment they had already staged. The
+		 * controller's lifetime is the entry's lifetime, so the key lives
+		 * there.
+		 */
+		entryKey?: string;
 	}): SubmissionMutation {
 		/* The operation identity riding every arm: the submitting form's
 		 * uuid (the authored-key scope half and the server-side program
@@ -677,9 +747,19 @@ export class FormEngine {
 		 * the form carries case operations. A survey with operations must
 		 * NOT short-circuit — its program still executes. */
 		const operationAnswers = this.computeOperationAnswers();
+		const attachmentNames = this.collectAttachmentNames();
 		const operationIdentity = {
 			formUuid: this.activeFormUuid() as string,
 			...(operationAnswers !== undefined && { operationAnswers }),
+			// Always present, even when empty: an empty list means "this
+			// submission named nothing", which is exactly the instruction to
+			// discard every staged attachment for the entry. Omitting it would
+			// instead mean "an older client that knows nothing about
+			// attachments", which must leave them alone.
+			...(args.entryKey !== undefined && {
+				entryKey: args.entryKey,
+				attachmentNames,
+			}),
 		};
 		if (this.formType === "survey") {
 			return { kind: "survey", ...operationIdentity };

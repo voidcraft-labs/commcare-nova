@@ -42,6 +42,7 @@ import {
 } from "@/lib/case-store/errors";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
+import { reconcileFormAttachments } from "@/lib/db/formAttachments";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import {
 	caseOperationConditionalGuardUuids,
@@ -61,6 +62,7 @@ import {
 	type UserCollections,
 	type Uuid,
 } from "@/lib/domain";
+import { captureObjectKeyFor } from "@/lib/domain/captureFormats";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -85,6 +87,7 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { copyAssetObject, deleteAsset } from "@/lib/storage/media";
 import type {
 	CaseQueryConstraintSource,
 	LoadCaseDataResult,
@@ -1458,4 +1461,68 @@ export function schemaHealingCaseStore(
 		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
 		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
 	};
+}
+
+/**
+ * Settle one form entry's staged attachments against what its submission
+ * actually named.
+ *
+ * Promotes exactly the attachments the surviving relevant answers hold,
+ * discards the rest, and moves each promoted object out of the TTL'd
+ * staging prefix into the durable per-Project one. The move is a
+ * server-side GCS copy, so a submission carrying many attachments moves no
+ * bytes through this process.
+ *
+ * A mutation with no `entryKey` came from a client that predates the
+ * attachment lane. It settles nothing rather than discarding attachments it
+ * cannot see — an absent list means "no opinion", while an empty one means
+ * "this submission named nothing".
+ *
+ * Storage failures are logged and swallowed on purpose. The metadata has
+ * already committed, so the durable answer is intact either way: a failed
+ * copy leaves the bytes at the staging key until its TTL, and a failed
+ * cleanup leaves a duplicate the same TTL collects. Failing the submission
+ * over either would be strictly worse, because the case write has landed.
+ */
+export async function settleSubmittedAttachments(args: {
+	mutation: SubmissionMutation;
+	actorUserId: string;
+	projectId: string;
+}): Promise<void> {
+	const { entryKey, attachmentNames } = args.mutation;
+	if (entryKey === undefined) return;
+	const settled = await reconcileFormAttachments({
+		entryKey,
+		actorUserId: args.actorUserId,
+		expectedProjectId: args.projectId,
+		keptNames: attachmentNames ?? [],
+	});
+	await Promise.allSettled([
+		...settled.promoted.map(async (attachment) => {
+			const durable = captureObjectKeyFor(
+				attachment.projectId,
+				attachment.attachmentId,
+				attachment.extension,
+			);
+			try {
+				await copyAssetObject(attachment.gcsObjectKey, durable);
+				await deleteAsset(attachment.gcsObjectKey);
+			} catch (err) {
+				log.warn("[attachments] promotion copy failed", {
+					err,
+					attachmentId: attachment.attachmentId,
+				});
+			}
+		}),
+		...settled.discarded.map(async (attachment) => {
+			try {
+				await deleteAsset(attachment.gcsObjectKey);
+			} catch (err) {
+				log.warn("[attachments] discard cleanup failed", {
+					err,
+					attachmentId: attachment.attachmentId,
+				});
+			}
+		}),
+	]);
 }

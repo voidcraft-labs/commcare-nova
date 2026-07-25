@@ -66,6 +66,7 @@ import {
 	resolvePreviewIdentity,
 	resolvePreviewIdentityForApp,
 	seedSampleCases,
+	settleSubmittedAttachments,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
@@ -991,7 +992,11 @@ export async function submitFormAction(
 		 * distinguishable arms a non-member must never reach, or the
 		 * IDOR-safe not-found collapse leaks whether a foreign form
 		 * carries operations. */
-		const store = await gatedCaseStore(appId, identity, "edit");
+		const { store, scope } = await gatedCaseStoreWithScope(
+			appId,
+			identity,
+			"edit",
+		);
 		const built = await buildSubmissionOperationProgram({
 			appId,
 			identity,
@@ -1007,6 +1012,23 @@ export async function submitFormAction(
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, appId, built),
 		);
+
+		// Settle this entry's attachments AFTER the case write commits.
+		//
+		// Deliberately after, and deliberately not inside the case
+		// transaction: the two live in different stores, and the failure
+		// asymmetry is the whole reason. A submission that wrote its case
+		// but failed to promote its attachments leaves them staged, where
+		// reconciliation on a retry or the staging TTL collects them — a
+		// recoverable loss of an attachment. Promoting first and failing the
+		// case write would instead durably keep files for a submission that
+		// never happened.
+		await settleSubmittedAttachments({
+			mutation,
+			actorUserId: identity.ownerId,
+			projectId: scope.projectId,
+		});
+
 		if (mutation.kind === "survey") return { kind: "survey" };
 		if (result.primaryCaseId === undefined) {
 			throw new Error(

@@ -141,6 +141,37 @@ export async function createPendingFormAttachment(args: {
 	return { attachmentId, attachmentName, objectKey };
 }
 
+/**
+ * Read one attachment for an edit-authorized member of a known Project.
+ *
+ * Exists so confirm can measure the stored object BEFORE flipping the
+ * row: doing it the other way round would either hold a transaction open
+ * across a GCS round trip, or commit a placeholder size that an
+ * idempotent retry then declines to correct.
+ */
+export async function loadFormAttachmentForEdit(args: {
+	attachmentId: string;
+	actorUserId: string;
+	expectedProjectId: string;
+}): Promise<FormAttachmentRecord | null> {
+	return withAppTx(async (tx) => {
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.expectedProjectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) return null;
+		const row = await tx
+			.selectFrom("form_attachments")
+			.selectAll()
+			.where("attachment_id", "=", args.attachmentId)
+			.where("project_id", "=", args.expectedProjectId)
+			.where("created_by", "=", args.actorUserId)
+			.executeTakeFirst();
+		return row === undefined ? null : recordFromRow(row);
+	});
+}
+
 export type ConfirmFormAttachmentResult =
 	| { readonly kind: "staged"; readonly attachment: FormAttachmentRecord }
 	| {
