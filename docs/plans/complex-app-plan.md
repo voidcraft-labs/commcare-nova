@@ -131,6 +131,21 @@ case-first form condition is `selected-case`. `PredicateEditProvider` composes
 the matching admission oracle in front of any caller oracle, so no surface can
 silently offer a read the commit gate would reject.
 
+A second, independent axis governs **Never match**. `DISPLAY_CONDITION_ALWAYS_FALSE`
+refuses a navigation condition nobody could satisfy, so the editor withholds
+`match-none` there — but the same shape is legitimate authored data in the
+Search-action carrier, which shares the `global` scope. `allowsNeverMatch`
+therefore stands apart from `CaseDataScope`, defaults to allowed, and governs
+exactly one kind; reading it off the scope would have made an existing document
+uneditable. A saved `match-none` always renders and re-emits: the flag governs
+the add and replace menus, never round-tripping.
+
+Every *single* choice these editors offer is admissible, but "can never match" is
+a property of the whole tree — an author can still compose one deliberately by
+excluding an always-true rule. The condition canvas therefore commits through the
+inline gate flavor and shows a refusal beside the rule, rather than a toast over
+a silently reverted edit.
+
 Preview from a condition URL runs the surface the condition governs — the home
 screen for a module (entering the module would route straight past the screen the
 condition decides), the form itself for a form — and leaves the URL alone, so
