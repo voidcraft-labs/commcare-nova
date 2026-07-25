@@ -460,7 +460,7 @@ function checkDetails(
 					),
 				);
 			}
-			errors.push(...checkFieldStyle(field, fieldChildren, detailId, loc));
+			errors.push(...checkFieldStyle(fieldChildren, detailId, loc));
 		}
 	}
 
@@ -493,7 +493,6 @@ function checkDetails(
  * required object. It is a generator tripwire, never a user gate.
  */
 function checkFieldStyle(
-	field: Element,
 	fieldChildren: readonly Element[],
 	detailId: string,
 	loc: ValidationLocation,
