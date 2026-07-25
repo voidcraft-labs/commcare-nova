@@ -100,13 +100,14 @@ export function FieldRenderer({
 					onBlur={onBlur}
 				/>
 			);
-		// Media-capture kinds. All dispatch to the same placeholder card;
-		// the icon + label come from the field registry, so adding another
-		// media kind doesn't need a new case here but DOES need the kind
-		// listed explicitly.
+		// Capture kinds plus barcode. All dispatch to the same placeholder
+		// card; the icon + label come from the field registry, so adding
+		// another capture kind doesn't need a new case here but DOES need
+		// the kind listed explicitly.
 		case "image":
 		case "audio":
 		case "video":
+		case "file":
 		case "signature":
 		case "barcode":
 			return <MediaField field={field} />;

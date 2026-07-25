@@ -1,5 +1,7 @@
 /** CommCare platform constants — single source of truth. */
 
+import { captureFieldKinds } from "@/lib/domain";
+
 /**
  * Case property names that HQ rejects in update_case / case_preload blocks.
  * Matches commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json
@@ -65,13 +67,37 @@ export const RESERVED_RENAME_MAP: Readonly<Record<string, string>> = {
 	create: "create_info",
 };
 
-/** Field kinds that produce binary/media uploads — cannot be saved as case properties. */
-export const MEDIA_FIELD_KINDS: ReadonlySet<string> = new Set([
-	"image",
-	"audio",
-	"video",
-	"signature",
-]);
+/**
+ * Field kinds whose answer is an attachment rather than a value — they
+ * cannot be saved as case properties on this path.
+ *
+ * Derived from the domain's `captureFieldKinds` so the two cannot drift:
+ * a kind that is a capture in the vocabulary is a capture at the case
+ * boundary too.
+ */
+export const MEDIA_FIELD_KINDS: ReadonlySet<string> = new Set(
+	captureFieldKinds,
+);
+
+/**
+ * The most attachments one form submission may carry.
+ *
+ * Formplayer counts this at SUBMIT time, over the session's media
+ * directory rather than over the surviving answers:
+ * `FormSubmissionHelper::getMultiPartFormBody` lists the directory and
+ * throws `form.upload.attachments.limit.exceeded` when
+ * `files.length > maxAttachmentsPerForm`, injected from
+ * `formplayer.form.submit.max_attachments=50` in Formplayer's
+ * `application.properties` (unset in both override files). The whole
+ * submission aborts, and the worker has no way to remove a file no live
+ * question references.
+ *
+ * Nova bounds what it can bound exactly — a form's non-repeating capture
+ * fields — at the commit gate. Captures inside a repeat are unbounded at
+ * authoring time because the worker chooses the iteration count, and no
+ * authoring-time check closes that.
+ */
+export const MAX_FORM_ATTACHMENTS = 50;
 
 /**
  * Field kinds that accept user input and therefore support validation

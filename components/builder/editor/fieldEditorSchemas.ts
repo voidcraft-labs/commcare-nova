@@ -27,6 +27,7 @@ import type {
 	DecimalField,
 	Field,
 	FieldKind,
+	FileField,
 	GeopointField,
 	GroupField,
 	HiddenField,
@@ -133,7 +134,7 @@ function textEntry<F extends Field, K extends keyof F & string>(
 }
 
 // The hint text entry. Distinct from `textEntry` because the capture
-// kinds (image/audio/video/signature) carry `hint` only structurally:
+// kinds (image/audio/video/signature/file) carry `hint` only structurally:
 // the entry is keyed via the `"hint" & keyof F` cast so it resolves for
 // any field that has the property whether or not its concrete type
 // declares it. Input kinds that declare `hint` use it too.
@@ -447,7 +448,7 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	],
 };
 
-// Capture kinds (image/audio/video/signature) carry a display `label`
+// Capture kinds (image/audio/video/signature/file) carry a display `label`
 // + `label_media` but no help/required/validate message slots — the
 // label-media entry joins each kind's pre-existing hint entry.
 const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
@@ -483,6 +484,18 @@ const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
 	ui: [
 		mediaEntry<VideoField, "label_media">("label_media", "Label Media"),
 		hintEntry<VideoField>(),
+	],
+};
+
+const fileFieldEditorSchema: FieldEditorSchema<FileField> = {
+	data: [],
+	logic: [
+		requiredEntry<FileField>(),
+		xpathEntry<FileField, "relevant">("relevant", "Show When"),
+	],
+	ui: [
+		mediaEntry<FileField, "label_media">("label_media", "Label Media"),
+		hintEntry<FileField>(),
 	],
 };
 
@@ -565,6 +578,7 @@ export const fieldEditorSchemas: {
 	image: imageFieldEditorSchema,
 	audio: audioFieldEditorSchema,
 	video: videoFieldEditorSchema,
+	file: fileFieldEditorSchema,
 	barcode: barcodeFieldEditorSchema,
 	signature: signatureFieldEditorSchema,
 	label: labelFieldEditorSchema,

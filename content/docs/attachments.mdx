@@ -1,0 +1,131 @@
+---
+title: Attachment questions
+description: Photos, audio, video, signatures, and files — what they accept, and what a worker actually sees.
+---
+
+An attachment question asks a worker for a file rather than a value they
+type. Nova has five of them, and they differ in what the worker does, not
+just in what the file contains.
+
+| Question | What the worker does | Files it accepts |
+| --- | --- | --- |
+| **Image** | Attaches a photo from their device | JPG, JPEG, PNG |
+| **Audio** | Attaches an audio file | MP3, WAV, OGG, AMR, QCP, 3GA |
+| **Video** | Attaches a video file | MP4, MPG, MPEG, MPG4, MPEG4, M4V, 3GP, 3GPP, 3GP2, 3G2 |
+| **File** | Attaches a document | PDF, DOCX, XLSX, HTML, RTF, TXT, MSG |
+| **Signature** | Signs on a drawing pad in the app | Produces a PNG |
+
+Each one can be marked required, can be shown or hidden by a condition,
+and can sit inside a repeating section. None of them can save to a case
+property — CommCare carries attachments separately from case data, so the
+**Saves to** control is unavailable on these questions.
+
+## People attach files; they do not capture them
+
+This is the single most important thing to get right when you write the
+question's label.
+
+CommCare Web Apps — the browser app most people use — has no camera, no
+microphone, and no recorder. Every one of these questions except
+Signature opens the device's ordinary file picker. On a phone, that
+picker may itself offer a camera as one of its options, but that is the
+phone's own menu; the app cannot ask for it or rely on it.
+
+So write **"Attach a photo of the meter"**, not "Take a photo of the
+meter". A label that tells a worker to take a photo describes a button
+that is not there.
+
+The CommCare Android app does capture directly — its photo question opens
+the camera and its audio question records. If your workers use the
+Android app, they get that behavior for free without any change to the
+question. Wording that works in both places says "attach", because
+attaching is what both can do.
+
+## Signature is its own question, not a photo
+
+Signature is the one attachment a worker produces inside the app: a blank
+pad they sign with a finger or a mouse, saved as an image. Use it for
+consent and sign-off; use Image when the worker needs to attach a picture
+of something.
+
+One thing to know: if a worker leaves a form and comes back to it later,
+a signature question shows a blank pad again even though their signature
+was saved. The signature is not lost — it just is not drawn back onto the
+pad. If that would confuse people, put the signature near the end of the
+form so it is signed and submitted in one sitting.
+
+## File attachments only work in the web app
+
+The **File** question is a real question in CommCare Web Apps. In the
+CommCare Android app it is not — Android does not recognize it and shows
+a plain text box instead, so a worker there can type anything into it and
+that text is what gets submitted.
+
+If any of your workers use the Android app, prefer Image, Audio, Video,
+or Signature. Use File when you know the work happens in a browser.
+
+## Limits
+
+**4 MB per file.** A worker who picks something larger is told the file
+is too big and nothing is attached. There is no automatic shrinking — the
+file the worker picks is the file that gets sent — so if people will be
+attaching photos straight off a modern phone, say so in the question's
+hint and ask them to pick a smaller one.
+
+**50 attachments per submitted form.** This is a hard limit in CommCare,
+and it is checked when the worker presses Submit rather than while they
+fill the form in. Nova will not let you build a form with more than 50
+attachment questions outside a repeating section, because a worker who
+answered them all could never submit it.
+
+Inside a repeating section the number is up to the worker, so no check
+can catch it in advance. If a repeating section contains an attachment
+question, keep the section short, or say in its label roughly how many
+entries you expect.
+
+## What a worker sees after attaching
+
+Once a file is attached, the web app shows its filename and a **Clear**
+button. It does not show a thumbnail, and it does not play audio or video
+back. There is no way to open the file again from inside the form.
+
+That means a worker cannot check what they attached — only that they
+attached something. Where getting the right file matters, ask for it in
+a question of its own with a clear label, rather than as one of several
+attachments on a crowded screen.
+
+If a worker returns to a partly-filled form later, the filename they
+originally picked is no longer shown, and one attachment reads much like
+another. Keeping attachment questions near the end of a form, so they are
+answered and submitted together, avoids most of this.
+
+## Clearing a required attachment
+
+There is a bug in CommCare worth knowing about, because it affects what
+you tell workers to do.
+
+If an attachment question is marked required and a worker clears it,
+CommCare deletes the file but the question goes on reporting the old
+one. The worker sees a "required" message. If they attach a new file,
+everything is fine and nothing was lost. But if they leave it and submit
+the form anyway, the form is accepted — and the answer points at a file
+that is no longer there.
+
+So the advice is not "avoid required attachments" — requiring a photo is
+a perfectly ordinary thing to need. It is:
+
+- **Tell workers to replace, not clear.** Picking a new file over an old
+  one works correctly and is the gesture you want them in the habit of.
+- Treat **Clear** as something a worker uses when they are about to
+  attach something else, not as a way to leave a question blank.
+
+Replacing an attachment is clean on every runtime.
+
+## In the builder
+
+Attachment questions are under **Attachments & scanning** in the question
+picker, alongside Barcode. Barcode is not an attachment: it scans a code
+and stores the text it read.
+
+In the builder's preview, an attachment question shows a placeholder card
+naming its type. The preview does not attach files.

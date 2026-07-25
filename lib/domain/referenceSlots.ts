@@ -46,7 +46,7 @@
 //     They are classified `media` in the non-reference maps so the
 //     audit stays total without duplicating that registry.
 
-import type { FieldKind, RepeatMode } from "./fields";
+import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
 import type { ColumnKind, SearchInputDef } from "./modules";
 
@@ -190,13 +190,10 @@ const VALIDATED_INPUT_KINDS = [
 ] as const satisfies readonly FieldKind[];
 
 /** Binary capture kinds — label + hint + required + relevant only
- *  (no help, no case wiring, no validation, no default). */
-const CAPTURE_KINDS = [
-	"image",
-	"audio",
-	"video",
-	"signature",
-] as const satisfies readonly FieldKind[];
+ *  (no help, no case wiring, no validation, no default). Aliases the
+ *  domain's `captureFieldKinds`; the audit test proves the group exact
+ *  against the per-kind schemas. */
+const CAPTURE_KINDS = captureFieldKinds;
 
 const SELECT_KINDS = [
 	"single_select",
@@ -219,6 +216,7 @@ const RELEVANT_KINDS = [
 	"image",
 	"audio",
 	"video",
+	"file",
 	"barcode",
 	"signature",
 	"label",
@@ -244,6 +242,7 @@ const LABELED_KINDS = [
 	"image",
 	"audio",
 	"video",
+	"file",
 	"barcode",
 	"signature",
 	"label",

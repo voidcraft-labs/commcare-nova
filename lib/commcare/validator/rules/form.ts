@@ -11,6 +11,7 @@
 import {
 	CASE_PROPERTY_REGEX,
 	MAX_CASE_PROPERTY_LENGTH,
+	MAX_FORM_ATTACHMENTS,
 	MEDIA_FIELD_KINDS,
 	RESERVED_CASE_PROPERTIES,
 	XML_ELEMENT_NAME_REGEX,
@@ -233,7 +234,7 @@ function mediaCaseProperty(
 				validationError(
 					"MEDIA_CASE_PROPERTY",
 					"form",
-					`"${ctx.formName}" tries to save the ${field.kind} field "${qId}" as case property "${prop}". Media files (images, audio, video, signatures) can't be stored as case properties — they're handled separately by CommCare's attachment system. Clear \`case_property_on\` on this field.`,
+					`"${ctx.formName}" tries to save the ${field.kind} field "${qId}" as case property "${prop}". Attachments (photos, audio, video, signatures, files) can't be stored as case properties — CommCare carries them through its attachment system instead. Clear \`case_property_on\` on this field.`,
 					baseLocation(ctx),
 					{ property: prop, questionId: qId },
 				),
@@ -241,6 +242,56 @@ function mediaCaseProperty(
 		}
 	}
 	return errors;
+}
+
+/**
+ * Every capture field in the form that is NOT inside a repeat.
+ *
+ * The walk stops at a repeat deliberately: a capture there produces one
+ * attachment per iteration, and the worker chooses the iteration count,
+ * so no authoring-time number bounds it. Counting the template once
+ * would understate the real total and imply a guarantee this check
+ * cannot make.
+ */
+function nonRepeatingCaptureFieldIds(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+): string[] {
+	const ids: string[] = [];
+	const walk = (uuid: Uuid) => {
+		for (const childUuid of doc.fieldOrder[uuid] ?? []) {
+			const field = doc.fields[childUuid];
+			if (!field) continue;
+			if (field.kind === "repeat") continue;
+			if (MEDIA_FIELD_KINDS.has(field.kind)) ids.push(field.id);
+			if (doc.fieldOrder[childUuid] !== undefined) walk(childUuid);
+		}
+	};
+	walk(parentUuid);
+	return ids;
+}
+
+/**
+ * A form whose fixed capture questions alone exceed CommCare's
+ * per-submission attachment cap can never be submitted once a worker
+ * fills it in — the count runs at submit time and aborts the whole
+ * submission, leaving no way to shed a file.
+ */
+function tooManyAttachments(
+	doc: BlueprintDoc,
+	ctx: FormContext,
+): ValidationError[] {
+	const captureIds = nonRepeatingCaptureFieldIds(doc, ctx.formUuid);
+	if (captureIds.length <= MAX_FORM_ATTACHMENTS) return [];
+	return [
+		validationError(
+			"FORM_TOO_MANY_ATTACHMENTS",
+			"form",
+			`"${ctx.formName}" asks for ${captureIds.length} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form. A worker who answers every one of them would be unable to submit, and there would be no way to remove a file to get under the limit. Split this into more than one form, or remove some of the attachment questions.`,
+			baseLocation(ctx),
+			{ captureCount: String(captureIds.length) },
+		),
+	];
 }
 
 function casePreloadMissingField(
@@ -1223,6 +1274,7 @@ export function runFormRules(
 	errors.push(...reservedCaseProperty(ctx, caseConfig));
 	errors.push(...casePropertyMissingField(doc, ctx, caseConfig));
 	errors.push(...mediaCaseProperty(doc, ctx, caseConfig));
+	errors.push(...tooManyAttachments(doc, ctx));
 	errors.push(...casePreloadMissingField(doc, ctx, caseConfig));
 	errors.push(...casePreloadReserved(ctx, caseConfig));
 	errors.push(...duplicateCasePropertyMapping(ctx, caseConfig));

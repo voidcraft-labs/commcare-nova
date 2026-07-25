@@ -32,6 +32,7 @@ import {
 	decimalFieldMetadata,
 	decimalFieldSchema,
 } from "./decimal";
+import { type FileField, fileFieldMetadata, fileFieldSchema } from "./file";
 import {
 	type GeopointField,
 	geopointFieldMetadata,
@@ -97,6 +98,7 @@ export const fieldKinds = [
 	"image",
 	"audio",
 	"video",
+	"file",
 	"barcode",
 	"signature",
 	"label",
@@ -107,6 +109,40 @@ export const fieldKinds = [
 ] as const;
 
 export type FieldKind = (typeof fieldKinds)[number];
+
+/**
+ * The capture kinds — every kind whose answer is an attachment rather
+ * than a value the worker types. They share one schema shape (label +
+ * hint + required + relevant; no case wiring, no validation, no
+ * default) and one wire shape (`<upload mediatype>` over a `binary`
+ * bind).
+ *
+ * This tuple is the single home for "which kinds are captures". The
+ * reference-slot registry's applicability group, the CommCare emitter's
+ * mediatype table, and the validator's case-property rejection all read
+ * it, so a new capture kind cannot be a capture on one surface and an
+ * ordinary field on another.
+ *
+ * `signature` is a capture even though the wire collapses it onto
+ * `image/*` + `appearance="signature"`: every worker-visible property
+ * differs (a canvas rather than a file picker, a different accepted-file
+ * list, PNG output), so Nova models it as its own kind rather than
+ * inheriting the wire's collapsing.
+ */
+export const captureFieldKinds = [
+	"image",
+	"audio",
+	"video",
+	"signature",
+	"file",
+] as const satisfies readonly FieldKind[];
+
+export type CaptureFieldKind = (typeof captureFieldKinds)[number];
+
+/** Is this kind an attachment capture rather than a typed value? */
+export function isCaptureFieldKind(kind: string): kind is CaptureFieldKind {
+	return (captureFieldKinds as readonly string[]).includes(kind);
+}
 
 /**
  * The pre-lookup select shapes retained at rolling and authoring boundaries.
@@ -161,6 +197,7 @@ export const fieldSchema = z.union([
 		imageFieldSchema,
 		audioFieldSchema,
 		videoFieldSchema,
+		fileFieldSchema,
 		barcodeFieldSchema,
 		signatureFieldSchema,
 		labelFieldSchema,
@@ -185,6 +222,7 @@ export const carrierBlindFieldSchema = z.union([
 		imageFieldSchema,
 		audioFieldSchema,
 		videoFieldSchema,
+		fileFieldSchema,
 		barcodeFieldSchema,
 		signatureFieldSchema,
 		labelFieldSchema,
@@ -213,6 +251,7 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	image: imageFieldMetadata,
 	audio: audioFieldMetadata,
 	video: videoFieldMetadata,
+	file: fileFieldMetadata,
 	barcode: barcodeFieldMetadata,
 	signature: signatureFieldMetadata,
 	label: labelFieldMetadata,
@@ -260,6 +299,7 @@ const fieldKindKeySets: Record<FieldKind, ReadonlySet<string>> = {
 	image: new Set(Object.keys(imageFieldSchema.shape)),
 	audio: new Set(Object.keys(audioFieldSchema.shape)),
 	video: new Set(Object.keys(videoFieldSchema.shape)),
+	file: new Set(Object.keys(fileFieldSchema.shape)),
 	barcode: new Set(Object.keys(barcodeFieldSchema.shape)),
 	signature: new Set(Object.keys(signatureFieldSchema.shape)),
 	label: new Set(Object.keys(labelFieldSchema.shape)),
@@ -598,6 +638,7 @@ export const fieldPatchSchemaByKind = {
 	image: partialOf(imageFieldSchema),
 	audio: partialOf(audioFieldSchema),
 	video: partialOf(videoFieldSchema),
+	file: partialOf(fileFieldSchema),
 	barcode: partialOf(barcodeFieldSchema),
 	signature: partialOf(signatureFieldSchema),
 	label: partialOf(labelFieldSchema),
@@ -665,6 +706,7 @@ export type {
 	DateField,
 	DatetimeField,
 	DecimalField,
+	FileField,
 	GeopointField,
 	GroupField,
 	HiddenField,

@@ -236,9 +236,37 @@ export function applicationShell(
 		langs: ["en"],
 		build_spec: {
 			doc_type: "BuildSpec",
-			// Menu-level display conditions may reference secondary instances.
-			// CCHQ emits those declarations as <menu> children starting at 2.54.
-			version: "2.54.0",
+			// The CommCare version Nova's apps target. It is the MAXIMUM of
+			// every platform floor Nova's authoring vocabulary implies, so
+			// that the declaration is true of the whole vocabulary rather
+			// than of whichever feature happened to raise it last:
+			//
+			//   - 2.54 — menu-level display conditions may reference
+			//     secondary instances, which CCHQ emits as <menu> children
+			//     only from that version.
+			//   - 2.57 — file-attachment questions
+			//     (`mediatype="application/*,text/*"`). HQ dates the feature
+			//     itself to 2.57
+			//     (`feature_support.py::CommCareFeatureSupportMixin::support_document_upload`,
+			//     a `_require_minimum_version('2.57')` read against
+			//     `LooseVersion(app.build_spec.version)`).
+			//
+			// The 2.57 gate is authoring-palette-only — its one consumer
+			// repo-wide is `views/formdesigner.py::_get_vellum_features`,
+			// and neither `XFormParser::parseUpload` nor
+			// `entries.js::getEntry` checks a version — so a form Nova emits
+			// renders regardless. Declaring the true floor anyway is the
+			// point: Nova must not claim a compatibility HQ itself does not.
+			//
+			// This value is DECLARATIVE on the upload path.
+			// `models/applications.py::import_app` deletes `build_spec` from
+			// the incoming document ("Allow the wrapper to update to the
+			// current default build_spec"), and `ApplicationBase.wrap` then
+			// substitutes the target domain's configured default. So raising
+			// it changes no emitted byte on HQ; it states what Nova's
+			// vocabulary actually needs, for anything reading the exported
+			// JSON directly.
+			version: "2.57.0",
 			build_number: null,
 		},
 		profile: { doc_type: "Profile", features: {}, properties: {} },

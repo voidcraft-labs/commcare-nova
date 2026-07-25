@@ -65,6 +65,7 @@ export function caseDataTypeForFieldKind(
 		case "audio":
 		case "video":
 		case "signature":
+		case "file":
 			// `hidden` skipped: see the function doc. The remaining kinds
 			// carry no `case_property_on` slot in their schema and are
 			// structurally unreachable; listing them keeps the switch

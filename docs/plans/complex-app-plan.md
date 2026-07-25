@@ -308,7 +308,77 @@ export-time verdicts, the export budget, the wire manifest, and the deletion gua
 live in `lib/media`. The manifest filters a document's referenced ids to the
 Project, which is also the exfiltration-via-compile defense — a foreign-Project
 reference resolves to `MEDIA_ASSET_NOT_FOUND` rather than being emitted. This is
-authoring media (menu icons, field images); case-captured media is unit 5.
+authoring media (menu icons, field images); a worker's own captures are the
+attachment questions below and never enter this library.
+
+### Attachment questions
+
+Five capture kinds — image, audio, video, signature, and file — carry a label,
+hint, `required`, and `relevant` and nothing else. `captureFieldKinds`
+(`lib/domain/fields`) is the single home for which kinds are captures; the
+reference-slot applicability groups, the case-property rejection, and the wire
+emitter all read it. Each emits `<upload ref mediatype>` over a `<bind
+type="binary">` and nothing else — no suite entry, no app-level declaration
+(fixture: `form_preparation_v2/attachment.xml`).
+
+**The `mediatype` is a closed four-literal enum with no fallback, and the
+emitter makes an unmatched value unrepresentable rather than checking for one.**
+`XFormParser::parseUpload` matches with literal `String.equals` against
+`image/*`, `audio/*`, `video/*`, and `application/*,text/*` (comma, no space).
+Anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry`
+falls through to `UnsupportedEntry`, and that constructor **sets the answer** to
+the literal string `Not Supported by Web Entry`, which then submits. The failure
+mode is silent bad data, so `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND`
+(`lib/commcare/xform/captureUpload.ts`) is a total table over the capture kinds
+into a four-member literal type, and a new kind fails `tsc` until it names one.
+
+Signature is its own Nova kind emitted as `image/*` plus
+`appearance="signature"` — the wire collapses it onto the image control and
+`entries.js::getEntry` splits it back apart on that appearance, but every
+worker-visible property differs. `appearance="face"` stays out: Vellum authors it
+and it is inert on both runtimes Nova targets. `jr:imageDimensionScaledMax` stays
+out for the same reason — `UploadQuestionExtensionParser` is registered only by
+`commcare-android`, so Web Apps does no downscaling and uploads the picked bytes.
+
+File attachments are a first-class Web Apps kind (`entries.js::DocumentEntry`,
+accept list `.pdf,.xlsx,.docx,.html,.txt,.rtf,.msg`) with full receiver support,
+and they carry one asymmetry stated where the author picks the kind:
+`CONTROL_DOCUMENT_UPLOAD` appears nowhere in `commcare-android`, so
+`WidgetFactory::createWidgetFromPrompt` falls to `StringWidget` and a worker
+there types free text into a `binary` node.
+
+The declared target CommCare version (`hqShells.ts::applicationShell`'s
+`build_spec.version`) is the **maximum** of every floor Nova's vocabulary
+implies: 2.54 for menu-level instance declarations, 2.57 for file attachments
+(`feature_support.py::support_document_upload`). That 2.57 gate is
+authoring-palette-only — its one consumer repo-wide is
+`views/formdesigner.py::_get_vellum_features` — so an emitted form renders
+regardless; declaring the true floor is about not claiming a compatibility HQ
+itself does not. It is declarative on the upload path either way, because
+`models/applications.py::import_app` deletes `build_spec` and
+`ApplicationBase.wrap` substitutes the target domain's default.
+
+`FORM_TOO_MANY_ATTACHMENTS` rejects a form whose **non-repeating** capture
+questions exceed `MAX_FORM_ATTACHMENTS` (50). Formplayer counts at submit time
+over the session media directory (`FormSubmissionHelper::getMultiPartFormBody`,
+before any per-file logic) and the whole submission aborts, with no worker-facing
+way to shed a file — so a form past the cap is a dead end once fully answered.
+The walk stops at a repeat deliberately: a capture there produces one attachment
+per iteration and the worker chooses the count, so no authoring-time number
+bounds it, and counting the template once would imply a guarantee the check
+cannot make.
+
+**Every author- and worker-facing string says "attach", never "take" or
+"record".** Web Apps has no camera, microphone, or recorder anywhere in
+cloudcare — `entry_file.html` binds only `accept` on its file input, and
+`getUserMedia` / `MediaRecorder` / `capture=` occur nowhere in it. Every kind but
+signature is the OS file picker. CommCare Android is the contrast, and that
+contrast is a docs fact rather than a Nova behavior.
+
+`lib/commcare/validator/rules/form.ts::mediaCaseProperty` keeps rejecting a
+capture kind carrying `case_property_on`, and `formActions.ts` skips capture
+kinds when building the case-update map. Writing a capture onto the case is
+inseparable from emitting its URL column, so the two ship together (unit 6).
 
 ### Export and HQ upload
 
@@ -414,10 +484,11 @@ from, and why Nova emits only HQ's `custom` tile vocabulary.
 [`complex-app/05-media-capture-in-forms.md`](complex-app/05-media-capture-in-forms.md)
 · depends on nothing · blocks unit 6
 
-Real image, audio, video, and signature capture in forms, staged upload through
-submission. **The file holds** the platform caps with their sources, the lifecycle
-surface area to specify, and why the unit stops at the form rather than reaching
-the case.
+Capture in the running preview: staged upload at pick time through the durable
+landing a submission gives it. **The file holds** the server-generated naming
+Nova must not reinvent, why "attachments on the form" is not "captures the worker
+kept", the two upstream Formplayer defects to design around, and what a worker
+can actually see after attaching.
 
 ### 6 — Attachment target-aware emission and link UX
 

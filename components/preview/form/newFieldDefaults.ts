@@ -55,6 +55,7 @@ export const NEW_FIELD_BUILDERS: {
 	image: (id, label) => ({ kind: "image", id, label }),
 	audio: (id, label) => ({ kind: "audio", id, label }),
 	video: (id, label) => ({ kind: "video", id, label }),
+	file: (id, label) => ({ kind: "file", id, label }),
 	signature: (id, label) => ({ kind: "signature", id, label }),
 	label: (id, label) => ({ kind: "label", id, label }),
 	group: (id, label) => ({ kind: "group", id, label }),

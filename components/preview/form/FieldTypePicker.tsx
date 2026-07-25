@@ -60,9 +60,12 @@ const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 		types: ["single_select", "multi_select"],
 	},
 	{
-		label: "Media",
+		// Barcode rides here rather than under Input: it is a scan, not
+		// something the worker types. It is not a capture kind — its answer
+		// is the scanned text, not an attachment.
+		label: "Attachments & scanning",
 		icon: tablerPhoto,
-		types: ["image", "audio", "video", "barcode", "signature"],
+		types: ["image", "audio", "video", "file", "signature", "barcode"],
 	},
 	{ label: "Structure", icon: tablerFolder, types: ["group", "repeat"] },
 ];

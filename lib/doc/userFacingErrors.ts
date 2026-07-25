@@ -47,6 +47,7 @@
  * `VALIDITY_CLASS_BY_CODE`.
  */
 
+import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
 import type {
 	ValidationError,
 	ValidationErrorCode,
@@ -376,7 +377,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CASE_PROPERTY_MISSING_FIELD: (e) =>
 		`${q(formName(e))} still saves a value from a field that's no longer there. Remove that, or add the field back.`,
 	MEDIA_CASE_PROPERTY: (e) =>
-		`${q(formName(e))} is trying to save a media field to the case. Images, audio, and video can't be saved as case data, so don't have that field save to the case.`,
+		`${q(formName(e))} is trying to save an attachment question to the case. Photos, audio, video, signatures, and files can't be saved as case data, so don't have that field save to the case.`,
+	FORM_TOO_MANY_ATTACHMENTS: (e) =>
+		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form — a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
 	CASE_PRELOAD_MISSING_FIELD: (e) =>
 		`${q(formName(e))} loads a saved value into a field that isn't there. Add the field back, or remove that load.`,
 	CASE_PRELOAD_RESERVED: (e) =>

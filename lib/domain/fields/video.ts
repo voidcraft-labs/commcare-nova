@@ -1,8 +1,12 @@
 // lib/domain/fields/video.ts
 //
-// Video recording field. Maps to CommCare <input> control with binary data type.
-// Cannot be calculated, validated, or saved to a case property — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema.
+// Video capture field. Emits `<upload mediatype="video/*">` over a
+// `binary` bind. Cannot be calculated, validated, or saved to a case
+// property — extends fieldBaseSchema directly rather than
+// inputFieldBaseSchema.
+//
+// This is an attachment, not a recording: CommCare Web Apps has no
+// camera or recorder, so the worker picks an existing video file.
 
 import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
@@ -26,6 +30,7 @@ export const videoFieldMetadata: FieldKindMetadata<"video"> = {
 	label: "Video",
 	isStructural: false,
 	isContainer: false,
-	saDocs: "Video recording. Cannot be saved to a case property.",
-	convertTargets: ["image", "audio", "signature"],
+	saDocs:
+		"Video attachment — the worker attaches an existing MP4, MPG, MPEG, MPG4, MPEG4, M4V, 3GP, 3GPP, 3GP2, or 3G2 file. Web Apps has no camera, so never describe this as recording video. Cannot be saved to a case property.",
+	convertTargets: ["image", "audio", "signature", "file"],
 };

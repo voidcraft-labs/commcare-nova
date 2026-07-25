@@ -12,6 +12,12 @@ The `./index.ts` barrel must stay client-safe: Node-only modules (`./compiler` v
 
 `fieldProps.ts::readFieldString(field, key, doc)` is the one reading-helper the wire emitters share: expression slots (`relevant`, `validate`, `calculate`, `default_value`, `required`, the repeat slots, `label`, `hint`, …) delegate to the domain's `expressionSource`, which projects AST-stored values to their printed text against `doc` — identity references resolve to CURRENT names at every read — and passes prose/legacy strings through; non-expression keys (`case_property_on`) stay a plain untyped lookup. Narrowing per kind at every call site would cascade N×M branches.
 
+### Capture uploads — a closed enum, not a conditional
+
+`xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`; `appearance="face"` and `jr:imageDimensionScaledMax` stay out because both are inert on every runtime Nova targets.
+
+`build_spec.version` in `hqShells.ts` is the MAXIMUM of every CommCare floor Nova's vocabulary implies, not the last one raised — 2.54 for menu-level instance declarations, 2.57 for file attachments. It is declarative on the upload path (`import_app` deletes `build_spec`; `ApplicationBase.wrap` substitutes the domain default), so raise it whenever a new floor appears rather than reasoning about whether it takes effect.
+
 ### Vellum dual-attribute pattern
 
 Real attributes (`calculate`, `relevant`, `constraint`, `required`) get the expanded instance XPath — the only thing the device/validator parses; `vellum:` shadow attributes carry the shorthand HQ's form designer treats as source of truth on round-trip. Every bind also gets `vellum:nodeset="#form/..."`.

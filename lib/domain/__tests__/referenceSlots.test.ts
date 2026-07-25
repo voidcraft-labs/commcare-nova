@@ -38,6 +38,7 @@ import { barcodeFieldSchema } from "../fields/barcode";
 import { dateFieldSchema } from "../fields/date";
 import { datetimeFieldSchema } from "../fields/datetime";
 import { decimalFieldSchema } from "../fields/decimal";
+import { fileFieldSchema } from "../fields/file";
 import { geopointFieldSchema } from "../fields/geopoint";
 import { groupFieldSchema } from "../fields/group";
 import { hiddenFieldSchema } from "../fields/hidden";
@@ -112,6 +113,7 @@ const NON_REPEAT_KIND_SCHEMAS: Record<
 	image: imageFieldSchema,
 	audio: audioFieldSchema,
 	video: videoFieldSchema,
+	file: fileFieldSchema,
 	barcode: barcodeFieldSchema,
 	signature: signatureFieldSchema,
 	label: labelFieldSchema,
