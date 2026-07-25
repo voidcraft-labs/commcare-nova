@@ -160,12 +160,17 @@ a number.
 
 Three things the rest of the preview has to know:
 
-- **A tile carries more columns than it shows.** `tileResultsColumns` selects the
-  set the short detail emits: every Results-visible column PLUS every hidden
-  column that still owns a Default-order rule. That carrier holds its square and
-  renders no value (Web Apps' `widthHint === 0` arm), but it is part of the grid,
-  so the extent must be derived from the carried set — the visible set alone
-  computes a narrower grid than the device draws.
+- **A tile carries more columns than it shows, and the extra ones hold no
+  square.** `tileResultsColumns` selects the set the short detail emits: every
+  Results-visible column PLUS every hidden column that still owns a Default-order
+  rule. That carrier renders no value (Web Apps' `widthHint === 0` arm puts it in
+  a `d-none` wrapper) and it is NOT a cell: `columns.ts::tileStyleChildren`
+  refuses a `<style>` for a hidden column, so the device gives it no `grid-area`
+  and `grid.scss::.box` gives its wrapper no size. `tileResultsColumns` therefore
+  STRIPS the stored placement off a hidden carrier — the cell stays on the
+  document so unhiding restores the drawing, but leaving it attached here would
+  let an invisible column widen the grid's extent and flip the tile-wide
+  border/shading switch in the preview and nowhere else.
 - **The grid never reflows.** A tile is the device's own phone-first layout, so
   compact widths change the row's gutters and nothing else; the list holds an
   18rem floor and scrolls horizontally below it rather than crushing 12 columns,

@@ -860,6 +860,16 @@ function tileStyleChildren(
 	if (column.tile === undefined) return [];
 	if (ctx.tileLayout === undefined) return [];
 	if (ctx.detailKind !== "short") return [];
+	// A column hidden from Results never occupies a cell, even when it kept a
+	// placement from before it was hidden. It still reaches the wire as the
+	// zero-width sort carrier when it drives Default order, and that carrier
+	// must stay style-less: a `<style><grid>` would make it a tile field
+	// (`DetailField::isCaseTileField`), which claims a real `grid-area`,
+	// enlarges the tile's computed extent, and joins the tile-wide
+	// border/shading switch — all while its `width="0"` content renders inside
+	// a `d-none` wrapper. The author would be moving an invisible hole around
+	// their layout.
+	if (column.visibleInList === false) return [];
 	return [buildTileStyleBlock(column.tile)];
 }
 
