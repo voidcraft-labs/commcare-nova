@@ -24,10 +24,11 @@ import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
-import type { LookupTableId } from "@/lib/domain/lookupIds";
-import type { LookupTableSnapshot } from "@/lib/lookup/types";
+import type { LookupColumnId } from "@/lib/domain/lookupIds";
+import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
+import { useProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import {
 	COLUMN_TYPE_LABELS,
 	cellText,
@@ -37,15 +38,17 @@ import {
 	ROWS_PER_PAGE,
 	tableCapacity,
 } from "./projectDataModel";
-import { useProjectDataTable } from "./useProjectData";
+import { TableActions } from "./TableActions";
 
-export function ProjectDataTableScreen({
-	tableId,
-}: {
-	tableId: LookupTableId;
-}) {
-	const { state, reload } = useProjectDataTable(tableId);
+export function ProjectDataTableScreen() {
+	const workspace = useProjectDataWorkspace();
 	const navigate = useNavigate();
+	/* The controller owns the read AND the open table's identity — it derives
+	 * both from the URL — so the canvas and the rail share one fetch and one
+	 * selection. Taking a `tableId` prop here would be a second source for the
+	 * same fact. The fallback keeps this screen renderable in isolation. */
+	const state = workspace?.table ?? { kind: "idle" as const };
+	const reload = workspace?.reload ?? (async () => {});
 
 	const backToList = (
 		<Button
@@ -124,14 +127,43 @@ export function ProjectDataTableScreen({
 			<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
 				{formatLookupCount(table.columns.length, "column")} ·{" "}
 				{formatLookupCount(table.rowCount, "row")} of{" "}
-				{capacity.rowLimit.toLocaleString()} ·{" "}
+				{formatLookupCount(capacity.rowLimit, "row")} ·{" "}
 				{formatLookupBytes(table.dataBytes)} of{" "}
 				{formatLookupBytes(capacity.byteLimit)}
 			</p>
 
-			<TableGrid table={table} />
+			{workspace !== null && (
+				<TableActions table={table} workspace={workspace} />
+			)}
+			<TableGrid
+				table={table}
+				selectedRowId={
+					workspace?.selection?.kind === "row"
+						? workspace.selection.rowId
+						: undefined
+				}
+				onSelectRow={(rowId) => workspace?.select({ kind: "row", rowId })}
+				onSelectColumn={(columnId) =>
+					workspace?.select({ kind: "column", columnId })
+				}
+			/>
 		</section>
 	);
+}
+
+/**
+ * How a row is named to a screen reader on its Open control.
+ *
+ * The first column's value, because that is what a person calls the row — a
+ * row number would be honest but useless, and the stored id means nothing to
+ * anyone. Falls back to the position when the first cell is empty.
+ */
+function rowLabel(table: LookupTableSnapshot, row: LookupRow): string {
+	const first = table.columns[0];
+	const text = first === undefined ? undefined : cellText(row.values, first);
+	return text !== undefined && text.trim() !== ""
+		? text
+		: `at position ${(table.rows.indexOf(row) + 1).toLocaleString("en-US")}`;
 }
 
 /**
@@ -151,7 +183,17 @@ export function ProjectDataTableScreen({
  * you look things up in, so matching text across every column beats paging
  * through fifty pages hunting for one facility.
  */
-function TableGrid({ table }: { table: LookupTableSnapshot }) {
+function TableGrid({
+	table,
+	selectedRowId,
+	onSelectRow,
+	onSelectColumn,
+}: {
+	table: LookupTableSnapshot;
+	selectedRowId: string | undefined;
+	onSelectRow: (rowId: string) => void;
+	onSelectColumn: (columnId: LookupColumnId) => void;
+}) {
 	const searchId = useId();
 	const searchHintId = useId();
 	const [query, setQuery] = useState("");
@@ -246,23 +288,42 @@ function TableGrid({ table }: { table: LookupTableSnapshot }) {
 										<th
 											key={column.id}
 											scope="col"
-											className="min-w-36 px-3 py-2.5 align-bottom font-medium"
+											className="min-w-36 p-0 align-bottom font-medium"
 										>
-											<span className="block min-w-0 text-[13px] text-nova-text [overflow-wrap:anywhere]">
-												{column.label}
-											</span>
-											<span className="block text-[12px] font-normal text-nova-text-muted">
-												{COLUMN_TYPE_LABELS[column.dataType]}
-											</span>
+											{/* The header IS the way to a column's settings, so it is
+											 *  a real button rather than a header with a hidden gear:
+											 *  one obvious target, keyboard-reachable in the tab
+											 *  order the table already establishes. */}
+											<Button
+												type="button"
+												variant="ghost"
+												onClick={() => onSelectColumn(column.id)}
+												className="h-auto min-h-11 w-full flex-col items-start gap-0 rounded-none px-3 py-2.5 text-left hover:bg-white/[0.05]"
+											>
+												<span className="block min-w-0 text-[13px] text-nova-text [overflow-wrap:anywhere]">
+													{column.label}
+												</span>
+												<span className="block text-[12px] font-normal text-nova-text-muted">
+													{COLUMN_TYPE_LABELS[column.dataType]}
+												</span>
+											</Button>
 										</th>
 									))}
+									<th scope="col" className="w-px px-3 py-2.5">
+										<span className="sr-only">Open row</span>
+									</th>
 								</tr>
 							</thead>
 							<tbody>
 								{visible.map((row) => (
 									<tr
 										key={row.id}
-										className="border-b border-nova-border last:border-b-0"
+										aria-selected={row.id === selectedRowId}
+										className={`border-b border-nova-border last:border-b-0 ${
+											row.id === selectedRowId
+												? "bg-nova-violet/[0.10] shadow-[inset_2px_0_0_0_var(--nova-violet)]"
+												: ""
+										}`}
 									>
 										{table.columns.map((column) => {
 											const text = cellText(row.values, column);
@@ -284,6 +345,23 @@ function TableGrid({ table }: { table: LookupTableSnapshot }) {
 												</td>
 											);
 										})}
+										<td className="w-px px-3 py-2.5 align-top">
+											{/* One control per row rather than a clickable row: a
+											 *  row of selectable text should stay selectable, and a
+											 *  whole-row button would swallow every drag. */}
+											<Button
+												type="button"
+												variant="ghost"
+												onClick={() => onSelectRow(row.id)}
+												className="min-h-11 whitespace-nowrap text-[13px] text-nova-violet-bright"
+											>
+												Open
+												<span className="sr-only">
+													{" "}
+													row {rowLabel(table, row)}
+												</span>
+											</Button>
+										</td>
 									</tr>
 								))}
 							</tbody>

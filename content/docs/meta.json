@@ -2,6 +2,7 @@
 	"title": "Docs",
 	"pages": [
 		"case-workspace",
+		"project-data",
 		"attachments",
 		"display-conditions",
 		"users-and-personas",

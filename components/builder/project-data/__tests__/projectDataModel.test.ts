@@ -20,8 +20,11 @@ import {
 	formatLookupCount,
 	replacementConflictVerdict,
 	rowAdditionRefusal,
+	rowDraftToValues,
 	rowValuesEqual,
+	rowValuesToDraft,
 	rowWriteConflictVerdict,
+	suggestWireName,
 	tableCapacity,
 } from "../projectDataModel";
 
@@ -231,6 +234,105 @@ describe("replacementConflictVerdict", () => {
 		expect(replacementConflictVerdict()).toEqual({
 			kind: "ask",
 			reason: "table-replaced",
+		});
+	});
+});
+
+describe("suggestWireName", () => {
+	it("derives a legal identifier from a human label", () => {
+		expect(suggestWireName("Facility name")).toBe("facility_name");
+		expect(suggestWireName("  District / Region  ")).toBe("district_region");
+	});
+
+	it("keeps accented labels legible instead of dropping their letters", () => {
+		expect(suggestWireName("Établissement")).toBe("etablissement");
+	});
+
+	it("never suggests a name the boundary would refuse", () => {
+		// Must start with a letter or underscore…
+		expect(suggestWireName("2024 total")).toBe("c_2024_total");
+		// …and must not start with `xml`, which the wire rejects outright.
+		expect(suggestWireName("XML source")).toBe("c_xml_source");
+	});
+
+	it("suggests nothing for a label with no usable characters", () => {
+		expect(suggestWireName("   ")).toBe("");
+		expect(suggestWireName("—")).toBe("");
+	});
+});
+
+describe("rowDraftToValues", () => {
+	const columns = [nameColumn, codeColumn];
+
+	it("leaves an empty or whitespace cell ABSENT rather than storing an empty string", () => {
+		const result = rowDraftToValues(
+			{ [nameColumnId]: "  ", [codeColumnId]: undefined },
+			columns,
+		);
+		expect(result).toEqual({ ok: true, values: {} });
+	});
+
+	it("parses through the same validation the server will run", () => {
+		const result = rowDraftToValues(
+			{ [nameColumnId]: "Kitgum", [codeColumnId]: "42" },
+			columns,
+		);
+		expect(result).toEqual({
+			ok: true,
+			values: { [nameColumnId]: "Kitgum", [codeColumnId]: 42 },
+		});
+	});
+
+	it("reports a per-cell reason rather than one failure for the row", () => {
+		const result = rowDraftToValues(
+			{ [nameColumnId]: "Kitgum", [codeColumnId]: "not a number" },
+			columns,
+		);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.errors.has(codeColumnId)).toBe(true);
+		expect(result.errors.has(nameColumnId)).toBe(false);
+	});
+
+	it("accepts a typed clock and stores the wire's own spelling", () => {
+		const timeColumn: LookupColumn = {
+			id: codeColumnId,
+			wireName: "opens",
+			label: "Opens",
+			dataType: "time",
+		};
+		const result = rowDraftToValues({ [codeColumnId]: "2:30 PM" }, [
+			timeColumn,
+		]);
+		expect(result).toEqual({
+			ok: true,
+			values: { [codeColumnId]: "14:30:00" },
+		});
+	});
+
+	it("refuses a half-typed date and time instead of storing one", () => {
+		const stampColumn: LookupColumn = {
+			id: codeColumnId,
+			wireName: "seen_at",
+			label: "Seen at",
+			dataType: "datetime",
+		};
+		const result = rowDraftToValues({ [codeColumnId]: "2026-01-01" }, [
+			stampColumn,
+		]);
+		expect(result.ok).toBe(false);
+	});
+});
+
+describe("rowValuesToDraft", () => {
+	it("round-trips through the draft without inventing values", () => {
+		const stored = values({ [nameColumnId]: "Kitgum" });
+		const draft = rowValuesToDraft(stored, [nameColumn, codeColumn]);
+		expect(draft[nameColumnId]).toBe("Kitgum");
+		expect(draft[codeColumnId]).toBe(undefined);
+		expect(rowDraftToValues(draft, [nameColumn, codeColumn])).toEqual({
+			ok: true,
+			values: stored,
 		});
 	});
 });

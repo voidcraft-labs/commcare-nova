@@ -6,6 +6,8 @@
 // author sees (a size, a capacity phrase, a conflict verdict) lives here, and
 // the components only render it.
 
+import type { LookupColumnId } from "@/lib/domain/lookupIds";
+import { coerceLookupCell } from "@/lib/lookup/coercion";
 import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
@@ -18,6 +20,7 @@ import type {
 	LookupRow,
 	LookupRowValues,
 } from "@/lib/lookup/types";
+import { parseClockTime } from "@/lib/ui/clockTime";
 
 /* Sizes and counts come from `lib/lookup/format`, the same module the
  * service's and the CSV route's refusals use. One formatter means a refusal
@@ -80,6 +83,30 @@ export function rowAdditionRefusal(
 	return undefined;
 }
 
+/**
+ * A legal export name derived from a human label.
+ *
+ * A suggestion, never an imposition: the field stays editable and stops
+ * tracking the label the moment the author types in it. The rule is
+ * `LOOKUP_WIRE_IDENTIFIER_PATTERN` — an ASCII letter or underscore, then
+ * letters, digits, and underscores — plus the boundary's refusal of anything
+ * starting `xml`, so the suggestion is one the server will accept rather than
+ * one it will bounce.
+ */
+export function suggestWireName(label: string): string {
+	const ascii = label
+		.normalize("NFKD")
+		/* Strip combining marks so "Établissement" suggests "etablissement"
+		 * rather than losing the whole first letter. */
+		.replace(/\p{Diacritic}/gu, "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	if (ascii === "") return "";
+	const led = /^[a-z_]/.test(ascii) ? ascii : `c_${ascii}`;
+	return /^xml/i.test(led) ? `c_${led}` : led;
+}
+
 /** The author-facing name of a column's type, in the workspace's vocabulary. */
 export const COLUMN_TYPE_LABELS: Readonly<Record<LookupDataType, string>> = {
 	text: "Text",
@@ -136,6 +163,95 @@ export function filterRows<Row extends { readonly values: LookupRowValues }>(
 			cellText(row.values, column)?.toLocaleLowerCase().includes(needle),
 		),
 	);
+}
+
+/**
+ * A row being edited: raw text per column, exactly as typed.
+ *
+ * Drafts hold TEXT, not stored values, because a person types "2:30 PM" and
+ * "1,024" long before either is a legal cell. Parsing at every keystroke would
+ * either discard characters mid-word or refuse a value the author has not
+ * finished writing. `rowDraftToValues` is the one commit boundary where text
+ * becomes stored values — or becomes per-cell refusals in the author's words.
+ */
+export type RowDraft = Readonly<Record<LookupColumnId, string | undefined>>;
+
+/** A draft turned into stored values, or the reasons it could not be. */
+export type RowDraftResult =
+	| { readonly ok: true; readonly values: LookupRowValues }
+	| {
+			readonly ok: false;
+			readonly errors: ReadonlyMap<LookupColumnId, string>;
+	  };
+
+/** The row as it currently stands, as draft text ready to edit. */
+export function rowValuesToDraft(
+	values: LookupRowValues,
+	columns: readonly LookupColumn[],
+): RowDraft {
+	const draft: Record<string, string | undefined> = {};
+	for (const column of columns) draft[column.id] = cellText(values, column);
+	return draft;
+}
+
+/**
+ * Parse a draft into stored values.
+ *
+ * An empty (or absent) cell stays ABSENT rather than becoming `""`. That is
+ * the boundary's own rule — a missing UUID key means a missing cell, and an
+ * empty CSV cell omits the key — so the editor and an import agree about what
+ * "no value" is.
+ *
+ * A time is parsed through `parseClockTime` first, because the field's value
+ * contract is the raw typed clock rather than a wire string; everything else
+ * goes straight to `coerceLookupCell`, the SAME validation the server will
+ * run, so a value this accepts is a value the write accepts.
+ */
+export function rowDraftToValues(
+	draft: RowDraft,
+	columns: readonly LookupColumn[],
+): RowDraftResult {
+	const values: Record<string, string | number> = {};
+	const errors = new Map<LookupColumnId, string>();
+	for (const column of columns) {
+		const raw = draft[column.id]?.trim() ?? "";
+		if (raw === "") continue;
+		if (column.dataType === "time" || column.dataType === "datetime") {
+			const parsed = parseTemporalText(raw, column.dataType);
+			if (parsed === null) {
+				errors.set(
+					column.id,
+					column.dataType === "time"
+						? "Enter a time like 2:30 PM."
+						: "Enter both a date and a time.",
+				);
+				continue;
+			}
+			values[column.id] = parsed;
+			continue;
+		}
+		const coerced = coerceLookupCell(column.dataType, raw, "csv");
+		if (!coerced.success) {
+			errors.set(column.id, coerced.message);
+			continue;
+		}
+		values[column.id] = coerced.value;
+	}
+	return errors.size > 0
+		? { ok: false, errors }
+		: { ok: true, values: values as LookupRowValues };
+}
+
+/** A typed clock, or a `date` + typed clock, in the wire's own spelling. */
+function parseTemporalText(
+	raw: string,
+	dataType: "time" | "datetime",
+): string | null {
+	if (dataType === "time") return parseClockTime(raw);
+	const [datePart, timePart] = raw.split("T");
+	if (datePart === undefined || timePart === undefined) return null;
+	const time = parseClockTime(timePart);
+	return time === null ? null : `${datePart}T${time}`;
 }
 
 /**

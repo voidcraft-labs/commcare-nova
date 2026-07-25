@@ -4,14 +4,18 @@
  * These hooks resolve "what is selected for inspection right now" from the two
  * selection sources and hand the rail a ready-to-render descriptor:
  *
- *   - a selected form FIELD (URL state, `useSelectedField`), or
+ *   - a selected form FIELD (URL state, `useSelectedField`),
  *   - the case-list workspace's current selection (`useCaseListInspector` — the
  *     narrow, memoized slice of the shared controller carrying just the resolved
  *     `inspector` + its close handler, so these hooks don't re-render on every
- *     unrelated workspace change).
+ *     unrelated workspace change), or
+ *   - the Project data workspace's selected row or column
+ *     (`useProjectDataInspector`, the same narrow shape).
  *
- * They are mutually exclusive: a field is only selected on a form screen, and
- * the case-list `inspector` is non-null only while its workspace is on-screen.
+ * They are mutually exclusive, and the URL is what makes them so: a field is
+ * only selected on a form screen, the case-list `inspector` is non-null only
+ * while its workspace is on-screen, and a Project data URL names no module and
+ * no field at all.
  * Because the rail is always mounted (it just parks off-screen during a preview
  * flip), whatever these return stays mounted across the flip — scroll survives
  * for free. The mode (edit vs preview) is deliberately NOT consulted: parking
@@ -24,6 +28,7 @@ import { type ReactNode, useCallback } from "react";
 import { useCaseListInspector } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
 import { PeerBadge } from "@/components/builder/PeerBadge";
+import { useProjectDataInspector } from "@/components/builder/project-data/projectDataInspector";
 import { fieldRegistry } from "@/lib/domain";
 import { useSelect, useSelectedField } from "@/lib/routing/hooks";
 
@@ -39,6 +44,7 @@ export function useActiveInspector(): ActiveInspector | null {
 	const field = useSelectedField();
 	const select = useSelect();
 	const caseList = useCaseListInspector();
+	const projectData = useProjectDataInspector();
 
 	if (field) {
 		// Title = the field's prompt, falling back to its id (the `hidden` kind
@@ -62,6 +68,9 @@ export function useActiveInspector(): ActiveInspector | null {
 	if (caseList?.inspector) {
 		return { ...caseList.inspector, onClose: caseList.onClose };
 	}
+	if (projectData?.inspector) {
+		return { ...projectData.inspector, onClose: projectData.onClose };
+	}
 	return null;
 }
 
@@ -77,11 +86,22 @@ export function useInspectorPresence(): {
 	const field = useSelectedField();
 	const select = useSelect();
 	const caseList = useCaseListInspector();
+	const projectData = useProjectDataInspector();
 	const caseListClose = caseList?.onClose;
-	const docked = field !== null || (caseList?.inspector ?? null) !== null;
+	const projectDataClose = projectData?.onClose;
+	const docked =
+		field !== null ||
+		(caseList?.inspector ?? null) !== null ||
+		(projectData?.inspector ?? null) !== null;
+	/* Only one source can be docked at a time (the URL guarantees it), so
+	 * closing both non-field sources is a no-op on whichever is already
+	 * closed rather than a branch that has to know which one is open. */
 	const requestClose = useCallback(() => {
 		if (field !== null) select(undefined);
-		else caseListClose?.();
-	}, [field, select, caseListClose]);
+		else {
+			caseListClose?.();
+			projectDataClose?.();
+		}
+	}, [field, select, caseListClose, projectDataClose]);
 	return { docked, requestClose };
 }

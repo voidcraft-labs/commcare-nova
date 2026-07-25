@@ -64,7 +64,7 @@ export function ProjectDataWorkspace({ tableId }: { tableId?: LookupTableId }) {
 					{tableId === undefined ? (
 						<ProjectDataTableListScreen />
 					) : (
-						<ProjectDataTableScreen tableId={tableId} />
+						<ProjectDataTableScreen />
 					)}
 				</ContentFrame>
 			</div>

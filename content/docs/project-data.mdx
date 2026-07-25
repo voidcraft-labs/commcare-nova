@@ -1,0 +1,91 @@
+---
+title: Reuse one list across every app in your Project
+description: Keep the lists your apps share — facilities, districts, products — in data tables, and offer their values as answer choices.
+---
+
+Most apps lean on a list that isn't case data and isn't part of any one form:
+the facilities you work in, the districts they sit in, the products you hand
+out. **Project data** is where those lists live, as **data tables** you fill in
+once.
+
+A data table belongs to the Project, not to the app you happen to have open.
+Every app in the Project reads the same tables and the same rows, so correcting
+a facility's name corrects it in all of them at once.
+
+## Open Project data
+
+Project data sits in the builder's left sidebar, below the app structure. Open
+it from the expanded sidebar, from the icon rail when the sidebar is collapsed,
+or — on a phone — from the same panel the app structure opens in.
+
+The workspace has its own address, so you can send a teammate a link that lands
+them straight on a table.
+
+## What a table is made of
+
+A table has columns and rows. Each column carries three things:
+
+- **A name people see.** This is the heading you read while you work, and you
+  can change it whenever a better word comes along.
+- **A name used in exports.** It's also the heading Nova looks for in a CSV, so
+  changing it means every CSV you import from then on has to carry the new
+  heading. Changing it needs admin access, and the table itself has one of these
+  names too.
+- **A type of value**: Text, Whole number, Decimal number, Date, Time, or Date
+  and time.
+
+## Find and edit a row
+
+Rows appear 50 at a time, with a search box that matches text in every column.
+Searching is how you find a row; paging through until it turns up is not.
+
+Select a row and it opens in the properties panel on the right, where each value
+gets the control its column's type calls for — a date picker for a date, a clock
+field for a time. Leaving a value empty means the row has no value in that
+column, which is a different thing from a piece of text with nothing in it.
+
+## How much a table can hold
+
+A table holds up to 5,000 rows and 8 MB of values, and a single CSV import can
+be up to 8 MB. Go past any of those and Nova tells you what it measured — the
+size or the row count it actually found — and how much you need to take out.
+
+## Replace every row from a CSV
+
+You can replace a table's rows all at once by importing a CSV. Its headings have
+to match the table's export names exactly: one heading per column, none missing
+and none extra.
+
+The import replaces every row in the table. It doesn't merge with what is
+already there, and it doesn't add to the end.
+
+## When two people edit at once
+
+If a teammate saves the same row while you have it open, Nova doesn't overwrite
+either version. It shows you both and asks which one to keep. If their change
+was to a different row, your save goes through as usual.
+
+## Offer a table's values as answer choices
+
+A single-select or multi-select question can take its choices from a data table
+instead of from a list you type out. Choose the table, the column whose value
+gets saved, and the column people read on screen.
+
+Switch the question back to a typed-in list and the options that were there
+before come back.
+
+## Changes that other apps can block
+
+Deleting a table, removing a column, and changing a column's type each need
+admin access, and Nova refuses them while any app in the Project still uses that
+table or column. An app sitting in the trash counts.
+
+Before it makes the change, Nova names the apps that would break. Point those
+apps at something else first, then come back and make the change.
+
+## Who can do what
+
+- **Read the tables** — anyone who can open the app.
+- **Edit values, add rows, add columns, and import a CSV** — edit access.
+- **Delete a table, remove a column, change a column's type, and change the name
+  a table or column uses in exports** — admin access.

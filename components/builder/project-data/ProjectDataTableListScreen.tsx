@@ -12,9 +12,12 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDatabase from "@iconify-icons/tabler/database";
+import tablerPlus from "@iconify-icons/tabler/plus";
+import { useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { CreateTableDialog } from "./CreateTableDialog";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
 import { formatLookupBytes, formatLookupCount } from "./projectDataModel";
 import { useProjectDataManifest } from "./useProjectData";
@@ -23,6 +26,7 @@ export function ProjectDataTableListScreen() {
 	const { state, reload } = useProjectDataManifest();
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
+	const [creating, setCreating] = useState(false);
 
 	return (
 		<section aria-labelledby="project-data-tables-heading" className="min-w-0">
@@ -38,6 +42,26 @@ export function ProjectDataTableListScreen() {
 				of asking someone to type. Point a question at a column here and
 				everyone answering that question sees the same list.
 			</p>
+
+			{canEdit && (
+				<Button
+					type="button"
+					variant="outline"
+					className="mt-4 min-h-11 gap-2"
+					onClick={() => setCreating(true)}
+				>
+					<Icon icon={tablerPlus} width="16" height="16" aria-hidden="true" />
+					New data table
+				</Button>
+			)}
+
+			{creating && (
+				<CreateTableDialog
+					open
+					onClose={() => setCreating(false)}
+					onCreated={reload}
+				/>
+			)}
 
 			{state.kind === "loading" || state.kind === "idle" ? (
 				<ProjectDataLoading label="Loading this project’s data tables…" />
