@@ -392,7 +392,11 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "form_link_condition",
 		path: "formLinks[].condition",
-		kind: "xpath-ast",
+		// A typed Predicate, the same family the display conditions use —
+		// one navigation-condition vocabulary across every carrier, so a
+		// rename rewrites a link's condition through the same structural
+		// path it rewrites a display condition through.
+		kind: "predicate-ast",
 		formTypes: FORM_TYPES,
 	},
 	{

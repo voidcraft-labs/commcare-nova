@@ -35,7 +35,8 @@ export type DormantLookupCarrierOwnerKind =
 	| "field"
 	| "column"
 	| "search-input"
-	| "case-operation";
+	| "case-operation"
+	| "form-link";
 
 /** Nova-owned provenance for one complete authored carrier slot. */
 export interface DormantLookupCarrier {
@@ -399,6 +400,20 @@ export function collectDormantLookupCarriers(
 				field: "displayCondition",
 			},
 		});
+
+		/* Each link owns its own carrier — sibling links are independent, so
+		 * reordering or removing one must not rename another's finding. */
+		for (const link of [...(form.formLinks ?? [])].sort((left, right) =>
+			left.uuid < right.uuid ? -1 : left.uuid > right.uuid ? 1 : 0,
+		)) {
+			addPredicateSlot(carriers, {
+				ownerUuid: link.uuid,
+				ownerKind: "form-link",
+				slot: "form_link_condition",
+				predicate: link.condition,
+				location: { ...location, field: "formLinks[].condition" },
+			});
+		}
 
 		for (const operation of form.caseOperations ?? []) {
 			const operationArgs = {

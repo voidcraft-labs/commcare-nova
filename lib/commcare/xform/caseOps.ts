@@ -12,7 +12,6 @@
 
 import type { Element } from "domhandler";
 import { findOne } from "domutils";
-import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { el } from "@/lib/commcare/elementBuilders";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
 import { descendInto } from "@/lib/commcare/formActions";
@@ -27,11 +26,12 @@ import {
 	instanceSourceFor,
 } from "@/lib/commcare/predicate";
 import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
+import {
+	SESSION_CASE_ID,
+	sessionCaseAnchorBindings,
+} from "@/lib/commcare/predicate/sessionCaseAnchor";
 import { quoteLiteral } from "@/lib/commcare/predicate/stringQuoting";
-import type {
-	OnDeviceExpressionBindings,
-	OnDeviceTermEmissionContext,
-} from "@/lib/commcare/predicate/termEmitter";
+import type { OnDeviceTermEmissionContext } from "@/lib/commcare/predicate/termEmitter";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -48,17 +48,12 @@ import {
 	orderedCaseOperations,
 	type Uuid,
 } from "@/lib/domain";
-import type {
-	Predicate,
-	PropertyRef,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import { appendChildren, prependChildren } from "./domSplice";
 import { FormPath } from "./formPath";
 
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
 const OPERATIONS_CONTAINER = "__nova_operations";
-const SESSION_CASE_ID = "instance('commcaresession')/session/data/case_id";
 const META_TIME_END = "/data/meta/timeEnd";
 const META_USER_ID = "/data/meta/userID";
 const CASE_OPERATION_BOUNDARY_WHITESPACE_PATTERN = "^\\s+|\\s+$";
@@ -193,8 +188,7 @@ export function buildCaseOperations(
 		): OnDeviceTermEmissionContext => ({
 			formFields: bindFieldPaths(fields, repeat, targetPath),
 			operationIds: bindOperationPaths(priorCreates, repeat, targetPath),
-			rootCaseId: SESSION_CASE_ID,
-			caseProperty: formCasePropertyResolver(moduleCaseType),
+			...sessionCaseAnchorBindings(SESSION_CASE_ID, moduleCaseType),
 			...(lookupNaming !== undefined && {
 				lookup: { naming: lookupNaming },
 			}),
@@ -948,77 +942,6 @@ function relativeXPath(from: FormPath, to: FormPath): string {
 		parts.push(segment.kind === "element" ? segment.name : `@${segment.name}`);
 	}
 	return parts.join("/") || ".";
-}
-
-function formCasePropertyResolver(
-	moduleCaseType: string | undefined,
-): NonNullable<OnDeviceExpressionBindings["caseProperty"]> {
-	return (property, root, scope) => {
-		if (
-			scope !== "root" ||
-			moduleCaseType === undefined ||
-			property.caseType !== moduleCaseType
-		) {
-			// A relation where-clause is evaluated with its destination case as
-			// current(); leave those terms on the normal relative emission path.
-			return undefined;
-		}
-		return emitAnchoredProperty(property, root);
-	};
-}
-
-function emitAnchoredProperty(
-	property: PropertyRef,
-	root: "casedb" | "results",
-): string {
-	const leaf = emitCasePropertyWirePath(property.property);
-	const base = `instance('${root}')/${root}/case[@case_id=${SESSION_CASE_ID}]`;
-	const via = property.via;
-	if (via === undefined || via.kind === "self") return `${base}/${leaf}`;
-	if (via.kind === "ancestor") {
-		let destination = base;
-		for (const step of via.via) {
-			destination = caseById(
-				`${destination}/index/${step.identifier}`,
-				step.throughCaseType,
-				root,
-			);
-		}
-		return `${destination}/${leaf}`;
-	}
-	const subcase = subcasesOf(base, via.identifier, via.ofCaseType, root);
-	if (via.kind === "subcase") return `${subcase}/${leaf}`;
-	const ancestor = caseById(
-		`${base}/index/${via.identifier}`,
-		via.ofCaseType,
-		root,
-	);
-	return `(${ancestor}/${leaf} | ${subcase}/${leaf})`;
-}
-
-function caseById(
-	id: string,
-	caseType: string | undefined,
-	root: "casedb" | "results",
-): string {
-	const type =
-		caseType === undefined
-			? ""
-			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${root}/case[@case_id=${id}${type}]`;
-}
-
-function subcasesOf(
-	origin: string,
-	identifier: string,
-	caseType: string | undefined,
-	root: "casedb" | "results",
-): string {
-	const type =
-		caseType === undefined
-			? ""
-			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${root}/case[index/${identifier}=${origin}/@case_id${type}]`;
 }
 
 function accumulateExpressionInstances(

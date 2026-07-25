@@ -223,10 +223,42 @@ const carrierBlindModuleSchema = moduleSchema.extend({
 	caseSearchConfig: carrierBlindCaseSearchConfigSchema.optional(),
 }) as unknown as typeof moduleSchema;
 
-const carrierBlindFormSchema = formSchema.extend({
+const carrierBlindFormShape = formSchema.extend({
 	displayCondition: rollingPredicateSchema.optional(),
 	caseOperations: z.array(carrierBlindCaseOperationSchema).optional(),
+	formLinks: z
+		.array(
+			formSchema.shape.formLinks.unwrap().element.extend({
+				condition: rollingPredicateSchema.optional(),
+			}),
+		)
+		.optional(),
+});
+
+/**
+ * `addForm`'s nested fallback deliberately CANNOT carry form links.
+ *
+ * A link's stored shape — its `uuid`, its `order`, and a Predicate
+ * condition where the origin element declared an XPath AST — has no
+ * origin-compatible spelling, and inventing a Predicate → XPath
+ * projection purely to produce one would be a compatibility shim rather
+ * than a fallback. Links therefore reach the doc through exactly one
+ * event, `updateForm.formLinkChange`, and a batch that births a form
+ * with links emits the plain `addForm` followed by one change per link
+ * (`diffDocsToMutations`, `formLinkMutations.ts`).
+ *
+ * Omitting the slot from a `.strict()` object is what enforces that: an
+ * `addForm` that forgot to split fails to parse loudly at the write
+ * boundary instead of parsing here and being rejected by an older
+ * receiver mid-rollout.
+ */
+const carrierBlindFormSchema = carrierBlindFormShape.omit({
+	formLinks: true,
 }) as unknown as typeof formSchema;
+
+const formLinkValueSchema = formSchema.shape.formLinks.unwrap().element;
+const carrierBlindFormLinkValueSchema =
+	carrierBlindFormShape.shape.formLinks.unwrap().element;
 
 function caseOperationChangeSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
@@ -264,6 +296,42 @@ function caseOperationChangeSchemaFor(
 	]);
 }
 
+/**
+ * One identity-keyed edit to a form's end-of-form link list.
+ *
+ * Mirrors `caseOperationChange` arm for arm, for the same reason: array
+ * position is not sequence, so `move` writes only the fractional `order`
+ * key and `update` may not change identity.
+ */
+function formLinkChangeSchemaFor(linkValueSchema: typeof formLinkValueSchema) {
+	return z.discriminatedUnion("operation", [
+		z.object({ operation: z.literal("add"), value: linkValueSchema }).strict(),
+		z
+			.object({
+				operation: z.literal("update"),
+				uuid: uuidSchema,
+				value: linkValueSchema,
+			})
+			.strict()
+			.superRefine((change, ctx) => {
+				if (change.uuid === change.value.uuid) return;
+				ctx.addIssue({
+					code: "custom",
+					path: ["value", "uuid"],
+					message: "A form-link replacement must preserve UUID identity.",
+				});
+			}),
+		z.object({ operation: z.literal("remove"), uuid: uuidSchema }).strict(),
+		z
+			.object({
+				operation: z.literal("move"),
+				uuid: uuidSchema,
+				order: z.string(),
+			})
+			.strict(),
+	]);
+}
+
 function caseSearchConfigPatchSchemaFor(
 	configSchema: typeof caseSearchConfigSchema,
 ) {
@@ -287,9 +355,13 @@ const carrierBlindFormUpdatePatchSchema = clearablePartialPatch(
 	carrierBlindFormSchema,
 ).omit({
 	caseOperations: true,
+	formLinks: true,
 });
 const carrierBlindCaseOperationChangeSchema = caseOperationChangeSchemaFor(
 	carrierBlindCaseOperationSchema,
+);
+const carrierBlindFormLinkChangeSchema = formLinkChangeSchemaFor(
+	carrierBlindFormLinkValueSchema as unknown as typeof formLinkValueSchema,
 );
 const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 	carrierBlindCaseSearchConfigSchema,
@@ -310,11 +382,24 @@ const userTypeUpdatePatchSchema = clearablePartialPatch(userTypeSchema);
 const personaUpdatePatchSchema = clearablePartialPatch(personaSchema);
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
+/**
+ * Neither ordered form collection is patchable.
+ *
+ * A wholesale array patch is last-write-wins over every member, which is
+ * wrong for a sequence two people can edit at once and wrong for a
+ * rolling receiver that would have to understand every member's current
+ * shape. Case operations and form links therefore both travel as
+ * identity-keyed semantic changes on the same long-lived `updateForm`
+ * discriminator.
+ */
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	caseOperations: true,
+	formLinks: true,
 });
 const canonicalCaseOperationChangeSchema =
 	caseOperationChangeSchemaFor(caseOperationSchema);
+const canonicalFormLinkChangeSchema =
+	formLinkChangeSchemaFor(formLinkValueSchema);
 const canonicalCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 	caseSearchConfigSchema,
 );
@@ -402,6 +487,7 @@ const canonicalMutationFamily = {
 	form: formSchema,
 	formUpdatePatch: canonicalFormUpdatePatchSchema,
 	caseOperationChange: canonicalCaseOperationChangeSchema,
+	formLinkChange: canonicalFormLinkChangeSchema,
 	column: columnSchema,
 	searchInput: searchInputDefSchema,
 	predicate: predicateSchema,
@@ -417,6 +503,7 @@ const carrierBlindMutationFamily = {
 	form: carrierBlindFormSchema,
 	formUpdatePatch: carrierBlindFormUpdatePatchSchema,
 	caseOperationChange: carrierBlindCaseOperationChangeSchema,
+	formLinkChange: carrierBlindFormLinkChangeSchema,
 	column: carrierBlindColumnSchema,
 	searchInput: carrierBlindSearchInputDefSchema,
 	predicate: rollingPredicateSchema,
@@ -473,6 +560,7 @@ function createMutationSchema({
 	form: mutationFormSchema,
 	formUpdatePatch: mutationFormUpdatePatchSchema,
 	caseOperationChange: mutationCaseOperationChangeSchema,
+	formLinkChange: mutationFormLinkChangeSchema,
 	column: mutationColumnSchema,
 	searchInput: mutationSearchInputSchema,
 	predicate: mutationPredicateSchema,
@@ -919,6 +1007,11 @@ function createMutationSchema({
 			// receivers strip this unknown key and safely replay the empty patch;
 			// new receivers apply one identity-keyed operation edit.
 			caseOperationChange: mutationCaseOperationChangeSchema.optional(),
+			// The same extension shape for end-of-form links. An old receiver
+			// strips it and applies a patch carrying no link state, so the worst a
+			// rolling window costs is an edit that does not stick until the
+			// client's next diff re-sends it — never a half-written link.
+			formLinkChange: mutationFormLinkChangeSchema.optional(),
 		}),
 		// Field
 		z

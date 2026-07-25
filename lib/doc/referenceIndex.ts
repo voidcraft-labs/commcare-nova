@@ -416,14 +416,22 @@ function extractFormEdges(
 				}
 				break;
 			case "form_link_condition":
+				// A link's condition is a Predicate, so it edges exactly like a
+				// display condition. It reads CASE data, never the form's own
+				// fields: the stack `if` evaluates in the session context, where
+				// the submitted instance is out of scope on both runtimes.
+				for (const value of readSlotValues(form, slot.path)) {
+					predicateEdges(sink, slot.slot, value.value as Predicate);
+				}
+				break;
 			case "form_link_datum_xpath":
 			case "assessment_user_score":
 			case "deliver_entity_id":
 			case "deliver_entity_name":
-				// AST-stored form wiring (form-link conditions/datums reference
-				// the form's OWN fields per CCHQ's end-of-form navigation
-				// semantics; Connect bindings likewise) — a pure leaf walk,
-				// same as the field expression slots.
+				// AST-stored form wiring (a link datum's override expression
+				// names session variables; Connect bindings reference the form's
+				// own fields) — a pure leaf walk, same as the field expression
+				// slots.
 				for (const value of readSlotValues(form, slot.path)) {
 					if (isXPathExpression(value.value)) {
 						extractAstRefs(sink, ctx, value.value, slot.slot);

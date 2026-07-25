@@ -79,7 +79,12 @@ function subject(carrier: Carrier): string {
 		: `Form "${carrier.form.name}" in module "${carrier.mod.name}"`;
 }
 
-function hasSearchInputReference(condition: Predicate): boolean {
+/**
+ * Whether the condition reads a Search answer. Shared with the form-link
+ * rule: both surfaces evaluate where the search-input instance is not
+ * loaded, and a reference there is a runtime throw rather than a blank.
+ */
+export function hasSearchInputReference(condition: Predicate): boolean {
 	let found = false;
 	walkTerms(condition, (term) => {
 		if (term.kind === "input") found = true;
@@ -116,7 +121,15 @@ function hasUnavailableCaseRead(carrier: Carrier): boolean {
 	return unavailable;
 }
 
-function firstPortabilityIssue(
+/**
+ * The first reason this condition would not survive JavaRosa's on-device
+ * evaluator, phrased as the tail of a sentence about its carrier.
+ *
+ * Shared with the form-link rule. Every navigation condition lowers
+ * through the same evaluator, so the portable subset is one subset — a
+ * second copy would drift the moment one surface learned a new operator.
+ */
+export function firstPortabilityIssue(
 	condition: Predicate,
 	ctx: TypeContext,
 ): string | undefined {

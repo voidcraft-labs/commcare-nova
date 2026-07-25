@@ -403,6 +403,34 @@ function extractFormDisplayConditions(
 	);
 }
 
+/**
+ * A form link's condition is a Predicate like any other, so a table
+ * carrier can hide inside one. Without this extractor a `table-lookup` in
+ * an end-of-form condition would never reach the closed commit/export
+ * gates and would ride an HQ upload as an unresolvable reference.
+ *
+ * The carrier is the LINK's uuid, not the form's: sibling links are
+ * independent carriers, so reordering or removing one must not rename
+ * another's structural finding.
+ */
+function extractFormLinkConditions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedForms(doc).flatMap((form) =>
+		[...(form.formLinks ?? [])]
+			.sort((left, right) => compareStrings(left.uuid, right.uuid))
+			.flatMap((link) =>
+				link.condition === undefined
+					? []
+					: extractAstLookupReferences({
+							carrierUuid: link.uuid,
+							ast: link.condition,
+							location: formLocation(doc, form),
+						}),
+			),
+	);
+}
+
 function extractCalculatedColumnExpressions(
 	doc: BlueprintDoc,
 ): ExtractedLookupReference[] {
@@ -650,6 +678,7 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 			extractModuleDisplayConditions,
 		),
 		productionExtractor("form_display_condition", extractFormDisplayConditions),
+		productionExtractor("form_link_condition", extractFormLinkConditions),
 		productionExtractor(
 			"case_list_column_expression",
 			extractCalculatedColumnExpressions,

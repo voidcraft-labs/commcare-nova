@@ -24,7 +24,7 @@
  * lockstep keeps "Upload to CCHQ" honest against the running app.
  */
 
-import type { HqApplication, HqFormLink } from "@/lib/commcare";
+import type { HqApplication } from "@/lib/commcare";
 import {
 	applicationShell,
 	detailPair,
@@ -37,96 +37,23 @@ import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
-import { toHqWorkflow } from "@/lib/commcare/session";
+import { HQ_WORKFLOW_FORM, toHqWorkflow } from "@/lib/commcare/session";
 import {
 	emitFormDisplayConditionForHq,
 	emitModuleDisplayCondition,
 } from "@/lib/commcare/suite/displayConditions";
+import { projectFormLinksForWire } from "@/lib/commcare/suite/endOfForm";
 import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
-	type FormLink,
-	isXPathExpression,
-	printXPath,
 	type Uuid,
-	xpathPrintContext,
 } from "@/lib/domain";
 import { buildConnectSlugMap } from "./connectSlugs";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
-
-/**
- * Translate a domain form-link list into the HQ wire shape.
- *
- * Domain `FormLink.target` speaks uuids; HQ's JSON speaks 0-based
- * module/form indices. The expander is the one place that has both
- * pieces of information (it's walking `doc.moduleOrder` / `doc.formOrder`
- * to generate the output), so index resolution happens here rather than
- * being duplicated downstream. Links whose target uuid can't be resolved
- * (dangling references) are dropped silently — the validator catches
- * dangling targets with a specific error code before this runs in
- * production, and dropping in emit is safer than emitting an HQ JSON
- * that fails upload.
- */
-function translateFormLinks(
-	doc: BlueprintDoc,
-	links: FormLink[],
-	sortedModuleUuids: Uuid[],
-	sortedFormOrder: Record<string, Uuid[]>,
-): HqFormLink[] {
-	// AST-stored conditions/datums project to text here — the HQ wire
-	// shape speaks strings, and identity leaves resolve to current names.
-	// Shape-driven and total: a legacy string (a doc read mid-migration)
-	// passes through verbatim.
-	const ctx = xpathPrintContext(doc);
-	const project = (value: unknown): string | undefined => {
-		if (typeof value === "string") return value;
-		if (isXPathExpression(value)) return printXPath(value, ctx);
-		return undefined;
-	};
-	// The target's `moduleIndex` / `formIndex` are the SORTED menu positions —
-	// the same `orderedModule/FormUuids` sequences the suite's `<command>` ids
-	// (`m{i}-f{j}`) are emitted in — so a `form_links` navigation target resolves
-	// to the right command after a module/form reorder, NOT the raw array slot.
-	// `expandDoc` already computed these once for the whole export; reuse them
-	// rather than re-sorting per form / per link.
-	const out: HqFormLink[] = [];
-	for (const link of links) {
-		const target = link.target;
-		// An empty printed condition is "unconditional" — collapsed to
-		// absence so this view agrees with the session emitter's truthy
-		// check (no commit boundary stores an empty expression; a
-		// degenerate doc could).
-		const condition = project(link.condition) || undefined;
-		const datums = link.datums?.map((datum) => ({
-			name: datum.name,
-			xpath: project(datum.xpath) ?? "",
-		}));
-		const moduleIndex = sortedModuleUuids.indexOf(target.moduleUuid);
-		if (moduleIndex < 0) continue;
-		if (target.type === "form") {
-			const formIndex = (sortedFormOrder[target.moduleUuid] ?? []).indexOf(
-				target.formUuid,
-			);
-			if (formIndex < 0) continue;
-			out.push({
-				...(condition !== undefined && { condition }),
-				target: { type: "form", moduleIndex, formIndex },
-				...(datums !== undefined && { datums }),
-			});
-		} else {
-			out.push({
-				...(condition !== undefined && { condition }),
-				target: { type: "module", moduleIndex },
-				...(datums !== undefined && { datums }),
-			});
-		}
-	}
-	return out;
-}
 
 /**
  * Expand a `BlueprintDoc` into an `HqApplication`.
@@ -245,19 +172,25 @@ export function expandDoc(
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 			});
 
-			// Resolve form-link uuids to the 0-based indices HQ expects.
-			// Dangling targets are dropped (validator catches them with a
-			// `FORM_LINK_TARGET_NOT_FOUND` before production runs get
-			// here).
-			const hqFormLinks = form.formLinks?.length
-				? translateFormLinks(
-						doc,
-						form.formLinks,
-						sortedModuleUuids,
-						sortedFormOrder,
-					)
-				: [];
+			// End-of-form navigation, from the one projector both delivery
+			// paths read. Guards arrive already exclusive; targets resolve
+			// from uuids to the 0-based indices HQ addresses by.
+			const endOfForm = projectFormLinksForWire(
+				doc,
+				form,
+				mod.caseType,
+				sortedModuleUuids,
+				sortedFormOrder,
+				opts.lookupNaming,
+			);
 
+			// `post_form_workflow` is what decides whether HQ reads
+			// `form_links` AT ALL: `form_workflow_frames` returns the static
+			// frame and ignores every link unless the workflow is `form`.
+			// Emitting the post-submit destination here instead — which is
+			// what Nova did — made a link-bearing app link on device and not
+			// link at all once uploaded, on the primary delivery path.
+			const postSubmit = form.postSubmit ?? defaultPostSubmit(form.type);
 			const formShellObj = formShell(
 				formUniqueId,
 				form.name,
@@ -268,8 +201,16 @@ export function expandDoc(
 				// `moduleCaseType` above: the depth map must match the deep
 				// validator's accept map.
 				buildCaseReferencesLoad(doc, formUuid, effectiveConnect, mod.caseType),
-				toHqWorkflow(form.postSubmit ?? defaultPostSubmit(form.type)),
-				hqFormLinks,
+				endOfForm.links.length > 0
+					? HQ_WORKFLOW_FORM
+					: toHqWorkflow(postSubmit),
+				endOfForm.links,
+				// Omitted when a terminal unconditional link already covers
+				// every case, so HQ emits no unreachable fallback frame — the
+				// same suppression the local suite applies.
+				endOfForm.fallback === undefined
+					? undefined
+					: toHqWorkflow(endOfForm.fallback.destination),
 			);
 			formShellObj.form_filter =
 				emitFormDisplayConditionForHq(

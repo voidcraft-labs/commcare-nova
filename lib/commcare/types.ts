@@ -355,10 +355,16 @@ export interface HqFormLinkDatum {
 /**
  * HQ `form_links[*]` entry shape.
  *
- * `condition` is an XPath expression; `undefined` means the link matches
- * unconditionally. `datums` overrides auto-derived session variables for
- * the target. Matches CommCare HQ's form-link payload field-for-field —
- * HQ validates the shape on upload.
+ * `condition` is the link's EXCLUSIVE guard, already carrying the
+ * negation of every earlier link's condition — not the author's own
+ * condition. `undefined` means the frame emits with no `if` at all, which
+ * is the exhaustive `else`; an empty string is not a substitute, because
+ * `if=""` fails suite parsing outright. `datums` overrides the session
+ * variables the target would otherwise inherit. Matches CommCare HQ's
+ * form-link payload field-for-field — HQ validates the shape on upload
+ * and re-emits this string verbatim (`workflow.py` runs no
+ * `interpolate_xpath` over it), which is what lets one projector serve
+ * both the local suite and the HQ-regenerated one.
  */
 export interface HqFormLink {
 	condition?: string;
@@ -378,6 +384,18 @@ export interface HqForm {
 	case_references_data: CaseReferencesData;
 	form_filter: string | null;
 	post_form_workflow: string;
+	/**
+	 * Where HQ sends the worker when no link's guard holds.
+	 *
+	 * Read only when `post_form_workflow` is `"form"`, and OMITTED when a
+	 * terminal unconditional link already covers every case. HQ validates
+	 * nothing here: `const.py::WORKFLOW_FALLBACK_OPTIONS` is
+	 * `list(ALL_WORKFLOWS).remove(WORKFLOW_FORM)`, and `list.remove`
+	 * returns `None`, so the `choices=` on
+	 * `models/forms.py::FormBase.post_form_workflow_fallback` is `None`
+	 * and accepts any string. Nova validates its own value.
+	 */
+	post_form_workflow_fallback?: string;
 	no_vellum: boolean;
 	media_image: Record<string, string>;
 	media_audio: Record<string, string>;

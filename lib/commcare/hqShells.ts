@@ -362,6 +362,7 @@ export function formShell(
 	caseRefsLoad: Record<string, string[]>,
 	postFormWorkflow: string = "default",
 	formLinks: HqFormLink[] = [],
+	postFormWorkflowFallback?: string,
 ): HqForm {
 	return {
 		doc_type: "Form",
@@ -379,6 +380,12 @@ export function formShell(
 		},
 		form_filter: null,
 		post_form_workflow: postFormWorkflow,
+		// Omitted rather than nulled: HQ reads it only in the `form` workflow
+		// and treats an absent value as "emit no fallback frame", which is
+		// exactly what a terminal unconditional link needs.
+		...(postFormWorkflowFallback !== undefined && {
+			post_form_workflow_fallback: postFormWorkflowFallback,
+		}),
 		no_vellum: false,
 		media_image: {},
 		media_audio: {},

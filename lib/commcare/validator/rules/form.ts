@@ -30,9 +30,7 @@ import {
 	formExpressionSource,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
-	printXPath,
 	type Uuid,
-	xpathPrintContext,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
@@ -496,110 +494,6 @@ function postSubmitValidation(
 				loc,
 			),
 		);
-	}
-
-	return errors;
-}
-
-/**
- * Form-link validation (per-form). Checks empty-link-array, target
- * existence, self-reference, and missing post_submit fallback. Cycle
- * detection across forms runs at app scope in `circularFormLinks`.
- */
-function formLinkValidation(
-	doc: BlueprintDoc,
-	form: Form,
-	ctx: FormContext,
-): ValidationError[] {
-	if (!form.formLinks) return [];
-	const errors: ValidationError[] = [];
-	const loc = baseLocation(ctx);
-
-	if (form.formLinks.length === 0) {
-		errors.push(
-			validationError(
-				"FORM_LINK_EMPTY",
-				"form",
-				`"${ctx.formName}" has form_links set to an empty array. Add at least one link, or remove form_links entirely.`,
-				loc,
-			),
-		);
-		return errors;
-	}
-
-	const hasAnyCondition = form.formLinks.some((l) => l.condition);
-	if (hasAnyCondition && !form.postSubmit) {
-		errors.push(
-			validationError(
-				"FORM_LINK_NO_FALLBACK",
-				"form",
-				`"${ctx.formName}" has conditional form links but no post_submit fallback for when none match. Set post_submit to a destination like "module" or "app_home".`,
-				loc,
-			),
-		);
-	}
-
-	for (let lIdx = 0; lIdx < form.formLinks.length; lIdx++) {
-		const link = form.formLinks[lIdx];
-		const conditionText = link.condition
-			? printXPath(link.condition, xpathPrintContext(doc))
-			: undefined;
-		const linkLabel = conditionText
-			? `form link ${lIdx + 1} (condition: "${conditionText.slice(0, 40)}${conditionText.length > 40 ? "..." : ""}")`
-			: `form link ${lIdx + 1}`;
-
-		if (link.target.type === "form") {
-			const targetMod = doc.modules[link.target.moduleUuid];
-			const targetForm = doc.forms[link.target.formUuid];
-			if (!targetMod) {
-				errors.push(
-					validationError(
-						"FORM_LINK_TARGET_NOT_FOUND",
-						"form",
-						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
-							`Update the target to reference an existing module.`,
-						loc,
-					),
-				);
-			} else if (!targetForm) {
-				errors.push(
-					validationError(
-						"FORM_LINK_TARGET_NOT_FOUND",
-						"form",
-						`"${ctx.formName}" ${linkLabel} targets form ${link.target.formUuid} in "${targetMod.name}", which doesn't exist.\n\n` +
-							`Update the target to reference an existing form.`,
-						loc,
-					),
-				);
-			}
-
-			if (
-				link.target.moduleUuid === ctx.moduleUuid &&
-				link.target.formUuid === ctx.formUuid
-			) {
-				errors.push(
-					validationError(
-						"FORM_LINK_SELF_REFERENCE",
-						"form",
-						`"${ctx.formName}" ${linkLabel} links back to itself, which would loop the user straight back into this form. Point it at the module menu or another form instead.`,
-						loc,
-					),
-				);
-			}
-		} else {
-			const targetMod = doc.modules[link.target.moduleUuid];
-			if (!targetMod) {
-				errors.push(
-					validationError(
-						"FORM_LINK_TARGET_NOT_FOUND",
-						"form",
-						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
-							`Update the target to reference an existing module.`,
-						loc,
-					),
-				);
-			}
-		}
 	}
 
 	return errors;
@@ -1281,7 +1175,19 @@ export function runFormRules(
 	errors.push(...casePropertyBadFormat(ctx, caseConfig));
 	errors.push(...casePropertyTooLong(ctx, caseConfig));
 	errors.push(...postSubmitValidation(form, ctx, mod));
-	errors.push(...formLinkValidation(doc, form, ctx));
+	errors.push(
+		...formLinkValidation(
+			doc,
+			form,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+			},
+			lookupTables,
+		),
+	);
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
 	errors.push(...childCaseNoNameField(ctx, caseConfig));

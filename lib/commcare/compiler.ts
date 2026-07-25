@@ -50,6 +50,8 @@ import {
 	buildEntryElement,
 	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
+	deriveFormDatums,
+	type NavigationContext,
 } from "@/lib/commcare/session";
 import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
@@ -58,6 +60,7 @@ import {
 	emitFormDisplayConditionForSuite,
 	emitModuleDisplayCondition,
 } from "@/lib/commcare/suite/displayConditions";
+import { projectFormLinksForWire } from "@/lib/commcare/suite/endOfForm";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
@@ -71,8 +74,10 @@ import {
 	caseListColumnHasRuntimeRole,
 	defaultPostSubmit,
 	effectiveCaseSearchConfig,
+	type Uuid,
 } from "@/lib/domain";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
+import { buildFormActions } from "./formActions";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
  *  present the archive bundles the referenced files + media_suite.xml +
@@ -180,6 +185,44 @@ export function compileCcz(
 	// `hqModules[mIdx]` is `sortedModuleUuids[mIdx]` — the SAME sort here keeps
 	// the two aligned, and the per-module form sequence likewise sorts.
 	const sortedModuleUuids = orderedModuleUuids(doc);
+	const sortedFormOrderForNavigation: Record<string, Uuid[]> = {};
+	for (const moduleUuid of sortedModuleUuids) {
+		sortedFormOrderForNavigation[moduleUuid] = orderedFormUuids(
+			doc,
+			moduleUuid,
+		);
+	}
+
+	// Every module's frame vocabulary, built before the walk because a link
+	// may target a module the walk has not reached yet — and because the
+	// datums a target needs come from its OWN forms, not from the linking
+	// one. `deriveFormDatums` is the same derivation each entry's `<session>`
+	// block uses, so a frame can never carry a datum the target entry does
+	// not declare.
+	const navigation: NavigationContext = {
+		modules: sortedModuleUuids.map((moduleUuid, index) => {
+			const targetMod = doc.modules[moduleUuid];
+			return {
+				commandId: `m${index}`,
+				forms: (sortedFormOrderForNavigation[moduleUuid] ?? []).map(
+					(formUuid, formIndex) => ({
+						commandId: `m${index}-f${formIndex}`,
+						datums: deriveFormDatums(
+							doc.forms[formUuid].type,
+							index,
+							targetMod.caseType,
+							targetMod.caseListConfig?.filter,
+							buildFormActions(doc, formUuid, targetMod.caseType ?? ""),
+							targetMod.caseSearchConfig?.excludedOwnerIds,
+							moduleTypeContext(targetMod, doc),
+							lookupNaming,
+						).map((meta) => meta.navigation),
+					}),
+				),
+			};
+		}),
+	};
+
 	for (let mIdx = 0; mIdx < hqModules.length; mIdx++) {
 		const hqMod = hqModules[mIdx];
 		const moduleUuid = sortedModuleUuids[mIdx];
@@ -446,6 +489,18 @@ export function compileCcz(
 			// XForm's `instance('commcaresession')/session/data/<X>`
 			// references against. `caseListColumnExpressions` is the
 			// module-scoped accumulation hoisted above the form loop.
+			// End-of-form navigation comes from the same projector the HQ JSON
+			// used, so both delivery paths carry byte-identical guards; the
+			// local path additionally resolves each frame's datums, which HQ
+			// derives for itself at regeneration time.
+			const endOfForm = projectFormLinksForWire(
+				doc,
+				form,
+				mod.caseType,
+				sortedModuleUuids,
+				sortedFormOrderForNavigation,
+				lookupNaming,
+			);
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -453,7 +508,7 @@ export function compileCcz(
 				formType,
 				postSubmit,
 				caseType || undefined,
-				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
+				endOfForm.links.length > 0 ? endOfForm.links : undefined,
 				mod.caseListConfig?.filter,
 				searchButtonDisplayCondition,
 				caseListColumnExpressions.length > 0
@@ -464,6 +519,13 @@ export function compileCcz(
 				moduleTypeContext(mod, doc),
 				form.displayCondition,
 				lookupNaming,
+				{
+					navigation,
+					...(endOfForm.fallback !== undefined && {
+						fallback: endOfForm.fallback,
+					}),
+					linkGuardPredicates: endOfForm.guardPredicates,
+				},
 			);
 
 			// Re-validate after injection — catches orphaned binds or

@@ -121,6 +121,7 @@ const formLinkDatumSchema = z
 		xpath: xpathExpressionSchema,
 	})
 	.strict();
+export type FormLinkDatum = z.infer<typeof formLinkDatumSchema>;
 
 const formLinkTargetSchema = z.discriminatedUnion("type", [
 	z
@@ -137,20 +138,52 @@ const formLinkTargetSchema = z.discriminatedUnion("type", [
 		})
 		.strict(),
 ]);
+export type FormLinkTarget = z.infer<typeof formLinkTargetSchema>;
 
+/**
+ * One conditional end-of-form destination.
+ *
+ * `uuid` is reference identity and `order` the fractional sequence key;
+ * array position is membership only, exactly as it is for case operations
+ * and every other normalized sequence. Both are REQUIRED rather than
+ * optional-and-backfilled: links have no legacy population and no writer
+ * that can produce one without them, so an absent-slot arm would only
+ * weaken `orderedFormLinks` into a partial sort.
+ *
+ * `condition` is a typed `Predicate`, the same family a module's or a
+ * form's display condition uses, so one authoring idiom covers every
+ * navigation condition and the checker plus the on-device portability
+ * rules apply here too. An absent condition means "unconditional"; a
+ * condition that reduces to always-true means the same thing, which is
+ * why every consumer asks `effectiveDisplayConditionForEmission` rather
+ * than testing the slot's presence.
+ *
+ * `datums` overrides the session variables the projector would otherwise
+ * carry from this form into the target. It has no authoring surface and
+ * exists because it is the only way to express "carry a different case
+ * forward than the one this form loaded".
+ */
 const formLinkSchema = z
 	.object({
-		// An empty condition is semantically meaningless (the emitters
-		// treat absence as "unconditional"), so the slot is either absent
-		// or a non-empty expression — the printed projection of an empty
-		// AST is "", and the boundary that parses authored text never
-		// stores one (an empty commit clears the slot).
-		condition: xpathExpressionSchema.optional(),
+		uuid: uuidSchema,
+		order: z.string(),
+		condition: predicateSchema.optional(),
 		target: formLinkTargetSchema,
 		datums: z.array(formLinkDatumSchema).optional(),
 	})
 	.strict();
 export type FormLink = z.infer<typeof formLinkSchema>;
+
+/** Canonical link sequence: fractional order, then immutable identity. */
+export function orderedFormLinks(form: {
+	readonly formLinks?: readonly FormLink[];
+}): FormLink[] {
+	return [...(form.formLinks ?? [])].sort((left, right) => {
+		if (left.order < right.order) return -1;
+		if (left.order > right.order) return 1;
+		return left.uuid.localeCompare(right.uuid);
+	});
+}
 
 /**
  * A typed case identity used by a form submission operation.
