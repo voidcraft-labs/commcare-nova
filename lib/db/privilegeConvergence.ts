@@ -104,6 +104,9 @@ const APPLICATION_TABLES = [
 	"lookup_rows",
 	"lookup_table_references",
 	"lookup_column_references",
+	"app_organization_state",
+	"app_locations",
+	"app_location_references",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
