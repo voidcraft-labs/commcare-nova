@@ -208,27 +208,28 @@ export function CaseOperationInspectorBody({
 				/>
 			</Row>
 
-			{operation.target.kind === "new" && identityKeys.length > 0 && (
-				<Row
-					title="Identity"
-					description="Normally each submission makes a distinct case. Key it on an answer instead when re-submitting the same answer should reach the same case."
-				>
-					<IdentityKeyMenu
-						value={operation.target.idFrom}
-						options={identityKeys}
-						canEdit={canEdit}
-						onChange={(idFrom) =>
-							commit({
-								...operation,
-								target:
-									idFrom === undefined
-										? { kind: "new" }
-										: { kind: "new", idFrom },
-							})
-						}
-					/>
-				</Row>
-			)}
+			{operation.target.kind === "new" &&
+				(identityKeys.length > 0 || operation.target.idFrom !== undefined) && (
+					<Row
+						title="Identity"
+						description="Normally each submission makes a distinct case. Key it on an answer instead when re-submitting the same answer should reach the same case."
+					>
+						<IdentityKeyMenu
+							value={operation.target.idFrom}
+							options={identityKeys}
+							canEdit={canEdit}
+							onChange={(idFrom) =>
+								commit({
+									...operation,
+									target:
+										idFrom === undefined
+											? { kind: "new" }
+											: { kind: "new", idFrom },
+								})
+							}
+						/>
+					</Row>
+				)}
 
 			{repeats.length > 0 && (
 				<Row
@@ -506,12 +507,21 @@ function IdentityKeyMenu({
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const current = options.find((option) => option.uuid === value);
+	/* A saved key whose answer is gone must keep saying so: rendering "a
+	 * distinct case each time" would claim the opposite of what the document
+	 * holds, and the author would have no way to find the stale reference. */
+	const missing = value !== undefined && current === undefined;
+	const label = missing
+		? "Keyed by an answer that is no longer here"
+		: current === undefined
+			? "A distinct case each time"
+			: `Keyed by \u201c${current.label}\u201d`;
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				ref={triggerRef}
 				disabled={!canEdit}
-				aria-label={`Identity: ${current?.label ?? "A distinct case each time"}`}
+				aria-label={`Identity: ${label}`}
 				render={
 					<Button
 						type="button"
@@ -521,10 +531,15 @@ function IdentityKeyMenu({
 					/>
 				}
 			>
-				<span className="min-w-0 flex-1 break-words text-left text-nova-violet-bright">
-					{current === undefined
-						? "A distinct case each time"
-						: `Keyed by “${current.label}”`}
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block break-words text-nova-violet-bright">
+						{label}
+					</span>
+					{missing && (
+						<span className="block text-xs font-normal text-nova-rose">
+							Choose another answer, or go back to a distinct case each time
+						</span>
+					)}
 				</span>
 				<Icon
 					icon={tablerChevronDown}
@@ -698,8 +713,16 @@ function RemoveOperationRow({
 }) {
 	const [confirming, setConfirming] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
-	const plan = view.removalPlan(operation.uuid);
-	const dependents = view.dependentsOf(operation.uuid);
+	/* Both walk the whole operation graph, so they run when the document or
+	 * the selection changes — not on every keystroke in a sibling input. */
+	const plan = useMemo(
+		() => view.removalPlan(operation.uuid),
+		[view, operation.uuid],
+	);
+	const dependents = useMemo(
+		() => view.dependentsOf(operation.uuid),
+		[view, operation.uuid],
+	);
 
 	if (!plan.ok && plan.reason !== "operation-not-found") {
 		return (

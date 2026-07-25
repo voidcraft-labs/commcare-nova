@@ -33,7 +33,10 @@ import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCard
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
-import { useModuleSelectsCaseFirst } from "@/lib/doc/hooks/useCaseOperationFacts";
+import {
+	useModuleCaseType,
+	useModuleSelectsCaseFirst,
+} from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
@@ -89,6 +92,13 @@ export function CaseOperationDetailCanvas({
 
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
+	/* The scope an operation EXPRESSION resolves against is the module's case
+	 * type — what `rules/caseOperations.ts::expressionContext` hands the
+	 * checker — not the operation's destination type. The destination decides
+	 * which PROPERTY a write may target; it never decides what the value may
+	 * read. A module with no case type has no walkable origin, and the empty
+	 * string is how the editor says so. */
+	const expressionCaseType = useModuleCaseType(moduleUuid) ?? "";
 	/* A link may point at "the case this form opened" only where the module
 	 * actually hands its forms one — the same rule the validator applies to
 	 * a session target. */
@@ -145,7 +155,7 @@ export function CaseOperationDetailCanvas({
 
 	const editorScope = {
 		caseTypes,
-		currentCaseType: destination,
+		currentCaseType: expressionCaseType,
 		formFields,
 		operationScope,
 	} as const;
@@ -266,7 +276,7 @@ export function CaseOperationDetailCanvas({
 								...operation,
 								condition: firstComparisonDefault({
 									caseTypes,
-									currentCaseType: destination,
+									currentCaseType: expressionCaseType,
 									knownInputs: [],
 									caseDataScope: "per-case",
 								}),
@@ -281,7 +291,7 @@ export function CaseOperationDetailCanvas({
 						}
 						rootLabel="when this runs"
 						caseTypes={caseTypes}
-						currentCaseType={destination}
+						currentCaseType={expressionCaseType}
 						formFields={formFields}
 						operationScope={operationScope}
 					/>
