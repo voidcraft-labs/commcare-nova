@@ -58,7 +58,11 @@ import {
 	useCaseDataRevision,
 } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
-import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	usePreviewPersonaUuid,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 
 /** Mutation hooks also render in a few provider-light tests. In a live builder,
@@ -187,13 +191,19 @@ export function useCases(args: {
 	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const replacementRevision = useCaseDataReplacementRevision(appId, caseType);
+	/* Which persona Preview runs as. Read here rather than passed by every
+	 * call site because it is the identity the whole running app shares, and
+	 * it belongs in the request identity below: switching worker changes what
+	 * the query returns (owner-scoped rules, session-backed prompt values),
+	 * so it must re-fire the load, not reuse another worker's rows. */
+	const personaUuid = usePreviewPersonaUuid();
 	const ready = Boolean(appId && caseType && accessPhase === "authorized");
 	/* Query edits within one case type deliberately keep settled rows visible,
 	 * but an app/case-type change is an identity boundary. Keep that identity
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"} ${personaUuid ?? "me"}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -246,6 +256,7 @@ export function useCases(args: {
 										? undefined
 										: { offset: pageOffset, limit: pageLimit },
 								viewerTimeZone: viewerTimeZone(),
+								personaUuid,
 							}),
 						}),
 					},
@@ -475,6 +486,10 @@ export function useCaseData(args: {
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
+	/* The acting worker is part of the read: a Details projection can carry
+	 * calculated columns that read the session, so two personas asking for
+	 * the same row are two different requests. */
+	const personaUuid = usePreviewPersonaUuid();
 	const ready = Boolean(
 		appId && caseType && caseId && accessPhase === "authorized",
 	);
@@ -523,6 +538,7 @@ export function useCaseData(args: {
 								caseTypes,
 								viewerTimeZone(),
 								includeHeld,
+								personaUuid,
 							),
 						}),
 					},

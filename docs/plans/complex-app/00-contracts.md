@@ -160,6 +160,42 @@ Build, migration, and runtime identities are separate. Migration owns fixed
 schema objects; the `cases` schema is isolated and runtime-owned because runtime
 creates indexes concurrently, which requires table ownership rather than grants.
 
+### New top-level blueprint collections
+
+A vocabulary that is a genuinely new collection — not a new slot on a module,
+form, or field — mints **ordinary new mutation discriminators**. There is no
+honest way to ride an existing one: a user type is not a refinement of a form,
+and encoding it as one puts a lie in the durable log, breaks
+`batchTargetsMissing`, and poisons the reference index. Four rules make that
+safe enough to be the standing answer:
+
+- The doc slots are `.optional()` and **omitted when empty**, exactly as `logo`
+  is (`lib/db/blueprintRows.ts::assembleBlueprint`). An app that declares none
+  serializes byte-identically to one authored before the collection existed, so
+  a tab still running pre-collection code never meets a shape its strict schema
+  refuses.
+- New `blueprint_entities` kinds get an **explicit branch** in the row
+  classifier. Its shape is `if module / else if form / else field`, so a kind
+  that falls through is read as a field, fails `blueprintDocSchema`, and stops
+  the whole app from loading rather than losing one row.
+- The compatibility matrix
+  (`lib/doc/__tests__/mutationRollingCompatibility.test.ts`) pins what it can
+  prove: the new arms parse under both the rolling and the canonical envelope,
+  a `null` clear survives the JSON hop, and an empty collection round-trips
+  byte-identically. That an old reducer no-ops on a kind it has never seen is
+  not a property of any code here, which is why omission carries the weight.
+- Collections that are flat carry **no membership array**: the record's keys are
+  the membership and sequence comes from each entity's fractional `order` key,
+  so a record and its order array cannot disagree.
+
+The residual exposure is a pre-deploy tab that stays perfectly idle while a
+co-editor on a new client adds one of the new entities to the same app — and at
+deploy time no app has any. It surfaces as "reload to continue", preserves the
+tab's unsaved work, and self-heals on a refresh. Deliberately not traded away:
+relaxing `blueprintDocSchema`'s strictness, or making an unknown mutation kind a
+sequence-advancing no-op, would buy forward-compatibility by letting a stale tab
+diverge silently from server state. Loud and recoverable beats silent and wrong.
+
 ### Exact external-reference governance
 
 Lookup table/column and location references participate in exact, transactional

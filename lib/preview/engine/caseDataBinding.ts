@@ -40,7 +40,12 @@ import {
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import type { ValueExpression } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	prop,
+	type ValueExpression,
+} from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
 	mapFilterPreviewError,
@@ -59,6 +64,7 @@ import {
 	readFilterPreview,
 	resetSampleCases,
 	resolvePreviewIdentity,
+	resolvePreviewIdentityForApp,
 	seedSampleCases,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
@@ -205,9 +211,15 @@ export async function loadCasesAction(args: {
 	 * calculated columns (device-local parity). Omitted falls back to UTC.
 	 */
 	viewerTimeZone?: string;
+	/** Which persona Preview is running as, if any. A SELECTOR — the
+	 *  identity itself is resolved server-side from the committed doc. */
+	personaUuid?: string;
 }): Promise<LoadCasesResult> {
 	try {
-		const identity = await resolvePreviewIdentity();
+		const identity = await resolvePreviewIdentityForApp(
+			args.appId,
+			args.personaUuid,
+		);
 		if (!identity) return { kind: "unauthenticated" };
 		const caseTypeSchemas =
 			args.caseTypes && args.caseTypes.length > 0
@@ -407,6 +419,54 @@ export async function loadCaseCountAction(args: {
 }
 
 /**
+ * How many stored cases one persona owns, across every case type the app
+ * declares.
+ *
+ * `owner_id` is the CommCare case-owner axis — never a tenant filter — so
+ * this reads the caller's own Project through the same membership gate as
+ * every other action and simply compares that column. The persona is named
+ * by uuid; nothing about it authorizes the read.
+ *
+ * Counting each case type separately is what the store's shape asks for:
+ * a count is scoped to one type. The sum is the whole population the
+ * persona owns, which is what a removal confirmation has to state.
+ */
+export async function countCasesOwnedByAction(args: {
+	appId: string;
+	ownerId: string;
+	caseTypes: string[];
+}): Promise<LoadCaseCountResult> {
+	try {
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "view");
+		let count = 0;
+		for (const caseType of args.caseTypes) {
+			count += await store.count({
+				appId: args.appId,
+				caseType,
+				/* A held case is still owned. The confirmation is about what
+				 * stays behind, and a row waiting in Data to review stays
+				 * behind exactly like every other one. */
+				includeHeld: true,
+				predicate: eq(prop(caseType, "owner_id"), literal(args.ownerId)),
+			});
+		}
+		return { kind: "count", count };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("countCasesOwnedBy", err, {
+			appId: args.appId,
+		});
+		return {
+			kind: "error",
+			message: err instanceof Error ? err.message : "Failed to count cases.",
+		};
+	}
+}
+
+/**
  * The consent preview for a failable kind conversion: what retyping
  * `(caseType, property)` to `toType` would do to the stored rows —
  * counts + samples computed with the migration's own cast over the
@@ -468,9 +528,12 @@ export async function loadCaseDataAction(
 	caseTypes?: readonly CaseType[],
 	viewerTimeZone?: string,
 	includeHeld?: boolean,
+	/** Which persona Preview is running as, if any — a selector, never an
+	 *  identity. */
+	personaUuid?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
-		const identity = await resolvePreviewIdentity();
+		const identity = await resolvePreviewIdentityForApp(appId, personaUuid);
 		if (!identity) return { kind: "unauthenticated" };
 		const { store, scope } = await gatedCaseStoreWithScope(
 			appId,
@@ -907,9 +970,13 @@ export async function submitFormAction(
 	mutation: SubmissionMutation,
 	appId: string,
 	viewerTimeZone?: string,
+	/** Which persona Preview is running as, if any. This one matters most:
+	 *  the resolved identity's `ownerId` is stamped on every case the
+	 *  submission creates, so a persona's work belongs to that persona. */
+	personaUuid?: string,
 ): Promise<SubmissionResult> {
 	try {
-		const identity = await resolvePreviewIdentity();
+		const identity = await resolvePreviewIdentityForApp(appId, personaUuid);
 		if (!identity) return { kind: "unauthenticated" };
 		/* A survey with NO collected operation answers is the historical
 		 * no-op — nothing to write, no store bind. One WITH answers may

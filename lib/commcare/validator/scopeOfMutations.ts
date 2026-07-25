@@ -495,6 +495,26 @@ export function scopeOfMutations(
 				scopeFieldTarget(prevDoc, acc, mut.fieldUuid);
 				break;
 
+			// ── User properties, user types, personas ──────────────────
+			case "addUserProperty":
+			case "updateUserProperty":
+			case "removeUserProperty":
+			case "addUserType":
+			case "updateUserType":
+			case "removeUserType":
+			case "addPersona":
+			case "updatePersona":
+			case "removePersona":
+				// No widening at all. Every rule over these collections is
+				// app-level, and app-level rules run regardless of scope, so an
+				// empty module/form scope is sound rather than merely cheap. No
+				// module or form rule reads them: the wire projection of a user
+				// type is the setup artifact and a deployment's provisioning,
+				// neither of which a module or form can reference. If a later
+				// unit gives a form or module a reference INTO these collections,
+				// that reference is what forces a wider scope here.
+				break;
+
 			default: {
 				// Exhaustiveness tripwire: a NEW mutation kind makes `mut`
 				// non-never here and this fails to compile — forcing a scope

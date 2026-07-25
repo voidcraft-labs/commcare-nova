@@ -2,11 +2,12 @@
 
 **PR:** `Organization levels, the app-scoped locations store, and owner validation`
 
-**Depends on:** unit 7. · **Blocks:** units 9, 10, 11, and 13.
+**Depends on:** nothing outstanding. · **Blocks:** units 9, 10, 11, and 13.
 
 > Read [the binding contracts](00-contracts.md) first — the locations and
 > restore-scope architecture contract there governs the lock discipline, the
-> custom-field catalog, and the create-once level and site codes.
+> custom-field catalog, and the create-once level and site codes, and the
+> new-top-level-collection rule governs any collection this unit adds.
 
 Land the app-wide custom-field catalog, stable level and site codes, app-scoped
 location rows, realtime revisions, cross-store lock discipline, row integrity,
@@ -14,6 +15,25 @@ archive and reassignment rules, Project-move handling, and role-aware owner
 validation. The model validates whether a fixed destination can belong to each
 applicable persona's address-book footprint; unit 9 proves the emitted fixture
 actually carries it.
+
+**Location assignment lands on the persona.** `Persona` is a flat blueprint
+entity (`lib/domain/users.ts`) and gains its assignment slots here rather than
+earlier, because the unit that can validate a slot is the unit that declares it.
+Two shapes are already decided: `commcare_location_id`,
+`commcare_location_ids`, and `commcare_primary_case_sharing_id` are built-in user
+properties whose availability is `needs-organization`, so filling them is this
+unit's job and the Users & Personas surface already explains their absence; and
+HQ's `CommCareUserResource` rejects a primary location without its list and
+requires the primary to appear in it (unit 12), so the two slots must stay
+adjacent and be validated together rather than drifting into separate edits.
+
+The **app-wide user-data property catalog** is the shape to mirror for
+`LocationFields`: one flat collection of `{uuid, slug, label, required?,
+choices?}` with slug legality enforced at construction, values keyed by property
+UUID so a slug rename rewrites nothing, and `regex` excluded because its
+enforcement sits behind a paid privilege. HQ uses the same `custom_data_fields`
+machinery for both field types, so the divergence should be in the field type,
+not in the model.
 
 ## Binding facts
 

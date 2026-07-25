@@ -35,11 +35,10 @@ import {
 	useEffect,
 	useState,
 } from "react";
-import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { EngineController } from "./engineController";
-import { previewAsMe } from "./identity";
 
 // ── Context ─────────────────────────────────────────────────────────────
 
@@ -64,7 +63,6 @@ export function BuilderFormEngineProvider({
 }) {
 	const docStore = useContext(BlueprintDocContext);
 	const reconcilerContext = useReconcilerContext();
-	const { user } = useAuth();
 
 	/* Create the controller AND bind the doc store + preview identity
 	 * synchronously on first render. Child effects (e.g.
@@ -77,10 +75,12 @@ export function BuilderFormEngineProvider({
 	 * initializer runs during render, before any descendant mounts, so
 	 * both are in place before anyone needs them (`previewAsMe` is pure,
 	 * and Better Auth resolves a warm client session synchronously). */
+	const identity = useSelectedPreviewIdentity();
+
 	const [controller] = useState(() => {
 		const c = new EngineController();
 		if (docStore) c.setDocStore(docStore);
-		c.setPreviewIdentity(previewAsMe(user));
+		c.setPreviewIdentity(identity);
 		return c;
 	});
 
@@ -105,8 +105,8 @@ export function BuilderFormEngineProvider({
 	 * rebuild an active engine; rendered markup never depends on the
 	 * session, so SSR/hydration stay identity-free. */
 	useEffect(() => {
-		controller.setPreviewIdentity(previewAsMe(user));
-	}, [controller, user]);
+		controller.setPreviewIdentity(identity);
+	}, [controller, identity]);
 
 	/* A same-app Project move does not remount this long-lived controller.
 	 * Deactivate synchronously at the reconciler's scope boundary so neither

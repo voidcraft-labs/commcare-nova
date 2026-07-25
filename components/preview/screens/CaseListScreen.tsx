@@ -100,10 +100,7 @@ import type {
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
-import {
-	previewAsMe,
-	previewSessionValues,
-} from "@/lib/preview/engine/identity";
+import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -115,6 +112,7 @@ import {
 	useCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
+import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -242,15 +240,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			effectiveCaseType?.properties,
 		],
 	);
-	const { user, signIn } = useAuth();
-	// Better Auth can resolve its cached session synchronously on the browser's
-	// first paint while SSR has no client session. Keep the first render on the
-	// shared empty context, then apply session-backed defaults after hydration.
-	const [authMounted, setAuthMounted] = useState(false);
-	useEffect(() => setAuthMounted(true), []);
+	const { signIn } = useAuth();
+	/* Whoever Preview is running as — the member, or the persona they
+	 * picked. The hook owns the hydration rule, so search defaults and the
+	 * assigned-case exclusion resolve against one identity. */
+	const identity = useSelectedPreviewIdentity();
 	const searchSession = useMemo(
-		() => previewSessionValues(previewAsMe(authMounted ? user : null)),
-		[authMounted, user],
+		() => previewSessionValues(identity),
+		[identity],
 	);
 	const lookupStatus = usePreviewLookupStatus();
 	/* Case-first form conditions evaluate at THIS screen, against the

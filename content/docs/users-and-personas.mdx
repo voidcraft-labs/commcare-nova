@@ -1,0 +1,93 @@
+---
+title: Workers and personas
+description: Describe the people who use your app, and preview it as one of them.
+---
+
+Most apps behave differently depending on who opens them. A supervisor sees a
+different case list than a health worker; a form asks a different question of
+someone in one district than someone in another. **App setup → Users & personas**
+is where you describe those people, and it is what lets you preview your app as
+one of them instead of only as yourself.
+
+There are three things on that screen, and they answer three different
+questions.
+
+## Worker information
+
+**Worker information** is the data every worker carries with them — their
+region, their cadre, their supervisor's name. It is not case data: it belongs to
+the person, travels with them into every form, and is the same on every screen
+they open.
+
+Give each one a name people will recognize and a short key the app uses to
+refer to it. The key has to be something CommCare will accept, so Nova checks it
+as you type: letters, numbers, underscores, and hyphens only, at least one
+letter, and not a name CommCare has already claimed. You will be told
+immediately if a key won't work, rather than finding out when you deploy.
+
+You can also give a piece of information a fixed list of accepted values. Once
+you do, every role and persona has to pick from that list.
+
+Nova also shows the information **CommCare provides on its own** — the project
+the worker signed into, their name, their locations. You cannot change these,
+but you can write conditions against them, and each one says plainly whether
+Nova can show you a real value while you are only previewing. A few cannot be
+known until your app has somewhere to deploy to, and Nova leaves them empty
+rather than inventing a value that would make a condition pass in preview and
+fail on a real device.
+
+Three of them actually change how CommCare behaves; the rest are simply
+carried along for your app to read. The screen says which is which.
+
+## Roles
+
+A **role** is a job — Community health worker, Supervisor, Data clerk. Give it a
+name, then fill in the worker information everyone in that job shares. Define it
+once and every persona holding that role inherits it.
+
+You cannot remove a role while personas still hold it. Nova names them, so you
+can decide whether to move those people to a different role or remove them
+first.
+
+## Personas
+
+A **persona** is a specific person: Asha, a health worker in the southern
+district. Give them a name, pick their role, and change any information that
+differs from the role's defaults. Inherited values are shown alongside the ones
+you changed, so it stays obvious which is which.
+
+Personas are for designing and testing. They are not accounts, they have no
+password, and creating one does not create anyone on CommCare — that happens
+when you deploy.
+
+## Preview as a persona
+
+From Preview, choose who you are running as. **Preview as me** runs the app as
+your own account. **Preview as** a persona runs it as that person.
+
+This is the whole point of describing them. Previewing as Asha means:
+
+- conditions on worker information see *her* values, not yours;
+- a case list that shows "only my cases" shows *hers*;
+- any case the form creates is owned by *her*.
+
+Preview always says whose session you are looking at, so the two never blur
+together.
+
+Because a persona really owns the cases it creates, removing a persona leaves
+those cases where they are — owned by someone who no longer exists in your app.
+That is exactly what CommCare does when a worker leaves a project, so Nova does
+the same rather than quietly deleting or reassigning real data. The confirmation
+tells you how many cases are affected before you decide.
+
+## What travels to CommCare
+
+Worker information becomes your project's custom user data fields, and roles
+become the values a worker is created with. Nova generates the setup steps for
+this when you deploy; it does not change your CommCare project on its own.
+
+One thing worth knowing about the devices themselves: CommCare merges worker
+data into a device on each sync and never clears it. If you remove a piece of
+worker information, it stays on a device that has already downloaded it until
+that device does a full resync. Nova does not simulate that in preview — it is
+a property of the platform, not of your app.

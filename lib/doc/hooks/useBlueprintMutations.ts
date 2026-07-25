@@ -84,6 +84,14 @@ import type {
 } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
+	addPersonaMutations,
+	addUserPropertyMutations,
+	addUserTypeMutations,
+	removePersonaMutations,
+	removeUserPropertyMutations,
+	removeUserTypePlan,
+} from "@/lib/doc/userMutations";
+import {
 	type AssetId,
 	asUuid,
 	type CarrierBlindField,
@@ -100,7 +108,10 @@ import {
 	fieldRegistry,
 	HIDDEN_INERT_DEFAULT_VALUE,
 	type Module,
+	type Persona,
 	type SelectOption,
+	type UserProperty,
+	type UserType,
 } from "@/lib/domain";
 
 /**
@@ -111,6 +122,17 @@ import {
 export type AddCommitOutcome =
 	| { ok: true; uuid: Uuid }
 	| { ok: false; messages: string[] };
+
+/**
+ * A patch over one user-collection entity: any subset of its mutable
+ * slots, with a cleared optional slot spelled `null` (JSON drops
+ * `undefined`, so `null` is the only clear that survives the wire).
+ * `uuid` and `order` never appear — the first is the patch's key, the
+ * second is sequence, which these surfaces do not reorder.
+ */
+export type UserEntityPatch<T> = {
+	[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
+};
 
 export type { CommitOutcome };
 
@@ -352,6 +374,44 @@ export interface BlueprintMutations {
 	 * afterward (which flips `caseListOnly` off). Returns the new module's uuid
 	 * for navigation.
 	 */
+	// ── Worker information, roles, personas ──────────────────────────────
+	//
+	// Every one dispatches the planner from `lib/doc/userMutations.ts`, so a
+	// removal's cleanup (rewriting the value bags that named a removed
+	// property) and its refusal (a role personas still hold) are decided in
+	// one place rather than per call site.
+
+	/** Add a piece of worker information to the app's catalog. */
+	addUserProperty: (
+		property: Omit<UserProperty, "uuid" | "order">,
+	) => AddCommitOutcome;
+	/** Change one piece of worker information. A cleared slot is `null`. */
+	updateUserProperty: (
+		uuid: Uuid,
+		patch: UserEntityPatch<UserProperty>,
+	) => CommitOutcome;
+	/** Remove a piece of worker information and every value recorded
+	 *  against it, as one batch. */
+	removeUserProperty: (uuid: Uuid) => CommitOutcome;
+
+	/** Add a role. */
+	addUserType: (userType: Omit<UserType, "uuid" | "order">) => AddCommitOutcome;
+	/** Change a role's name, description, or default values. */
+	updateUserType: (
+		uuid: Uuid,
+		patch: UserEntityPatch<UserType>,
+	) => CommitOutcome;
+	/** Remove a role. Refused, with the personas named, while any persona
+	 *  still holds it. */
+	removeUserType: (uuid: Uuid) => CommitOutcome;
+
+	/** Add a persona. */
+	addPersona: (persona: Omit<Persona, "uuid" | "order">) => AddCommitOutcome;
+	/** Change a persona's name, role, or value overrides. */
+	updatePersona: (uuid: Uuid, patch: UserEntityPatch<Persona>) => CommitOutcome;
+	/** Remove a persona. Case rows it owns are deliberately left alone. */
+	removePersona: (uuid: Uuid) => CommitOutcome;
+
 	createCaseListModule: (args: {
 		caseType: string;
 		name?: string;
@@ -1114,6 +1174,99 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 							...(retirement.kind === "retire" ? retirement.mutations : []),
 						]),
 					);
+				},
+
+				addUserProperty(property) {
+					const uuid = asUuid(crypto.randomUUID());
+					const applied = guardedApply(
+						addUserPropertyMutations(get(), uuid, property),
+					);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
+
+				updateUserProperty(uuid, patch) {
+					if (get().userProperties?.[uuid] === undefined) {
+						warnUnresolved("updateUserProperty", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateUserProperty", uuid, patch }]),
+					);
+				},
+
+				removeUserProperty(uuid) {
+					const doc = get();
+					if (doc.userProperties?.[uuid] === undefined) {
+						warnUnresolved("removeUserProperty", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply(removeUserPropertyMutations(doc, uuid)),
+					);
+				},
+
+				addUserType(userType) {
+					const uuid = asUuid(crypto.randomUUID());
+					const applied = guardedApply(
+						addUserTypeMutations(get(), uuid, userType),
+					);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
+
+				updateUserType(uuid, patch) {
+					if (get().userTypes?.[uuid] === undefined) {
+						warnUnresolved("updateUserType", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updateUserType", uuid, patch }]),
+					);
+				},
+
+				removeUserType(uuid) {
+					const doc = get();
+					if (doc.userTypes?.[uuid] === undefined) {
+						warnUnresolved("removeUserType", { uuid });
+						return NOOP_REJECTION;
+					}
+					const plan = removeUserTypePlan(doc, uuid);
+					if (!plan.ok) {
+						/* A held role is a dependency refusal, not a gate finding —
+						 * announce it the same way so the author sees one voice. */
+						const lines = [plan.userMessage];
+						if (announce) notifyRejectedCommit(lines);
+						return { ok: false, messages: lines };
+					}
+					return toOutcome(guardedApply(plan.mutations));
+				},
+
+				addPersona(persona) {
+					const uuid = asUuid(crypto.randomUUID());
+					const applied = guardedApply(
+						addPersonaMutations(get(), uuid, persona),
+					);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
+
+				updatePersona(uuid, patch) {
+					if (get().personas?.[uuid] === undefined) {
+						warnUnresolved("updatePersona", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "updatePersona", uuid, patch }]),
+					);
+				},
+
+				removePersona(uuid) {
+					if (get().personas?.[uuid] === undefined) {
+						warnUnresolved("removePersona", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(guardedApply(removePersonaMutations(uuid)));
 				},
 
 				createCaseListModule({ caseType, name, index }) {

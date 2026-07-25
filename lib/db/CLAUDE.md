@@ -27,7 +27,16 @@ surface.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
-groups) plus one `blueprint_entities` row per module/form/field.
+groups) plus one `blueprint_entities` row per entity. Six kinds share that table
+(`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
+`(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
+flat — no parent, constant ordinal, sequence living entirely in each entity's
+fractional `order` key. **Every kind branches explicitly in the assembler**: its
+shape is `if module / else if form / else field`, so a new kind that falls
+through is read as a field, fails `blueprintDocSchema`, and stops the whole app
+from loading rather than losing one row. The three flat collections' doc slots
+are optional and OMITTED when empty, so an app declaring none assembles to
+exactly the doc it did before they existed.
 `blueprintRows.ts` is the projection: `assembleBlueprint` (rows → the exact
 `PersistableDoc`, Zod-validated), `decomposeBlueprint` (inverse; membership
 arrays round-trip via the stored `ordinal`), `diffBlueprints` (the minimal

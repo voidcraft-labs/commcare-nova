@@ -94,6 +94,7 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
+	asUuid,
 	type BlueprintDoc,
 	FIELD_MEDIA_SLOTS,
 	type Mutation,
@@ -391,6 +392,7 @@ export function diffDocsToMutations(
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
 	}
+	collections.push(...diffUserCollections(prev, next));
 
 	// ── Module / form / field set deltas ──────────────────────────────
 	const moduleDelta = setDelta(
@@ -1481,4 +1483,105 @@ function diffCatalog(
 		}
 	}
 	return out;
+}
+
+/**
+ * The three flat user collections — the property catalog, the roles, and
+ * the personas.
+ *
+ * Each is a UUID-keyed record whose entities carry no nested collections,
+ * so one add / update / remove shape covers all three: an entity present
+ * only in `next` is an add, one whose content changed is a whole-entity
+ * update patch (concrete objects survive JSON, so a rebuilt `values` bag
+ * clears a key by omitting it), and one present only in `prev` is a
+ * remove. Removal CASCADES are not derived here — the planners in
+ * `userMutations.ts` emit the rewritten value bags alongside the removal,
+ * and the diff sees those as ordinary updates.
+ */
+function diffUserCollections(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const prevProps = prev.userProperties ?? {};
+	const nextProps = next.userProperties ?? {};
+	for (const [uuid, property] of Object.entries(nextProps)) {
+		const before = prevProps[uuid];
+		if (!before) {
+			out.push({ kind: "addUserProperty", property: cloneEntity(property) });
+		} else if (!deepEqual(before, property)) {
+			out.push({
+				kind: "updateUserProperty",
+				uuid: asUuid(uuid),
+				patch: userPatch(before, property),
+			});
+		}
+	}
+	for (const uuid of Object.keys(prevProps)) {
+		if (nextProps[uuid] === undefined) {
+			out.push({ kind: "removeUserProperty", uuid: asUuid(uuid) });
+		}
+	}
+
+	const prevTypes = prev.userTypes ?? {};
+	const nextTypes = next.userTypes ?? {};
+	for (const [uuid, userType] of Object.entries(nextTypes)) {
+		const before = prevTypes[uuid];
+		if (!before) {
+			out.push({ kind: "addUserType", userType: cloneEntity(userType) });
+		} else if (!deepEqual(before, userType)) {
+			out.push({
+				kind: "updateUserType",
+				uuid: asUuid(uuid),
+				patch: userPatch(before, userType),
+			});
+		}
+	}
+	for (const uuid of Object.keys(prevTypes)) {
+		if (nextTypes[uuid] === undefined) {
+			out.push({ kind: "removeUserType", uuid: asUuid(uuid) });
+		}
+	}
+
+	const prevPersonas = prev.personas ?? {};
+	const nextPersonas = next.personas ?? {};
+	for (const [uuid, persona] of Object.entries(nextPersonas)) {
+		const before = prevPersonas[uuid];
+		if (!before) {
+			out.push({ kind: "addPersona", persona: cloneEntity(persona) });
+		} else if (!deepEqual(before, persona)) {
+			out.push({
+				kind: "updatePersona",
+				uuid: asUuid(uuid),
+				patch: userPatch(before, persona),
+			});
+		}
+	}
+	for (const uuid of Object.keys(prevPersonas)) {
+		if (nextPersonas[uuid] === undefined) {
+			out.push({ kind: "removePersona", uuid: asUuid(uuid) });
+		}
+	}
+	return out;
+}
+
+/**
+ * The changed slots between two versions of one user entity, with a slot
+ * that went away spelled `null` — the wire's only surviving clear, since
+ * `JSON.stringify` drops an `undefined`-valued key on both the SSE stream
+ * and the persisted jsonb. `uuid` never appears: it is the patch's key,
+ * not part of it.
+ */
+function userPatch(
+	before: Record<string, unknown>,
+	after: Record<string, unknown>,
+): Record<string, unknown> {
+	const patch: Record<string, unknown> = {};
+	for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+		if (key === "uuid") continue;
+		const value = after[key];
+		if (deepEqual(before[key], value)) continue;
+		patch[key] = value === undefined ? null : cloneEntity(value);
+	}
+	return patch;
 }

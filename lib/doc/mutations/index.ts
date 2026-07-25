@@ -32,6 +32,7 @@ import { applyAppMutation } from "./app";
 import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
 import { applyModuleMutation } from "./modules";
+import { applyUserMutation } from "./users";
 
 /**
  * Internal: dispatch a single mutation to the appropriate sub-reducer
@@ -98,6 +99,17 @@ function dispatchMutation(
 		case "removeOption":
 		case "moveOption":
 			return applyFieldMutation(draft, mut);
+		case "addUserProperty":
+		case "updateUserProperty":
+		case "removeUserProperty":
+		case "addUserType":
+		case "updateUserType":
+		case "removeUserType":
+		case "addPersona":
+		case "updatePersona":
+		case "removePersona":
+			applyUserMutation(draft, mut);
+			return;
 		default:
 			assertNever(mut, "applyMutation");
 	}

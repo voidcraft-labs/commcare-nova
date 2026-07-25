@@ -27,5 +27,6 @@ export * from "./multimedia";
 export * from "./referenceIndex";
 export * from "./referenceSlots";
 export * from "./standardCaseProperties";
+export * from "./users";
 export * from "./uuid";
 export * from "./xpath";

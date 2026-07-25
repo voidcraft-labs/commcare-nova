@@ -39,6 +39,7 @@ import {
 	useBuilderIsReady,
 	useCanEdit,
 	useEditMode,
+	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
@@ -187,6 +188,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const mode = useEditMode();
 	const appId = useAppId();
 	const scopeEpoch = useProjectScopeEpoch();
+	const personaUuid = usePreviewPersonaUuid();
 	const session = useBuilderSessionApi();
 	/* A viewer may preview the running app but not WRITE case data (submit a
 	 * form, generate sample cases) — those server actions are edit-gated, so
@@ -517,7 +519,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				caseId: effectiveCaseId,
 				caseTypes,
 			});
-			const result = await submitFormAction(mutation, appId, viewerTimeZone());
+			/* The persona rides the WRITE, not just the reads. Its uuid is the
+			 * `owner_id` stamped on every case this submission creates, so
+			 * dropping it here would quietly give a persona's work to the
+			 * signed-in member while every read still looked persona-scoped. */
+			const result = await submitFormAction(
+				mutation,
+				appId,
+				viewerTimeZone(),
+				personaUuid,
+			);
 			if (!isCurrent()) return;
 			if (
 				result.kind === "registration" ||

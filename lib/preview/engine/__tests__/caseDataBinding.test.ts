@@ -308,10 +308,14 @@ function buildBlueprint(caseTypes: CaseType[]) {
 function makeStore(
 	projectId: string,
 	actorUserId: string = projectId,
+	/** The CommCare worker rows are owned by — a persona, when Preview is
+	 *  running as one. Defaults to the acting member. */
+	ownerId: string = actorUserId,
 ): CaseStore {
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId,
+		ownerId,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -364,6 +368,93 @@ function buildSyntheticRow(properties: JsonObject): CaseRow {
 		properties,
 	};
 }
+
+// ---------------------------------------------------------------
+// The persona reaches the row
+// ---------------------------------------------------------------
+//
+// The Server-Action tests below prove `submitFormAction` hands the
+// persona to `withProjectContext`, and the store's own tests prove it
+// stamps `owner_id` from its bound worker. Those are two correct halves,
+// and this is the join between them — read back over real Postgres,
+// because "the persona's uuid IS the owner id" is the precondition unit
+// 8's owner-set assembly and unit 9's restore closure both build on, and
+// a mock at either end would stay green while the middle broke.
+
+describe("a submission made while previewing as a persona", () => {
+	const PERSONA = "aa000000-0000-4000-8000-00000000000a";
+
+	it("owns every case it creates by the persona, not the signed-in member", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A, PERSONA);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+
+		const result = await store.applySubmission(
+			submissionEnvelopeArgs(
+				{
+					kind: "registration",
+					primary: {
+						caseType: "patient",
+						caseName: "Alice",
+						properties: { name: "Alice" },
+					},
+					children: [],
+				},
+				APP_ID,
+			),
+		);
+
+		const rows = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		const created = rows.find((r) => r.case_id === result.primaryCaseId);
+		expect(created?.owner_id).toBe(PERSONA);
+		expect(created?.owner_id).not.toBe(OWNER_A);
+	});
+
+	it("owns sample data by the persona too — the bulk path agrees with the single-row one", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A, PERSONA);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+
+		await store.generateSampleData({
+			appId: APP_ID,
+			caseType: PATIENT_CASE_TYPE,
+			count: 2,
+			seed: "persona-owner",
+		});
+
+		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) expect(row.owner_id).toBe(PERSONA);
+	});
+
+	it("owns rows by the member when no persona is acting", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+
+		const result = await store.applySubmission(
+			submissionEnvelopeArgs(
+				{
+					kind: "registration",
+					primary: {
+						caseType: "patient",
+						caseName: "Alice",
+						properties: { name: "Alice" },
+					},
+					children: [],
+				},
+				APP_ID,
+			),
+		);
+		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(rows.find((r) => r.case_id === result.primaryCaseId)?.owner_id).toBe(
+			OWNER_A,
+		);
+	});
+});
 
 // ---------------------------------------------------------------
 // `readCases`
@@ -3344,6 +3435,139 @@ describe("submitFormAction", () => {
 			caseId: ALICE_CASE_ID,
 			childCaseIds: [VISIT_CASE_ID],
 		});
+	});
+
+	/**
+	 * The persona has to reach the WRITE, not only the reads.
+	 *
+	 * A persona's uuid IS its CommCare owner id, so it is what
+	 * `owner_id` carries on every case a submission creates
+	 * (`PostgresCaseStore` stamps that from the store's bound worker).
+	 * Dropping the argument at this one call site would leave every read
+	 * persona-scoped and every written row owned by the signed-in member
+	 * — a divergence nothing that only reads could notice. The store
+	 * construction is the seam that fact travels through, so that is what
+	 * this asserts, along with the half that must NOT move: authorization
+	 * stays keyed on the member.
+	 */
+	it("stamps the persona as the owner of what a submission writes, while the member still authorizes", async () => {
+		const PERSONA = asUuid("aa000000-0000-4000-8000-00000000000a");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValue({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const doc = buildDoc({ appName: "Personas", modules: [] });
+		doc.personas = {
+			[PERSONA]: { uuid: PERSONA, name: "Asha" },
+		};
+		loadAppMock.mockResolvedValue({ blueprint: doc });
+
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn(),
+			insert: vi.fn(),
+			applySubmission: vi.fn().mockResolvedValue({
+				primaryCaseId: ALICE_CASE_ID,
+				childCaseIds: [],
+				operations: [],
+			}),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
+			conversionImpact: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValue(stubStore);
+
+		const mutation: SubmissionMutation = {
+			kind: "registration",
+			primary: {
+				caseType: "patient",
+				caseName: "Alice",
+				properties: { name: "Alice" },
+			},
+			children: [],
+		};
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await submitFormAction(mutation, APP_ID, undefined, PERSONA);
+
+		// The store's WORKER is the persona — the third argument is the
+		// `owner_id` every inserted row carries.
+		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
+			PROJECT_A,
+			OWNER_A,
+			PERSONA,
+		);
+		// …and the membership gate still ran against the signed-in member.
+		// A persona is authored blueprint content and must never authorize.
+		expect(resolveAppScopeMock).toHaveBeenCalledWith(APP_ID, OWNER_A, "edit");
+	});
+
+	it("keeps the member as both actor and owner when no persona is selected", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValue({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn(),
+			insert: vi.fn(),
+			applySubmission: vi.fn().mockResolvedValue({
+				primaryCaseId: ALICE_CASE_ID,
+				childCaseIds: [],
+				operations: [],
+			}),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			unparkValues: vi.fn(),
+			conversionImpact: vi.fn(),
+			listParkedValues: vi.fn(),
+			restoreParkedValues: vi.fn(),
+			setParkedValuesDismissed: vi.fn(),
+			replaceParkedValue: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValue(stubStore);
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await submitFormAction(
+			{
+				kind: "registration",
+				primary: {
+					caseType: "patient",
+					caseName: "Alice",
+					properties: { name: "Alice" },
+				},
+				children: [],
+			},
+			APP_ID,
+		);
+
+		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
+			PROJECT_A,
+			OWNER_A,
+			OWNER_A,
+		);
+		// No persona selected means no blueprint read at all — ordinary
+		// "Preview as me" traffic pays nothing for the capability.
+		expect(loadAppMock).not.toHaveBeenCalled();
 	});
 
 	// ---------------------------------------------------------------

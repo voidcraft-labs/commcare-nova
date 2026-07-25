@@ -39,6 +39,7 @@ import * as opaqueCaseIds from "./20260724030000_opaque_case_ids";
 import * as caseOperationsFlag from "./20260724130000_case_operations_flag";
 import * as removeLookupRolloutApparatus from "./20260725000000_remove_lookup_rollout_apparatus";
 import * as clearLegacyNullNonceHolders from "./20260725060000_clear_legacy_null_nonce_holders";
+import * as blueprintUserEntities from "./20260725120000_blueprint_user_entities";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -69,6 +70,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260725000000_remove_lookup_rollout_apparatus":
 		removeLookupRolloutApparatus,
 	"20260725060000_clear_legacy_null_nonce_holders": clearLegacyNullNonceHolders,
+	"20260725120000_blueprint_user_entities": blueprintUserEntities,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

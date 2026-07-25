@@ -107,6 +107,18 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
+	// Who runs the app. Every one is soundness: an illegal or duplicated
+	// slug is an identity CommCare refuses, a duplicated role or persona
+	// name is indistinguishable in every picker, a dangling role or
+	// property reference is a value with nowhere to go, and a value outside
+	// a property's choice list is rejected when the worker is created.
+	USER_PROPERTY_SLUG_INVALID: "soundness",
+	USER_PROPERTY_SLUG_DUPLICATE: "soundness",
+	USER_TYPE_NAME_DUPLICATE: "soundness",
+	PERSONA_NAME_DUPLICATE: "soundness",
+	PERSONA_USER_TYPE_UNKNOWN: "soundness",
+	USER_DATA_UNKNOWN_PROPERTY: "soundness",
+	USER_DATA_INVALID_CHOICE: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",

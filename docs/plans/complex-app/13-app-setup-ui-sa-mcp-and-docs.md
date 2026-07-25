@@ -1,17 +1,35 @@
-# Unit 13 — App setup UI, SA, MCP, and docs
+# Unit 13 — App setup's remaining sections, SA, MCP, and docs
 
-**PR:** `App setup workspace: users, organization, automations, and deployment`
+**PR:** `App setup: organization, automations, and deployment`
 
-**Depends on:** units 7, 8, 9, 10, 11, and 12. · **Blocks:** nothing.
+**Depends on:** units 8, 9, 10, 11, and 12. · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure,
 > baseline-UI-review, and three-surfaces rules there are the acceptance criteria
 > for this unit. Each prerequisite unit's file states the vocabulary it exposes.
 
-Build the URL-owned Users & Personas, Organization, Automations, and Deployment
-sections with responsive navigation, permissions, conflict and recovery states,
-deployment progress and retry, and honest target prerequisites. Complete the SA
-and MCP tools, the public docs, and the cross-facility owner/restore walkthrough
+**The App setup workspace already exists — inherit it, do not rebuild it.** It is
+URL-owned at `/build/<appId>/setup/<section>`, reachable from expanded and
+collapsed desktop navigation and the mobile path menu, and it already owns
+breadcrumbs, deep links, route recovery, viewer mode, focus restoration, mobile
+layout, and global Preview behavior. Its section vocabulary already names all
+four sections; **Users & Personas** is built and the other three render an honest
+not-built-yet state. Filling one is adding its content, not adding a workspace.
+
+Build the Organization, Automations, and Deployment sections with responsive
+layout, permissions, conflict and recovery states, deployment progress and retry,
+and honest target prerequisites. Complete the SA and MCP tools and the public
+docs for units 8 through 12, and the cross-facility owner/restore walkthrough
 scenario.
 
-**Observed:** every capability from units 7 through 12 is reachable without chat.
+The SA and MCP projection of the **user-property, user-type, and persona**
+vocabulary is also this unit's. Unit 7 shipped that vocabulary's builder surface
+and public docs and deliberately left its two model-facing surfaces here,
+because the three-surfaces rule is served best by one pass over the whole App
+setup vocabulary: the tool schemas share a boundary walk, a slug-verdict
+projection, and the strict-mode normalization budget that
+`lib/agent/CLAUDE.md` governs, and splitting them across six units would mean
+six partial passes over the same constraints.
+
+**Observed:** every capability from units 8 through 12 is reachable without chat,
+and everything App setup can author is reachable from chat and MCP.

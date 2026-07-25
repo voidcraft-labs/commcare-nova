@@ -378,3 +378,15 @@ export function caseTypeNameVerdict(
 	}
 	return CASE_TYPE_OK;
 }
+
+// ── User-data property slugs ────────────────────────────────────────
+//
+// The rule itself is a CommCare rule and lives with the validator; it is
+// re-exported here so every authoring surface keeps ONE import home for
+// "is this identifier usable?", the same way the field and case-type
+// verdicts above do.
+export {
+	type UserPropertySlugRejectionCode,
+	type UserPropertySlugVerdict,
+	userPropertySlugVerdict,
+} from "@/lib/commcare/validator/userPropertySlug";

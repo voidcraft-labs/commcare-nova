@@ -85,6 +85,28 @@ export function useSetPreviewSelectedCase(): (
 	return useBuilderSession((s) => s.setPreviewSelectedCase);
 }
 
+/** Which persona Preview runs as, by uuid. `undefined` = the signed-in
+ *  member ("Preview as me").
+ *
+ *  Provider-optional, for the same reason `useCanEdit` and
+ *  `useAccessPhase` are: the running-app hooks that read it — `useCases`,
+ *  `useCaseData`, `useSelectedPreviewIdentity` — are mounted standalone by
+ *  preview unit tests with no `BuilderSessionProvider`. Outside a session
+ *  nobody has chosen a persona, so the fallback reads `undefined`, which
+ *  IS "Preview as me". The SETTER below stays provider-bound: choosing an
+ *  identity is a real session write. */
+export function usePreviewPersonaUuid(): string | undefined {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.previewPersonaUuid);
+}
+
+/** Setter for the previewing identity. */
+export function useSetPreviewPersonaUuid(): (
+	personaUuid: string | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewPersonaUuid);
+}
+
 // ── Active field ──────────────────────────────────────────────────────────
 
 /** Which `[data-field-id]` element currently has focus. `undefined` when no

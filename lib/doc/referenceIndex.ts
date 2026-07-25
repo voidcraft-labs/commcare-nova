@@ -1195,6 +1195,22 @@ export function planReferenceIndexMaintenance(
 			}
 			break;
 		}
+		// User properties, user types, and personas register NO edges. The
+		// index carries only structure a query consumes, and the two questions
+		// these collections raise — which value bags name a property, which
+		// personas name a user type — are answered by scanning collections
+		// bounded at tens of entries, not the whole doc. A bucket maintained on
+		// every mutation to save that scan would be pure cost.
+		case "addUserProperty":
+		case "updateUserProperty":
+		case "removeUserProperty":
+		case "addUserType":
+		case "updateUserType":
+		case "removeUserType":
+		case "addPersona":
+		case "updatePersona":
+		case "removePersona":
+			break;
 		default: {
 			const _exhaustive: never = mut;
 			break;

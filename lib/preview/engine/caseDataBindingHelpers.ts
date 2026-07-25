@@ -57,6 +57,8 @@ import {
 	caseListColumnHasRuntimeRole,
 	orderedCaseOperations,
 	type PersistableDoc,
+	personasOf,
+	type UserCollections,
 	type Uuid,
 } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -92,7 +94,11 @@ import type {
 	SubmissionAnswerEntry,
 	SubmissionMutation,
 } from "./caseDataBindingTypes";
-import { previewAsMe, type ResolvedPreviewIdentity } from "./identity";
+import {
+	previewAsMe,
+	previewAsPersona,
+	type ResolvedPreviewIdentity,
+} from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 import {
 	bindSearchInputValuesInPredicate,
@@ -1234,10 +1240,43 @@ export async function withSchemaHeal<T>(
  * collapse it to their typed `unauthenticated` arm. The client never
  * supplies an identity to an action.
  */
-export async function resolvePreviewIdentity(): Promise<ResolvedPreviewIdentity | null> {
+export async function resolvePreviewIdentity(
+	doc?: UserCollections,
+	personaUuid?: string,
+): Promise<ResolvedPreviewIdentity | null> {
 	const session = await getSession();
 	if (!session) return null;
-	return previewAsMe(session.user);
+	if (doc === undefined || personaUuid === undefined) {
+		return previewAsMe(session.user, doc);
+	}
+	// A client may SELECT a persona; it may never assert one. The persona is
+	// resolved from the document the caller was authorized to read, and an
+	// id naming nothing falls back to previewing as the member rather than
+	// fabricating a worker.
+	const persona = personasOf(doc)[personaUuid];
+	if (persona === undefined) return previewAsMe(session.user, doc);
+	return previewAsPersona(session.user, persona, doc);
+}
+
+/**
+ * Resolve the acting identity for one app, honoring a persona SELECTION.
+ *
+ * The client may name which persona Preview is running as; it may never
+ * assert an identity. The uuid resolves against the COMMITTED blueprint
+ * here, and a uuid naming nothing falls back to previewing as the member —
+ * a persona a peer removed mid-session must not strand the running app.
+ *
+ * The blueprint read happens only when a persona is actually selected, so
+ * ordinary "Preview as me" traffic pays nothing for the capability.
+ */
+export async function resolvePreviewIdentityForApp(
+	appId: string,
+	personaUuid: string | undefined,
+): Promise<ResolvedPreviewIdentity | null> {
+	if (personaUuid === undefined) return resolvePreviewIdentity();
+	const app = await loadApp(appId);
+	if (!app?.blueprint) return resolvePreviewIdentity();
+	return resolvePreviewIdentity(app.blueprint, personaUuid);
 }
 
 export async function gatedCaseStore(
@@ -1258,17 +1297,25 @@ export async function gatedCaseStoreWithScope(
 	identity: ResolvedPreviewIdentity,
 	required: AppCapability,
 ): Promise<{ store: CaseStore; scope: LookupScope }> {
+	// `actorUserId` — never `ownerId`. The owner may be a persona, which is
+	// authored blueprint content; keying membership on it would let an app
+	// choose whose data a request reads. The persona reaches the store only
+	// as the CommCare worker whose `owner_id` new rows carry.
 	const { projectId, role } = await resolveAppScope(
 		appId,
-		identity.ownerId,
+		identity.actorUserId,
 		required,
 	);
 	return {
 		store: schemaHealingCaseStore(
-			await withProjectContext(projectId, identity.ownerId),
+			await withProjectContext(
+				projectId,
+				identity.actorUserId,
+				identity.ownerId,
+			),
 			{ appId },
 		),
-		scope: { projectId, actorId: identity.ownerId, role },
+		scope: { projectId, actorId: identity.actorUserId, role },
 	};
 }
 

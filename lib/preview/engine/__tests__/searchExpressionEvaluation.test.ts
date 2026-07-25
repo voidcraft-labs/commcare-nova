@@ -41,9 +41,19 @@ describe("preview case-search expression evaluation", () => {
 		expect(
 			evaluatePreviewSearchExpression(term(sessionContext("userid")), SESSION),
 		).toBe("worker-42");
+		// `session/user/data` carries CommCare's `commcare_`-prefixed framework
+		// keys, not the usercase's unprefixed ones — the two projections are
+		// separate, and an unprefixed name reads as the blank an absent node
+		// gives on a device.
+		expect(
+			evaluatePreviewSearchExpression(
+				term(sessionUser("commcare_first_name")),
+				SESSION,
+			),
+		).toBe("Amina");
 		expect(
 			evaluatePreviewSearchExpression(term(sessionUser("first_name")), SESSION),
-		).toBe("Amina");
+		).toBe("");
 	});
 
 	it("binds submitted search inputs before evaluating a dependent expression", () => {

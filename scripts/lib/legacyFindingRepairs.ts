@@ -156,6 +156,35 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CONNECT_NO_PARTICIPATING_FORMS: owner(
 		"which form should participate in Connect — and the sub-config names/descriptions it carries — is content the user writes",
 	),
+	// ── Worker information, roles, personas ──────────────────────────
+	//
+	// No app predating the commit gate can carry any of these findings:
+	// the three collections did not exist, so every entity in them was
+	// authored through the gate that refuses these codes. They are listed
+	// because the table is total over the gating classes, not because a
+	// legacy app can reach them — and each names the content decision a
+	// repair would otherwise have to invent.
+	USER_PROPERTY_SLUG_INVALID: owner(
+		"the name a piece of worker information saves under is content, and changing it re-keys every value roles and personas recorded against it",
+	),
+	USER_PROPERTY_SLUG_DUPLICATE: owner(
+		"which of the two colliding names to keep, and what to rename the other to, is the owner's decision",
+	),
+	USER_TYPE_NAME_DUPLICATE: owner(
+		"which duplicate role is which — and therefore what to rename — is content only the owner knows",
+	),
+	PERSONA_NAME_DUPLICATE: owner(
+		"which duplicate persona is which — and therefore what to rename — is content only the owner knows",
+	),
+	PERSONA_USER_TYPE_UNKNOWN: owner(
+		"choosing a persona's role is content; clearing it silently would change who that persona is",
+	),
+	USER_DATA_UNKNOWN_PROPERTY: owner(
+		"whether the stranded value should be dropped or its information added back is a content decision",
+	),
+	USER_DATA_INVALID_CHOICE: owner(
+		"whether the value or the accepted-values list is the mistake is the owner's call",
+	),
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: owner(
 		"the case type names the entity the module tracks — content (the retired fix guessed from the module name; that guess is the owner's to approve per app)",

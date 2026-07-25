@@ -1115,17 +1115,23 @@ describe("FormEngine", () => {
 			email: "amina@example.org",
 		});
 
-		it("resolves #user/* from the resolved identity", () => {
+		it("resolves #user/* from the identity's usercase projection", () => {
+			// `#user/<prop>` is the usercase, whose built-in keys are HQ's
+			// `_get_user_case_fields` set — `hq_user_id`, not `userid`, and the
+			// unprefixed name fields. The session block's `commcare_`-prefixed
+			// keys live on the other projection and do not resolve here.
 			const input = dTree([
 				{ id: "who", kind: "hidden", calculate: "#user/username" },
 				{ id: "first", kind: "hidden", calculate: "#user/first_name" },
-				{ id: "uid", kind: "hidden", calculate: "#user/userid" },
+				{ id: "uid", kind: "hidden", calculate: "#user/hq_user_id" },
+				{ id: "session_key", kind: "hidden", calculate: "#user/userid" },
 			]);
 			const engine = new FormEngine(input, undefined, undefined, identity);
 
 			expect(engine.getState("/data/who").value).toBe("amina@example.org");
 			expect(engine.getState("/data/first").value).toBe("Amina");
 			expect(engine.getState("/data/uid").value).toBe("worker-7");
+			expect(engine.getState("/data/session_key").value).toBe("");
 		});
 
 		it("reads an absent user-data key as blank, never a placeholder", () => {

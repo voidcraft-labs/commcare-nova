@@ -37,6 +37,7 @@
  */
 "use client";
 import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
+import { AppSetupWorkspace } from "@/components/builder/app-setup/AppSetupWorkspace";
 import {
 	CaseListWorkspaceCanvas,
 	type CaseListWorkspaceTab,
@@ -49,7 +50,7 @@ import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
-import type { Location } from "@/lib/routing/types";
+import type { AppSetupSection, Location } from "@/lib/routing/types";
 import {
 	useEditMode,
 	usePreviewCaseTarget,
@@ -79,6 +80,9 @@ function locationToScreen(
 	formOrder: Readonly<Record<Uuid, readonly Uuid[]>>,
 ): PreviewScreen {
 	if (loc.kind === "home") return { type: "home" };
+	if (loc.kind === "app-setup") {
+		return { type: "appSetup", section: loc.section };
+	}
 
 	const moduleIndex = moduleOrder.indexOf(loc.moduleUuid);
 	if (moduleIndex < 0) return { type: "home" };
@@ -266,6 +270,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			formUuid: loc.formUuid,
 		};
 	}
+	/** The App setup workspace's identity — uuid-free, since it names no
+	 *  blueprint entity. Same visited-ref shape as the two refs above so the
+	 *  boundary survives navigating away and back. */
+	const appSetupRef = useRef<{ section: AppSetupSection }>(undefined);
+	if (loc.kind === "app-setup") {
+		appSetupRef.current = { section: loc.section };
+	}
 	/* `mode` stays immediate — the Preview toggle must never lag — while
 	 * the location half rides the deferred pair above. */
 	const editingDisplayCondition = mode === "edit" && view.atCondition;
@@ -295,6 +306,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				moduleIndex: zustandScreen.moduleIndex,
 				formIndex: 0,
 			};
+			break;
+		case "appSetup":
+			/* No preview-pipeline identity to synthesize — App setup has no
+			 * running-app counterpart, and Preview navigates away from it
+			 * rather than rendering one (see `usePreviewModeTransition`). */
 			break;
 		case "form":
 			formScreenRef.current = zustandScreen;
@@ -428,6 +444,18 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						name="DataReviewScreen"
 					>
 						<DataReviewScreen moduleUuid={dataReviewRef.current.moduleUuid} />
+					</Activity>
+				)}
+				{appSetupRef.current && (
+					<Activity
+						mode={
+							screen.type === "appSetup" && mode === "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="AppSetupWorkspace"
+					>
+						<AppSetupWorkspace section={appSetupRef.current.section} />
 					</Activity>
 				)}
 				{caseListScreenRef.current && (
