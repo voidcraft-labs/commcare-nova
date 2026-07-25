@@ -68,6 +68,8 @@ function whereLabel(location: Location): string {
 		case "module-condition":
 		case "form-condition":
 			return "setting when something appears";
+		case "form-operations":
+			return "editing case changes";
 		case "form":
 			return location.selectedUuid !== undefined
 				? "editing a field"
