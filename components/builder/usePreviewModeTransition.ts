@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 
 /**
- * Wrap the session's preview setter with the one URL transition preview mode
+ * Wrap the session's preview setter with the URL transitions preview mode
  * owns. The three case-workspace authoring URLs already preserve the tab the
  * author entered Preview from while the running app stays on its assembled
  * case list. A case-record URL means the worker has moved to the Details
@@ -12,6 +12,15 @@ import { useLocation, useNavigate } from "@/lib/routing/hooks";
  * Details authoring tab before turning preview off. Otherwise the record
  * deep-link synchronizer would immediately turn Preview back on, and mapping
  * every record to Results would lose the flipbook's current screen.
+ *
+ * Entering Preview from App setup leaves for the app home. App setup is app
+ * administration — worker information, roles, personas — and none of it is
+ * something a worker opens, so there is no running counterpart to show. The
+ * two alternatives are both worse: keeping the workspace on screen would make
+ * Preview a no-op press (and hand it a full-bleed canvas with both navigation
+ * flanks collapsed), and blocking the toggle would make the app's one Run
+ * control unreachable from a whole workspace. Running the app from its home
+ * is what "Preview" means here.
  */
 export function usePreviewModeTransition(
 	setPreviewing: (on: boolean) => void,
@@ -25,6 +34,9 @@ export function usePreviewModeTransition(
 					kind: "detail-config",
 					moduleUuid: loc.moduleUuid,
 				});
+			}
+			if (on && loc.kind === "app-setup") {
+				navigate.push({ kind: "home" });
 			}
 			setPreviewing(on);
 		},

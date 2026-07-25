@@ -142,6 +142,12 @@ export function batchTargetsMissing(
 			if (opt.uuid !== undefined) options.add(opt.uuid);
 		}
 	}
+	// The three flat user collections, tracked at the same item granularity:
+	// an update or remove against an entity a peer concurrently removed is a
+	// conflict, because the reducer would silently no-op on it.
+	const userProperties = new Set(Object.keys(doc.userProperties ?? {}));
+	const userTypes = new Set(Object.keys(doc.userTypes ?? {}));
+	const personas = new Set(Object.keys(doc.personas ?? {}));
 	// A field's parent is a form or a group/repeat field — either may hold it.
 	const container = (uuid: string) => forms.has(uuid) || fields.has(uuid);
 	for (const m of mutations) {
@@ -291,6 +297,37 @@ export function batchTargetsMissing(
 			case "updateOption":
 			case "moveOption":
 				if (!options.has(m.uuid)) return true;
+				break;
+			// ── User properties, user types, personas ──────────────────
+			case "addUserProperty":
+				userProperties.add(m.property.uuid);
+				break;
+			case "removeUserProperty":
+				if (!userProperties.has(m.uuid)) return true;
+				userProperties.delete(m.uuid);
+				break;
+			case "updateUserProperty":
+				if (!userProperties.has(m.uuid)) return true;
+				break;
+			case "addUserType":
+				userTypes.add(m.userType.uuid);
+				break;
+			case "removeUserType":
+				if (!userTypes.has(m.uuid)) return true;
+				userTypes.delete(m.uuid);
+				break;
+			case "updateUserType":
+				if (!userTypes.has(m.uuid)) return true;
+				break;
+			case "addPersona":
+				personas.add(m.persona.uuid);
+				break;
+			case "removePersona":
+				if (!personas.has(m.uuid)) return true;
+				personas.delete(m.uuid);
+				break;
+			case "updatePersona":
+				if (!personas.has(m.uuid)) return true;
 				break;
 			// ── App-level scalars — no entity target, always safe ──────
 			case "setAppName":

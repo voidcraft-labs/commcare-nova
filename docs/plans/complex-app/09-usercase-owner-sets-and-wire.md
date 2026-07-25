@@ -80,6 +80,35 @@ directions.
   special-casing in commcare-core or Formplayer and nothing blocks create or close.
   Any create/close prohibition is Nova's own authoring guard matching HQ's
   authoring-side rule, not a runtime constraint.
+- The usercase's **built-in fields are not the session block's**.
+  `callcenter/sync_usercase.py::_get_user_case_fields` copies the authored user
+  data (filtered to valid XML element names) and adds `name`, `username`,
+  `email`, `language`, `phone_number`, `last_device_id_used`, `first_name`,
+  `last_name`, `hq_user_id`, `commcare_project`, and the location keys — the
+  unprefixed spellings, where the registration block writes `commcare_first_name`
+  and friends. `ResolvedPreviewIdentity` already carries both projections
+  separately (`lib/preview/engine/identity.ts`: `session` and `usercase`), and
+  `#user/<prop>` already reads the usercase one, so this unit materializes an
+  existing projection rather than deriving a new one.
+- A **declared** user property with no value is present-and-empty on the wire,
+  not absent: `users/user_data.py::UserData.to_dict` seeds
+  `{field: '' for field in self._schema_fields}` before layering authored values.
+  An undeclared key is genuinely absent. The materialized usercase must reproduce
+  that split — a `= ''` comparison depends on it.
+
+**Persona deletion never deletes case data, and the usercase closes rather than
+disappearing.** That decision is already made and its authoring half already
+shipped: removing a persona leaves every row it owns in place with `owner_id`
+still naming it, exactly as a real worker's cases keep naming them after the
+worker leaves a CommCare project, and the confirmation states the row count
+instead of offering to reassign or remove them. This unit inherits the
+consequence for the materialized usercase: HQ's
+`sync_usercase.py::_get_sync_usercase_helper` computes
+`close = user.to_be_deleted() or not user.is_active_in_domain(domain) or domain
+not in user.get_domains()` and closes the usercase, re-opening it (by archiving
+the closing transactions) if the user returns. A persona UUID is never reissued,
+so Nova's rule is the simple half of that: **close the usercase, never delete
+it**, and a new persona is a new usercase.
 
 One delivery precondition is easy to miss and silently breaks the whole fixture:
 a form only carries the `locations` instance if something in it **references**

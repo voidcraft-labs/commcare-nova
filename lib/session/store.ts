@@ -227,6 +227,15 @@ export interface BuilderSessionState {
 	 *  selection and on every preview toggle. */
 	previewSelectedCase: PreviewSelectedCase | undefined;
 
+	/** Which persona Preview runs as, by uuid — `undefined` means the
+	 *  signed-in member ("Preview as me"). Ephemeral like every other
+	 *  preview field: a persona is a design actor, so which one you are
+	 *  trying is a property of this session, not of the app. It deliberately
+	 *  SURVIVES a preview toggle, unlike the case target: leaving preview to
+	 *  edit a form and coming back should return you to the same worker's
+	 *  session, not silently switch identities. */
+	previewPersonaUuid: string | undefined;
+
 	// ── Chrome ───────────────────────────────────────────────────────────
 
 	/** Sidebar visibility with stash support for preview transitions.
@@ -496,6 +505,10 @@ export interface BuilderSessionState {
 	 *  - Same value: no-op (guards against double-entry that would overwrite
 	 *    the stash with `{ stashed: false }` values). */
 	setPreviewing: (on: boolean) => void;
+	/** Choose which persona Preview runs as. `undefined` = the signed-in
+	 *  member. Changing identity mid-session drops the case target: the
+	 *  case one worker picked is not the case the next one is looking at. */
+	setPreviewPersonaUuid: (personaUuid: string | undefined) => void;
 
 	/** Update which field has focus. No-ops when the value is unchanged to
 	 *  avoid unnecessary subscriber notifications. */
@@ -632,6 +645,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				activeFieldId: undefined,
 				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
 				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
+				previewPersonaUuid: undefined as string | undefined,
 
 				/* Chrome */
 				sidebars: {
@@ -1063,6 +1077,18 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				setPreviewPersonaUuid(personaUuid: string | undefined) {
+					if (personaUuid === get().previewPersonaUuid) return;
+					/* One `set` so the identity and the case it was looking at
+					 * can never be observed apart: a case the previous worker
+					 * selected has no standing in the next worker's session. */
+					set({
+						previewPersonaUuid: personaUuid,
+						previewCaseTarget: undefined,
+						previewSelectedCase: undefined,
+					});
+				},
+
 				setActiveFieldId(fieldId: string | undefined) {
 					if (fieldId === get().activeFieldId) return;
 					set({ activeFieldId: fieldId });
@@ -1231,6 +1257,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						assetMeta: {},
 						previewCaseTarget: undefined,
 						previewSelectedCase: undefined,
+						/* The persona is a blueprint identity; a Project scope
+						 * change means the document this session may read has
+						 * changed underneath it. */
+						previewPersonaUuid: undefined,
 					});
 					if (failures.length > 0) {
 						throw new AggregateError(
@@ -1300,6 +1330,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
 						previewSelectedCase: undefined,
+						previewPersonaUuid: undefined,
 
 						/* Chrome */
 						sidebars: {

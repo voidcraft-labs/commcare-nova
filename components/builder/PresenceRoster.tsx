@@ -43,7 +43,7 @@ import type { Peer } from "@/lib/collab/presence";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useNavigate } from "@/lib/routing/hooks";
 import { recoverLocation } from "@/lib/routing/location";
-import type { Location } from "@/lib/routing/types";
+import { APP_SETUP_SECTION_LABELS, type Location } from "@/lib/routing/types";
 import { getInitials } from "@/lib/utils";
 
 /** Avatars shown as circles; a larger roster shows one fewer plus a "+N"
@@ -55,6 +55,8 @@ function whereLabel(location: Location): string {
 	switch (location.kind) {
 		case "home":
 			return "on the app home";
+		case "app-setup":
+			return `in ${APP_SETUP_SECTION_LABELS[location.section].toLowerCase()}`;
 		case "module":
 			return "in a module";
 		case "cases":

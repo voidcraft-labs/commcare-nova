@@ -9,6 +9,7 @@
  * URL schema (path segments after /build/[id]):
  *
  *   /build/[id]                                   → home
+ *   /build/[id]/setup/{section}                   → app setup workspace
  *   /build/[id]/{moduleUuid}                      → module
  *   /build/[id]/{moduleUuid}/results              → case-results authoring
  *   /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
@@ -23,11 +24,50 @@
  * All entity UUIDs are globally unique in the doc store. A single UUID
  * segment identifies the entity type by checking `doc.modules[uuid]`,
  * `doc.forms[uuid]`, `doc.fields[uuid]`. For fields, the parent
- * form is derived from the doc's ordering maps.
+ * form is derived from the doc's ordering maps. `setup` is the one
+ * reserved first segment, so the parser matches it before any uuid
+ * lookup.
  */
 
 import { z } from "zod";
 import { uuidSchema } from "@/lib/domain";
+
+/**
+ * The App setup workspace's sections, in the order they appear.
+ *
+ * App setup is app administration, not app content: it never appears as a
+ * child of the structure tree, which represents the runnable app. All four
+ * sections are named here because the workspace's shape is a product
+ * contract; each one either has a body or says plainly that it does not
+ * yet.
+ */
+export const APP_SETUP_SECTIONS = [
+	"users",
+	"organization",
+	"automations",
+	"deployment",
+] as const;
+export type AppSetupSection = (typeof APP_SETUP_SECTIONS)[number];
+
+/** Where `/build/{id}/setup` and any unrecognized section land. */
+export const DEFAULT_APP_SETUP_SECTION: AppSetupSection = "users";
+
+/**
+ * Each section's name, in the author's words. Lives beside the enum so the
+ * breadcrumb, the section strip, and the navigation entries cannot drift
+ * into three different names for one destination.
+ */
+export const APP_SETUP_SECTION_LABELS: Readonly<
+	Record<AppSetupSection, string>
+> = {
+	users: "Users & personas",
+	organization: "Organization",
+	automations: "Automations",
+	deployment: "Deployment",
+};
+
+/** The workspace's own name, wherever it is referred to as a whole. */
+export const APP_SETUP_LABEL = "App setup";
 
 /**
  * Every valid builder location, as a Zod discriminated union over `kind`.
@@ -58,6 +98,16 @@ import { uuidSchema } from "@/lib/domain";
  */
 export const locationSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("home") }).strict(),
+	/* App setup carries no `moduleUuid` — it is the one non-home location
+	 * that names no blueprint entity, which is exactly what keeps it out of
+	 * the structure tree's world. Every module-keyed helper must therefore
+	 * branch on it explicitly rather than reading a uuid that isn't there. */
+	z
+		.object({
+			kind: z.literal("app-setup"),
+			section: z.enum(APP_SETUP_SECTIONS),
+		})
+		.strict(),
 	z.object({ kind: z.literal("module"), moduleUuid: uuidSchema }).strict(),
 	z
 		.object({

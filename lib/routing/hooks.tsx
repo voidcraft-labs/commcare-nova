@@ -41,7 +41,13 @@ import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
-import type { Location } from "@/lib/routing/types";
+import {
+	APP_SETUP_LABEL,
+	APP_SETUP_SECTION_LABELS,
+	type AppSetupSection,
+	DEFAULT_APP_SETUP_SECTION,
+	type Location,
+} from "@/lib/routing/types";
 import {
 	pushBuilderHistory,
 	useBuilderPathSegments,
@@ -140,6 +146,12 @@ export interface NavigateActions {
 	openDataReview: (moduleUuid: Uuid) => void;
 	openModuleCondition: (moduleUuid: Uuid) => void;
 	openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) => void;
+	/**
+	 * Open the App setup workspace. Routes to
+	 * `/build/{appId}/setup/{section}`, defaulting to its first section.
+	 * App administration, not app content — it names no module.
+	 */
+	openAppSetup: (section?: AppSetupSection) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -318,6 +330,21 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				location: { kind: "data-review", moduleUuid: loc.moduleUuid },
 			});
 		}
+		/* App setup roots directly off Home — it has no module ancestor, so its
+		 * trail is Home → App setup → the section: the same
+		 * workspace-then-screen shape a module's tabs produce. */
+		if (loc.kind === "app-setup") {
+			items.push({
+				key: "app-setup",
+				label: APP_SETUP_LABEL,
+				location: { kind: "app-setup", section: DEFAULT_APP_SETUP_SECTION },
+			});
+			items.push({
+				key: `app-setup:${loc.section}`,
+				label: APP_SETUP_SECTION_LABELS[loc.section],
+				location: { kind: "app-setup", section: loc.section },
+			});
+		}
 		if (
 			(loc.kind === "form" || loc.kind === "form-condition") &&
 			formUuid &&
@@ -408,6 +435,8 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "module-condition", moduleUuid }),
 			openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) =>
 				push({ kind: "form-condition", moduleUuid, formUuid }),
+			openAppSetup: (section: AppSetupSection = DEFAULT_APP_SETUP_SECTION) =>
+				push({ kind: "app-setup", section }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -433,6 +462,8 @@ export function parentLocation(loc: Location): Location | undefined {
 	switch (loc.kind) {
 		case "home":
 			return undefined;
+		case "app-setup":
+			return { kind: "home" };
 		case "module":
 			return { kind: "home" };
 		case "cases":

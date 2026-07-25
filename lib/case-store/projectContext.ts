@@ -45,19 +45,25 @@ import type { CaseStore, TransactionalSchemaCaseStore } from "./store";
 
 /**
  * Construct a tenant-bound `CaseStore` scoped to `projectId`, stamping
- * `actorUserId` as the `owner_id` (CommCare case-owner) of every row it
- * inserts. The returned instance holds the singleton `Kysely<Database>`
+ * `ownerId` as the `owner_id` (CommCare case-owner) of every row it
+ * inserts, defaulting to `actorUserId` when the acting member IS the
+ * worker. The two are separate on purpose: `actorUserId` is the Nova
+ * member every authorization fence keys on, while `ownerId` is the
+ * CommCare worker — a preview persona, for instance — and must never
+ * authorize anything. The returned instance holds the singleton `Kysely<Database>`
  * by reference, so discarding it at the request boundary does not
  * destroy the underlying pool.
  */
 export async function withProjectContext(
 	projectId: string,
 	actorUserId: string,
+	ownerId: string = actorUserId,
 ): Promise<CaseStore> {
 	const db = await getCaseStoreDatabase();
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId,
+		ownerId,
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeMutation: authorizeCaseMutationInTransaction,

@@ -319,6 +319,119 @@ Wire facts the envelope rests on:
   by default. The envelope closing only its target case **is** faithful device
   parity, and Nova adds no cascade.
 
+### User properties, user types, and preview personas
+
+Three flat blueprint collections answer three separate questions, and the
+distinction is load-bearing everywhere downstream (`lib/domain/users.ts`):
+
+- a **user property** is a slot workers carry data in — the app's half of
+  CommCare's per-domain custom user-data schema;
+- a **user type** is a reusable role template that fills those slots with
+  default values;
+- a **persona** is a named design/test actor with stable identity that
+  *references* a user type and may override individual values. It is who Preview
+  runs as.
+
+A **deployed worker** — a real identity on a target HQ domain, with credentials
+and its own lifecycle — is deliberately absent. It is owned by a deployment,
+created *from* a type or persona, and is not a blueprint identity.
+
+The wire facts the shape rests on:
+
+- HQ stores one `CustomDataFieldsDefinition` per `(domain, field_type)`
+  (`custom_data_fields/models.py::CustomDataFieldsDefinition`); mobile and web
+  users share `field_type='UserFields'`
+  (`users/views/mobile/custom_data_fields.py::UserFieldsView`) and split only by
+  per-field `required_for`. So one app's catalog compiles to that one
+  definition.
+- Slug legality is enforced at construction so a push can never fail on identity
+  grounds: the Django slug charset
+  (`custom_data_fields/edit_model.py::XmlSlugField` lists `validate_slug`), at
+  least one non-digit (its `RegexValidator(r'\D', '')`), `SYSTEM_FIELDS` and the
+  `commcare` / `xml` prefixes (`models.py::validate_reserved_words`), the
+  case-reserved words and case-insensitive uniqueness
+  (`edit_model.py::CustomDataFieldsForm.verify_no_reserved_words` /
+  `::verify_no_duplicates`), and the 127-character column. `RESERVED_CASE_PROPERTIES`
+  is HQ's `case-reserved-words.json` plus `name` and `owner_id` — both already
+  system fields — so one list gives the identical answer.
+- The restore's `<Registration><user_data>` block injects framework keys **after**
+  authored data, so they win collisions
+  (`users/models.py::CouchUser.get_user_session_data`): `commcare_project`,
+  `commcare_first_name`/`_last_name`/`_phone_number`, `commcare_user_type`,
+  `commcare_profile`, `commcare_location_id`/`_ids`/`commcare_primary_case_sharing_id`,
+  plus `user_type='demo'` for practice users. That injected set **is**
+  `BUILT_IN_USER_PROPERTIES` and the reserved-name list — there is no second
+  source, and `lib/domain/__tests__/users.test.ts` asserts the relationship
+  rather than restating it.
+- Only three keys are read by the runtime framework: `user_type` (demo
+  detection — `commcare-core .../User.java::getUserType`) and `commcare_project`
+  + `commcare_location_ids`, read together by
+  `formplayer .../UserUtils.java::getUserLocationsByDomain` to drive the local
+  case purge in `RestoreFactory`. Everything else in `session/user/data` is
+  inert.
+- The client's registration parser writes every `<data key>` into
+  `User.properties` verbatim — no key restrictions, last-wins on duplicates
+  (`commcare-core .../UserXmlParser.java::parse`) — and merges into a retrieved
+  user without clearing, so a key deleted on HQ lingers until a full resync.
+  Nova documents that staleness rather than simulating it.
+- `CustomDataFieldsProfile` sits behind the paid `APP_USER_PROFILES` privilege
+  and is deliberately not the provisioning model; a user type compiles to plain
+  per-user `user_data` values.
+
+Two of HQ's `Field` columns are deliberately excluded from constructible state.
+`regex` / `regex_msg` sit behind the paid `REGEX_FIELD_VALIDATION` privilege —
+`edit_model.py::CustomDataModelMixin.get_field` drops the pattern and keeps
+`choices` without it — so an authored pattern would silently not validate on a
+stock domain. `required_for` is the mobile/web split, and Nova provisions mobile
+workers only: web users arrive through HQ's `InvitationResource`, which resolves
+a role by name a user type cannot supply.
+
+Whether a persona satisfies a `required` property is likewise not a document
+finding. HQ enforces the flag only when the pushed field's `required_for` names
+the user type being created
+(`edit_model.py::UserFieldsView.is_field_required`), so it is a question about
+one deployment target, and gating on it would make marking an existing property
+required impossible. The authoring surface says so inline instead.
+
+### Preview identity
+
+`lib/preview/engine/identity.ts` carries **two ids that are not
+interchangeable**. `actorUserId` is the signed-in member and the only thing that
+ever authorizes; `ownerId` is the CommCare worker the preview acts as — the
+`owner_id` stamp on rows it writes and the value `session/context/userid`
+resolves to. Previewing as a persona makes `ownerId` that persona's UUID while
+the member still authorizes, so a case list filtered to the current user shows
+that persona's caseload. Keying authorization on `ownerId` would let authored
+blueprint content choose whose data a request reads;
+`lib/preview/engine/__tests__/identity.test.ts` pins that the two cannot be
+re-conflated, and `withProjectContext(projectId, actorUserId, ownerId)` carries
+the split into the case store, where authorization fences read the member and
+`owner_id` / `acting-user` read the worker.
+
+The identity carries **two projections of one worker**, because the wire has
+two. `session` is `instance('commcaresession')/session/…`, built by
+`commcare-core .../SessionInstanceBuilder.java::addMetadata` +
+`::addUserProperties`. `usercase` is the `commcare-user` case `#user/<prop>`
+reads, built independently by `callcenter/sync_usercase.py::_get_user_case_fields`
+— same authored data, different built-in keys (`first_name` there,
+`commcare_first_name` in the session block).
+
+Preview values are honest. `commcare_project` is **absent** until a deployment
+target supplies a domain, `commcare_phone_number` is absent because Nova has no
+HQ account to read it from, the three location keys are absent while nobody is
+assigned anywhere (HQ writes all three or none), and an ordinary worker never
+carries the demo-only `user_type`. `commcare_user_type` is `'commcare'`
+(`users/models.py::COMMCARE_USER`) and `commcare_profile` is empty, because both
+are knowable rather than invented. A **declared** property with no value is
+present-and-empty, matching `users/user_data.py::UserData.to_dict`'s
+`{field: '' for field in self._schema_fields}` seed, while an undeclared key is
+genuinely absent — the split a `= ''` comparison depends on.
+
+Deleting a persona never deletes case data. Rows it owns keep naming it, exactly
+as a real worker's cases keep naming them after the worker leaves a CommCare
+project; the confirmation states how many rows that is rather than offering to
+reassign or remove them.
+
 ### Preview execution
 
 The running preview executes the blueprint in a client-side engine
@@ -339,7 +452,8 @@ The running preview executes the blueprint in a client-side engine
   the Project realtime clock between sessions.
 - The AST→Kysely compiler (`lib/case-store/sql`) carries `table-lookup` and
   `table-column` arms, so a lookup-bearing case-list filter compiles to SQL.
-- Preview identity is always the signed-in worker until named personas exist.
+- Preview runs as the signed-in member or as a named persona, and the two modes
+  never blend: the running app always states which identity it is showing.
 
 ### Case lists, search, and the case workspace
 
@@ -483,7 +597,7 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Seventeen units, one file each. **Every entry below is a pointer, not a summary of
+Sixteen units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -553,20 +667,10 @@ bytes endpoint and the HTML viewer route that must never be linked instead, the
 calculate that builds the URL, and why Web Apps never displays a case attachment
 in-app.
 
-### 7 — User types and preview personas
-
-[`complex-app/07-user-types-and-personas.md`](complex-app/07-user-types-and-personas.md)
-· depends on nothing · blocks units 8, 10, 11, 13
-
-User-type and persona collections as first-class blueprint objects with durable
-mutation history. **The file holds** HQ's custom user-data schema and exact slug
-legality, the injected framework key set that *is* the reserved-name catalog, and
-the only three keys the runtime actually reads.
-
 ### 8 — Organization model and locations store
 
 [`complex-app/08-organization-model-and-locations-store.md`](complex-app/08-organization-model-and-locations-store.md)
-· depends on unit 7 · blocks units 9, 10, 11, 13
+· depends on nothing · blocks units 9, 10, 11, 13
 
 The app-wide custom-field catalog, stable level and site codes, app-scoped
 location rows, archive and reassignment rules, and role-aware owner validation.
@@ -588,7 +692,7 @@ fixture when missed.
 ### 10 — Representable automations and setup guidance
 
 [`complex-app/10-automations-and-setup-guidance.md`](complex-app/10-automations-and-setup-guidance.md)
-· depends on units 7 and 8 · blocks units 11 and 13
+· depends on unit 8 · blocks units 11 and 13
 
 Automation schemas limited to what HQ can represent, plus regenerated setup
 guidance. **The file holds** the closed criteria, action, recipient, and content
@@ -599,7 +703,7 @@ versus setup-artifact-only.
 ### 11 — Deployment core and artifact
 
 [`complex-app/11-deployment-core-and-artifact.md`](complex-app/11-deployment-core-and-artifact.md)
-· depends on units 7, 8, 10 · blocks units 6, 12, 13
+· depends on units 8 and 10 · blocks units 6, 12, 13
 
 Durable deployment and resource-mapping records, preflight, ownership and
 adoption, independently retryable phases, and the target-aware setup artifact.
@@ -620,12 +724,12 @@ the org model is not pushable at all.
 ### 13 — App setup UI, SA, MCP, and docs
 
 [`complex-app/13-app-setup-ui-sa-mcp-and-docs.md`](complex-app/13-app-setup-ui-sa-mcp-and-docs.md)
-· depends on units 7, 8, 9, 10, 11, 12 · blocks nothing
+· depends on units 8, 9, 10, 11, 12 · blocks nothing
 
-The URL-owned Users & Personas, Organization, Automations, and Deployment
-sections, plus the remaining SA, MCP, and docs surfaces for units 7 through 12.
-**The file is deliberately short**: its substance is the prerequisite units' files
-and the baseline UI review in the contracts.
+The App setup workspace's three remaining sections — Organization, Automations,
+and Deployment — plus the SA and MCP surfaces and public docs for units 8 through
+12. **The file is deliberately short**: its substance is the prerequisite units'
+files and the baseline UI review in the contracts.
 
 ### 14 — Exclusive form links and sections
 
@@ -684,24 +788,23 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [4 case tiles](complex-app/04-case-tiles.md) | — |
 | [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 5, 11 |
-| [7 user types and personas](complex-app/07-user-types-and-personas.md) | — |
-| [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | 7 |
+| [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
 | [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
-| [10 automations](complex-app/10-automations-and-setup-guidance.md) | 7, 8 |
-| [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 7, 8, 10 |
+| [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
+| [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 8, 10 |
 | [12 push and provisioning drivers](complex-app/12-push-and-provisioning-drivers.md) | 11 |
-| [13 App setup UI, SA, MCP, docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 7, 8, 9, 10, 11, 12 |
+| [13 App setup UI, SA, MCP, docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 8, 9, 10, 11, 12 |
 | [14 form links and sections](complex-app/14-form-links-and-sections.md) | — |
 | [15 nested menus and linked-form reuse](complex-app/15-nested-menus-and-linked-form-reuse.md) | 14 |
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
 
 Six units have no outstanding prerequisites and can start in any order: 1, 2, 4,
-5, 7, and 14. They are the independent entry points — every other unit descends
+5, 8, and 14. They are the independent entry points — every other unit descends
 from one of them.
 
-The deployment chain (7 → 8 → 10 → 11 → 12) is the critical path: it gates units
-6, 13, and 16, so anything needing a real HQ target waits on it. The navigation
+The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates units 6,
+13, and 16, so anything needing a real HQ target waits on it. The navigation
 chain (14 → 15) runs independently until unit 16, which needs both.
 
 Units 3, 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land

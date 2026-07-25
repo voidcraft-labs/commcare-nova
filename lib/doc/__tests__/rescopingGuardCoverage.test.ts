@@ -211,6 +211,43 @@ function capWriterDoc(): BlueprintDoc {
 	});
 }
 
+/**
+ * A doc carrying all three user collections, each already valid: one
+ * choice-bearing property, one role that sets it, and two personas holding
+ * that role. Every user probe below breaks exactly one of those relations.
+ */
+function usersDoc(): BlueprintDoc {
+	const doc = richDoc();
+	doc.userProperties = {
+		[asUuid("up-region")]: {
+			uuid: asUuid("up-region"),
+			slug: "region",
+			label: "Region",
+			choices: ["north", "south"],
+		},
+	};
+	doc.userTypes = {
+		[asUuid("ut-chw")]: {
+			uuid: asUuid("ut-chw"),
+			name: "CHW",
+			values: { [asUuid("up-region")]: "north" },
+		},
+	};
+	doc.personas = {
+		[asUuid("pers-asha")]: {
+			uuid: asUuid("pers-asha"),
+			name: "Asha",
+			userTypeUuid: asUuid("ut-chw"),
+		},
+		[asUuid("pers-bimal")]: {
+			uuid: asUuid("pers-bimal"),
+			name: "Bimal",
+			userTypeUuid: asUuid("ut-chw"),
+		},
+	};
+	return doc;
+}
+
 interface RejectionProbe {
 	/** Build the doc + the batch the gate must refuse. */
 	build: () => { doc: BlueprintDoc; batch: Mutation[] };
@@ -893,6 +930,116 @@ const GUARD_COVERAGE = {
 			};
 		},
 		expectCodes: ["SELECT_TOO_FEW_OPTIONS"],
+	},
+
+	// ── User properties, user types, personas ───────────────────────
+	addUserProperty: {
+		build: () => ({
+			doc: richDoc(),
+			batch: [
+				{
+					kind: "addUserProperty",
+					property: {
+						uuid: asUuid("up-bad"),
+						slug: "commcare_region",
+						label: "Region",
+					},
+				},
+			],
+		}),
+		expectCodes: ["USER_PROPERTY_SLUG_INVALID"],
+	},
+	updateUserProperty: {
+		build: () => ({
+			doc: usersDoc(),
+			batch: [
+				{
+					kind: "updateUserProperty",
+					uuid: asUuid("up-region"),
+					patch: { slug: "owner_id" },
+				},
+			],
+		}),
+		expectCodes: ["USER_PROPERTY_SLUG_INVALID"],
+	},
+	removeUserProperty: {
+		// The role's value bag still names the removed property — a value
+		// with nowhere to go, which is why the removal planner rewrites every
+		// bag in the same batch instead of leaving this behind.
+		build: () => ({
+			doc: usersDoc(),
+			batch: [{ kind: "removeUserProperty", uuid: asUuid("up-region") }],
+		}),
+		expectCodes: ["USER_DATA_UNKNOWN_PROPERTY"],
+	},
+	addUserType: {
+		build: () => ({
+			doc: usersDoc(),
+			batch: [
+				{
+					kind: "addUserType",
+					userType: { uuid: asUuid("ut-dupe"), name: "chw" },
+				},
+			],
+		}),
+		expectCodes: ["USER_TYPE_NAME_DUPLICATE"],
+	},
+	updateUserType: {
+		build: () => ({
+			doc: usersDoc(),
+			batch: [
+				{
+					kind: "updateUserType",
+					uuid: asUuid("ut-chw"),
+					patch: { values: { [asUuid("up-region")]: "atlantis" } },
+				},
+			],
+		}),
+		expectCodes: ["USER_DATA_INVALID_CHOICE"],
+	},
+	removeUserType: {
+		build: () => ({
+			doc: usersDoc(),
+			batch: [{ kind: "removeUserType", uuid: asUuid("ut-chw") }],
+		}),
+		expectCodes: ["PERSONA_USER_TYPE_UNKNOWN"],
+	},
+	addPersona: {
+		build: () => ({
+			doc: usersDoc(),
+			batch: [
+				{
+					kind: "addPersona",
+					persona: {
+						uuid: asUuid("pers-new"),
+						name: "Bimal",
+						userTypeUuid: asUuid("ut-gone"),
+					},
+				},
+			],
+		}),
+		expectCodes: ["PERSONA_USER_TYPE_UNKNOWN"],
+	},
+	updatePersona: {
+		build: () => ({
+			doc: usersDoc(),
+			batch: [
+				{
+					kind: "updatePersona",
+					uuid: asUuid("pers-bimal"),
+					patch: { name: "asha" },
+				},
+			],
+		}),
+		expectCodes: ["PERSONA_NAME_DUPLICATE"],
+	},
+	removePersona: {
+		neverGates:
+			"drops a preview actor — nothing references a persona, so removing one introduces no finding; app-scoped with no module or form widening",
+		build: () => ({
+			doc: usersDoc(),
+			batch: [{ kind: "removePersona", uuid: asUuid("pers-bimal") }],
+		}),
 	},
 } satisfies Record<Mutation["kind"], Coverage>;
 

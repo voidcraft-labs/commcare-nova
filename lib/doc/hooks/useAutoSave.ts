@@ -88,6 +88,9 @@ export function projectSaveSlice(s: BlueprintDoc) {
 		connectType: s.connectType,
 		caseTypes: s.caseTypes,
 		logo: s.logo,
+		userProperties: s.userProperties,
+		userTypes: s.userTypes,
+		personas: s.personas,
 	};
 }
 

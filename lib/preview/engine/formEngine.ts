@@ -1723,12 +1723,17 @@ export class FormEngine {
 					const fieldId = ref.slice(6);
 					return read(`/data/${fieldId}`) ?? "";
 				}
-				/* Open-namespace user data from the resolved identity. An
-				 * absent key reads blank — the device exposes a missing
-				 * worker-data field as an empty node. */
+				/* `#user/<prop>` is the USERCASE, not the session block: on the
+				 * wire it expands to the `commcare-user` case joined on the
+				 * session's user id (`lib/commcare/hashtags.ts`), which HQ
+				 * builds from a different set of built-in keys than the
+				 * registration block does. The identity carries both
+				 * projections for exactly this reason. An absent key reads
+				 * blank — the device exposes a missing property as an empty
+				 * node. */
 				if (ref.startsWith("#user/")) {
 					const prop = ref.slice(6);
-					return this.previewIdentity?.session.user[prop] ?? "";
+					return this.previewIdentity?.usercase[prop] ?? "";
 				}
 				// Case references. The authoring vocabulary is per-case-type —
 				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) —

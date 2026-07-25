@@ -85,6 +85,19 @@ export function useSetPreviewSelectedCase(): (
 	return useBuilderSession((s) => s.setPreviewSelectedCase);
 }
 
+/** Which persona Preview runs as, by uuid. `undefined` = the signed-in
+ *  member ("Preview as me"). */
+export function usePreviewPersonaUuid(): string | undefined {
+	return useBuilderSession((s) => s.previewPersonaUuid);
+}
+
+/** Setter for the previewing identity. */
+export function useSetPreviewPersonaUuid(): (
+	personaUuid: string | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewPersonaUuid);
+}
+
 // ── Active field ──────────────────────────────────────────────────────────
 
 /** Which `[data-field-id]` element currently has focus. `undefined` when no

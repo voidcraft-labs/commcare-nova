@@ -141,6 +141,14 @@ import { ajvErrorToCaseFailure } from "./validationFailure";
 export interface PostgresCaseStoreArgs {
 	projectId: string | null;
 	actorUserId: string | null;
+	/**
+	 * The CommCare worker whose `owner_id` new rows carry and whose identity
+	 * `acting-user` resolves to. Distinct from `actorUserId`, which is the
+	 * Nova member and the ONLY thing that authorizes: previewing as a persona
+	 * runs as that persona while the signed-in member still authorizes.
+	 * Absent means the two are the same identity.
+	 */
+	ownerId?: string | null;
 	db: Kysely<Database>;
 	sampleGenerator: SampleCaseGenerator;
 	/**
@@ -205,12 +213,19 @@ export class PostgresCaseStore implements CaseStore {
 	 */
 	private readonly projectId: string | null;
 	/**
-	 * User id stamped as `owner_id` (the CommCare case-owner) on every
-	 * inserted case, or `null` on a schema-only store. Not a tenant
-	 * boundary — the reserved axis future location-based access carves
-	 * on. `requireActorUserId()` guards the insert paths.
+	 * The Nova member acting on this store, or `null` on a schema-only one.
+	 * AUTHORIZATION ONLY — every fresh-authorization fence keys on it, so it
+	 * must always be a real account and must never be a value the blueprint
+	 * can choose.
 	 */
 	private readonly actorUserId: string | null;
+	/**
+	 * The CommCare worker: stamped as `owner_id` (the case-owner) on every
+	 * inserted case and resolved for `acting-user`. Not a tenant boundary —
+	 * the reserved axis future location-based access carves on — which is
+	 * exactly why it may be a persona while `actorUserId` stays the member.
+	 */
+	private readonly ownerId: string | null;
 	private readonly db: Kysely<Database>;
 	private readonly ajv: Ajv2020;
 	private readonly validatorCache: Map<string, ValidatorCacheEntry>;
@@ -225,6 +240,7 @@ export class PostgresCaseStore implements CaseStore {
 	constructor(args: PostgresCaseStoreArgs) {
 		this.projectId = args.projectId;
 		this.actorUserId = args.actorUserId;
+		this.ownerId = args.ownerId ?? args.actorUserId;
 		this.db = args.db;
 		this.ajv = buildAjv();
 		this.validatorCache = new Map();
@@ -296,9 +312,9 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
-	 * The user id to stamp as a new case's `owner_id`. Throws on a
+	 * The Nova member every authorization fence keys on. Throws on a
 	 * schema-only store — same structural backstop as
-	 * {@link requireProjectId}; the insert paths are tenant-bound.
+	 * {@link requireProjectId}.
 	 */
 	private requireActorUserId(): string {
 		if (this.actorUserId === null) {
@@ -306,13 +322,32 @@ export class PostgresCaseStore implements CaseStore {
 				compilerBugMessage({
 					where: "case-store.PostgresCaseStore.requireActorUserId",
 					invariant:
-						"an insert ran on a schema-only store (no bound actor for `owner_id`)",
+						"a tenant-bound write ran on a schema-only store (no bound actor to authorize against)",
 					detail:
-						"This store was built by `withSchemaContext()` and carries no actor. An insert stamps `owner_id` (the CommCare case-owner) from the bound actor. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
+						"This store was built by `withSchemaContext()` and carries no actor. Every case write authorizes against the acting Nova member. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
 				}),
 			);
 		}
 		return this.actorUserId;
+	}
+
+	/**
+	 * The CommCare worker id to stamp as a new case's `owner_id`. Throws on
+	 * a schema-only store — the insert paths are tenant-bound.
+	 */
+	private requireOwnerId(): string {
+		if (this.ownerId === null) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.PostgresCaseStore.requireOwnerId",
+					invariant:
+						"an insert ran on a schema-only store (no bound worker for `owner_id`)",
+					detail:
+						"This store was built by `withSchemaContext()` and carries no worker. An insert stamps `owner_id` (the CommCare case-owner) from the bound worker. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
+				}),
+			);
+		}
+		return this.ownerId;
 	}
 
 	/**
@@ -707,7 +742,7 @@ export class PostgresCaseStore implements CaseStore {
 			...(args.caseId === undefined ? {} : { case_id: args.caseId }),
 			app_id: args.appId,
 			project_id: this.requireProjectId(),
-			owner_id: args.ownerId ?? this.requireActorUserId(),
+			owner_id: args.ownerId ?? this.requireOwnerId(),
 			...creationStamps(args.row),
 			properties: JSON.stringify(propertiesObject),
 		};
@@ -769,7 +804,10 @@ export class PostgresCaseStore implements CaseStore {
 	private submissionEnvelopeHost(): SubmissionEnvelopeHost {
 		return {
 			projectId: this.requireProjectId(),
-			actorUserId: this.requireActorUserId(),
+			// The WORKER, not the member: a submission's `acting-user` and its
+			// create-time owner are what a device would record, and on a device
+			// that is whoever is logged in.
+			actorUserId: this.requireOwnerId(),
 			validateProperties: (trx, a) =>
 				this.validateProperties({
 					appId: a.appId,
