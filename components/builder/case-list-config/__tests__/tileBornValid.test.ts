@@ -18,7 +18,11 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
-import { nextFreeTilePlacement, tileMembership } from "../tile/tileModel";
+import {
+	nextFreeTilePlacement,
+	placementForJoiningTile,
+	tileMembership,
+} from "../tile/tileModel";
 import {
 	planTileLayoutDisable,
 	planTileLayoutEnable,
@@ -182,6 +186,72 @@ describe("joining Results while it is a tile", () => {
 				(finding) => finding.code === "CASE_LIST_TILE_COLUMN_NOT_PLACED",
 			),
 		).toBe(true);
+	});
+
+	it("re-places a hidden field whose saved square was taken while it was away", () => {
+		// Hiding a field frees its square; the next field added lands on it.
+		// Showing the first one again must not hand back the stale cell —
+		// the gate refuses it, and the panel that refusal opens cannot move
+		// a cell the tile no longer draws.
+		const { doc, moduleUuid } = docWithColumns([
+			column("case_name", "Patient name", {
+				listOrder: "a",
+				tile: { x: 0, y: 0, width: 12, height: 1 },
+			}),
+			column("age", "Age", {
+				listOrder: "b",
+				visibleInList: false,
+				tile: { x: 0, y: 1, width: 12, height: 1 },
+			}),
+			column("village", "Village", {
+				listOrder: "c",
+				tile: { x: 0, y: 1, width: 12, height: 1 },
+			}),
+		]);
+		const enabled = accepts(doc, [
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+		]);
+		expect(enabled.ok).toBe(true);
+		if (!enabled.ok) return;
+
+		const columns =
+			enabled.nextDoc.modules[moduleUuid]?.caseListConfig?.columns ?? [];
+		const hidden = columns.find((entry) => entry.uuid === asUuid("col-age"));
+		expect(hidden).toBeDefined();
+		if (hidden === undefined) return;
+
+		// The stale cell would refuse; the re-adjudicated one commits.
+		const stale = accepts(enabled.nextDoc, [
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: hidden.uuid,
+				column: { ...hidden, visibleInList: undefined } as Column,
+				visibilityPatch: { surface: "list", visible: true },
+			},
+		]);
+		expect(stale.ok).toBe(false);
+
+		const place = placementForJoiningTile(columns, hidden);
+		expect(place).not.toBeNull();
+		if (place === null) return;
+		const revealed = accepts(enabled.nextDoc, [
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: hidden.uuid,
+				column: { ...hidden, visibleInList: undefined } as Column,
+				visibilityPatch: { surface: "list", visible: true },
+			},
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: hidden.uuid,
+				column: hidden,
+				tilePatch: place,
+			},
+		]);
+		expect(revealed.ok).toBe(true);
 	});
 
 	it("is accepted when the field arrives carrying one", () => {

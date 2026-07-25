@@ -24,7 +24,7 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerLayoutGrid from "@iconify-icons/tabler/layout-grid";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
 	CONSOLE_MENU_ITEM_CLS,
 	CONSOLE_TRIGGER_CLS,
@@ -93,6 +93,10 @@ export function TileCellInspector({
 }: TileCellInspectorProps) {
 	const onTile = tileShowsColumn(column);
 	const cell = column.tile;
+	/* Placing a field replaces this whole branch with the editor below, so
+	 * the button that did it unmounts. The first exact-place input is the
+	 * successor; without this, focus lands on the page. */
+	const [focusPlaceOnMount, setFocusPlaceOnMount] = useState(false);
 
 	if (tileOn && onTile && cell === undefined) {
 		return (
@@ -105,7 +109,10 @@ export function TileCellInspector({
 						type="button"
 						variant="outline"
 						size="xl"
-						onClick={onPutOnTile}
+						onClick={() => {
+							setFocusPlaceOnMount(true);
+							onPutOnTile();
+						}}
 						className="min-h-11 w-full gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
 					>
 						<Icon icon={tablerLayoutGrid} width="15" height="15" />
@@ -157,93 +164,107 @@ export function TileCellInspector({
 					columns={columns}
 					cell={cell}
 					canEdit={canEdit}
+					autoFocus={focusPlaceOnMount}
 					onPlace={onPlace}
 				/>
 				{issues.length > 0 && <TileIssueList issues={issues} />}
 			</InspectorSection>
 
 			<InspectorSection label="How it looks">
-				<div className="space-y-2">
-					<span className={INSPECTOR_LABEL_CLS}>Across</span>
-					<SegmentedRow<TileHorizontalAlign>
-						legend="Horizontal position inside the square"
-						value={cell.horizontalAlign ?? "left"}
-						options={[
-							{ value: "left", label: "Left" },
-							{ value: "center", label: "Center" },
-							{ value: "right", label: "Right" },
-						]}
-						onChange={(horizontalAlign) =>
-							onPlace({ ...cell, horizontalAlign })
-						}
-					/>
-				</div>
-				<div className="space-y-2">
-					<span className={INSPECTOR_LABEL_CLS}>Down</span>
-					<SegmentedRow<TileVerticalAlign>
-						legend="Vertical position inside the square"
-						value={cell.verticalAlign ?? "top"}
-						options={[
-							{ value: "top", label: "Top" },
-							{ value: "middle", label: "Middle" },
-							{ value: "bottom", label: "Bottom" },
-						]}
-						onChange={(verticalAlign) => onPlace({ ...cell, verticalAlign })}
-					/>
-				</div>
-				{mode === "boxed" && (
-					<InspectorHint>
-						This field fills its box, so its position inside the square doesn’t
-						change how it looks.
-					</InspectorHint>
+				{/* A viewer READS this cell's presentation. Live controls would
+				 * bounce off the data backstop, which reads as a broken app. */}
+				{!canEdit && (
+					<p className="text-[14px] leading-relaxed text-nova-text">
+						{describeTilePresentation(cell)}
+					</p>
 				)}
+				{canEdit && (
+					<>
+						<div className="space-y-2">
+							<span className={INSPECTOR_LABEL_CLS}>Across</span>
+							<SegmentedRow<TileHorizontalAlign>
+								legend="Horizontal position inside the square"
+								value={cell.horizontalAlign ?? "left"}
+								options={[
+									{ value: "left", label: "Left" },
+									{ value: "center", label: "Center" },
+									{ value: "right", label: "Right" },
+								]}
+								onChange={(horizontalAlign) =>
+									onPlace({ ...cell, horizontalAlign })
+								}
+							/>
+						</div>
+						<div className="space-y-2">
+							<span className={INSPECTOR_LABEL_CLS}>Down</span>
+							<SegmentedRow<TileVerticalAlign>
+								legend="Vertical position inside the square"
+								value={cell.verticalAlign ?? "top"}
+								options={[
+									{ value: "top", label: "Top" },
+									{ value: "middle", label: "Middle" },
+									{ value: "bottom", label: "Bottom" },
+								]}
+								onChange={(verticalAlign) =>
+									onPlace({ ...cell, verticalAlign })
+								}
+							/>
+						</div>
+						{mode === "boxed" && (
+							<InspectorHint>
+								This field fills its box, so its position inside the square
+								doesn’t change how it looks.
+							</InspectorHint>
+						)}
 
-				<div className="space-y-2">
-					<span className={INSPECTOR_LABEL_CLS}>Text size</span>
-					<TextSizePicker
-						value={cell.fontSize ?? INHERIT_FONT_SIZE}
-						onChange={(choice) => {
-							if (choice === INHERIT_FONT_SIZE) {
-								const { fontSize: _cleared, ...rest } = cell;
+						<div className="space-y-2">
+							<span className={INSPECTOR_LABEL_CLS}>Text size</span>
+							<TextSizePicker
+								value={cell.fontSize ?? INHERIT_FONT_SIZE}
+								onChange={(choice) => {
+									if (choice === INHERIT_FONT_SIZE) {
+										const { fontSize: _cleared, ...rest } = cell;
+										onPlace(rest);
+										return;
+									}
+									onPlace({ ...cell, fontSize: choice });
+								}}
+							/>
+						</div>
+
+						<ToggleRow
+							label="Border"
+							checked={cell.showBorder === true}
+							onChange={(showBorder) => {
+								if (showBorder) {
+									onPlace({ ...cell, showBorder: true });
+									return;
+								}
+								const { showBorder: _cleared, ...rest } = cell;
 								onPlace(rest);
-								return;
-							}
-							onPlace({ ...cell, fontSize: choice });
-						}}
-					/>
-				</div>
-
-				<ToggleRow
-					label="Border"
-					checked={cell.showBorder === true}
-					onChange={(showBorder) => {
-						if (showBorder) {
-							onPlace({ ...cell, showBorder: true });
-							return;
-						}
-						const { showBorder: _cleared, ...rest } = cell;
-						onPlace(rest);
-					}}
-				/>
-				<ToggleRow
-					label="Shading"
-					checked={cell.showShading === true}
-					onChange={(showShading) => {
-						if (showShading) {
-							onPlace({ ...cell, showShading: true });
-							return;
-						}
-						const { showShading: _cleared, ...rest } = cell;
-						onPlace(rest);
-					}}
-				/>
-				<InspectorHint>
-					{mode === "boxed"
-						? "A border or shading is one setting for the whole tile. Every other field on this tile is spaced to line up with this one."
-						: mode === "inset"
-							? "Another field on this tile uses a border or shading. A border or shading is one setting for the whole tile, so this field is spaced to line up with it."
-							: "A border or shading is one setting for the whole tile. Turning either on changes the spacing of every field on this tile."}
-				</InspectorHint>
+							}}
+						/>
+						<ToggleRow
+							label="Shading"
+							checked={cell.showShading === true}
+							onChange={(showShading) => {
+								if (showShading) {
+									onPlace({ ...cell, showShading: true });
+									return;
+								}
+								const { showShading: _cleared, ...rest } = cell;
+								onPlace(rest);
+							}}
+						/>
+						<InspectorHint>
+							{mode === "boxed"
+								? "A border or shading is one setting for the whole tile. Every other field on this tile is spaced to line up with this one."
+								: mode === "inset"
+									? "Another field on this tile uses a border or shading. A border or shading is one setting for the whole tile, so this field is spaced to line up with it."
+									: "A border or shading is one setting for the whole tile. Turning either on changes the spacing of every field on this tile."}
+						</InspectorHint>
+					</>
+				)}
 			</InspectorSection>
 		</>
 	);
@@ -268,16 +289,19 @@ function SavedPlaceSection({
 	readonly onPlace: (cell: TileCell) => void;
 	readonly onClearPlace: () => void;
 }) {
+	/* Editing is unconditional, not gated on a current finding. A saved cell
+	 * off the tile is invisible to `tileLayoutIssues` — that walk only checks
+	 * columns the tile SHOWS — so a cell that would collide the moment this
+	 * field came back reports nothing, and hiding the controls behind a
+	 * finding leaves the author no way to move it before revealing. */
 	return (
 		<InspectorSection label="Saved tile place">
 			<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 				{explanation}
 			</p>
-			{issues.length === 0 ? (
-				<p className="text-[14px] text-nova-text">{describeTilePlace(cell)}</p>
-			) : (
+			{issues.length > 0 && <TileIssueList issues={issues} />}
+			{canEdit ? (
 				<>
-					<TileIssueList issues={issues} />
 					<PlacementFields
 						column={column}
 						columns={columns}
@@ -285,18 +309,18 @@ function SavedPlaceSection({
 						canEdit={canEdit}
 						onPlace={onPlace}
 					/>
-					{canEdit && (
-						<Button
-							type="button"
-							variant="outline"
-							size="xl"
-							onClick={onClearPlace}
-							className="min-h-11 w-full rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
-						>
-							Remove the saved place
-						</Button>
-					)}
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						onClick={onClearPlace}
+						className="min-h-11 w-full rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
+					>
+						Remove the saved place
+					</Button>
 				</>
+			) : (
+				<p className="text-[14px] text-nova-text">{describeTilePlace(cell)}</p>
 			)}
 		</InspectorSection>
 	);
@@ -384,6 +408,29 @@ function TextSizePicker({
 	);
 }
 
+/** A cell's presentation in one sentence, for a reader with no controls. */
+function describeTilePresentation(cell: TileCell): string {
+	const across = { left: "Left", center: "Centred", right: "Right" }[
+		cell.horizontalAlign ?? "left"
+	];
+	const down = { top: "top", middle: "middle", bottom: "bottom" }[
+		cell.verticalAlign ?? "top"
+	];
+	const size =
+		cell.fontSize === undefined
+			? "the same text size as the list"
+			: `${cell.fontSize} text`;
+	const box =
+		cell.showBorder === true && cell.showShading === true
+			? "a border and shading"
+			: cell.showBorder === true
+				? "a border"
+				: cell.showShading === true
+					? "shading"
+					: "no border or shading";
+	return `${across}, ${down}, ${size}, ${box}.`;
+}
+
 const TEXT_SIZE_CHOICES: ReadonlyArray<{
 	readonly value: FontSizeChoice;
 	readonly label: string;
@@ -431,15 +478,20 @@ function PlacementFields({
 	columns,
 	cell,
 	canEdit,
+	autoFocus = false,
 	onPlace,
 }: {
 	readonly column: Column;
 	readonly columns: readonly Column[];
 	readonly cell: TileCell;
 	readonly canEdit: boolean;
+	/** Take focus on mount — set when the action that revealed these
+	 *  controls unmounted itself doing so. */
+	readonly autoFocus?: boolean;
 	readonly onPlace: (next: TileCell) => void;
 }) {
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const refusalId = useId();
 
 	const commit = (patch: Partial<TileGeometry>): boolean => {
 		const verdict = planColumnTilePlacement({
@@ -470,6 +522,8 @@ function PlacementFields({
 					value={cell.x + 1}
 					max={TILE_GRID_COLUMNS}
 					disabled={!canEdit}
+					autoFocus={autoFocus}
+					describedBy={refusal === null ? undefined : refusalId}
 					onCommit={(next) => commit({ x: next - 1 })}
 				/>
 				<NumberField
@@ -477,6 +531,7 @@ function PlacementFields({
 					value={cell.y + 1}
 					max={TILE_GRID_ROWS}
 					disabled={!canEdit}
+					describedBy={refusal === null ? undefined : refusalId}
 					onCommit={(next) => commit({ y: next - 1 })}
 				/>
 				<NumberField
@@ -484,6 +539,7 @@ function PlacementFields({
 					value={cell.width}
 					max={TILE_GRID_COLUMNS}
 					disabled={!canEdit}
+					describedBy={refusal === null ? undefined : refusalId}
 					onCommit={(next) => commit({ width: next })}
 				/>
 				<NumberField
@@ -491,20 +547,35 @@ function PlacementFields({
 					value={cell.height}
 					max={TILE_GRID_ROWS}
 					disabled={!canEdit}
+					describedBy={refusal === null ? undefined : refusalId}
 					onCommit={(next) => commit({ height: next })}
 				/>
 			</div>
-			{refusal !== null && (
-				<p className="flex items-start gap-2 text-[13px] leading-relaxed text-nova-rose">
+			{/* A live region AND the inputs' description: a refused number is
+			 * announced when it lands, and re-read on returning to the field
+			 * that carries it. */}
+			<p
+				id={refusalId}
+				role="status"
+				aria-live="polite"
+				aria-atomic="true"
+				className={
+					refusal === null
+						? "sr-only"
+						: "flex items-start gap-2 text-[13px] leading-relaxed text-nova-rose"
+				}
+			>
+				{refusal !== null && (
 					<Icon
 						icon={tablerAlertCircle}
+						aria-hidden="true"
 						width="15"
 						height="15"
 						className="mt-0.5 shrink-0"
 					/>
-					<span>{refusal}</span>
-				</p>
-			)}
+				)}
+				<span>{refusal ?? ""}</span>
+			</p>
 		</div>
 	);
 }
@@ -514,18 +585,30 @@ function NumberField({
 	value,
 	max,
 	disabled,
+	autoFocus = false,
+	describedBy,
 	onCommit,
 }: {
 	readonly label: string;
 	readonly value: number;
 	readonly max: number;
 	readonly disabled: boolean;
+	readonly autoFocus?: boolean;
+	/** The refusal element this field's value may have produced. */
+	readonly describedBy?: string;
 	/** Returns whether the value was accepted; a refusal keeps the draft
 	 *  so the author can correct it. */
 	readonly onCommit: (next: number) => boolean;
 }) {
 	const id = useId();
 	const [draft, setDraft] = useState<string | null>(null);
+	const inputRef = useRef<HTMLInputElement>(null);
+	const claimedFocusRef = useRef(false);
+	useEffect(() => {
+		if (!autoFocus || claimedFocusRef.current || disabled) return;
+		claimedFocusRef.current = true;
+		inputRef.current?.focus();
+	}, [autoFocus, disabled]);
 
 	const settle = () => {
 		if (draft === null) return;
@@ -543,13 +626,14 @@ function NumberField({
 				{label}
 			</label>
 			<Input
+				ref={inputRef}
 				id={id}
 				type="text"
 				inputMode="numeric"
 				autoComplete="off"
 				data-1p-ignore
 				disabled={disabled}
-				aria-describedby={undefined}
+				aria-describedby={describedBy}
 				value={draft ?? String(value)}
 				onChange={(event) => setDraft(event.target.value)}
 				onBlur={settle}

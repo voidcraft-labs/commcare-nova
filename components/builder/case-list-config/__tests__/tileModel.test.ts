@@ -12,6 +12,7 @@ import {
 	describeTilePlace,
 	firstFreeTilePlacement,
 	nextFreeTilePlacement,
+	placementForJoiningTile,
 	planColumnTilePlacement,
 	planTileKeyboardGesture,
 	planTileMove,
@@ -316,6 +317,67 @@ describe("free space", () => {
 		expect(nextFreeTilePlacement([...full, tileCell(0, 11, 8, 1)])).toEqual(
 			tileCell(8, 11, 4, 1),
 		);
+	});
+});
+
+describe("placementForJoiningTile", () => {
+	it("keeps a saved place that still fits and is still free", () => {
+		const hidden = column("hidden", "Age", {
+			listOrder: "b",
+			visibleInList: false,
+			tile: tileCell(0, 4, 3, 1),
+		});
+		expect(placementForJoiningTile([NAME, VILLAGE, hidden], hidden)).toEqual(
+			tileCell(0, 4, 3, 1),
+		);
+	});
+
+	it("moves a saved place another field took while it was hidden", () => {
+		// The dead end this exists to prevent: hiding a field frees its
+		// square, something else lands there, and handing the cell straight
+		// back would refuse the author's own reveal at the gate.
+		const taken = column("taken", "Age", {
+			listOrder: "b",
+			visibleInList: false,
+			tile: tileCell(0, 0, 6, 1),
+		});
+		const place = placementForJoiningTile([NAME, VILLAGE, taken], taken);
+		expect(place).not.toBeNull();
+		if (place === null) return;
+		expect(
+			planColumnTilePlacement({
+				columns: [NAME, VILLAGE, taken],
+				column: taken,
+				geometry: place,
+			}).ok,
+		).toBe(true);
+	});
+
+	it("keeps the size the author chose when it moves", () => {
+		const taken = column("taken", "Age", {
+			listOrder: "b",
+			visibleInList: false,
+			tile: tileCell(0, 0, 3, 2),
+		});
+		const place = placementForJoiningTile([NAME, VILLAGE, taken], taken);
+		expect(place?.width).toBe(3);
+		expect(place?.height).toBe(2);
+	});
+
+	it("gives a field with no saved place the first free line", () => {
+		const fresh = column("fresh", "Age", { listOrder: "c" });
+		expect(placementForJoiningTile([NAME, VILLAGE, fresh], fresh)).toEqual(
+			tileCell(0, 1, 12, 1),
+		);
+	});
+
+	it("reports no room on a full tile instead of a doomed placement", () => {
+		const full = column("full", "Patient name", {
+			listOrder: "a",
+			tile: tileCell(0, 0, 12, 12),
+		});
+		const joining = column("joining", "Age", { listOrder: "b" });
+		expect(placementForJoiningTile([full, joining], joining)).toBeNull();
 	});
 });
 

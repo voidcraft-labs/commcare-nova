@@ -133,7 +133,11 @@ import {
 } from "./seeds";
 import { TileCellInspector } from "./tile/TileCellInspector";
 import type { CaseListArrangement } from "./tile/TileLayoutToggle";
-import { nextFreeTilePlacement, tileMembership } from "./tile/tileModel";
+import {
+	nextFreeTilePlacement,
+	placementForJoiningTile,
+	tileMembership,
+} from "./tile/tileModel";
 import {
 	planTileLayoutDisable,
 	planTileLayoutEnable,
@@ -794,28 +798,29 @@ function useController(
 
 	/* Joining Results while the case list is a tile means taking a place on
 	 * it — an unplaced field the tile shows is a commit-gate rejection, so
-	 * every add and reveal carries its placement in the same batch. Returns
-	 * `undefined` when Results is showing rows (nothing to place) and `null`
-	 * when the tile has no room left. */
-	const resultsTilePlacement = (): TileCell | null | undefined => {
-		if (config.tile === undefined) return undefined;
-		return nextFreeTilePlacement(
+	 * every add and reveal carries its placement in the same batch. A SAVED
+	 * cell is re-adjudicated rather than trusted: a hidden column leaves the
+	 * tile's membership, so its square is free for anything else to take,
+	 * and handing that cell back unchecked would refuse the author's own
+	 * reveal with an overlap they cannot repair from the panel the refusal
+	 * opens. */
+	const TILE_FULL_REASON =
+		"The tile has no room left. Make a field smaller before adding more information.";
+	const tileHasRoom =
+		config.tile === undefined ||
+		nextFreeTilePlacement(
 			tileMembership(config.columns).placed.map((entry) => entry.cell),
-		);
-	};
-	const tileFullReason =
-		resultsTilePlacement() === null
-			? "The tile has no room left. Make a field smaller before adding more information."
-			: undefined;
-	const addResultsDisabledReason = addDisabledReason ?? tileFullReason;
+		) !== null;
+	const addResultsDisabledReason =
+		addDisabledReason ?? (tileHasRoom ? undefined : TILE_FULL_REASON);
 
-	/** Give a column the place it needs before it joins Results. */
-	const placedForResults = (column: Column): Column => {
-		if (column.tile !== undefined) return column;
-		const place = resultsTilePlacement();
-		return place === undefined || place === null
-			? column
-			: ({ ...column, tile: place } as Column);
+	/** Give a column the place it needs to join Results, or `null` when the
+	 *  tile has no room for it. Returns the column untouched when Results is
+	 *  showing rows. */
+	const placedForResults = (column: Column): Column | null => {
+		if (config.tile === undefined) return column;
+		const place = placementForJoiningTile(config.columns, column);
+		return place === null ? null : ({ ...column, tile: place } as Column);
 	};
 
 	const routeColumnToRepair = (
@@ -862,12 +867,19 @@ function useController(
 			order,
 		).find((column) => column.uuid === replacement.uuid);
 		if (revealed === undefined) return;
+		const revealTarget =
+			repair.surface === "list" ? placedForResults(revealed) : revealed;
+		if (revealTarget === null) {
+			setWorkspaceAnnouncement(TILE_FULL_REASON);
+			setSel({
+				type: "column",
+				uuid: replacement.uuid,
+				reveal: { surface: repair.surface, messages: [TILE_FULL_REASON] },
+			});
+			return;
+		}
 		const revealOutcome = inline.commitMany(
-			columnSnapshotMutations(
-				moduleUuid,
-				current,
-				repair.surface === "list" ? placedForResults(revealed) : revealed,
-			),
+			columnSnapshotMutations(moduleUuid, current, revealTarget),
 		);
 		if (revealOutcome.ok) {
 			setWorkspaceAnnouncement(
@@ -896,6 +908,10 @@ function useController(
 	};
 	const addSeededColumn = (surface: ColumnSurface, seedColumn: Column) => {
 		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
+		if (seed === null) {
+			setWorkspaceAnnouncement(TILE_FULL_REASON);
+			return;
+		}
 		const mutation = seededColumnAddMutation(moduleUuid, config, surface, seed);
 		const outcome = commitMany([mutation]);
 		if (outcome.ok) {
@@ -993,15 +1009,20 @@ function useController(
 			order,
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (shown === undefined) return;
+		const target = surface === "list" ? placedForResults(shown) : shown;
+		/* A full tile is stated where the gesture happened. Dispatching would
+		 * bounce off the gate into a repair panel that cannot repair it — the
+		 * only fix is elsewhere on the grid. */
+		if (target === null) {
+			setWorkspaceAnnouncement(TILE_FULL_REASON);
+			routeColumnToRepair(surface, column, [TILE_FULL_REASON]);
+			return;
+		}
 		/* Fully hidden legacy definitions are deliberately absent from normal
 		 * config warnings. Ask the SAME gate silently before revealing one: a
 		 * refusal becomes a repair route, never a toast plus a dead click. */
 		const outcome = inline.commitMany(
-			columnSnapshotMutations(
-				moduleUuid,
-				column,
-				surface === "list" ? placedForResults(shown) : shown,
-			),
+			columnSnapshotMutations(moduleUuid, column, target),
 		);
 		if (!outcome.ok) {
 			routeColumnToRepair(surface, column, outcome.messages);
@@ -1338,9 +1359,9 @@ function useController(
 
 	const setTilePersistOnForms = useCallback(
 		(persist: boolean) => {
-			commitMany([...planTilePersistOnForms(moduleUuid, persist)]);
+			commitMany([...planTilePersistOnForms(moduleUuid, persist, config.tile)]);
 		},
-		[commitMany, moduleUuid],
+		[commitMany, config.tile, moduleUuid],
 	);
 
 	// ── Inspector resolution ──
@@ -2070,6 +2091,9 @@ function ColumnInspectorBody({
 }) {
 	const canEdit = useCanEdit();
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
+	/* Focus lands here when the tile section removes itself — its own button
+	 * goes with it, and an unmounted action never drops focus on the page. */
+	const hideRef = useRef<HTMLButtonElement>(null);
 	const screenName = surfaceDisplayName(surface);
 	const keepLastResult = surface === "list" && visibleCount <= 1;
 	const deleteWouldRemoveLastResult =
@@ -2116,21 +2140,29 @@ function ColumnInspectorBody({
 				caseTypes={caseTypes}
 				currentCaseType={currentCaseType}
 			/>
-			{!repairing && (
-				<TileCellInspector
-					column={column}
-					columns={columns}
-					tileOn={tileOn}
-					issues={tileIssues}
-					canEdit={canEdit}
-					onPlace={onPlaceTileCell}
-					onClearPlace={onClearTileCell}
-					onPutOnTile={onPutOnTile}
-				/>
-			)}
+			{/* Not gated on `repairing`: a refused reveal is often a PLACEMENT
+			 * refusal, and these are the controls that repair it. Hiding them
+			 * exactly when the panel exists to fix a place is the one state
+			 * where the author has no way forward. */}
+			<TileCellInspector
+				column={column}
+				columns={columns}
+				tileOn={tileOn}
+				issues={tileIssues}
+				canEdit={canEdit}
+				onPlace={onPlaceTileCell}
+				onClearPlace={() => {
+					onClearTileCell();
+					// The section unmounts with its own button, so hand focus to
+					// the next thing in the body rather than dropping it on the page.
+					requestAnimationFrame(() => hideRef.current?.focus());
+				}}
+				onPutOnTile={onPutOnTile}
+			/>
 			{!repairing && (
 				<div className="border-t border-nova-border pt-3">
 					<Button
+						ref={hideRef}
 						type="button"
 						onClick={onHide}
 						disabled={keepLastResult}

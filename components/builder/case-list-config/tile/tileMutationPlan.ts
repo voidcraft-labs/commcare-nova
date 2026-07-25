@@ -18,7 +18,12 @@
 
 import { columnTileMutations } from "@/lib/doc/caseListColumnMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import { type Column, type TileCell, tileCell } from "@/lib/domain";
+import {
+	type CaseTileLayout,
+	type Column,
+	type TileCell,
+	tileCell,
+} from "@/lib/domain";
 import {
 	nextFreeTilePlacement,
 	type TileGeometry,
@@ -131,17 +136,28 @@ export function planTileLayoutDisable(moduleUuid: Uuid): readonly Mutation[] {
 	];
 }
 
-/** Keep the tile on screen above this module's forms, or stop doing so. */
+/**
+ * Keep the tile on screen above this module's forms, or stop doing so.
+ *
+ * `tilePatch` replaces the layout object wholesale, so this rebuilds it
+ * from the current one rather than writing a bare `{ persistOnForms }`.
+ * The layout carries exactly one slot today and the two spellings are
+ * identical — but a second slot added later would be silently erased by
+ * every toggle of this switch, and that failure is invisible until an
+ * author notices a setting gone.
+ */
 export function planTilePersistOnForms(
 	moduleUuid: Uuid,
 	persist: boolean,
+	current: CaseTileLayout | undefined,
 ): readonly Mutation[] {
+	const { persistOnForms: _cleared, ...rest } = current ?? {};
 	return [
 		{
 			kind: "setCaseListMeta",
 			uuid: moduleUuid,
 			patch: {},
-			tilePatch: persist ? { persistOnForms: true } : {},
+			tilePatch: persist ? { ...rest, persistOnForms: true } : rest,
 		},
 	];
 }

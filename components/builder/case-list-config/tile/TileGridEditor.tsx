@@ -24,7 +24,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerCornerRightDown from "@iconify-icons/tabler/corner-right-down";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	type Column,
@@ -86,6 +86,17 @@ export function TileGridEditor({
 	const [drag, setDrag] = useState<DragState | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [announcement, setAnnouncement] = useState("");
+	/* A field placed from the attention strip takes its new square's focus:
+	 * the row that placed it has unmounted by then. */
+	const pendingCellFocusRef = useRef<Uuid | null>(null);
+	useEffect(() => {
+		const uuid = pendingCellFocusRef.current;
+		if (uuid === null) return;
+		pendingCellFocusRef.current = null;
+		gridRef.current
+			?.querySelector<HTMLButtonElement>(`[data-tile-cell="${uuid}"]`)
+			?.focus();
+	});
 
 	const { placed, unplaced } = tileMembership(columns);
 	// A place outside the grid can't be drawn on it — CSS would grow
@@ -239,12 +250,13 @@ export function TileGridEditor({
 
 			<div className="overflow-x-auto overscroll-x-contain [scrollbar-gutter:auto]">
 				{/* A fieldset: the grid is one labelled group of the tile's own
-				 * controls. The minimum width keeps every square at a real
-				 * pointer target on a handset, where the group scrolls sideways
-				 * instead of shrinking below it. */}
+				 * controls. The floor is arithmetic, not a guess: a chip insets
+				 * itself by 2px on each side, so a 44px pointer target needs a
+				 * 48px square — 12 x 48 = 36rem of width, and a 3rem row. Below
+				 * that the group scrolls sideways rather than shrinking. */}
 				<fieldset
 					ref={gridRef}
-					className="relative m-0 grid min-w-[34rem] rounded-xl border border-white/[0.07] bg-nova-deep/40 p-0 [--tile-row-height:2.75rem] @[52rem]:[--tile-row-height:3rem]"
+					className="relative m-0 grid min-w-[36rem] rounded-xl border border-white/[0.07] bg-nova-deep/40 p-0 [--tile-row-height:3rem] @[52rem]:[--tile-row-height:3.25rem]"
 					style={{
 						gridTemplateColumns: `repeat(${TILE_GRID_COLUMNS}, minmax(0, 1fr))`,
 						gridTemplateRows: `repeat(${TILE_GRID_ROWS}, var(--tile-row-height))`,
@@ -312,7 +324,21 @@ export function TileGridEditor({
 										onKeyDown={(event) =>
 											applyKeyboardGesture(event, placement, true)
 										}
-										className="z-20 flex size-11 translate-x-1/2 translate-y-1/2 cursor-nwse-resize items-center justify-center self-end justify-self-end rounded-full text-nova-void [touch-action:none]"
+										/* The handle hangs half outside its cell so a
+										 * single square keeps a draggable middle — but
+										 * only where there is grid to hang into. At the
+										 * right or bottom edge it tucks fully inside,
+										 * so it can never overflow the fieldset into a
+										 * scroll container and clip. */
+										className={`z-20 flex size-11 cursor-nwse-resize items-center justify-center self-end justify-self-end rounded-full text-nova-void [touch-action:none] ${
+											tileCellRightEdge(cell) < TILE_GRID_COLUMNS
+												? "translate-x-1/2"
+												: ""
+										} ${
+											tileCellBottomEdge(cell) < TILE_GRID_ROWS
+												? "translate-y-1/2"
+												: ""
+										}`}
 										style={{ gridArea: tileCellGridArea(cell) }}
 									>
 										<span className="flex size-6 items-center justify-center rounded-full bg-nova-violet-bright shadow-[0_1px_6px_rgba(0,0,0,0.45)]">
@@ -328,7 +354,10 @@ export function TileGridEditor({
 				</fieldset>
 			</div>
 
-			<div className="mt-3 space-y-2" aria-live="polite">
+			{/* Not a live region: the sr-only status above already announces
+			 * every refusal, and two regions carrying one message read it
+			 * twice. This is the visible copy of the same words. */}
+			<div className="mt-3 space-y-2">
 				{refusal !== null && (
 					<p className="flex items-start gap-2 text-[13px] leading-relaxed text-nova-rose">
 						<Icon
@@ -364,8 +393,9 @@ export function TileGridEditor({
 							: `${needsAPlace.length} fields need a place on the tile`}
 					</p>
 					<p className="mt-1 text-[13px] leading-relaxed text-nova-text-secondary">
-						A tile can’t hide a field. Anything the case list carries lands
-						wherever the grid has room until it sits inside it.
+						Every field Results shows needs a square inside the grid. Until it
+						has one, a worker sees it land wherever the grid happens to have
+						room.
 					</p>
 					<ul className="mt-3 list-none space-y-2 p-0">
 						{needsAPlace.map((entry) => (
@@ -386,7 +416,13 @@ export function TileGridEditor({
 										type="button"
 										variant="outline"
 										size="xl"
-										onClick={() => onPlaceUnplaced(entry.uuid)}
+										onClick={() => {
+											// This row (often the whole strip) unmounts as the
+											// field lands on the grid; its new square is the
+											// successor, so focus follows it there.
+											pendingCellFocusRef.current = entry.uuid;
+											onPlaceUnplaced(entry.uuid);
+										}}
 										className="min-h-11 gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
 									>
 										<Icon icon={tablerPlus} width="14" height="14" />

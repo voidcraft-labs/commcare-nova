@@ -395,6 +395,47 @@ export function nextFreeTilePlacement(
 	return null;
 }
 
+/**
+ * The place a column takes when it joins the tile — showing a field the
+ * tile had hidden, or adding a new one.
+ *
+ * A saved cell is honored only while it still WORKS. A column hidden
+ * from Results leaves the tile's membership, so its square is free for
+ * anything else to take; handing that cell straight back would land the
+ * column on top of whatever moved in and refuse the author's own reveal
+ * at the commit gate, with no way to repair it from the panel the
+ * refusal opens. So a saved cell that no longer fits falls back to free
+ * space — at the size the author chose, if that size fits anywhere.
+ *
+ * Returns `null` only when the tile is genuinely full, which callers
+ * state as the reason rather than dispatching a doomed batch.
+ */
+export function placementForJoiningTile(
+	columns: readonly Column[],
+	column: Column,
+): TileCell | null {
+	const others = tileMembership(columns).placed.filter(
+		(entry) => entry.uuid !== column.uuid,
+	);
+	const saved = column.tile;
+	if (
+		saved !== undefined &&
+		evaluateTilePlacement({
+			label: columnLabel(column),
+			candidate: saved,
+			others,
+		}).ok
+	) {
+		return saved;
+	}
+	const occupied = others.map((entry) => entry.cell);
+	const atSavedSize =
+		saved === undefined
+			? null
+			: firstFreeTilePlacement(occupied, saved.width, saved.height);
+	return atSavedSize ?? nextFreeTilePlacement(occupied);
+}
+
 // ── Findings ──────────────────────────────────────────────────────
 
 export type TileIssueKind = "out-of-grid" | "overlap" | "not-placed";

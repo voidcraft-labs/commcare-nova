@@ -173,7 +173,7 @@ describe("planTileLayoutDisable", () => {
 
 describe("planTilePersistOnForms", () => {
 	it("stores the only value the slot has, and clears by omission", () => {
-		expect(planTilePersistOnForms(MODULE, true)).toEqual([
+		expect(planTilePersistOnForms(MODULE, true, {})).toEqual([
 			{
 				kind: "setCaseListMeta",
 				uuid: MODULE,
@@ -181,9 +181,26 @@ describe("planTilePersistOnForms", () => {
 				tilePatch: { persistOnForms: true },
 			},
 		]);
-		expect(planTilePersistOnForms(MODULE, false)).toEqual([
+		expect(
+			planTilePersistOnForms(MODULE, false, { persistOnForms: true }),
+		).toEqual([
 			{ kind: "setCaseListMeta", uuid: MODULE, patch: {}, tilePatch: {} },
 		]);
+	});
+
+	it("rebuilds the layout it was given rather than replacing it", () => {
+		// `tilePatch` is a wholesale replace, so anything the layout gains
+		// later would vanish on every toggle if this wrote a bare object.
+		const withFutureSlot = {
+			persistOnForms: true,
+			futureSlot: "kept",
+		} as unknown as Parameters<typeof planTilePersistOnForms>[2];
+		const [off] = planTilePersistOnForms(MODULE, false, withFutureSlot);
+		const [on] = planTilePersistOnForms(MODULE, true, withFutureSlot);
+		expect(off).toMatchObject({ tilePatch: { futureSlot: "kept" } });
+		expect(on).toMatchObject({
+			tilePatch: { futureSlot: "kept", persistOnForms: true },
+		});
 	});
 });
 
