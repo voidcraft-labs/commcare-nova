@@ -33,6 +33,11 @@ export interface ReconcilerContextValue {
 	 *  Returns an unsubscribe. P7's presence layer is the only consumer; the
 	 *  seam ships in P6 so the single EventSource stays the one transport. */
 	subscribePresence: (cb: (roster: PresenceFrame) => void) => () => void;
+	/** Subscribe to `event: organization-revision` pokes for this app. The
+	 *  callback receives nothing: the organization is read through its own
+	 *  authorized action, so the poke says only "re-read", never what changed.
+	 *  Returns an unsubscribe. */
+	subscribeAppOrganization: (cb: () => void) => () => void;
 	/** Subscribe to full Project lookup manifests from `event: lookup-revision`
 	 *  on the shared app stream. Lookup revisions are independent of blueprint
 	 *  mutation sequence and therefore never enter reconciler state. The latest

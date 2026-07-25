@@ -15,6 +15,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useReconcilerContext } from "@/lib/collab/context";
 import {
 	createLocationAction,
 	describeArchiveImpactAction,
@@ -87,6 +88,18 @@ export function useOrganization(
 	}, [appId]);
 
 	useEffect(reload, [reload]);
+
+	// A co-editor's change arrives as a payload-free poke on the shared builder
+	// stream and re-reads through the same authorized action as every other
+	// read. The notification is never the data plane — the same rule the lookup
+	// clock follows — which is why there is nothing in the frame to get wrong.
+	// Null outside a live builder session (replay, tests) — there is no stream
+	// to subscribe to, and the mount read plus post-write re-read still hold.
+	const collab = useReconcilerContext();
+	useEffect(() => {
+		if (collab === null) return;
+		return collab.subscribeAppOrganization(reload);
+	}, [collab, reload]);
 
 	/** Run a write, then re-read so the view matches what the server holds. */
 	const after = useCallback(
