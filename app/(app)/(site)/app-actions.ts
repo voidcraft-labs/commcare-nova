@@ -20,7 +20,10 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
-import { CommitReauthError } from "@/lib/db/commitGuard";
+import {
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import { readProjectMovesEnabled } from "@/lib/db/lookupActivation";
 import {
 	AppBusyError,
@@ -57,6 +60,8 @@ export type MoveAppErrorCode =
 	| "busy"
 	| "run_state_corrupt"
 	| "stale_client"
+	| "move_rejected"
+	| "not_permitted"
 	| "case_sync_failed"
 	| "internal_error";
 
@@ -253,6 +258,17 @@ export async function moveApp(
 				error:
 					"This app is being generated right now. Try again once it finishes.",
 			};
+		}
+		/* The move transaction's own refusals already carry person-readable copy —
+		 * an app that references lookup tables, out-of-sync edges, a destination
+		 * role the actor lacks, a source Owner who is not a member there. Passing
+		 * them through keeps an ordinary expected outcome out of Sentry and off
+		 * the "try again" path, which would never succeed. */
+		if (err instanceof BlueprintCommitRejectedError) {
+			return { success: false, code: "move_rejected", error: err.message };
+		}
+		if (err instanceof CommitReauthError) {
+			return { success: false, code: "not_permitted", error: err.message };
 		}
 		if (err instanceof AppRunStateCorruptError) {
 			return {

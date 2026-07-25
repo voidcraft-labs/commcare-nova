@@ -285,7 +285,7 @@ test.describe("authenticated builder", () => {
 		expect(moveControlBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 		await moveControl.click();
 		await expect(
-			page.getByRole("heading", { name: "Move to another Project" }),
+			page.getByRole("heading", { name: "Moving between Projects" }),
 		).toBeFocused();
 		await expect(page.getByText(CROSS_PROJECT_MOVE_DISCLOSURE)).toBeVisible();
 		await page.keyboard.press("Escape");
@@ -1494,8 +1494,14 @@ test.describe("authenticated builder", () => {
 
 		// …and arrived: switch the active Project and the app is listed there,
 		// openable at the same id it always had.
-		await page.getByRole("button", { name: "Switch Project" }).click();
+		const switcher = page.getByRole("button", { name: "Switch Project" });
+		await switcher.click();
 		await page.getByRole("button", { name: seed.moveProjectName }).click();
+		// The switcher label is the settled signal: the list re-renders from a
+		// server round-trip, so asserting on it first would race the refresh.
+		await expect(switcher).toHaveText(seed.moveProjectName, {
+			timeout: 20_000,
+		});
 		await expect(movedHeading).toBeVisible({ timeout: 20_000 });
 		await expect(
 			page.getByRole("link", { name: `Open ${seed.moveAppName}` }),
@@ -1503,8 +1509,9 @@ test.describe("authenticated builder", () => {
 
 		// Switching writes the active Project onto the shared seeded SESSION, so
 		// restore it — otherwise every later test would list a different Project.
-		await page.getByRole("button", { name: "Switch Project" }).click();
+		await switcher.click();
 		await page.getByRole("button", { name: "Personal" }).click();
+		await expect(switcher).toHaveText("Personal", { timeout: 20_000 });
 		await expect(
 			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
 		).toBeVisible({ timeout: 20_000 });

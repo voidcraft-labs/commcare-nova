@@ -19,6 +19,7 @@ import Link from "next/link";
 import { Button } from "@/components/shadcn/button";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
+import { readProjectMovesEnabled } from "@/lib/db/lookupActivation";
 import { listUserProjects } from "@/lib/projects/membership";
 import { canManageAppPlacement } from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
@@ -39,10 +40,15 @@ interface AppListProps {
 const PAGE_SIZE = 50;
 
 export async function AppList({ projectId, userId }: AppListProps) {
-	const [activeRes, deletedRes, projects] = await Promise.all([
+	const [activeRes, deletedRes, projects, movesEnabled] = await Promise.all([
 		listApps(projectId, { limit: PAGE_SIZE, sort: "updated_desc" }),
 		listDeletedApps(projectId, { limit: PAGE_SIZE }),
 		listUserProjects(userId),
+		/* Read the switch HERE, not only in the Server Action: between a deploy
+		 * and the rollout controller's enable phase — and after any emergency
+		 * disable — an armed destination picker would take the user through the
+		 * data-sharing disclosure and a Move click before refusing. */
+		readProjectMovesEnabled(),
 	]);
 
 	/* Placement is a governance act, so only members who hold it in BOTH Projects
@@ -81,6 +87,7 @@ export async function AppList({ projectId, userId }: AppListProps) {
 				deleted={deletedRes.apps}
 				canDeleteApp={canDeleteApp}
 				canMoveApp={canMoveApp}
+				movesEnabled={movesEnabled}
 				moveTargets={moveTargets}
 			/>
 		</>

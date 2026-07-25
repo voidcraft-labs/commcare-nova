@@ -20,12 +20,15 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("rollout_compat_");
 
-const receiving = (runtimeReaderVersion: number) => async () => [
-	{
-		revision: `reader-${runtimeReaderVersion}`,
-		runtimeReaderVersion,
-	},
-];
+const receiving =
+	(runtimeReaderVersion: number, streamReceiverVersion = 3) =>
+	async () => [
+		{
+			revision: `reader-${runtimeReaderVersion}`,
+			runtimeReaderVersion,
+			streamReceiverVersion,
+		},
+	];
 
 describe("rollout compatibility service", () => {
 	test("migrations seed the final maintenance floors with every flag off", async () => {

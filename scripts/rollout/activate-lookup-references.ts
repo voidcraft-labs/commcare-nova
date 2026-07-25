@@ -11,8 +11,8 @@
  *            capability every traffic-receiving Cloud Run revision declares
  *   prepare  reconcile durable epochs to the live traffic split, then open an
  *            uninterrupted runtime-reader epoch
- *   raise    ONE transaction lifting the stream-receiver and runtime-reader
- *            floors, with every feature switch still off
+ *   raise    re-check the split, then ONE transaction lifting the
+ *            stream-receiver and runtime-reader floors, switches still off
  *   enable   prove the drain, then flip the switches
  *
  * The phases are separated by enforced waits (an epoch at least as long as the
@@ -45,6 +45,7 @@ import {
 	type LookupReferenceCompatibilityState,
 	prepareRuntimeReaderTrafficEpochInTransaction,
 	type ReadReceivingRevisionCapabilities,
+	type ReceivingRevisionCapability,
 	type RolloutCompatibilityStatus,
 	raiseMinimumRuntimeReaderVersionInTransaction,
 	raiseMinimumStreamReceiverVersionInTransaction,
@@ -98,8 +99,38 @@ interface ControllerOptions {
 	phase: string;
 	execute?: boolean;
 	prod?: boolean;
+	dbUser?: string;
 	service: string;
 	region: string;
+}
+
+/**
+ * The control tables are owned by the migration role; the runtime role has
+ * read-only access and a developer's own IAM user is provisioned read-only
+ * (`scripts/lib/prodDb.ts`). Writing phases must therefore run as this user.
+ */
+const MIGRATION_SERVICE_ACCOUNT =
+	"nova-migrate@commcare-nova.iam.gserviceaccount.com";
+const MIGRATION_DB_USER = "nova-migrate@commcare-nova.iam";
+
+/** Fail before the first write rather than partway through a phase. */
+function requireWriteIdentity(options: ControllerOptions): void {
+	if (options.execute !== true || options.prod !== true) return;
+	if (process.env.NOVA_DB_USER === MIGRATION_DB_USER) return;
+	throw new Error(
+		[
+			`Refusing to write to production as ${process.env.NOVA_DB_USER ?? "an underived identity"}.`,
+			"",
+			`    expected: --db-user ${MIGRATION_DB_USER}`,
+			"",
+			"--prod connects as your own gcloud identity, which is provisioned",
+			"read-only on this database, so the first control-table write would fail",
+			"partway through the phase. Reach the migration identity with an",
+			"impersonated ADC credential — an ephemeral serviceAccountTokenCreator",
+			`grant on ${MIGRATION_SERVICE_ACCOUNT} — then pass`,
+			"--db-user, and revoke the grant when the cutover is done.",
+		].join("\n"),
+	);
 }
 
 function seconds(value: number): string {
@@ -157,76 +188,124 @@ function reportDrain(status: RolloutCompatibilityStatus): boolean {
 	return holders.length === 0 && leases.length === 0;
 }
 
-async function reportRevisions(
-	readReceiving: ReadReceivingRevisionCapabilities,
-): Promise<void> {
-	const revisions = await readReceiving();
+/** A revision that cannot honor one of the floors this cutover targets. */
+function revisionBlocks(revision: ReceivingRevisionCapability): boolean {
+	return (
+		revision.runtimeReaderVersion < READER_TARGET ||
+		revision.streamReceiverVersion < RECEIVER_TARGET
+	);
+}
+
+function reportRevisionSet(
+	revisions: readonly ReceivingRevisionCapability[],
+): void {
 	console.log(`  revisions   ${revisions.length} receiving traffic`);
 	for (const revision of revisions) {
-		const verdict =
-			revision.runtimeReaderVersion >= READER_TARGET ? "ok" : "BLOCKS";
 		console.log(
-			`              ${revision.revision} reader v${revision.runtimeReaderVersion} ${verdict}`,
+			`              ${revision.revision} reader v${revision.runtimeReaderVersion} · receiver v${revision.streamReceiverVersion} ${
+				revisionBlocks(revision) ? "BLOCKS" : "ok"
+			}`,
 		);
 	}
+}
+
+/**
+ * Read the split fresh and refuse if anything serving traffic would be revoked.
+ * Both floors are checked: reader and receiver are independent declarations, so
+ * a revision can satisfy one and be revoked by the other.
+ */
+async function requireCapableRevisions(
+	readReceiving: ReadReceivingRevisionCapabilities,
+): Promise<readonly ReceivingRevisionCapability[]> {
+	const revisions = await readReceiving();
+	const blockers = revisions.filter(revisionBlocks);
+	if (blockers.length > 0) {
+		throw new Error(
+			[
+				`These revisions are serving traffic but cannot honor reader v${READER_TARGET} / receiver v${RECEIVER_TARGET}:`,
+				...blockers.map(
+					(revision) =>
+						`  ${revision.revision} reader v${revision.runtimeReaderVersion} receiver v${revision.streamReceiverVersion}`,
+				),
+				"",
+				"Compatibility floors are monotonic, so raising past them would revoke",
+				"their clients with no way back short of a new deploy. Route traffic",
+				"entirely to capable revisions, then re-run.",
+			].join("\n"),
+		);
+	}
+	return revisions;
 }
 
 async function runAuditScans(prod: boolean): Promise<void> {
 	for (const scan of AUDIT_SCANS) {
 		const args = ["tsx", scan, ...(prod ? ["--prod"] : [])];
 		console.log(`  running     npx ${args.join(" ")}`);
+		const indent = (text: string) =>
+			text
+				.trimEnd()
+				.split("\n")
+				.map((line) => `              ${line}`)
+				.join("\n");
 		try {
 			const { stdout } = await execFileAsync("npx", args, {
 				maxBuffer: 64 * 1024 * 1024,
 			});
-			console.log(
-				stdout
-					.trimEnd()
-					.split("\n")
-					.map((line) => `              ${line}`)
-					.join("\n"),
-			);
+			console.log(indent(stdout));
 		} catch (error) {
+			// The scans exit 1 for findings AND for any fatal error (a lapsed
+			// credential, a dropped connection). Print what they said rather than
+			// asserting one diagnosis: mid-cutover, sending the operator hunting for
+			// findings that do not exist costs more than the ambiguity.
+			const output = error as { stdout?: string; stderr?: string };
+			if (output.stdout) console.log(indent(output.stdout));
+			if (output.stderr) console.log(indent(output.stderr));
 			throw new Error(
-				`${scan} reported findings; activation stops until the fleet is clean.`,
+				`${scan} exited nonzero — either the fleet has findings or the scan itself failed. Its output is above; activation stops here either way.`,
 				{ cause: error },
 			);
 		}
 	}
 }
 
-/**
- * Run one phase under the session gate. The phase body owns its own
- * transactions on the pinned session; `--execute` decides whether the LAST one
- * commits, so a rehearsal exercises the same locks and preconditions.
- */
-async function underCutoverSession<T>(
+/** Run a phase's transactions on one pinned connection holding the session gate. */
+async function underCutoverSession(
+	options: ControllerOptions,
 	body: (
 		session: Awaited<ReturnType<typeof getAppDb>>,
 		commit: boolean,
-	) => Promise<T>,
-	options: ControllerOptions,
-): Promise<T | undefined> {
+	) => Promise<void>,
+): Promise<void> {
 	const db = await getAppDb();
-	return withDeploymentCutoverSession(db, async (session) => {
-		try {
-			return await body(session, options.execute === true);
-		} catch (error) {
-			if (error instanceof DryRunRollback) {
-				console.log(
-					"\n  DRY RUN — rolled back. Re-run with --execute to commit.",
-				);
-				return undefined;
-			}
-			throw error;
-		}
-	});
+	const commit = options.execute === true;
+	await withDeploymentCutoverSession(db, (session) => body(session, commit));
+	if (!commit) {
+		console.log("\n  DRY RUN — rolled back. Re-run with --execute to commit.");
+	}
 }
 
-/** Commit or roll back the transaction the phase just proved. */
-async function settle<T>(outcome: T, commit: boolean): Promise<T> {
-	if (commit) return outcome;
-	throw new DryRunRollback(outcome);
+/**
+ * One transaction that proves its preconditions and then either commits or
+ * rolls back. The proven outcome is returned EITHER way, so a rehearsal reports
+ * exactly what it established instead of only that it rolled back.
+ */
+async function provenTransaction<T>(
+	session: Awaited<ReturnType<typeof getAppDb>>,
+	commit: boolean,
+	body: (
+		tx: Parameters<typeof readRolloutCompatibilityStatusInTransaction>[0],
+	) => Promise<T>,
+): Promise<T> {
+	try {
+		return await session.transaction().execute(async (tx) => {
+			const outcome = await body(tx);
+			if (!commit) throw new DryRunRollback(outcome);
+			return outcome;
+		});
+	} catch (error) {
+		if (error instanceof DryRunRollback) return error.outcome as T;
+		throw error;
+	}
 }
 
 async function statusPhase(
@@ -256,7 +335,7 @@ async function statusPhase(
 	const drained = reportDrain(status);
 
 	heading("Cloud Run");
-	await reportRevisions(readReceiving);
+	reportRevisionSet(await readReceiving());
 
 	heading("Next");
 	console.log(
@@ -295,43 +374,61 @@ async function preparePhase(
 	options: ControllerOptions,
 	readReceiving: ReadReceivingRevisionCapabilities,
 ): Promise<void> {
-	await underCutoverSession(async (session, commit) => {
-		const outcome = await session.transaction().execute(async (tx) => {
-			const reconciled =
-				await reconcileReceivingRevisionCapabilitiesInTransaction(
-					tx,
-					readReceiving,
-				);
-			const epoch = await prepareRuntimeReaderTrafficEpochInTransaction(
+	await underCutoverSession(options, async (session, commit) => {
+		// TWO transactions, not one: each reads the control plane before taking
+		// the compatibility row FOR UPDATE. Combining them would leave that row
+		// locked across the second gcloud round-trip, and every guarded write in
+		// the fleet — app creation, every blueprint commit — takes it FOR SHARE.
+		const reconciled = await provenTransaction(session, commit, (tx) =>
+			reconcileReceivingRevisionCapabilitiesInTransaction(tx, readReceiving),
+		);
+		const epoch = await provenTransaction(session, commit, (tx) =>
+			prepareRuntimeReaderTrafficEpochInTransaction(
 				tx,
 				READER_TARGET,
 				readReceiving,
-			);
-			return settle({ reconciled, epoch }, commit);
-		});
+			),
+		);
 
 		heading("Prepared");
-		reportCompatibility(outcome.reconciled.compatibility);
+		reportCompatibility(reconciled.compatibility);
 		console.log(
-			`  epoch       v${outcome.epoch.targetVersion} since ${outcome.epoch.continuousTrafficSince.toISOString()}`,
+			`  epoch       v${epoch.targetVersion} since ${epoch.continuousTrafficSince.toISOString()}`,
 		);
 		console.log(
 			`  raise legal ${new Date(
-				outcome.epoch.continuousTrafficSince.getTime() + EPOCH_SECONDS * 1_000,
+				epoch.continuousTrafficSince.getTime() + EPOCH_SECONDS * 1_000,
 			).toISOString()} (${seconds(EPOCH_SECONDS)} of uninterrupted compatible traffic)`,
 		);
-	}, options);
+	});
 }
 
-async function raisePhase(options: ControllerOptions): Promise<void> {
-	await underCutoverSession(async (session, commit) => {
-		const raised = await session.transaction().execute(async (tx) => {
+async function raisePhase(
+	options: ControllerOptions,
+	readReceiving: ReadReceivingRevisionCapabilities,
+): Promise<void> {
+	await underCutoverSession(options, async (session, commit) => {
+		// The floors are monotonic, so this is the last moment the traffic split
+		// can still be checked. An hour of enforced waiting separates `prepare`
+		// from here — long enough for a rollback deploy or a pinned split to put
+		// an incapable revision back in service, which reconciliation must clear
+		// from the epoch table before the raise consults it.
+		const reconciled = await provenTransaction(session, commit, (tx) =>
+			reconcileReceivingRevisionCapabilitiesInTransaction(tx, readReceiving),
+		);
+		heading("Traffic");
+		reportRevisionSet(await requireCapableRevisions(readReceiving));
+		console.log(
+			`  epochs      ${
+				reconciled.runtimeTrafficEpochs
+					.map((epoch) => `v${epoch.targetVersion}`)
+					.join(", ") || "none (reconciliation cleared them)"
+			}`,
+		);
+
+		const raised = await provenTransaction(session, commit, async (tx) => {
 			await raiseMinimumStreamReceiverVersionInTransaction(tx, RECEIVER_TARGET);
-			const state = await raiseMinimumRuntimeReaderVersionInTransaction(
-				tx,
-				READER_TARGET,
-			);
-			return settle(state, commit);
+			return raiseMinimumRuntimeReaderVersionInTransaction(tx, READER_TARGET);
 		});
 
 		heading("Floors raised");
@@ -341,7 +438,7 @@ async function raisePhase(options: ControllerOptions): Promise<void> {
 				raised.updatedAt.getTime() + STREAM_LEASE_TTL_SECONDS * 1_000,
 			).toISOString()} (${seconds(STREAM_LEASE_TTL_SECONDS)} drain: the request cap plus stream grace)`,
 		);
-	}, options);
+	});
 }
 
 async function enablePhase(
@@ -377,36 +474,23 @@ async function enablePhase(
 	}
 
 	heading("Cloud Run preflight");
-	await reportRevisions(readReceiving);
+	reportRevisionSet(await requireCapableRevisions(readReceiving));
 
 	heading("Audit scans");
 	await runAuditScans(options.prod === true);
 
-	await underCutoverSession(async (session, commit) => {
-		const state = await session.transaction().execute(async (tx) => {
-			const revisions = await readReceiving();
-			const incompatible = revisions.filter(
-				(revision) => revision.runtimeReaderVersion < READER_TARGET,
-			);
-			if (incompatible.length > 0) {
-				throw new Error(
-					`These revisions cannot serve reader v${READER_TARGET}: ${incompatible
-						.map((revision) => revision.revision)
-						.join(", ")}`,
-				);
-			}
-			return settle(
-				await enableLookupReferenceActivationInTransaction(
-					tx,
-					ACTIVATION_SWITCHES,
-				),
-				commit,
+	await underCutoverSession(options, async (session, commit) => {
+		const state = await provenTransaction(session, commit, async (tx) => {
+			await requireCapableRevisions(readReceiving);
+			return enableLookupReferenceActivationInTransaction(
+				tx,
+				ACTIVATION_SWITCHES,
 			);
 		});
 
 		heading("Activated");
 		reportCompatibility(state);
-	}, options);
+	});
 }
 
 const program = new Command();
@@ -421,6 +505,10 @@ program
 		"commit the phase instead of rehearsing and rolling back",
 	)
 	.option("--prod", "target production Cloud SQL and the production service")
+	.option(
+		"--db-user <iam-user>",
+		"Cloud SQL IAM user for the writing phases (the migration identity)",
+	)
 	.option("--service <name>", "Cloud Run service", "commcare-nova")
 	.option("--region <region>", "Cloud Run region", "us-central1")
 	.addHelpText(
@@ -433,17 +521,24 @@ program
 			"phase is safe and resuming after an interruption needs no saved file.",
 			"",
 			"Cloud Run reads use the gcloud CLI, so `gcloud auth login` must be",
-			"current. Writing phases need an identity that may mutate control",
-			"tables — the runtime service account is read-only there.",
+			"current.",
+			"",
+			`Writing to production needs --db-user ${MIGRATION_DB_USER}:`,
+			"--prod otherwise connects as YOUR gcloud identity, which is provisioned",
+			"read-only, and the runtime service account holds no write grant on the",
+			"control tables either. Reach that identity with an impersonated ADC",
+			"credential (an ephemeral serviceAccountTokenCreator grant on",
+			`${MIGRATION_SERVICE_ACCOUNT}), and revoke it afterwards.`,
 			"",
 			"Examples:",
 			"  $ npx tsx scripts/rollout/activate-lookup-references.ts --prod",
-			"  $ npx tsx scripts/rollout/activate-lookup-references.ts --prod --phase prepare --execute",
+			`  $ npx tsx scripts/rollout/activate-lookup-references.ts --prod --phase prepare --execute --db-user ${MIGRATION_DB_USER}`,
 			"",
 		].join("\n"),
 	);
 program.parse();
 const options = program.opts<ControllerOptions>();
+if (options.dbUser !== undefined) process.env.NOVA_DB_USER = options.dbUser;
 if (options.prod === true) targetProdDb();
 
 runMain(async () => {
@@ -452,10 +547,12 @@ runMain(async () => {
 		region: options.region,
 	});
 	try {
+		requireWriteIdentity(options);
 		if (options.phase === "status") await statusPhase(readReceiving);
 		else if (options.phase === "prepare")
 			await preparePhase(options, readReceiving);
-		else if (options.phase === "raise") await raisePhase(options);
+		else if (options.phase === "raise")
+			await raisePhase(options, readReceiving);
 		else if (options.phase === "enable")
 			await enablePhase(options, readReceiving);
 		else {

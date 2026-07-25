@@ -323,7 +323,12 @@ on the reads without the cutover machinery.
 Its status read is one repeatable-read snapshot. Traffic reconciliation and
 runtime-epoch preparation invoke their control-plane snapshot callback only
 after taking the fixed deployment-cutover gate; that callback must perform a
-fresh read when invoked and must never return a pre-captured/cached split. Their
+fresh read when invoked and must never return a pre-captured/cached split. A
+`ReceivingRevisionCapability` carries BOTH the reader and receiver declarations
+because those are independent authored manifest fields — a revision can satisfy
+one floor and be revoked by the other — and the controller re-checks both
+immediately before it raises anything, since the floors are monotonic and an
+hour of enforced waiting separates `prepare` from `raise`. Their
 in-transaction variants are what the controller drives: it holds the SESSION
 form of the gate on one pinned connection
 (`withDeploymentCutoverSession`, acquired with `pg_try_advisory_lock` so a

@@ -20,7 +20,10 @@ import {
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AppSummary } from "@/lib/db/apps";
-import { CROSS_PROJECT_MOVE_DISCLOSURE } from "@/lib/projects/moveTargets";
+import {
+	CROSS_PROJECT_MOVE_DISCLOSURE,
+	CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE,
+} from "@/lib/projects/moveTargets";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
 
@@ -38,12 +41,19 @@ export interface AppProjectMoveTarget {
 	name: string;
 }
 
-/** The Project-placement affordance, shown only to members who govern it. */
-export interface AppProjectMoveAffordance {
-	/** Other Projects where this member also holds the placement capability. */
-	targets: readonly AppProjectMoveTarget[];
-	onMove: (appId: string, toProjectId: string) => Promise<MoveResult>;
-}
+/**
+ * The Project-placement affordance, shown only to members who govern it. The
+ * switched-off arm still shows the control and explains why, rather than
+ * arming a destination picker whose Move button the server would refuse.
+ */
+export type AppProjectMoveAffordance =
+	| {
+			enabled: true;
+			/** Other Projects where this member also holds the capability. */
+			targets: readonly AppProjectMoveTarget[];
+			onMove: (appId: string, toProjectId: string) => Promise<MoveResult>;
+	  }
+	| { enabled: false };
 
 interface AppCardProps {
 	app: Pick<
@@ -104,7 +114,9 @@ export function AppCard({
 	const isFailed = app.status === "error";
 	const updatedAt = new Date(app.updated_at);
 	const displayName = app.app_name || "Untitled";
-	const moveLabel = `Move ${displayName} to another Project`;
+	const moveLabel = projectMove?.enabled
+		? `Move ${displayName} to another Project`
+		: `About moving ${displayName}`;
 
 	/* Keep navigation available while the placement popover is open. The card's
 	 * DOM shape is stable because the primary Link is an overlay sibling rather
@@ -116,7 +128,7 @@ export function AppCard({
 	const errorMessage = cardState.type === "error" ? cardState.message : null;
 
 	const handleMove = async () => {
-		if (!projectMove || !moveTargetId) return;
+		if (!projectMove?.enabled || !moveTargetId) return;
 		setCardState({ type: "movingApp" });
 		try {
 			const result = await projectMove.onMove(app.id, moveTargetId);
@@ -255,17 +267,28 @@ export function AppCard({
 						{projectMove && !isFailed && (
 							<Popover
 								open={cardState.type === "choosingMoveTarget"}
-								onOpenChange={(open) =>
+								onOpenChange={(open) => {
+									/* Closing abandons the choice. Keeping it would leave the
+									 * next open pre-armed, so a single click on a popover the
+									 * user only meant to read would move the app and all of its
+									 * data — there is no confirmation step after this. */
+									if (!open) setMoveTargetId(null);
 									setCardState((s) =>
 										open
 											? { type: "choosingMoveTarget" }
 											: s.type === "choosingMoveTarget"
 												? { type: "idle" }
 												: s,
-									)
-								}
+									);
+								}}
 							>
-								<SimpleTooltip content="Move to another Project">
+								<SimpleTooltip
+									content={
+										projectMove.enabled
+											? "Move to another Project"
+											: "About moving this app"
+									}
+								>
 									<PopoverTrigger
 										ref={moveTriggerRef}
 										render={
@@ -298,10 +321,14 @@ export function AppCard({
 											tabIndex={-1}
 											className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-nova-violet-bright/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-surface"
 										>
-											Move to another Project
+											Moving between Projects
 										</PopoverTitle>
 									</PopoverHeader>
-									{projectMove.targets.length === 0 ? (
+									{!projectMove.enabled ? (
+										<PopoverDescription className="leading-relaxed text-nova-text-secondary">
+											{CROSS_PROJECT_MOVE_UNAVAILABLE_MESSAGE}
+										</PopoverDescription>
+									) : projectMove.targets.length === 0 ? (
 										<PopoverDescription className="leading-relaxed text-nova-text-secondary">
 											There's nowhere to move this app yet. A destination has to
 											be a Project where you're an admin or owner too.

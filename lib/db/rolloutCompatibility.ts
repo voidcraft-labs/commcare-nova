@@ -24,9 +24,16 @@ import {
 
 const RUNTIME_FLOOR_EPOCH_SECONDS = RUNTIME_CAPABILITIES.cloudRunRequestSeconds;
 
+/**
+ * What one traffic-receiving revision declares it can serve. Reader and
+ * receiver are independent authored manifest fields, so both travel together:
+ * a revision can legitimately satisfy one floor and not the other, and a raise
+ * past either one revokes live clients.
+ */
 export interface ReceivingRevisionCapability {
 	readonly revision: string;
 	readonly runtimeReaderVersion: number;
+	readonly streamReceiverVersion: number;
 }
 
 export interface LookupReferenceCompatibilityState {
@@ -120,6 +127,10 @@ function assertReceivingRevisions(
 		assertVersion(
 			revision.runtimeReaderVersion,
 			`${revision.revision} runtime reader version`,
+		);
+		assertVersion(
+			revision.streamReceiverVersion,
+			`${revision.revision} stream receiver version`,
 		);
 	}
 }

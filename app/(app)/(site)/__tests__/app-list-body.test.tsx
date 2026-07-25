@@ -76,6 +76,7 @@ function renderList(canDeleteApp: boolean) {
 			deleted={[DELETED_APP]}
 			canDeleteApp={canDeleteApp}
 			canMoveApp={false}
+			movesEnabled={false}
 			moveTargets={[]}
 		/>,
 	);

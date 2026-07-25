@@ -60,6 +60,20 @@ describe("receivingRevisionNames", () => {
 			}),
 		).toThrow("no traffic-receiving revision");
 	});
+
+	it("refuses an unmodelled target rather than blaming the latest revision", () => {
+		// No `latestRevision: true` to justify the substitution, so resolving this
+		// to `latestReady` would swap a serving revision for the capable one it is
+		// about to be compared against.
+		expect(() =>
+			receivingRevisionNames({
+				status: {
+					latestReadyRevisionName: "rev-new",
+					traffic: [{ percent: 100 }],
+				},
+			}),
+		).toThrow("resolves to no revision name");
+	});
 });
 
 describe("receivingRevisionCapabilities", () => {
@@ -73,7 +87,7 @@ describe("receivingRevisionCapabilities", () => {
 		},
 	};
 
-	it("reads each receiving revision's declared runtime reader", () => {
+	it("reads BOTH declared floors — a revision can satisfy one and not the other", () => {
 		expect(
 			receivingRevisionCapabilities(
 				[
@@ -84,8 +98,16 @@ describe("receivingRevisionCapabilities", () => {
 				service,
 			),
 		).toEqual([
-			{ revision: "rev-new", runtimeReaderVersion: 1 },
-			{ revision: "rev-old", runtimeReaderVersion: 2 },
+			{
+				revision: "rev-new",
+				runtimeReaderVersion: 1,
+				streamReceiverVersion: 3,
+			},
+			{
+				revision: "rev-old",
+				runtimeReaderVersion: 2,
+				streamReceiverVersion: 3,
+			},
 		]);
 	});
 
@@ -99,8 +121,16 @@ describe("receivingRevisionCapabilities", () => {
 				service,
 			),
 		).toEqual([
-			{ revision: "rev-new", runtimeReaderVersion: 0 },
-			{ revision: "rev-old", runtimeReaderVersion: 0 },
+			{
+				revision: "rev-new",
+				runtimeReaderVersion: 0,
+				streamReceiverVersion: 0,
+			},
+			{
+				revision: "rev-old",
+				runtimeReaderVersion: 0,
+				streamReceiverVersion: 3,
+			},
 		]);
 	});
 

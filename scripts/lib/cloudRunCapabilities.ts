@@ -70,10 +70,12 @@ export function receivingRevisionNames(
 		const tag = typeof target.tag === "string" ? target.tag : "";
 		if (percent <= 0 && tag.length === 0) continue;
 
+		// `latestReady` substitutes ONLY for an explicit latest-revision target.
+		// A target shape this code does not model must throw: resolving it to the
+		// newest revision would, mid-cutover, silently swap a below-floor revision
+		// for the capable one it is being compared against.
 		const named =
-			target.latestRevision === true
-				? latestReady
-				: (target.revisionName ?? latestReady);
+			target.latestRevision === true ? latestReady : target.revisionName;
 		if (typeof named !== "string" || named.length === 0) {
 			throw new Error(
 				"A Cloud Run traffic target resolves to no revision name.",
@@ -111,11 +113,13 @@ export function receivingRevisionCapabilities(
 				`Cloud Run revision ${revision} receives traffic but was not listed; re-read the control plane.`,
 			);
 		}
+		const declared = parseRevisionCapabilityLabels(
+			labelsByRevision.get(revision),
+		);
 		return {
 			revision,
-			runtimeReaderVersion: parseRevisionCapabilityLabels(
-				labelsByRevision.get(revision),
-			).runtimeReaderVersion,
+			runtimeReaderVersion: declared.runtimeReaderVersion,
+			streamReceiverVersion: declared.streamReceiverVersion,
 		};
 	});
 }
