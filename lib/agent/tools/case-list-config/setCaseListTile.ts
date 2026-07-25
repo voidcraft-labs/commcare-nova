@@ -162,12 +162,6 @@ export const setCaseListTileTool = {
 				config.columns.map((column) => [column.uuid, column]),
 			);
 			const mutations: Mutation[] = [];
-			// The placed set starts from what the doc already carries and is
-			// updated per instruction, so the reported outcome reflects the call's
-			// own effect rather than the pre-call doc.
-			const cellsByUuid = new Map<Uuid, Column["tile"]>(
-				config.columns.map((column) => [column.uuid, column.tile]),
-			);
 			const named = new Set<Uuid>();
 			for (const placement of placements ?? []) {
 				const columnUuid = asUuid(placement.columnUuid);
@@ -186,14 +180,12 @@ export const setCaseListTileTool = {
 				}
 				named.add(columnUuid);
 				const cell = placement.cell ?? undefined;
-				cellsByUuid.set(columnUuid, cell);
 				mutations.push(
 					...columnTileMutations(current, { ...current, tile: cell }, mod.uuid),
 				);
 			}
 
-			const nextLayout = tile === undefined ? config.tile : (tile ?? undefined);
-			if (tile !== undefined && !deepEqual(config.tile, nextLayout)) {
+			if (tile !== undefined && !deepEqual(config.tile, tile ?? undefined)) {
 				// The layout rides the granular `setCaseListMeta` kind (not a
 				// wholesale `updateModule{caseListConfig}` that would clobber a
 				// concurrent column edit on the guarded re-apply). `tilePatch` is
@@ -217,14 +209,19 @@ export const setCaseListTileTool = {
 				return errorResult(doc, commit.error);
 			}
 
+			// Report against the COMMITTED doc, not the tool's own candidate: the
+			// guarded writer re-applies onto fresh stored state, so a peer's
+			// concurrent column add or layout change is already merged in and is
+			// what the SA continues against.
+			const committedConfig =
+				commit.newDoc.modules[moduleUuid]?.caseListConfig ?? config;
 			// A hidden field with no place is only a problem when Default order
 			// still needs it — the same split the validator's coverage rule makes —
 			// so the reported list is the fields a worker would actually see.
-			const unplacedColumnUuids = config.columns
+			const unplacedColumnUuids = committedConfig.columns
 				.filter(
 					(column) =>
-						cellsByUuid.get(column.uuid) === undefined &&
-						column.visibleInList !== false,
+						column.tile === undefined && column.visibleInList !== false,
 				)
 				.map((column) => column.uuid);
 
@@ -237,11 +234,11 @@ export const setCaseListTileTool = {
 						moduleName: mod.name,
 						moduleIndex,
 						tile,
-						nextLayout,
+						nextLayout: committedConfig.tile,
 						placementCount: named.size,
 						unplacedColumnUuids,
 					}),
-					layout: nextLayout === undefined ? "rows" : "tile",
+					layout: committedConfig.tile === undefined ? "rows" : "tile",
 					unplacedColumnUuids,
 					summary: {
 						location: mod.name,
@@ -270,8 +267,12 @@ function errorResult(
 
 /**
  * Compose the prose the model reads: what the layout is now, how many fields
- * moved, and — while the list is back on rows — which fields would need a place
- * before the tile could be turned on again.
+ * moved, and — while the list is on rows — which fields would need a place
+ * before the tile could be turned on.
+ *
+ * `tile` is what the CALL asked for (so the prose names the act); `nextLayout`
+ * is what the committed doc holds (so the prose never claims a state a peer's
+ * concurrent edit changed).
  */
 function describeOutcome(facts: {
 	moduleName: string;
