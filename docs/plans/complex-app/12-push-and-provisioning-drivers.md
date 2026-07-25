@@ -44,20 +44,45 @@ when required resources and ordering are verified end to end.
   change even though the storage model and legacy UI can rename it. Do not route
   through the legacy Manage Tables endpoint, whose tag-length check is narrower
   than HQ's 32-character model/API bound.
-- **Locations.** v0.6 `LocationResource` is writable: list GET/POST/PATCH, where
-  `patch_list` is atomic and capped at `patch_limit = 100` per request, upserting
-  (an item with `location_id` updates, otherwise creates), plus detail GET/PUT.
+- **Locations.** v0.6 `LocationResource` — the file is
+  `corehq/apps/locations/resources/v0_6.py`, **not** `corehq/apps/api/resources/`
+  — is writable: list GET/POST/PATCH, where `patch_list` is atomic and capped at
+  `patch_limit = 100` per request, upserting (an item with `location_id` updates,
+  otherwise creates), plus detail GET/PUT.
   Create requires `name` and `location_type_code`; the parent is given as
   `parent_location_id` (an HQ `location_id`, hence strict parent-before-child
-  ordering); `site_code` is settable, domain-unique-validated, and auto-derived when
-  omitted; `location_data` is validated against the domain's `LocationFields`
-  definition and unknown keys raise `LocationAPIError`. All location APIs require
-  the paid `LOCATIONS` privilege, and v0.6 exposes active locations but no archive
-  or delete method.
+  ordering); `site_code` is settable and domain-unique-validated. All location
+  APIs require the paid `LOCATIONS` privilege, and v0.6 exposes active locations
+  but no archive or delete method.
+- **Three traps in that resource, each of which silently corrupts rather than
+  failing.** `_update` **regenerates** `site_code` on any request carrying a new
+  `name` without one, so a push that omits the stored code repoints the
+  bulk-upload key on every rename — always send it. Unknown `location_data` keys
+  are **not** rejected: the validator checks required/choices/regex only on
+  *defined* slugs and stores the rest as HQ's uncategorized data, so a stale key
+  survives silently. And `_update` calls
+  `corehq/apps/locations/util.py::get_location_type` on **every** create and on
+  any update carrying `location_type_code`, which admits only the types
+  `corehq/apps/locations/forms.py::LocationForm.get_allowed_types` returns for
+  the chosen parent (`parent_type=parent.location_type`, immediate children
+  alone) — so a Nova place that skips an intermediate level is refused with
+  "Location type not valid for the selected parent." That refusal is a
+  [deliberate target gap](00-contracts.md#deliberate-target-gaps) rather than a
+  Nova bug; preflight it and leave the deployment `incomplete`.
 - **The org model itself is not pushable.** `LocationTypeResource` has no
   authorization override and falls back to tastypie `ReadOnlyAuthorization`, so
   level definitions are UI-only and ship in the setup artifact while the tree
-  pushes via v0.6.
+  pushes via v0.6. One consequence the artifact must account for: HQ does not
+  store the address-book allowlist a person types.
+  `corehq/apps/locations/views.py::LocationTypesView._get_include_only` closes
+  the set over ancestors before saving — its `insert_with_parents` walks
+  `parent_type_id` upward, and the docstring says so outright ("we need to
+  insert any parent location types"). So the artifact lists the
+  ancestor-closed set rather than Nova's authored one, or the author types a
+  smaller list, HQ stores a larger one, and the two models disagree from then
+  on. This costs nothing semantically — ancestors are always in the footprint
+  un-expanded anyway — but a setup artifact that cannot be followed literally
+  is a setup artifact nobody trusts.
 - **Users.** `CommCareUserResource` list GET/POST (username is create-only,
   normalized through `generate_mobile_username` and immutable afterwards; a
   password is required at create unless the domain has

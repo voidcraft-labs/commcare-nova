@@ -45,8 +45,18 @@ directions.
   targeting).
 - Flat fixture byte contract: `<fixture id="locations" user_id indexed="true">`
   wrapping `<locations>` of flat `<location>` elements with attributes `type` (the
-  level code), `id`, and one `{level_code}_id` lineage attribute per level (self
-  plus each ancestor's id, empty string otherwise); built-in children `name`,
+  level code), `id`, and one `{level_code}_id` lineage attribute **per level the
+  app defines** — not one per level on that place's own chain.
+  `locations/fixtures.py::_get_fixture_node` blank-fills every level's attribute
+  first (`attrs.update({attr: '' for attr in location_type_attrs})`), then writes
+  self, then walks upward writing each ancestor, so a place carries the whole
+  set with empty strings where it has no ancestor at that level. The index
+  schema is built from the same full list. Emitting only the occupied
+  attributes produces a fixture that does not match.
+  Those writes are also unconditional and go **self first, then upward**, so an
+  ancestor sharing a place's own level code overwrites the place's id in its own
+  lineage attribute — which is why a level may never repeat inside one chain;
+  built-in children `name`,
   `site_code`, `external_id`, `latitude`, `longitude`, `location_type`, and
   `supply_point_id` (string-coerced, empty when unset); custom fields as
   grandchildren under exactly **one** `<location_data>` child (every defined field,
@@ -61,6 +71,23 @@ directions.
   CTE over assigned locations plus ancestors, with the expand/include flags encoded
   as depth rules (`include_without_expanding` = all of a level plus ancestors;
   `include_only` = a type filter; ancestors always included un-expanded).
+- **Compute that depth over the LOCATION hierarchy, not the level hierarchy —
+  and this is a real semantic choice, not an approximation of HQ.**
+  `locations/sql_templates/get_location_fixture_ids.sql` computes the depth cap
+  by walking `locations_locationtype.parent_type_id` while its traversal counts
+  depth over `locations_sqllocation.parent_id`, then compares the two directly
+  (`"fixture_ids"."depth" < xf."depth"`). Its own comment admits the assumption:
+  *"This traverses the location type hierarchy, which is **assumed** to mirror
+  the location hierarchy."* On a tree where every rung is filled the two
+  arithmetics are identical — walking up N locations walks up N types — so the
+  distinction is unobservable. They diverge only on a **ragged** tree, and HQ
+  cannot hold one: its location API refuses to create a place that skips a rung
+  (see [the deliberate target gaps](00-contracts.md#deliberate-target-gaps)). So
+  there is no upstream behaviour to be faithful to, and the location hierarchy
+  is the only defined semantics for a tree only Nova can hold. Keep this
+  reasoning attached to the code: without it, a later reader sees Nova diverging
+  from `get_location_fixture_ids.sql` and "fixes" it toward the type hierarchy
+  for parity, reintroducing an over-inclusion no device will ever exhibit.
 - The restore's user-groups fixture carries location groups verbatim as
   `<group id="{location_id}">`, and the client builds its owner set **exclusively**
   from user ids plus that fixture (`UserGroupsFixtureProvider`,

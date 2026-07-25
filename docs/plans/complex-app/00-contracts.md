@@ -126,6 +126,15 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ### Deliberate target gaps
 
+Two shapes of gap exist and they get **opposite** treatments. The
+discriminator is whether the target can carry the state at all, and if not,
+whether it says so — because that decides whether an author can ever find out:
+
+> **The target cannot represent it, and drops it silently ⇒ exclude it from
+> constructible state. The target represents it fine and only a secondary
+> creation path refuses, loudly ⇒ construct it, preflight it as a required
+> prerequisite, and say so where the author creates it.**
+
 - **Tile controls HQ cannot express.** Tiles per row and square cells are
   excluded from constructible state. These are not fields HQ round-trips badly —
   HQ has no model field for either, never emits the corresponding attributes, and
@@ -136,6 +145,30 @@ These decisions are closed unless the project owner explicitly reopens them.
   defaulting to one tile per row and content-sized rows. Because they are absent,
   Nova's tile renderer pins those two runtime defaults explicitly rather than
   leaving them implied.
+- **A place may sit under any level above it, not only the one directly
+  above.** Optional intermediate rungs are real — some regions run districts
+  and some do not — and the wire carries one faithfully: the flat fixture
+  blank-fills every level's `{code}_id`, so a facility with no district emits
+  `district_id=''` and an expression joining on it truthfully finds nothing.
+  HQ refuses to *create* one, because both its web form and its v0.6 location
+  API route through `corehq/apps/locations/util.py::get_location_type`, which
+  admits only the types
+  `corehq/apps/locations/forms.py::LocationForm.get_allowed_types` returns for
+  the chosen parent — and that query filters `parent_type=parent.location_type`,
+  immediate children alone. That is HQ's **authoring-form** validator reaching
+  through an API, and an authoring model is never a Nova requirement; the wire
+  and the runtime both accept the shape. So Nova constructs it, and a ragged
+  tree is a **required** deployment prerequisite: the push fails with "Location
+  type not valid for the selected parent.", which leaves the deployment
+  `incomplete` and withholds `released` and `runnable` rather than succeeding
+  with a warning. The authoring surface states the limit where the author
+  chooses the parent — that this hierarchy previews and exports to a `.ccz`
+  faithfully and cannot be created on HQ through the location push.
+  The alternative was forcing a placeholder district, which is worse than a
+  gap: `district_id` would then point at a **real** location that means
+  nothing, so every expression joining on it returns a confidently wrong answer
+  instead of a truthful empty one. Nova does not manufacture data to satisfy
+  another system's validator.
 - **Case attachment display is link-first.** URL-property mode is the normal
   path. The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicit
   opt-in that works only on a domain carrying HQ's `MM_CASE_PROPERTIES` toggle —

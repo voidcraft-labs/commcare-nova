@@ -43,6 +43,8 @@ const FACILITY = asUuid("33333333-3333-4333-8333-333333333333");
 const PERSONA_ASHA = asUuid("44444444-4444-4444-8444-444444444444");
 const PERSONA_BIMAL = asUuid("55555555-5555-4555-8555-555555555555");
 const OUTPOST = asUuid("88888888-8888-4888-8888-888888888888");
+const PROP_BEDS = asUuid("99999999-9999-4999-8999-999999999999");
+const PROP_PHONE = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 
 function level(
 	uuid: string,
@@ -759,6 +761,67 @@ describe("locations store — the archive cascade", () => {
 		// No mutations means no batch, so the app's edit history records nothing
 		// — an archive is not a document change unless it displaces someone.
 		expect(after.mutation_seq).toBe(before.mutation_seq);
+	});
+});
+
+describe("locations store — removing a location property", () => {
+	it("sheds its values from every place, leaving the others intact", async () => {
+		await seedOrgApp();
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "add-props",
+			mutations: [
+				{
+					kind: "addLocationProperty",
+					property: { uuid: PROP_BEDS, slug: "beds", label: "Beds" },
+				},
+				{
+					kind: "addLocationProperty",
+					property: { uuid: PROP_PHONE, slug: "phone", label: "Phone" },
+				},
+			],
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+		const withValues = await createLocation(scope(), {
+			levelUuid: REGION,
+			parentId: null,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: { [PROP_BEDS]: "40", [PROP_PHONE]: "555" },
+		});
+		const withoutValues = await createLocation(scope(), {
+			levelUuid: REGION,
+			parentId: null,
+			name: "South",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+		});
+
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "remove-beds",
+			mutations: [{ kind: "removeLocationProperty", uuid: PROP_BEDS }],
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+		});
+
+		const byId = new Map(
+			(await readOrganization(scope())).locations.map((l) => [l.id, l]),
+		);
+		// The removed property's value is gone; its peer is untouched. A
+		// property uuid is never reissued, so a retained value would be
+		// unreachable forever rather than merely unused.
+		expect(byId.get(withValues.location.id)?.values).toEqual({
+			[PROP_PHONE]: "555",
+		});
+		expect(byId.get(withoutValues.location.id)?.values).toEqual({});
 	});
 });
 

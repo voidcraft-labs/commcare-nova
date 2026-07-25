@@ -79,13 +79,17 @@ verdict and before the entity write.
   composite `ON DELETE RESTRICT` foreign key is what makes a place a persona
   stands on undeletable; the explicit existence check beside it is what turns
   a broken reference into a sentence an author can act on.
-- **Rows → document.** A location row names a level. Removing a level while
-  places still stand at it is refused here, counting **archived places too**
-  — HQ's own guard uses `SQLLocation.objects` rather than `active_objects`, and
-  unarchiving a place whose level had been deleted underneath it would
-  resurrect a row pointing at nothing. It is not a foreign key because the
-  commit rewrites `blueprint_entities` from its own diff and a `RESTRICT` edge
-  would fire on ordinary unrelated edits.
+- **Rows → document.** A location row names a level, and its value bag names
+  location properties. Removing a level while places still stand at it is
+  refused here, counting **archived places too** — HQ's own guard uses
+  `SQLLocation.objects` rather than `active_objects`, and unarchiving a place
+  whose level had been deleted underneath it would resurrect a row pointing at
+  nothing. It is not a foreign key because the commit rewrites
+  `blueprint_entities` from its own diff and a `RESTRICT` edge would fire on
+  ordinary unrelated edits. Removing a location property instead **sheds** the
+  values that named it, because a property uuid is never reissued and an
+  orphaned value is unreachable forever — the same choice `lib/lookup`'s column
+  removal makes, at the one moment the orphaned key set is exactly known.
 
 ## Archive is the reversible gesture, and it spans both stores
 
@@ -122,12 +126,30 @@ a memory of an older one.
 
 ## What Nova enforces that HQ does not
 
-- **A place's parent must stand at its level's parent level.** HQ lets any
-  location parent any other and only its authoring form restricts the choice
-  (`forms.py::LocationForm.get_allowed_types`). Nova enforces it in the store,
-  because a place whose parent skips a level has no coherent `{code}_id`
-  lineage attribute and every expression joining on that attribute silently
-  misses.
+- **A place's parent must stand at a level STRICTLY ABOVE its own** —
+  `lib/domain/organization.ts::levelMayNestUnder`, shared with the authoring
+  surface's parent picker so an author is never offered a placement the store
+  will refuse. Skipping an intermediate rung is allowed and is a real
+  capability: health hierarchies have optional levels, and the fixture carries
+  one faithfully by blank-filling the missing level's `{code}_id`, so an
+  expression joining on it truthfully finds nothing. What the rule forbids is a
+  level repeating inside one chain, which breaks the wire: the attribute writes
+  in `fixtures.py::_get_fixture_node` go self-first then upward and are
+  unconditional, so an ancestor sharing the child's code overwrites the child's
+  own id in its own lineage attribute and every two-hop join through it
+  resolves to the wrong element. Since two levels can never share a code,
+  strict ancestry is exactly the condition that keeps a chain's codes distinct.
+
+  **A skipped rung is a deployment constraint, not a wire one.** HQ refuses to
+  CREATE one: both its web form and its v0.6 API route through
+  `util.py::get_location_type`, which admits only the types
+  `forms.py::LocationForm.get_allowed_types` returns for the chosen parent, and
+  that query filters `parent_type=parent.location_type` — immediate children
+  alone. Preview and local `.ccz` are correct; a push of a ragged tree fails
+  with "Location type not valid for the selected parent." Nova models the real
+  hierarchy anyway, because the alternative is an invented placeholder whose id
+  every `district_id` join would then wrongly resolve — a confidently wrong
+  answer in place of a truthful empty one.
 - **Site codes are create-once.** HQ's are mutable, and its v0.6
   `_update` REGENERATES the code on any request carrying a new `name` without
   one — so a rename that let the code drift would silently repoint the
