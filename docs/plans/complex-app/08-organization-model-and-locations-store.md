@@ -1,82 +1,78 @@
-# Unit 8 — Organization model and locations store
+# Unit 8 — Typed location addressing and owner validation
 
-**PR:** `Organization levels, the app-scoped locations store, and owner validation`
+**PR:** `Location terms, exact reference edges, and role-aware owner validation`
 
 **Depends on:** nothing outstanding. · **Blocks:** units 9, 10, 11, and 13.
 
-> Read [the binding contracts](00-contracts.md) first — the locations and
-> restore-scope architecture contract there governs the lock discipline, the
-> custom-field catalog, and the create-once level and site codes, and the
-> new-top-level-collection rule governs any collection this unit adds.
+> Read [the binding contracts](00-contracts.md) first, and
+> [what is built](../complex-app-plan.md#organization-levels-places-and-assignment)
+> for the levels, the places, the archive cascade, and the cross-store
+> reference machinery this unit extends.
 
-Land the app-wide custom-field catalog, stable level and site codes, app-scoped
-location rows, realtime revisions, cross-store lock discipline, row integrity,
-archive and reassignment rules, Project-move handling, and role-aware owner
-validation. The model validates whether a fixed destination can belong to each
-applicable persona's address-book footprint; unit 9 proves the emitted fixture
-actually carries it.
+The organization model, the app-scoped locations store, the archive and
+reassignment rules, and persona assignment are shipped. What remains is
+**addressing**: making a location a typed, resolvable reference rather than a
+string, and validating that an owner target is one a real worker could reach.
 
-**Location assignment lands on the persona.** `Persona` is a flat blueprint
-entity (`lib/domain/users.ts`) and gains its assignment slots here rather than
-earlier, because the unit that can validate a slot is the unit that declares it.
-Two shapes are already decided: `commcare_location_id`,
-`commcare_location_ids`, and `commcare_primary_case_sharing_id` are built-in user
-properties whose availability is `needs-organization`, so filling them is this
-unit's job and the Users & Personas surface already explains their absence; and
-HQ's `CommCareUserResource` rejects a primary location without its list and
-requires the primary to appear in it (unit 12), so the two slots must stay
-adjacent and be validated together rather than drifting into separate edits.
+Both extend machinery that already exists. `app_location_references` and
+`commitIntegrity.ts::extractLocationReferenceTargets` already carry exact
+document→row edges for persona assignments; an authored location term is the
+same kind of edge and extends that one extractor rather than adding a second
+table.
 
-The **app-wide user-data property catalog** is the shape to mirror for
-`LocationFields`: one flat collection of `{uuid, slug, label, required?,
-choices?}` with slug legality enforced at construction, values keyed by property
-UUID so a slug rename rewrites nothing, and `regex` excluded because its
-enforcement sits behind a paid privilege. HQ uses the same `custom_data_fields`
-machinery for both field types, so the divergence should be in the field type,
-not in the model.
+## What to build
+
+**Typed location terms.** Two shapes, both resolving to a location id:
+
+- a **fixed** destination — a specific place, stored by row UUID so a rename
+  never rewrites an expression;
+- a **reverse hop** — "the place at level L that this case's owner belongs to",
+  the two-hop join the Colorado apps spell as
+  `instance('locations')/locations/location[@type='facility_data'][@facility_id = <owner>]/@id`.
+
+Today that join is a project convention copy-pasted across dozens of binds, and
+nothing checks that an owner expression yields a location that can own cases — a
+typo produces an orphan case no restore will ever contain. Making it structural
+is the same references-are-identity move Nova already made for XPath.
+
+**Role-aware owner validation.** An owner target naming a location must name one
+whose level owns cases, and a fixed destination must be reachable in the
+applicable persona's address-book footprint. The model proves the destination
+*can* belong to that footprint; unit 9 proves the emitted fixture carries it.
+
+Adding a reverse-hop expression must account for current rows and references
+atomically, under the same app-first lock prefix everything else here uses.
 
 ## Binding facts
 
-- `SQLLocation.location_id` is a server-generated `uuid4().hex`, globally unique,
-  and is the **ownership** identity; `site_code` is domain-unique, mutable, and
-  auto-derived, and is the human/bulk identity. Custom-field values live in a plain
-  metadata JSON blob while definitions use the same `custom_data_fields` machinery
-  under `field_type='LocationFields'`. There is no `LocationFixtureDataField`
-  model.
-
-The flags below are HQ's storage, not Nova's authoring vocabulary. They fall into
-two independent axes, and conflating them is the classic authoring error:
-`shares_cases`, `view_descendants`, and `expand_view_child_data_to` shape **case
-flow** — which cases a worker receives — while `expand_from`, `expand_from_root`,
-`expand_to`, `include_without_expanding`, and `include_only` shape **fixture
-contents** only — which locations a worker can see and address. A level that owns
-cases and a level that is merely referenceable are different authoring choices,
-and Nova names them as such rather than exposing eight booleans.
-
-- `LocationType` flags, per column: `code` (SlugField, auto-derived, domain-unique
-  — the fixture `@type`), `shares_cases`, `view_descendants`, `has_users`
-  (default true; editing it is toggle-gated), `expand_view_child_data_to` (same
-  gate), the fixture-scope flags
-  (`expand_from`/`expand_from_root`/`expand_to`/`include_without_expanding`/`include_only`),
-  and `administrative` — which is forced true on non-CommTrack domains and is
-  therefore **not** a usable "owns nothing" inverse. `has_user` is dead.
-- Owner-set assembly: owner ids are the user id plus one id per case-sharing
-  group, where each case-owning location materializes as an `UnsavableGroup` whose
-  `_id` **is** the `location_id`. Case-owning is two filtered sets, and the
-  descendant filter is easy to drop and wrong to drop
-  (`models.py::CouchUser::_get_case_owning_locations`): the user's assigned
+- **Owner-set assembly, with two filters that are easy to drop and wrong to
+  drop.** Owner ids are the user id plus one per case-sharing group, where each
+  case-owning location materializes as an `UnsavableGroup` whose `_id` **is** the
+  `location_id` (`locations/models.py::SQLLocation.case_sharing_group_object`).
+  Case-owning is two filtered sets
+  (`users/models.py::CouchUser._get_case_owning_locations`): the user's assigned
   locations whose *type* carries `shares_cases`, **plus** the descendants of
-  assigned locations whose type carries `view_descendants`, themselves filtered to
-  `shares_cases` **and** not archived. Omitting either filter puts non-sharing or
-  archived locations in the owner set and the persona sees cases a real worker
-  never would. Web users get location groups only, never classic groups.
-- Unassigning the last worker from a case-owning location merely **orphans** its
-  cases — `owner_id` keeps pointing at the location and nothing moves. HQ's
-  "Orphan Case Alerts" setting is a UI warning only. This is validator and SA
-  guidance material, never mechanics.
-- Location-scoped web permissions (`location_safe`, `access_all_locations`) are an
-  HQ-console authorization axis with no wire representation — nothing to model or
-  emit.
+  assigned locations whose type carries `view_descendants`, themselves filtered
+  to `shares_cases` **and** not archived. Omit either and a persona sees cases a
+  real worker never would. Web users get location groups only, never classic
+  groups.
+  That function has **two implementations**, and the default is the ORM one just
+  described; the SQL arm (`locations/sql_templates/get_case_owning_locations.sql`)
+  is gated by `toggles.USH_RESTORE_FILE_LOCATION_CASE_SYNC_RESTRICTION` and is
+  the only path that honours a descendant depth cap.
+- **Unassigning the last worker from a case-owning location merely orphans its
+  cases** — `owner_id` keeps pointing at the location and nothing moves. HQ's
+  "Orphan Case Alerts" is a UI warning only. This is validator and SA *guidance*
+  material, never mechanics: do not build a reassignment cascade CommCare does
+  not perform.
+- **Cross-level addressing joins on HQ's built-in `{code}_id` lineage
+  attributes, not on custom fields.** Custom location data is always
+  `<location_data>` children, never attributes, so it can never be a join key.
+  The indexed `data_<slug>` shape in two orphaned HQ test files is a removed
+  feature (`index_in_fixture`) — do not build to it.
+- Location-scoped web permissions (`location_safe`, `access_all_locations`) are
+  an HQ-console authorization axis with **no wire representation** — nothing to
+  model or emit.
 
-**Observed:** an author builds a district/facility hierarchy, assigns a persona to
-a facility, and is warned before archiving a location that owns cases.
+**Observed:** an author points a referral at "the receiving site's queue" and is
+told, before saving, when that destination is one the worker could never reach.

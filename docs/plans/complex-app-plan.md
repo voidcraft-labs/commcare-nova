@@ -409,6 +409,78 @@ function that returns a bare `field.is_required`), so it is a question about
 one deployment target, and gating on it would make marking an existing property
 required impossible. The authoring surface says so inline instead.
 
+### Organization levels, places, and assignment
+
+The organization splits across two stores because its two halves are different
+kinds of thing. Its **shape** — the levels, and the catalog of information
+places carry — is blueprint vocabulary in `lib/domain/organization.ts`, with the
+same flat-collection contract the user collections have. Its **contents** — the
+places — are app-scoped Postgres rows in `lib/organization`, because a tree runs
+to thousands of nodes and is routinely maintained from outside Nova, and
+decomposing it into blueprint entities would put it in undo history and the
+durable mutation log.
+
+A level names **two independently scoped axes** rather than HQ's eight
+interacting booleans. Case flow is a discriminated union on whether workers live
+at the level, so the descendant-cases dial is unexpressible where nobody is
+assigned — HQ reads `view_descendants` off the type of a location a user is
+*assigned to*, so on an unstaffed level it is inert. The address book is a closed
+union of four reaches. `administrative` is not modeled at all:
+`models.py::LocationType.save` forces it true on every non-CommTrack domain, so
+it is not the "owns nothing" inverse it reads as.
+
+**The address book is four choices rather than five dials because HQ's own
+fixture query cannot name the rest.** Scope is computed by
+`locations/sql_templates/get_location_fixture_ids.sql`, reached through
+`fixtures.py::_location_queryset_helper`, and its header comment enumerates
+configurations it calls "undefined outcomes" — including three it asks for check
+constraints to prevent. Reading the query adds three silent-precedence traps:
+`include_only` makes it skip `expand_from`, `expand_to` beats `include_only` in
+the depth `CASE`, and `expand_from_root` with `include_only` yields an empty
+fixture. Nova admits the four coherent configurations and makes the rest
+unexpressible, which is stronger than validating against them.
+
+Places key on `app_id` alone. The Project authorizes — resolved from the freshly
+locked app row — but is not a column, which is what makes a cross-Project move a
+genuine no-op for them; the integration suite proves that structurally (neither
+table has a tenant column) and behaviourally (flipping the app's Project carries
+every place while the stale source scope stops working). Writes take the
+existing app-first lock prefix, never a fourth one, so a level removal inside a
+commit and a concurrent insert at that level serialize rather than race.
+
+Both directions of cross-store reference are settled inside the blueprint
+commit's transaction (`lib/organization/commitIntegrity.ts`), after the verdict
+and before the entity write. A persona's assignment becomes an exact edge in
+`app_location_references` whose composite `ON DELETE RESTRICT` key makes the
+place undeletable; removing a level while places still stand at it is refused,
+counting **archived** places because HQ's own guard uses `SQLLocation.objects`
+rather than `active_objects`; and removing a location property sheds the values
+that named it, since a property uuid is never reissued and an orphan is
+unreachable forever.
+
+Archive is the only removal, matching a platform whose location API exposes no
+delete: an id that is a live `owner_id` cannot be deleted without stranding
+cases. `setLocationArchived` changes both stores in one transaction — either
+half alone is a state the model promises is unreachable — through
+`apps.ts::commitGuardedBatchInTransaction`, the composition seam the
+cross-Project move already established. Archiving walks descendants and
+unarchiving walks ancestors too; personas standing on an archived place are
+unassigned with the next place promoted, matching
+`tasks.py::update_users_at_locations`; and cases owned there **do not move**,
+because no cascade exists anywhere in HQ. The confirmation reports the count and
+proceeds.
+
+Two Nova rules are stricter than HQ's storage and one is looser. A place's
+parent must stand at a level **strictly above** its own, which permits skipping
+an intermediate rung and forbids a level repeating in one chain — the attribute
+writes in `fixtures.py::_get_fixture_node` go self-first then upward
+unconditionally, so an ancestor sharing a child's code overwrites the child's own
+id in its own lineage attribute and every two-hop join through it resolves to
+the wrong element. A level may change only while a place is a leaf, which is
+HQ's rule enforced in the store rather than a form. And site codes are
+create-once, where HQ's are mutable and its v0.6 `_update` regenerates them on a
+rename that omits one.
+
 ### Preview identity
 
 `lib/preview/engine/identity.ts` carries **two ids that are not
@@ -840,16 +912,16 @@ bytes endpoint and the HTML viewer route that must never be linked instead, the
 calculate that builds the URL, and why Web Apps never displays a case attachment
 in-app.
 
-### 8 — Organization model and locations store
+### 8 — Typed location addressing and owner validation
 
 [`complex-app/08-organization-model-and-locations-store.md`](complex-app/08-organization-model-and-locations-store.md)
 · depends on nothing · blocks units 9, 10, 11, 13
 
-The app-wide custom-field catalog, stable level and site codes, app-scoped
-location rows, archive and reassignment rules, and role-aware owner validation.
-**The file holds** the two independent flag axes that are classically conflated,
-the owner-set assembly with its two easily-dropped filters, and what actually
-happens to cases when a location loses its last worker.
+Fixed and reverse-hop location terms, their exact transactional reference edges,
+and validation that an owner target is one a real worker could reach. **The file
+holds** the owner-set assembly with its two easily-dropped filters, which of its
+two implementations is the default, and what actually happens to cases when a
+location loses its last worker.
 
 ### 9 — Usercase, owner sets, restore scope, and wire
 
@@ -961,7 +1033,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 5, 11 |
-| [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
+| [8 location addressing and owner validation](complex-app/08-organization-model-and-locations-store.md) | — |
 | [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
 | [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
 | [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 8, 10 |
