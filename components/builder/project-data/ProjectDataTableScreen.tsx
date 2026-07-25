@@ -153,6 +153,7 @@ export function ProjectDataTableScreen({
  */
 function TableGrid({ table }: { table: LookupTableSnapshot }) {
 	const searchId = useId();
+	const searchHintId = useId();
 	const [query, setQuery] = useState("");
 	const [page, setPage] = useState(0);
 
@@ -169,6 +170,10 @@ function TableGrid({ table }: { table: LookupTableSnapshot }) {
 	const currentPage = Math.min(page, pageCount - 1);
 	const start = currentPage * ROWS_PER_PAGE;
 	const visible = matches.slice(start, start + ROWS_PER_PAGE);
+	/* Off the WHOLE table, not the current match set: the hint is about the
+	 * table being long, and it should not disappear the moment a query narrows
+	 * the result to one page. */
+	const multiPage = table.rows.length > ROWS_PER_PAGE;
 
 	if (table.rows.length === 0) {
 		return (
@@ -193,12 +198,25 @@ function TableGrid({ table }: { table: LookupTableSnapshot }) {
 						placeholder="Search every column"
 						autoComplete="off"
 						data-1p-ignore
+						aria-describedby={multiPage ? searchHintId : undefined}
 						onChange={(event) => {
 							setQuery(event.target.value);
 							setPage(0);
 						}}
 						className="mt-1 h-11"
 					/>
+					{/* Said only once the table is actually long enough for it to
+					 *  matter. A table that fits on one page needs no advice about
+					 *  how to find a row in it. */}
+					{multiPage && (
+						<p
+							id={searchHintId}
+							className="mt-1.5 text-[12px] leading-snug text-nova-text-muted"
+						>
+							This table is longer than one page. Searching is faster than
+							paging through it.
+						</p>
+					)}
 				</div>
 				<p
 					role="status"
