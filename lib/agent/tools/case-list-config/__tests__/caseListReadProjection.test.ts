@@ -125,13 +125,65 @@ describe("case-list read projections", () => {
 	});
 
 	it("leaves an untiled case list's summary unchanged", () => {
-		// The placement suffix is keyed on the cell, not the layout switch, so an
-		// app that has never used a tile pays nothing — its prompt prefix, which
-		// the provider cache keys on, stays byte-identical.
+		// A case list with no DRAWN placement pays nothing, so an app that has
+		// never used a tile keeps a byte-identical prompt prefix — which is what
+		// the provider cache keys on.
 		const { doc } = independentlyArrangedFixture();
 		const summary = summarizeBlueprint(doc);
 
 		expect(summary).not.toContain("layout: tile");
 		expect(summary).not.toContain(" @ ");
+	});
+
+	it("reports a placement only where the tile actually draws it", () => {
+		// The SA reasons about overlap from this text: two cells may never share
+		// a square, so a placement reported for a column the tile does NOT draw
+		// makes the model route around an obstacle that is not on the grid, and
+		// refuse its own next layout for a collision that cannot happen. Three
+		// ways a stored cell goes undrawn, and none of them may be reported.
+		const base = independentlyArrangedFixture();
+		const withCells = (tile: { persistOnForms: true } | undefined) => ({
+			...base.doc,
+			modules: {
+				...base.doc.modules,
+				[MOD_A]: {
+					...base.doc.modules[MOD_A],
+					caseListConfig: {
+						searchInputs: [],
+						columns: [
+							plainColumn(A, "case_name", "Patient", {
+								tile: tileCell(0, 0, 4, 1),
+							}),
+							// Hidden from Results but still ordering the list: it rides
+							// the detail as the zero-width carrier and holds no square.
+							plainColumn(B, "phone", "Phone", {
+								visibleInList: false,
+								sort: { direction: "asc" as const, priority: 0 },
+								tile: tileCell(4, 0, 8, 2),
+							}),
+						],
+						...(tile === undefined ? {} : { tile }),
+					},
+				},
+			},
+		});
+
+		const tiled = summarizeBlueprint(withCells({ persistOnForms: true }));
+		// The drawn cell is reported in full.
+		expect(tiled).toContain("@ 0,0 4x1");
+		// The hidden carrier's retained cell is not.
+		expect(tiled).not.toContain("@ 4,0 8x2");
+
+		// Details is never a tile — long-detail tiles are out of scope — so no
+		// placement is reported there even though the column carries one.
+		const detailsBlock = tiled.slice(tiled.indexOf("details:"));
+		expect(detailsBlock).not.toContain(" @ ");
+
+		// Switching the layout off keeps every cell on the document, so the
+		// author gets their drawing back — but nothing draws, so nothing is
+		// reported.
+		const untiled = summarizeBlueprint(withCells(undefined));
+		expect(untiled).not.toContain("layout: tile");
+		expect(untiled).not.toContain(" @ ");
 	});
 });

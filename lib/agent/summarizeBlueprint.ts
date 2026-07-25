@@ -20,12 +20,13 @@ import {
 import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
+	CaseTileLayout,
 	Column,
 	Module,
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { isContainer } from "@/lib/domain";
+import { isContainer, tileCellFor } from "@/lib/domain";
 import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -132,13 +133,21 @@ function summarizeCaseList(mod: Module): string | undefined {
 	if (results.length > 0) {
 		lines.push("      results:");
 		for (const col of results) {
-			lines.push(`        - ${formatColumn(col)}`);
+			// A placement is reported only where the tile actually draws it, so
+			// `tileCellFor` decides here exactly as it does for the wire. A stored
+			// cell the layout does not draw is deliberately silent: telling the
+			// model a field sits at 4,0 when nothing renders there makes it reason
+			// around an obstacle that is not on the grid.
+			lines.push(`        - ${formatColumn(col, tilePlace(col, config.tile))}`);
 		}
 	}
 	if (details.length > 0) {
 		lines.push("      details:");
 		for (const col of details) {
-			lines.push(`        - ${formatColumn(col)}`);
+			// Details is never a tile — long-detail tiles are out of scope by
+			// contract — so no placement is reported here even when the column
+			// carries one for Results.
+			lines.push(`        - ${formatColumn(col, "")}`);
 		}
 	}
 	const sortedColumns = config.columns
@@ -169,26 +178,35 @@ function summarizeCaseList(mod: Module): string | undefined {
 }
 
 /**
- * One-line column summary — uuid + kind + header + per-kind hint, plus the
- * column's place on the tile grid when it has one.
+ * The ` @ x,y WxH` suffix for a column that DRAWS a square, or `""`.
  *
- * The placement rides here rather than behind the layout switch because a
- * stored cell survives the tile being turned off, and because rearranging a
- * tile means knowing every OTHER cell (two may never overlap) — so the SA needs
- * the whole grid in hand before it can move one field. A case list with no
- * placements renders byte-identically to before, which keeps every untiled
- * app's prompt prefix unchanged.
+ * `tileCellFor` decides, exactly as the three emission paths do, so the SA is
+ * never told a field occupies a square the wire leaves empty. A placement
+ * reported for a column the tile does not draw would make the model route
+ * around an obstacle that is not on the grid, and refuse its own next layout
+ * for an overlap that does not exist. Rearranging a tile means knowing every
+ * OTHER cell — two may never overlap — so the drawn ones are reported in full
+ * rather than withheld.
+ *
+ * A case list with no drawn placements renders byte-identically to before,
+ * which keeps every untiled app's prompt prefix cacheable.
  */
-function formatColumn(col: Column): string {
+function tilePlace(col: Column, layout: CaseTileLayout | undefined): string {
+	const cell = tileCellFor(col, layout);
+	return cell === undefined
+		? ""
+		: ` @ ${cell.x},${cell.y} ${cell.width}x${cell.height}`;
+}
+
+/** One-line column summary — uuid + kind + header + per-kind hint, plus the
+ *  tile placement suffix the caller resolved (empty on Details, which is never
+ *  a tile). */
+function formatColumn(col: Column, place: string): string {
 	const body =
 		col.kind === "calculated"
 			? `(${col.kind}) "${col.header}"`
 			: `(${col.kind}) ${col.field} → "${col.header}"`;
-	const cell =
-		col.tile === undefined
-			? ""
-			: ` @ ${col.tile.x},${col.tile.y} ${col.tile.width}x${col.tile.height}`;
-	return `${col.uuid}: ${body}${cell}`;
+	return `${col.uuid}: ${body}${place}`;
 }
 
 /** One-line search-input summary — uuid + kind + name + label hint. */
