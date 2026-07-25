@@ -310,6 +310,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	MEDIA_CASE_PROPERTY: mechanical(
 		"clear case_property_on on the media field; the case-update arm already skips media kinds (formActions.ts::buildSafeUpdateMap), and on a case-loading form the only wire artifact is the case-preload setvalue piping case text into a media question — broken on its face, so removing it is the repair",
 	),
+	FORM_TOO_MANY_ATTACHMENTS: owner(
+		"which attachment questions to drop, or where to split the form, is content",
+	),
 	CASE_PRELOAD_MISSING_FIELD: owner(
 		"the preload names a field that's gone; re-pointing it is content",
 	),

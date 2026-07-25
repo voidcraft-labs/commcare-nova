@@ -110,6 +110,7 @@ const LEAF_KINDS = [
 	"image",
 	"audio",
 	"video",
+	"file",
 	"barcode",
 	"signature",
 	"label",

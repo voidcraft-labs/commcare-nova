@@ -1,8 +1,15 @@
 // lib/domain/fields/audio.ts
 //
-// Audio recording field. Maps to CommCare <input> control with binary data type.
-// Cannot be calculated, validated, or saved to a case property — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema.
+// Audio capture field. Emits `<upload mediatype="audio/*">` over a
+// `binary` bind. Cannot be calculated, validated, or saved to a case
+// property — extends fieldBaseSchema directly rather than
+// inputFieldBaseSchema.
+//
+// This is an attachment, not a recording: CommCare Web Apps has no
+// microphone or recorder anywhere in cloudcare, so the worker picks an
+// existing audio file. Android records (`WidgetFactory` routes
+// `CONTROL_AUDIO_CAPTURE` to `CommCareAudioWidget`); that contrast is a
+// docs fact, not a Nova behavior.
 
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
@@ -26,6 +33,7 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	label: "Audio",
 	isStructural: false,
 	isContainer: false,
-	saDocs: "Audio recording. Cannot be saved to a case property.",
-	convertTargets: ["image", "video", "signature"],
+	saDocs:
+		"Audio attachment — the worker attaches an existing MP3, WAV, OGG, AMR, QCP, or 3GA file. Web Apps has no recorder, so never describe this as recording audio. Cannot be saved to a case property.",
+	convertTargets: ["image", "video", "signature", "file"],
 };

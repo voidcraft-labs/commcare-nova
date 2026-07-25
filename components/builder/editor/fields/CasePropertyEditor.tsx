@@ -29,7 +29,12 @@ import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
-import { type Field, type FieldKind, getModuleCaseTypes } from "@/lib/domain";
+import {
+	captureFieldKinds,
+	type Field,
+	type FieldKind,
+	getModuleCaseTypes,
+} from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import {
@@ -39,13 +44,9 @@ import {
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 
-/** Binary/media kinds whose value can't be a case property — disable the dropdown. */
-const MEDIA_TYPES = new Set<FieldKind>([
-	"image",
-	"audio",
-	"video",
-	"signature",
-]);
+/** Capture kinds whose answer is an attachment rather than a value —
+ *  it can't be a case property, so the dropdown is disabled. */
+const MEDIA_TYPES = new Set<FieldKind>(captureFieldKinds);
 
 interface CasePropertyDropdownProps {
 	value: string | undefined;

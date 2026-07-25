@@ -67,6 +67,10 @@ import {
 } from "@/lib/commcare/predicate";
 import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
 import {
+	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
+	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,
+} from "@/lib/commcare/xform/captureUpload";
+import {
 	attachCaseOperationData,
 	bindLookupFilterFieldPaths,
 	buildCaseOperations,
@@ -77,13 +81,14 @@ import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { bySortKey } from "@/lib/doc/order/compare";
-import type {
-	BlueprintDoc,
-	Field,
-	FieldKind,
-	Media,
-	SelectOption,
-	Uuid,
+import {
+	type BlueprintDoc,
+	type Field,
+	type FieldKind,
+	isCaptureFieldKind,
+	type Media,
+	type SelectOption,
+	type Uuid,
 } from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
@@ -1210,7 +1215,7 @@ function buildLookupItemset(
  *   - select kinds → `<select1>` / `<select>` with one `<item>` per option;
  *   - label kind   → `<trigger appearance="minimal">`;
  *   - secret kind  → `<secret>`;
- *   - media kinds  → `<upload mediatype="...">` (+ `appearance="signature"`);
+ *   - capture kinds → `<upload mediatype="...">` (+ `appearance="signature"`);
  *   - everything else (text/int/date/...) → `<input>`.
  */
 function buildLeafControl(
@@ -1262,23 +1267,18 @@ function buildLeafControl(
 		return el("secret", { ref }, head);
 	}
 
-	if (
-		field.kind === "image" ||
-		field.kind === "audio" ||
-		field.kind === "video" ||
-		field.kind === "signature"
-	) {
-		const mediatype =
-			field.kind === "audio"
-				? "audio/*"
-				: field.kind === "video"
-					? "video/*"
-					: "image/*";
+	if (isCaptureFieldKind(field.kind)) {
+		// Both attribute values come from total tables keyed on the capture
+		// kind, so an unmatched `mediatype` is unrepresentable rather than
+		// merely unlikely — see `captureUpload.ts` for why the difference
+		// matters (an unmatched value submits the literal string
+		// `Not Supported by Web Entry` instead of failing).
 		const uploadAttribs: Record<string, string> = {
 			ref,
-			mediatype,
+			mediatype: UPLOAD_MEDIATYPE_BY_CAPTURE_KIND[field.kind],
 		};
-		if (field.kind === "signature") uploadAttribs.appearance = "signature";
+		const appearance = UPLOAD_APPEARANCE_BY_CAPTURE_KIND[field.kind];
+		if (appearance !== undefined) uploadAttribs.appearance = appearance;
 		return el("upload", uploadAttribs, head);
 	}
 
@@ -1722,9 +1722,10 @@ function buildRepeatBody(
  * lists them outside `XSD_TYPES`):
  *   - `geopoint` → `geopoint` (HQ `Geopoint`: `input` + `geopoint`).
  *   - `barcode`  → `barcode`  (HQ `Barcode`:  `input` + `barcode`).
- *   - media (`image`/`audio`/`video`/`signature`) → `binary`, which is
- *     what HQ's `<upload>` types (`Image`/`Audio`/`Video`) key on; an
- *     `xsd:string` upload matches no row and HQ fails to classify it.
+ *   - the capture kinds (`image`/`audio`/`video`/`signature`/`file`) →
+ *     `binary`, which is what HQ's `<upload>` types
+ *     (`Image`/`Audio`/`Video`/`Document`) key on; an `xsd:string`
+ *     upload matches no row and HQ fails to classify it.
  *
  * Decide the bind type here, independently of
  * `fieldRegistry[kind].dataType` — a separate descriptor serving a
@@ -1754,6 +1755,7 @@ const BIND_TYPE_BY_KIND: Record<FieldKind, string | null> = {
 	image: "binary",
 	audio: "binary",
 	video: "binary",
+	file: "binary",
 	signature: "binary",
 	hidden: "xsd:string",
 	secret: "xsd:string",

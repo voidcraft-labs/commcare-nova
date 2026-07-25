@@ -1,8 +1,16 @@
 // lib/domain/fields/image.ts
 //
-// Image capture field. Maps to CommCare <input> control with binary data type.
-// Cannot be calculated, validated, or saved to a case property — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema.
+// Image capture field. Emits `<upload mediatype="image/*">` over a
+// `binary` bind. Cannot be calculated, validated, or saved to a case
+// property — extends fieldBaseSchema directly rather than
+// inputFieldBaseSchema.
+//
+// The worker ATTACHES a photo; they do not take one. CommCare Web Apps
+// has no camera — `entry_file.html` binds only `accept` on its file
+// input, and `getUserMedia` / `MediaRecorder` / `capture=` occur nowhere
+// in cloudcare. Android is the contrast (`ImageWidget` fires
+// `MediaStore.ACTION_IMAGE_CAPTURE`), which is a docs fact, not a Nova
+// behavior. Every author- and worker-facing string here says "attach".
 
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
@@ -27,6 +35,6 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs:
-		"Image capture from camera or gallery. Cannot be saved to a case property.",
-	convertTargets: ["audio", "video", "signature"],
+		'Photo attachment — the worker attaches a JPEG, PNG, or GIF from their device. Web Apps has no camera, so say "attach a photo", never "take a photo". Cannot be saved to a case property.',
+	convertTargets: ["audio", "video", "signature", "file"],
 };
