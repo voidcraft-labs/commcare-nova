@@ -58,11 +58,16 @@ const RELATIONSHIP_DETAIL = {
 export function CaseOperationLinks({
 	operation,
 	targetContext,
+	defaultTargetType,
 	canEdit,
 	onChange,
 }: {
 	readonly operation: CaseOperation;
 	readonly targetContext: LinkTargetContext;
+	/** The case type at the other end of a fresh connection — the module's,
+	 *  not this change's. Defaulting to the change's own type would make the
+	 *  next click a mismatch the author never asked for. */
+	readonly defaultTargetType: string;
 	readonly canEdit: boolean;
 	/** The stored slot is a mutable array, so the callback hands one back
 	 *  rather than a readonly view the document could not hold. */
@@ -104,7 +109,7 @@ export function CaseOperationLinks({
 							...links,
 							seedCaseOperationLink(
 								nextLinkIdentifier(identifiers),
-								operation.caseType,
+								defaultTargetType,
 							),
 						])
 					}

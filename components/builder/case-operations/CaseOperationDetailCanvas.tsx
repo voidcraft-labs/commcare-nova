@@ -427,6 +427,11 @@ export function CaseOperationDetailCanvas({
 					<CaseOperationLinks
 						operation={operation}
 						canEdit={canEdit}
+						defaultTargetType={
+							expressionCaseType.length > 0
+								? expressionCaseType
+								: operation.caseType
+						}
 						targetContext={{
 							priorCreates: operationScope.creates,
 							sessionUnavailableReason,

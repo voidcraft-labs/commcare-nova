@@ -197,6 +197,13 @@ export function writeSeedUnavailableReason(
  * A link seeded as an UNLINK (`target: null`), which is the only shape
  * that is complete without asking a second question. Choosing what to
  * link to is the author's next step, and the row says so.
+ *
+ * `targetType` is the type at the OTHER end, so it must never default to
+ * the operation's own case type: that would make the author's very next
+ * click — pointing the link at the case this form opened — a type
+ * mismatch caused by a default they never chose. The module's case type
+ * is what the other end usually is, and what every legal target in the
+ * picker resolves to.
  */
 export function seedCaseOperationLink(
 	identifier: string,
