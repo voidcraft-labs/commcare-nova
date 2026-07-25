@@ -725,6 +725,7 @@ export function PredicateKindReplaceMenu({
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
 		caseDataScope: ctx.caseDataScope,
+		allowsNeverMatch: ctx.allowsNeverMatch,
 	};
 	const currentKind = currentValue.kind;
 	const pendingPlan =

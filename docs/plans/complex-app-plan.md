@@ -110,6 +110,43 @@ the validator already rejects `prop` reads.
 
 Display conditions are UX, not access control: a deep link with
 `respect-relevancy="false"` traverses menus and cases that conditions would hide.
+The authoring surfaces say so in as many words rather than letting an author read
+a condition as a permission.
+
+Each carrier is authored on its own URL — `/{moduleUuid}/condition` and
+`/{formUuid}/condition` — whose centre-canvas screen leads with where the
+condition takes effect and then hosts the shared `PredicateWorkbench`. The module
+and form settings panels own the setting itself: a plain-language summary plus
+Add / Edit / Clear, through the shared `ConditionSlotSetting`. Adding is one
+gesture that commits a valid seed and opens the editor on it, so an author never
+lands on an empty screen.
+
+The evaluation locus above is a product requirement, not just a validator rule,
+because it decides what the editor may offer. `CaseDataScope` therefore has three
+values: `per-case` (case rows and their relatives), `selected-case` (one chosen
+case's own properties — relationship walks, relationship counts, and presence
+tests are withheld with the scope's own explanation), and `global` (no case at
+all). A module condition and a forms-first form condition are `global`; a
+case-first form condition is `selected-case`. `PredicateEditProvider` composes
+the matching admission oracle in front of any caller oracle, so no surface can
+silently offer a read the commit gate would reject.
+
+Preview from a condition URL runs the surface the condition governs — the home
+screen for a module (entering the module would route straight past the screen the
+condition decides), the form itself for a form — and leaves the URL alone, so
+exiting Preview returns to the condition being edited.
+
+Removing a condition is an explicit `null` on the `updateModule` / `updateForm`
+patch (`lib/doc/displayConditionMutations.ts`), never an omitted key. The
+reducers delete on either spelling, so the distinction bites only where a
+mutation object is itself the durable event — the SSE frame and the persisted
+jsonb are both `JSON.stringify`, which drops an `undefined`-valued key and turns
+a clear into "no change". The builder persists a document diff instead, and
+`diffDocsToMutations` reaches the same `null` independently; the planners keep
+the mutation correct on its own so a durable emitter inherits the right spelling
+rather than rediscovering it.
+
+`content/docs/display-conditions.mdx` is the user-facing guide.
 
 ### Case operations
 
@@ -437,15 +474,15 @@ observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
 [`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
 
-### 1 — Conditions and operations authoring
+### 1 — Case-operation authoring
 
 [`complex-app/01-conditions-and-operations-authoring.md`](complex-app/01-conditions-and-operations-authoring.md)
 · depends on nothing · blocks unit 3
 
-Builder authoring surfaces for the display-condition and case-operation vocabulary
-that already validates, emits, and previews. **The file holds** the 20-operation
-stress case and its interaction model, where these surfaces sit in the existing
-builder chrome, and which vocabulary unit 1 deliberately excludes.
+The builder authoring surface for the case-operation vocabulary that already
+validates, emits, and previews. **The file holds** the 20-operation stress case
+and its interaction model, the planner refusals the reorder UI must surface
+before the gesture, and which vocabulary unit 1 deliberately excludes.
 
 ### 2 — Project data tables workspace
 
@@ -626,7 +663,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [1 conditions/operations authoring](complex-app/01-conditions-and-operations-authoring.md) | — |
+| [1 case-operation authoring](complex-app/01-conditions-and-operations-authoring.md) | — |
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
 | [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 1, 2 |
 | [4 case tiles](complex-app/04-case-tiles.md) | — |

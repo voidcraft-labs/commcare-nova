@@ -15,7 +15,9 @@
  *   /build/[id]/{moduleUuid}/search               → case-search authoring
  *   /build/[id]/{moduleUuid}/details              → case-details authoring
  *   /build/[id]/{moduleUuid}/data-review          → data review screen
+ *   /build/[id]/{moduleUuid}/condition            → module display condition
  *   /build/[id]/{formUuid}                        → form
+ *   /build/[id]/{formUuid}/condition              → form display condition
  *   /build/[id]/{formUuid}/{fieldUuid}          → form + selected field
  *
  * All entity UUIDs are globally unique in the doc store. A single UUID
@@ -33,6 +35,12 @@ import { uuidSchema } from "@/lib/domain";
  * and SearchConfig require their respective UUID params; a missing or
  * unresolvable UUID collapses to home (resolved by the path parser, not the
  * schema).
+ *
+ * `module-condition` / `form-condition` are the two navigation
+ * display-condition surfaces. Each is its own URL because the condition
+ * editor is a full-width centre-canvas screen with its own breadcrumb,
+ * deep link, and Preview target, and because the module's and the form's
+ * conditions are evaluated in different places by CommCare.
  *
  * `cases` / `search-config` / `detail-config` are sibling kinds — the
  * three tabs of the unified case workspace (Results / Search /
@@ -65,6 +73,16 @@ export const locationSchema = z.discriminatedUnion("kind", [
 		.object({ kind: z.literal("detail-config"), moduleUuid: uuidSchema })
 		.strict(),
 	z.object({ kind: z.literal("data-review"), moduleUuid: uuidSchema }).strict(),
+	z
+		.object({ kind: z.literal("module-condition"), moduleUuid: uuidSchema })
+		.strict(),
+	z
+		.object({
+			kind: z.literal("form-condition"),
+			moduleUuid: uuidSchema,
+			formUuid: uuidSchema,
+		})
+		.strict(),
 	z
 		.object({
 			kind: z.literal("form"),

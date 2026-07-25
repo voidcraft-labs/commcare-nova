@@ -945,6 +945,7 @@ export function PredicateVerbMenu({
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
 		caseDataScope: ctx.caseDataScope,
+		allowsNeverMatch: ctx.allowsNeverMatch,
 	};
 	// The subject (left operand) drives which verbs are offerable — the
 	// same checker `checkComparison` / `checkMatch` validate against, so

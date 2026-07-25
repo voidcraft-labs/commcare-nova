@@ -76,6 +76,7 @@ import { RelationPathBuilder } from "./primitives/RelationPathBuilder";
 import { pathsEqual, RuleFocusProvider } from "./RuleFocusContext";
 import { resolveRelationDestination } from "./relationDestination";
 import {
+	DEFAULT_RULE_ROOT_LABEL,
 	nearestRuleLocation,
 	type RuleLocation,
 	type RuleNavigationContext,
@@ -343,6 +344,14 @@ export interface PredicateWorkbenchProps {
 	 *  case is selected — verbs, seeds, and value sources drop every
 	 *  case-property / relationship read there. */
 	readonly caseDataScope?: CaseDataScope;
+	/** What this whole rule is called on the surface that owns it. Shown
+	 *  as the root breadcrumb and the "back to" destination, so the
+	 *  workbench never names another surface's setting. */
+	readonly rootLabel?: string;
+	/** See `PredicateEditContext.allowsNeverMatch`. Its own axis, not a
+	 *  reading of `caseDataScope` — the Search action's condition and a
+	 *  module's display condition are both `global` and disagree. */
+	readonly allowsNeverMatch?: boolean;
 	/** A semantic navigation request from another surface. The token makes a
 	 * repeat request for the same AST path observable after the author returns
 	 * to a dependency review. */
@@ -363,6 +372,8 @@ export function PredicateWorkbench({
 	knownInputs = [],
 	evaluationTarget = "on-device",
 	caseDataScope = "per-case",
+	rootLabel = DEFAULT_RULE_ROOT_LABEL,
+	allowsNeverMatch = true,
 	focusRequest,
 }: PredicateWorkbenchProps) {
 	const [requestedPath, setRequestedPath] = useState<EditorPath>(
@@ -374,8 +385,8 @@ export function PredicateWorkbench({
 	const returnScrollPositionsRef = useRef(new Map<string, number>());
 	const activeHeadingId = `${useId()}-active-condition`;
 	const navigationContext = useMemo<RuleNavigationContext>(
-		() => ({ caseTypes, currentCaseType, knownInputs }),
-		[caseTypes, currentCaseType, knownInputs],
+		() => ({ caseTypes, currentCaseType, knownInputs, rootLabel }),
+		[caseTypes, currentCaseType, knownInputs, rootLabel],
 	);
 	// Canonical AST reductions can remove the node that was open. Relation edits
 	// can also make a nested destination temporarily unknowable. In both cases,
@@ -413,8 +424,9 @@ export function PredicateWorkbench({
 			currentCaseType: focusedCaseType,
 			knownInputs,
 			caseDataScope,
+			allowsNeverMatch,
 		}),
-		[caseTypes, focusedCaseType, knownInputs, caseDataScope],
+		[caseTypes, focusedCaseType, knownInputs, caseDataScope, allowsNeverMatch],
 	);
 	const admitCaseSearchExpression = useCallback(
 		(path: EditorPath, next: ValueExpression) => {
@@ -568,6 +580,7 @@ export function PredicateWorkbench({
 			currentCaseType={focusedCaseType}
 			knownInputs={knownInputs}
 			caseDataScope={caseDataScope}
+			allowsNeverMatch={allowsNeverMatch}
 			validityIndex={validityIndex}
 			admitExpressionChange={
 				evaluationTarget === "case-search"
@@ -679,7 +692,10 @@ function WorkbenchNavigation({
 	);
 	const parent = trail.at(-2);
 	const parentPath = parent?.path ?? [];
-	const parentLabel = labels.at(-2) ?? "Cases available";
+	/* `trail[0]`'s breadcrumb IS the surface's own name for the whole rule
+	 * (`RuleNavigationContext.rootLabel`), so the first fallback keeps the
+	 * "back to" destination in the owning surface's vocabulary. */
+	const parentLabel = labels.at(-2) ?? labels[0] ?? DEFAULT_RULE_ROOT_LABEL;
 	return (
 		<div className="flex min-w-0 flex-col items-start gap-0.5 @sm:flex-row @sm:gap-1">
 			<Button

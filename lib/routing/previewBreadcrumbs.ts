@@ -113,6 +113,20 @@ export function previewBreadcrumbTrail(
 		(b) => b.location.kind === "home" || b.location.kind === "module",
 	);
 
+	/* Preview runs the surface a configuration URL's condition governs, so
+	 * the trail is that surface's. A module's condition is decided on the
+	 * home screen, so its trail is just Home; a form's condition reads as
+	 * the form. The "When it appears" crumb belongs to authoring only. */
+	if (loc.kind === "module-condition") {
+		return homeAndModule.filter((crumb) => crumb.location.kind === "home");
+	}
+	if (loc.kind === "form-condition") {
+		return previewBreadcrumbTrail({
+			...input,
+			loc: { kind: "form", moduleUuid, formUuid: loc.formUuid },
+		});
+	}
+
 	if (loc.kind === "form") {
 		const form = moduleForms.find((f) => f.uuid === loc.formUuid);
 		const isCaseLoading =

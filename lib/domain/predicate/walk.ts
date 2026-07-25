@@ -419,6 +419,66 @@ export function predicateReadsCaseData(predicate: Predicate): boolean {
 	return readsCaseData;
 }
 
+/**
+ * Whether an expression reaches past the one case it is evaluated
+ * against — a relationship walk, a relationship count, or a
+ * relationship presence test.
+ *
+ * The narrower sibling of `expressionReadsCaseData`, for slots that DO
+ * have a case row but only that row: a form's display condition on a
+ * case-first module reads the selected case's own properties and
+ * nothing else, because CommCare evaluates it from the case-list
+ * screen where only that case is in scope
+ * (`lib/commcare/validator/rules/displayConditions.ts`). A `self` walk
+ * stays available — it collapses to the same row.
+ */
+export function expressionReadsRelatedCaseData(
+	expression: ValueExpression,
+): boolean {
+	let readsRelated = false;
+	walkExpressionTerms(expression, (term) => {
+		if (
+			term.kind === "prop" &&
+			term.via !== undefined &&
+			term.via.kind !== "self"
+		) {
+			readsRelated = true;
+		}
+	});
+	walkExpressionNodes(expression, (node) => {
+		if (node.kind === "count") readsRelated = true;
+	});
+	walkExpressionPredicateNodes(expression, (predicate) => {
+		if (predicate.kind === "exists" || predicate.kind === "missing") {
+			readsRelated = true;
+		}
+	});
+	return readsRelated;
+}
+
+/** Predicate-rooted counterpart to `expressionReadsRelatedCaseData`. */
+export function predicateReadsRelatedCaseData(predicate: Predicate): boolean {
+	let readsRelated = false;
+	walkTerms(predicate, (term) => {
+		if (
+			term.kind === "prop" &&
+			term.via !== undefined &&
+			term.via.kind !== "self"
+		) {
+			readsRelated = true;
+		}
+	});
+	walkPredicateExpressionNodes(predicate, (node) => {
+		if (node.kind === "count") readsRelated = true;
+	});
+	walkPredicateNodes(predicate, (node) => {
+		if (node.kind === "exists" || node.kind === "missing") {
+			readsRelated = true;
+		}
+	});
+	return readsRelated;
+}
+
 // ── Internal recursion ────────────────────────────────────────────
 
 interface AstVisitor {

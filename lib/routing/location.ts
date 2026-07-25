@@ -13,7 +13,9 @@
  *   [moduleUuid, "cases", caseId]   → case detail
  *   [moduleUuid, "search"]          → case-search authoring
  *   [moduleUuid, "details"]         → case-details authoring
+ *   [moduleUuid, "condition"]       → module display condition
  *   [formUuid]                      → form
+ *   [formUuid, "condition"]         → form display condition
  *   [formUuid, fieldUuid]        → form + selected field
  *
  * Entity disambiguation: all UUIDs are globally unique. A single-segment
@@ -66,6 +68,13 @@ export function serializePath(loc: Location): string[] {
 			return [loc.moduleUuid, "details"];
 		case "data-review":
 			return [loc.moduleUuid, "data-review"];
+		case "module-condition":
+			return [loc.moduleUuid, "condition"];
+		case "form-condition":
+			/* Anchored on the FORM uuid, not the module's — the same flat
+			 * shape a selected field uses, so the parser resolves the owner
+			 * by a doc lookup rather than a positional convention. */
+			return [loc.formUuid, "condition"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -255,6 +264,27 @@ export function parsePathToLocation(
 		return { kind: "data-review", moduleUuid: first };
 	}
 
+	if (second === "condition") {
+		/* One noun, two carriers: the first segment names either the module
+		 * whose menu tile the condition governs or the form whose menu entry
+		 * it governs, and the doc lookup decides which. */
+		if (doc.modules[first] !== undefined) {
+			return { kind: "module-condition", moduleUuid: first };
+		}
+		if (doc.forms[first] !== undefined) {
+			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+				if (formUuids.includes(first)) {
+					return {
+						kind: "form-condition",
+						moduleUuid: moduleUuid as Uuid,
+						formUuid: first,
+					};
+				}
+			}
+		}
+		return { kind: "home" };
+	}
+
 	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
 	const secondUuid = second as Uuid;
 
@@ -302,9 +332,15 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 		case "search-config":
 		case "detail-config":
 		case "data-review":
+		case "module-condition":
 			// The workspace's sibling screens open against the same module
 			// reference shape as `cases`; only that uuid needs to resolve.
 			return doc.modules[loc.moduleUuid] !== undefined;
+		case "form-condition":
+			return (
+				doc.modules[loc.moduleUuid] !== undefined &&
+				doc.forms[loc.formUuid] !== undefined
+			);
 		case "form": {
 			if (doc.modules[loc.moduleUuid] === undefined) return false;
 			if (doc.forms[loc.formUuid] === undefined) return false;
@@ -344,6 +380,17 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	}
 
 	if (loc.kind === "module") return loc;
+
+	/* A module's display condition needs only its module. */
+	if (loc.kind === "module-condition") return loc;
+
+	/* A form's display condition degrades to the module when the form is
+	 * gone — the same inward walk the form screen does. */
+	if (loc.kind === "form-condition") {
+		return doc.forms[loc.formUuid] === undefined
+			? { kind: "module", moduleUuid: loc.moduleUuid }
+			: loc;
+	}
 
 	/* The case-list workspace URLs (and the data review screen, which
 	 * lists per case type) require a case type — the screens render

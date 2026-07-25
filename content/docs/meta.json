@@ -1,4 +1,11 @@
 {
 	"title": "Docs",
-	"pages": ["case-workspace", "attachments", "projects", "claude-code", "mcp"]
+	"pages": [
+		"case-workspace",
+		"attachments",
+		"display-conditions",
+		"projects",
+		"claude-code",
+		"mcp"
+	]
 }

@@ -12,9 +12,17 @@ The builder's "where you are" and "what's focused" state lives in the URL, not i
 /build/[id]/{moduleUuid}/search               → case-search authoring
 /build/[id]/{moduleUuid}/details              → case-details authoring
 /build/[id]/{moduleUuid}/data-review          → data review screen
+/build/[id]/{moduleUuid}/condition            → module display condition
 /build/[id]/{formUuid}                        → form
+/build/[id]/{formUuid}/condition              → form display condition
 /build/[id]/{formUuid}/{fieldUuid}         → form with field selected
 ```
+
+`condition` is one URL noun over two `Location` kinds — `module-condition` and
+`form-condition` — told apart by whichever entity the first segment names, the
+same doc lookup the bare single-uuid path already does. They are separate kinds
+because CommCare evaluates the two conditions in different places, which decides
+what each editor may offer.
 
 All entity UUIDs are globally unique in the doc store, so a single UUID segment identifies the entity type by a lookup in the doc's module / form / field maps.
 

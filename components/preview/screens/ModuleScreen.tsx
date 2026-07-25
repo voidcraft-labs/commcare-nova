@@ -51,8 +51,14 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mode = useEditMode();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 
-	/** Module uuid from the URL — used for uuid-first mutations and navigation. */
-	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
+	/** Module uuid from the URL — used for uuid-first mutations and
+	 *  navigation. `module-condition` is one of this module's own
+	 *  configuration URLs, and Preview runs a configuration URL's owning
+	 *  item, so it identifies the same module here. */
+	const moduleUuid =
+		loc.kind === "module" || loc.kind === "module-condition"
+			? loc.moduleUuid
+			: undefined;
 
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);

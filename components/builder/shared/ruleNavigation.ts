@@ -35,7 +35,14 @@ export interface RuleNavigationContext {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly SearchInputDecl[];
+	/** What the whole rule is called where it lives, used as the root
+	 *  breadcrumb and the "back to" destination. Defaults to the case
+	 *  list's own name for it. */
+	readonly rootLabel?: string;
 }
+
+/** The root rule's name when the surface does not supply one. */
+export const DEFAULT_RULE_ROOT_LABEL = "Cases available";
 
 export type EditableRuleNode =
 	| { readonly family: "predicate"; readonly value: Predicate }
@@ -610,7 +617,7 @@ export function locateRuleNode(
 		ctx.currentCaseType,
 		ctx,
 		[],
-		"Cases available",
+		ctx.rootLabel ?? DEFAULT_RULE_ROOT_LABEL,
 	);
 	if (trail === undefined) return undefined;
 	const last = trail.at(-1);

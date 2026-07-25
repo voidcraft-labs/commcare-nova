@@ -85,11 +85,12 @@ describe("case workspace visual-QA seed", () => {
 		}
 	});
 
-	it("emits the canonical Search / Results / Details paths", () => {
+	it("emits the canonical Search / Results / Details / condition paths", () => {
 		expect(caseWorkspaceRoutes(APP_ID, CASE_ID)).toEqual({
 			search: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/search`,
 			results: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/results`,
 			details: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/details`,
+			condition: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/condition`,
 			firstCase: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/cases/${CASE_ID}`,
 		});
 	});
