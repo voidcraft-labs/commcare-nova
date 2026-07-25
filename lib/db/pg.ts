@@ -378,6 +378,61 @@ export interface LookupColumnReferencesTable {
 	app_id: string;
 }
 
+/**
+ * One row per app that has an organization — the app-scoped twin of
+ * `lookup_project_state`. `revision` is the commit-ordered clock every
+ * reader catches up from; `location_count` is maintained under the locked
+ * row so a cap check cannot be crossed by concurrent writers.
+ */
+export interface AppOrganizationStateTable {
+	app_id: string;
+	/** App-wide invalidation clock; never coerce to a JavaScript number. */
+	revision: DefaultedLookupRevisionColumn;
+	location_count: ColumnType<number, number | undefined, number>;
+	updated_at: Timestamp;
+}
+
+/**
+ * A place in the app's organization.
+ *
+ * `level_uuid` names a blueprint `organization_level` entity and is
+ * deliberately not a foreign key: the commit rewrites those rows from its
+ * own diff, so a RESTRICT edge would fire on ordinary unrelated edits.
+ * "No place still stands at a removed level" is proved inside the commit
+ * transaction instead.
+ *
+ * `values` holds custom-field values keyed by location-property UUID,
+ * never by slug, so renaming a slug rewrites nothing.
+ */
+export interface AppLocationsTable {
+	app_id: string;
+	id: DefaultedUuidV7Column;
+	level_uuid: string;
+	parent_id: string | null;
+	site_code: string;
+	name: string;
+	external_id: string | null;
+	latitude: string | null;
+	longitude: string | null;
+	values: JSONColumnType<Record<string, string>>;
+	archived_at: ColumnType<
+		Date | null,
+		Date | string | null,
+		Date | string | null
+	>;
+	order_key: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+	created_by: string | null;
+	updated_by: string | null;
+}
+
+/** One exact app -> location target, from a persona assignment or a term. */
+export interface AppLocationReferencesTable {
+	app_id: string;
+	location_id: string;
+}
+
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
@@ -401,6 +456,9 @@ export interface AppDatabase {
 	lookup_rows: LookupRowsTable;
 	lookup_table_references: LookupTableReferencesTable;
 	lookup_column_references: LookupColumnReferencesTable;
+	app_organization_state: AppOrganizationStateTable;
+	app_locations: AppLocationsTable;
+	app_location_references: AppLocationReferencesTable;
 }
 
 let injectedForTests: Kysely<AppDatabase> | null = null;
@@ -474,6 +532,7 @@ export const APP_STREAM_CHANNEL = "nova_app_stream";
 export const PRESENCE_CHANNEL = "nova_presence";
 export const CHAT_STREAM_CHANNEL = "nova_chat_stream";
 export const LOOKUP_STREAM_CHANNEL = "nova_lookup_stream";
+export const ORGANIZATION_STREAM_CHANNEL = "nova_organization_stream";
 
 /** Poke the stream channel from INSIDE the commit transaction. */
 export async function notifyAppStream(
@@ -494,6 +553,24 @@ export async function notifyLookupProject(
 	revision: string,
 ): Promise<void> {
 	await sql`SELECT pg_notify(${LOOKUP_STREAM_CHANNEL}, ${JSON.stringify({ projectId, revision })})`.execute(
+		tx,
+	);
+}
+
+/**
+ * Poke organization subscribers from INSIDE the location-write transaction.
+ *
+ * Scoped by app rather than by Project, because an organization belongs to
+ * one app while lookup tables are shared across a Project's apps. Revisions
+ * stay strings for the same reason lookup revisions do: JSON would round a
+ * signed-int64 value.
+ */
+export async function notifyAppOrganization(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	revision: string,
+): Promise<void> {
+	await sql`SELECT pg_notify(${ORGANIZATION_STREAM_CHANNEL}, ${JSON.stringify({ appId, revision })})`.execute(
 		tx,
 	);
 }
