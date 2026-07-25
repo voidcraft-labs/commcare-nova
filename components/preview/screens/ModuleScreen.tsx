@@ -52,13 +52,12 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 
 	/** Module uuid from the URL — used for uuid-first mutations and
-	 *  navigation. `module-condition` is one of this module's own
-	 *  configuration URLs, and Preview runs a configuration URL's owning
-	 *  item, so it identifies the same module here. */
-	const moduleUuid =
-		loc.kind === "module" || loc.kind === "module-condition"
-			? loc.moduleUuid
-			: undefined;
+	 *  navigation. Deliberately NOT widened to `module-condition`: a
+	 *  module's condition previews as the HOME screen (the screen the
+	 *  condition decides), so this screen is never the one shown there,
+	 *  and claiming the module would only arm this screen's own
+	 *  bare-case-list redirect from a hidden render. */
+	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
 
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);

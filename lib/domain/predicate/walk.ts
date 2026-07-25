@@ -431,6 +431,12 @@ export function predicateReadsCaseData(predicate: Predicate): boolean {
  * screen where only that case is in scope
  * (`lib/commcare/validator/rules/displayConditions.ts`). A `self` walk
  * stays available — it collapses to the same row.
+ *
+ * The validator's `propertyAllowedOnForm` additionally requires the read
+ * to name the module's OWN case type. That half is not repeated here
+ * because a `prop` term's case type only diverges by way of a relation
+ * walk, which this already rejects; the property picker offers the
+ * current type alone.
  */
 export function expressionReadsRelatedCaseData(
 	expression: ValueExpression,
