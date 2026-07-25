@@ -159,14 +159,23 @@ export interface BuiltInUserProperty {
  * `formplayer .../RestoreFactory.java::getSqlSandbox` when a worker's
  * locations change. Everything else in `session/user/data` is inert —
  * it exists for authored expressions to read and nothing more.
+ *
+ * `user_type` is the one entry the restore does NOT decide. HQ sends it
+ * only for a practice user, but the CLIENT seeds it: every
+ * `commcare-core .../User.java` constructor calls `setUserType(STANDARD)`,
+ * which is a plain `properties.put`, and `UserXmlParser::parse` builds the
+ * User before applying any `<data key>`. So an ordinary worker's device
+ * holds `user_type = "standard"` and a practice user's restore overwrites
+ * it with `"demo"` — the key is never absent, on either runtime, which is
+ * why Preview supplies it too.
  */
 export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 	{
 		slug: "user_type",
-		label: "Practice user flag",
+		label: "Account kind",
 		description:
-			"Set to “demo” only for a practice user. Ordinary workers do not carry it at all, so Preview leaves it out.",
-		availability: "not-authorable",
+			"“standard” for an ordinary worker, “demo” for a practice user. CommCare sets it on the device rather than sending it, so it is always there.",
+		availability: "constant",
 		readByRuntime: true,
 	},
 	{
@@ -249,6 +258,15 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
  * invented.
  */
 export const COMMCARE_MOBILE_WORKER_USER_TYPE = "commcare";
+
+/**
+ * `user_type`'s value for an ordinary worker.
+ * `commcare-core .../User.java::STANDARD` — the client seeds it in every
+ * constructor, so it is present on the device whether or not the restore
+ * carried the key. A practice user's restore overwrites it with `"demo"`
+ * (`::TYPE_DEMO`), which is the state that flips demo detection.
+ */
+export const COMMCARE_STANDARD_USER_TYPE = "standard";
 
 /** Every built-in slug, for membership tests. */
 export const BUILT_IN_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set(

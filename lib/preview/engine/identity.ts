@@ -33,6 +33,7 @@
 import {
 	BUILT_IN_USER_PROPERTIES,
 	COMMCARE_MOBILE_WORKER_USER_TYPE,
+	COMMCARE_STANDARD_USER_TYPE,
 	type Persona,
 	personaUserData,
 	type UserCollections,
@@ -113,14 +114,23 @@ function nonEmpty(
  * the HQ domain and stays ABSENT until a deployment target supplies one —
  * inventing a slug to make a condition pass is exactly the dishonesty the
  * preview contract forbids. `commcare_phone_number` comes from the HQ
- * account and is likewise absent. `user_type` is written only for a
- * practice user, so an ordinary worker never carries it. The location keys
- * are absent while nobody is assigned anywhere, which is what HQ does too:
+ * account and is likewise absent. The location keys are absent while
+ * nobody is assigned anywhere, which is what HQ does too:
  * `get_user_session_data` writes all three or none.
  *
- * `commcare_profile` IS emitted, empty. HQ's `UserData.to_dict` always
- * includes the slot, and Nova deliberately does not use profiles, so empty
- * is the true value rather than a missing one.
+ * `commcare_profile` IS emitted, empty — not by this function but by
+ * `UserData.to_dict`, which always includes the slot
+ * (`user_data.py::UserData._provided_by_system`). Nova deliberately does
+ * not use profiles, so empty is the true value rather than a missing one.
+ *
+ * `user_type` is emitted too, and it is the one key the RESTORE does not
+ * decide. HQ sends it only for a practice user, but the client seeds it:
+ * every `commcare-core .../User.java` constructor calls
+ * `setUserType(STANDARD)` — a plain `properties.put` — and
+ * `UserXmlParser::parse` builds the User before applying any `<data key>`.
+ * So the device always has it, `"standard"` for an ordinary worker, and
+ * leaving it absent here would make a condition on it fire on a device and
+ * not in Preview.
  */
 function frameworkSessionKeys(displayName: string): Record<string, string> {
 	const { first, last } = splitName(displayName);
@@ -131,6 +141,7 @@ function frameworkSessionKeys(displayName: string): Record<string, string> {
 		]),
 		commcare_user_type: COMMCARE_MOBILE_WORKER_USER_TYPE,
 		commcare_profile: "",
+		user_type: COMMCARE_STANDARD_USER_TYPE,
 	};
 }
 
@@ -145,6 +156,15 @@ function frameworkSessionKeys(displayName: string): Record<string, string> {
  * the session block. `language` and `last_device_id_used` are HQ account
  * settings Nova does not model, and HQ writes them as empty strings, so
  * they are emitted empty rather than invented.
+ *
+ * The three location keys behave DIFFERENTLY here than in the session
+ * block, and the difference is easy to get wrong: `_get_user_case_fields`
+ * writes all three unconditionally, taking the `else` branch to `''` when
+ * the worker has no location, where `get_user_session_data` omits them
+ * entirely. So the usercase carries them empty and the session block does
+ * not carry them at all. `commcare_profile` rides in the same way it does
+ * on the session side — the dict starts from `UserData.to_dict()`, which
+ * always includes the slot, and it survives the valid-XML-name filter.
  */
 function usercaseBuiltIns(worker: {
 	id: string;
@@ -165,6 +185,10 @@ function usercaseBuiltIns(worker: {
 		language: "",
 		phone_number: "",
 		last_device_id_used: "",
+		commcare_profile: "",
+		commcare_location_id: "",
+		commcare_location_ids: "",
+		commcare_primary_case_sharing_id: "",
 	};
 }
 

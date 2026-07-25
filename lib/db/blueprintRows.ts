@@ -179,11 +179,14 @@ export function assembleBlueprint(
 	const modules: Record<string, unknown> = {};
 	const forms: Record<string, unknown> = {};
 	const fields: Record<string, unknown> = {};
-	const flat: Record<string, Record<string, unknown>> = {
-		userProperties: {},
-		userTypes: {},
-		personas: {},
-	};
+	/* Derived from `FLAT_COLLECTIONS`, never hand-listed beside it: a kind
+	 * added to the table but missed in a literal initializer would leave its
+	 * accumulator absent, so every row of that kind would be dropped while
+	 * the classifier below still looked correct — a silent loss, which is the
+	 * one failure mode this projection must not have. */
+	const flat: Record<string, Record<string, unknown>> = Object.fromEntries(
+		FLAT_COLLECTIONS.map(([, slot]) => [slot, {}]),
+	);
 	const flatSlotByKind = new Map<string, string>(FLAT_COLLECTIONS);
 	const moduleRows: EntityRow[] = [];
 	const formsByModule = new Map<string, EntityRow[]>();

@@ -170,12 +170,17 @@ export function removeUserTypePlan(
  *
  * Nothing in the blueprint references a persona, so this is the whole
  * batch. Case rows the persona owns are deliberately left alone: their
- * `owner_id` keeps naming it, exactly as a real worker's cases keep naming
- * them after the worker is removed from a CommCare project
- * (`callcenter/sync_usercase.py::_get_sync_usercase_helper` closes the
- * worker's own usercase and touches nothing else). Reassigning or deleting
- * those rows here would make Preview show something a device never would.
- * The confirmation says how many rows are affected instead.
+ * `owner_id` keeps naming it.
+ *
+ * That is Nova's rule rather than HQ parity, because HQ has two different
+ * answers. DEACTIVATING a worker closes their usercase and leaves their
+ * cases untouched (`sync_usercase.py::_get_sync_usercase_helper`), while
+ * DELETING one soft-deletes every case they own
+ * (`users/models.py::CommCareUser.retire` → `::delete_user_data`). A
+ * persona is a design and test actor, not a person who left an
+ * organization, and the cases it created are the author's own test data —
+ * so neither answer transfers, and destroying that data on a delete would
+ * be a surprise. The confirmation states the row count instead.
  */
 export function removePersonaMutations(uuid: Uuid): Mutation[] {
 	return [{ kind: "removePersona", uuid }];

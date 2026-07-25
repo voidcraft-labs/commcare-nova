@@ -148,12 +148,19 @@ describe("session values are honest", () => {
 		expect(identity?.usercase).not.toHaveProperty("commcare_project");
 	});
 
-	it("never marks an ordinary worker as a practice user", () => {
+	it("marks an ordinary worker standard, not demo — and never absent", () => {
+		// HQ sends `user_type` only for a practice user, but the CLIENT seeds
+		// it: every `User.java` constructor calls `setUserType(STANDARD)`, a
+		// plain `properties.put`, and `UserXmlParser::parse` builds the User
+		// before applying any `<data key>`. So the device always has the key,
+		// and a condition on it must behave the same in Preview.
 		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
-		expect(identity?.session.user).not.toHaveProperty("user_type");
+		expect(identity?.session.user.user_type).toBe("standard");
+		expect(identity?.session.user.user_type).not.toBe("demo");
 	});
 
-	it("leaves location keys absent while nobody is assigned anywhere", () => {
+	it("leaves location keys absent from the SESSION block while nobody is assigned", () => {
+		// `get_user_session_data` writes all three or none.
 		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
 		for (const key of [
 			"commcare_location_id",
@@ -161,6 +168,21 @@ describe("session values are honest", () => {
 			"commcare_primary_case_sharing_id",
 		]) {
 			expect(identity?.session.user).not.toHaveProperty(key);
+		}
+	});
+
+	it("carries the location keys EMPTY on the usercase, where HQ writes them unconditionally", () => {
+		// The asymmetry that is easy to get backwards:
+		// `_get_user_case_fields` takes an `else` branch to `''` for all three
+		// rather than omitting them, so the usercase has the keys and the
+		// session block does not.
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		for (const key of [
+			"commcare_location_id",
+			"commcare_location_ids",
+			"commcare_primary_case_sharing_id",
+		]) {
+			expect(identity?.usercase[key]).toBe("");
 		}
 	});
 

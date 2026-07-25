@@ -352,17 +352,31 @@ The wire facts the shape rests on:
   case-reserved words and case-insensitive uniqueness
   (`edit_model.py::CustomDataFieldsForm.verify_no_reserved_words` /
   `::verify_no_duplicates`), and the 127-character column. `RESERVED_CASE_PROPERTIES`
-  is HQ's `case-reserved-words.json` plus `name` and `owner_id` — both already
-  system fields — so one list gives the identical answer.
+  is HQ's `case-reserved-words.json` plus `name` and `owner_id`, both already
+  system fields, so one list covers every clause. Nova compares it lowercased
+  and is therefore marginally stricter than HQ on mixed case (`Name` is refused
+  here, accepted there) — stricter never costs a push.
 - The restore's `<Registration><user_data>` block injects framework keys **after**
   authored data, so they win collisions
   (`users/models.py::CouchUser.get_user_session_data`): `commcare_project`,
   `commcare_first_name`/`_last_name`/`_phone_number`, `commcare_user_type`,
-  `commcare_profile`, `commcare_location_id`/`_ids`/`commcare_primary_case_sharing_id`,
-  plus `user_type='demo'` for practice users. That injected set **is**
-  `BUILT_IN_USER_PROPERTIES` and the reserved-name list — there is no second
-  source, and `lib/domain/__tests__/users.test.ts` asserts the relationship
-  rather than restating it.
+  `commcare_location_id`/`_ids`/`commcare_primary_case_sharing_id`, plus
+  `user_type='demo'` for practice users. `commcare_profile` reaches the same
+  block by a different route — `users/user_data.py::UserData._provided_by_system`
+  always includes the slot, so it rides in through `to_dict` rather than being
+  injected after it. That combined set **is** `BUILT_IN_USER_PROPERTIES` and the
+  reserved-name list — there is no second source, and
+  `lib/domain/__tests__/users.test.ts` asserts the relationship rather than
+  restating it.
+- **`user_type` is the one key the restore does not decide.** HQ sends it only
+  for a practice user, but the CLIENT seeds it: every
+  `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` — a
+  plain `properties.put` — and `UserXmlParser::parse` builds the `User` before
+  applying any `<data key>`. Both runtimes use that parser
+  (`CommCareTransactionParserFactory::initUserParser`; Android subclasses it).
+  So an ordinary worker's device holds `user_type = "standard"` and a practice
+  user's restore overwrites it with `"demo"`; the key is never absent, which is
+  why Preview supplies `"standard"` rather than leaving it out.
 - Only three keys are read by the runtime framework: `user_type` (demo
   detection — `commcare-core .../User.java::getUserType`) and `commcare_project`
   + `commcare_location_ids`, read together by
@@ -389,7 +403,9 @@ a role by name a user type cannot supply.
 Whether a persona satisfies a `required` property is likewise not a document
 finding. HQ enforces the flag only when the pushed field's `required_for` names
 the user type being created
-(`edit_model.py::UserFieldsView.is_field_required`), so it is a question about
+(`users/views/mobile/custom_data_fields.py::UserFieldsView.is_field_required` —
+NOT `edit_model.py::CustomDataModelMixin.is_field_required`, a different
+function that returns a bare `field.is_required`), so it is a question about
 one deployment target, and gating on it would make marking an existing property
 required impossible. The authoring surface says so inline instead.
 
@@ -416,21 +432,38 @@ reads, built independently by `callcenter/sync_usercase.py::_get_user_case_field
 — same authored data, different built-in keys (`first_name` there,
 `commcare_first_name` in the session block).
 
-Preview values are honest. `commcare_project` is **absent** until a deployment
-target supplies a domain, `commcare_phone_number` is absent because Nova has no
-HQ account to read it from, the three location keys are absent while nobody is
-assigned anywhere (HQ writes all three or none), and an ordinary worker never
-carries the demo-only `user_type`. `commcare_user_type` is `'commcare'`
-(`users/models.py::COMMCARE_USER`) and `commcare_profile` is empty, because both
+**The three location keys diverge between the two projections**, and the
+asymmetry is easy to state backwards: `get_user_session_data` writes all three
+or none, so the session block omits them while nobody is assigned anywhere,
+while `_get_user_case_fields` takes an explicit `else` branch to `''` for all
+three, so the usercase always carries them. `commcare_profile` likewise appears
+on both.
+
+Preview values are otherwise honest. `commcare_project` is **absent** until a
+deployment target supplies a domain, and `commcare_phone_number` is absent
+because Nova has no HQ account to read it from. `commcare_user_type` is
+`'commcare'` (`users/models.py::COMMCARE_USER` — not the same-named
+`UserFieldsView.COMMCARE_USER`, which is `'commcare_user'`, nor
+`change_feed/topics.py::COMMCARE_USER`, which is `'commcare-user'`),
+`commcare_profile` is empty, and `user_type` is `"standard"`, because all three
 are knowable rather than invented. A **declared** property with no value is
 present-and-empty, matching `users/user_data.py::UserData.to_dict`'s
 `{field: '' for field in self._schema_fields}` seed, while an undeclared key is
 genuinely absent — the split a `= ''` comparison depends on.
 
-Deleting a persona never deletes case data. Rows it owns keep naming it, exactly
-as a real worker's cases keep naming them after the worker leaves a CommCare
-project; the confirmation states how many rows that is rather than offering to
-reassign or remove them.
+Deleting a persona never deletes case data: rows it owns keep naming it, and the
+confirmation states how many rows that is rather than offering to reassign or
+remove them. **This is Nova's own rule, not HQ parity** — HQ has two different
+answers and neither is a template for it. Deactivating a worker, or removing
+them from the domain, closes their usercase and leaves their cases alone
+(`sync_usercase.py::_get_sync_usercase_helper` computes
+`close = to_be_deleted or not is_active_in_domain or domain not in domains`).
+DELETING one is destructive: `users/models.py::CommCareUser.retire` →
+`::delete_user_data` soft-deletes every case the worker owns via
+`tag_cases_as_deleted_and_remove_indices` and strips their indices. A persona is
+a design and test actor rather than a person who left an organization, and the
+cases it created are the author's own test data, so silently soft-deleting them
+would be a destructive surprise. Preserving them is the deliberate choice.
 
 ### Preview execution
 
