@@ -48,7 +48,8 @@ column, which is a different thing from a piece of text with nothing in it.
 
 A table holds up to 5,000 rows and 8 MB of values, and a single CSV import can
 be up to 8 MB. Go past any of those and Nova tells you what it measured — the
-size or the row count it actually found — and how much you need to take out.
+size or the row count it actually found — against the limit, rather than only
+that something was too big.
 
 ## Replace every row from a CSV
 

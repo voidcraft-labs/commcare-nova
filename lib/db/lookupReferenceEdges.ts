@@ -197,8 +197,18 @@ export async function readLookupReferencingApps(
 					.where("column_id", "=", args.columnId)
 					.select("app_id");
 
+	/* The Project predicate is on BOTH sides deliberately. The edge subquery
+	 * already scopes to this Project, and an app carrying edges cannot move
+	 * Projects — the move refuses a nonempty lookup closure — so the outer
+	 * filter is redundant today. It stays because "redundant" there rests on a
+	 * rule enforced in another module: a tenancy boundary that holds only by a
+	 * two-hop argument is one edit away from holding by nothing. It also makes
+	 * this query the same shape as the refusal-naming query in
+	 * `lib/lookup/actions.ts`, so the two cannot answer the same question with
+	 * different tenancy. */
 	const rows = await db
 		.selectFrom("apps")
+		.where("apps.project_id", "=", args.projectId)
 		.where("apps.id", "in", edges)
 		.select(["apps.id", "apps.app_name", "apps.deleted_at"])
 		.orderBy("apps.app_name", "asc")

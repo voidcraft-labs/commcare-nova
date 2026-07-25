@@ -183,6 +183,13 @@ async function runLookupGovernanceAction<Input>(
 	inputSchema: ZodType<Input>,
 	toOperation: (input: Input) => LookupSchemaGovernanceOperation,
 ): Promise<LookupGovernanceResult> {
+	/* Declared OUTSIDE the try so the catch names blocking apps against the
+	 * AUTHORIZED Project id rather than re-parsing the raw argument. The two
+	 * happen to be the same string today — `resolveProjectAccess` returns the id
+	 * it was handed — but a naming query filtered on unvalidated input is
+	 * authorization by coincidence, and the coincidence is not written down
+	 * anywhere it would survive an edit. */
+	let scope: LookupScope | undefined;
 	try {
 		const session = await getSession();
 		if (!session) {
@@ -206,7 +213,7 @@ async function runLookupGovernanceAction<Input>(
 			projectResult.data,
 			"delete",
 		);
-		const scope: LookupScope = {
+		scope = {
 			projectId: access.projectId,
 			actorId: session.user.id,
 			role: access.role,
@@ -225,7 +232,7 @@ async function runLookupGovernanceAction<Input>(
 			};
 		}
 		if (error instanceof LookupSchemaGovernanceError) {
-			return governanceFailure(error, projectIdInput);
+			return governanceFailure(error, scope);
 		}
 		if (error instanceof LookupError) return lookupFailure(error);
 		log.error("[lookup/governance] unhandled", error);
@@ -237,10 +244,18 @@ async function runLookupGovernanceAction<Input>(
 	}
 }
 
-/** Map a governance rejection onto the wire, naming the apps that blocked it. */
+/**
+ * Map a governance rejection onto the wire, naming the apps that blocked it.
+ *
+ * Takes the authorized `LookupScope` rather than a Project id, so there is no
+ * shape in which an unauthorized identifier can reach the naming query. An
+ * absent scope means the failure was raised before authorization completed —
+ * unreachable for this error class today — and yields the unnamed refusal
+ * rather than a query nobody proved the caller may run.
+ */
 async function governanceFailure(
 	error: LookupSchemaGovernanceError,
-	projectIdInput: unknown,
+	scope: LookupScope | undefined,
 ): Promise<LookupGovernanceFailure> {
 	const base: LookupGovernanceFailure = {
 		success: false,
@@ -254,18 +269,20 @@ async function governanceFailure(
 			? {}
 			: { incompatibleRowIds: error.incompatibleRowIds }),
 	};
-	if (error.code !== "referenced" || error.blockingAppIds === undefined) {
+	if (
+		error.code !== "referenced" ||
+		error.blockingAppIds === undefined ||
+		scope === undefined
+	) {
 		return base;
 	}
-	const projectId = projectIdSchema.safeParse(projectIdInput);
-	if (!projectId.success) return base;
 	const blocking = error.blockingAppIds;
 	try {
 		const named = await getAppDb()
 			.then((db) =>
 				db
 					.selectFrom("apps")
-					.where("apps.project_id", "=", projectId.data)
+					.where("apps.project_id", "=", scope.projectId)
 					.where("apps.id", "in", [...blocking])
 					.select(["apps.id", "apps.app_name", "apps.deleted_at"])
 					.orderBy("apps.app_name", "asc")
