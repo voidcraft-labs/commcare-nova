@@ -878,7 +878,10 @@ describe("EngineController", () => {
 			const mutation = ctrl.computeSubmissionMutation({
 				caseTypes: [patientCaseType],
 			});
-			expect(mutation).toEqual({
+			// The controller injects THIS entry's attachment scope, which is why
+			// the assertion is on the case-bearing slots plus an explicit check
+			// on the two attachment ones rather than a whole-object equality.
+			expect(mutation).toMatchObject({
 				kind: "registration",
 				formUuid: "form-2-uuid",
 				primary: {
@@ -888,6 +891,22 @@ describe("EngineController", () => {
 				},
 				children: [],
 			});
+			// Present because a form is active; empty because nothing was
+			// attached, which is the instruction to discard any staged
+			// attachment rather than "this client knows nothing about them".
+			expect(mutation.entryKey).toEqual(expect.any(String));
+			expect(mutation.attachmentNames).toEqual([]);
+
+			// One activation is one entry: a key that survived reactivation
+			// would let a new entry reconcile the previous one's attachments.
+			const firstEntry = ctrl.entryKey;
+			ctrl.activateForm(formUuid);
+			expect(ctrl.entryKey).toEqual(expect.any(String));
+			expect(ctrl.entryKey).not.toBe(firstEntry);
+
+			// And no active form means no scope to reconcile at all.
+			ctrl.deactivate();
+			expect(ctrl.entryKey).toBeUndefined();
 		});
 	});
 

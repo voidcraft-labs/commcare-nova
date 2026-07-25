@@ -36,6 +36,17 @@ when the deployment record shows the target domain carries HQ's
   plain/markdown column formats render the stored URL as a clickable link, which
   is the working link-first path. Do not default to a broken HTTPS picture column.
 - An empty `<attachment>` element removes a case attachment on both runtimes.
+- **Preview must not synthesize the URL at all.** The capture answer is
+  identical in shape wherever the form ran — a server-minted `<uuid>.<ext>` —
+  but a PREVIEW capture's bytes live in Nova's own submission-scoped lane
+  (`lib/db/formAttachments.ts`), not on HQ, so
+  `form_attachment/v1/<instance_id>/<attachment_id>` resolves to nothing for
+  one. This extends the honest-preview rule in
+  [the binding contracts](00-contracts.md#users-personas-and-workers) past the
+  domain slug it already names: the URL *column* is target-dependent, not just
+  the origin inside it, so preview leaves it absent rather than rendering a
+  link that 404s. A submitted preview attachment is real data with a real
+  name; what it lacks is an HQ instance to hang off.
 
 The emitted value is a calculate over the submission's own metadata —
 `concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/',

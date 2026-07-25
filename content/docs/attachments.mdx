@@ -94,10 +94,10 @@ attached something. Where getting the right file matters, ask for it in
 a question of its own with a clear label, rather than as one of several
 attachments on a crowded screen.
 
-If a worker returns to a partly-filled form later, the filename they
-originally picked is no longer shown, and one attachment reads much like
-another. Keeping attachment questions near the end of a form, so they are
-answered and submitted together, avoids most of this.
+The filename is also only shown for as long as the page stays open. A
+worker who reloads mid-form sees the attachment is there but not which
+file it was. Keeping attachment questions near the end of a form, so they
+are answered and submitted in one sitting, avoids most of this.
 
 ## Clearing a required attachment
 
@@ -127,5 +127,20 @@ Attachment questions are under **Attachments & scanning** in the question
 picker, alongside Barcode. Barcode is not an attachment: it scans a code
 and stores the text it read.
 
-In the builder's preview, an attachment question shows a placeholder card
-naming its type. The preview does not attach files.
+While you are arranging a form, an attachment question shows a card
+naming its type. Run the preview and it becomes a working control: attach
+a real file, replace it, or remove it, and it rides the submission with
+the rest of the form.
+
+The preview shows you exactly what a worker sees, which means it shows
+you a filename and a Clear button and nothing else — no thumbnail, no
+playback. That is deliberate. If the preview confirmed your attachments
+in ways the real app cannot, you would design forms around a
+confirmation your workers never get.
+
+One difference worth knowing, in your favour: if you attach a file and
+then delete the repeating section it was in, or hide its question with a
+condition, Nova leaves that file out of the submission. CommCare itself
+sends it anyway, where it counts toward the 50-attachment limit and
+arrives attached to nothing. Nothing you need to do — it just means the
+count you see in the preview is the honest one.

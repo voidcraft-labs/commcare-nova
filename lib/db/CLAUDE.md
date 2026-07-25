@@ -463,6 +463,22 @@ slot expectations, and inserts exact `media_asset_refs` edges in that SAME
 transaction. Atomic creation and `appendSyntheticBatch` apply the identical
 admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
 
+**Form attachments are a separate lane from `media_assets`, on purpose.**
+`formAttachments.ts` holds the files a worker attaches while filling in a form:
+`pending → staged → submitted`, tenant-scoped `(app_id, project_id)` like case
+rows, and additionally bound to `created_by` because submit-time reconciliation
+keys on a client-minted `entry_key` — without that filter a co-member in a
+shared Project could delete another member's in-flight attachments. A captured
+photo is data, not an authoring asset; a library row would surface it in the
+media picker, count it against the export budget, and make it deletable through
+the library UI. Retention is two mechanisms and only one of them is a guarantee:
+the BYTES have a traffic-independent GCS lifecycle TTL on the staging prefix, and
+`purgeExpiredFormAttachments` is row hygiene called opportunistically because
+this repo has no cron. `reconcileFormAttachments` promotes exactly the
+attachments a submission named and discards the rest — the whole compensation
+story, deliberately not a hook on the preview engine, which fires nothing on a
+value change or a repeat removal.
+
 **Media deletion is one authoritative transaction.**
 `mediaDeletion.ts` takes the shared membership gate, freshly proves Project
 `edit`, locks the asset `FOR UPDATE`, then re-walks every persisted carrier

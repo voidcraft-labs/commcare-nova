@@ -67,6 +67,32 @@ its own status vocabulary. This keeps the live row aligned with
 CommCare's `@status` attribute and makes a close form with no property
 writes a complete lifecycle write by itself.
 
+## Attachments are staged per form entry, settled at submit
+
+A capture question's answer is a server-minted attachment name; the bytes go
+straight to GCS on a signed URL (`components/preview/form/fields/attachment`),
+never through a Server Action — a `File` argument would make React encode
+multipart, which the edge WAF reads as header injection.
+
+`EngineController.entryKey` is the reconciliation scope, minted per
+`activateForm`. It lives on the CONTROLLER, not the engine, because the engine is
+recreated mid-entry on any blueprint edit and a key minted there would rotate
+under the worker, orphaning everything already staged. **There is no form
+resume** — nothing persists runtime answers and `deactivate` wipes the store — so
+leaving a form starts a new entry and the old one's attachments are collected by
+reconciliation and the staging TTL. That absence is also why nothing simulates
+the runtime's blank-pad-over-live-signature behavior: the state cannot arise
+here. A future resume story must carry the entry key forward with the answers,
+and must leave the pad blank rather than helpfully restoring it.
+
+`FormEngine.collectAttachmentNames` is what the submission carries, and it DOES
+consult `state.visible` — unlike the case-property collector, whose
+visibility-blindness is an AJV storage constraint with nothing to say about
+attachments. An irrelevant question's node is omitted from the submitted instance
+on the wire, so its attachment is genuinely not part of the submission. Nova then
+diverges from the platform by not shipping it at all, where the real runtime
+enumerates the session media directory and uploads orphans anyway.
+
 ## Repeat instances are first-class
 
 Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one FieldState per live instance, while everything AUTHORED about them is index-free — `printXPath` emits `#form/orders/name`, the dependency extractor emits `/data/orders/name`. Three mechanisms bridge the two shapes (`instancePaths.ts` holds the conversions):
