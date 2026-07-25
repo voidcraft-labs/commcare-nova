@@ -3,12 +3,18 @@
 // Which case property a change saves onto.
 //
 // Chooser-first, like every other add affordance in the builder: pick
-// the property, and the row lands already holding a value of that
-// property's own type. A brand-new property is allowed here — the
-// commit batch declares it in the catalog alongside the write
+// the property, and the row lands already holding a value that would
+// actually submit. A brand-new property is allowed here — the commit
+// batch declares it in the catalog alongside the write
 // (`caseOperationCatalogMutations`) — but the name is adjudicated
 // inline, so an illegal or already-saved one is refused before the
 // gesture rather than after it.
+//
+// A STORED value is stricter than a compared one, so "an empty value of
+// the right type" is not a seed: an empty temporal literal is not
+// portable, and no literal can hold a multi-select or a geopoint. A
+// property this form cannot yet fill is offered WITH that reason rather
+// than seeded into a write the gate would refuse.
 
 "use client";
 
@@ -16,6 +22,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useId, useMemo, useState } from "react";
+import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
 import { Button } from "@/components/shadcn/button";
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
@@ -29,16 +36,21 @@ import {
 	caseOperationWritePropertyVerdict,
 	isReservedCaseOperationProperty,
 } from "@/lib/doc/identifierVerdicts";
-import { humanizeId, slugifyId } from "@/lib/domain";
+import { effectiveDataType, humanizeId, slugifyId } from "@/lib/domain";
+import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
+import { seedWriteValue, writeSeedUnavailableReason } from "./seeds";
 
 export function WritePropertyPicker({
 	caseTypeName,
 	alreadyWritten,
+	formFields,
 	onChoose,
 }: {
 	readonly caseTypeName: string;
 	readonly alreadyWritten: ReadonlySet<string>;
-	readonly onChoose: (property: string) => void;
+	/** The answers this change may read — what a write can be seeded from. */
+	readonly formFields: readonly EditorFormFieldDecl[];
+	readonly onChoose: (property: string, value: ValueExpression) => void;
 }) {
 	const caseTypes = useEffectiveCaseTypes();
 	const [open, setOpen] = useState(false);
@@ -50,21 +62,30 @@ export function WritePropertyPicker({
 		const caseType = caseTypes.find(
 			(candidate) => candidate.name === caseTypeName,
 		);
-		return (caseType?.properties ?? []).filter(
-			(property) =>
-				!alreadyWritten.has(property.name) &&
-				!isReservedCaseOperationProperty(property.name),
-		);
-	}, [caseTypes, caseTypeName, alreadyWritten]);
+		return (caseType?.properties ?? [])
+			.filter(
+				(property) =>
+					!alreadyWritten.has(property.name) &&
+					!isReservedCaseOperationProperty(property.name),
+			)
+			.map((property) => {
+				const dataType = effectiveDataType(property);
+				return {
+					property,
+					dataType,
+					seed: seedWriteValue(dataType, formFields),
+				};
+			});
+	}, [caseTypes, caseTypeName, alreadyWritten, formFields]);
 
 	const candidate = slugifyId(draft, "");
 	const verdict = caseOperationWritePropertyVerdict(candidate, alreadyWritten);
 	const showError = draft.trim().length > 0 && !verdict.ok;
 
-	const choose = (property: string) => {
+	const choose = (property: string, value: ValueExpression) => {
 		setOpen(false);
 		setDraft("");
-		onChoose(property);
+		onChoose(property, value);
 	};
 
 	return (
@@ -94,13 +115,14 @@ export function WritePropertyPicker({
 					Which property on the {caseTypeName} case?
 				</p>
 				<div className="max-h-64 space-y-1 overflow-y-auto">
-					{available.map((property) => (
+					{available.map(({ property, dataType, seed }) => (
 						<Button
 							key={property.name}
 							type="button"
 							variant="ghost"
 							size="xl"
-							onClick={() => choose(property.name)}
+							disabled={seed === undefined}
+							onClick={() => seed !== undefined && choose(property.name, seed)}
 							className="h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left whitespace-normal"
 						>
 							<Icon
@@ -109,8 +131,15 @@ export function WritePropertyPicker({
 								height="14"
 								className="shrink-0 text-nova-text-muted"
 							/>
-							<span className="min-w-0 flex-1 break-words text-sm text-nova-text">
-								{humanizeId(property.name)}
+							<span className="min-w-0 flex-1 text-left">
+								<span className="block break-words text-sm text-nova-text">
+									{humanizeId(property.name)}
+								</span>
+								{seed === undefined && dataType !== undefined && (
+									<span className="block break-words text-xs text-nova-text-muted">
+										{writeSeedUnavailableReason(dataType)}
+									</span>
+								)}
 							</span>
 						</Button>
 					))}
@@ -148,7 +177,14 @@ export function WritePropertyPicker({
 						variant="outline"
 						size="xl"
 						disabled={!verdict.ok}
-						onClick={() => choose(candidate)}
+						onClick={() =>
+							// A brand-new property is declared by this batch, so it has
+							// no declared type yet and any storable value fits.
+							choose(
+								candidate,
+								seedWriteValue(undefined, formFields) ?? term(literal("")),
+							)
+						}
 						className="w-full"
 					>
 						Save this property

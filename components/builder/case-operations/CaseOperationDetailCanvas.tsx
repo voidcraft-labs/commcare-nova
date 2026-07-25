@@ -28,7 +28,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ClearConditionButton } from "@/components/builder/shared/ClearConditionButton";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
-import { seedLiteralForProperty } from "@/components/builder/shared/cards/reseed";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
@@ -405,21 +404,13 @@ export function CaseOperationDetailCanvas({
 							alreadyWritten={
 								new Set((operation.writes ?? []).map((write) => write.property))
 							}
-							onChoose={(property) =>
+							formFields={formFields}
+							onChoose={(property, value) =>
 								commit({
 									...operation,
 									writes: [
 										...(operation.writes ?? []),
-										seedCaseOperationWrite(
-											property,
-											term(
-												seedLiteralForProperty(
-													destinationType?.properties.find(
-														(candidate) => candidate.name === property,
-													),
-												),
-											),
-										),
+										seedCaseOperationWrite(property, value),
 									],
 								})
 							}

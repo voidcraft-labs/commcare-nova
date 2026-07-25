@@ -14,7 +14,7 @@ import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid } from "@/lib/doc/types";
-import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
+import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import {
 	actionChangeLosses,
 	type CaseOperationSeedKind,
@@ -22,10 +22,14 @@ import {
 	nextOperationId,
 	reshapeForAction,
 	seedCaseOperation,
+	seedCaseOperationWrite,
+	seedWriteValue,
 	takenOperationIds,
+	writeSeedUnavailableReason,
 } from "../seeds";
 
 const NAME = asUuid("44444444-4444-4444-8444-444444444444");
+const ANSWER = asUuid("55555555-5555-4555-8555-555555555555");
 
 /** A seed carries no lookup carrier, so the explicit no-snapshot context
  *  is the honest one — the same one every client-side gate passes. */
@@ -135,6 +139,103 @@ describe("case-operation seeds", () => {
 		expect(nextLinkIdentifier(new Set(["parent"]))).toBe("parent_2");
 		expect(nextLinkIdentifier(new Set(["parent", "parent_2"]))).toBe(
 			"parent_3",
+		);
+	});
+});
+
+describe("the value a fresh write starts from", () => {
+	// A STORED value is stricter than a compared one, and the gap is where a
+	// plausible seed goes wrong: `seedLiteralForProperty` (the comparison
+	// seed) produces an empty temporal literal, a text literal for a
+	// multi-select, and a null for a geopoint — all three refused as
+	// assignments. Every type below goes through the real validator.
+	const TYPES = [
+		"text",
+		"int",
+		"decimal",
+		"date",
+		"time",
+		"datetime",
+		"single_select",
+		"multi_select",
+		"geopoint",
+	] as const;
+
+	function writeCommits(
+		dataType: (typeof TYPES)[number],
+		fields: readonly { uuid: Uuid; dataType: (typeof TYPES)[number] }[],
+	): { seeded: boolean; ok: boolean } {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "p", label: "P", data_type: dataType }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Edit",
+							type: "followup",
+							fields: fields.map((field, index) =>
+								f({
+									uuid: field.uuid,
+									kind: field.dataType === "int" ? "int" : field.dataType,
+									id: `answer_${index}`,
+									label: `Answer ${index}`,
+								}),
+							),
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const value = seedWriteValue(dataType, fields);
+		if (value === undefined) return { seeded: false, ok: false };
+		const operation: CaseOperation = {
+			uuid: asUuid("99999999-9999-4999-8999-999999999999"),
+			id: "update_patient",
+			order: "a",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: [seedCaseOperationWrite("p", value)],
+		};
+		return {
+			seeded: true,
+			ok: commits(doc, formUuid, operation).ok,
+		};
+	}
+
+	for (const dataType of TYPES) {
+		it(`is accepted by the gate for a ${dataType} property, or is not offered`, () => {
+			const verdict = writeCommits(dataType, []);
+			// Either it seeds something the gate accepts, or it declines — and
+			// declining is only honest for the three types with no storable
+			// constant, so the second arm cannot pass vacuously for the rest.
+			// What it must never do is seed a write the gate refuses.
+			if (verdict.seeded) {
+				expect(verdict.ok).toBe(true);
+			} else {
+				expect(["time", "multi_select", "geopoint"]).toContain(dataType);
+			}
+		});
+	}
+
+	it("prefers a form answer, which is the only storable value for some types", () => {
+		const answer = { uuid: ANSWER, dataType: "multi_select" } as const;
+		const verdict = writeCommits("multi_select", [answer]);
+		expect(verdict).toEqual({ seeded: true, ok: true });
+		// Without one there is nothing storable to seed, so the property is
+		// offered with the reason rather than seeded into a refusal.
+		expect(seedWriteValue("multi_select", [])).toBeUndefined();
+		expect(writeSeedUnavailableReason("multi_select")).toContain(
+			"multiple-choice question",
 		);
 	});
 });

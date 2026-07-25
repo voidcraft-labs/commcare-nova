@@ -1492,6 +1492,8 @@ test.describe("authenticated builder", () => {
 				page.getByText(/This tile uses 6 columns and 3 rows/),
 			).toBeVisible();
 		});
+	});
+
 	test("a refused keyboard reorder of a case change says why, and names it", async ({
 		page,
 	}) => {

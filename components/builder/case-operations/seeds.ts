@@ -23,11 +23,20 @@ import {
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
+	type CasePropertyDataType,
 	type CaseTarget,
 	humanizeId,
 	type Uuid,
 } from "@/lib/domain";
-import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
+import {
+	formField,
+	isValueStorageAssignable,
+	literal,
+	now,
+	term,
+	today,
+	type ValueExpression,
+} from "@/lib/domain/predicate";
 
 /** What an author is choosing when they add a change. */
 export type CaseOperationSeedKind =
@@ -106,16 +115,82 @@ export function seedCaseOperation(
 }
 
 /**
- * A write of `property`, seeded with an empty value of the property's own
- * type so the row is type-correct the moment it lands. The author fills
- * in the value; an empty text value is legal on the wire (it blanks the
- * property), so nothing here is a lie about what would submit.
+ * A write of `property`, seeded with a value the commit gate accepts for
+ * that property's own type.
+ *
+ * A STORED value is stricter than a compared one, and the difference is
+ * exactly where a plausible-looking seed goes wrong: an empty temporal
+ * literal compiles to SQL NULL here and blank text on the device, a text
+ * literal cannot be stored as a multi-select, and a null is not a
+ * portable clear on either. So the seed is not "an empty value of the
+ * right type" — it is the first value that would actually submit.
  */
 export function seedCaseOperationWrite(
 	property: string,
 	value: ValueExpression,
 ): CaseOperationWrite {
 	return { property, value };
+}
+
+/**
+ * The value a fresh write starts from, or `undefined` when this form
+ * cannot yet fill one.
+ *
+ * A form answer comes first, because "save what they answered" is what a
+ * write overwhelmingly means, and because for several types it is the
+ * only storable value that exists: no literal can hold a multi-select or
+ * a geopoint, and an empty temporal literal is not portable. When no
+ * answer fits, a constant does — `today()` / `now()` for the temporal
+ * types, a literal for the rest — and when neither exists the caller
+ * offers the property with the reason rather than seeding something the
+ * gate would refuse.
+ */
+export function seedWriteValue(
+	dataType: CasePropertyDataType | undefined,
+	formFields: readonly {
+		readonly uuid: Uuid;
+		readonly dataType: CasePropertyDataType | undefined;
+	}[],
+): ValueExpression | undefined {
+	// An undeclared property is declared by this very batch, so any storable
+	// value fits; text is the least surprising.
+	if (dataType === undefined) return term(literal(""));
+
+	const answer = formFields.find((field) =>
+		isValueStorageAssignable(field.dataType ?? "text", dataType),
+	);
+	if (answer !== undefined) return term(formField(answer.uuid));
+
+	switch (dataType) {
+		case "text":
+		case "single_select":
+			return term(literal(""));
+		case "int":
+		case "decimal":
+			return term(literal(0));
+		case "date":
+			return today();
+		case "datetime":
+			return now();
+		default:
+			// `time`, `multi_select`, and `geopoint` have no storable constant:
+			// a literal cannot hold an array or a coordinate pair, and an empty
+			// temporal is not portable. The form has to supply the value.
+			return undefined;
+	}
+}
+
+/** Why this form cannot start a write onto a property of `dataType`. */
+export function writeSeedUnavailableReason(
+	dataType: CasePropertyDataType,
+): string {
+	const answer =
+		dataType === "multi_select"
+			? "a multiple-choice question"
+			: dataType === "geopoint"
+				? "a location question"
+				: "a time question";
+	return `This form has no answer that can fill it. Add ${answer} first, or save to a different property.`;
 }
 
 /**
