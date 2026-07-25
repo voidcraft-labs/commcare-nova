@@ -86,6 +86,10 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 /** Navigation screen types for the preview. */
 export type PreviewScreen =
 	| { type: "home" }
+	/** The Project data workspace. Uuid-free, because it names no blueprint
+	 *  entity at all — Project-shared lookup tables are not app content. An
+	 *  absent `tableId` is the table list. */
+	| { type: "projectData"; tableId?: string }
 	| { type: "module"; moduleIndex: number }
 	| { type: "caseList"; moduleIndex: number; formIndex: number }
 	/** Per-module case-search / case-detail authoring surfaces.
@@ -127,6 +131,8 @@ export function getParentScreen(
 export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
 	if (a.type !== b.type) return false;
 	if (a.type === "home") return true;
+	if (a.type === "projectData" && b.type === "projectData")
+		return a.tableId === b.tableId;
 	if (a.type === "module" && b.type === "module")
 		return a.moduleIndex === b.moduleIndex;
 	if (a.type === "caseList" && b.type === "caseList")
@@ -155,6 +161,8 @@ export function screenKey(screen: PreviewScreen): string {
 	switch (screen.type) {
 		case "home":
 			return "home";
+		case "projectData":
+			return `projectData-${screen.tableId ?? "list"}`;
 		case "module":
 			return `module-${screen.moduleIndex}`;
 		case "caseList":

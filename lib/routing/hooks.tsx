@@ -40,6 +40,7 @@ import {
 import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
 import {
 	APP_SETUP_LABEL,
@@ -47,6 +48,7 @@ import {
 	type AppSetupSection,
 	DEFAULT_APP_SETUP_SECTION,
 	type Location,
+	PROJECT_DATA_LABEL,
 } from "@/lib/routing/types";
 import {
 	pushBuilderHistory,
@@ -152,6 +154,12 @@ export interface NavigateActions {
 	 * App administration, not app content — it names no module.
 	 */
 	openAppSetup: (section?: AppSetupSection) => void;
+	/**
+	 * Open the Project data workspace. Routes to
+	 * `/build/{appId}/project-data`, or straight to one table when given its
+	 * id. Project-shared data, not app content — it names no module.
+	 */
+	openProjectData: (tableId?: LookupTableId) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -345,6 +353,19 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				location: { kind: "app-setup", section: loc.section },
 			});
 		}
+		/* Project data roots off Home the same way, but its trail STOPS at the
+		 * workspace even on a table URL. A table's name is Project state this
+		 * hook has no reader for, so the crumb that could carry it would have to
+		 * resolve it from a second source and could drift. The open table titles
+		 * the workspace body instead, and this crumb stays the way back to the
+		 * table list. */
+		if (loc.kind === "project-data") {
+			items.push({
+				key: "project-data",
+				label: PROJECT_DATA_LABEL,
+				location: { kind: "project-data" },
+			});
+		}
 		if (
 			(loc.kind === "form" || loc.kind === "form-condition") &&
 			formUuid &&
@@ -437,6 +458,8 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "form-condition", moduleUuid, formUuid }),
 			openAppSetup: (section: AppSetupSection = DEFAULT_APP_SETUP_SECTION) =>
 				push({ kind: "app-setup", section }),
+			openProjectData: (tableId?: LookupTableId) =>
+				push({ kind: "project-data", tableId }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -464,6 +487,11 @@ export function parentLocation(loc: Location): Location | undefined {
 			return undefined;
 		case "app-setup":
 			return { kind: "home" };
+		/* An open table's parent is the table list; the list's parent is Home. */
+		case "project-data":
+			return loc.tableId !== undefined
+				? { kind: "project-data" }
+				: { kind: "home" };
 		case "module":
 			return { kind: "home" };
 		case "cases":

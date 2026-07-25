@@ -8,6 +8,8 @@
  * URL layout (path segments after /build/{appId}/):
  *
  *   []                              → home
+ *   ["project-data"]                → Project data workspace
+ *   ["project-data", tableId]       → one Project data table
  *   [moduleUuid]                    → module
  *   [moduleUuid, "results"]         → case-results authoring
  *   [moduleUuid, "cases", caseId]   → case detail
@@ -24,6 +26,7 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	APP_SETUP_SECTIONS,
 	type AppSetupSection,
@@ -31,8 +34,10 @@ import {
 	type Location,
 } from "@/lib/routing/types";
 
-/** The reserved first path segment the App setup workspace owns. */
+/** The two reserved first path segments, each owned by a configuration
+ *  workspace and each matched before any uuid lookup. */
 const APP_SETUP_SEGMENT = "setup";
+const PROJECT_DATA_SEGMENT = "project-data";
 
 function isAppSetupSection(value: string): value is AppSetupSection {
 	return (APP_SETUP_SECTIONS as readonly string[]).includes(value);
@@ -67,6 +72,10 @@ export function serializePath(loc: Location): string[] {
 			return [];
 		case "app-setup":
 			return [APP_SETUP_SEGMENT, loc.section];
+		case "project-data":
+			return loc.tableId !== undefined
+				? [PROJECT_DATA_SEGMENT, loc.tableId]
+				: [PROJECT_DATA_SEGMENT];
 		case "module":
 			return [loc.moduleUuid];
 		case "cases":
@@ -193,12 +202,13 @@ export function parsePathToLocation(
 ): Location {
 	if (segments.length === 0) return { kind: "home" };
 
-	/* `setup` is a reserved literal, matched BEFORE any uuid lookup: a
-	 * module uuid is a branded string with no format constraint, so a
-	 * doc-map lookup first would let an entity named `setup` shadow the
-	 * workspace. A bare `/setup` opens the default section, and a section
-	 * nobody recognizes opens it too — landing on the workspace the URL
-	 * clearly asked for beats bouncing to home. */
+	/* Both workspace segments are reserved literals, matched BEFORE any uuid
+	 * lookup: a module uuid is a branded string with no format constraint, so
+	 * a doc-map lookup first would let an entity keyed `setup` or
+	 * `project-data` shadow a whole workspace. Each also prefers its own
+	 * landing screen over home when the rest of the path is unrecognized —
+	 * landing on the workspace the URL clearly asked for beats discarding the
+	 * whole destination. */
 	if (segments[0] === APP_SETUP_SEGMENT) {
 		const section = segments[1];
 		return {
@@ -208,6 +218,12 @@ export function parsePathToLocation(
 					? section
 					: DEFAULT_APP_SETUP_SECTION,
 		};
+	}
+	if (segments[0] === PROJECT_DATA_SEGMENT) {
+		const parsedTableId = lookupTableIdSchema.safeParse(segments[1]);
+		return parsedTableId.success
+			? { kind: "project-data", tableId: parsedTableId.data }
+			: { kind: "project-data" };
 	}
 
 	const first = segments[0] as Uuid;
@@ -358,6 +374,13 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			/* App administration references no blueprint entity, so there is
 			 * nothing for the doc to invalidate. */
 			return true;
+		case "project-data":
+			/* Project data references no blueprint entity either. Its `tableId`
+			 * names a Project lookup table, which lives outside the document
+			 * entirely — the doc cannot prove it exists or that it is gone, so
+			 * validation here would be a guess. The workspace resolves the table
+			 * against the Project and owns the not-found state. */
+			return true;
 		case "module":
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "cases":
@@ -406,9 +429,10 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
  */
 export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	if (loc.kind === "home") return loc;
-	/* App setup names no entity, so it survives every doc change. This must
-	 * come before the module read below — there is no `moduleUuid` to read. */
-	if (loc.kind === "app-setup") return loc;
+	/* Neither configuration workspace names an entity, so both survive every
+	 * doc change. This must come before the module read below — there is no
+	 * `moduleUuid` on either to read. */
+	if (loc.kind === "app-setup" || loc.kind === "project-data") return loc;
 
 	/* Module uuid is shared by module, cases, and form screens. If the
 	 * module has been deleted, nothing below it can be recovered — the

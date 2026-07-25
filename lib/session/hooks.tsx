@@ -11,6 +11,7 @@
 
 import { useContext, useMemo } from "react";
 import { useStore } from "zustand";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
@@ -375,6 +376,40 @@ const FALLBACK_SESSION_STORE = createBuilderSessionStore();
 export function useCanEdit(): boolean {
 	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
 	return useStore(store, (s) => s.canEdit);
+}
+
+/**
+ * The Project this builder session's app belongs to — the tenancy every
+ * Project-scoped boundary authorizes against. `undefined` for a new build
+ * before the app row exists, and outside a session (the fallback store).
+ *
+ * This is the app's Project, NOT the user's mutable active Project: a
+ * Project-scoped write must carry the id from the state it is displaying, so
+ * another tab switching the active Project can never retarget it. A
+ * cross-Project move advances the scope epoch and reseeds this value, so a
+ * consumer keyed on both always follows the app.
+ */
+export function useProjectId(): string | undefined {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.projectId);
+}
+
+/**
+ * Whether this session's user holds the Project's `delete` capability —
+ * admin or owner. It gates the irreversible and externally-visible edits an
+ * ordinary editor must not make on their own: deleting a Project data table,
+ * removing or retyping one of its columns, and changing a table tag or column
+ * wire name, all of which either destroy shared data or rewrite an external
+ * contract every referencing app depends on.
+ *
+ * Same three-layer discipline as `useCanEdit`: this hides the affordance,
+ * and the server re-gates the exact capability on the explicit Project
+ * (`runLookupAction`), which remains the authority.
+ */
+export function useCanDelete(): boolean {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	const role = useStore(store, (s) => s.role);
+	return role !== undefined && roleAllowsApp(role, "delete");
 }
 
 /** The lifecycle of the authoritative access tuple. Provider-optional for the

@@ -57,6 +57,8 @@ function whereLabel(location: Location): string {
 			return "on the app home";
 		case "app-setup":
 			return `in ${APP_SETUP_SECTION_LABELS[location.section].toLowerCase()}`;
+		case "project-data":
+			return "in the project's data tables";
 		case "module":
 			return "in a module";
 		case "cases":

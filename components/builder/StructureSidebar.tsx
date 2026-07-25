@@ -10,8 +10,10 @@
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
+import type { IconifyIcon } from "@iconify/types";
 import tablerLayoutSidebarLeftCollapse from "@iconify-icons/tabler/layout-sidebar-left-collapse";
 import tablerSettings from "@iconify-icons/tabler/settings";
+import tablerTable from "@iconify-icons/tabler/table";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/appTree/AppTree";
 import { AppSettingsButton } from "@/components/builder/detail/appSettings/AppSettingsButton";
@@ -19,7 +21,7 @@ import { Button } from "@/components/shadcn/button";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { APP_SETUP_LABEL } from "@/lib/routing/types";
+import { APP_SETUP_LABEL, PROJECT_DATA_LABEL } from "@/lib/routing/types";
 import { useBuilderIsReady, useSetSidebarOpen } from "@/lib/session/hooks";
 
 export function StructureSidebar() {
@@ -69,42 +71,79 @@ export function StructureSidebar() {
 				</AnimatePresence>
 			</div>
 
-			{/* App setup sits BELOW the tree, outside it and after its scroll
-			 *  region. The tree is the runnable app; app administration is not a
-			 *  module, and nesting it would say that it was. */}
-			<AppSetupNavEntry />
+			{/* The configuration workspaces sit BELOW the tree, outside it and
+			 *  after its scroll region. The tree is the runnable app: app
+			 *  administration is not a module, and a project's shared data tables
+			 *  do not belong to this app at all. Nesting either would say it did. */}
+			<WorkspaceNavEntries />
 		</div>
 	);
 }
 
-/** The expanded sidebar's App setup destination. */
-function AppSetupNavEntry() {
+/**
+ * The expanded sidebar's two workspace destinations.
+ *
+ * One component for both, because they are one navigation group: an author
+ * reads them as a pair below the tree, and giving each its own copy of the row
+ * markup is exactly how the two drift into looking like different kinds of
+ * thing.
+ */
+function WorkspaceNavEntries() {
 	const navigate = useNavigate();
 	const loc = useLocation();
-	const active = loc.kind === "app-setup";
 	return (
-		<div className="shrink-0 border-t border-nova-border p-2">
-			<Button
-				type="button"
-				variant="ghost"
-				size="lg"
-				aria-current={active ? "page" : undefined}
+		<nav
+			aria-label="Configuration"
+			className="shrink-0 space-y-0.5 border-t border-nova-border p-2"
+		>
+			<WorkspaceNavEntry
+				label={APP_SETUP_LABEL}
+				icon={tablerSettings}
+				active={loc.kind === "app-setup"}
 				onClick={() => navigate.openAppSetup()}
-				className={`h-11 w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium ${
-					active
-						? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
-						: "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
-				}`}
-			>
-				<Icon
-					icon={tablerSettings}
-					width="17"
-					height="17"
-					aria-hidden="true"
-					className="shrink-0"
-				/>
-				{APP_SETUP_LABEL}
-			</Button>
-		</div>
+			/>
+			<WorkspaceNavEntry
+				label={PROJECT_DATA_LABEL}
+				icon={tablerTable}
+				active={loc.kind === "project-data"}
+				onClick={() => navigate.openProjectData()}
+			/>
+		</nav>
+	);
+}
+
+function WorkspaceNavEntry({
+	label,
+	icon,
+	active,
+	onClick,
+}: {
+	label: string;
+	icon: IconifyIcon;
+	active: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<Button
+			type="button"
+			variant="ghost"
+			size="lg"
+			aria-current={active ? "page" : undefined}
+			onClick={onClick}
+			className={`h-11 w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium ${
+				active
+					? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
+					: "text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
+			}`}
+		>
+			<Icon
+				icon={icon}
+				width="17"
+				height="17"
+				aria-hidden="true"
+				className="shrink-0"
+			/>
+			{label}
+		</Button>
 	);
 }
