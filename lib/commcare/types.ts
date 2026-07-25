@@ -136,6 +136,28 @@ export interface DetailColumn {
 	graph_configuration: null;
 	relevant: string;
 	case_tile_field: null;
+	/**
+	 * Custom-tile placement, zero-based. CCHQ's own names are
+	 * `grid_x` / `grid_y` for the origin and the unprefixed
+	 * `width` / `height` for the span
+	 * (`commcare-hq/corehq/apps/app_manager/models/case_list.py::DetailColumn`),
+	 * and its emitter maps them onto the wire's `grid-x` / `grid-y` /
+	 * `grid-width` / `grid-height` attributes. All four are `null` on a
+	 * column with no tile placement; Nova emits them as a complete set or
+	 * not at all, because a partial set is what makes CCHQ produce a
+	 * `<grid>` the device cannot parse.
+	 */
+	grid_x: number | null;
+	grid_y: number | null;
+	width: number | null;
+	height: number | null;
+	/** `<style horz-align>` / `<style vert-align>` / `<style font-size>`. */
+	horizontal_align: string | null;
+	vertical_align: string | null;
+	font_size: string | null;
+	/** `<style show-border>` / `<style show-shading>`. */
+	show_border: boolean | null;
+	show_shading: boolean | null;
 	nodeset: string;
 	/** CCHQ `date_format` pattern, e.g. `%d/%m/%y` or `%Y-%m-%d`. The
 	 *  runtime formatter consumes this for `format === "date"`. */
@@ -186,10 +208,33 @@ export interface DetailBase {
 	lookup_responses: unknown[];
 	persist_case_context: null;
 	persistent_case_context_xml: string;
-	persist_tile_on_forms: null;
+	/**
+	 * Keeps the short detail on screen above every form in the module —
+	 * the persistent case tile. CCHQ turns it into `detail-persistent` on
+	 * each of the module's case-loading datums
+	 * (`suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`).
+	 */
+	persist_tile_on_forms: boolean | null;
 	persistent_case_tile_from_module: null;
 	pull_down_tile: null;
-	case_tile_template: null;
+	/**
+	 * Which tile vocabulary CCHQ regenerates this detail with. Nova emits
+	 * only `"custom"` — the arm where every column carries its own grid
+	 * placement — never CCHQ's two named templates (`person_simple`,
+	 * `icon_text_grid`), whose slots are filled by name and whose
+	 * emission carries a hardcoded profile-image cell and a literal
+	 * `m0-f0` registration action. `null` is a detail with no tile.
+	 *
+	 * CCHQ's own field is a bare `StringProperty` with no `choices`
+	 * constraint (`models/case_list.py::Detail`); the vocabulary is
+	 * enforced at build time by lookup failure in
+	 * `suite_xml/features/case_tiles.py::case_tile_template_config`. The
+	 * `"custom"` literal is deliberately NOT a member of CCHQ's
+	 * `CaseTileTemplates` enum — it is a module-level sibling constant,
+	 * which is exactly why it bypasses the per-template slot-mapping
+	 * validators.
+	 */
+	case_tile_template: "custom" | null;
 	custom_xml: null;
 	custom_variables: null;
 }

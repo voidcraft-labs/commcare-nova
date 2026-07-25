@@ -217,6 +217,7 @@ export function buildShortDetail(args: {
 		caseProperties,
 		caseTypes: relationContext.caseTypes,
 		currentCaseType: mod.caseType,
+		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
 	};

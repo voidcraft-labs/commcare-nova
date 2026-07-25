@@ -5,6 +5,10 @@
 // the global Preview and the selected row's formatting stays in the properties
 // rail. No table geometry, wire names, positional badges, or hidden columns
 // leak into the experience.
+//
+// Arrangement is a choice this canvas owns. A case list shows its fields as
+// rows or as a tile, and the switch sits beside the information it rearranges
+// — the same reason order is dragged here and never set from a panel.
 
 "use client";
 
@@ -16,6 +20,8 @@ import type {
 	CaseType,
 	Column,
 	CommitOutcome,
+	TileCell,
+	Uuid,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -24,6 +30,12 @@ import {
 	representedColumnProperties,
 	unrepresentedColumnProperties,
 } from "../seeds";
+import { TileLayoutCanvas } from "../tile/TileLayoutCanvas";
+import {
+	type CaseListArrangement,
+	TileLayoutToggle,
+} from "../tile/TileLayoutToggle";
+import type { TilePresetId } from "../tile/tilePresets";
 import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import {
@@ -62,6 +74,17 @@ export interface CaseListCanvasProps {
 	readonly appId: string;
 	readonly dependencyReview?: CaseAvailabilityComposerProps["dependencyReview"];
 	readonly onReturnToSearchField?: () => void;
+	/** Tile-placement problems, keyed by field. Results owns these; they
+	 *  deliberately stay out of `brokenColumns` so Details is never
+	 *  badged for a problem that only exists on this screen. */
+	readonly tileIssues: ReadonlyMap<Uuid, readonly string[]>;
+	/** Present when the case list cannot be laid out as a tile right now. */
+	readonly tileDisabledReason: string | undefined;
+	readonly onArrangementChange: (next: CaseListArrangement) => void;
+	readonly onPlaceTileCell: (uuid: Uuid, cell: TileCell) => void;
+	readonly onPutColumnOnTile: (uuid: Uuid) => void;
+	readonly onApplyTilePreset: (preset: TilePresetId) => void;
+	readonly onTilePersistOnFormsChange: (persist: boolean) => void;
 }
 
 export function CaseListCanvas({
@@ -88,6 +111,13 @@ export function CaseListCanvas({
 	appId,
 	dependencyReview,
 	onReturnToSearchField,
+	tileIssues,
+	tileDisabledReason,
+	onArrangementChange,
+	onPlaceTileCell,
+	onPutColumnOnTile,
+	onApplyTilePreset,
+	onTilePersistOnFormsChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config.columns);
@@ -95,6 +125,13 @@ export function CaseListCanvas({
 	const repeatableProperties = representedColumnProperties(config, caseType);
 	const selectedColumnUuid =
 		selection?.type === "column" ? selection.uuid : null;
+	const tile = config.tile;
+	// A tile problem marks the same row a kind mismatch would, so one
+	// attention mark on Results covers both.
+	const resultsBrokenColumns = new Set<string>([
+		...brokenColumns,
+		...tileIssues.keys(),
+	]);
 
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-8">
@@ -114,18 +151,34 @@ export function CaseListCanvas({
 
 				<div className="space-y-10">
 					<section aria-labelledby="results-information-heading">
-						<div className="mb-4">
-							<h2
-								id="results-information-heading"
-								className="font-display text-[17px] font-semibold text-nova-text"
-							>
-								Information shown
-							</h2>
-							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
-								{canEdit
-									? "Drag to reorder. Select an item to change its label or appearance."
-									: "People use this information to compare cases"}
-							</p>
+						<div className="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+							<div className="min-w-0 flex-1">
+								<h2
+									id="results-information-heading"
+									className="font-display text-[17px] font-semibold text-nova-text"
+								>
+									Information shown
+								</h2>
+								<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
+									{!canEdit
+										? "People use this information to compare cases"
+										: tile !== undefined
+											? "Drag a field to move it on the tile. Select one to change its place or how it looks."
+											: "Drag to reorder. Select an item to change its label or appearance."}
+								</p>
+							</div>
+							{canEdit && (
+								<TileLayoutToggle
+									value={tile === undefined ? "rows" : "tile"}
+									tileDisabledReason={tileDisabledReason}
+									rowsConsequence={
+										tile?.persistOnForms === true
+											? "Your tile arrangement is kept, and comes back whenever you choose Tile again. The tile will no longer stay on screen during this module’s forms."
+											: undefined
+									}
+									onChange={onArrangementChange}
+								/>
+							)}
 						</div>
 
 						{projection.listVisible.length === 0 ? (
@@ -136,12 +189,25 @@ export function CaseListCanvas({
 										: "People can’t recognize a case from this screen. Ask someone who can edit the app to add information."}
 								</CanvasNotice>
 							</div>
+						) : tile !== undefined ? (
+							<TileLayoutCanvas
+								columns={config.columns}
+								tile={tile}
+								selectedUuid={selectedColumnUuid}
+								issues={tileIssues}
+								canEdit={canEdit}
+								onSelect={(uuid) => onSelect({ type: "column", uuid })}
+								onPlace={onPlaceTileCell}
+								onPlaceUnplaced={onPutColumnOnTile}
+								onApplyPreset={onApplyTilePreset}
+								onPersistOnFormsChange={onTilePersistOnFormsChange}
+							/>
 						) : (
 							<DisplayFieldComposer
 								columns={projection.listVisible}
 								surface="list"
 								selectedUuid={selectedColumnUuid}
-								brokenColumns={brokenColumns}
+								brokenColumns={resultsBrokenColumns}
 								onSelect={(column) =>
 									onSelect({ type: "column", uuid: column.uuid })
 								}
@@ -155,7 +221,7 @@ export function CaseListCanvas({
 								columns={projection.listHidden}
 								properties={availableProperties}
 								repeatableProperties={repeatableProperties}
-								brokenColumns={brokenColumns}
+								brokenColumns={resultsBrokenColumns}
 								onShow={onShowColumn}
 								onRepair={onRepairColumn}
 								onCreate={onAddColumn}

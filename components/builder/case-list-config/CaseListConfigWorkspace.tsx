@@ -92,6 +92,7 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	normalizeOwnerOnlyCaseSearchConfig,
 	type SearchInputDef,
+	type TileCell,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -130,6 +131,22 @@ import {
 	seededColumnAddMutation,
 	seedSearchInputForProperty,
 } from "./seeds";
+import { TileCellInspector } from "./tile/TileCellInspector";
+import type { CaseListArrangement } from "./tile/TileLayoutToggle";
+import {
+	nextFreeTilePlacement,
+	placementForJoiningTile,
+	tileMembership,
+} from "./tile/tileModel";
+import {
+	planTileLayoutDisable,
+	planTileLayoutEnable,
+	planTilePersistOnForms,
+	planTilePlaceField,
+	planTilePreset,
+	tileCellMutations,
+} from "./tile/tileMutationPlan";
+import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
 import {
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
@@ -247,6 +264,10 @@ const PROPERTYLESS_HINT = "Add case information before adding fields";
  *  still absent — first edit persists the seeded shape. */
 const EMPTY_CONFIG: CaseListConfig = { columns: [], searchInputs: [] };
 
+/** Stable empty tile-issue list — a fresh array per render would defeat
+ *  the inspector body's memoization. */
+const NO_TILE_ISSUES: readonly string[] = [];
+
 /** Stable no-case-type verdicts — a fresh object per render would
  *  defeat the canvases' memoization. */
 const EMPTY_VERDICTS = {
@@ -255,6 +276,7 @@ const EMPTY_VERDICTS = {
 	filterBroken: false,
 	searchButtonConditionBroken: false,
 	excludedOwnerIdsBroken: false,
+	tileIssues: new Map<Uuid, readonly string[]>(),
 } as const;
 
 type SearchScreenSettingKey = "searchScreenTitle" | "searchScreenSubtitle";
@@ -681,6 +703,7 @@ function useController(
 		filterBroken,
 		searchButtonConditionBroken,
 		excludedOwnerIdsBroken,
+		tileIssues,
 	} = useMemo(
 		() =>
 			caseType !== undefined
@@ -773,6 +796,33 @@ function useController(
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
+	/* Joining Results while the case list is a tile means taking a place on
+	 * it — an unplaced field the tile shows is a commit-gate rejection, so
+	 * every add and reveal carries its placement in the same batch. A SAVED
+	 * cell is re-adjudicated rather than trusted: a hidden column leaves the
+	 * tile's membership, so its square is free for anything else to take,
+	 * and handing that cell back unchecked would refuse the author's own
+	 * reveal with an overlap they cannot repair from the panel the refusal
+	 * opens. */
+	const TILE_FULL_REASON =
+		"The tile has no room left. Make a field smaller before adding more information.";
+	const tileHasRoom =
+		config.tile === undefined ||
+		nextFreeTilePlacement(
+			tileMembership(config.columns).placed.map((entry) => entry.cell),
+		) !== null;
+	const addResultsDisabledReason =
+		addDisabledReason ?? (tileHasRoom ? undefined : TILE_FULL_REASON);
+
+	/** Give a column the place it needs to join Results, or `null` when the
+	 *  tile has no room for it. Returns the column untouched when Results is
+	 *  showing rows. */
+	const placedForResults = (column: Column): Column | null => {
+		if (config.tile === undefined) return column;
+		const place = placementForJoiningTile(config.columns, column);
+		return place === null ? null : ({ ...column, tile: place } as Column);
+	};
+
 	const routeColumnToRepair = (
 		surface: ColumnSurface,
 		column: Column,
@@ -817,8 +867,19 @@ function useController(
 			order,
 		).find((column) => column.uuid === replacement.uuid);
 		if (revealed === undefined) return;
+		const revealTarget =
+			repair.surface === "list" ? placedForResults(revealed) : revealed;
+		if (revealTarget === null) {
+			setWorkspaceAnnouncement(TILE_FULL_REASON);
+			setSel({
+				type: "column",
+				uuid: replacement.uuid,
+				reveal: { surface: repair.surface, messages: [TILE_FULL_REASON] },
+			});
+			return;
+		}
 		const revealOutcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, current, revealed),
+			columnSnapshotMutations(moduleUuid, current, revealTarget),
 		);
 		if (revealOutcome.ok) {
 			setWorkspaceAnnouncement(
@@ -845,7 +906,12 @@ function useController(
 			},
 		});
 	};
-	const addSeededColumn = (surface: ColumnSurface, seed: Column) => {
+	const addSeededColumn = (surface: ColumnSurface, seedColumn: Column) => {
+		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
+		if (seed === null) {
+			setWorkspaceAnnouncement(TILE_FULL_REASON);
+			return;
+		}
 		const mutation = seededColumnAddMutation(moduleUuid, config, surface, seed);
 		const outcome = commitMany([mutation]);
 		if (outcome.ok) {
@@ -943,11 +1009,20 @@ function useController(
 			order,
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (shown === undefined) return;
+		const target = surface === "list" ? placedForResults(shown) : shown;
+		/* A full tile is stated where the gesture happened. Dispatching would
+		 * bounce off the gate into a repair panel that cannot repair it — the
+		 * only fix is elsewhere on the grid. */
+		if (target === null) {
+			setWorkspaceAnnouncement(TILE_FULL_REASON);
+			routeColumnToRepair(surface, column, [TILE_FULL_REASON]);
+			return;
+		}
 		/* Fully hidden legacy definitions are deliberately absent from normal
 		 * config warnings. Ask the SAME gate silently before revealing one: a
 		 * refusal becomes a repair route, never a toast plus a dead click. */
 		const outcome = inline.commitMany(
-			columnSnapshotMutations(moduleUuid, column, shown),
+			columnSnapshotMutations(moduleUuid, column, target),
 		);
 		if (!outcome.ok) {
 			routeColumnToRepair(surface, column, outcome.messages);
@@ -1161,6 +1236,134 @@ function useController(
 		[commitMany, moduleUuid],
 	);
 
+	// ── Tile arrangement ──
+	//
+	// Turning the tile on lands its placements in the SAME gated batch as
+	// the switch, so the grid an author arrives at already works. Turning
+	// it off touches only the layout slot, so every cell survives and the
+	// drawing comes back intact.
+	const tileDisabledReason = useMemo(() => {
+		if (config.tile !== undefined) return undefined;
+		const plan = planTileLayoutEnable({ moduleUuid, columns: config.columns });
+		return plan.ok ? undefined : plan.reason;
+	}, [config.columns, config.tile, moduleUuid]);
+
+	const setArrangement = useCallback(
+		(next: CaseListArrangement) => {
+			if (next === "tile") {
+				if (config.tile !== undefined) return;
+				const plan = planTileLayoutEnable({
+					moduleUuid,
+					columns: config.columns,
+				});
+				if (!plan.ok) {
+					setWorkspaceAnnouncement(plan.reason);
+					return;
+				}
+				if (commitMany([...plan.mutations]).ok) {
+					setWorkspaceAnnouncement(
+						"Results now shows a tile. Every field has a place on the grid.",
+					);
+				}
+				return;
+			}
+			const persisted = config.tile?.persistOnForms === true;
+			if (config.tile === undefined) return;
+			if (commitMany([...planTileLayoutDisable(moduleUuid)]).ok) {
+				// Every cell survives, but the tile's own setting cannot: with no
+				// tile there is nothing to keep on screen. Say so rather than
+				// letting it disappear quietly.
+				setWorkspaceAnnouncement(
+					persisted
+						? "Results now shows rows. The tile arrangement is kept, and the tile no longer stays on screen during forms."
+						: "Results now shows rows. The tile arrangement is kept.",
+				);
+			}
+		},
+		[commitMany, config.columns, config.tile, moduleUuid],
+	);
+
+	const placeTileCell = useCallback(
+		(uuid: Column["uuid"], cell: TileCell) => {
+			const column = config.columns.find(
+				(candidate) => candidate.uuid === uuid,
+			);
+			if (column === undefined) return;
+			commitMany([...tileCellMutations(moduleUuid, column, cell)]);
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const clearTileCell = useCallback(
+		(uuid: Column["uuid"]) => {
+			const column = config.columns.find(
+				(candidate) => candidate.uuid === uuid,
+			);
+			if (column === undefined) return;
+			if (
+				commitMany([...tileCellMutations(moduleUuid, column, undefined)]).ok
+			) {
+				setWorkspaceAnnouncement(
+					`${columnDisplayLabel(column)} no longer has a saved tile place`,
+				);
+			}
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const putColumnOnTile = useCallback(
+		(uuid: Column["uuid"]) => {
+			const plan = planTilePlaceField({
+				moduleUuid,
+				columns: config.columns,
+				uuid,
+			});
+			if (!plan.ok) {
+				setWorkspaceAnnouncement(plan.reason);
+				return;
+			}
+			if (commitMany([...plan.mutations]).ok) {
+				const column = config.columns.find(
+					(candidate) => candidate.uuid === uuid,
+				);
+				setWorkspaceAnnouncement(
+					`${column === undefined ? "The field" : columnDisplayLabel(column)} is now on the tile`,
+				);
+				setSel({ type: "column", uuid });
+			}
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const applyTilePreset = useCallback(
+		(presetId: TilePresetId) => {
+			const preset = TILE_PRESETS.find(
+				(candidate) => candidate.id === presetId,
+			);
+			if (preset === undefined) return;
+			const plan = planTilePreset({
+				moduleUuid,
+				columns: config.columns,
+				preset,
+			});
+			if (!plan.ok) {
+				setWorkspaceAnnouncement(plan.reason);
+				return;
+			}
+			if (commitMany([...plan.mutations]).ok) {
+				setWorkspaceAnnouncement(`Tile rearranged as ${preset.label}`);
+			}
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const setTilePersistOnForms = useCallback(
+		(persist: boolean) => {
+			commitMany([...planTilePersistOnForms(moduleUuid, persist, config.tile)]);
+		},
+		[commitMany, config.tile, moduleUuid],
+	);
+
 	// ── Inspector resolution ──
 	//
 	// Computed only while the workspace is actually on-screen (`active`). When
@@ -1194,6 +1397,11 @@ function useController(
 			onCancelInputRemovalReview: cancelInputRemovalReview,
 			onCompleteInputRemovalReview: completeInputRemovalReview,
 			onReviewInputRemovalDependency: reviewInputRemovalDependency,
+			tileOn: config.tile !== undefined,
+			tileIssues,
+			onPlaceTileCell: placeTileCell,
+			onClearTileCell: clearTileCell,
+			onPutColumnOnTile: putColumnOnTile,
 		});
 
 		if (sel?.type === "search-condition") {
@@ -1307,7 +1515,15 @@ function useController(
 		filterBroken,
 		excludedOwnerIdsBroken,
 		searchButtonConditionBroken,
+		tileIssues,
+		tileDisabledReason,
+		setArrangement,
+		placeTileCell,
+		putColumnOnTile,
+		applyTilePreset,
+		setTilePersistOnForms,
 		addDisabledReason,
+		addResultsDisabledReason,
 		opensResultsAutomatically,
 		searchConditionSurface,
 		resultsDependencyReview,
@@ -1473,7 +1689,15 @@ export function CaseListWorkspaceCanvas() {
 		filterBroken,
 		excludedOwnerIdsBroken,
 		searchButtonConditionBroken,
+		tileIssues,
+		tileDisabledReason,
+		setArrangement,
+		placeTileCell,
+		putColumnOnTile,
+		applyTilePreset,
+		setTilePersistOnForms,
 		addDisabledReason,
+		addResultsDisabledReason,
 		opensResultsAutomatically,
 		resultsDependencyReview,
 		configureSearchAction,
@@ -1572,7 +1796,7 @@ export function CaseListWorkspaceCanvas() {
 							onSelect={setSel}
 							onAddColumn={(property) => addColumn("list", property)}
 							onAddCalculated={() => addCalculatedColumn("list")}
-							addColumnDisabledReason={addDisabledReason}
+							addColumnDisabledReason={addResultsDisabledReason}
 							onMoveColumn={(uuid, toIndex) =>
 								moveColumn("list", uuid, toIndex)
 							}
@@ -1589,6 +1813,13 @@ export function CaseListWorkspaceCanvas() {
 							appId={appId}
 							dependencyReview={resultsDependencyReview}
 							onReturnToSearchField={returnToInputRemovalReview}
+							tileIssues={tileIssues}
+							tileDisabledReason={tileDisabledReason}
+							onArrangementChange={setArrangement}
+							onPlaceTileCell={placeTileCell}
+							onPutColumnOnTile={putColumnOnTile}
+							onApplyTilePreset={applyTilePreset}
+							onTilePersistOnFormsChange={setTilePersistOnForms}
 						/>
 					</div>
 				</Activity>
@@ -1648,6 +1879,11 @@ interface ResolveInspectorArgs {
 	readonly onReviewInputRemovalDependency: (
 		dependency: SearchInputRemovalDependency,
 	) => void;
+	readonly tileOn: boolean;
+	readonly tileIssues: ReadonlyMap<string, readonly string[]>;
+	readonly onPlaceTileCell: (uuid: Column["uuid"], cell: TileCell) => void;
+	readonly onClearTileCell: (uuid: Column["uuid"]) => void;
+	readonly onPutColumnOnTile: (uuid: Column["uuid"]) => void;
 }
 
 /**
@@ -1691,6 +1927,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						<ColumnInspectorBody
 							key={column.uuid}
 							column={column}
+							columns={config.columns}
 							surface={surface}
 							visibleCount={
 								surface === "list"
@@ -1701,7 +1938,14 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							caseTypes={args.caseTypes}
 							currentCaseType={args.caseType}
 							repairMessages={sel.reveal?.messages}
+							tileOn={args.tileOn}
+							tileIssues={args.tileIssues.get(column.uuid) ?? NO_TILE_ISSUES}
 							onChange={(next) => args.replaceColumn(column.uuid, next)}
+							onPlaceTileCell={(cell) =>
+								args.onPlaceTileCell(column.uuid, cell)
+							}
+							onClearTileCell={() => args.onClearTileCell(column.uuid)}
+							onPutOnTile={() => args.onPutColumnOnTile(column.uuid)}
 							onHide={() => args.onHideColumn(surface, column)}
 							onDelete={() => args.onDeleteColumn(surface, column)}
 						/>
@@ -1808,17 +2052,26 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 function ColumnInspectorBody({
 	column,
+	columns,
 	surface,
 	visibleCount,
 	listVisibleCount,
 	caseTypes,
 	currentCaseType,
 	repairMessages,
+	tileOn,
+	tileIssues,
 	onChange,
+	onPlaceTileCell,
+	onClearTileCell,
+	onPutOnTile,
 	onHide,
 	onDelete,
 }: {
 	readonly column: Column;
+	/** The whole case list — a tile placement is adjudicated against the
+	 * other fields on the tile, so the rail needs more than one column. */
+	readonly columns: readonly Column[];
 	readonly surface: ColumnSurface;
 	readonly visibleCount: number;
 	readonly listVisibleCount: number;
@@ -1827,11 +2080,20 @@ function ColumnInspectorBody({
 	/** Defined (including an empty array) while this off-screen definition is
 	 * being repaired in response to an Add information request. */
 	readonly repairMessages: readonly string[] | undefined;
+	readonly tileOn: boolean;
+	readonly tileIssues: readonly string[];
 	readonly onChange: (next: Column) => void;
+	readonly onPlaceTileCell: (cell: TileCell) => void;
+	readonly onClearTileCell: () => void;
+	readonly onPutOnTile: () => void;
 	readonly onHide: () => void;
 	readonly onDelete: () => void;
 }) {
+	const canEdit = useCanEdit();
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
+	/* Focus lands here when the tile section removes itself — its own button
+	 * goes with it, and an unmounted action never drops focus on the page. */
+	const hideRef = useRef<HTMLButtonElement>(null);
 	const screenName = surfaceDisplayName(surface);
 	const keepLastResult = surface === "list" && visibleCount <= 1;
 	const deleteWouldRemoveLastResult =
@@ -1878,9 +2140,29 @@ function ColumnInspectorBody({
 				caseTypes={caseTypes}
 				currentCaseType={currentCaseType}
 			/>
+			{/* Not gated on `repairing`: a refused reveal is often a PLACEMENT
+			 * refusal, and these are the controls that repair it. Hiding them
+			 * exactly when the panel exists to fix a place is the one state
+			 * where the author has no way forward. */}
+			<TileCellInspector
+				column={column}
+				columns={columns}
+				tileOn={tileOn}
+				issues={tileIssues}
+				canEdit={canEdit}
+				onPlace={onPlaceTileCell}
+				onClearPlace={() => {
+					onClearTileCell();
+					// The section unmounts with its own button, so hand focus to
+					// the next thing in the body rather than dropping it on the page.
+					requestAnimationFrame(() => hideRef.current?.focus());
+				}}
+				onPutOnTile={onPutOnTile}
+			/>
 			{!repairing && (
 				<div className="border-t border-nova-border pt-3">
 					<Button
+						ref={hideRef}
 						type="button"
 						onClick={onHide}
 						disabled={keepLastResult}

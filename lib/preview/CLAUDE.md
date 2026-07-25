@@ -175,6 +175,41 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 Server side, every case-data Server Action resolves the identity once at its own boundary — `resolvePreviewIdentityForApp(appId, personaUuid)` (helpers) — and hands it to `gatedCaseStore`. The store factory takes the identity, never a bare user id. A client may name WHICH persona (a uuid, resolved against the committed blueprint; one naming nothing falls back to previewing as the member) but never asserts an identity, and the persona rides the WRITE paths too — `submitFormAction`'s resolved `ownerId` is what every case the submission creates is owned by, so dropping it would give a persona's work to the signed-in member while every read still looked persona-scoped. Client side, `BuilderFormEngineProvider` seeds `useSelectedPreviewIdentity()` on the `EngineController` inside its `useState` initializer — child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild — and a follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores user-touched values through the engine's shared snapshot/restore (same touched-only contract as blueprint-edit recreation — untouched values may be world-dependent defaults and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. Every suite that mounts `BuilderFormEngineProvider` (directly or transitively) must mock `@/lib/auth/hooks/useAuth`, or the session atom's `setTimeout(0) → fetchSession()` trips the async-leak gate. `#user/<prop>` resolves from the identity's `usercase` projection — the `commcare-user` case the wire's `#user/` hashtag expands to, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
 
+## Case tiles in the running app
+
+A `caseListConfig.tile` turns each Results row into a grid. `caseTileLayout.ts`
+resolves the geometry and `caseTileRendering.ts` turns it into declarations;
+`components/preview/shared/CaseTile.tsx` is the only renderer, shared by the
+Results rows and the tile pinned above forms, so the two cannot draw one case
+differently. Both files carry the CommCare citations — read them before changing
+a number.
+
+Three things the rest of the preview has to know:
+
+- **A tile carries more columns than it shows, and the extra ones hold no
+  square.** `tileResultsColumns` selects the set the short detail emits: every
+  Results-visible column PLUS every hidden column that still owns a Default-order
+  rule. That carrier renders no value (Web Apps' `widthHint === 0` arm puts it in
+  a `d-none` wrapper) and it is NOT a cell: `columns.ts::tileStyleChildren`
+  refuses a `<style>` for a hidden column, so the device gives it no `grid-area`
+  and `grid.scss::.box` gives its wrapper no size. `tileResultsColumns` therefore
+  STRIPS the stored placement off a hidden carrier — the cell stays on the
+  document so unhiding restores the drawing, but leaving it attached here would
+  let an invisible column widen the grid's extent and flip the tile-wide
+  border/shading switch in the preview and nowhere else.
+- **The grid never reflows.** A tile is the device's own phone-first layout, so
+  compact widths change the row's gutters and nothing else; the list holds an
+  18rem floor and scrolls horizontally below it rather than crushing 12 columns,
+  and from the medium breakpoint up the tile is capped at a 48rem measure instead
+  of stretching to an extra-large canvas. The reasoning lives on `ResultsTiles`.
+- **The persistent tile is a separate read.** `PersistentCaseTile` loads its own
+  row with the display config attached so calculated cells project exactly as in
+  Results; the form's case read stays display-free because it feeds the engine.
+  It sticks to the preview scroller, which is why `FormScreen`'s frame grows with
+  its content (`min-h-full` + a growing frame) rather than being pinned to one
+  viewport height — a sticky element can only travel as far as its containing
+  block.
+
 ## Case data resolution
 
 The nav stack carries only `caseId`. Case data is looked up by id at the point of use, not stored in navigation state. Swapping the data source (dummy → real API) only requires changing the lookup functions.

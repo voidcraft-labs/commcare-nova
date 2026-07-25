@@ -150,6 +150,7 @@ vi.mock("../canvas/CaseListCanvas", () => ({ CaseListCanvas: () => null }));
 vi.mock("../canvas/DetailCanvas", () => ({ DetailCanvas: () => null }));
 vi.mock("../configValidity", () => ({
 	caseListConfigVerdicts: () => ({
+		tileIssues: new Map<string, readonly string[]>(),
 		errorAreas: { search: false, list: false, detail: false },
 		brokenColumns: new Set<string>(),
 		filterBroken: false,

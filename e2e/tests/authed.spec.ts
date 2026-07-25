@@ -46,6 +46,7 @@ interface SeedManifest {
 			results: string;
 			details: string;
 			condition: string;
+			tileResults: string;
 		};
 	};
 }
@@ -1254,6 +1255,238 @@ test.describe("authenticated builder", () => {
 				`\u201c${CASE_WORKSPACE_SEED.moduleName}\u201d always appears.`,
 			),
 		).toBeVisible();
+	});
+
+	/**
+	 * Visual parity for the tile-laid-out case list. Each assertion is a
+	 * statement about what a CommCare client draws, so a regression here is
+	 * a preview that has stopped agreeing with the device.
+	 */
+	test("a tile-laid-out case list renders at parity and pins its tile above the form", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.tileResults);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		const tileList = page.locator('[data-case-results="tile"]');
+		await expect(tileList).toBeVisible({ timeout: 20_000 });
+
+		const tiles = tileList.locator('[data-case-tile="results"]');
+		const rows = tileList.locator("[data-case-result-row]");
+		await expect(tiles.first()).toBeVisible();
+
+		await test.step("the grid is the occupied extent, not the 12-column canvas", async () => {
+			// The seeded tile's widest cell ends at column 6. A renderer that
+			// assumed the authoring canvas would draw every tile at half width.
+			await expect(tiles.first()).toHaveAttribute("data-tile-columns", "6");
+			const trackCount = await tiles
+				.first()
+				.evaluate(
+					(el) =>
+						getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length,
+				);
+			expect(trackCount).toBe(6);
+		});
+
+		await test.step("one tile per row, sized to its content", async () => {
+			// `numEntitiesPerRow` resolves to 1 and `useUniformUnits` to false.
+			expect(await tiles.count()).toBe(await rows.count());
+			const [first, second] = await Promise.all([
+				tiles.nth(0).boundingBox(),
+				tiles.nth(1).boundingBox(),
+			]);
+			expect(first).not.toBeNull();
+			expect(second).not.toBeNull();
+			if (first === null || second === null) return;
+			expect(second.x).toBeCloseTo(first.x, 0);
+			expect(second.y).toBeGreaterThan(first.y + first.height - 1);
+		});
+
+		await test.step("a boxed cell stretches while a plain sibling keeps its alignment", async () => {
+			const tile = tiles.first();
+			const boxed = tile.locator('[data-tile-cell="boxed"]').first();
+			const inset = tile.locator('[data-tile-cell="inset"]').first();
+			expect(
+				await boxed.evaluate((el) => getComputedStyle(el).justifySelf),
+			).toBe("stretch");
+			expect(
+				await inset.evaluate((el) => getComputedStyle(el).justifySelf),
+			).toBe("start");
+
+			const [tileBox, boxedBox, insetBox] = await Promise.all([
+				tile.boundingBox(),
+				boxed.boundingBox(),
+				inset.boundingBox(),
+			]);
+			expect(tileBox).not.toBeNull();
+			expect(boxedBox).not.toBeNull();
+			expect(insetBox).not.toBeNull();
+			if (tileBox === null || boxedBox === null || insetBox === null) return;
+			// The boxed cell fills its two of six columns (less its margins);
+			// the plain one hugs its text inside a wider span.
+			expect(boxedBox.width).toBeGreaterThan((tileBox.width * 2) / 6 - 12);
+			expect(insetBox.width).toBeLessThan(tileBox.width * 0.5);
+		});
+
+		await test.step("an authored cell action stays a sibling of the row action", async () => {
+			// A phone link may never be nested inside the row's primary button:
+			// HTML forbids it, and a worker reaching the number would open the
+			// case instead of dialling.
+			const firstRow = rows.first();
+			const phone = firstRow.getByRole("link", { name: /^Call / });
+			await expect(phone).toBeVisible();
+			expect(
+				await phone.evaluate((el) =>
+					el.closest("[data-case-result-action]") === null
+						? "sibling"
+						: "nested",
+				),
+			).toBe("sibling");
+			const phoneBox = await phone.boundingBox();
+			expect(phoneBox).not.toBeNull();
+			expect(phoneBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+			await phone.focus();
+			await expect(phone).toBeFocused();
+		});
+
+		await test.step("the same tile pins above the module's form", async () => {
+			await rows.first().locator("[data-case-result-action]").click();
+			const persistent = page.locator("[data-persistent-case-tile]");
+			await expect(persistent).toBeVisible({ timeout: 20_000 });
+			await expect(
+				persistent.locator('[data-case-tile="persistent"]'),
+			).toHaveAttribute("data-tile-columns", "6");
+
+			// Context, not a chooser: nothing in the band opens a case.
+			await expect(persistent.locator("[data-case-result-action]")).toHaveCount(
+				0,
+			);
+
+			const [band, formHeader] = await Promise.all([
+				persistent.boundingBox(),
+				page.locator("[data-form-header]").boundingBox(),
+			]);
+			expect(band).not.toBeNull();
+			expect(formHeader).not.toBeNull();
+			if (band === null || formHeader === null) return;
+			expect(band.y + band.height).toBeLessThanOrEqual(formHeader.y + 1);
+		});
+
+		await test.step("the band stays pinned while the form scrolls beneath it", async () => {
+			// A short window is what makes the form overflow at all; without it
+			// there is nothing to scroll and the sticky contract goes untested.
+			await page.setViewportSize({ width: 1280, height: 420 });
+			const persistent = page.locator("[data-persistent-case-tile]");
+			const before = await persistent.boundingBox();
+			const scroller = page.locator("[data-preview-scroll-container]").first();
+			await expect
+				.poll(async () =>
+					scroller.evaluate((el) => el.scrollHeight - el.clientHeight),
+				)
+				.toBeGreaterThan(0);
+			await scroller.evaluate((el) => {
+				el.scrollTop = el.scrollHeight;
+			});
+			await expect
+				.poll(async () => scroller.evaluate((el) => el.scrollTop))
+				.toBeGreaterThan(0);
+			const after = await persistent.boundingBox();
+			expect(before).not.toBeNull();
+			expect(after).not.toBeNull();
+			if (before === null || after === null) return;
+			expect(after.y).toBeCloseTo(before.y, 0);
+			await page.setViewportSize({ width: 1280, height: 720 });
+		});
+	});
+
+	/**
+	 * The tile's AUTHORING surface, which the parity test above never
+	 * enters. Everything asserted here is something a state test cannot
+	 * see: that a keyboard gesture round-trips through the real commit gate
+	 * and comes back with the cell's new place in its accessible name, that
+	 * a refused gesture states its reason and leaves the cell where it was,
+	 * and that focus survives the commit.
+	 *
+	 * It deliberately restores the arrangement it found, because the seed's
+	 * tile module is shared with the parity test above.
+	 */
+	test("the tile grid moves a field by keyboard and states a refused move", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.tileResults);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await test.step("Results is arranged as a tile, and says how wide it draws", async () => {
+			await expect(
+				page.getByRole("group", { name: /^Tile layout, 12 columns/ }),
+			).toBeVisible();
+			// `exact` matters: the seeded module is called "Patient tile".
+			await expect(
+				page.getByRole("button", { name: "Tile", exact: true }),
+			).toHaveAttribute("aria-pressed", "true");
+			// The occupied extent, not the 12-column authoring canvas — the
+			// same fact the running list's grid is built from.
+			await expect(
+				page.getByText(/This tile uses 6 columns and 3 rows/),
+			).toBeVisible();
+		});
+
+		const phone = page.getByRole("button", {
+			name: "Phone number, columns 1 to 6, row 3",
+		});
+
+		await test.step("an arrow key moves the field and renames its place", async () => {
+			await phone.focus();
+			await phone.press("ArrowDown");
+			const moved = page.getByRole("button", {
+				name: "Phone number, columns 1 to 6, row 4",
+			});
+			await expect(moved).toBeVisible();
+			// The commit replaced the doc; the cell must still hold focus.
+			await expect(moved).toBeFocused();
+			await expect(
+				page.getByText(/This tile uses 6 columns and 4 rows/),
+			).toBeVisible();
+		});
+
+		await test.step("a move onto an occupied square is refused, and says why", async () => {
+			const patient = page.getByRole("button", {
+				name: "Patient, columns 1 to 4, row 1",
+			});
+			await patient.focus();
+			await patient.press("ArrowDown");
+			// Twice on purpose: the canvas states the reason where the author
+			// is looking, and the live region announces the same words.
+			await expect(
+				page.getByText(
+					"Patient would sit on top of Village. Two fields can’t share a square on a tile — one would be drawn over the other.",
+				),
+			).toHaveCount(2);
+			// Refused means unmoved, not moved-and-reverted.
+			await expect(patient).toBeVisible();
+			await expect(patient).toBeFocused();
+		});
+
+		await test.step("the arrangement returns to where it started", async () => {
+			const moved = page.getByRole("button", {
+				name: "Phone number, columns 1 to 6, row 4",
+			});
+			await moved.focus();
+			await moved.press("ArrowUp");
+			await expect(
+				page.getByRole("button", {
+					name: "Phone number, columns 1 to 6, row 3",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText(/This tile uses 6 columns and 3 rows/),
+			).toBeVisible();
+		});
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

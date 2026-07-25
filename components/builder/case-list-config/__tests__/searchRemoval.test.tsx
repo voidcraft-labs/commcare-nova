@@ -339,6 +339,7 @@ vi.mock("../canvas/SearchConditionCanvas", () => ({
 }));
 vi.mock("../configValidity", () => ({
 	caseListConfigVerdicts: () => ({
+		tileIssues: new Map<string, readonly string[]>(),
 		errorAreas: { search: false, list: false, detail: false },
 		brokenColumns: new Set<string>(testState.brokenColumnUuids),
 		filterBroken: false,

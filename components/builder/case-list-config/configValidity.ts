@@ -22,6 +22,9 @@
 //     `searchInputResolution` plus per-row default-expression (no
 //     inputs in scope) / advanced-predicate (every named row in scope)
 //     checks — exactly the editors `SearchInputEditor` mounts.
+//   - tile placement: `tileLayoutIssues`, which mirrors
+//     `lib/commcare/validator/rules/case-list/caseTileLayout.ts` rule
+//     for rule — the same geometry-always / coverage-while-on split.
 //
 // ONE walk produces three answers, because they gate different
 // surfaces:
@@ -35,6 +38,11 @@
 //     error marks (a tab dot must point at something findable).
 //   - `filterBroken` — used to mark Results' Cases available composer
 //     directly so every tab dot leads somewhere.
+//   - `tileIssues` — per-column tile-placement problems, kept OUT of
+//     `brokenColumns` on purpose: a tile problem is a Results problem,
+//     and folding it into the shared set would badge the same field on
+//     Details, where nothing about it is wrong. Results unions the two
+//     itself.
 
 import { caseSearchPredicateVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
@@ -61,6 +69,7 @@ import {
 	rowHasStructuralError,
 	searchInputDecls,
 } from "./searchInputResolution";
+import { tileIssuesByColumn, tileLayoutIssues } from "./tile/tileModel";
 
 /** Which workspace tabs currently host a configuration error — the
  *  tab strip badges these so a problem on an unopened tab is visible
@@ -81,6 +90,10 @@ export interface CaseListConfigVerdicts {
 	readonly searchButtonConditionBroken: boolean;
 	/** Assigned-case expressions live in Results beside Cases available. */
 	readonly excludedOwnerIdsBroken: boolean;
+	/** Tile-placement problems, keyed by the field they belong to, in
+	 *  the words the grid and the inspector show. Empty for a case list
+	 *  with no stored cells. */
+	readonly tileIssues: ReadonlyMap<Uuid, readonly string[]>;
 }
 
 export interface CaseListConfigVerdictOptions {
@@ -142,6 +155,12 @@ export function caseListConfigVerdicts(
 			markBrokenColumn(column);
 		}
 	}
+
+	// ── Tile placement ──
+	// Geometry is checked whether or not the layout is on, so a stored
+	// cell that could not come back is visible before the author asks for
+	// it; coverage only while it is on. Both mirror the validator rule.
+	const tileIssues = tileIssuesByColumn(tileLayoutIssues(config));
 
 	// Search widgets expose their runtime scalar type, not the targeted case
 	// property's type. This is the same domain mapping the gate and Preview use.
@@ -220,12 +239,16 @@ export function caseListConfigVerdicts(
 		errorAreas: {
 			search,
 			list:
-				listColumnsBroken || filterIsBroken || boundary.excludedOwnerIdsBroken,
+				listColumnsBroken ||
+				filterIsBroken ||
+				boundary.excludedOwnerIdsBroken ||
+				tileIssues.size > 0,
 			detail: detailColumnsBroken,
 		},
 		brokenColumns,
 		filterBroken: filterIsBroken,
 		searchButtonConditionBroken: boundary.searchButtonConditionBroken,
 		excludedOwnerIdsBroken: boundary.excludedOwnerIdsBroken,
+		tileIssues,
 	};
 }

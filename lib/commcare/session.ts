@@ -96,6 +96,16 @@ export interface SessionDatum {
 	function?: string;
 	detailSelect?: string;
 	detailConfirm?: string;
+	/**
+	 * Detail kept on screen for the whole of the entry it belongs to —
+	 * CommCare's persistent case tile. Web Apps renders it in the sticky
+	 * `#persistent-case-tile` region above the form
+	 * (`commcare-hq/corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js::PersistentCaseTileView`),
+	 * suppressed only inside HQ's own App Preview pane, which Nova does
+	 * not target. Nova sets it to the module's short detail exactly when
+	 * the case list carries a tile layout that asks to persist.
+	 */
+	detailPersistent?: string;
 	autoselect?: boolean;
 }
 
@@ -388,6 +398,7 @@ export function deriveSessionDatums(
 	excludedOwnerIds?: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
+	persistentDetailId?: string,
 ): SessionDatum[] {
 	const datums: SessionDatum[] = [];
 
@@ -406,6 +417,9 @@ export function deriveSessionDatums(
 			),
 			value: "./@case_id",
 			detailSelect: `m${moduleIndex}_case_short`,
+			...(persistentDetailId !== undefined && {
+				detailPersistent: persistentDetailId,
+			}),
 		});
 	}
 
@@ -672,6 +686,7 @@ export function deriveEntryDefinition(
 	relationContext: RelationEvaluationScopeContext = {},
 	formDisplayCondition?: Predicate,
 	lookupNaming?: LookupWireNaming,
+	persistentDetailId?: string,
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -685,6 +700,7 @@ export function deriveEntryDefinition(
 		excludedOwnerIds,
 		relationContext,
 		lookupNaming,
+		persistentDetailId,
 	);
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
@@ -803,6 +819,7 @@ export function deriveCaseListEntryDefinition(
 	excludedOwnerIds?: ValueExpression,
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
+	persistentDetailId?: string,
 ): EntryDefinition {
 	// The browse datum: loads a case from the list into both the list
 	// (detail-select) and detail (detail-confirm) screens. Shares the
@@ -823,6 +840,9 @@ export function deriveCaseListEntryDefinition(
 		detailSelect: `m${moduleIndex}_case_short`,
 		...(hasDetailScreen && {
 			detailConfirm: `m${moduleIndex}_case_long`,
+		}),
+		...(persistentDetailId !== undefined && {
+			detailPersistent: persistentDetailId,
 		}),
 	};
 
@@ -885,6 +905,8 @@ function buildDatumElement(d: SessionDatum): Element {
 	if (d.detailSelect !== undefined) attribs["detail-select"] = d.detailSelect;
 	if (d.detailConfirm !== undefined)
 		attribs["detail-confirm"] = d.detailConfirm;
+	if (d.detailPersistent !== undefined)
+		attribs["detail-persistent"] = d.detailPersistent;
 	return el("datum", attribs);
 }
 

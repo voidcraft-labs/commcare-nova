@@ -52,6 +52,7 @@ import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/remove
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "@/lib/agent/tools/case-list-config/reorderSearchInputs";
 import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
+import { setCaseListTileTool } from "@/lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
@@ -172,6 +173,14 @@ const SHARED_TOOLS: ReadonlyArray<{
 	{
 		name: "set_case_list_filter",
 		tool: setCaseListFilterTool,
+		requires: "edit",
+	},
+	/* The case list's other layout: a grid of placed fields instead of a
+	 * row of columns. One tool carries the layout switch AND every
+	 * placement because the commit gate judges them together. */
+	{
+		name: "set_case_list_tile",
+		tool: setCaseListTileTool,
 		requires: "edit",
 	},
 	{

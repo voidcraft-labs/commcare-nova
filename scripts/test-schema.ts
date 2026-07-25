@@ -18,7 +18,7 @@
  *     registered schema. Known names: `addFields`,
  *     `addCaseListColumns`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
- *     `setCaseListFilter`, `addSearchInputs`, `updateSearchInput`,
+ *     `setCaseListFilter`, `setCaseListTile`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `moveField`, `createForm`, `createModule`, `updateModule`,
@@ -38,6 +38,7 @@ import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/remov
 import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "../lib/agent/tools/case-list-config/reorderSearchInputs";
 import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCaseListFilter";
+import { setCaseListTileTool } from "../lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
@@ -123,6 +124,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: setCaseListFilterTool.inputSchema,
 		prompt:
 			"Use setCaseListFilter to set the filter on module 0 to a comparison: the patient case status property equals the literal string active.",
+	},
+	{
+		name: "setCaseListTile",
+		description: setCaseListTileTool.description,
+		schema: setCaseListTileTool.inputSchema,
+		prompt:
+			"Use setCaseListTile on module 0 to lay the case list out as a tile that stays above every form, placing field 11111111-1111-1111-1111-111111111111 across the full width of the top row and field 22222222-2222-2222-2222-222222222222 on the left half of the second row.",
 	},
 	{
 		name: "addSearchInputs",

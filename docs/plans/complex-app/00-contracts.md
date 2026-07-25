@@ -43,6 +43,15 @@ its reviewer assert the emitted bytes against. The bar is "would HQ's importer
 accept these bytes", never "does the shape look right", and it applies to tiles,
 form links, endpoints, and multi-select alike.
 
+Some shapes HQ never filed as a fixture file — it asserts them as inline
+`assertXmlPartialEqual` partials inside its own test. Those partials **are** HQ's
+canonical bytes; whether they live in a file is HQ's filing convention, not a
+difference in authority. So where no fixture file exists, name the inline
+assertion by `file::Class` and assert against it exactly as against a file. What
+the rule forbids is unchanged either way: "I verified it against the emitter" is
+not a byte assertion, and a unit that cannot name a byte oracle has not met the
+bar.
+
 **Every author-facing vocabulary ships its three surfaces.** A unit that adds
 something an author can create also ships its SA tools, its MCP projection, and
 its public docs — the three editors edit one document, so a vocabulary reachable
@@ -117,10 +126,16 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ### Deliberate target gaps
 
-- **Tile controls that cannot survive HQ upload.** `entitiesPerRow` and
-  `uniformCells` are excluded from constructible state: HQ's importer does not
-  round-trip them, so an app carrying them would silently lose them on the
-  primary delivery path.
+- **Tile controls HQ cannot express.** Tiles per row and square cells are
+  excluded from constructible state. These are not fields HQ round-trips badly —
+  HQ has no model field for either, never emits the corresponding attributes, and
+  can reach them only through a raw `Detail.custom_xml` escape hatch. They exist
+  solely as `<detail>` attributes the client reads (`fit-across` and
+  `uniform-units`, both in
+  `commcare-core/.../org/commcare/xml/DetailParser.java::DetailParser.parse`),
+  defaulting to one tile per row and content-sized rows. Because they are absent,
+  Nova's tile renderer pins those two runtime defaults explicitly rather than
+  leaving them implied.
 - **Case attachment display is link-first.** URL-property mode is the normal
   path. The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicit
   opt-in that works only on a domain carrying HQ's `MM_CASE_PROPERTIES` toggle —
