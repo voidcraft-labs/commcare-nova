@@ -99,6 +99,10 @@ describe("case workspace visual-QA seed", () => {
 			firstCase: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/cases/${CASE_ID}`,
 			tileResults: `/build/${APP_ID}/${tile.moduleUuid}/results`,
 			tileForm: `/build/${APP_ID}/${tile.formUuid}`,
+			projectData: `/build/${APP_ID}/project-data`,
+			// A selected field serializes as its own uuid, so the smoke's deep
+			// link into the options-source editor is one segment, not two.
+			selectField: `/build/${APP_ID}/${tile.selectFieldUuid}`,
 		});
 	});
 

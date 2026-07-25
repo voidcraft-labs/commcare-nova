@@ -46,6 +46,7 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import {
 	buildCaseWorkspaceBlueprint,
 	CASE_WORKSPACE_SEED,
@@ -385,6 +386,50 @@ async function main(): Promise<void> {
 	if (!firstCaseId) {
 		throw new Error("e2e/seed.ts: patient workspace seeded no case rows");
 	}
+	/* One Project data table for the smoke's primary gesture: open the
+	 * workspace, open the table, then bind a select to a column of it. Written
+	 * through the real service so its counters, order keys, and revisions are
+	 * the ones a live table has — a hand-inserted row would let the workspace
+	 * read a table no writer could have produced. */
+	const lookupScope = {
+		projectId: seedProjectId,
+		actorId: SEED.userId,
+		role: "owner",
+	};
+	const referralTable = await createLookupTable(lookupScope, {
+		name: CASE_WORKSPACE_SEED.lookupTableName,
+		tag: CASE_WORKSPACE_SEED.lookupTableTag,
+		columns: [
+			{
+				wireName: "code",
+				label: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+				dataType: "text",
+			},
+			{
+				wireName: "destination",
+				label: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+				dataType: "text",
+			},
+		],
+	});
+	const referralColumns = referralTable.columns;
+	let referralRevision = referralTable.tableRevision;
+	for (const [code, destination] of [
+		["chc", "Community health centre"],
+		["dh", "District hospital"],
+	] as const) {
+		const receipt = await createLookupRow(lookupScope, {
+			tableId: referralTable.id,
+			expectedTableRevision: referralRevision,
+			toIndex: 0,
+			values: {
+				[referralColumns[0].id]: code,
+				[referralColumns[1].id]: destination,
+			},
+		});
+		referralRevision = receipt.tableRevision;
+	}
+
 	const caseWorkspace = {
 		appId: caseWorkspaceAppId,
 		moduleUuid: CASE_WORKSPACE_SEED.moduleUuid,

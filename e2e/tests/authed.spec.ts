@@ -47,6 +47,8 @@ interface SeedManifest {
 			details: string;
 			condition: string;
 			tileResults: string;
+			projectData: string;
+			selectField: string;
 		};
 	};
 }
@@ -1840,5 +1842,88 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("button", { name: "Account menu" }),
 		).toBeVisible();
+	});
+
+	/**
+	 * The Project data workspace's reason to exist, end to end: a shared table
+	 * is there, it can be opened, and a question can be pointed at one of its
+	 * columns.
+	 *
+	 * This path exists because the two defects that shipped through review —
+	 * a table picker that silently did nothing, and a date-and-time cell that
+	 * erased itself — both passed the type checker, the linter, and every pure
+	 * test. They were only visible by driving the surface. `View = f(state)`
+	 * makes the state model the right unit for Vitest; it does not make the
+	 * composition around it verify itself.
+	 */
+	test("a select can be pointed at a shared data table's column", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+
+		// 1. The workspace lists the Project's tables, and says they are shared.
+		await page.goto(seed.caseWorkspace.routes.projectData);
+		await expect(
+			page.getByRole("heading", { name: "Data tables", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByText("shared with every app in this project", { exact: false }),
+		).toBeVisible();
+
+		// 2. Opening one shows its rows — the read path, columns and all.
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupTableName}`),
+			})
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.lookupTableName,
+				level: 1,
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("columnheader", {
+				name: new RegExp(CASE_WORKSPACE_SEED.lookupLabelColumnLabel),
+			}),
+		).toBeVisible();
+		await expect(page.getByText("District hospital")).toBeVisible();
+
+		// 3. The gesture the unit is for: bind a question's choices to a column.
+		await page.goto(seed.caseWorkspace.routes.selectField);
+		const source = page.getByRole("combobox", {
+			name: "Where the choices come from",
+		});
+		await expect(source).toBeVisible({ timeout: 20_000 });
+		// It starts on the field's own typed-in options.
+		await expect(source).toHaveText(/typed in here/);
+
+		await source.click();
+		await page
+			.getByRole("option", { name: CASE_WORKSPACE_SEED.lookupTableName })
+			.click();
+
+		/* The bind is what the picker could not do before: the two column
+		 * pickers appearing IS the proof, because they render only once the
+		 * source holds a real table plus both of its columns. */
+		await expect(
+			page.getByRole("combobox", { name: "Value that gets saved" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("combobox", { name: "Value people see" }),
+		).toBeVisible();
+		await expect(source).toHaveText(
+			new RegExp(CASE_WORKSPACE_SEED.lookupTableName),
+		);
+
+		// 4. And back again — the typed-in options were kept, not replaced.
+		await source.click();
+		await page
+			.getByRole("option", { name: "The options typed in here" })
+			.click();
+		await expect(source).toHaveText(/typed in here/, { timeout: 20_000 });
+		await expect(
+			page.getByRole("combobox", { name: "Value that gets saved" }),
+		).toBeHidden();
 	});
 });

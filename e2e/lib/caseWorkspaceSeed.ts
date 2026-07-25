@@ -27,6 +27,12 @@ import { buildUrl } from "@/lib/routing/location";
 
 export const CASE_WORKSPACE_SEED = {
 	appName: "Visual QA — Patient workspace",
+	/** The Project data table the smoke path binds a select to. Its name and
+	 *  column labels are asserted verbatim, so they are fixed here. */
+	lookupTableName: "Referral destinations",
+	lookupTableTag: "referral_destinations",
+	lookupValueColumnLabel: "Code",
+	lookupLabelColumnLabel: "Destination",
 	moduleName: "Patients",
 	moduleUuid: asUuid("7b4e2c91-5a68-4d3f-8c72-1e9a6b5d4f30"),
 	caseType: "patient",
@@ -61,6 +67,7 @@ export const CASE_WORKSPACE_SEED = {
 			lastVisit: asUuid("9b6d2f47-5a13-4e80-8c26-7f4a1d9e5c30"),
 			phoneNumber: asUuid("3e8b5d29-7c14-4a60-9f37-1b5e8a2c6d40"),
 		},
+		selectFieldUuid: asUuid("2f9c4b78-1d63-4e25-a840-7c3b6e1f5d90"),
 	},
 	caseCount: 8,
 } as const;
@@ -297,6 +304,20 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 								label: "Visit note",
 								case_property_on: ids.caseType,
 							}),
+							/* The binding target for the Project data smoke path. It ships
+							 * with typed-in options precisely because those are what the
+							 * asymmetric switch keeps as the fallback — the smoke proves a
+							 * table can be bound over them and that they come back. */
+							f({
+								uuid: ids.tile.selectFieldUuid,
+								kind: "single_select",
+								id: "referred_to",
+								label: "Referred to",
+								options: [
+									{ value: "clinic", label: "Clinic" },
+									{ value: "hospital", label: "Hospital" },
+								],
+							}),
 						],
 					},
 				],
@@ -425,6 +446,11 @@ export interface CaseWorkspaceRoutes {
 	readonly tileResults: string;
 	/** The follow-up form that carries the module's persistent tile. */
 	readonly tileForm: string;
+	/** The Project data workspace's table list. */
+	readonly projectData: string;
+	/** That form with its select field selected, so the options-source editor
+	 *  is what the inspector rail is showing. */
+	readonly selectField: string;
 }
 
 /** Build canonical relative paths through the production route serializer. */
@@ -452,6 +478,13 @@ export function caseWorkspaceRoutes(
 			kind: "form",
 			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
 			formUuid: CASE_WORKSPACE_SEED.tile.formUuid,
+		}),
+		projectData: buildUrl(basePath, { kind: "project-data" }),
+		selectField: buildUrl(basePath, {
+			kind: "form",
+			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
+			formUuid: CASE_WORKSPACE_SEED.tile.formUuid,
+			selectedUuid: CASE_WORKSPACE_SEED.tile.selectFieldUuid,
 		}),
 	};
 }
