@@ -118,6 +118,11 @@ function summarizeCaseList(mod: Module): string | undefined {
 		return undefined;
 	}
 	const lines: string[] = ["    case_list:"];
+	if (config.tile !== undefined) {
+		lines.push(
+			`      layout: tile${config.tile.persistOnForms === true ? " (kept above every form)" : ""}`,
+		);
+	}
 	const results = config.columns
 		.filter((column) => column.visibleInList !== false)
 		.sort(byListColumnOrder);
@@ -163,13 +168,27 @@ function summarizeCaseList(mod: Module): string | undefined {
 	return lines.join("\n");
 }
 
-/** One-line column summary — uuid + kind + header + per-kind hint. */
+/**
+ * One-line column summary — uuid + kind + header + per-kind hint, plus the
+ * column's place on the tile grid when it has one.
+ *
+ * The placement rides here rather than behind the layout switch because a
+ * stored cell survives the tile being turned off, and because rearranging a
+ * tile means knowing every OTHER cell (two may never overlap) — so the SA needs
+ * the whole grid in hand before it can move one field. A case list with no
+ * placements renders byte-identically to before, which keeps every untiled
+ * app's prompt prefix unchanged.
+ */
 function formatColumn(col: Column): string {
 	const body =
 		col.kind === "calculated"
 			? `(${col.kind}) "${col.header}"`
 			: `(${col.kind}) ${col.field} → "${col.header}"`;
-	return `${col.uuid}: ${body}`;
+	const cell =
+		col.tile === undefined
+			? ""
+			: ` @ ${col.tile.x},${col.tile.y} ${col.tile.width}x${col.tile.height}`;
+	return `${col.uuid}: ${body}${cell}`;
 }
 
 /** One-line search-input summary — uuid + kind + name + label hint. */
