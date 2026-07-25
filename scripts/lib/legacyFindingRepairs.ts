@@ -266,6 +266,19 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: mechanical(
 		"renumber sort priorities in the already-deterministic resolution order (priority ascending, then Results order); priority values never reach the wire, so the emitted bytes are identical",
 	),
+	// Tile geometry is a drawing. A script can compute *a* legal arrangement,
+	// but the one an author wants — which field is the headline, what sits
+	// beside what — is exactly the content of the layout, so any automatic
+	// rearrangement would be inventing a design and calling it a repair.
+	CASE_LIST_TILE_CELL_OUT_OF_GRID: owner(
+		"where a field sits and how far it reaches is the layout itself",
+	),
+	CASE_LIST_TILE_CELLS_OVERLAP: owner(
+		"which of the two overlapping fields should move, and where to, is the layout itself",
+	),
+	CASE_LIST_TILE_COLUMN_NOT_PLACED: owner(
+		"whether an unplaced field belongs on the tile or should be hidden is content, and a chosen square is a design decision",
+	),
 	CASE_LIST_ID_MAPPING_EMPTY_VALUE: owner("mapping entries are content"),
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: owner(
 		"which image the duplicated value should show is content",

@@ -1215,8 +1215,10 @@ function diffSearchInputs(
 	return out;
 }
 
-/** The case-list's non-array metadata — always-on `filter` + case-list-link
- *  `icon` / `audioLabel`. A clear travels as `null`. */
+/** The case-list's non-array metadata — always-on `filter`, case-list-link
+ *  `icon` / `audioLabel`, and the `tile` layout. A clear travels as `null`.
+ *  The tile rides its own top-level slot because the patch body is strict on
+ *  a pre-deploy parser; the reducer folds the two together. */
 function diffCaseListMeta(
 	prev: CaseListConfig,
 	next: CaseListConfig,
@@ -1234,8 +1236,18 @@ function diffCaseListMeta(
 	if (prev.audioLabel !== next.audioLabel) {
 		patch.audioLabel = next.audioLabel ?? null;
 	}
-	if (Object.keys(patch).length === 0) return [];
-	return [{ kind: "setCaseListMeta", uuid: moduleUuid, patch }];
+	const tileChanged = !deepEqual(prev.tile, next.tile);
+	if (Object.keys(patch).length === 0 && !tileChanged) return [];
+	return [
+		{
+			kind: "setCaseListMeta",
+			uuid: moduleUuid,
+			patch,
+			...(tileChanged && {
+				tilePatch: next.tile === undefined ? null : cloneEntity(next.tile),
+			}),
+		},
+	];
 }
 
 /**

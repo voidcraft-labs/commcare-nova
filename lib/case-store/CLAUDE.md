@@ -763,6 +763,22 @@ one patch. The full rationale (multi-arch parity, why-not the
 official `postgis/postgis` image) lives in `globalSetup.ts`'s
 `## Image choice` block.
 
+`compose.yaml` names the same reference so `npm run dev` and the suite that
+gates the merge run one engine, and `scripts/ci/print-test-image.mjs --check`
+(the `quality` job) fails the build if the two drift — a half-finished bump is
+otherwise invisible until a version-dependent behavior differs.
+
+Thirteen CI jobs boot a container — four test shards, eight leak shards, and the
+auth session-cookie contract — each on its own runner, so each would pull from
+Docker Hub independently. Docker Hub answers some of those with a 500 or a
+timeout, which surfaces as a vitest unhandled error carrying no test output at
+all and reads like a broken build. So CI pre-pulls the image through
+`.github/actions/pull-test-image` (bounded retry with backoff, where a registry
+failure is a step failure that says so), and `startContainer` in `globalSetup.ts`
+keeps its own three-attempt retry for the paths that never run that action — a
+first local run, or a job added without it. Neither classifies the error by
+matching on its message; the last one is reported verbatim.
+
 ### `case_type_schemas` seeding lives at the per-test layer
 
 `globalSetup.ts` applies the schema migrations (via `applyMigrations`)

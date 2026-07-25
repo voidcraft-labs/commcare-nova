@@ -64,6 +64,11 @@ jobs:
           package-manager-cache: false
       - name: Runtime capabilities are single-sourced
         run: node scripts/rollout/render-build-config.mjs --check
+      # The testcontainers harness and `compose.yaml` must name one Postgres
+      # image, or `npm run dev` runs a different engine than the suite that
+      # gates the merge — invisible until a version-dependent behavior differs.
+      - name: Postgres test image is single-sourced
+        run: node scripts/ci/print-test-image.mjs --check
       - name: Install pinned npm
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
@@ -120,6 +125,7 @@ jobs:
       # (lib/case-store/sql/__tests__/applyMigrations.ts), so no migration CLI
       # is needed on PATH. ubuntu-latest already runs a Docker daemon for the
       # container itself.
+      - uses: ./.github/actions/pull-test-image
       - name: Test suite
         run: npm test -- --shard=${{ matrix.shard }}/4
 
@@ -181,6 +187,7 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
+      - uses: ./.github/actions/pull-test-image
       - name: Full suite under the async-leak detector
         run: npm run test:leaks -- --shard=${{ matrix.shard }}/8
 
@@ -356,5 +363,6 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
+      - uses: ./.github/actions/pull-test-image
       - name: Session-cookie contract (Postgres testcontainer)
         run: node_modules/.bin/vitest run sessionCookie.integration.test.ts

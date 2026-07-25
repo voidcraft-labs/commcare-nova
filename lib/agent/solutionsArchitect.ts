@@ -52,6 +52,7 @@ import { removeSearchInputTool } from "./tools/case-list-config/removeSearchInpu
 import { reorderCaseListColumnsTool } from "./tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "./tools/case-list-config/reorderSearchInputs";
 import { setCaseListFilterTool } from "./tools/case-list-config/setCaseListFilter";
+import { setCaseListTileTool } from "./tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "./tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "./tools/case-search-config/setCaseSearchAdvanced";
@@ -422,12 +423,20 @@ export function createSolutionsArchitect(
 		// walk through the case-list mutation builders in
 		// `blueprintHelpers.ts`; SA-boundary input shapes live in
 		// `tools/case-list-config/shared.ts`.
+		//
+		// `setCaseListTile` is the fourth shape: the tile layout plus
+		// every field's place on its grid, in ONE call. Layout and
+		// placement are judged together by the commit gate (while the
+		// tile is on every Results field needs a place, and no two
+		// fields may share a square), so neither a switch-only tool nor
+		// a per-cell tool could reach a valid state on its own.
 
 		addCaseListColumns: wrapMutating(addCaseListColumnsTool),
 		updateCaseListColumn: wrapMutating(updateCaseListColumnTool),
 		removeCaseListColumn: wrapMutating(removeCaseListColumnTool),
 		reorderCaseListColumns: wrapMutating(reorderCaseListColumnsTool),
 		setCaseListFilter: wrapMutating(setCaseListFilterTool),
+		setCaseListTile: wrapMutating(setCaseListTileTool),
 		addSearchInputs: wrapMutating(addSearchInputsTool),
 		updateSearchInput: wrapMutating(updateSearchInputTool),
 		removeSearchInput: wrapMutating(removeSearchInputTool),

@@ -10,6 +10,11 @@
  * backfill — and, if the rebuild re-minted a uuid, read as a remove+add (a lost
  * identity) on the auto-save diff. Applying this at the workspace level makes
  * the preservation independent of whichever editor produced the body.
+ *
+ * A tile cell is one more such position, and losing it costs more than a
+ * sequence key: a column that a tile SHOWS has to hold a place, so a
+ * rebuild that dropped the cell would be refused outright by the commit
+ * gate — changing a field's display style would read as broken.
  */
 export function withPreservedIdentity<
 	T extends {
@@ -17,6 +22,7 @@ export function withPreservedIdentity<
 		order?: string;
 		listOrder?: string;
 		detailOrder?: string;
+		tile?: unknown;
 	},
 >(existing: T, next: T): T {
 	return {
@@ -29,5 +35,6 @@ export function withPreservedIdentity<
 		...(existing.detailOrder !== undefined && {
 			detailOrder: existing.detailOrder,
 		}),
+		...(existing.tile !== undefined && { tile: existing.tile }),
 	};
 }

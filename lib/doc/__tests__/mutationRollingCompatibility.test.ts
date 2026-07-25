@@ -9,6 +9,7 @@ import {
 import {
 	columnAddMutation,
 	columnSnapshotMutations,
+	columnTileMutations,
 } from "@/lib/doc/caseListColumnMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
@@ -26,6 +27,7 @@ import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
 	asUuid,
 	type BlueprintDoc,
+	type CaseTileLayout,
 	type Column,
 	type Field,
 	type LookupOptionsSource,
@@ -33,6 +35,7 @@ import {
 	mediaSchema,
 	type SearchInputDef,
 	selectOptionSchema,
+	type TileCell,
 	uuidSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
@@ -270,6 +273,21 @@ const legacyMutationSchema = z.discriminatedUnion("kind", [
 		moduleUuid: z.string(),
 		uuid: z.string(),
 		order: z.string(),
+	}),
+	// Origin/main's `setCaseListMeta`. Its `patch` is `.strict()` and knows
+	// only the three pre-tile slots, which is exactly why the tile layout
+	// rides a TOP-LEVEL slot: a `patch.tile` key would fail this parser
+	// outright instead of degrading to a safe no-op.
+	z.object({
+		kind: z.literal("setCaseListMeta"),
+		uuid: z.string(),
+		patch: z
+			.object({
+				filter: z.unknown().nullable().optional(),
+				icon: z.string().nullable().optional(),
+				audioLabel: z.string().nullable().optional(),
+			})
+			.strict(),
 	}),
 	z.object({
 		kind: z.literal("updateSearchInput"),
@@ -581,6 +599,13 @@ function payloads(): {
 	lookupSet: Mutation;
 	lookupReplace: Mutation;
 	lookupClear: Mutation;
+	tilePlace: Mutation;
+	tileUnplace: Mutation;
+	tileLayoutOn: Mutation;
+	tileLayoutOff: Mutation;
+	addTiledColumn: Mutation;
+	replaceTiledConfig: Mutation;
+	addTiledModule: Mutation;
 } {
 	const current = baseColumn();
 	const module = docWithConfig([current]).modules[MODULE];
@@ -712,7 +737,70 @@ function payloads(): {
 			docWithLookupSelect(SOURCE_A),
 			docWithLookupSelect(),
 		),
+		tilePlace: onlyBatchMutation(
+			columnTileMutations(current, { ...current, tile: CELL }, MODULE),
+		),
+		tileUnplace: onlyBatchMutation(
+			columnTileMutations({ ...current, tile: CELL }, current, MODULE),
+		),
+		tileLayoutOn: onlyBatchMutation(
+			diffDocsToMutations(
+				docWithConfig([current]),
+				docWithTileLayout([current], {}),
+			).filter((mutation) => mutation.kind === "setCaseListMeta"),
+		),
+		tileLayoutOff: onlyBatchMutation(
+			diffDocsToMutations(
+				docWithTileLayout([current], { persistOnForms: true }),
+				docWithConfig([current]),
+			).filter((mutation) => mutation.kind === "setCaseListMeta"),
+		),
+		addTiledColumn: columnAddMutation(MODULE, { ...added, tile: CELL }),
+		replaceTiledConfig: updateModuleMutation(MODULE, {
+			caseListConfig: {
+				columns: [{ ...current, tile: CELL }],
+				searchInputs: [],
+				tile: { persistOnForms: true },
+			},
+		}),
+		addTiledModule: addModuleMutation(
+			{
+				uuid: asUuid("60000000-0000-4000-8000-000000000000"),
+				id: "tiled_patients",
+				name: "Tiled patients",
+				order: "module-d",
+				caseType: "patient",
+				caseListOnly: true,
+				caseListConfig: {
+					columns: [{ ...added, tile: CELL }],
+					searchInputs: [],
+					tile: { persistOnForms: true },
+				},
+			},
+			3,
+		),
 	};
+}
+
+/** The one cell every tile payload places, so assertions can name its bytes. */
+const CELL: TileCell = {
+	x: 0,
+	y: 0,
+	width: 6,
+	height: 2,
+	horizontalAlign: "left",
+	fontSize: "medium",
+};
+
+/** `docWithConfig`, plus a tile layout on the case list. */
+function docWithTileLayout(
+	columns: Column[],
+	tile: CaseTileLayout,
+): BlueprintDoc {
+	return produce(docWithConfig(columns), (draft) => {
+		const config = draft.modules[MODULE].caseListConfig;
+		if (config !== undefined) config.tile = tile;
+	});
 }
 
 function legacyStartFor(name: keyof ReturnType<typeof payloads>): BlueprintDoc {
@@ -726,7 +814,11 @@ function legacyStartFor(name: keyof ReturnType<typeof payloads>): BlueprintDoc {
 		return docWithLookupSelect();
 	}
 	if (name === "ensure") return docWithConfig(undefined);
-	if (name === "addModule" || name === "addModuleOwnerOnly") {
+	if (
+		name === "addModule" ||
+		name === "addModuleOwnerOnly" ||
+		name === "addTiledModule"
+	) {
 		return docWithConfig([baseColumn()]);
 	}
 	if (name === "renameInput") return docWithInput();
@@ -746,6 +838,7 @@ describe("mutation rolling compatibility", () => {
 				"addColumn",
 				"updateColumn",
 				"moveColumn",
+				"setCaseListMeta",
 				"updateSearchInput",
 				"addField",
 				"updateField",
@@ -768,6 +861,13 @@ describe("mutation rolling compatibility", () => {
 			lookupSet,
 			lookupReplace,
 			lookupClear,
+			tilePlace,
+			tileUnplace,
+			tileLayoutOn,
+			tileLayoutOff,
+			addTiledColumn,
+			replaceTiledConfig,
+			addTiledModule,
 		} = payloads();
 		expect(add).not.toHaveProperty("column.listOrder");
 		expect(add).not.toHaveProperty("column.detailOrder");
@@ -841,6 +941,65 @@ describe("mutation rolling compatibility", () => {
 			JSON.parse(JSON.stringify(lookupClear)),
 		);
 		expect(roundTrippedClear).toHaveProperty("optionsSource", null);
+
+		// Tile placement is a top-level semantic slot; the nested fallback
+		// column stays cell-free so origin's strict schema can parse it.
+		expect(tilePlace).toMatchObject({
+			kind: "updateColumn",
+			uuid: COLUMN,
+			tilePatch: CELL,
+		});
+		expect(tilePlace).not.toHaveProperty("column.tile");
+		expect(tileUnplace).toMatchObject({
+			kind: "updateColumn",
+			uuid: COLUMN,
+			tilePatch: null,
+		});
+		expect(tileUnplace).not.toHaveProperty("column.tile");
+		expect(addTiledColumn).toMatchObject({
+			kind: "addColumn",
+			tileCell: CELL,
+		});
+		expect(addTiledColumn).not.toHaveProperty("column.tile");
+
+		// The layout rides `setCaseListMeta` top-level, never its strict patch.
+		expect(tileLayoutOn).toMatchObject({
+			kind: "setCaseListMeta",
+			tilePatch: {},
+		});
+		expect(tileLayoutOn).not.toHaveProperty("patch.tile");
+		expect(tileLayoutOff).toMatchObject({
+			kind: "setCaseListMeta",
+			tilePatch: null,
+		});
+		expect(tileLayoutOff).not.toHaveProperty("patch.tile");
+
+		// Wholesale module/config writes rebuild both current-only tile slots
+		// from top-level extensions.
+		expect(replaceTiledConfig).not.toHaveProperty("patch.caseListConfig.tile");
+		expect(replaceTiledConfig).not.toHaveProperty(
+			"patch.caseListConfig.columns.0.tile",
+		);
+		expect(replaceTiledConfig).toMatchObject({
+			columnTileCells: [{ uuid: COLUMN, tile: CELL }],
+			caseListTile: { persistOnForms: true },
+		});
+		expect(addTiledModule).not.toHaveProperty("module.caseListConfig.tile");
+		expect(addTiledModule).not.toHaveProperty(
+			"module.caseListConfig.columns.0.tile",
+		);
+		expect(addTiledModule).toMatchObject({
+			columnTileCells: [{ uuid: ADDED_COLUMN, tile: CELL }],
+			caseListTile: { persistOnForms: true },
+		});
+
+		// A clear must survive both serialization hops as an explicit null.
+		expect(
+			mutationSchema.parse(JSON.parse(JSON.stringify(tileUnplace))),
+		).toHaveProperty("tilePatch", null);
+		expect(
+			mutationSchema.parse(JSON.parse(JSON.stringify(tileLayoutOff))),
+		).toHaveProperty("tilePatch", null);
 	});
 
 	it("new payload -> frozen origin parser strips extensions and the legacy reducer applies a safe fallback", () => {
@@ -859,6 +1018,10 @@ describe("mutation rolling compatibility", () => {
 			expect(parsed).not.toHaveProperty("sortPatch");
 			expect(parsed).not.toHaveProperty("renamedTo");
 			expect(parsed).not.toHaveProperty("optionsSource");
+			expect(parsed).not.toHaveProperty("tilePatch");
+			expect(parsed).not.toHaveProperty("tileCell");
+			expect(parsed).not.toHaveProperty("columnTileCells");
+			expect(parsed).not.toHaveProperty("caseListTile");
 			expect(() => applyLegacy(legacyStartFor(name), [parsed])).not.toThrow();
 		}
 
@@ -1007,6 +1170,41 @@ describe("mutation rolling compatibility", () => {
 			listOrder: "peer-list",
 			detailOrder: "peer-detail",
 		});
+
+		// A peer's fresh tile placement survives an unrelated content edit, and
+		// is the one granular slot preserved unconditionally: an origin/main
+		// receiver that applied a tile event dropped the cell from its own copy,
+		// so its next content edit arrives here cell-free. Preserving on every
+		// content update is what stops that round trip from un-placing a column.
+		const peerTiled = docWithConfig([{ ...peerColumn, tile: CELL }]);
+		expect(
+			applyCurrent(peerTiled, [all.content]).modules[MODULE].caseListConfig
+				?.columns[0],
+		).toMatchObject({ header: "Patient", tile: CELL });
+		expect(
+			applyCurrent(peerTiled, [all.visibility]).modules[MODULE].caseListConfig
+				?.columns[0],
+		).toMatchObject({ visibleInList: false, tile: CELL });
+		// An explicit unplace still clears it, and leaves peer content alone.
+		expect(
+			applyCurrent(peerTiled, [all.tileUnplace]).modules[MODULE].caseListConfig
+				?.columns[0],
+		).toEqual(peerColumn);
+		// Placing a cell touches only the cell.
+		expect(
+			applyCurrent(peerConfig, [all.tilePlace]).modules[MODULE].caseListConfig
+				?.columns[0],
+		).toEqual({ ...peerColumn, tile: CELL });
+		// The layout is metadata on the config, never a column write.
+		const layoutOn = applyCurrent(peerTiled, [all.tileLayoutOn]).modules[MODULE]
+			.caseListConfig;
+		expect(layoutOn?.tile).toEqual({});
+		expect(layoutOn?.columns[0]).toEqual({ ...peerColumn, tile: CELL });
+		expect(
+			applyCurrent(docWithTileLayout([peerColumn], { persistOnForms: true }), [
+				all.tileLayoutOff,
+			]).modules[MODULE].caseListConfig,
+		).not.toHaveProperty("tile");
 
 		const visibility = applyCurrent(peerConfig, [all.visibility]).modules[
 			MODULE

@@ -983,6 +983,20 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].sort.priority": "config",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
+	// Tile placement and presentation. Every slot is `config`: the four
+	// coordinates are geometry and the five presentation slots are closed
+	// enumerations or booleans, so none of them can carry a reference, a
+	// case property, or authored prose a rename would need to follow.
+	"caseListConfig.tile.persistOnForms": "config",
+	"caseListConfig.columns[].tile.x": "config",
+	"caseListConfig.columns[].tile.y": "config",
+	"caseListConfig.columns[].tile.width": "config",
+	"caseListConfig.columns[].tile.height": "config",
+	"caseListConfig.columns[].tile.horizontalAlign": "config",
+	"caseListConfig.columns[].tile.verticalAlign": "config",
+	"caseListConfig.columns[].tile.fontSize": "config",
+	"caseListConfig.columns[].tile.showBorder": "config",
+	"caseListConfig.columns[].tile.showShading": "config",
 	"caseListConfig.columns[].mapping[].value": "data-literal",
 	"caseListConfig.columns[].mapping[].label": "display-text",
 	"caseListConfig.columns[].mapping[].assetId": "media",

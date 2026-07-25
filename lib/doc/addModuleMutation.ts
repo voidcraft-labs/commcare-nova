@@ -36,11 +36,20 @@ function columnSurfaceOrders(
 	});
 }
 
+function columnTileCells(
+	columns: readonly Column[],
+): NonNullable<AddModuleMutation["columnTileCells"]> {
+	return columns.flatMap((column) =>
+		column.tile === undefined ? [] : [{ uuid: column.uuid, tile: column.tile }],
+	);
+}
+
 function legacyCompatibleCaseListConfig(
 	config: CaseListConfig,
 ): CaseListConfig {
+	const { tile: _tile, ...withoutTile } = config;
 	return {
-		...config,
+		...withoutTile,
 		columns: config.columns.map(legacyCompatibleColumnSnapshot),
 	};
 }
@@ -55,6 +64,7 @@ export function updateModuleMutation(
 		return { kind: "updateModule", uuid, patch };
 	}
 	const surfaceOrders = columnSurfaceOrders(config.columns);
+	const tileCells = columnTileCells(config.columns);
 	return {
 		kind: "updateModule",
 		uuid,
@@ -63,6 +73,8 @@ export function updateModuleMutation(
 			caseListConfig: legacyCompatibleCaseListConfig(config),
 		},
 		...(surfaceOrders.length > 0 && { columnSurfaceOrders: surfaceOrders }),
+		...(tileCells.length > 0 && { columnTileCells: tileCells }),
+		...(config.tile !== undefined && { caseListTile: config.tile }),
 	};
 }
 
@@ -72,6 +84,8 @@ export function addModuleMutation(
 ): AddModuleMutation {
 	const columns = module.caseListConfig?.columns ?? [];
 	const surfaceOrders = columnSurfaceOrders(columns);
+	const tileCells = columnTileCells(columns);
+	const caseListTile = module.caseListConfig?.tile;
 
 	const desiredOwnerOnly =
 		module.caseSearchConfig?.searchActionEnabled === false
@@ -92,6 +106,8 @@ export function addModuleMutation(
 		module: fallbackModule,
 		...(index !== undefined && { index }),
 		...(surfaceOrders.length > 0 && { columnSurfaceOrders: surfaceOrders }),
+		...(tileCells.length > 0 && { columnTileCells: tileCells }),
+		...(caseListTile !== undefined && { caseListTile }),
 		...(desiredOwnerOnly !== undefined && {
 			caseSearchConfigValue: desiredOwnerOnly,
 		}),

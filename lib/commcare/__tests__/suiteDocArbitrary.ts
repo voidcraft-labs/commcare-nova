@@ -69,6 +69,11 @@ import {
 	type SearchInputType,
 	simpleSearchInputDef,
 	startsWithMode,
+	TILE_FONT_SIZES,
+	TILE_GRID_COLUMNS,
+	TILE_HORIZONTAL_ALIGNS,
+	TILE_VERTICAL_ALIGNS,
+	tileCell,
 	type Uuid,
 } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
@@ -442,6 +447,22 @@ interface ModuleGenSpec {
 				excludedOwners: boolean;
 		  };
 	readonly isChild: boolean;
+	/**
+	 * Whether the module's case list is laid out as a tile. The assembler
+	 * places every column on its own full-width row, which is the one
+	 * arrangement that satisfies the grid contract (inside 12 x 12, no
+	 * overlap, every Results column placed) for any generated column count.
+	 */
+	readonly tile: false | { readonly persistOnForms: boolean };
+	/**
+	 * Whether the module hides its last Results column while leaving that
+	 * column's Default-order rule AND its tile placement in place — the
+	 * zero-width sort carrier that retained a cell. That is the exact shape
+	 * whose placement must never reach any emission path, and it was
+	 * unreachable here until this flag existed, which is why a real
+	 * divergence shipped past the fuzz.
+	 */
+	readonly hiddenSortCarrier: boolean;
 	/** Whether the module's home tile carries an icon. */
 	readonly hasIcon: boolean;
 	/** Whether the module's home tile carries an audio label. */
@@ -494,6 +515,14 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 		},
 	),
 	isChild: fc.boolean(),
+	tile: fc.oneof(
+		{ weight: 2, arbitrary: fc.constant(false as const) },
+		{
+			weight: 1,
+			arbitrary: fc.record({ persistOnForms: fc.boolean() }),
+		},
+	),
+	hiddenSortCarrier: fc.boolean(),
 	hasIcon: fc.boolean(),
 	hasAudioLabel: fc.boolean(),
 	hasDisplayCondition: fc.boolean(),
@@ -584,10 +613,66 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				? eq(term(prop(caseTypeName, "age")), literal(18))
 				: undefined;
 
+		// Tile placement. One full-width row per column keeps every generated
+		// layout inside the 12 x 12 grid with no overlap and full coverage, so
+		// the fuzz exercises `<style>`/`<grid>` emission on every column kind
+		// without needing a solver. Presentation slots rotate through the
+		// vocabulary — including leaving them absent, which is a distinct wire
+		// state (an absent font size makes the cell inherit rather than take a
+		// default).
+		const tileColumns =
+			modSpec.tile === false
+				? columns
+				: columns.map((column, i) => ({
+						...column,
+						tile: tileCell(0, i, TILE_GRID_COLUMNS, 1, {
+							...(i % 3 === 0
+								? {}
+								: {
+										horizontalAlign:
+											TILE_HORIZONTAL_ALIGNS[i % TILE_HORIZONTAL_ALIGNS.length],
+										verticalAlign:
+											TILE_VERTICAL_ALIGNS[i % TILE_VERTICAL_ALIGNS.length],
+										fontSize: TILE_FONT_SIZES[i % TILE_FONT_SIZES.length],
+									}),
+							...(i % 4 === 1 ? { showBorder: true } : {}),
+							...(i % 4 === 2 ? { showShading: true } : {}),
+						}),
+					}));
+
+		// Hide the last column while leaving its sort and its placement on the
+		// document. It keeps riding the detail so the runtime can order by it,
+		// but no emission path may give it a square: `tileCellFor` is the one
+		// decision, and the oracles below prove every path honors it. Needs two
+		// columns so Results keeps a visible one, and takes a priority past the
+		// assigned run so `sortPriorityUniqueness` still holds.
+		const carrierColumns =
+			!modSpec.hiddenSortCarrier || tileColumns.length < 2
+				? tileColumns
+				: tileColumns.map((column, i) =>
+						i === tileColumns.length - 1
+							? {
+									...column,
+									visibleInList: false,
+									sort: column.sort ?? {
+										direction: "asc" as const,
+										priority: sortCount + 1,
+									},
+								}
+							: column,
+					);
+
 		const caseListConfig: CaseListConfig = {
-			columns,
+			columns: carrierColumns,
 			searchInputs,
 			...(filter !== undefined ? { filter } : {}),
+			...(modSpec.tile === false
+				? {}
+				: {
+						tile: modSpec.tile.persistOnForms
+							? { persistOnForms: true as const }
+							: {},
+					}),
 		};
 
 		const caseSearchConfig: CaseSearchConfig | undefined = modSpec.searchConfig
