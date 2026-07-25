@@ -52,10 +52,84 @@ Author-facing surfaces use Nova relationship vocabulary, never `parentIndex`.
   variant is an added arm rather than a reshape. Unit 16 must also describe every
   selection-requiring datum as an endpoint `<argument>`, so a new datum is a new
   endpoint obligation.
-- The group key must be a real case **index**, never a calculated value. Header
-  rows reference parent-case properties (constant across the group) and body rows
-  the child's own, so you group children by their shared parent index; you cannot
-  group parents.
+- **Nova narrows the group key to a case index. That is Nova's choice, not the
+  platform's rule.** The group header is the top N rows of the same tile taken
+  from the group's **first** case, so a header cell is only honest when its value
+  is invariant across every member of the group. A case index is the only group
+  key Nova can statically prove invariant — grouping by a plain property makes
+  exactly one value shared and turns every other header cell into a guess drawn
+  from an arbitrary member. So header rows reference parent-case properties and
+  body rows the child's own: you group children by their shared parent index, and
+  you cannot group parents.
+
+  The wire is **wider than this**, and the plan must not pretend otherwise.
+  `commcare-core/.../org/commcare/xml/DetailGroupParser.java::parse` validates the
+  attribute with `XPathParseTool.parseXPath` and nothing else — any syntactically
+  valid XPath is accepted. The runtime treats the result as an opaque string
+  (`NodeEntityFactory::getEntity` / `AsyncEntity::getGroupKey` evaluate to a
+  `String`, compared with `Objects.equals` and used as a map key; no consumer
+  inspects its shape), and a shipped fixture groups by a plain property:
+  `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
+  carries `<group function="string(case_name)" …>`. HQ is index-shaped by
+  construction rather than validation — it interpolates
+  `string(./index/{index_identifier})` from an unvalidated free-text box. Do not
+  write "CommCare requires an index" anywhere; property-keyed grouping is a
+  deliberate Nova narrowing, out of scope for this unit rather than impossible.
+
+  One coupling supports the narrowing without being an engine requirement:
+  `cloudcare/.../formplayer/menus/views.js::CaseTileView.iconClick` uses
+  `groupKey` **as a case id** when a clickable-icon endpoint fires from the header
+  region, so a non-case-id key breaks that one optional feature.
+- **The empty group key is the sharpest hazard, and the runtime has no answer
+  for it.** `string(./index/parent)` on a parentless child evaluates to `""`, and
+  the clustering map accepts that as an ordinary key — so **every parentless
+  child collapses into a single group**, headed by whichever of them sorts first.
+  There is no "ungrouped" concept anywhere in the engine, so Nova must not invent
+  one: a synthetic bucket would make the preview show something no device shows.
+  Which rows lack the index is runtime data, so a construction-time refusal
+  cannot be honest on its own. The unit ships a truthful preview (the collapse
+  rendered exactly as the device renders it) plus an author-time statement of the
+  consequence at the point grouping is chosen.
+- **Two states Nova can construct that HQ cannot, both failing silently, both
+  therefore validator refusals rather than warnings:**
+  - A cell that **straddles the header boundary**. The split is start-row only
+    and ignores height — `cloudcare/.../formplayer/menus/views.js::CaseTileGroupedListView.initialize`
+    computes `isHeaderRow = (y) => y < groupHeaderRows` — so a cell starting at
+    row 1 spanning three rows is classified *entirely* as header when
+    `header-rows` is 2. The client will not split it.
+  - A `<group>` on a detail with **no tile**. It still clusters and still
+    switches pagination to group-based, but `utils.js::getCaseListView` routes to
+    the grouped view only when tiles are present, so it renders flat. HQ cannot
+    reach this state; Nova could.
+- **Grouped pagination is unbounded in rows.** `getEntitiesForCurrentPage` pages
+  by group, so `casesPerPage` counts groups, not rows: 100 rows in 4 groups at
+  `casesPerPage = 10` returns all 100 in one response. That is a real caveat for
+  the docs and for Nova's own query layer, not a bug to work around.
+  (`MAX_CASES_PER_PAGE = 100`, `DEFAULT_CASES_PER_PAGE = 10`.) The sibling
+  upstream defect — an out-of-range offset returning a silently empty page,
+  because the skip guard and the clamp count rows while selection counts groups —
+  is **unreachable from Nova's pager and is therefore neither reproduced nor
+  simulated**: `CaseListScreen`'s only two `choosePage` callers step one page from
+  the *settled* server offset, Previous is disabled at offset 0, Next is disabled
+  once `pageEnd >= totalMatchingCases`, the setter clamps at `Math.max(0, index)`,
+  and no URL path seeds a page index.
+- **`header-rows` has two different defaults, so Nova always emits it
+  explicitly.** The client parser falls back to `1`
+  (`DetailGroupParser::parse`), while HQ's model defaults to `2`
+  (`models/case_list.py::CaseTileGroupConfig.header_rows`). Relying on either
+  silently halves or doubles the header depending on which side you read.
+- **Fixture evidence, and which fixture is actually evidence.** Three of the four
+  `<group>` fixtures in the checkouts misspell the attribute as
+  `grid-header-rows` — it parses as an unknown attribute and silently takes the
+  default — so they prove nothing about header-row behavior. The misspelling is
+  in `commcare-core/src/test/resources/app_structure/suite.xml` and
+  `formplayer/src/test/resources/archives/case_claim_with_multi_select/suite.xml`
+  (plus vendored/build copies). The one correctly-spelled fixture, and therefore
+  the byte oracle this unit asserts against, is
+  `formplayer/src/test/resources/archives/case_list_auto_select/suite.xml`.
+- **Grouped tiles are a Web Apps capability only.** CommCare Android parses
+  `<group>` and ignores it, degrading to an ungrouped tile list. That belongs
+  where the author chooses grouping, not in a footnote.
 - Grouping needs client CommCare ≥ 2.54
   (`commcare-hq/corehq/apps/app_manager/feature_support.py::CommCareFeatureSupportMixin.supports_grouped_case_tiles`),
   which the Web Apps target gives. That property gates only HQ's authoring
