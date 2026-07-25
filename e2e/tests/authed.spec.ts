@@ -46,6 +46,7 @@ interface SeedManifest {
 			results: string;
 			details: string;
 			condition: string;
+			tileResults: string;
 		};
 	};
 }
@@ -1254,6 +1255,104 @@ test.describe("authenticated builder", () => {
 				`\u201c${CASE_WORKSPACE_SEED.moduleName}\u201d always appears.`,
 			),
 		).toBeVisible();
+	});
+
+	/**
+	 * Visual parity for the tile-laid-out case list. Each assertion is a
+	 * statement about what a CommCare client draws, so a regression here is
+	 * a preview that has stopped agreeing with the device.
+	 */
+	test("a tile-laid-out case list renders at parity and pins its tile above the form", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.tileResults);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		const tileList = page.locator('[data-case-results="tile"]');
+		await expect(tileList).toBeVisible({ timeout: 20_000 });
+
+		const tiles = tileList.locator('[data-case-tile="results"]');
+		const rows = tileList.locator("[data-case-result-row]");
+		await expect(tiles.first()).toBeVisible();
+
+		await test.step("the grid is the occupied extent, not the 12-column canvas", async () => {
+			// The seeded tile's widest cell ends at column 6. A renderer that
+			// assumed the authoring canvas would draw every tile at half width.
+			await expect(tiles.first()).toHaveAttribute("data-tile-columns", "6");
+			const trackCount = await tiles
+				.first()
+				.evaluate(
+					(el) =>
+						getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length,
+				);
+			expect(trackCount).toBe(6);
+		});
+
+		await test.step("one tile per row, sized to its content", async () => {
+			// `numEntitiesPerRow` resolves to 1 and `useUniformUnits` to false.
+			expect(await tiles.count()).toBe(await rows.count());
+			const [first, second] = await Promise.all([
+				tiles.nth(0).boundingBox(),
+				tiles.nth(1).boundingBox(),
+			]);
+			expect(first).not.toBeNull();
+			expect(second).not.toBeNull();
+			if (first === null || second === null) return;
+			expect(second.x).toBeCloseTo(first.x, 0);
+			expect(second.y).toBeGreaterThan(first.y + first.height - 1);
+		});
+
+		await test.step("a boxed cell stretches while a plain sibling keeps its alignment", async () => {
+			const tile = tiles.first();
+			const boxed = tile.locator('[data-tile-cell="boxed"]').first();
+			const inset = tile.locator('[data-tile-cell="inset"]').first();
+			expect(
+				await boxed.evaluate((el) => getComputedStyle(el).justifySelf),
+			).toBe("stretch");
+			expect(
+				await inset.evaluate((el) => getComputedStyle(el).justifySelf),
+			).toBe("start");
+
+			const [tileBox, boxedBox, insetBox] = await Promise.all([
+				tile.boundingBox(),
+				boxed.boundingBox(),
+				inset.boundingBox(),
+			]);
+			expect(tileBox).not.toBeNull();
+			expect(boxedBox).not.toBeNull();
+			expect(insetBox).not.toBeNull();
+			if (tileBox === null || boxedBox === null || insetBox === null) return;
+			// The boxed cell fills its two of six columns (less its margins);
+			// the plain one hugs its text inside three of six.
+			expect(boxedBox.width).toBeGreaterThan((tileBox.width * 2) / 6 - 12);
+			expect(insetBox.width).toBeLessThan(((tileBox.width * 3) / 6) * 0.8);
+		});
+
+		await test.step("the same tile pins above the module's form", async () => {
+			await rows.first().locator("[data-case-result-action]").click();
+			const persistent = page.locator("[data-persistent-case-tile]");
+			await expect(persistent).toBeVisible({ timeout: 20_000 });
+			await expect(
+				persistent.locator('[data-case-tile="persistent"]'),
+			).toHaveAttribute("data-tile-columns", "6");
+
+			// Context, not a chooser: nothing in the band opens a case.
+			await expect(persistent.locator("[data-case-result-action]")).toHaveCount(
+				0,
+			);
+
+			const [band, formHeader] = await Promise.all([
+				persistent.boundingBox(),
+				page.locator("[data-form-header]").boundingBox(),
+			]);
+			expect(band).not.toBeNull();
+			expect(formHeader).not.toBeNull();
+			if (band === null || formHeader === null) return;
+			expect(band.y + band.height).toBeLessThanOrEqual(formHeader.y + 1);
+		});
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

@@ -8,7 +8,7 @@
  * persistent Postgres volume.
  */
 
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { CaseInsert } from "@/lib/case-store";
 import {
 	asUuid,
@@ -21,6 +21,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 	startsWithMode,
+	tileCell,
 } from "@/lib/domain";
 import { buildUrl } from "@/lib/routing/location";
 
@@ -43,6 +44,22 @@ export const CASE_WORKSPACE_SEED = {
 		patientId: asUuid("c8e2a5d9-1f64-4730-b7a6-4d9c2e5f8a10"),
 		village: asUuid("6f1b4d82-9a35-4c70-8e26-3d7f5a1c9b40"),
 		lastVisit: asUuid("d5a9c2e7-4b18-46f0-a3d5-8c1e7b9f2a60"),
+	},
+	/**
+	 * The second module: the same patients drawn as a case tile, with a
+	 * follow-up form so the persistent tile has somewhere to pin. It shares
+	 * the case type (and therefore the rows) with the module above, so one
+	 * seeded population feeds both the row layout and the tile layout.
+	 */
+	tile: {
+		moduleUuid: asUuid("0d5c9e18-6b47-4a32-9e75-2c8b1f4d6a90"),
+		formUuid: asUuid("b7e1a4c6-3f52-4d18-8a94-6e2c5d9f1b30"),
+		columns: {
+			patientName: asUuid("e4c17a95-8d23-4b60-9f18-5a7c3e2d8f40"),
+			carePriority: asUuid("7a3e9d51-2c68-4f04-b592-8d1a6c4e7b20"),
+			village: asUuid("5c2a8f31-9e46-4d70-b183-4a6f2c8e1d50"),
+			lastVisit: asUuid("9b6d2f47-5a13-4e80-8c26-7f4a1d9e5c30"),
+		},
 	},
 	caseCount: 8,
 } as const;
@@ -192,6 +209,85 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 					searchButtonLabel: "Show patients",
 				},
 			},
+			{
+				uuid: ids.tile.moduleUuid,
+				id: "patient_tile",
+				name: "Patient tile",
+				caseType: ids.caseType,
+				// Nothing is shown on Details on purpose: with no confirm screen the
+				// running tile continues straight into the follow-up form, which is
+				// the shortest honest path to the persistent tile.
+				caseListConfig: {
+					// Presence is the switch; `persistOnForms` additionally keeps the
+					// same tile above every form in this module.
+					tile: { persistOnForms: true },
+					columns: [
+						plainColumn(ids.tile.columns.patientName, "case_name", "Patient", {
+							visibleInList: true,
+							visibleInDetail: false,
+							sort: { direction: "asc", priority: 0 },
+							tile: tileCell(0, 0, 4, 1, { fontSize: "large" }),
+						}),
+						// The one cell that asks for a box — which puts the WHOLE tile in
+						// boxed layout, so its plain siblings become inset.
+						idMappingColumn(
+							ids.tile.columns.carePriority,
+							"care_priority",
+							"Care priority",
+							[
+								idMappingEntry("routine", "Routine"),
+								idMappingEntry("priority", "Priority"),
+								idMappingEntry("urgent", "Urgent"),
+							],
+							{
+								visibleInList: true,
+								visibleInDetail: false,
+								tile: tileCell(4, 0, 2, 1, {
+									horizontalAlign: "right",
+									showBorder: true,
+									showShading: true,
+								}),
+							},
+						),
+						plainColumn(ids.tile.columns.village, "village", "Village", {
+							visibleInList: true,
+							visibleInDetail: false,
+							tile: tileCell(0, 1, 3, 1, { fontSize: "small" }),
+						}),
+						dateColumn(
+							ids.tile.columns.lastVisit,
+							"last_visit",
+							"Last visit",
+							"%d %b %Y",
+							{
+								visibleInList: true,
+								visibleInDetail: false,
+								tile: tileCell(3, 1, 3, 1, {
+									horizontalAlign: "right",
+									fontSize: "small",
+								}),
+							},
+						),
+					],
+					searchInputs: [],
+				},
+				forms: [
+					{
+						uuid: ids.tile.formUuid,
+						id: "record_visit",
+						name: "Record a visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "visit_note",
+								label: "Visit note",
+								case_property_on: ids.caseType,
+							}),
+						],
+					},
+				],
+			},
 		],
 	});
 }
@@ -312,6 +408,10 @@ export interface CaseWorkspaceRoutes {
 	readonly details: string;
 	readonly condition: string;
 	readonly firstCase: string;
+	/** The tile-laid-out module's Results list. */
+	readonly tileResults: string;
+	/** The follow-up form that carries the module's persistent tile. */
+	readonly tileForm: string;
 }
 
 /** Build canonical relative paths through the production route serializer. */
@@ -330,6 +430,15 @@ export function caseWorkspaceRoutes(
 			kind: "cases",
 			moduleUuid,
 			caseId: firstCaseId,
+		}),
+		tileResults: buildUrl(basePath, {
+			kind: "cases",
+			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
+		}),
+		tileForm: buildUrl(basePath, {
+			kind: "form",
+			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
+			formUuid: CASE_WORKSPACE_SEED.tile.formUuid,
 		}),
 	};
 }

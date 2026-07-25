@@ -3,6 +3,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
+import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import {
 	buildCaseWorkspaceBlueprint,
 	CASE_WORKSPACE_SEED,
@@ -60,6 +61,9 @@ describe("case workspace visual-QA seed", () => {
 			CASE_WORKSPACE_SEED.moduleUuid,
 			...Object.values(CASE_WORKSPACE_SEED.columns),
 			...Object.values(CASE_WORKSPACE_SEED.searchInputs),
+			CASE_WORKSPACE_SEED.tile.moduleUuid,
+			CASE_WORKSPACE_SEED.tile.formUuid,
+			...Object.values(CASE_WORKSPACE_SEED.tile.columns),
 		];
 		expect(new Set(fixedIds).size).toBe(fixedIds.length);
 		for (const id of fixedIds) {
@@ -85,13 +89,45 @@ describe("case workspace visual-QA seed", () => {
 		}
 	});
 
-	it("emits the canonical Search / Results / Details / condition paths", () => {
+	it("emits the canonical Search / Results / Details / condition / tile paths", () => {
+		const tile = CASE_WORKSPACE_SEED.tile;
 		expect(caseWorkspaceRoutes(APP_ID, CASE_ID)).toEqual({
 			search: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/search`,
 			results: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/results`,
 			details: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/details`,
 			condition: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/condition`,
 			firstCase: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/cases/${CASE_ID}`,
+			tileResults: `/build/${APP_ID}/${tile.moduleUuid}/results`,
+			tileForm: `/build/${APP_ID}/${tile.formUuid}`,
 		});
+	});
+
+	it("lays the tile module out on a six-column grid whose only boxed cell is the one that asked", () => {
+		const doc = buildCaseWorkspaceBlueprint(APP_ID);
+		const module = doc.modules[CASE_WORKSPACE_SEED.tile.moduleUuid];
+		const config = module?.caseListConfig;
+		expect(config?.tile).toEqual({ persistOnForms: true });
+
+		const columns = config?.columns ?? [];
+		// Every column the tile shows has a square — the running renderer
+		// derives its grid from exactly these.
+		expect(columns.every((column) => column.tile !== undefined)).toBe(true);
+		const projection = projectTileGrid(columns);
+		expect(projection).toMatchObject({ columns: 6, rows: 2 });
+		expect(projection.cells.map((cell) => cell.mode)).toEqual([
+			"inset",
+			"boxed",
+			"inset",
+			"inset",
+		]);
+
+		// Details is deliberately empty, so the running tile continues
+		// straight into the follow-up form.
+		expect(columns.every((column) => column.visibleInDetail === false)).toBe(
+			true,
+		);
+		const formUuids = doc.formOrder[CASE_WORKSPACE_SEED.tile.moduleUuid] ?? [];
+		expect(formUuids).toEqual([CASE_WORKSPACE_SEED.tile.formUuid]);
+		expect(doc.forms[CASE_WORKSPACE_SEED.tile.formUuid]?.type).toBe("followup");
 	});
 });
