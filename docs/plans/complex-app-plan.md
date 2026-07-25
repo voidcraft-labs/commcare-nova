@@ -623,8 +623,16 @@ operations stress case is 20 items on one form: default to a list-plus-editor
 master/detail model with keyboard reorder and dependency-aware review states. A
 configuration URL's global Preview action runs its owning form.
 
-Builder mutation inputs are carrier-blind until unit 2 lands the options-source
-editor; SA and MCP vocabulary waits for unit 3.
+These surfaces live in the existing builder chrome, not a new workspace: the
+inspector rail owns per-item settings and the centre canvas owns the full
+condition editor, matching where the case workspace already puts a search-button
+condition. A `Predicate` is entered through the structured builder; the
+`lib/codemirror` XPath editor stays the escape hatch for reading, not the primary
+authoring path.
+
+Unit 1's mutation inputs carry no options-source vocabulary — that belongs to
+unit 2 — and no SA or MCP surface, which unit 3 owns. Neither is an ordering
+constraint: the three units are independent until unit 3 needs both.
 
 **Observed:** an author writes a module or form display condition and a form's
 case operations without touching chat, sees the condition's effect in the running
@@ -1437,7 +1445,10 @@ Binding facts:
 **Observed:** an author copies a link that opens a specific case in a specific
 form, and is told plainly when the target domain lacks the required toggle.
 
-**Depends on:** units 13 and 16.
+**Depends on:** units 13 and 16 — 13 rather than 12 because a shareable link must
+resolve to a *released* build whose referenced tables and locations already exist
+on the target; linking into an app whose lookup tables were never pushed produces
+a dead claim frame at runtime rather than a build-time error.
 
 ### 18 — Multi-select, related cases, and profile extensions
 
@@ -1490,7 +1501,9 @@ Binding facts:
 **Observed:** a worker selects several cases at once and runs one form over all of
 them.
 
-**Depends on:** unit 13.
+**Depends on:** unit 13 — the profile PR needs a live push path to confirm that
+the `CUSTOM_PROPERTIES` toggle is present on the target before offering authored
+properties that HQ would otherwise merge away silently.
 
 ---
 
