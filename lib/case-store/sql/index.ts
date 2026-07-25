@@ -11,9 +11,12 @@
 // are leaves the higher-order compilers call into.
 //
 // Tenant-scope contract: callers emit the outer-query
-// `(app_id = $1 AND owner_id = $2)` filter; the compiler stack only
+// `(app_id = $1 AND project_id = $2)` filter; the compiler stack only
 // emits its filter on every JOIN-ed `cases` row inside
-// `compileRelationPath`'s subquery body.
+// `compileRelationPath`'s subquery body. `owner_id` is NOT a tenant
+// fence and never appears in either — it is the CommCare case-owner,
+// a separate axis a query filters on only when an authored expression
+// asks it to.
 //
 // `compileLiteral` and the type-erased `Dynamic*` views stay
 // package-private — callers route through the public entry points.

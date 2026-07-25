@@ -925,7 +925,12 @@ export class PostgresCaseStore implements CaseStore {
 					case_id: caseIds[index],
 					app_id: args.appId,
 					project_id: this.requireProjectId(),
-					owner_id: this.requireActorUserId(),
+					// The WORKER, exactly as the single-row insert stamps it. The
+					// two paths must agree: a split here would mean sample data
+					// generated while previewing as a persona belonged to the
+					// signed-in member while everything else that persona wrote
+					// belonged to the persona.
+					owner_id: this.requireOwnerId(),
 					...creationStamps(row),
 					properties: JSON.stringify(propertiesObject),
 				};
