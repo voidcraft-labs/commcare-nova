@@ -19,6 +19,8 @@
 // never a silently-shown item).
 
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import type { FormLink } from "@/lib/domain";
+import { projectFormLinks } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 import { toBoolean } from "../xpath/coerce";
@@ -65,6 +67,58 @@ export function formDisplayVisibility(args: {
 	readonly lookup: PreviewLookupStatus;
 }): NavigationItemVisibility {
 	return conditionVisibility(args, true);
+}
+
+/**
+ * Which end-of-form link a submission actually takes.
+ *
+ * Runs the SAME exclusive projection the wire emits, so "first matching
+ * link wins" means one thing in the preview and on a device. The
+ * projection's guards already carry each earlier condition's negation,
+ * which is why this can stop at the first `shown` and be right rather
+ * than merely conventional.
+ *
+ * `caseProjection` must be the case AFTER the submission's writes
+ * committed — the device re-reads `casedb` at end of form, so a guard
+ * reading a property this very form set has to see the new value. For a
+ * registration form that is the case it just created, matching the wire's
+ * `case_id_new_<type>_0` anchor.
+ *
+ * `pending` propagates: a link whose guard folds over lookup data still
+ * loading is not "not taken", and treating it as such would silently send
+ * a worker somewhere else.
+ */
+export function endOfFormLinkTarget(args: {
+	readonly form: { readonly formLinks?: readonly FormLink[] };
+	readonly session: PreviewSearchSessionValues;
+	readonly currentCaseType?: string;
+	readonly caseProjection?: ReadonlyMap<string, string>;
+	readonly lookup: PreviewLookupStatus;
+}):
+	| { readonly kind: "link"; readonly target: FormLink["target"] }
+	| { readonly kind: "fallback" }
+	| { readonly kind: "pending" } {
+	for (const projected of projectFormLinks(args.form).links) {
+		const visibility = conditionVisibility(
+			{
+				condition: projected.guard,
+				session: args.session,
+				...(args.currentCaseType !== undefined && {
+					currentCaseType: args.currentCaseType,
+				}),
+				...(args.caseProjection !== undefined && {
+					caseProjection: args.caseProjection,
+				}),
+				lookup: args.lookup,
+			},
+			true,
+		);
+		if (visibility === "pending") return { kind: "pending" };
+		if (visibility === "shown") {
+			return { kind: "link", target: projected.link.target };
+		}
+	}
+	return { kind: "fallback" };
 }
 
 function conditionVisibility(

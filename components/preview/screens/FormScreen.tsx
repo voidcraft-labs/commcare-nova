@@ -23,16 +23,24 @@ import {
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
-import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
+import {
+	loadCaseDataAction,
+	submitFormAction,
+} from "@/lib/preview/engine/caseDataBinding";
 import {
 	caseRowsToFormPreloads,
+	caseRowToFormPreload,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import { endOfFormLinkTarget } from "@/lib/preview/engine/displayConditionEvaluation";
+import { previewSessionValues } from "@/lib/preview/engine/identity";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
@@ -189,6 +197,15 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const appId = useAppId();
 	const scopeEpoch = useProjectScopeEpoch();
 	const personaUuid = usePreviewPersonaUuid();
+	/* Whoever Preview is running as. An end-of-form guard may read a
+	 * current-user value, so it resolves against the same identity every
+	 * other preview condition does. */
+	const previewIdentity = useSelectedPreviewIdentity();
+	const searchSession = useMemo(
+		() => previewSessionValues(previewIdentity),
+		[previewIdentity],
+	);
+	const lookupStatus = usePreviewLookupStatus();
 	const session = useBuilderSessionApi();
 	/* A viewer may preview the running app but not WRITE case data (submit a
 	 * form, generate sample cases) — those server actions are edit-gated, so
@@ -416,6 +433,40 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			caseDataState.kind === "row" &&
 			caseDataState.row.case_id === effectiveCaseId);
 
+	/**
+	 * The submitted case as it stands after the write, flattened the same
+	 * way a form preload is, so an end-of-form guard resolves its
+	 * `#case/<prop>` reads against real committed values.
+	 *
+	 * A load failure yields no projection rather than an error: the guard
+	 * then reads blank, which is exactly what a device does when the
+	 * property is absent, and a navigation decision is not worth blocking
+	 * a completed submission over.
+	 */
+	const loadSubmittedCaseProjection = useCallback(
+		async (
+			caseType: string,
+			submittedCaseId: string,
+		): Promise<ReadonlyMap<string, string> | undefined> => {
+			if (appId === undefined) return undefined;
+			const loaded = await loadCaseDataAction(
+				appId,
+				caseType,
+				submittedCaseId,
+				0,
+				undefined,
+				caseTypes,
+				viewerTimeZone(),
+				undefined,
+				personaUuid ?? undefined,
+			);
+			return loaded.kind === "row"
+				? caseRowToFormPreload(loaded.row)
+				: undefined;
+		},
+		[appId, caseTypes, personaUuid],
+	);
+
 	const dispatchPostSubmit = useCallback((): void => {
 		if (!form) return;
 		const dest = form.postSubmit ?? defaultPostSubmit(form.type);
@@ -452,6 +503,64 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 		}
 	}, [form, moduleUuid, navigate, onBack]);
+
+	/**
+	 * Where the submission actually lands.
+	 *
+	 * Links are checked first, against the case as it stands AFTER the
+	 * write: the device nulls its case-database initializer before running
+	 * stack ops precisely so a guard sees this submission's own writes, and
+	 * a preview that read the pre-submission row would take a different
+	 * branch than the device for the same app. `submittedCaseId` is the
+	 * case the server wrote, which for a registration form is the one it
+	 * just created — the same case the wire reaches through
+	 * `case_id_new_<type>_0`.
+	 *
+	 * A `pending` verdict means a guard folds over lookup data that has not
+	 * loaded. Falling through to the fallback would answer a question the
+	 * engine cannot yet answer, so the dispatch waits for the reload
+	 * instead — the same three-valued discipline the navigation conditions
+	 * already use.
+	 */
+	const dispatchEndOfForm = useCallback(
+		async (submittedCaseId: string | undefined): Promise<void> => {
+			if (!form) return;
+			if ((form.formLinks?.length ?? 0) === 0) {
+				dispatchPostSubmit();
+				return;
+			}
+			const projection =
+				submittedCaseId === undefined || mod?.caseType === undefined
+					? undefined
+					: await loadSubmittedCaseProjection(mod.caseType, submittedCaseId);
+			const outcome = endOfFormLinkTarget({
+				form,
+				session: searchSession,
+				...(mod?.caseType !== undefined && { currentCaseType: mod.caseType }),
+				...(projection !== undefined && { caseProjection: projection }),
+				lookup: lookupStatus,
+			});
+			if (outcome.kind === "pending") return;
+			if (outcome.kind === "fallback") {
+				dispatchPostSubmit();
+				return;
+			}
+			if (outcome.target.type === "module") {
+				navigate.openModule(outcome.target.moduleUuid);
+				return;
+			}
+			navigate.openForm(outcome.target.moduleUuid, outcome.target.formUuid);
+		},
+		[
+			form,
+			mod?.caseType,
+			loadSubmittedCaseProjection,
+			searchSession,
+			lookupStatus,
+			navigate,
+			dispatchPostSubmit,
+		],
+	);
 
 	const handleSubmit = async (): Promise<void> => {
 		const start = session.getState();
@@ -537,7 +646,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				result.kind === "survey"
 			) {
 				setSubmitStatus({ kind: "idle" });
-				dispatchPostSubmit();
+				await dispatchEndOfForm(
+					result.kind === "survey" ? undefined : result.caseId,
+				);
 				return;
 			}
 			setSubmitStatus({
