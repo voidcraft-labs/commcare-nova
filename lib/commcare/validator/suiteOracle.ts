@@ -460,10 +460,78 @@ function checkDetails(
 					),
 				);
 			}
+			errors.push(...checkFieldStyle(field, fieldChildren, detailId, loc));
 		}
 	}
 
 	return errors;
+}
+
+/**
+ * `<style>` / `<grid>` structural check.
+ *
+ * `<style>` and `<grid>` are one indivisible unit at parse.
+ * `DetailFieldParser::parseStyle` constructs a `StyleParser` and then a
+ * `GridParser` unconditionally whenever a `<style>` element is present, and
+ * `GridParser::parse` opens with `checkNode("grid")` before reading all four
+ * coordinates through UNGUARDED `Integer.parseInt` calls. Two distinct
+ * failures follow, and both take the whole suite down at install:
+ *
+ *   - a `<style>` whose first child is not `<grid>` throws
+ *     `InvalidStructureException` from `checkNode`, and
+ *   - a `<grid>` missing any one of `grid-x` / `grid-y` / `grid-width` /
+ *     `grid-height` throws a raw `NumberFormatException` that escapes the
+ *     parser's structured-error path entirely, so the device reports it as a
+ *     crash rather than a bad app.
+ *
+ * A non-integer value is the same `NumberFormatException`, so the check
+ * validates the spelling as well as the presence.
+ *
+ * CCHQ can emit both broken shapes — its custom-tile branch builds a `Style`
+ * when ANY of the four coordinates is non-null rather than all four — which is
+ * why this oracle exists even though Nova's `TileCell` carries the four as one
+ * required object. It is a generator tripwire, never a user gate.
+ */
+function checkFieldStyle(
+	field: Element,
+	fieldChildren: readonly Element[],
+	detailId: string,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const style = fieldChildren.find((c) => c.name === "style");
+	if (style === undefined) return [];
+
+	const styleChildren = getChildren(style).filter((c): c is Element =>
+		isTag(c),
+	);
+	const grid = styleChildren.find((c) => c.name === "grid");
+	if (grid === undefined || styleChildren[0]?.name !== "grid") {
+		return [
+			validationError(
+				"SUITE_FIELD_STYLE_INVALID",
+				"app",
+				`The suite has a <style> in <detail id="${detailId}"> whose first child is not <grid>. CommCare parses <style> and <grid> as one unit and rejects the whole suite when the pair is broken. This is a bug in the suite generator.`,
+				loc,
+				{ detailId },
+			),
+		];
+	}
+
+	const missing: string[] = [];
+	for (const attr of ["grid-x", "grid-y", "grid-width", "grid-height"]) {
+		const value = getAttributeValue(grid, attr);
+		if (value === undefined || !/^-?\d+$/.test(value)) missing.push(attr);
+	}
+	if (missing.length === 0) return [];
+	return [
+		validationError(
+			"SUITE_FIELD_STYLE_INVALID",
+			"app",
+			`The suite has a <grid> in <detail id="${detailId}"> whose ${missing.join(", ")} ${missing.length === 1 ? "attribute is" : "attributes are"} missing or not a whole number. CommCare reads all four grid coordinates as integers with no guard, so any one of them missing crashes the device while it installs the app. This is a bug in the suite generator.`,
+			loc,
+			{ detailId, missing: missing.join(",") },
+		),
+	];
 }
 
 // ── Category 1 — entry / remote-request / query / post (C1-3..7/16) ─
