@@ -119,6 +119,23 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	PERSONA_USER_TYPE_UNKNOWN: "soundness",
 	USER_DATA_UNKNOWN_PROPERTY: "soundness",
 	USER_DATA_INVALID_CHOICE: "soundness",
+	// Where people work. Every one is soundness: a duplicated level code or
+	// name is indistinguishable at the wire and in every picker, a broken or
+	// looping parent chain describes a hierarchy that cannot be walked, an
+	// address book starting somewhere that is not above the level describes a
+	// walk that does not exist, an illegal or duplicated property slug is an
+	// identity CommCare refuses, and a repeated primary place would send the
+	// same location twice.
+	ORGANIZATION_LEVEL_CODE_DUPLICATE: "soundness",
+	ORGANIZATION_LEVEL_NAME_DUPLICATE: "soundness",
+	ORGANIZATION_LEVEL_PARENT_UNKNOWN: "soundness",
+	ORGANIZATION_LEVEL_CYCLE: "soundness",
+	ORGANIZATION_LEVEL_REFERENCE_UNKNOWN: "soundness",
+	ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR: "soundness",
+	LOCATION_PROPERTY_SLUG_INVALID: "soundness",
+	LOCATION_PROPERTY_SLUG_DUPLICATE: "soundness",
+	LOCATION_PROPERTY_LEVEL_UNKNOWN: "soundness",
+	PERSONA_LOCATION_PRIMARY_REPEATED: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",

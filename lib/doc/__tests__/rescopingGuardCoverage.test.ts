@@ -1041,7 +1041,132 @@ const GUARD_COVERAGE = {
 			batch: [{ kind: "removePersona", uuid: asUuid("pers-bimal") }],
 		}),
 	},
+	addOrganizationLevel: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "addOrganizationLevel",
+					level: {
+						uuid: asUuid("lvl-new"),
+						// Same code as the existing district level.
+						code: "district",
+						name: "Region",
+						caseFlow: { workers: "none", ownsCases: false },
+						addressBook: { reach: "own-branch" },
+					},
+				},
+			],
+		}),
+		expectCodes: ["ORGANIZATION_LEVEL_CODE_DUPLICATE"],
+	},
+	updateOrganizationLevel: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "updateOrganizationLevel",
+					uuid: asUuid("lvl-facility"),
+					// The facility's address book cannot start from itself —
+					// widening means starting further UP.
+					patch: {
+						addressBook: {
+							reach: "shared-branch",
+							fromLevelUuid: asUuid("lvl-facility"),
+						},
+					},
+				},
+			],
+		}),
+		expectCodes: ["ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR"],
+	},
+	removeOrganizationLevel: {
+		build: () => ({
+			doc: organizationDoc(),
+			// Removing the district strands the facility that sits under it.
+			batch: [
+				{ kind: "removeOrganizationLevel", uuid: asUuid("lvl-district") },
+			],
+		}),
+		expectCodes: ["ORGANIZATION_LEVEL_PARENT_UNKNOWN"],
+	},
+	addLocationProperty: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "addLocationProperty",
+					property: {
+						uuid: asUuid("lp-new"),
+						// `commcare`-prefixed slugs are refused by HQ outright.
+						slug: "commcare_beds",
+						label: "Beds",
+					},
+				},
+			],
+		}),
+		expectCodes: ["LOCATION_PROPERTY_SLUG_INVALID"],
+	},
+	updateLocationProperty: {
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [
+				{
+					kind: "updateLocationProperty",
+					uuid: asUuid("lp-beds"),
+					patch: { levelUuids: [asUuid("lvl-gone")] },
+				},
+			],
+		}),
+		expectCodes: ["LOCATION_PROPERTY_LEVEL_UNKNOWN"],
+	},
+	removeLocationProperty: {
+		neverGates:
+			"drops one custom field from the catalog — nothing in the DOCUMENT references a location property (values live on location rows, which the commit transaction sheds in the same write), so removing one introduces no finding; app-scoped with no module or form widening",
+		build: () => ({
+			doc: organizationDoc(),
+			batch: [{ kind: "removeLocationProperty", uuid: asUuid("lp-beds") }],
+		}),
+	},
 } satisfies Record<Mutation["kind"], Coverage>;
+
+/**
+ * A two-rung organization — District over Facility — with one custom
+ * field. Facilities hold workers and own their cases; districts are pure
+ * structure above them.
+ */
+function organizationDoc(): BlueprintDoc {
+	const doc = usersDoc();
+	doc.organizationLevels = {
+		[asUuid("lvl-district")]: {
+			uuid: asUuid("lvl-district"),
+			code: "district",
+			name: "District",
+			caseFlow: { workers: "none", ownsCases: false },
+			addressBook: { reach: "own-branch" },
+		},
+		[asUuid("lvl-facility")]: {
+			uuid: asUuid("lvl-facility"),
+			code: "facility",
+			name: "Facility",
+			parentLevelUuid: asUuid("lvl-district"),
+			caseFlow: {
+				workers: "assigned",
+				ownsCases: true,
+				descendantCases: { kind: "none" },
+			},
+			addressBook: { reach: "own-branch" },
+		},
+	};
+	doc.locationProperties = {
+		[asUuid("lp-beds")]: {
+			uuid: asUuid("lp-beds"),
+			slug: "beds",
+			label: "Beds",
+		},
+	};
+	return doc;
+}
 
 /** The single case-list column the rich Patients module is born with. */
 function patientsColumn(doc: BlueprintDoc): {

@@ -32,6 +32,7 @@ import { applyAppMutation } from "./app";
 import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
 import { applyModuleMutation } from "./modules";
+import { applyOrganizationMutation } from "./organization";
 import { applyUserMutation } from "./users";
 
 /**
@@ -109,6 +110,14 @@ function dispatchMutation(
 		case "updatePersona":
 		case "removePersona":
 			applyUserMutation(draft, mut);
+			return;
+		case "addOrganizationLevel":
+		case "updateOrganizationLevel":
+		case "removeOrganizationLevel":
+		case "addLocationProperty":
+		case "updateLocationProperty":
+		case "removeLocationProperty":
+			applyOrganizationMutation(draft, mut);
 			return;
 		default:
 			assertNever(mut, "applyMutation");

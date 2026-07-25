@@ -1,0 +1,287 @@
+/**
+ * Organization-level and location-property rules — app-scoped, because
+ * neither collection belongs to a module or a form.
+ *
+ * Two of these rules exist because CommCare adjudicates the same strings:
+ * a level's `code` is `LocationType.code`, a `SlugField` that is
+ * domain-unique through `LocationType.Meta.unique_together` and reaches
+ * the wire as the fixture's `@type` and its `{code}_id` lineage attribute
+ * name; a location property's `slug` is a `Field.slug` on the domain's
+ * `LocationFields` definition, adjudicated by exactly the machinery user
+ * properties go through (`custom_data_fields/edit_model.py::XmlSlugField`
+ * and `models.py::validate_reserved_words`). A name CommCare refuses is a
+ * push that fails on identity grounds long after the author wrote it, so
+ * Nova refuses it at construction.
+ *
+ * The rest are Nova's own structural integrity: a level graph with a
+ * broken or looping parent chain, or an address book pointing at a level
+ * that is not above it, has no coherent fixture — and unlike HQ, which
+ * documents such states as "undefined outcomes" in its own fixture query,
+ * Nova refuses to build one.
+ *
+ * What is NOT here is anything that depends on the locations store.
+ * "No place still stands at this level" and "this persona's assignment
+ * still points at a live place" are proved inside the commit
+ * transaction, because they are questions about rows the document cannot
+ * see and because a document-time answer would already be stale by the
+ * time it was acted on.
+ */
+
+import {
+	ancestorLevels,
+	type BlueprintDoc,
+	locationPropertiesOf,
+	organizationLevelsOf,
+	personasOf,
+} from "@/lib/domain";
+import { type ValidationError, validationError } from "../errors";
+import { userPropertySlugVerdict } from "../userPropertySlug";
+
+/** Case-insensitive display-name key, so two levels can't look identical. */
+function nameKey(name: string): string {
+	return name.trim().toLowerCase();
+}
+
+function levelIdentities(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const codes = new Set<string>();
+	const names = new Set<string>();
+	for (const level of Object.values(organizationLevelsOf(doc))) {
+		if (codes.has(level.code)) {
+			errors.push(
+				validationError(
+					"ORGANIZATION_LEVEL_CODE_DUPLICATE",
+					"app",
+					`Two levels both use the code "${level.code}". A level's code is how expressions and the device tell one level from another, so each needs its own.`,
+					{},
+					{ code: level.code },
+				),
+			);
+		}
+		codes.add(level.code);
+
+		const key = nameKey(level.name);
+		if (names.has(key)) {
+			errors.push(
+				validationError(
+					"ORGANIZATION_LEVEL_NAME_DUPLICATE",
+					"app",
+					`Two levels are both called "${level.name}". Give each level a name of its own — otherwise there's no way to tell them apart when placing a location.`,
+					{},
+					{ name: level.name },
+				),
+			);
+		}
+		names.add(key);
+	}
+	return errors;
+}
+
+/**
+ * The parent chain resolves and terminates.
+ *
+ * A dangling parent is unbuildable; a cycle would hang every ancestor
+ * walk in the emitter and the fixture. HQ enforces the same acyclicity
+ * (`tree_utils.py::assert_no_cycles`) in Python only — there is no
+ * database constraint — so it is genuinely reachable rather than
+ * theoretical.
+ */
+function levelHierarchy(doc: BlueprintDoc): ValidationError[] {
+	const levels = organizationLevelsOf(doc);
+	const errors: ValidationError[] = [];
+	for (const level of Object.values(levels)) {
+		const parentUuid = level.parentLevelUuid;
+		if (parentUuid === undefined) continue;
+		if (levels[parentUuid] === undefined) {
+			errors.push(
+				validationError(
+					"ORGANIZATION_LEVEL_PARENT_UNKNOWN",
+					"app",
+					`"${level.name}" sits under a level that no longer exists. Choose the level it belongs under, or make it a top level.`,
+					{},
+					{ level: level.name },
+				),
+			);
+			continue;
+		}
+		// `ancestorLevels` stops at the first repeat rather than looping, so
+		// a cycle shows up as the level reaching itself.
+		const chain = ancestorLevels(level, levels);
+		if (chain.some((ancestor) => ancestor.uuid === level.uuid)) {
+			errors.push(
+				validationError(
+					"ORGANIZATION_LEVEL_CYCLE",
+					"app",
+					`"${level.name}" ends up under itself. Levels run top to bottom, so following one upward has to reach a top level eventually.`,
+					{},
+					{ level: level.name },
+				),
+			);
+		}
+	}
+	return errors;
+}
+
+/**
+ * Every level a level names is a level, and the two that must be
+ * ancestors are ancestors.
+ *
+ * `shared-branch`'s starting point and the depth caps are directions
+ * through the hierarchy, so pointing them sideways or downward describes
+ * a walk that does not exist. HQ's own fixture query lists exactly this
+ * as an undefined outcome — "expand_from could point to a location that
+ * is not an ancestor" — and then does not check it.
+ */
+function levelReferences(doc: BlueprintDoc): ValidationError[] {
+	const levels = organizationLevelsOf(doc);
+	const errors: ValidationError[] = [];
+
+	const unknown = (level: { name: string }, what: string) =>
+		validationError(
+			"ORGANIZATION_LEVEL_REFERENCE_UNKNOWN",
+			"app",
+			`"${level.name}" ${what} a level that no longer exists. Pick one that does.`,
+			{},
+			{ level: level.name },
+		);
+
+	for (const level of Object.values(levels)) {
+		const above = new Set(
+			ancestorLevels(level, levels).map((ancestor) => ancestor.uuid),
+		);
+
+		const flow = level.caseFlow;
+		if (
+			flow.workers === "assigned" &&
+			flow.descendantCases.kind === "down-to" &&
+			levels[flow.descendantCases.levelUuid] === undefined
+		) {
+			errors.push(unknown(level, "sends cases down to"));
+		}
+
+		const book = level.addressBook;
+		if (book.reach === "own-branch-limited") {
+			for (const uuid of book.levelUuids) {
+				if (levels[uuid] === undefined) {
+					errors.push(unknown(level, "limits its address book to"));
+				}
+			}
+		} else if (book.downToLevelUuid !== undefined) {
+			if (levels[book.downToLevelUuid] === undefined) {
+				errors.push(unknown(level, "stops its address book at"));
+			}
+		}
+
+		if (book.reach === "shared-branch") {
+			if (levels[book.fromLevelUuid] === undefined) {
+				errors.push(unknown(level, "starts its address book from"));
+			} else if (!above.has(book.fromLevelUuid)) {
+				const from = levels[book.fromLevelUuid];
+				errors.push(
+					validationError(
+						"ORGANIZATION_LEVEL_SCOPE_NOT_ANCESTOR",
+						"app",
+						`"${level.name}" starts its address book from "${from.name}", which isn't above it. An address book widens by starting further up, so pick a level "${level.name}" sits under.`,
+						{},
+						{ level: level.name },
+					),
+				);
+			}
+		}
+
+		if (
+			(book.reach === "own-branch" || book.reach === "own-branch-limited") &&
+			book.alsoIncludeTopDownToLevelUuid !== undefined &&
+			levels[book.alsoIncludeTopDownToLevelUuid] === undefined
+		) {
+			errors.push(unknown(level, "also carries the organization down to"));
+		}
+	}
+	return errors;
+}
+
+function locationPropertyIdentities(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const claimed = new Set<string>();
+	for (const property of Object.values(locationPropertiesOf(doc))) {
+		// Deliberately the user-property rule, not a copy of it. HQ runs one
+		// `custom_data_fields` machinery for both field types and splits them
+		// only by `field_type`, so the legality is genuinely the same rule —
+		// a second implementation could only drift from it.
+		const verdict = userPropertySlugVerdict(property.slug, claimed);
+		claimed.add(property.slug);
+		if (verdict.ok) continue;
+		errors.push(
+			validationError(
+				verdict.code === "duplicate"
+					? "LOCATION_PROPERTY_SLUG_DUPLICATE"
+					: "LOCATION_PROPERTY_SLUG_INVALID",
+				"app",
+				`"${property.label}" saves under the name "${property.slug}", which CommCare won't accept. ${verdict.userMessage}`,
+				{},
+				{ slug: property.slug },
+			),
+		);
+	}
+	return errors;
+}
+
+function locationPropertyLevels(doc: BlueprintDoc): ValidationError[] {
+	const levels = organizationLevelsOf(doc);
+	const errors: ValidationError[] = [];
+	for (const property of Object.values(locationPropertiesOf(doc))) {
+		for (const uuid of property.levelUuids ?? []) {
+			if (levels[uuid] === undefined) {
+				errors.push(
+					validationError(
+						"LOCATION_PROPERTY_LEVEL_UNKNOWN",
+						"app",
+						`"${property.label}" applies to a level that no longer exists. Choose the levels it applies to, or let it apply everywhere.`,
+						{},
+						{ slug: property.slug },
+					),
+				);
+			}
+		}
+	}
+	return errors;
+}
+
+/**
+ * A persona's primary place is not repeated in the rest of its list.
+ *
+ * HQ's `CommCareUserResource` takes `primary_location` and `locations`
+ * together and requires the primary to appear in the list, so Nova emits
+ * the primary followed by the others — a primary that also appeared among
+ * the others would send it twice. The rest of the assignment's integrity
+ * (that these uuids name live, unarchived places) is proved in the commit
+ * transaction, since only the store knows.
+ */
+function personaAssignments(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const persona of Object.values(personasOf(doc))) {
+		const locations = persona.locations;
+		if (locations === undefined) continue;
+		if (locations.additionalUuids?.includes(locations.primaryUuid)) {
+			errors.push(
+				validationError(
+					"PERSONA_LOCATION_PRIMARY_REPEATED",
+					"app",
+					`${persona.name}'s main place is also listed among their other places. Their main place is always included, so list only the additional ones.`,
+					{},
+					{ name: persona.name },
+				),
+			);
+		}
+	}
+	return errors;
+}
+
+export const ORGANIZATION_RULES = [
+	levelIdentities,
+	levelHierarchy,
+	levelReferences,
+	locationPropertyIdentities,
+	locationPropertyLevels,
+	personaAssignments,
+];

@@ -50,6 +50,7 @@
 // `BUILT_IN_USER_PROPERTIES` carries only what the session block injects.
 
 import { z } from "zod";
+import { personaLocationsSchema } from "./organization";
 import { uuidSchema } from "./uuid";
 
 // ── Slug legality ────────────────────────────────────────────────────
@@ -367,6 +368,21 @@ export const personaSchema = z
 		description: z.string().optional(),
 		/** The user type this persona acts as. */
 		userTypeUuid: uuidSchema.optional(),
+		/**
+		 * Where this persona works — one optional object rather than a
+		 * primary slot and a list, because HQ's `CommCareUserResource`
+		 * refuses a primary location supplied without its list and requires
+		 * the primary to appear in it. Two slots could drift into a state no
+		 * push can represent; one cannot. Absence is "assigned nowhere",
+		 * which is exactly when `get_user_session_data` omits
+		 * `commcare_location_id`, `commcare_location_ids`, and
+		 * `commcare_primary_case_sharing_id` together.
+		 *
+		 * The uuids name rows in the app's locations store rather than
+		 * blueprint entities, so they are validated against Postgres inside
+		 * the commit transaction and carried as exact reference edges.
+		 */
+		locations: personaLocationsSchema.optional(),
 		/** Values that differ from the user type's defaults. */
 		values: userDataValuesSchema.optional(),
 	})

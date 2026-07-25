@@ -31,11 +31,12 @@ export interface EntityRow {
  * The entity kinds a blueprint decomposes into.
  *
  * The first three carry the runnable app and encode their hierarchy in
- * `(parent_uuid, ordinal)`. The last three are the flat user collections
- * (`lib/domain/users.ts`): they have no parent and no membership array, so
- * they persist with a null parent and a constant ordinal, and their
- * sequence lives entirely in each entity's fractional `order` key — the
- * same derived-sequence model every other collection follows.
+ * `(parent_uuid, ordinal)`. The rest are the flat collections — who runs
+ * the app (`lib/domain/users.ts`) and where they work
+ * (`lib/domain/organization.ts`): they have no parent and no membership
+ * array, so they persist with a null parent and a constant ordinal, and
+ * their sequence lives entirely in each entity's fractional `order` key —
+ * the same derived-sequence model every other collection follows.
  */
 export type EntityRowKind =
 	| "module"
@@ -43,16 +44,30 @@ export type EntityRowKind =
 	| "field"
 	| "user_property"
 	| "user_type"
-	| "persona";
+	| "persona"
+	| "organization_level"
+	| "location_property";
 
-/** Which doc slot each flat user collection round-trips through. */
+/** Which doc slot each flat collection round-trips through. */
 const FLAT_COLLECTIONS = [
 	["user_property", "userProperties"],
 	["user_type", "userTypes"],
 	["persona", "personas"],
+	// The organization's SHAPE. Its contents — the places themselves — are
+	// app-scoped rows in `app_locations` and never appear here: a tree of
+	// thousands of nodes is data, not a document, and decomposing it into
+	// blueprint entities would put it into undo history and the mutation log.
+	["organization_level", "organizationLevels"],
+	["location_property", "locationProperties"],
 ] as const satisfies readonly (readonly [
 	EntityRowKind,
-	"userProperties" | "userTypes" | "personas",
+	(
+		| "userProperties"
+		| "userTypes"
+		| "personas"
+		| "organizationLevels"
+		| "locationProperties"
+	),
 ])[];
 
 /** The `apps`-row scalar slice of the doc (everything that isn't an entity). */

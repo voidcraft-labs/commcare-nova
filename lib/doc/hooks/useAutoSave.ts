@@ -91,6 +91,8 @@ export function projectSaveSlice(s: BlueprintDoc) {
 		userProperties: s.userProperties,
 		userTypes: s.userTypes,
 		personas: s.personas,
+		organizationLevels: s.organizationLevels,
+		locationProperties: s.locationProperties,
 	};
 }
 
