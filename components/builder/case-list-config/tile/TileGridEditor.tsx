@@ -250,10 +250,16 @@ export function TileGridEditor({
 
 			<div className="overflow-x-auto overscroll-x-contain [scrollbar-gutter:auto]">
 				{/* A fieldset: the grid is one labelled group of the tile's own
-				 * controls. The floor is arithmetic, not a guess: a chip insets
-				 * itself by 2px on each side, so a 44px pointer target needs a
-				 * 48px square — 12 x 48 = 36rem of width, and a 3rem row. Below
-				 * that the group scrolls sideways rather than shrinking. */}
+				 * controls. The sizing is arithmetic, not a guess. A single grid
+				 * square IS the pointer target — the chip owning the grid area
+				 * fills it and insets only its drawn box — so a 48px square gives
+				 * a 48 x 48 target, the size the baseline review asks for rather
+				 * than the 44px floor. 12 x 48 = 36rem of width and a 3rem row;
+				 * below that the group scrolls sideways rather than shrinking,
+				 * because a shrinking square would slide under the floor at some
+				 * viewport nobody tested. Adjacent targets tile the grid edge to
+				 * edge, so the "separate adjacent targets" rule is satisfied by
+				 * the layout instead of by a gutter. */}
 				<fieldset
 					ref={gridRef}
 					className="relative m-0 grid min-w-[36rem] rounded-xl border border-white/[0.07] bg-nova-deep/40 p-0 [--tile-row-height:3rem] @[52rem]:[--tile-row-height:3.25rem]"
@@ -473,31 +479,46 @@ function TileCellChip({
 			? "border-nova-violet bg-nova-violet/[0.16]"
 			: "border-white/[0.12] bg-nova-surface/70";
 
+	// The element that OWNS the grid area fills it edge to edge; the inset that
+	// separates one cell from the next is padding on that element, and the
+	// bordered box is drawn inside. Keeping the inset off the outer element is
+	// what makes a single grid square a full 48 x 48 pointer target instead of
+	// 44 x 44 — and because the targets then tile the grid without gaps, the
+	// "separate adjacent targets" rule is satisfied structurally rather than by
+	// spending pixels on a gutter. Nothing about the drawn result changes.
+	const cellClassName = `flex min-w-0 p-0.5 ${dragging ? "z-10" : ""} ${
+		canEdit ? "cursor-grab [touch-action:none] active:cursor-grabbing" : ""
+	}`;
+	const boxClassName = `flex min-w-0 grow items-center overflow-hidden rounded-lg border px-2 text-left text-[13px] leading-tight text-nova-text transition-colors motion-reduce:transition-none ${tone} ${
+		dragging ? "shadow-lg" : ""
+	}`;
+
 	const body = (
-		<span className="flex min-w-0 items-center gap-1.5">
-			{broken && (
-				<Icon
-					icon={tablerAlertCircle}
-					width="14"
-					height="14"
-					className="shrink-0 text-nova-rose"
-				/>
-			)}
-			<span className="min-w-0 break-words [overflow-wrap:anywhere]">
-				{placement.label}
+		<span className={boxClassName}>
+			<span className="flex min-w-0 items-center gap-1.5">
+				{broken && (
+					<Icon
+						icon={tablerAlertCircle}
+						width="14"
+						height="14"
+						className="shrink-0 text-nova-rose"
+					/>
+				)}
+				<span className="min-w-0 break-words [overflow-wrap:anywhere]">
+					{placement.label}
+				</span>
 			</span>
 		</span>
 	);
-
-	const className = `m-0.5 flex items-center overflow-hidden rounded-lg border px-2 text-left text-[13px] leading-tight text-nova-text transition-colors motion-reduce:transition-none ${tone} ${
-		dragging ? "z-10 shadow-lg" : ""
-	} ${canEdit ? "cursor-grab [touch-action:none] active:cursor-grabbing" : ""}`;
 
 	if (!canEdit) {
 		// A viewer's cell is content, not a control, so its place is read
 		// out beside the visible label rather than replacing it.
 		return (
-			<div className={className} style={{ gridArea: tileCellGridArea(cell) }}>
+			<div
+				className={cellClassName}
+				style={{ gridArea: tileCellGridArea(cell) }}
+			>
 				{body}
 				<span className="sr-only">{describeTilePlace(cell)}</span>
 			</div>
@@ -518,7 +539,7 @@ function TileCellChip({
 			onPointerUp={onPointerUp}
 			onPointerCancel={onPointerCancel}
 			onKeyDown={onKeyDown}
-			className={`${className} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet`}
+			className={`${cellClassName} rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet`}
 			style={{ gridArea: tileCellGridArea(cell) }}
 		>
 			{body}
