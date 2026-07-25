@@ -79,7 +79,7 @@ export function PersistentCaseTile({
 			className="sticky top-0 z-20 shrink-0 border-b border-pv-input-border bg-pv-bg"
 		>
 			<ContentFrame width="5xl" className="px-6 py-3">
-				<div className="w-fit min-w-[18rem] max-w-full overflow-x-auto">
+				<div className="w-full min-w-[18rem] overflow-x-auto">
 					{state.kind === "row" ? (
 						<CaseTile
 							projection={projection}

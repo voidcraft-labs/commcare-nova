@@ -1326,9 +1326,9 @@ test.describe("authenticated builder", () => {
 			expect(insetBox).not.toBeNull();
 			if (tileBox === null || boxedBox === null || insetBox === null) return;
 			// The boxed cell fills its two of six columns (less its margins);
-			// the plain one hugs its text inside three of six.
+			// the plain one hugs its text inside a wider span.
 			expect(boxedBox.width).toBeGreaterThan((tileBox.width * 2) / 6 - 12);
-			expect(insetBox.width).toBeLessThan(((tileBox.width * 3) / 6) * 0.8);
+			expect(insetBox.width).toBeLessThan(tileBox.width * 0.5);
 		});
 
 		await test.step("the same tile pins above the module's form", async () => {
@@ -1352,6 +1352,32 @@ test.describe("authenticated builder", () => {
 			expect(formHeader).not.toBeNull();
 			if (band === null || formHeader === null) return;
 			expect(band.y + band.height).toBeLessThanOrEqual(formHeader.y + 1);
+		});
+
+		await test.step("the band stays pinned while the form scrolls beneath it", async () => {
+			// A short window is what makes the form overflow at all; without it
+			// there is nothing to scroll and the sticky contract goes untested.
+			await page.setViewportSize({ width: 1280, height: 420 });
+			const persistent = page.locator("[data-persistent-case-tile]");
+			const before = await persistent.boundingBox();
+			const scroller = page.locator("[data-preview-scroll-container]").first();
+			await expect
+				.poll(async () =>
+					scroller.evaluate((el) => el.scrollHeight - el.clientHeight),
+				)
+				.toBeGreaterThan(0);
+			await scroller.evaluate((el) => {
+				el.scrollTop = el.scrollHeight;
+			});
+			await expect
+				.poll(async () => scroller.evaluate((el) => el.scrollTop))
+				.toBeGreaterThan(0);
+			const after = await persistent.boundingBox();
+			expect(before).not.toBeNull();
+			expect(after).not.toBeNull();
+			if (before === null || after === null) return;
+			expect(after.y).toBeCloseTo(before.y, 0);
+			await page.setViewportSize({ width: 1280, height: 720 });
 		});
 	});
 

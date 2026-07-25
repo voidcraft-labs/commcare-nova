@@ -50,12 +50,17 @@ interface CaseTileProps {
 	readonly className?: string;
 }
 
-/** Visible cell content sits above the Results row's stretched primary
+/** Visible tile content sits above the Results row's stretched primary
  *  button. Ordinary text passes pointer input through to that button;
  *  authored cell controls opt back in as independent siblings with their
  *  own focus and touch behavior. Mirrors the row layout's rule exactly —
- *  a tile changes a row's shape, not what may be nested inside it. */
-const RESULTS_CELL_INTERACTION =
+ *  a tile changes a row's shape, not what may be nested inside it.
+ *
+ *  This has to sit on the GRID, not on each cell. Unlike the row layout's
+ *  cells, the grid is one box covering the whole row: leaving it
+ *  hit-testable swallows every click meant for the action beneath, so a
+ *  worker taps a case and nothing happens. */
+const RESULTS_TILE_INTERACTION =
 	"pointer-events-none [&_a]:pointer-events-auto [&_a]:relative [&_a]:z-20 [&_button]:pointer-events-auto [&_button]:relative [&_button]:z-20";
 
 export function CaseTile({
@@ -76,7 +81,9 @@ export function CaseTile({
 			data-tile-columns={projection.columns}
 			data-tile-rows={projection.rows}
 			style={tileGridStyle(projection)}
-			className={`w-full max-w-3xl text-[14px] text-nova-text-secondary ${className ?? ""}`}
+			className={`w-full max-w-3xl text-[14px] text-nova-text-secondary ${
+				surface === "results" ? RESULTS_TILE_INTERACTION : ""
+			} ${className ?? ""}`}
 		>
 			{projection.cells.map((cell) => {
 				const entry = byUuid.get(cell.columnUuid);
@@ -92,9 +99,7 @@ export function CaseTile({
 						style={plan.style}
 						className={`min-w-0 break-words [overflow-wrap:anywhere] ${
 							plan.bordered ? "border border-pv-input-focus" : ""
-						} ${plan.shaded ? "bg-pv-elevated" : ""} ${
-							surface === "results" ? RESULTS_CELL_INTERACTION : ""
-						}`}
+						} ${plan.shaded ? "bg-pv-elevated" : ""}`}
 					>
 						{/* A hidden column that still orders the list holds its square
 						 *  and shows nothing — the device's zero-width sort carrier. */}

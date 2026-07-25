@@ -32,6 +32,8 @@ import {
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
 	type TileCell,
+	tileCellBottomEdge,
+	tileCellRightEdge,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -87,11 +89,29 @@ export function TileGridEditor({
 	const [announcement, setAnnouncement] = useState("");
 
 	const { placed, unplaced } = tileMembership(columns);
-	const extent = projectTileGrid(
-		[...columns].filter((column) =>
-			placed.some((entry) => entry.uuid === column.uuid),
-		),
+	// A place outside the grid can't be drawn on it — CSS would grow
+	// implicit tracks and the canvas would stop being 12 x 12. Those
+	// fields move to the attention strip below, where their reason and
+	// their repair are both reachable.
+	const drawable = placed.filter(
+		(entry) =>
+			tileCellRightEdge(entry.cell) <= TILE_GRID_COLUMNS &&
+			tileCellBottomEdge(entry.cell) <= TILE_GRID_ROWS,
 	);
+	const offGrid = placed.filter((entry) => !drawable.includes(entry));
+	const drawableUuids = new Set(drawable.map((entry) => entry.uuid));
+	const extent = projectTileGrid(
+		[...columns].filter((column) => drawableUuids.has(column.uuid)),
+	);
+	const needsAPlace = [
+		...offGrid.map((entry) => ({
+			uuid: entry.uuid,
+			label: entry.label,
+			role: entry.role,
+			reason: issues.get(entry.uuid)?.[0],
+		})),
+		...unplaced.map((entry) => ({ ...entry, reason: undefined })),
+	];
 
 	const gridGeometry = () => {
 		const rect = gridRef.current?.getBoundingClientRect();
@@ -243,7 +263,7 @@ export function TileGridEditor({
 						/>
 					)}
 
-					{placed.map((placement) => {
+					{drawable.map((placement) => {
 						const dragging = drag?.uuid === placement.uuid;
 						const cell = dragging ? drag.cell : placement.cell;
 						const selected = selectedUuid === placement.uuid;
@@ -270,7 +290,7 @@ export function TileGridEditor({
 					})}
 
 					{canEdit &&
-						placed
+						drawable
 							.filter((placement) => placement.uuid === selectedUuid)
 							.map((placement) => {
 								const cell =
@@ -318,11 +338,13 @@ export function TileGridEditor({
 						<span>{refusal}</span>
 					</p>
 				)}
-				<p className="text-[13px] leading-relaxed text-nova-text-muted">
-					{extent.columns === 0
-						? "Nothing is placed on the tile yet."
-						: `This tile uses ${describeExtent(extent.columns, extent.rows)}. On a worker’s screen it fills the full width of the list, however many columns it uses.`}
-				</p>
+				{offGrid.length === 0 && (
+					<p className="text-[13px] leading-relaxed text-nova-text-muted">
+						{extent.columns === 0
+							? "Nothing is placed on the tile yet."
+							: `This tile uses ${describeExtent(extent.columns, extent.rows)}. On a worker’s screen it fills the full width of the list, however many columns it uses.`}
+					</p>
+				)}
 				{canEdit && (
 					<p className="text-[13px] leading-relaxed text-nova-text-muted">
 						Drag a field to move it, or drag the round handle to resize it. With
@@ -332,28 +354,33 @@ export function TileGridEditor({
 				)}
 			</div>
 
-			{unplaced.length > 0 && (
+			{needsAPlace.length > 0 && (
 				<div className="mt-4 rounded-xl border border-nova-rose/35 bg-nova-rose/[0.04] p-3">
 					<p className="text-[14px] font-medium text-nova-text">
-						{unplaced.length === 1
-							? "One field has no place on the tile"
-							: `${unplaced.length} fields have no place on the tile`}
+						{needsAPlace.length === 1
+							? "One field needs a place on the tile"
+							: `${needsAPlace.length} fields need a place on the tile`}
 					</p>
 					<p className="mt-1 text-[13px] leading-relaxed text-nova-text-secondary">
 						A tile can’t hide a field. Anything the case list carries lands
-						wherever the grid has room until it is given a place.
+						wherever the grid has room until it sits inside it.
 					</p>
 					<ul className="mt-3 list-none space-y-2 p-0">
-						{unplaced.map((vacancy) => (
+						{needsAPlace.map((entry) => (
 							<li
-								key={vacancy.uuid}
+								key={entry.uuid}
 								className="flex flex-wrap items-center justify-between gap-2"
 							>
 								<span className="min-w-0 flex-1 break-words text-[14px] text-nova-text">
-									{vacancy.label}
-									{vacancy.role === "order-only" && (
+									{entry.label}
+									{entry.role === "order-only" && (
 										<span className="ml-2 text-[13px] text-nova-text-muted">
 											Sets the default order
+										</span>
+									)}
+									{entry.reason !== undefined && (
+										<span className="mt-0.5 block text-[13px] leading-relaxed text-nova-text-secondary">
+											{entry.reason}
 										</span>
 									)}
 								</span>
@@ -362,11 +389,13 @@ export function TileGridEditor({
 										type="button"
 										variant="outline"
 										size="xl"
-										onClick={() => onPlaceUnplaced(vacancy.uuid)}
+										onClick={() => onPlaceUnplaced(entry.uuid)}
 										className="min-h-11 gap-2 rounded-lg border-white/[0.10] bg-transparent px-3 text-[14px] dark:bg-transparent"
 									>
 										<Icon icon={tablerPlus} width="14" height="14" />
-										Put it on the tile
+										{entry.reason === undefined
+											? "Put it on the tile"
+											: "Move it onto the tile"}
 									</Button>
 								)}
 							</li>

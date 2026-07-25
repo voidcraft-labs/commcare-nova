@@ -113,10 +113,11 @@ describe("case workspace visual-QA seed", () => {
 		// derives its grid from exactly these.
 		expect(columns.every((column) => column.tile !== undefined)).toBe(true);
 		const projection = projectTileGrid(columns);
-		expect(projection).toMatchObject({ columns: 6, rows: 2 });
+		expect(projection).toMatchObject({ columns: 6, rows: 3 });
 		expect(projection.cells.map((cell) => cell.mode)).toEqual([
 			"inset",
 			"boxed",
+			"inset",
 			"inset",
 			"inset",
 		]);

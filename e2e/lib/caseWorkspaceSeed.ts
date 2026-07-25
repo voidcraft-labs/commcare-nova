@@ -59,6 +59,7 @@ export const CASE_WORKSPACE_SEED = {
 			carePriority: asUuid("7a3e9d51-2c68-4f04-b592-8d1a6c4e7b20"),
 			village: asUuid("5c2a8f31-9e46-4d70-b183-4a6f2c8e1d50"),
 			lastVisit: asUuid("9b6d2f47-5a13-4e80-8c26-7f4a1d9e5c30"),
+			phoneNumber: asUuid("3e8b5d29-7c14-4a60-9f37-1b5e8a2c6d40"),
 		},
 	},
 	caseCount: 8,
@@ -266,6 +267,18 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 									horizontalAlign: "right",
 									fontSize: "small",
 								}),
+							},
+						),
+						// An authored cell ACTION on a tile: the phone link has to stay a
+						// sibling of the row's own action, never a child of it.
+						phoneColumn(
+							ids.tile.columns.phoneNumber,
+							"phone_number",
+							"Phone number",
+							{
+								visibleInList: true,
+								visibleInDetail: false,
+								tile: tileCell(0, 2, 6, 1, { fontSize: "small" }),
 							},
 						),
 					],

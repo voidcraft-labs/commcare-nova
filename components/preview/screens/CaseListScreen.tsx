@@ -2036,7 +2036,7 @@ function ResultsTiles({
 			inert={busy ? true : undefined}
 			className={`@container/results overflow-x-auto overflow-y-clip rounded-lg border border-pv-input-border bg-pv-surface transition-opacity ${busy ? "opacity-60" : ""}`}
 		>
-			<ul className="m-0 w-fit min-w-[18rem] list-none p-0" aria-label="Cases">
+			<ul className="m-0 w-full min-w-[18rem] list-none p-0" aria-label="Cases">
 				{rows.map((row) => {
 					const content = (
 						<>

@@ -6,12 +6,7 @@
 // a placement or a stated refusal; the canvas only draws the answer.
 
 import { describe, expect, it } from "vitest";
-import {
-	asUuid,
-	type Column,
-	plainColumn,
-	tileCell,
-} from "@/lib/domain";
+import { asUuid, type Column, plainColumn, tileCell } from "@/lib/domain";
 import {
 	describeTileCell,
 	describeTilePlace,
