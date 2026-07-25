@@ -16,7 +16,7 @@
  * clearable, losing nothing — only when its asset has no usable bytes
  * (no row at all, or a row stuck `pending` past the upload window, whose
  * pending object the bucket lifecycle rule has already reaped — see
- * `lib/storage/media.ts::applyPendingObjectLifecycle`). Anything with
+ * `lib/storage/media.ts::applyMediaBucketLifecycle`). Anything with
  * usable or potentially-usable bytes (a READY asset of the wrong kind, a
  * still-young pending upload, a cross-account reference) is reported
  * needs-owner, never auto-cleared.

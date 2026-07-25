@@ -9,7 +9,7 @@
  * idempotent operation installs the GCS lifecycle rule that reaps any
  * `pending/` object older than a day — the backstop for those abandoned
  * attempts. The rule itself lives in
- * `lib/storage/media.ts::applyPendingObjectLifecycle` so the prefix + TTL
+ * `lib/storage/media.ts::applyMediaBucketLifecycle` so the prefix + TTL
  * stay coupled to the upload code.
  *
  * Run against the real bucket, with ADC configured for an identity allowed
@@ -22,7 +22,7 @@
  * Idempotent — re-running sets the same single rule.
  */
 
-import { applyPendingObjectLifecycle } from "@/lib/storage/media";
+import { applyMediaBucketLifecycle } from "@/lib/storage/media";
 
 async function main(): Promise<void> {
 	const bucket = process.env.NOVA_MEDIA_BUCKET;
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
 	}
 
 	console.log(`Applying pending-object lifecycle rule to gs://${bucket} …`);
-	await applyPendingObjectLifecycle();
+	await applyMediaBucketLifecycle();
 	console.log(
 		"Done — GCS will now auto-delete objects under `pending/` older than 1 day.",
 	);

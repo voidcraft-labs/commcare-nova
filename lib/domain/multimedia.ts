@@ -573,7 +573,7 @@ export function extractObjectKeyForAsset(asset: {
 /**
  * Top-level prefix every signed-PUT pending object lives under. Shared so
  * the bucket lifecycle rule that reaps abandoned / oversized pending
- * uploads (`applyPendingObjectLifecycle` in `lib/storage/media`) matches
+ * uploads (`applyMediaBucketLifecycle` in `lib/storage/media`) matches
  * the exact prefix `pendingGcsObjectKeyFor` writes — the rule and the key
  * builder can't drift to different prefixes.
  */

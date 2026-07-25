@@ -18,6 +18,7 @@
 
 import type { Readable } from "node:stream";
 import { type Bucket, Storage } from "@google-cloud/storage";
+import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
 import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
 let _storage: Storage | null = null;
@@ -67,8 +68,45 @@ function getBucket(): Bucket {
 const PENDING_OBJECT_TTL_DAYS = 1;
 
 /**
- * Apply the bucket lifecycle rule that auto-deletes abandoned upload
- * objects under the `pending/` prefix.
+ * Days a STAGED CAPTURE's bytes live before the bucket lifecycle rule
+ * reaps them.
+ *
+ * A capture is staged while its form is being filled in, and Nova's
+ * preview does not resume a partially-filled form — navigating away
+ * discards the answers — so an unsubmitted capture is abandoned as soon
+ * as the worker leaves. One day is generous for that, and short matters
+ * here in a way it does not for an authoring asset: these are worker
+ * photographs, and holding them longer than the form that collects them
+ * is a data-protection cost, not a storage one.
+ *
+ * Submission promotes a kept capture OUT of the staging prefix
+ * (`captureObjectKeyFor`), so this rule can never reach one.
+ */
+const STAGED_CAPTURE_TTL_DAYS = 1;
+
+/**
+ * Apply the media bucket's COMPLETE lifecycle policy — every rule it
+ * has, in one call.
+ *
+ * ## Why this function owns all of them
+ *
+ * The call below passes `{ append: false }`, which REPLACES the bucket's
+ * lifecycle rather than adding to it. A second function applying a second
+ * rule would therefore silently delete the first one's, and nothing would
+ * notice until objects quietly stopped being collected. So every prefix
+ * that needs a TTL gets its rule here, and
+ * `__tests__/mediaBucketLifecycle.test.ts` pins that all of them survive
+ * a single application.
+ *
+ * Two prefixes need one:
+ *
+ *  - `pending/` — abandoned browser upload attempts, described below.
+ *  - `captures-staged/` — a worker's form attachment whose form was never
+ *    submitted. This is the reaper: rows carry an `expires_at` swept
+ *    opportunistically, but row hygiene is not a retention guarantee. An
+ *    idle Project must stop holding photographs whether or not anyone
+ *    ever writes to it again, which only a traffic-independent bucket
+ *    rule delivers.
  *
  * Browser uploads PUT to a per-attempt `pending/<project>/...` key via a V4
  * signed URL. The signed URL now binds a MAXIMUM body length (the
@@ -82,21 +120,30 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * validated bytes OUT of `pending/` to the content-hash key before flipping
  * the row to ready.
  *
- * Idempotent: `append: false` replaces the bucket's lifecycle with this
- * single rule. The media bucket is dedicated, so it owns no other rules to
- * preserve, and re-running yields the same state. Operational, not on the
- * request path — run once per bucket (and after any prefix change) via
- * `scripts/infra/apply-media-bucket-lifecycle.ts`.
+ * Idempotent: `append: false` replaces the bucket's lifecycle with
+ * exactly these rules. The media bucket is dedicated, so it owns no
+ * others to preserve, and re-running yields the same state. Operational,
+ * not on the request path — run once per bucket (and after any prefix or
+ * rule change) via `scripts/infra/apply-media-bucket-lifecycle.ts`.
  */
-export async function applyPendingObjectLifecycle(): Promise<void> {
+export async function applyMediaBucketLifecycle(): Promise<void> {
 	await getBucket().addLifecycleRule(
-		{
-			action: { type: "Delete" },
-			condition: {
-				age: PENDING_OBJECT_TTL_DAYS,
-				matchesPrefix: [PENDING_OBJECT_PREFIX],
+		[
+			{
+				action: { type: "Delete" },
+				condition: {
+					age: PENDING_OBJECT_TTL_DAYS,
+					matchesPrefix: [PENDING_OBJECT_PREFIX],
+				},
 			},
-		},
+			{
+				action: { type: "Delete" },
+				condition: {
+					age: STAGED_CAPTURE_TTL_DAYS,
+					matchesPrefix: [STAGED_CAPTURE_PREFIX],
+				},
+			},
+		],
 		{ append: false },
 	);
 }

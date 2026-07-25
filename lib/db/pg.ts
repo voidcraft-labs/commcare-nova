@@ -378,6 +378,39 @@ export interface LookupColumnReferencesTable {
 	app_id: string;
 }
 
+/**
+ * One file a worker attached to a form in the running preview.
+ *
+ * A submission-scoped lane, deliberately NOT `media_assets`: a captured
+ * photo is data, not an authoring asset. Tenancy is `(app_id,
+ * project_id)` like case rows; `created_by` is the narrower axis that
+ * keeps submit-time reconciliation to the acting member's own rows.
+ */
+export interface FormAttachmentsTable {
+	attachment_id: string;
+	/** The value the form answer holds — `<attachment_id><extension>`. */
+	attachment_name: string;
+	app_id: string;
+	project_id: string;
+	created_by: string;
+	/** One form entry (an `activateForm`), the reconciliation scope. */
+	entry_key: string;
+	field_uuid: string;
+	/** Concrete engine path, so replace/clear targets one repeat instance. */
+	instance_path: string;
+	original_filename: string;
+	extension: string;
+	content_type: string;
+	size_bytes: BigIntColumn;
+	gcs_object_key: string;
+	/** `pending` | `staged` | `submitted`. */
+	status: string;
+	created_at: Timestamp;
+	/** Bounds `pending`/`staged` rows only; bytes have their own GCS TTL. */
+	expires_at: Timestamp;
+	submitted_at: Timestamp | null;
+}
+
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
@@ -395,6 +428,7 @@ export interface AppDatabase {
 	media_asset_refs: MediaAssetRefsTable;
 	media_upload_aliases: MediaUploadAliasesTable;
 	media_reference_index_state: MediaReferenceIndexStateTable;
+	form_attachments: FormAttachmentsTable;
 	lookup_project_state: LookupProjectStateTable;
 	lookup_tables: LookupTablesTable;
 	lookup_columns: LookupColumnsTable;
