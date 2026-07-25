@@ -369,8 +369,8 @@ build holds its app via `status: 'generating'` + the `updated_at` window
 (`MAX_GENERATION_MINUTES`); an edit holds via its `run_lock` lease
 (`MAX_RUN_MINUTES`). Those legacy minute-valued constants project the runtime
 manifest's independently authored 600-second build and 900-second edit fields;
-neither derives from the request cap or 3,900-second stream lease, and the edit
-lease is renewable rather than a total runtime bound. Both horizons refresh on
+neither derives from the request cap, and the edit lease is renewable rather
+than a total runtime bound. Both horizons refresh on
 SA activity AND a wall-clock timer AND per commit (`refreshEditLease` /
 `refreshBuildLiveness` + the guarded commit's per-commit stamp), so a LIVE run
 never lapses; the heartbeat stops at finalize, so an abandoned paused run

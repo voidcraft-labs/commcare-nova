@@ -130,7 +130,7 @@ async function seedApp(
 		(s, m) => s + (p.formOrder[m]?.length ?? 0),
 		0,
 	);
-	await h.withDeclaredWriter(async (tx) => {
+	await h.withTransaction(async (tx) => {
 		await tx
 			.insertInto("apps")
 			.values({
@@ -711,7 +711,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 	it("rejects when the app moved away from the caller's expected Project", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
-		await h.withDeclaredWriter((tx) =>
+		await h.withTransaction((tx) =>
 			tx
 				.updateTable("apps")
 				.set({ project_id: "project-moved" })

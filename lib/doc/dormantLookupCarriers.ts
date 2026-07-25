@@ -1,17 +1,22 @@
 /**
- * Structural inventory of dormant lookup-carrier authoring slots.
+ * Structural inventory of lookup-carrier authoring slots.
  *
- * A carrier's temporary commit policy is delta-based: a historical carrier
- * may survive an unrelated edit, but changing any semantic byte of the
- * authored slot that contains it must look newly introduced. Consequently the
- * fingerprint is over the complete containing slot/root, not merely the
- * table/column leaf. This is especially important for a `table-column` term:
- * changing its comparison operator or peer literal changes the lookup
- * behavior even though both stable lookup ids remain unchanged.
+ * Lookup references run in the preview but have no wire spelling yet, so the
+ * export boundary refuses any document that carries one
+ * (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). This module is what that refusal reads:
+ * every slot returned here becomes one finding, so a slot missed here is a
+ * reference that reaches the wire.
  *
- * Inline select options are deliberately outside an `optionsSource`
- * fingerprint. They are the origin-compatible fallback, so editing only that
- * fallback remains a legal repair beside a historical dormant source.
+ * The walk covers detached entities as well as reachable ones — an unparented
+ * field still persists, and export must not depend on tree reachability.
+ *
+ * A carrier's fingerprint spans the complete containing slot/root rather than
+ * the table/column leaf, so two carriers naming the same ids are still distinct
+ * when they evaluate differently — changing a `table-column` term's comparison
+ * operator or peer literal changes the lookup's meaning while both stable ids
+ * stay put. Inline select options sit deliberately outside an `optionsSource`
+ * fingerprint: they are the origin-compatible fallback, and editing only that
+ * fallback leaves the carrier itself untouched.
  */
 
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";

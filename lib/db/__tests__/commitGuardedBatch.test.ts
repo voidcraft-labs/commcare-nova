@@ -106,7 +106,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 			owner: OWNER,
 		});
 		// A row already advanced by 41 prior commits.
-		await h.withDeclaredWriter((tx) =>
+		await h.withTransaction((tx) =>
 			tx
 				.updateTable("apps")
 				.set({ mutation_seq: 41 })

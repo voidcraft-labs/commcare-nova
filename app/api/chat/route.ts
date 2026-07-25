@@ -221,9 +221,9 @@ export async function POST(req: Request) {
 	 * stale or malicious client supplied one. Only a free askQuestions
 	 * continuation may echo the nonce Nova previously issued. */
 	const presentedHolderNonce = parsed.data.holderNonce ?? null;
-	/* A free pre-cutover continuation may come from old JS that knows no nonce.
-	 * Give request-local collaborators a non-authoritative placeholder until the
-	 * app-locked resume resolves (or upgrades) the stored capability; no tool,
+	/* A presented nonce is client-supplied and therefore unproven here. Give
+	 * request-local collaborators a non-authoritative placeholder until the
+	 * app-locked resume resolves (or replaces) the stored capability; no tool,
 	 * heartbeat, lifecycle write, or client emission uses it before then. */
 	let holderNonce = chargeable
 		? crypto.randomUUID()

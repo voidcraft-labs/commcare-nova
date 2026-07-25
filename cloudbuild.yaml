@@ -1,8 +1,8 @@
 # Cloud Build (main-push trigger): build the app image, push it, run pending
 # case-store migrations once via the migrate Job, then deploy a new Cloud Run
-# revision. Cloud Run waits for the startup probe before moving traffic; Nova
-# deliberately uses that ordinary deployment path instead of maintaining a
-# custom cutover control plane during dogfood.
+# revision. Cloud Run waits for the startup probe before moving traffic; that
+# ordinary deployment path is the whole release mechanism — Nova keeps no
+# custom cutover control plane, traffic split, or staged activation.
 #
 # Migrations run as a dedicated Cloud Run Job here — NOT on every container
 # boot — so a cold start is just Node coming up (no Cloud SQL connect +
@@ -82,8 +82,6 @@ steps:
           --build-arg NEXT_DEPLOYMENT_ID="$BUILD_ID" \
           --build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID" \
           --build-arg NOVA_CLOUD_RUN_REQUEST_SECONDS="$$NOVA_CLOUD_RUN_REQUEST_SECONDS" \
-          --build-arg NOVA_STREAM_LEASE_GRACE_SECONDS="$$NOVA_STREAM_LEASE_GRACE_SECONDS" \
-          --build-arg NOVA_STREAM_LEASE_TTL_SECONDS="$$NOVA_STREAM_LEASE_TTL_SECONDS" \
           --build-arg NOVA_EDIT_RUN_LEASE_SECONDS="$$NOVA_EDIT_RUN_LEASE_SECONDS" \
           --build-arg NOVA_BUILD_STALENESS_SECONDS="$$NOVA_BUILD_STALENESS_SECONDS" \
           --build-arg NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH="$$NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH" \
@@ -155,12 +153,6 @@ steps:
   # is declared failed — in practice the second attempt succeeds. The probe
   # port is Cloud Run's default container port; if a `--port` override ever
   # lands here, httpGet.port must move with it.
-  # `--labels` (an alias of `--update-labels`, so it merges) attaches this
-  # image's capability declaration to the revision. The rollout controller reads
-  # the labels of every traffic-receiving revision before it raises a
-  # compatibility floor, so an unlabeled revision reads as capability v0 and
-  # blocks activation — deliberately fail-closed, since a floor raised past a
-  # revision that cannot honor it revokes live clients.
   #
   # `--update-secrets` MERGES into the service's existing secret env vars
   # (unlike `--set-secrets`, which replaces the whole set). OPENAI_API_KEY is

@@ -67,8 +67,9 @@ export interface SeedAppOptions {
 }
 
 export interface AppStateTestDb {
-	/** One transaction on the per-test handle. */
-	withDeclaredWriter<T>(
+	/** One transaction on the per-test handle, for suites that must write the
+	 *  way an authoritative writer does rather than through a seed helper. */
+	withTransaction<T>(
 		body: (tx: Transaction<AppDatabase>) => Promise<T>,
 	): Promise<T>;
 	/** The injected `Kysely<AppDatabase>` for the current test. Throws outside a test body. */
@@ -373,7 +374,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 	}
 
 	return {
-		withDeclaredWriter: <T>(
+		withTransaction: <T>(
 			body: (tx: Transaction<AppDatabase>) => Promise<T>,
 		): Promise<T> => db().transaction().execute(body),
 		db,

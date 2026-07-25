@@ -314,9 +314,10 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/** Replace the provisional resume nonce with the app-locked capability
-	 * returned by `reacquireLease`. Chargeable runs never need this; it exists
-	 * solely so a pre-cutover browser that omitted the new field can be upgraded
-	 * server-side before any SA tool or heartbeat receives authority. */
+	 * returned by `reacquireLease`. Chargeable runs mint their own and never
+	 * need this; a continuation carries only an unproven client value until the
+	 * locked resume settles it, so the authoritative one must land here before
+	 * any SA tool or heartbeat receives authority. */
 	setReacquiredHolderNonce(holderNonce: string): void {
 		this._holderNonce = holderNonce;
 	}

@@ -1436,10 +1436,7 @@ test.describe("authenticated builder", () => {
 	});
 
 	/**
-	 * The cross-Project move, end to end, on a database where the activation
-	 * switch is genuinely ON (`e2e/seed.ts` flips it through the same transaction
-	 * the rollout controller runs) — a switched-off run would pass vacuously on
-	 * the refusal branch.
+	 * The cross-Project move, end to end.
 	 *
 	 * Compact first, then desktop, in ONE sequential journey: the app leaves the
 	 * source list and STAYS gone across a reload, while still opening in the

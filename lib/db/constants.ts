@@ -71,6 +71,6 @@ export const MAX_RUN_MINUTES = EDIT_RUN_LEASE_SECONDS / 60;
  * `runLiveness.ts` reads.
  *
  * The authored duration lives in the runtime-capability manifest and remains
- * independent from both the request cap and stream-lease TTL.
+ * independent from the request cap.
  */
 export const MAX_GENERATION_MINUTES = BUILD_STALENESS_SECONDS / 60;

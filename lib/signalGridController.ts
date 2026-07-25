@@ -166,8 +166,6 @@ const FOREGROUND_BACKPLATE_OPTS: BackplateOpts = {
 	hueDriftRate: 0,
 };
 
-/** Minimum zone width as a fraction of total columns (prevents tiny slivers). */
-const _MIN_EDIT_ZONE = 0.15;
 /** How fast the current zone lerps toward the target zone (per second). */
 const EDIT_ZONE_LERP_SPEED = 3.0;
 /** One defrag op at a time — a single 2-column bar, just like building's sweep. */
@@ -1548,7 +1546,6 @@ export class SignalGridController {
 			this.cols,
 		);
 		const zoneCols = Math.max(1, endCol - startCol);
-		const _density = this.cellCount / 93;
 
 		// ── Defrag bar — one 2-column bar at a time, like building's sweep ──
 		// Immediately spawn a new op when the previous one finishes.

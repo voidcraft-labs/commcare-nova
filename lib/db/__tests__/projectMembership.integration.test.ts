@@ -185,7 +185,7 @@ describe("Project membership advisory gate", () => {
 		// The shared app fixture ensures its owner is a Project owner. This case
 		// specifically exercises the lower, still-edit-capable editor projection.
 		await h.seedProjectMember(USER, PROJECT, "editor");
-		await h.withDeclaredWriter((tx) =>
+		await h.withTransaction((tx) =>
 			tx
 				.updateTable("apps")
 				.set({ mutation_seq: 7 })
@@ -238,7 +238,6 @@ describe("Project membership advisory gate", () => {
 		let committed = false;
 		try {
 			await writer.query("BEGIN");
-			await writer.query("SET LOCAL nova.writer_version = '1'");
 			await writer.query(
 				`UPDATE apps
 				 SET app_name = 'After app', mutation_seq = 9
