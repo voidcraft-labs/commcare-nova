@@ -6,7 +6,6 @@
 export interface RuntimeCapabilityManifest {
 	readonly schemaVersion: 1;
 	readonly cloudRunRequestSeconds: number;
-	readonly streamLeaseGraceSeconds: number;
 	readonly editRunLeaseSeconds: number;
 	readonly buildStalenessSeconds: number;
 }
@@ -18,26 +17,15 @@ export type RuntimeCapabilityManifestParseResult =
 const MANIFEST_KEYS = [
 	"schemaVersion",
 	"cloudRunRequestSeconds",
-	"streamLeaseGraceSeconds",
 	"editRunLeaseSeconds",
 	"buildStalenessSeconds",
 ] as const;
 
-const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const CLOUD_RUN_REQUEST_SECONDS_MAX = 3_600;
-const STREAM_LEASE_GRACE_SECONDS_MAX = 3_600;
 const RUN_LIVENESS_SECONDS_MAX = 24 * 60 * 60;
-const _MANIFEST_LABEL_HASH_LENGTH = 16;
-
-export const RUNTIME_CAPABILITY_LABEL_KEYS = Object.freeze({
-	manifestHash: "nova_manifest",
-	buildId: "nova_build",
-} as const);
 
 export const RUNTIME_CAPABILITY_ENV_KEYS = Object.freeze({
 	cloudRunRequestSeconds: "NOVA_CLOUD_RUN_REQUEST_SECONDS",
-	streamLeaseGraceSeconds: "NOVA_STREAM_LEASE_GRACE_SECONDS",
-	streamLeaseTtlSeconds: "NOVA_STREAM_LEASE_TTL_SECONDS",
 	editRunLeaseSeconds: "NOVA_EDIT_RUN_LEASE_SECONDS",
 	buildStalenessSeconds: "NOVA_BUILD_STALENESS_SECONDS",
 	manifestHash: "NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH",
@@ -127,13 +115,6 @@ export function parseRuntimeCapabilityManifest(
 		CLOUD_RUN_REQUEST_SECONDS_MAX,
 		issues,
 	);
-	const streamLeaseGraceSeconds = validateInteger(
-		input,
-		"streamLeaseGraceSeconds",
-		1,
-		STREAM_LEASE_GRACE_SECONDS_MAX,
-		issues,
-	);
 	const editRunLeaseSeconds = validateWholeMinuteSeconds(
 		input,
 		"editRunLeaseSeconds",
@@ -149,7 +130,6 @@ export function parseRuntimeCapabilityManifest(
 		issues.length > 0 ||
 		schemaVersion === null ||
 		cloudRunRequestSeconds === null ||
-		streamLeaseGraceSeconds === null ||
 		editRunLeaseSeconds === null ||
 		buildStalenessSeconds === null
 	) {
@@ -161,7 +141,6 @@ export function parseRuntimeCapabilityManifest(
 		manifest: Object.freeze({
 			schemaVersion: 1,
 			cloudRunRequestSeconds,
-			streamLeaseGraceSeconds,
 			editRunLeaseSeconds,
 			buildStalenessSeconds,
 		}),
@@ -185,31 +164,9 @@ export function canonicalRuntimeCapabilityManifest(
 	return JSON.stringify({
 		schemaVersion: manifest.schemaVersion,
 		cloudRunRequestSeconds: manifest.cloudRunRequestSeconds,
-		streamLeaseGraceSeconds: manifest.streamLeaseGraceSeconds,
 		editRunLeaseSeconds: manifest.editRunLeaseSeconds,
 		buildStalenessSeconds: manifest.buildStalenessSeconds,
 	});
-}
-
-export function streamLeaseTtlSeconds(
-	manifest: RuntimeCapabilityManifest,
-): number {
-	return manifest.cloudRunRequestSeconds + manifest.streamLeaseGraceSeconds;
-}
-
-/**
- * Environment declarations are untrusted control-plane strings.
- * Missing, signed, fractional, padded, overflowing, or otherwise malformed
- * values are treated conservatively — never an exception.
- */
-export function parseRuntimeCapabilityVersion(value: unknown): number {
-	if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) {
-		return 0;
-	}
-	const parsed = Number(value);
-	return Number.isSafeInteger(parsed) && parsed <= POSTGRES_INTEGER_MAX
-		? parsed
-		: 0;
 }
 
 function requireManifestHash(manifestHash: string): string {
@@ -226,12 +183,6 @@ export function runtimeCapabilityEnvironmentFromHash(
 	return Object.freeze({
 		[RUNTIME_CAPABILITY_ENV_KEYS.cloudRunRequestSeconds]: String(
 			manifest.cloudRunRequestSeconds,
-		),
-		[RUNTIME_CAPABILITY_ENV_KEYS.streamLeaseGraceSeconds]: String(
-			manifest.streamLeaseGraceSeconds,
-		),
-		[RUNTIME_CAPABILITY_ENV_KEYS.streamLeaseTtlSeconds]: String(
-			streamLeaseTtlSeconds(manifest),
 		),
 		[RUNTIME_CAPABILITY_ENV_KEYS.editRunLeaseSeconds]: String(
 			manifest.editRunLeaseSeconds,

@@ -6,9 +6,7 @@ import rawManifest from "../../../config/runtime-capabilities.json";
 import {
 	canonicalRuntimeCapabilityManifest,
 	parseRuntimeCapabilityManifest,
-	parseRuntimeCapabilityVersion,
 	RUNTIME_BUILD_ID_ENV_KEY,
-	RUNTIME_CAPABILITY_ENV_KEYS,
 	requireRuntimeBuildId,
 	requireRuntimeCapabilityManifest,
 	runtimeCapabilityEnvironmentFromHash,
@@ -70,38 +68,16 @@ describe("runtime capability manifest", () => {
 	it("canonicalizes in schema order and hashes exact canonical bytes", () => {
 		const canonical = canonicalRuntimeCapabilityManifest(manifest);
 		expect(canonical).toBe(
-			'{"schemaVersion":1,"cloudRunRequestSeconds":3600,"streamLeaseGraceSeconds":300,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
+			'{"schemaVersion":1,"cloudRunRequestSeconds":3600,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
 		);
 		expect(manifestHash).toMatch(/^[a-f0-9]{64}$/);
 		expect(hashRuntimeCapabilityManifest(manifest)).toBe(manifestHash);
-	});
-
-	it.each([
-		undefined,
-		null,
-		0,
-		1,
-		-1,
-		1.5,
-		Number.NaN,
-		2_147_483_648,
-		"",
-		"-1",
-		"+1",
-		"01",
-		"1.0",
-		"1-old",
-		"2147483648",
-	])("fails a malformed revision declaration %j closed to v0", (value) => {
-		expect(parseRuntimeCapabilityVersion(value)).toBe(0);
 	});
 
 	it("renders immutable image declarations with timing environment variables", () => {
 		const environment = runtimeCapabilityEnvironment(manifest);
 		expect(environment).toEqual({
 			NOVA_CLOUD_RUN_REQUEST_SECONDS: "3600",
-			NOVA_STREAM_LEASE_GRACE_SECONDS: "300",
-			NOVA_STREAM_LEASE_TTL_SECONDS: "3900",
 			NOVA_EDIT_RUN_LEASE_SECONDS: "900",
 			NOVA_BUILD_STALENESS_SECONDS: "600",
 			NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH: manifestHash,
@@ -113,9 +89,6 @@ describe("runtime capability manifest", () => {
 		);
 		expect(() => runtimeCapabilityEnvironmentFromHash(manifest, "bad")).toThrow(
 			"manifestHash must be one lowercase SHA-256 hex digest",
-		);
-		expect(environment[RUNTIME_CAPABILITY_ENV_KEYS.streamLeaseTtlSeconds]).toBe(
-			"3900",
 		);
 	});
 

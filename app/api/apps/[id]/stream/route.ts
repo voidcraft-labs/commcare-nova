@@ -554,9 +554,7 @@ function openStream(args: {
 							if (closed) return;
 
 							/* Confirmed view loss revokes. An authorized Project, role, or edit-
-							 * capability change instead reloads through the snapshot handoff. This
-							 * reauthorization intentionally reads no compatibility floor: raising
-							 * the floor does not evict an already-admitted connection. */
+							 * capability change instead reloads through the snapshot handoff. */
 							try {
 								const fresh = await reauthorizeStreamScope(appId, userId);
 								if (closed) return;

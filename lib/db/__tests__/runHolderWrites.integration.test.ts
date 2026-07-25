@@ -144,9 +144,6 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 		const superseded = await commitTransitionWhileWriterWaits({
 			transition: async (client) => {
 				await client.query(
-					"SELECT set_config('nova.runtime_reader_version', '1', true)",
-				);
-				await client.query(
 					`UPDATE apps
 					 SET res_run_id = $2, run_holder_nonce = $4, updated_at = $3
 					 WHERE id = $1`,
@@ -187,9 +184,6 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 
 		const released = await commitTransitionWhileWriterWaits({
 			transition: async (client) => {
-				await client.query(
-					"SELECT set_config('nova.runtime_reader_version', '1', true)",
-				);
 				await client.query(
 					`UPDATE apps
 					 SET status = 'error', error_type = 'internal',
@@ -239,9 +233,6 @@ describe("exact-holder pause and prelude-cleanup writers", () => {
 
 		await commitTransitionWhileWriterWaits({
 			transition: async (client) => {
-				await client.query(
-					"SELECT set_config('nova.runtime_reader_version', '1', true)",
-				);
 				await client.query(
 					`UPDATE apps
 					 SET lock_run_id = $2, res_run_id = $2, run_holder_nonce = $3

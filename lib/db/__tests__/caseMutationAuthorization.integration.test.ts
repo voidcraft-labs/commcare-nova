@@ -68,7 +68,7 @@ describe("case mutation authorization", () => {
 		const appId = await seedAuthorizedApp();
 		const caseId = await insertPatient(appId);
 		await h.seedProjectMember(USER, OTHER_PROJECT, "editor");
-		await h.withDeclaredWriter((tx) =>
+		await h.withTransaction((tx) =>
 			tx
 				.updateTable("apps")
 				.set({ project_id: OTHER_PROJECT })

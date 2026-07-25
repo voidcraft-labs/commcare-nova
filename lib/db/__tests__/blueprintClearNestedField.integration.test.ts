@@ -22,7 +22,6 @@
  * Runs unconditionally under `npm test`.
  */
 
-import { sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
@@ -207,9 +206,6 @@ describe("blueprint clear nested field", () => {
 			.db()
 			.transaction()
 			.execute(async (tx) => {
-				await sql`SELECT set_config('nova.runtime_reader_version', '1', true)`.execute(
-					tx,
-				);
 				await tx
 					.updateTable("apps")
 					.set({

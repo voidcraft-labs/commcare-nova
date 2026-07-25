@@ -266,7 +266,7 @@ async function main() {
 	if (args.output === undefined && !args.check) process.stdout.write(rendered);
 	if (args.check) {
 		process.stdout.write(
-			`Runtime capability manifest and build wiring are valid (${manifest.cloudRunRequestSeconds}s request, ${manifest.cloudRunRequestSeconds + manifest.streamLeaseGraceSeconds}s stream lease).\n`,
+			`Runtime capability manifest and build wiring are valid (${manifest.cloudRunRequestSeconds}s request, ${manifest.editRunLeaseSeconds}s edit lease, ${manifest.buildStalenessSeconds}s build staleness).\n`,
 		);
 	}
 }

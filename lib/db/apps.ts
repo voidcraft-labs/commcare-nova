@@ -1670,8 +1670,7 @@ export type RepairLookupReferenceEdgesResult =
  * this writes no entity row, appends no history row, and advances no sequence,
  * so live streams and open runs are untouched. It is a server-only maintenance
  * writer with no route/action/MCP exposure — the paired migrate script drives
- * it over the read-only edge scan's mismatch list, and the database writer
- * guard independently requires its version declaration.
+ * it over the read-only edge scan's mismatch list.
  */
 export async function repairLookupReferenceEdges(
 	appId: string,
@@ -1808,7 +1807,7 @@ export async function commitAppProjectMove(
 	});
 }
 
-/** Package-private v1 integration seam; caller sets the matching writer GUC. */
+/** Package-private seam for callers that already own the transaction. */
 export async function commitAppProjectMoveInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: ProjectMoveCommitArgs,

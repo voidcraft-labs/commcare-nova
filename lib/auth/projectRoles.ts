@@ -44,7 +44,9 @@ export const admin = ac.newRole({
 	app: [...statement.app],
 	...adminAc.statements,
 });
-/** Everything an admin can do, plus update/delete the Project itself. */
+/** Everything an admin can do, plus updating the Project itself. The delete
+ *  statement rides along from Better Auth's owner role but is unreachable:
+ *  `disableOrganizationDeletion` closes the endpoint tenant-wide. */
 export const owner = ac.newRole({
 	app: [...statement.app],
 	...ownerAc.statements,

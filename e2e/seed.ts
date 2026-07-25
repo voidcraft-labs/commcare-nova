@@ -64,8 +64,7 @@ export const SEED = {
 	openAppName: "Smoke — Open Me",
 	deleteAppName: "Smoke — Delete Me",
 	/** Cross-Project move journey: one app plus a second Project the seeded user
-	 *  also owns. The activation switch is turned ON in the local database so
-	 *  the spec drives the real move, not the switched-off refusal. */
+	 *  also owns, so the spec drives a real move between two governed places. */
 	moveAppName: "Smoke — Move Me",
 	moveProjectName: "Smoke Destination",
 	/** Module-bearing app with a settled conversation — the smoke asserts the

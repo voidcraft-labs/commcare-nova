@@ -215,9 +215,9 @@ export async function upsertThreadTurn(args: {
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	const result = await withAppTx(async (tx) => {
-		// Fixed lock order: app row -> rollout compatibility -> thread row. The
-		// cutover never takes app-row locks while holding compatibility, and every
-		// competing thread writer queues on the thread row here.
+		// Fixed lock order: app row -> thread row. Every competing thread writer
+		// queues on the thread row, so proving the holder can never deadlock
+		// against another writer that already holds it.
 		const app = await tx
 			.selectFrom("apps")
 			.select([...LEASE_COLUMNS, "project_id"])
