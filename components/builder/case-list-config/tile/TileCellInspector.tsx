@@ -44,9 +44,9 @@ import {
 } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import {
-	type TileGeometry,
 	describeTilePlace,
 	planColumnTilePlacement,
+	type TileGeometry,
 	tileMemberUuids,
 	tileParticipation,
 } from "./tileModel";
@@ -133,7 +133,8 @@ export function TileCellInspector({
 	const members = new Set(tileMemberUuids(columns));
 	const projection = projectTileGrid(
 		columns.filter(
-			(candidate) => members.has(candidate.uuid) && candidate.tile !== undefined,
+			(candidate) =>
+				members.has(candidate.uuid) && candidate.tile !== undefined,
 		),
 	);
 	const mode =

@@ -23,11 +23,11 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import type { CaseTileLayout, Column, TileCell, Uuid } from "@/lib/domain";
 import { TileGridEditor } from "./TileGridEditor";
-import { tileMemberUuids, tileMembership } from "./tileModel";
+import { tileMembership, tileMemberUuids } from "./tileModel";
 import {
+	matchingTilePreset,
 	TILE_PRESETS,
 	type TilePresetId,
-	matchingTilePreset,
 	tilePresetUnavailableReason,
 } from "./tilePresets";
 

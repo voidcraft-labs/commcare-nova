@@ -92,6 +92,7 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	normalizeOwnerOnlyCaseSearchConfig,
 	type SearchInputDef,
+	type TileCell,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -130,6 +131,17 @@ import {
 	seededColumnAddMutation,
 	seedSearchInputForProperty,
 } from "./seeds";
+import { TileCellInspector } from "./tile/TileCellInspector";
+import type { CaseListArrangement } from "./tile/TileLayoutToggle";
+import {
+	planTileLayoutDisable,
+	planTileLayoutEnable,
+	planTilePersistOnForms,
+	planTilePlaceField,
+	planTilePreset,
+	tileCellMutations,
+} from "./tile/tileMutationPlan";
+import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
 import {
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
@@ -247,6 +259,10 @@ const PROPERTYLESS_HINT = "Add case information before adding fields";
  *  still absent — first edit persists the seeded shape. */
 const EMPTY_CONFIG: CaseListConfig = { columns: [], searchInputs: [] };
 
+/** Stable empty tile-issue list — a fresh array per render would defeat
+ *  the inspector body's memoization. */
+const NO_TILE_ISSUES: readonly string[] = [];
+
 /** Stable no-case-type verdicts — a fresh object per render would
  *  defeat the canvases' memoization. */
 const EMPTY_VERDICTS = {
@@ -255,6 +271,7 @@ const EMPTY_VERDICTS = {
 	filterBroken: false,
 	searchButtonConditionBroken: false,
 	excludedOwnerIdsBroken: false,
+	tileIssues: new Map<Uuid, readonly string[]>(),
 } as const;
 
 type SearchScreenSettingKey = "searchScreenTitle" | "searchScreenSubtitle";
@@ -681,6 +698,7 @@ function useController(
 		filterBroken,
 		searchButtonConditionBroken,
 		excludedOwnerIdsBroken,
+		tileIssues,
 	} = useMemo(
 		() =>
 			caseType !== undefined
@@ -1161,6 +1179,128 @@ function useController(
 		[commitMany, moduleUuid],
 	);
 
+	// ── Tile arrangement ──
+	//
+	// Turning the tile on lands its placements in the SAME gated batch as
+	// the switch, so the grid an author arrives at already works. Turning
+	// it off touches only the layout slot, so every cell survives and the
+	// drawing comes back intact.
+	const tileDisabledReason = useMemo(() => {
+		if (config.tile !== undefined) return undefined;
+		const plan = planTileLayoutEnable({ moduleUuid, columns: config.columns });
+		return plan.ok ? undefined : plan.reason;
+	}, [config.columns, config.tile, moduleUuid]);
+
+	const setArrangement = useCallback(
+		(next: CaseListArrangement) => {
+			if (next === "tile") {
+				if (config.tile !== undefined) return;
+				const plan = planTileLayoutEnable({
+					moduleUuid,
+					columns: config.columns,
+				});
+				if (!plan.ok) {
+					setWorkspaceAnnouncement(plan.reason);
+					return;
+				}
+				if (commitMany([...plan.mutations]).ok) {
+					setWorkspaceAnnouncement(
+						"Results now shows a tile. Every field has a place on the grid.",
+					);
+				}
+				return;
+			}
+			if (config.tile === undefined) return;
+			if (commitMany([...planTileLayoutDisable(moduleUuid)]).ok) {
+				setWorkspaceAnnouncement(
+					"Results now shows rows. The tile arrangement is kept.",
+				);
+			}
+		},
+		[commitMany, config.columns, config.tile, moduleUuid],
+	);
+
+	const placeTileCell = useCallback(
+		(uuid: Column["uuid"], cell: TileCell) => {
+			const column = config.columns.find(
+				(candidate) => candidate.uuid === uuid,
+			);
+			if (column === undefined) return;
+			commitMany([...tileCellMutations(moduleUuid, column, cell)]);
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const clearTileCell = useCallback(
+		(uuid: Column["uuid"]) => {
+			const column = config.columns.find(
+				(candidate) => candidate.uuid === uuid,
+			);
+			if (column === undefined) return;
+			if (
+				commitMany([...tileCellMutations(moduleUuid, column, undefined)]).ok
+			) {
+				setWorkspaceAnnouncement(
+					`${columnDisplayLabel(column)} no longer has a saved tile place`,
+				);
+			}
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const putColumnOnTile = useCallback(
+		(uuid: Column["uuid"]) => {
+			const plan = planTilePlaceField({
+				moduleUuid,
+				columns: config.columns,
+				uuid,
+			});
+			if (!plan.ok) {
+				setWorkspaceAnnouncement(plan.reason);
+				return;
+			}
+			if (commitMany([...plan.mutations]).ok) {
+				const column = config.columns.find(
+					(candidate) => candidate.uuid === uuid,
+				);
+				setWorkspaceAnnouncement(
+					`${column === undefined ? "The field" : columnDisplayLabel(column)} is now on the tile`,
+				);
+				setSel({ type: "column", uuid });
+			}
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const applyTilePreset = useCallback(
+		(presetId: TilePresetId) => {
+			const preset = TILE_PRESETS.find(
+				(candidate) => candidate.id === presetId,
+			);
+			if (preset === undefined) return;
+			const plan = planTilePreset({
+				moduleUuid,
+				columns: config.columns,
+				preset,
+			});
+			if (!plan.ok) {
+				setWorkspaceAnnouncement(plan.reason);
+				return;
+			}
+			if (commitMany([...plan.mutations]).ok) {
+				setWorkspaceAnnouncement(`Tile rearranged as ${preset.label}`);
+			}
+		},
+		[commitMany, config.columns, moduleUuid],
+	);
+
+	const setTilePersistOnForms = useCallback(
+		(persist: boolean) => {
+			commitMany([...planTilePersistOnForms(moduleUuid, persist)]);
+		},
+		[commitMany, moduleUuid],
+	);
+
 	// ── Inspector resolution ──
 	//
 	// Computed only while the workspace is actually on-screen (`active`). When
@@ -1194,6 +1334,11 @@ function useController(
 			onCancelInputRemovalReview: cancelInputRemovalReview,
 			onCompleteInputRemovalReview: completeInputRemovalReview,
 			onReviewInputRemovalDependency: reviewInputRemovalDependency,
+			tileOn: config.tile !== undefined,
+			tileIssues,
+			onPlaceTileCell: placeTileCell,
+			onClearTileCell: clearTileCell,
+			onPutColumnOnTile: putColumnOnTile,
 		});
 
 		if (sel?.type === "search-condition") {
@@ -1307,6 +1452,13 @@ function useController(
 		filterBroken,
 		excludedOwnerIdsBroken,
 		searchButtonConditionBroken,
+		tileIssues,
+		tileDisabledReason,
+		setArrangement,
+		placeTileCell,
+		putColumnOnTile,
+		applyTilePreset,
+		setTilePersistOnForms,
 		addDisabledReason,
 		opensResultsAutomatically,
 		searchConditionSurface,
@@ -1473,6 +1625,13 @@ export function CaseListWorkspaceCanvas() {
 		filterBroken,
 		excludedOwnerIdsBroken,
 		searchButtonConditionBroken,
+		tileIssues,
+		tileDisabledReason,
+		setArrangement,
+		placeTileCell,
+		putColumnOnTile,
+		applyTilePreset,
+		setTilePersistOnForms,
 		addDisabledReason,
 		opensResultsAutomatically,
 		resultsDependencyReview,
@@ -1589,6 +1748,13 @@ export function CaseListWorkspaceCanvas() {
 							appId={appId}
 							dependencyReview={resultsDependencyReview}
 							onReturnToSearchField={returnToInputRemovalReview}
+							tileIssues={tileIssues}
+							tileDisabledReason={tileDisabledReason}
+							onArrangementChange={setArrangement}
+							onPlaceTileCell={placeTileCell}
+							onPutColumnOnTile={putColumnOnTile}
+							onApplyTilePreset={applyTilePreset}
+							onTilePersistOnFormsChange={setTilePersistOnForms}
 						/>
 					</div>
 				</Activity>
@@ -1648,6 +1814,11 @@ interface ResolveInspectorArgs {
 	readonly onReviewInputRemovalDependency: (
 		dependency: SearchInputRemovalDependency,
 	) => void;
+	readonly tileOn: boolean;
+	readonly tileIssues: ReadonlyMap<string, readonly string[]>;
+	readonly onPlaceTileCell: (uuid: Column["uuid"], cell: TileCell) => void;
+	readonly onClearTileCell: (uuid: Column["uuid"]) => void;
+	readonly onPutColumnOnTile: (uuid: Column["uuid"]) => void;
 }
 
 /**
@@ -1691,6 +1862,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						<ColumnInspectorBody
 							key={column.uuid}
 							column={column}
+							columns={config.columns}
 							surface={surface}
 							visibleCount={
 								surface === "list"
@@ -1701,7 +1873,14 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							caseTypes={args.caseTypes}
 							currentCaseType={args.caseType}
 							repairMessages={sel.reveal?.messages}
+							tileOn={args.tileOn}
+							tileIssues={args.tileIssues.get(column.uuid) ?? NO_TILE_ISSUES}
 							onChange={(next) => args.replaceColumn(column.uuid, next)}
+							onPlaceTileCell={(cell) =>
+								args.onPlaceTileCell(column.uuid, cell)
+							}
+							onClearTileCell={() => args.onClearTileCell(column.uuid)}
+							onPutOnTile={() => args.onPutColumnOnTile(column.uuid)}
 							onHide={() => args.onHideColumn(surface, column)}
 							onDelete={() => args.onDeleteColumn(surface, column)}
 						/>
@@ -1808,17 +1987,26 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 function ColumnInspectorBody({
 	column,
+	columns,
 	surface,
 	visibleCount,
 	listVisibleCount,
 	caseTypes,
 	currentCaseType,
 	repairMessages,
+	tileOn,
+	tileIssues,
 	onChange,
+	onPlaceTileCell,
+	onClearTileCell,
+	onPutOnTile,
 	onHide,
 	onDelete,
 }: {
 	readonly column: Column;
+	/** The whole case list — a tile placement is adjudicated against the
+	 * other fields on the tile, so the rail needs more than one column. */
+	readonly columns: readonly Column[];
 	readonly surface: ColumnSurface;
 	readonly visibleCount: number;
 	readonly listVisibleCount: number;
@@ -1827,10 +2015,16 @@ function ColumnInspectorBody({
 	/** Defined (including an empty array) while this off-screen definition is
 	 * being repaired in response to an Add information request. */
 	readonly repairMessages: readonly string[] | undefined;
+	readonly tileOn: boolean;
+	readonly tileIssues: readonly string[];
 	readonly onChange: (next: Column) => void;
+	readonly onPlaceTileCell: (cell: TileCell) => void;
+	readonly onClearTileCell: () => void;
+	readonly onPutOnTile: () => void;
 	readonly onHide: () => void;
 	readonly onDelete: () => void;
 }) {
+	const canEdit = useCanEdit();
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const screenName = surfaceDisplayName(surface);
 	const keepLastResult = surface === "list" && visibleCount <= 1;
@@ -1878,6 +2072,18 @@ function ColumnInspectorBody({
 				caseTypes={caseTypes}
 				currentCaseType={currentCaseType}
 			/>
+			{!repairing && (
+				<TileCellInspector
+					column={column}
+					columns={columns}
+					tileOn={tileOn}
+					issues={tileIssues}
+					canEdit={canEdit}
+					onPlace={onPlaceTileCell}
+					onClearPlace={onClearTileCell}
+					onPutOnTile={onPutOnTile}
+				/>
+			)}
 			{!repairing && (
 				<div className="border-t border-nova-border pt-3">
 					<Button

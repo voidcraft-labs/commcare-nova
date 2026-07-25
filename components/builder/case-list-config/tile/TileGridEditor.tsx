@@ -34,14 +34,17 @@ import {
 	type TileCell,
 	type Uuid,
 } from "@/lib/domain";
-import { projectTileGrid, tileCellGridArea } from "@/lib/preview/caseTileLayout";
 import {
-	type TileGeometry,
-	type TilePlacement,
+	projectTileGrid,
+	tileCellGridArea,
+} from "@/lib/preview/caseTileLayout";
+import {
 	describeTileCell,
 	describeTilePlace,
 	planTileKeyboardGesture,
 	planTilePlacement,
+	type TileGeometry,
+	type TilePlacement,
 	tileKeyboardGesture,
 	tileMembership,
 } from "./tileModel";
@@ -78,7 +81,7 @@ export function TileGridEditor({
 	onPlace,
 	onPlaceUnplaced,
 }: TileGridEditorProps) {
-	const gridRef = useRef<HTMLDivElement>(null);
+	const gridRef = useRef<HTMLFieldSetElement>(null);
 	const [drag, setDrag] = useState<DragState | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [announcement, setAnnouncement] = useState("");
@@ -92,7 +95,8 @@ export function TileGridEditor({
 
 	const gridGeometry = () => {
 		const rect = gridRef.current?.getBoundingClientRect();
-		if (rect === undefined || rect.width === 0 || rect.height === 0) return null;
+		if (rect === undefined || rect.width === 0 || rect.height === 0)
+			return null;
 		return {
 			columnStep: rect.width / TILE_GRID_COLUMNS,
 			rowStep: rect.height / TILE_GRID_ROWS,
@@ -145,7 +149,8 @@ export function TileGridEditor({
 					};
 		const verdict = planTilePlacement(placed, drag.uuid, candidate);
 		if (verdict.ok) {
-			if (sameGeometry(verdict.cell, drag.cell) && drag.refusal === null) return;
+			if (sameGeometry(verdict.cell, drag.cell) && drag.refusal === null)
+				return;
 			setDrag({ ...drag, cell: verdict.cell, refusal: null });
 			return;
 		}
@@ -194,7 +199,9 @@ export function TileGridEditor({
 		}
 		setRefusal(null);
 		onPlace(placement.uuid, verdict.cell);
-		setAnnouncement(`${placement.label} is now at ${describeTilePlace(verdict.cell)}`);
+		setAnnouncement(
+			`${placement.label} is now at ${describeTilePlace(verdict.cell)}`,
+		);
 	};
 
 	return (
@@ -209,11 +216,13 @@ export function TileGridEditor({
 			</p>
 
 			<div className="overflow-x-auto overscroll-x-contain [scrollbar-gutter:auto]">
-				<div
+				{/* A fieldset: the grid is one labelled group of the tile's own
+				 * controls. The minimum width keeps every square at a real
+				 * pointer target on a handset, where the group scrolls sideways
+				 * instead of shrinking below it. */}
+				<fieldset
 					ref={gridRef}
-					role="group"
-					aria-label={`Tile layout, ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows`}
-					className="relative grid min-w-[34rem] rounded-xl border border-white/[0.07] bg-nova-deep/40 [--tile-row-height:2.75rem] @[52rem]:[--tile-row-height:3rem]"
+					className="relative m-0 grid min-w-[34rem] rounded-xl border border-white/[0.07] bg-nova-deep/40 p-0 [--tile-row-height:2.75rem] @[52rem]:[--tile-row-height:3rem]"
 					style={{
 						gridTemplateColumns: `repeat(${TILE_GRID_COLUMNS}, minmax(0, 1fr))`,
 						gridTemplateRows: `repeat(${TILE_GRID_ROWS}, var(--tile-row-height))`,
@@ -221,6 +230,9 @@ export function TileGridEditor({
 						backgroundSize: `calc(100% / ${TILE_GRID_COLUMNS}) calc(100% / ${TILE_GRID_ROWS})`,
 					}}
 				>
+					<legend className="sr-only">
+						{`Tile layout, ${TILE_GRID_COLUMNS} columns by ${TILE_GRID_ROWS} rows`}
+					</legend>
 					{extent.columns > 0 && extent.rows > 0 && (
 						<div
 							aria-hidden="true"
@@ -291,7 +303,7 @@ export function TileGridEditor({
 									</button>
 								);
 							})}
-				</div>
+				</fieldset>
 			</div>
 
 			<div className="mt-3 space-y-2" aria-live="polite">
@@ -430,13 +442,12 @@ function TileCellChip({
 	} ${canEdit ? "cursor-grab [touch-action:none] active:cursor-grabbing" : ""}`;
 
 	if (!canEdit) {
+		// A viewer's cell is content, not a control, so its place is read
+		// out beside the visible label rather than replacing it.
 		return (
-			<div
-				className={className}
-				style={{ gridArea: tileCellGridArea(cell) }}
-				aria-label={describeTileCell(placement.label, cell)}
-			>
+			<div className={className} style={{ gridArea: tileCellGridArea(cell) }}>
 				{body}
+				<span className="sr-only">{describeTilePlace(cell)}</span>
 			</div>
 		);
 	}

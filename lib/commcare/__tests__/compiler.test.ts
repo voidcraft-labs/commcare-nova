@@ -2555,6 +2555,44 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ case-tile parity", () => {
 		expect(cchqDatum?.attribs["detail-persistent"]).toBe("m0_case_short");
 	});
 
+	it("carries a hidden ordering field as the zero-width sort carrier, unplaced", () => {
+		// Sorting by something a worker doesn't see works unchanged on a tile.
+		// The field emits with `width="0"` and NO `<style>`, which is
+		// CommCare's own reserved spelling for a carried-but-hidden field:
+		// `commcare-core .../suite/model/Style.java::Style(DetailField)` notes
+		// "'0' is reserved for hidden (Search) fields", and both cloudcare tile
+		// templates branch on `styles[index].widthHint === 0` to render the
+		// value inside a `d-none` wrapper.
+		const doc = tiledDoc();
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		if (config === undefined) throw new Error("expected a case-list config");
+		const town = config.columns[1];
+		config.columns[1] = {
+			...town,
+			tile: undefined,
+			visibleInList: false,
+			sort: { direction: "asc", priority: 0 },
+		} as typeof town;
+
+		const nova = novaSuite(doc);
+		const detail = findAllByName(nova, "detail").find(
+			(d) => d.attribs.id === "m0_case_short",
+		);
+		const fields = (detail?.children ?? []).filter((c) => c.name === "field");
+		expect(fields).toHaveLength(2);
+
+		const carrier = fields[1];
+		expect(carrier.children.map((c) => c.name)).toEqual([
+			"header",
+			"template",
+			"sort",
+		]);
+		expect(carrier.children[0].attribs.width).toBe("0");
+		expect(carrier.children[1].attribs.width).toBe("0");
+		// The placed field keeps its style; the carrier has none.
+		expect(fields[0].children[0].name).toBe("style");
+	});
+
 	it("emits no <style> at all when the case list has no tile layout", () => {
 		const doc = tiledDoc();
 		const mod = doc.modules[doc.moduleOrder[0]];

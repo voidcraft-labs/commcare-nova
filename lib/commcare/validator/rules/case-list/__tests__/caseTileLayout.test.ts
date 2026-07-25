@@ -20,7 +20,6 @@ import { runValidation } from "../../../runner";
 const OUT_OF_GRID = "CASE_LIST_TILE_CELL_OUT_OF_GRID" as const;
 const OVERLAP = "CASE_LIST_TILE_CELLS_OVERLAP" as const;
 const NOT_PLACED = "CASE_LIST_TILE_COLUMN_NOT_PLACED" as const;
-const SORT_NOT_PLACED = "CASE_LIST_TILE_SORT_COLUMN_NOT_PLACED" as const;
 
 const caseTypes = [
 	{
@@ -166,11 +165,12 @@ describe("caseTileLayout", () => {
 		).toEqual([NOT_PLACED]);
 	});
 
-	it("requires a hidden field that orders the list to have a place too", () => {
-		// A tile detail has no off-screen field: an unplaced one lands wherever
-		// the grid has room. The row layout's hidden-but-sorted shape therefore
-		// has no tile equivalent, and the rule says so rather than shipping a
-		// stray auto-placed cell.
+	it("lets a hidden field order the list without giving it a place on the tile", () => {
+		// Sorting by something a worker doesn't see is an ordinary case-list
+		// pattern, and it works unchanged on a tile: the column emits as the
+		// zero-width sort carrier, which is CommCare's own reserved spelling
+		// for a carried-but-hidden field, and both tile templates render it
+		// inside a `d-none` wrapper.
 		const sortCarrier = plainColumn(asUuid("s"), "town", "Town", {
 			visibleInList: false,
 			sort: { direction: "asc", priority: 0 },
@@ -180,7 +180,7 @@ describe("caseTileLayout", () => {
 				[named("a", "case_name", tileCell(0, 0, 12, 1)), sortCarrier],
 				{},
 			),
-		).toEqual([SORT_NOT_PLACED]);
+		).toEqual([]);
 	});
 
 	it("leaves a hidden field alone when it orders nothing", () => {

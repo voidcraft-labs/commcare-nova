@@ -572,6 +572,18 @@ The wire facts that shape the emitter:
 - **Absent text size means inherit, not medium.** An absent `font-size` produces
   an empty `font-size: ;` declaration the browser discards. The `medium` default
   exists only in HQ's authoring UI.
+- **Ordering by a field workers don't see works unchanged on a tile.** The
+  zero-width sort carrier (`<header width="0">` + `<template width="0">` +
+  `<sort>`, no `<style>`) is CommCare's own reserved spelling for a
+  carried-but-hidden field — `commcare-core/.../org/commcare/suite/model/Style.java::Style(DetailField)`
+  records that "`'0'` is reserved for hidden (Search) fields", and both tile
+  templates (`cloudcare/templates/cloudcare/partials/case_list/tile_item.html`
+  and `tile_grouped_item.html`) branch on `styles[index].widthHint === 0` to
+  render the value inside a `d-none` wrapper. The surrounding cell div carries a
+  `-grid-style-N` class `views.js::buildCellLayout` never writes a rule for, and
+  `formplayer-common/grid.scss::.box` sets only colors and font size, so it is an
+  empty zero-size grid item. The tile therefore keeps the row layout's
+  hide-but-sort affordance exactly.
 
 Emitted bytes are asserted against HQ's own fixtures —
 `suite-case-tiles.xml` for the `<style>`/`<grid>` shape,

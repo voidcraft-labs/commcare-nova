@@ -289,7 +289,8 @@ export function planTileMove(
 	deltaRows: number,
 ): TilePlacementVerdict {
 	const target = placed.find((entry) => entry.uuid === uuid);
-	if (target === undefined) return planTilePlacement(placed, uuid, ZERO_GEOMETRY);
+	if (target === undefined)
+		return planTilePlacement(placed, uuid, ZERO_GEOMETRY);
 	return planTilePlacement(placed, uuid, {
 		x: target.cell.x + deltaColumns,
 		y: target.cell.y + deltaRows,
@@ -306,7 +307,8 @@ export function planTileResize(
 	deltaHeight: number,
 ): TilePlacementVerdict {
 	const target = placed.find((entry) => entry.uuid === uuid);
-	if (target === undefined) return planTilePlacement(placed, uuid, ZERO_GEOMETRY);
+	if (target === undefined)
+		return planTilePlacement(placed, uuid, ZERO_GEOMETRY);
 	return planTilePlacement(placed, uuid, {
 		x: target.cell.x,
 		y: target.cell.y,
@@ -320,7 +322,11 @@ const ZERO_GEOMETRY: TileGeometry = { x: 0, y: 0, width: 1, height: 1 };
 // ── Keyboard ──────────────────────────────────────────────────────
 
 export type TileKeyboardGesture =
-	| { readonly kind: "move"; readonly deltaColumns: number; readonly deltaRows: number }
+	| {
+			readonly kind: "move";
+			readonly deltaColumns: number;
+			readonly deltaRows: number;
+	  }
 	| {
 			readonly kind: "resize";
 			readonly deltaWidth: number;

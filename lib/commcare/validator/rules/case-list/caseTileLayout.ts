@@ -4,7 +4,7 @@
  * square, and every field the Results detail carries has a place to
  * sit.
  *
- * The four findings split along two axes, because they have two
+ * The three findings split along two axes, because they have two
  * different repairs and two different lifetimes.
  *
  * **Geometry** (`…_CELL_OUT_OF_GRID`, `…_CELLS_OVERLAP`) is checked on
@@ -16,23 +16,35 @@
  * only while the layout is on would let a rejected geometry hide in a
  * disabled layout and surface as an unexplained refusal later.
  *
- * **Coverage** (`…_COLUMN_NOT_PLACED`, `…_SORT_COLUMN_NOT_PLACED`) is
- * checked only while the layout is on, because it is a statement about
- * what the Results detail emits. A tile detail has no off-screen
- * column: every `<field>` the detail carries becomes a cell div in the
- * Web Apps renderer, and a field with no `<style>` gets no
- * `grid-area`, so CSS grid auto-places it wherever there is room —
- * typically an unstyled extra row under the tile showing a raw value.
- * Requiring a placement is what keeps that from shipping.
+ * **Coverage** (`…_COLUMN_NOT_PLACED`) is checked only while the layout
+ * is on, because it is a statement about what the Results detail emits.
+ * It applies to columns the tile SHOWS, and to those alone.
  *
- * Two things this rule deliberately does NOT do:
+ * Three things this rule deliberately does NOT do:
  *
  *   - It does not reject a cell on a column that is hidden from
- *     Results and drives no ordering. That column emits nothing, its
- *     cell is inert, and keeping it means unhiding the column restores
- *     the placement the author drew.
+ *     Results. That column's cell is inert, and keeping it means
+ *     unhiding the column restores the placement the author drew.
  *   - It does not reject a cell when the layout is off, for the same
  *     reason.
+ *   - **It does not require a hidden, order-driving column to be
+ *     placed.** Sorting by something a worker doesn't see is an
+ *     ordinary case-list pattern and it works unchanged on a tile.
+ *     Nova emits such a column as the zero-width sort carrier
+ *     (`<header width="0">` + `<template width="0">` + `<sort>`) with
+ *     no `<style>`, and CommCare treats that shape as its own reserved
+ *     hidden-field spelling: `commcare-core/.../org/commcare/suite/model/Style.java::Style(DetailField)`
+ *     carries the comment "For width, default to -1 since '0' is
+ *     reserved for hidden (Search) fields", and both tile templates
+ *     (`commcare-hq/corehq/apps/cloudcare/templates/cloudcare/partials/case_list/tile_item.html`
+ *     and `tile_grouped_item.html`) branch on `styles[index].widthHint === 0`
+ *     to render the value inside a `d-none` wrapper. The surrounding
+ *     cell div carries a `-grid-style-N` class that
+ *     `views.js::buildCellLayout` never emits a rule for, and
+ *     `formplayer-common/grid.scss::.box` sets only colors and font
+ *     size, so the div is an empty zero-size grid item. Nothing renders,
+ *     and the ordering still applies because the runtime sorts entities
+ *     before it draws them.
  *
  * The 12-column cap is Nova's own. CommCare Core has no column-count
  * constant — `commcare-core/.../org/commcare/suite/model/Detail.java::Detail.getMaxWidthHeight`
@@ -145,29 +157,16 @@ export function caseTileLayout(
 
 	for (const [index, column] of columns.entries()) {
 		if (column.tile !== undefined) continue;
-		if (column.visibleInList !== false) {
-			errors.push(
-				validationError(
-					"CASE_LIST_TILE_COLUMN_NOT_PLACED",
-					"module",
-					`${describeColumn(column, index)} is shown in the "${mod.name}" case list but has no place on the tile. Every field a tile shows needs a square to sit in, or it lands wherever the grid happens to have room. Give it a place on the tile, or hide it from the case list.`,
-					location,
-					{ columnUuid: column.uuid, columnIndex: String(index) },
-				),
-			);
-			continue;
-		}
-		if (column.sort !== undefined) {
-			errors.push(
-				validationError(
-					"CASE_LIST_TILE_SORT_COLUMN_NOT_PLACED",
-					"module",
-					`${describeColumn(column, index)} orders the "${mod.name}" case list but is hidden and has no place on the tile. Hiding a field from a tile is not possible the way it is for a row of columns — the case list still has to carry the field to order by it, and an unplaced field lands wherever the grid has room. Give it a place on the tile, or take it out of the case list's order.`,
-					location,
-					{ columnUuid: column.uuid, columnIndex: String(index) },
-				),
-			);
-		}
+		if (column.visibleInList === false) continue;
+		errors.push(
+			validationError(
+				"CASE_LIST_TILE_COLUMN_NOT_PLACED",
+				"module",
+				`${describeColumn(column, index)} is shown in the "${mod.name}" case list but has no place on the tile. Every field a tile shows needs a square to sit in. Give it a place on the tile, or hide it from the case list.`,
+				location,
+				{ columnUuid: column.uuid, columnIndex: String(index) },
+			),
+		);
 	}
 
 	return errors;

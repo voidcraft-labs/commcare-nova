@@ -212,8 +212,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`Two items on ${q(modName(e))}'s tile sit on top of each other. Move or resize one of them so they don't share the same space.`,
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: (e) =>
 		`An item shown in ${q(modName(e))} has no place on the tile yet. Put it on the layout, or hide it from the case list.`,
-	CASE_LIST_TILE_SORT_COLUMN_NOT_PLACED: (e) =>
-		`Something in ${q(modName(e))}'s Default order is hidden and has no place on the tile. A tile can't hide an item the way a list of columns can — put it on the layout, or take it out of the order.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
 		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
 	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: (e) =>

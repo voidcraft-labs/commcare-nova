@@ -20,16 +20,16 @@ import { columnTileMutations } from "@/lib/doc/caseListColumnMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import { type Column, type TileCell, tileCell } from "@/lib/domain";
 import {
-	type TileGeometry,
 	nextFreeTilePlacement,
-	tileMemberUuids,
+	type TileGeometry,
 	tileMembership,
+	tileMemberUuids,
 } from "./tileModel";
 import {
-	TILE_MAX_FIELDS,
-	type TilePreset,
 	assignTileArrangement,
 	seedTileArrangement,
+	TILE_MAX_FIELDS,
+	type TilePreset,
 } from "./tilePresets";
 
 export type TilePlanOutcome =
@@ -90,7 +90,9 @@ export function planTileLayoutEnable(args: {
 		for (const [uuid, geometry] of assigned) {
 			const column = byUuid.get(uuid);
 			if (column === undefined) continue;
-			mutations.push(...tileCellMutations(moduleUuid, column, cellOf(geometry)));
+			mutations.push(
+				...tileCellMutations(moduleUuid, column, cellOf(geometry)),
+			);
 		}
 	} else {
 		const occupied: TileCell[] = placed.map((entry) => entry.cell);
