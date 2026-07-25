@@ -16,9 +16,11 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { keyBetween } from "@/lib/doc/order/keys";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	ancestorLevels,
 	assignedLocationUuids,
 	asUuid,
 	type BlueprintDoc,
+	levelMayNestUnder,
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
@@ -203,14 +205,46 @@ function orderKeyForSlot(
 
 /**
  * The level a new or retyped place stands at must exist in the app's
- * blueprint, and its parent must stand at that level's parent level.
+ * blueprint, and its parent must stand at a level ABOVE that one — any level
+ * above, not only the one directly above.
  *
- * The hierarchy rule is Nova's, and it is stricter than HQ's storage: HQ lets
- * a location's parent be any location and only its authoring form restricts
- * the choice (`forms.py::LocationForm.get_allowed_types`). Nova enforces it in
- * the store, because a place whose parent is not at its level's parent level
- * has no coherent lineage attribute in the fixture — the `{code}_id` chain
- * would skip a level and every expression joining on it would silently miss.
+ * **Intermediate levels may be skipped, and that is a real capability rather
+ * than a leniency.** Health hierarchies routinely have optional rungs: some
+ * regions run districts and some do not, so a facility hangs directly off the
+ * region in the second case. The fixture represents that faithfully, because
+ * `fixtures.py::_get_fixture_node` blank-fills EVERY level's `{code}_id`
+ * attribute before writing self and then each ancestor — so the skipping
+ * facility emits `region_id=<region>`, `district_id=''`, `facility_id=<self>`.
+ * An expression joining on `district_id` finds nothing for it, which is the
+ * truth: it has no district. Requiring a placeholder district would be exactly
+ * the hidden scaffolding this program refuses to make an author invent.
+ *
+ * **What is refused is a level appearing twice in one chain**, and that has a
+ * concrete breakage rather than a stylistic one. The attribute writes in that
+ * same loop go self-first and then upward, each unconditionally assigning
+ * `attrs['{code}_id']` — so an ancestor sharing the child's level code
+ * OVERWRITES the child's own id in its own lineage attribute. A facility
+ * parented to another facility emits `facility_id = <the parent's id>`, and a
+ * two-hop join like `location[@type='facility_data'][@facility_id = <owner>]`
+ * then resolves against the wrong element with nothing to signal it. Since two
+ * levels can never share a code (`ORGANIZATION_LEVEL_CODE_DUPLICATE`),
+ * requiring the parent's level to be a STRICT ANCESTOR of the child's is
+ * exactly the condition that keeps every code in a chain distinct.
+ *
+ * An inverted placement — a district under a facility — is refused by the same
+ * rule, and deservedly: it contradicts the hierarchy the author declared, so
+ * every footprint and owner-set derivation over it would be reasoning about a
+ * shape the document says does not exist.
+ *
+ * One consequence of allowing ragged trees is worth knowing rather than
+ * preventing: HQ's `expand_to` is compared as a DEPTH counted over the
+ * location tree against a depth computed over the TYPE tree
+ * (`get_location_fixture_ids.sql`), so on a ragged tree a depth cap can carry
+ * a place whose level sits below the cap. It over-includes, never
+ * under-includes — a payload cost in an address book that carries no cases —
+ * and it is HQ's behaviour on any ragged tree rather than something Nova
+ * introduces. `include_only`, which `own-branch-limited` compiles to, is keyed
+ * on type and is immune.
  */
 function assertPlacement(
 	doc: BlueprintDoc,
@@ -226,29 +260,32 @@ function assertPlacement(
 			"That level isn't part of this app's organization any more. Reload to get the latest levels, then try again.",
 		);
 	}
+	const above = ancestorLevels(level, levels);
 	if (parentId === null) {
-		if (level.parentLevelUuid !== undefined) {
-			const parentLevel = levels[level.parentLevelUuid];
+		// A level with something above it needs a place above it. Skipping rungs
+		// is fine; skipping the root is not, because the place would float free
+		// of every tree the fixture and the footprint walk.
+		if (above.length > 0) {
 			throw new OrganizationError(
 				"rejected",
-				`A ${level.name.toLowerCase()} sits under ${parentLevel === undefined ? "another level" : `a ${parentLevel.name.toLowerCase()}`}, so it needs a parent place. Choose where this one belongs.`,
+				`A ${level.name.toLowerCase()} sits under ${above.length === 1 ? `a ${above[0].name.toLowerCase()}` : "a level above it"}, so it needs a parent place. Choose where this one belongs.`,
 			);
 		}
 		return;
 	}
 	const parent = tree.byId.get(parentId);
 	if (parent === undefined) throw organizationNotFound();
-	if (level.parentLevelUuid === undefined) {
+	if (above.length === 0) {
 		throw new OrganizationError(
 			"rejected",
 			`${level.name} is a top level, so a ${level.name.toLowerCase()} can't sit under another place.`,
 		);
 	}
-	if (parent.level_uuid !== level.parentLevelUuid) {
-		const expected = levels[level.parentLevelUuid];
+	if (!levelMayNestUnder(levelUuid, parent.level_uuid, levels)) {
+		const parentLevel = levels[parent.level_uuid];
 		throw new OrganizationError(
 			"rejected",
-			`A ${level.name.toLowerCase()} has to sit directly under ${expected === undefined ? "its parent level" : `a ${expected.name.toLowerCase()}`}. Pick a different place for it.`,
+			`A ${level.name.toLowerCase()} has to sit under one of the levels above it${above.length <= 3 ? ` (${above.map((ancestor) => ancestor.name).join(", ")})` : ""}${parentLevel === undefined ? "" : `, and ${parentLevel.name} isn't one of them`}. Pick a different place for it.`,
 		);
 	}
 }

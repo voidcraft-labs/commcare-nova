@@ -176,16 +176,26 @@ export function parseOrganizationRevision(
 /**
  * Derive a site code from a place's name, avoiding the codes already taken.
  *
- * Mirrors `commtrack/util.py::generate_code`: slugify, collapse every run of
- * non-word characters to `_`, strip leading and trailing `_`, then append and
- * increment a numeric suffix until the result is unused. HQ compares
- * case-insensitively, so `taken` is expected lowercased and the result is
- * lowercase.
+ * Shaped after `commtrack/util.py::generate_code` — slugify, collapse runs of
+ * non-word characters to `_`, strip leading and trailing `_`, then increment a
+ * numeric suffix until unused — but deliberately NOT byte-identical to it, and
+ * the difference is safe for a specific reason. HQ derives a code only when
+ * one is omitted; Nova's codes are create-once and every push sends the stored
+ * one explicitly, so the two derivations never have to agree on an answer.
+ * Nothing downstream compares them.
  *
- * The fallback matters more than it looks: a name made entirely of
- * characters the slug charset drops — which is every name in a
- * non-Latin script — would otherwise derive the empty string and fail the
- * pattern. `place` is what it becomes, then deduped like any other.
+ * Three known divergences, recorded so nobody later "fixes" one into a
+ * behaviour change: HQ's suffix starts at `1` and Nova's at `2`; HQ strips
+ * digits out of the slug body and re-seeds the suffix from trailing digits in
+ * the name (`Clinic 2` -> `clinic2`), while Nova keeps digits in place; and HQ
+ * transliterates through `unidecode` where Nova strips combining marks, which
+ * agrees on accented Latin and differs on scripts `unidecode` romanizes.
+ *
+ * The fallback matters more than it looks: a name made entirely of characters
+ * the slug charset drops — every name in a non-Latin script, under Nova's
+ * mark-stripping — would otherwise derive the empty string and fail the
+ * pattern HQ validates against. `place` is what it becomes, then deduped like
+ * any other.
  */
 export function deriveSiteCode(
 	name: string,

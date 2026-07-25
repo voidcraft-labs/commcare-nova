@@ -9,7 +9,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type BlueprintDoc, type Persona } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	levelMayNestUnder,
+	type OrganizationLevel,
+	type Persona,
+} from "@/lib/domain";
 import { extractLocationReferenceTargets } from "@/lib/organization/commitIntegrity";
 import {
 	deriveSiteCode,
@@ -34,6 +40,23 @@ function docWithPersonas(personas: Persona[]): BlueprintDoc {
 		personas: Object.fromEntries(
 			personas.map((persona) => [persona.uuid, persona]),
 		),
+	};
+}
+
+function level(
+	uuid: string,
+	name: string,
+	parentLevelUuid?: string,
+): OrganizationLevel {
+	return {
+		uuid: asUuid(uuid),
+		code: uuid,
+		name,
+		...(parentLevelUuid !== undefined && {
+			parentLevelUuid: asUuid(parentLevelUuid),
+		}),
+		caseFlow: { workers: "none", ownsCases: false },
+		addressBook: { reach: "own-branch" },
 	};
 }
 
@@ -224,6 +247,67 @@ describe("planPersonaUnassignment", () => {
 		const plan = planPersonaUnassignment(doc, new Set(["loc-a"]));
 		expect(plan.personaNames).toEqual(["Asha"]);
 		expect(plan.mutations).toHaveLength(1);
+	});
+});
+
+describe("levelMayNestUnder", () => {
+	// Region → District → Facility, plus a second branch off Region so the
+	// forest is genuinely branching rather than a chain.
+	const levels: Record<string, OrganizationLevel> = {
+		region: level("region", "Region"),
+		district: level("district", "District", "region"),
+		facility: level("facility", "Facility", "district"),
+		depot: level("depot", "Depot", "region"),
+	};
+
+	it("allows the level directly above", () => {
+		expect(levelMayNestUnder("facility", "district", levels)).toBe(true);
+		expect(levelMayNestUnder("district", "region", levels)).toBe(true);
+	});
+
+	it("allows SKIPPING an intermediate level", () => {
+		// The capability this rule exists to permit: some regions run districts
+		// and some do not, so a facility hangs straight off the region. The
+		// fixture blank-fills `district_id` and an expression joining on it
+		// truthfully finds nothing.
+		expect(levelMayNestUnder("facility", "region", levels)).toBe(true);
+	});
+
+	it("refuses a level under itself", () => {
+		// The concrete breakage: the ancestor's write would overwrite the
+		// child's own `{code}_id` with the parent's id, so every two-hop join
+		// through that attribute silently resolves to the wrong element.
+		expect(levelMayNestUnder("facility", "facility", levels)).toBe(false);
+	});
+
+	it("refuses an inverted placement", () => {
+		expect(levelMayNestUnder("district", "facility", levels)).toBe(false);
+		expect(levelMayNestUnder("region", "district", levels)).toBe(false);
+	});
+
+	it("refuses a sibling branch", () => {
+		// A depot is not above a facility, so a facility cannot sit in one.
+		expect(levelMayNestUnder("facility", "depot", levels)).toBe(false);
+	});
+
+	it("refuses anything under a top level", () => {
+		expect(levelMayNestUnder("region", "depot", levels)).toBe(false);
+	});
+
+	it("is false rather than throwing for an unknown level", () => {
+		expect(levelMayNestUnder("gone", "region", levels)).toBe(false);
+		expect(levelMayNestUnder("facility", "gone", levels)).toBe(false);
+	});
+
+	it("terminates on a cyclic parent chain rather than hanging", () => {
+		// Unreachable through the validator, but this predicate also runs over
+		// documents being repaired.
+		const cyclic: Record<string, OrganizationLevel> = {
+			a: level("a", "A", "b"),
+			b: level("b", "B", "a"),
+		};
+		expect(levelMayNestUnder("a", "b", cyclic)).toBe(true);
+		expect(levelMayNestUnder("a", "a", cyclic)).toBe(false);
 	});
 });
 
