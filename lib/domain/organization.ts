@@ -320,10 +320,20 @@ export type LocationProperty = z.infer<typeof locationPropertySchema>;
  * without its list and requires the primary to appear in the list, so two
  * independent slots could drift into a state no push can represent. As
  * one object they cannot, and "assigned nowhere" is simply the slot's
- * absence — which is also exactly when HQ omits `commcare_location_id`,
- * `commcare_location_ids`, and `commcare_primary_case_sharing_id`
- * together (`users/models.py::CouchUser.get_user_session_data` writes all
- * three inside one `if location_id := ...`).
+ * absence.
+ *
+ * **The two projections of an assignment disagree, and which one is asking
+ * decides the right answer.** In the SESSION block
+ * (`users/models.py::CouchUser.get_user_session_data`) all three of
+ * `commcare_location_id`, `commcare_location_ids`, and
+ * `commcare_primary_case_sharing_id` are written inside one
+ * `if location_id := ...`, so an unassigned worker carries none of them. In
+ * the USERCASE (`callcenter/sync_usercase.py::_get_user_case_fields`) the
+ * same three are written unconditionally, empty-valued when there is no
+ * assignment. "Absent" and "present but empty" are therefore both correct,
+ * and a consumer that picks the wrong projection makes a condition pass
+ * that should not — which is why preview resolves the two separately
+ * rather than deriving one from the other.
  *
  * The uuids name rows in the app's locations store, not blueprint
  * entities, so they are validated against Postgres inside the commit
