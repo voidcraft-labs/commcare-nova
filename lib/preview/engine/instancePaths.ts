@@ -57,6 +57,11 @@ interface PathSegment {
 	index?: number;
 }
 
+export type InstancePathProjection =
+	| { readonly kind: "mapped"; readonly path: string }
+	| { readonly kind: "removed" }
+	| { readonly kind: "invalid"; readonly reason: string };
+
 export interface PathSegmentIdentityMap {
 	/**
 	 * Stable authored identities for each old/new template segment, including
@@ -68,55 +73,95 @@ export interface PathSegmentIdentityMap {
 	readonly newSegmentKeys: readonly string[];
 }
 
-function parseSegments(path: string): PathSegment[] {
-	return path
-		.split("/")
-		.filter(Boolean)
-		.map((segment) => {
-			const indexed = /^(.*?)\[(\d+)\]$/.exec(segment);
-			return indexed
-				? { name: indexed[1], index: Number.parseInt(indexed[2], 10) }
-				: { name: segment };
+function parseSegments(path: string): PathSegment[] | undefined {
+	if (!path.startsWith("/") || path.endsWith("/") || path.includes("//")) {
+		return undefined;
+	}
+	const segments: PathSegment[] = [];
+	for (const raw of path.split("/").slice(1)) {
+		const parsed = /^([^[\]/]+)(?:\[(\d+)\])?$/.exec(raw);
+		if (parsed === null || parsed[1] === undefined) return undefined;
+		const index =
+			parsed[2] === undefined ? undefined : Number.parseInt(parsed[2], 10);
+		if (index !== undefined && !Number.isSafeInteger(index)) return undefined;
+		segments.push({
+			name: parsed[1],
+			...(index === undefined ? {} : { index }),
 		});
+	}
+	return segments.length === 0 ? undefined : segments;
+}
+
+function validSegmentKeys(
+	keys: readonly string[],
+	expectedLength: number,
+): boolean {
+	return (
+		keys.length === expectedLength &&
+		keys[0] === "$data" &&
+		keys.every((key) => typeof key === "string" && key.length > 0) &&
+		new Set(keys).size === keys.length
+	);
 }
 
 /**
- * Map one concrete instance path from an old template path onto a new one —
- * the rename/conversion/move rule. Names come from the new template and
- * repeat indices follow stable authored segment identity when the caller
- * supplies it. The identity map is what makes arbitrary cross-parent moves
- * safe: the old and new templates do not need to have the same depth.
+ * Project one concrete instance path from an old template path onto a new one.
+ *
+ * The result is deliberately explicit. A caller that owns bytes or another
+ * destructive resource must distinguish:
+ *
+ * - `mapped`: the stable instance has a concrete home in the new topology;
+ * - `removed`: a repeat instance above index zero legitimately has no home
+ *   after its stable repeat ancestor disappears; and
+ * - `invalid`: the event/path/identity projection is malformed or mismatched.
+ *
+ * Treating both latter states as `null` is unsafe at a destructive boundary:
+ * an invalid migration event must preserve ownership and fail closed, while a
+ * legitimately removed repeat instance may be retired.
  *
  * Bracket-shape changes at a segment encode a group⇄repeat conversion:
  * a segment gaining a bracket (group→repeat) takes the new template's own
  * index, and a segment losing its bracket (repeat→group) keeps only
- * instance 0 — every other instance has no home in the new shape, so the
- * function returns `null` and the caller drops that path's value and state.
- * The positional fallback remains for engine-local renames whose templates
- * have equal depth and no authored identity projection.
+ * instance 0. Names come from the new template and repeat indices follow
+ * stable authored segment identity when supplied, so arbitrary cross-parent
+ * moves do not accidentally transfer an unrelated repeat ancestor's index.
  */
-export function remapInstancePath(
+export function projectInstancePath(
 	concrete: string,
 	oldTemplate: string,
 	newTemplate: string,
 	identity?: PathSegmentIdentityMap,
-): string | null {
+): InstancePathProjection {
 	const c = parseSegments(concrete);
 	const o = parseSegments(oldTemplate);
 	const n = parseSegments(newTemplate);
+	if (c === undefined || o === undefined || n === undefined) {
+		return {
+			kind: "invalid",
+			reason: "The capture path migration contains a malformed path.",
+		};
+	}
 	if (
 		c.length !== o.length ||
 		c.some((segment, index) => segment.name !== o[index]?.name)
 	) {
-		return null;
+		return {
+			kind: "invalid",
+			reason:
+				"The capture path does not match the migration's previous template.",
+		};
 	}
 
 	if (identity !== undefined) {
 		if (
-			identity.oldSegmentKeys.length !== o.length ||
-			identity.newSegmentKeys.length !== n.length
+			!validSegmentKeys(identity.oldSegmentKeys, o.length) ||
+			!validSegmentKeys(identity.newSegmentKeys, n.length)
 		) {
-			return null;
+			return {
+				kind: "invalid",
+				reason:
+					"The capture path migration is missing a valid stable segment identity.",
+			};
 		}
 
 		const oldRepeatIndices = new Map<string, number>();
@@ -134,7 +179,9 @@ export function remapInstancePath(
 			),
 		);
 		for (const [key, index] of oldRepeatIndices) {
-			if (!newRepeatKeys.has(key) && index > 0) return null;
+			if (!newRepeatKeys.has(key) && index > 0) {
+				return { kind: "removed" };
+			}
 		}
 
 		let out = "";
@@ -145,10 +192,16 @@ export function remapInstancePath(
 					: (oldRepeatIndices.get(identity.newSegmentKeys[i]) ?? n[i].index);
 			out += `/${n[i].name}${index !== undefined ? `[${index}]` : ""}`;
 		}
-		return out;
+		return { kind: "mapped", path: out };
 	}
 
-	if (o.length !== n.length) return null;
+	if (o.length !== n.length) {
+		return {
+			kind: "invalid",
+			reason:
+				"The capture path migration changed depth without stable segment identity.",
+		};
+	}
 
 	let out = "";
 	for (let i = 0; i < c.length; i++) {
@@ -158,12 +211,34 @@ export function remapInstancePath(
 		if (oldHasIndex && newHasIndex) {
 			index = c[i].index ?? 0;
 		} else if (oldHasIndex && !newHasIndex) {
-			if ((c[i].index ?? 0) > 0) return null;
+			if ((c[i].index ?? 0) > 0) return { kind: "removed" };
 			index = undefined;
 		} else if (!oldHasIndex && newHasIndex) {
 			index = n[i].index;
 		}
 		out += `/${n[i].name}${index !== undefined ? `[${index}]` : ""}`;
 	}
-	return out;
+	return { kind: "mapped", path: out };
+}
+
+/**
+ * Engine-local compatibility projection.
+ *
+ * Runtime values do not own external resources, so their established API may
+ * continue collapsing `removed` and `invalid` to `null`. Attachment ownership
+ * uses {@link projectInstancePath} directly and never makes that collapse.
+ */
+export function remapInstancePath(
+	concrete: string,
+	oldTemplate: string,
+	newTemplate: string,
+	identity?: PathSegmentIdentityMap,
+): string | null {
+	const projected = projectInstancePath(
+		concrete,
+		oldTemplate,
+		newTemplate,
+		identity,
+	);
+	return projected.kind === "mapped" ? projected.path : null;
 }

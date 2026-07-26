@@ -35,8 +35,13 @@ describe("capture cleanup storage IAM policy", () => {
 		"projects/project-a/content-hash.requirements.md",
 		"projects/project-a/captures-not/attachment.png",
 		"projects/project-a/captures/",
+		"projects/project-a/captures//attachment.png",
+		"projects/project-a/captures/attachment//thumb.png",
 		"projects/project-a/nested/captures/attachment.png",
 		"projects//captures/attachment.png",
+		"captures-staged/",
+		"captures-staged//attachment.png",
+		"captures-staged/project-a//attachment.png",
 		"captures/project-a/attachment.png",
 	])("rejects authoring, pending, or malformed object key %s", (key) => {
 		expect(captureCleanupObjectKeyAllowed(key)).toBe(false);
@@ -46,14 +51,18 @@ describe("capture cleanup storage IAM policy", () => {
 		const condition = captureCleanupIamCondition("nova-multimedia-prod");
 		expect(condition).toBe(
 			"resource.type == 'storage.googleapis.com/Object' && " +
-				"( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/captures-staged/') || " +
+				"( ( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/captures-staged/') && " +
+				"resource.name != 'projects/_/buckets/nova-multimedia-prod/objects/captures-staged/' && " +
+				"!resource.name.contains('//') ) || " +
 				"( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/projects/') && " +
 				"resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/captures/') != '' && " +
 				"resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/captures/') == resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') && " +
-				"resource.name != 'projects/_/buckets/nova-multimedia-prod/objects/projects/' + resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') + '/captures/' ) )",
+				"resource.name != 'projects/_/buckets/nova-multimedia-prod/objects/projects/' + resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') + '/captures/' && " +
+				"!resource.name.contains('//') ) )",
 		);
 		expect(condition).toContain("resource.name.startsWith");
 		expect(condition).toContain("resource.name.extract");
+		expect(condition).toContain("resource.name.contains");
 		expect(condition).toContain(
 			"resource.name != 'projects/_/buckets/nova-multimedia-prod/objects/projects/' + resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') + '/captures/'",
 		);

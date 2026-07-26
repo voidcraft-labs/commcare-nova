@@ -6,7 +6,10 @@ const STAGED_PREFIX = "captures-staged/";
  * holds authoring media.
  */
 export function captureCleanupObjectKeyAllowed(objectKey) {
-	if (objectKey.startsWith(STAGED_PREFIX)) return true;
+	if (objectKey.includes("//")) return false;
+	if (objectKey.startsWith(STAGED_PREFIX)) {
+		return objectKey.slice(STAGED_PREFIX.length).split("/").every(Boolean);
+	}
 	const segments = objectKey.split("/");
 	return (
 		segments.length >= 4 &&
@@ -29,7 +32,13 @@ export function captureCleanupIamCondition(bucket) {
 		`resource.type == 'storage.googleapis.com/Object'`,
 		"&&",
 		"(",
+		"(",
 		`resource.name.startsWith('${objectRoot}${STAGED_PREFIX}')`,
+		"&&",
+		`resource.name != '${objectRoot}${STAGED_PREFIX}'`,
+		"&&",
+		`!resource.name.contains('//')`,
+		")",
 		"||",
 		"(",
 		`resource.name.startsWith('${projectRoot}')`,
@@ -39,6 +48,8 @@ export function captureCleanupIamCondition(bucket) {
 		`resource.name.extract('${projectBeforeCaptures}') == resource.name.extract('${firstProjectSegment}')`,
 		"&&",
 		`resource.name != '${projectRoot}' + resource.name.extract('${firstProjectSegment}') + '/captures/'`,
+		"&&",
+		`!resource.name.contains('//')`,
 		")",
 		")",
 	].join(" ");

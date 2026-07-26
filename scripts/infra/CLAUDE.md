@@ -45,9 +45,12 @@ The Job's stored mode is `scheduler`: ordinary five-minute dispatches are
 best-effort when connection capacity or the advisory lease is already occupied.
 Cloud Build overrides one execution to `strict` before traffic moves. That gate
 waits up to its bounded deadline for capacity and the lease, proves
-create/read/exact-generation-delete authority with an unguessable object under
-the staged lifecycle prefix, and fails if row preparation/discard or exact
-object deletion reports a failure.
+the real create-only staged→durable copy with unguessable capture-only keys,
+verifies the durable object's exact generation, size, CRC32C, content type, and
+bytes, deletes both exact generations, and fails if probe cleanup, row
+preparation/discard, or exact object deletion reports a failure. The IAM
+condition and its domain mirror reject empty or double-slash key segments in
+both permitted capture prefixes.
 
 Cloud SQL capacity is one production contract across service and Jobs, not a
 service-only calculation. PostgreSQL direct-login limits are the hard,

@@ -750,6 +750,7 @@ function AttachmentControl({
 		) {
 			return;
 		}
+		if (slotIssue.kind === "invariant") return;
 		if (slotIssue.kind === "save" || slotIssue.kind === "replace") {
 			if (field.kind !== "signature") {
 				const retainedDraft = getAttachmentSlotDraft({
@@ -795,9 +796,9 @@ function AttachmentControl({
 		(slotIssue?.kind === "save" || slotIssue?.kind === "replace") &&
 		field.kind !== "signature" &&
 		slotDraft === undefined;
-	const showRecoveryAction = !(
-		slotIssue?.kind === "replace" && field.kind === "signature"
-	);
+	const showRecoveryAction =
+		slotIssue?.kind !== "invariant" &&
+		!(slotIssue?.kind === "replace" && field.kind === "signature");
 	const showError = state.touched && !state.valid;
 	const labelledBy = questionLabelledBy ?? questionLabelId;
 	const describedBy = [
@@ -827,7 +828,9 @@ function AttachmentControl({
 					hasWriteAuthority={hasWriteAuthority}
 					hasAnswer={hasAnswer}
 					needsAttention={slotIssue !== undefined}
-					replacementRequired={slotIssue?.kind === "replace"}
+					replacementRequired={
+						slotIssue?.kind === "replace" || slotIssue?.kind === "invariant"
+					}
 					retryRevision={signatureRetryRevision}
 					required={state.required}
 					invalid={showError || slotIssue !== undefined}
@@ -1033,6 +1036,9 @@ function AttachmentControl({
 								type="button"
 								onClick={clear}
 								disabled={interactionBlocked}
+								data-attachment-recovery={
+									slotIssue.kind === "invariant" ? "" : undefined
+								}
 								aria-label={`Remove attachment for ${accessibleQuestionLabel}`}
 								aria-labelledby={
 									labelledBy

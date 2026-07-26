@@ -2054,18 +2054,30 @@ async function seedPreparedCapture() {
 }
 
 describe("atomic form-capture intent", () => {
-	it("commits the receipt and prepared-to-submitted transition together and replays the result", async () => {
+	it("replays a nonempty accepted submission from an empty projection before case effects", async () => {
 		const store = makeStore();
 		const capture = await seedPreparedCapture();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
 		const args = {
 			appId: APP_ID,
-			ordinary: { kind: "none" as const },
+			ordinary: followupOrdinary({ notes: "accepted" }),
 			captureIntent: capture.intent,
 		};
 
 		const first = await store.applySubmission(args);
-		const replay = await store.applySubmission(args);
+		const replay = await store.applySubmission({
+			...args,
+			ordinary: followupOrdinary({ notes: "must not replay" }),
+			captureIntent: {
+				...capture.intent,
+				attachments: [],
+			},
+		});
 		expect(replay).toEqual(first);
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ notes: "accepted" });
 
 		const attachment = await sql<{
 			status: string;
@@ -2095,12 +2107,17 @@ describe("atomic form-capture intent", () => {
 		await expect(
 			store.applySubmission({
 				...args,
+				ordinary: followupOrdinary({ notes: "must not replay" }),
 				captureIntent: {
 					...capture.intent,
 					requestDigest: "capture-request-b",
+					attachments: [],
 				},
 			}),
 		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ notes: "accepted" });
 	});
 
 	it("replays an accepted submission after unrelated app mutations advance the fence", async () => {

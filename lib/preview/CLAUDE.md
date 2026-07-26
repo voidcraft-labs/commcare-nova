@@ -120,6 +120,11 @@ omitted from the submitted instance on the wire, so its attachment is genuinely
 not part of the submission. Nova then diverges from the platform by not
 shipping it at all, where the real runtime enumerates the session media
 directory and uploads orphans anyway.
+An empty attachment projection from a committed form that still contains a
+capture question nevertheless emits `captureIntent` with `attachments: []`.
+That keeps a retry under the same entry key inside the durable receipt/digest
+protocol after an earlier accepted request, instead of letting cleared, hidden,
+or removed answers bypass replay and repeat case effects.
 
 Every capture mutation for one entry goes through one form-wide queue. A newer
 operation aborts and generation-fences an older operation on the same stable
@@ -151,6 +156,12 @@ settle; a post-click text,
 picker, signature, repeat, replace, or remove gesture cannot join only one side
 of the submission snapshot. Clear form does not use this barrier; it retires the
 old entry and synchronously mounts a new idempotency scope.
+A confirmed owner whose retarget is cancelled by dormancy keeps a stable
+retarget blocker and a suspended marker. If the question becomes active again,
+the next barrier mints a newer generation and repairs/converges that owner
+before submission; a late cancelled response cannot clear the newer blocker.
+A real non-abort retarget failure is marked failed and never auto-retries from
+barrier polling — the worker still chooses Retry, replacement, or removal.
 
 `EngineController.removeRepeat` is the ONE compaction owner. It emits the
 removed prefix plus every positional move; FormScreen binds that event to the
@@ -178,7 +189,13 @@ call before per-field listeners run. It emits one capture-move set by stable
 field UUID for simultaneous capture renames, cross-parent leaf/subtree moves,
 ancestor renames, and group↔repeat conversion; the coordinator remaps every
 concrete instance path synchronously and serializes its row CAS behind any
-in-flight upload and ahead of Submit. The stored old path is only the CAS
+in-flight upload and ahead of Submit. Each retained/deleted event carries the
+pre/post stable identity of every path segment, so retained repeat indices
+survive cross-parent and different-depth moves instead of following positional
+depth by accident. Projection is tri-state: mapped paths retarget, only a
+proven removed repeat instance or an explicit deleted-field variant may clean
+up, and malformed/missing identities preserve owner, picked file, signature
+ink, and an invariant Submit blocker. The stored old path is only the CAS
 coordinate—the destination alone must match the current committed capture
 template. A capture-kind change
 is incompatible ownership: cancel/fence active work, clean the old row, and

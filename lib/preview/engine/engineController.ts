@@ -98,13 +98,36 @@ export interface RepeatCompactionEvent {
 
 export interface AuthoredCapturePathMigrationEvent {
 	readonly entryKey: string;
-	readonly moves: ReadonlyArray<{
-		readonly fieldUuid: string;
-		readonly oldPathTemplate: string;
-		readonly newPathTemplate: string;
-		readonly previousCaptureKind?: string;
-		readonly captureKind?: string;
-	}>;
+	readonly moves: ReadonlyArray<
+		| {
+				readonly kind: "retained";
+				readonly fieldUuid: string;
+				readonly previous: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind?: string;
+				};
+				/**
+				 * A retained non-capture field still carries its post-change path
+				 * projection with `captureKind` omitted. The explicit variant keeps
+				 * a malformed missing `current` from being mistaken for deletion.
+				 */
+				readonly current: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind?: string;
+				};
+		  }
+		| {
+				readonly kind: "deleted";
+				readonly fieldUuid: string;
+				readonly previous: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind: string;
+				};
+		  }
+	>;
 }
 
 /** Stable fallback for UUIDs that don't exist. Frozen so Zustand selectors
@@ -918,27 +941,27 @@ export class EngineController {
 			for (const uuid of retainedUuids) {
 				const oldPath = previousMaps.uuidToPath.get(uuid);
 				const newPath = currentMaps.uuidToPath.get(uuid);
+				const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
+				const newSegmentKeys = currentMaps.uuidToSegmentKeys.get(uuid);
 				const previousField = previousInput.fields[uuid];
 				const currentField = currentInput.fields[uuid];
 				if (
 					oldPath === undefined ||
 					newPath === undefined ||
+					oldSegmentKeys === undefined ||
+					newSegmentKeys === undefined ||
 					previousField === undefined ||
 					currentField === undefined
 				) {
 					continue;
 				}
 				if (oldPath !== newPath) {
-					const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
-					const newSegmentKeys = currentMaps.uuidToSegmentKeys.get(uuid);
-					if (oldSegmentKeys !== undefined && newSegmentKeys !== undefined) {
-						pathPairs.push({
-							oldPath,
-							newPath,
-							oldSegmentKeys,
-							newSegmentKeys,
-						});
-					}
+					pathPairs.push({
+						oldPath,
+						newPath,
+						oldSegmentKeys,
+						newSegmentKeys,
+					});
 				}
 				const previousCapture = isCaptureFieldKind(previousField.kind);
 				const currentCapture = isCaptureFieldKind(currentField.kind);
@@ -947,15 +970,42 @@ export class EngineController {
 					(oldPath !== newPath || previousField.kind !== currentField.kind)
 				) {
 					captureMoves.push({
+						kind: "retained",
 						fieldUuid: uuid,
-						oldPathTemplate: oldPath,
-						newPathTemplate: newPath,
-						...(previousCapture
-							? { previousCaptureKind: previousField.kind }
-							: {}),
-						...(currentCapture ? { captureKind: currentField.kind } : {}),
+						previous: {
+							pathTemplate: oldPath,
+							segmentKeys: oldSegmentKeys,
+							...(previousCapture ? { captureKind: previousField.kind } : {}),
+						},
+						current: {
+							pathTemplate: newPath,
+							segmentKeys: newSegmentKeys,
+							...(currentCapture ? { captureKind: currentField.kind } : {}),
+						},
 					});
 				}
+			}
+			for (const uuid of previousUuids) {
+				if (currentUuids.has(uuid)) continue;
+				const previousField = previousInput.fields[uuid];
+				if (
+					previousField === undefined ||
+					!isCaptureFieldKind(previousField.kind)
+				) {
+					continue;
+				}
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
+				if (oldPath === undefined || oldSegmentKeys === undefined) continue;
+				captureMoves.push({
+					kind: "deleted",
+					fieldUuid: uuid,
+					previous: {
+						pathTemplate: oldPath,
+						segmentKeys: oldSegmentKeys,
+						captureKind: previousField.kind,
+					},
+				});
 			}
 			if (pathPairs.length === 0 && captureMoves.length === 0) return;
 

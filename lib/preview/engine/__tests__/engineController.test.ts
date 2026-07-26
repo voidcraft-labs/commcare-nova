@@ -872,22 +872,66 @@ describe("EngineController", () => {
 			expect(events.map((event) => event.moves)).toEqual([
 				[
 					{
+						kind: "retained",
 						fieldUuid: nameUuid,
-						oldPathTemplate: "/data/orders[0]/photo",
-						newPathTemplate: "/data/orders[0]/evidence",
-						previousCaptureKind: "image",
-						captureKind: "image",
+						previous: {
+							pathTemplate: "/data/orders[0]/photo",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
+						current: {
+							pathTemplate: "/data/orders[0]/evidence",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
 					},
 				],
 				[
 					{
+						kind: "retained",
 						fieldUuid: nameUuid,
-						oldPathTemplate: "/data/orders[0]/evidence",
-						newPathTemplate: "/data/encounters[0]/evidence",
-						previousCaptureKind: "image",
-						captureKind: "image",
+						previous: {
+							pathTemplate: "/data/orders[0]/evidence",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
+						current: {
+							pathTemplate: "/data/encounters[0]/evidence",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
 					},
 				],
+			]);
+		});
+
+		it("publishes field deletion only through the explicit deleted variant", () => {
+			const store = createLoadedStore(captureContainerDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
+
+			store.getState().applyMany([{ kind: "removeField", uuid: nameUuid }]);
+
+			expect(events).toEqual([
+				{
+					entryKey: ctrl.entryKey,
+					moves: [
+						{
+							kind: "deleted",
+							fieldUuid: nameUuid,
+							previous: {
+								pathTemplate: "/data/orders[0]/photo",
+								segmentKeys: ["$data", repeatUuid, nameUuid],
+								captureKind: "image",
+							},
+						},
+					],
+				},
 			]);
 		});
 
@@ -947,18 +991,32 @@ describe("EngineController", () => {
 					entryKey: ctrl.entryKey,
 					moves: [
 						{
+							kind: "retained",
 							fieldUuid: firstUuid,
-							oldPathTemplate: "/data/photo",
-							newPathTemplate: "/data/document",
-							previousCaptureKind: "image",
-							captureKind: "image",
+							previous: {
+								pathTemplate: "/data/photo",
+								segmentKeys: ["$data", firstUuid],
+								captureKind: "image",
+							},
+							current: {
+								pathTemplate: "/data/document",
+								segmentKeys: ["$data", firstUuid],
+								captureKind: "image",
+							},
 						},
 						{
+							kind: "retained",
 							fieldUuid: secondUuid,
-							oldPathTemplate: "/data/document",
-							newPathTemplate: "/data/photo",
-							previousCaptureKind: "file",
-							captureKind: "file",
+							previous: {
+								pathTemplate: "/data/document",
+								segmentKeys: ["$data", secondUuid],
+								captureKind: "file",
+							},
+							current: {
+								pathTemplate: "/data/photo",
+								segmentKeys: ["$data", secondUuid],
+								captureKind: "file",
+							},
 						},
 					],
 				},
@@ -1034,14 +1092,32 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
 			expect(moves).toEqual([
 				expect.objectContaining({
+					kind: "retained",
 					fieldUuid: captureUuid,
-					oldPathTemplate: "/data/visit/photo",
-					newPathTemplate: "/data/rounds[0]/photo",
+					previous: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", groupUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/rounds[0]/photo",
+						segmentKeys: ["$data", repeatParentUuid, captureUuid],
+						captureKind: "image",
+					},
 				}),
 				expect.objectContaining({
+					kind: "retained",
 					fieldUuid: captureUuid,
-					oldPathTemplate: "/data/rounds[0]/photo",
-					newPathTemplate: "/data/visit/photo",
+					previous: {
+						pathTemplate: "/data/rounds[0]/photo",
+						segmentKeys: ["$data", repeatParentUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", groupUuid, captureUuid],
+						captureKind: "image",
+					},
 				}),
 			]);
 		});
@@ -1115,14 +1191,32 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
 			expect(moves).toEqual([
 				expect.objectContaining({
+					kind: "retained",
 					fieldUuid: captureUuid,
-					oldPathTemplate: "/data/visit/photo",
-					newPathTemplate: "/data/rounds[0]/visit/photo",
+					previous: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/rounds[0]/visit/photo",
+						segmentKeys: ["$data", repeatParentUuid, ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
 				}),
 				expect.objectContaining({
+					kind: "retained",
 					fieldUuid: captureUuid,
-					oldPathTemplate: "/data/rounds[0]/visit/photo",
-					newPathTemplate: "/data/visit/photo",
+					previous: {
+						pathTemplate: "/data/rounds[0]/visit/photo",
+						segmentKeys: ["$data", repeatParentUuid, ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
 				}),
 			]);
 		});
@@ -1132,10 +1226,9 @@ describe("EngineController", () => {
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
-			const moves: Array<{
-				oldPathTemplate: string;
-				newPathTemplate: string;
-			}> = [];
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
 			ctrl.subscribeAuthoredCapturePathMigration((event) => {
 				moves.push(...event.moves);
 			});
@@ -1154,12 +1247,26 @@ describe("EngineController", () => {
 
 			expect(moves).toEqual([
 				expect.objectContaining({
-					oldPathTemplate: "/data/orders/photo",
-					newPathTemplate: "/data/orders[0]/photo",
+					kind: "retained",
+					previous: expect.objectContaining({
+						pathTemplate: "/data/orders/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
+					current: expect.objectContaining({
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
 				}),
 				expect.objectContaining({
-					oldPathTemplate: "/data/orders[0]/photo",
-					newPathTemplate: "/data/orders/photo",
+					kind: "retained",
+					previous: expect.objectContaining({
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
+					current: expect.objectContaining({
+						pathTemplate: "/data/orders/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
 				}),
 			]);
 		});
@@ -1183,11 +1290,18 @@ describe("EngineController", () => {
 
 			expect(moves).toEqual([
 				{
+					kind: "retained",
 					fieldUuid: nameUuid,
-					oldPathTemplate: "/data/orders[0]/photo",
-					newPathTemplate: "/data/orders[0]/photo",
-					previousCaptureKind: "image",
-					captureKind: "audio",
+					previous: {
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+						captureKind: "audio",
+					},
 				},
 			]);
 		});

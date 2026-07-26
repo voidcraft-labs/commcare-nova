@@ -1,20 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetAttachmentCoordinatorForTests,
+	type AttachmentAuthoredPathMigration,
 	type AttachmentEntryAuthoritySnapshot,
 	cancelAttachmentEntry,
 	clearAttachmentNotReady,
 	discardAttachment,
 	discardAttachmentEntry,
+	getAttachmentSlotDraft,
 	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
 	getOwnedStagedAttachment,
+	getSignatureDraft,
 	isAttachmentTaskAbort,
 	markAttachmentNotReady,
 	reconcileAttachmentAuthoredPathMigration,
 	reconcileAttachmentRepeatCompaction,
 	registerAttachmentSlotPath,
+	rememberAttachmentSlotDraft,
 	rememberOwnedStagedAttachment,
+	rememberSignatureDraft,
 	resolveAttachmentSlotKey,
 	retargetAttachment,
 	retryAttachmentRetarget,
@@ -23,6 +28,70 @@ import {
 	setAttachmentEntryAuthority,
 	stageAttachment,
 } from "../attachmentClient";
+
+function defaultSegmentKeys(pathTemplate: string, fieldUuid: string): string[] {
+	const depth = pathTemplate.split("/").filter(Boolean).length;
+	return [
+		"$data",
+		...Array.from(
+			{ length: Math.max(0, depth - 2) },
+			(_, index) => `ancestor-${index}`,
+		),
+		fieldUuid,
+	];
+}
+
+function retainedCaptureMove(args: {
+	fieldUuid: string;
+	previousPath: string;
+	currentPath: string;
+	previousCaptureKind?: string | null;
+	currentCaptureKind?: string | null;
+	previousSegmentKeys?: readonly string[];
+	currentSegmentKeys?: readonly string[];
+}): AttachmentAuthoredPathMigration["moves"][number] {
+	return {
+		kind: "retained",
+		fieldUuid: args.fieldUuid,
+		previous: {
+			pathTemplate: args.previousPath,
+			segmentKeys:
+				args.previousSegmentKeys ??
+				defaultSegmentKeys(args.previousPath, args.fieldUuid),
+			...(args.previousCaptureKind === null
+				? {}
+				: { captureKind: args.previousCaptureKind ?? "image" }),
+		},
+		current: {
+			pathTemplate: args.currentPath,
+			segmentKeys:
+				args.currentSegmentKeys ??
+				defaultSegmentKeys(args.currentPath, args.fieldUuid),
+			...(args.currentCaptureKind === null
+				? {}
+				: { captureKind: args.currentCaptureKind ?? "image" }),
+		},
+	};
+}
+
+function deletedCaptureMove(args: {
+	fieldUuid: string;
+	previousPath: string;
+	previousSegmentKeys?: readonly string[];
+	captureKind?: string;
+}): AttachmentAuthoredPathMigration["moves"][number] {
+	return {
+		kind: "deleted",
+		fieldUuid: args.fieldUuid,
+		previous: {
+			pathTemplate: args.previousPath,
+			segmentKeys:
+				args.previousSegmentKeys ??
+				defaultSegmentKeys(args.previousPath, args.fieldUuid),
+			captureKind: args.captureKind ?? "image",
+		},
+	};
+}
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -204,13 +273,11 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			migration: {
 				moves: [
-					{
+					retainedCaptureMove({
 						fieldUuid,
-						oldPathTemplate: "/data/photo",
-						newPathTemplate: "/data/evidence",
-						previousCaptureKind: "image",
-						captureKind: "image",
-					},
+						previousPath: "/data/photo",
+						currentPath: "/data/evidence",
+					}),
 				],
 			},
 		});
@@ -244,13 +311,11 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			migration: {
 				moves: [
-					{
+					retainedCaptureMove({
 						fieldUuid,
-						oldPathTemplate: "/data/evidence",
-						newPathTemplate: "/data/archive",
-						previousCaptureKind: "image",
-						captureKind: "image",
-					},
+						previousPath: "/data/evidence",
+						currentPath: "/data/archive",
+					}),
 				],
 			},
 		});
@@ -652,7 +717,7 @@ describe("form attachment coordinator", () => {
 		expect(clearRan).toBe(true);
 	});
 
-	it("cancels a hung retarget when its slot becomes dormant before Submit", async () => {
+	it("suspends a dormant confirmed retarget and repairs it before a later active Submit", async () => {
 		const entryKey = "entry-dormant-retarget";
 		const slotKey = "photo:conditional-repeat";
 		registerAttachmentSlotPath({
@@ -674,20 +739,22 @@ describe("form attachment coordinator", () => {
 				sizeBytes: 3,
 			},
 		});
-		const started = deferred<void>();
-		vi.stubGlobal(
-			"fetch",
-			vi.fn((_url, init?: RequestInit) => {
-				started.resolve();
-				return new Promise<never>((_resolve, reject) => {
-					init?.signal?.addEventListener(
-						"abort",
-						() => reject(init.signal?.reason),
-						{ once: true },
-					);
-				});
-			}),
-		);
+		const firstPatchStarted = deferred<void>();
+		const lostResponse = deferred<Response>();
+		const fetchMock = vi
+			.fn()
+			.mockImplementationOnce(() => {
+				firstPatchStarted.resolve();
+				// The server may have committed this PATCH even though its response
+				// remains unavailable when dormancy cancels the client boundary.
+				return lostResponse.promise;
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: async () => ({ instancePath: "/data/visits[0]/photo" }),
+			});
+		vi.stubGlobal("fetch", fetchMock);
 		const maintenance = reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
 			entryKey,
@@ -701,14 +768,53 @@ describe("form attachment coordinator", () => {
 				],
 			},
 		});
-		await started.promise;
+		await firstPatchStarted.promise;
+
+		await expect(
+			runFormAttachmentBarrier(
+				entryKey,
+				async () => {
+					throw new Error("server rejected stale attachment path");
+				},
+				{
+					classifySlot: () => "dormant",
+				},
+			),
+		).rejects.toThrow("server rejected stale attachment path");
+		await expect(maintenance).resolves.toEqual([]);
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
+		).toMatchObject({ kind: "retarget" });
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		).toMatchObject({ attachmentId: "attachment-retarget-hung" });
+		expect(
+			fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+		).toHaveLength(0);
 
 		await expect(
 			runFormAttachmentBarrier(entryKey, async () => "submitted", {
-				classifySlot: () => "dormant",
+				classifySlot: () => "active",
 			}),
 		).resolves.toBe("submitted");
-		await expect(maintenance).resolves.toEqual([]);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+			expectedInstancePath: "/data/visits[1]/photo",
+			instancePath: "/data/visits[0]/photo",
+		});
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+
+		lostResponse.resolve({
+			ok: true,
+			status: 200,
+			json: async () => ({ instancePath: "/data/visits[0]/photo" }),
+		} as Response);
+		await Promise.resolve();
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
 	});
 
 	it("lets a newer slot intent supersede a hung retarget", async () => {
@@ -872,13 +978,11 @@ describe("form attachment coordinator", () => {
 				entryKey,
 				migration: {
 					moves: [
-						{
+						retainedCaptureMove({
 							fieldUuid,
-							oldPathTemplate: oldTemplate,
-							newPathTemplate: newTemplate,
-							previousCaptureKind: "image",
-							captureKind: "image",
-						},
+							previousPath: oldTemplate,
+							currentPath: newTemplate,
+						}),
 					],
 				},
 			});
@@ -942,13 +1046,11 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			migration: {
 				moves: [
-					{
+					retainedCaptureMove({
 						fieldUuid,
-						oldPathTemplate: "/data/photo",
-						newPathTemplate: "/data/evidence",
-						previousCaptureKind: "image",
-						captureKind: "image",
-					},
+						previousPath: "/data/photo",
+						currentPath: "/data/evidence",
+					}),
 				],
 			},
 		});
@@ -996,13 +1098,11 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			migration: {
 				moves: [
-					{
+					retainedCaptureMove({
 						fieldUuid,
-						oldPathTemplate: "/data/visit/photo",
-						newPathTemplate: "/data/visit[0]/photo",
-						previousCaptureKind: "image",
-						captureKind: "image",
-					},
+						previousPath: "/data/visit/photo",
+						currentPath: "/data/visit[0]/photo",
+					}),
 				],
 			},
 		});
@@ -1041,13 +1141,11 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			migration: {
 				moves: [
-					{
+					retainedCaptureMove({
 						fieldUuid,
-						oldPathTemplate: "/data/visit[0]/photo",
-						newPathTemplate: "/data/visit/photo",
-						previousCaptureKind: "image",
-						captureKind: "image",
-					},
+						previousPath: "/data/visit[0]/photo",
+						currentPath: "/data/visit/photo",
+					}),
 				],
 			},
 		});
@@ -1108,13 +1206,12 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			migration: {
 				moves: [
-					{
+					retainedCaptureMove({
 						fieldUuid,
-						oldPathTemplate: "/data/evidence",
-						newPathTemplate: "/data/evidence",
-						previousCaptureKind: "image",
-						captureKind: "signature",
-					},
+						previousPath: "/data/evidence",
+						currentPath: "/data/evidence",
+						currentCaptureKind: "signature",
+					}),
 				],
 			},
 		});
@@ -1141,6 +1238,170 @@ describe("form attachment coordinator", () => {
 		expect(
 			fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
 		).toHaveLength(0);
+	});
+
+	it("retires an owner only for an explicit stable-field deletion", async () => {
+		const entryKey = "entry-authored-delete";
+		const slotKey = "photo:deleted";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			attachment: {
+				attachmentId: "attachment-deleted-field",
+				attachmentName: "attachment-deleted-field.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					deletedCaptureMove({
+						fieldUuid,
+						previousPath: "/data/photo",
+					}),
+				],
+			},
+		});
+		await vi.waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/apps/app-1/attachments/attachment-deleted-field",
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
+
+		expect(
+			getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+		expect(
+			fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+		).toHaveLength(0);
+	});
+
+	it("preserves owners, picked files, and signature ink when a migration event is malformed", async () => {
+		const entryKey = "entry-invalid-authored-migration";
+		const fileSlotKey = "photo:stable";
+		const signatureSlotKey = "signature:stable";
+		const fileFieldUuid = "22222222-2222-4222-8222-222222222221";
+		const signatureFieldUuid = "22222222-2222-4222-8222-222222222222";
+		const file = new File(["draft"], "draft.png", { type: "image/png" });
+		for (const [slotKey, fieldUuid, instancePath, captureKind] of [
+			[fileSlotKey, fileFieldUuid, "/data/photo", "image"],
+			[signatureSlotKey, signatureFieldUuid, "/data/signature", "signature"],
+		] as const) {
+			registerAttachmentSlotPath({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				fieldUuid,
+				instancePath,
+				captureKind,
+			});
+			rememberOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				instancePath,
+				attachment: {
+					attachmentId: `attachment-${slotKey}`,
+					attachmentName: `${slotKey}.png`,
+					originalFilename: `${slotKey}.png`,
+					sizeBytes: 5,
+				},
+			});
+		}
+		rememberAttachmentSlotDraft({
+			appId: "app-1",
+			entryKey,
+			slotKey: fileSlotKey,
+			file,
+			status: "uploading",
+			generation: 7,
+		});
+		const strokes = [[{ x: 0.2, y: 0.4 }]];
+		rememberSignatureDraft(entryKey, signatureSlotKey, strokes);
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				// Missing retained destinations are runtime-invalid and must
+				// never be interpreted as authoritative field deletion.
+				moves: [
+					{
+						kind: "retained",
+						fieldUuid: fileFieldUuid,
+						previous: {
+							pathTemplate: "/data/photo",
+							segmentKeys: ["$data", fileFieldUuid],
+							captureKind: "image",
+						},
+					},
+					{
+						kind: "retained",
+						fieldUuid: signatureFieldUuid,
+						previous: {
+							pathTemplate: "/data/signature",
+							segmentKeys: ["$data", signatureFieldUuid],
+							captureKind: "signature",
+						},
+					},
+				] as unknown as AttachmentAuthoredPathMigration["moves"],
+			},
+		});
+
+		let submitted = false;
+		await expect(
+			runFormAttachmentBarrier(
+				entryKey,
+				async () => {
+					submitted = true;
+				},
+				{ classifySlot: () => "removed" },
+			),
+		).rejects.toThrow(/could not be verified/i);
+		expect(submitted).toBe(false);
+		expect(
+			getOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey,
+				slotKey: fileSlotKey,
+			}),
+		).toMatchObject({ attachmentId: `attachment-${fileSlotKey}` });
+		expect(
+			getOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey,
+				slotKey: signatureSlotKey,
+			}),
+		).toMatchObject({ attachmentId: `attachment-${signatureSlotKey}` });
+		expect(
+			getAttachmentSlotDraft({
+				appId: "app-1",
+				entryKey,
+				slotKey: fileSlotKey,
+			}),
+		).toMatchObject({ file, status: "needs-attention", generation: 7 });
+		expect(getSignatureDraft(entryKey, signatureSlotKey)).toEqual(strokes);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("retargets a hidden capture before the post-compaction submit barrier", async () => {
@@ -1274,13 +1535,11 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			migration: {
 				moves: [
-					{
+					retainedCaptureMove({
 						fieldUuid,
-						oldPathTemplate: "/data/visits[0]/photo",
-						newPathTemplate: "/data/visits/photo",
-						previousCaptureKind: "image",
-						captureKind: "image",
-					},
+						previousPath: "/data/visits[0]/photo",
+						currentPath: "/data/visits/photo",
+					}),
 				],
 			},
 		});

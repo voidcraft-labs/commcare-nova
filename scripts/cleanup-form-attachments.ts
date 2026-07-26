@@ -142,9 +142,9 @@ async function main(): Promise<void> {
 	}
 
 	if (mode === "strict") {
-		// This create/read/exact-generation-delete probe uses a capture-only key
-		// beneath the staged lifecycle prefix. It proves the deploy identity's
-		// complete GCS authority before the release can move traffic.
+		// Exercise the real create-only staged→durable copy, verify the exact
+		// destination generation/metadata/bytes, then clean both exact
+		// generations before the release can move traffic.
 		await probeCaptureStorageAuthority();
 	}
 

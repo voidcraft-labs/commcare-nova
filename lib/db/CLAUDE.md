@@ -480,6 +480,11 @@ inserts `form_submission_intents`, moves those rows to `submitted`, applies
 every case effect, and stores the replay result atomically. A case failure
 restores `prepared`; no post-commit external await can make an accepted form
 appear failed.
+The intent is still built for a capture-capable committed form when the current
+attachment projection is empty. `attachments: []` therefore reaches the prior
+receipt check before any case effect: the same digest replays the stored result,
+while a changed payload under that entry key is rejected. Text-only forms do
+not create capture receipts merely because every submission has an entry key.
 
 The request prepares its selected rows immediately; the five-minute Cloud
 Scheduler job leases bounded `preparing`/`discarding` batches with
@@ -508,8 +513,9 @@ fails the Job.
 
 The stored Cloud Run Job mode is `scheduler`. Cloud Build overrides one
 pre-traffic execution to `strict`: it waits through bounded capacity and lease
-contention, proves its capture-only GCS create/read/exact-generation-delete
-authority under the staged lifecycle prefix, and rejects any maintenance
+contention, proves its capture-only GCS authority with the real create-only
+staged→durable copy, verifies the destination's exact generation, size, CRC32C,
+content type, and bytes, then deletes both exact generations, and rejects any maintenance
 summary with a row preparation/discard or exact object-deletion failure.
 Scheduler delivery remains best-effort; the deploy gate does not.
 GCS lifecycle remains the traffic-independent

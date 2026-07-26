@@ -100,66 +100,183 @@ const STAGED_CAPTURE_TTL_DAYS = 7;
  * Prove the capture-maintenance identity can perform its complete storage
  * lifecycle without touching authoring media.
  *
- * The probe deliberately lives below the staged-capture prefix, so a process
- * that dies after the create but before the exact-generation delete still
- * leaves bytes covered by the seven-day lifecycle rule. No list permission is
- * needed: the key is unguessable and every subsequent operation names it
- * exactly.
+ * This is the same create-only staged→durable copy used by form submission,
+ * followed by exact-generation metadata/byte verification and deletion on
+ * both sides. The staged source remains lifecycle-covered if the process dies;
+ * the durable destination is unguessable and strict cleanup failures fail the
+ * pretraffic job. No list permission is needed.
  */
 export async function probeCaptureStorageAuthority(): Promise<void> {
-	const objectKey = `${STAGED_CAPTURE_PREFIX}_health/${randomUUID()}.probe`;
+	const probeId = randomUUID();
+	const probeProjectId = `_health-${probeId}`;
+	const sourceObjectKey = `${STAGED_CAPTURE_PREFIX}${probeProjectId}/${probeId}.probe`;
+	const destinationObjectKey = `projects/${probeProjectId}/captures/${probeId}.probe`;
 	const expected = Buffer.from("nova-capture-storage-authority-v1", "utf8");
-	const file = getBucket().file(objectKey);
-	let generation: string | undefined;
+	const expectedContentType = "application/octet-stream";
+	const source = getBucket().file(sourceObjectKey);
+	let sourceGeneration: string | undefined;
+	let destinationGeneration: string | undefined;
+	let sourceCreateCompleted = false;
 	let operationError: unknown;
-	let deletionError: unknown;
+	const cleanupErrors: unknown[] = [];
+	const resolveGenerationForCleanup = async (
+		objectKey: string,
+	): Promise<string | undefined> => {
+		try {
+			const [metadata] = await getBucket().file(objectKey).getMetadata();
+			const generation =
+				metadata.generation === undefined || metadata.generation === null
+					? undefined
+					: String(metadata.generation);
+			if (generation === undefined || generation.length === 0) {
+				throw new Error(
+					`The capture storage authority probe found ${objectKey} without an immutable generation for cleanup.`,
+				);
+			}
+			return generation;
+		} catch (error) {
+			const code = (error as { code?: number | string } | null)?.code;
+			if (code === 404 || code === "404") {
+				return undefined;
+			}
+			throw error;
+		}
+	};
 
 	try {
-		await file.save(expected, {
+		await source.save(expected, {
 			resumable: false,
-			contentType: "application/octet-stream",
+			contentType: expectedContentType,
 			preconditionOpts: { ifGenerationMatch: 0 },
 		});
-		const [metadata] = await file.getMetadata();
-		generation =
-			metadata.generation === undefined
+		sourceCreateCompleted = true;
+		const [sourceMetadata] = await source.getMetadata();
+		sourceGeneration =
+			sourceMetadata.generation === undefined
 				? undefined
-				: String(metadata.generation);
-		if (!generation) {
+				: String(sourceMetadata.generation);
+		if (
+			!sourceGeneration ||
+			Number(sourceMetadata.size) !== expected.byteLength ||
+			sourceMetadata.crc32c === undefined ||
+			sourceMetadata.contentType !== expectedContentType
+		) {
 			throw new Error(
-				"The capture storage authority probe created an object without an immutable generation.",
+				"The capture storage authority probe created staged bytes without the expected immutable metadata.",
 			);
 		}
-		const [actual] = await getBucket()
-			.file(objectKey, { generation })
+		const [stagedBytes] = await getBucket()
+			.file(sourceObjectKey, { generation: sourceGeneration })
 			.download();
-		if (!actual.equals(expected)) {
+		if (!stagedBytes.equals(expected)) {
 			throw new Error(
-				"The capture storage authority probe did not read back the bytes it created.",
+				"The capture storage authority probe did not read back the staged bytes it created.",
+			);
+		}
+
+		const copied = await copyAssetObjectIfAbsent({
+			sourceGcsObjectKey: sourceObjectKey,
+			sourceGeneration,
+			destinationGcsObjectKey: destinationObjectKey,
+			expectedSize: expected.byteLength,
+			expectedChecksum: sourceMetadata.crc32c,
+			expectedContentType,
+		});
+		destinationGeneration = copied.destinationGeneration;
+		if (copied.replay) {
+			throw new Error(
+				"The capture storage authority probe unexpectedly replayed an existing durable object.",
+			);
+		}
+
+		const destination = getBucket().file(destinationObjectKey, {
+			generation: destinationGeneration,
+		});
+		const [destinationMetadata] = await destination.getMetadata();
+		if (
+			String(destinationMetadata.generation ?? "") !== destinationGeneration ||
+			Number(destinationMetadata.size) !== expected.byteLength ||
+			destinationMetadata.crc32c !== sourceMetadata.crc32c ||
+			destinationMetadata.contentType !== expectedContentType
+		) {
+			throw new Error(
+				"The capture storage authority probe copied durable bytes without the expected immutable metadata.",
+			);
+		}
+		const [durableBytes] = await destination.download();
+		if (!durableBytes.equals(expected)) {
+			throw new Error(
+				"The capture storage authority probe did not read back the durable bytes it copied.",
 			);
 		}
 	} catch (error) {
 		operationError = error;
 	} finally {
-		if (generation !== undefined) {
+		if (sourceGeneration === undefined) {
 			try {
-				await getBucket()
-					.file(objectKey, { generation })
-					.delete({ ignoreNotFound: false });
-			} catch (deleteError) {
-				deletionError = deleteError;
+				sourceGeneration = await resolveGenerationForCleanup(sourceObjectKey);
+				if (sourceCreateCompleted && sourceGeneration === undefined) {
+					cleanupErrors.push(
+						new Error(
+							"The capture storage authority probe could not resolve the staged generation it created for exact cleanup.",
+						),
+					);
+				}
+			} catch (metadataError) {
+				cleanupErrors.push(metadataError);
 			}
+		}
+		if (destinationGeneration === undefined) {
+			try {
+				destinationGeneration =
+					await resolveGenerationForCleanup(destinationObjectKey);
+			} catch (metadataError) {
+				cleanupErrors.push(metadataError);
+			}
+		}
+		const cleanupTargets = [
+			...(destinationGeneration === undefined
+				? []
+				: [
+						{
+							objectKey: destinationObjectKey,
+							generation: destinationGeneration,
+						},
+					]),
+			...(sourceGeneration === undefined
+				? []
+				: [
+						{
+							objectKey: sourceObjectKey,
+							generation: sourceGeneration,
+						},
+					]),
+		];
+		const cleanupResults = await Promise.allSettled(
+			cleanupTargets.map(({ objectKey, generation }) =>
+				getBucket()
+					.file(objectKey, { generation })
+					.delete({ ignoreNotFound: true }),
+			),
+		);
+		for (const result of cleanupResults) {
+			if (result.status === "rejected") cleanupErrors.push(result.reason);
 		}
 	}
 
-	if (operationError !== undefined && deletionError !== undefined) {
+	if (operationError !== undefined && cleanupErrors.length > 0) {
 		throw new AggregateError(
-			[operationError, deletionError],
-			"The capture storage authority probe failed and could not delete its exact object generation.",
+			[operationError, ...cleanupErrors],
+			"The capture storage authority probe failed and could not clean up every exact object generation.",
 		);
 	}
 	if (operationError !== undefined) throw operationError;
-	if (deletionError !== undefined) throw deletionError;
+	if (cleanupErrors.length > 0) {
+		throw new AggregateError(
+			cleanupErrors,
+			"The capture storage authority probe could not clean up every exact object generation.",
+		);
+	}
 }
 
 /**

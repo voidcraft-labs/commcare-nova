@@ -5,7 +5,10 @@
 // through Cloud Run. The answer is set only after confirm returns, because
 // a `pending` row's object may not exist yet and a submission that
 // promoted one would carry a name with nothing behind it.
-import { remapInstancePath } from "@/lib/preview/engine/instancePaths";
+import {
+	type InstancePathProjection,
+	projectInstancePath,
+} from "@/lib/preview/engine/instancePaths";
 import type { AccessPhase } from "@/lib/session/store";
 
 /** What a staged attachment gives the form: the answer, plus what to show. */
@@ -101,6 +104,12 @@ interface AttachmentSlot {
 	 * never clear a newer replacement/save. */
 	issueGeneration?: number;
 	/**
+	 * Why a confirmed owner still differs from its current projection.
+	 * `suspended` is the only state a barrier may resume automatically;
+	 * `failed` remains an explicit Retry/replacement/remove decision.
+	 */
+	retargetState?: "queued" | "suspended" | "failed";
+	/**
 	 * A worker-picked file is entry/slot state, not component state. Keeping the
 	 * exact File object here lets relevance and group remounts restore both the
 	 * filename and the generation's Cancel/recovery controls without attempting
@@ -110,7 +119,7 @@ interface AttachmentSlot {
 }
 
 export interface AttachmentSlotIssue {
-	readonly kind: "retarget" | "replace" | "save";
+	readonly kind: "retarget" | "replace" | "save" | "invariant";
 	readonly message: string;
 }
 
@@ -287,12 +296,30 @@ export function setAttachmentEntryAuthority(args: {
 		snapshot: { ...args.snapshot },
 		readCurrent: args.readCurrent,
 	});
+	const slots = attachmentSlots.get(args.entryKey);
 	if (existing !== undefined) {
+		for (const slot of slots?.values() ?? []) {
+			if (
+				slot.owned !== undefined &&
+				slot.owned.instancePath !== slot.desiredInstancePath &&
+				slot.retargetState === "queued" &&
+				slot.issue?.kind !== "invariant"
+			) {
+				slot.retargetState = "suspended";
+			}
+		}
 		abortAttachmentEntryOperations(args.entryKey);
 	}
-	const slots = attachmentSlots.get(args.entryKey);
 	if (!activeAttachmentEntryAuthority(args.snapshot)) {
 		for (const [slotKey, slot] of slots ?? []) {
+			if (
+				slot.owned !== undefined &&
+				slot.owned.instancePath !== slot.desiredInstancePath &&
+				slot.retargetState === "queued" &&
+				slot.issue?.kind !== "invariant"
+			) {
+				slot.retargetState = "suspended";
+			}
 			if (slot.draft === undefined || slot.draft.status === "needs-attention") {
 				continue;
 			}
@@ -317,7 +344,9 @@ export function setAttachmentEntryAuthority(args: {
 			if (
 				slot.appId === args.snapshot.appId &&
 				slot.owned !== undefined &&
-				slot.owned.instancePath !== slot.desiredInstancePath
+				slot.owned.instancePath !== slot.desiredInstancePath &&
+				slot.retargetState === "suspended" &&
+				slot.issue?.kind !== "invariant"
 			) {
 				void enqueueAttachmentSlotRetarget({
 					appId: slot.appId,
@@ -380,6 +409,24 @@ function retargetIssueFor(slot: AttachmentSlot): AttachmentSlotIssue {
 				message:
 					"This attachment could not move to the question's current location. Retry now, attach a replacement, or remove it.",
 			};
+}
+
+function migrationInvariantIssue(): AttachmentSlotIssue {
+	return {
+		kind: "invariant",
+		message:
+			"This attachment was preserved because the question's new location could not be verified. Reload this app before submitting, or remove the attachment.",
+	};
+}
+
+function nextAttachmentSlotGeneration(
+	entryKey: string,
+	slotKey: string,
+): number {
+	const queue = queueFor(entryKey);
+	const generation = (queue.generations.get(slotKey) ?? 0) + 1;
+	queue.generations.set(slotKey, generation);
+	return generation;
 }
 
 function setSlotIssue(
@@ -625,8 +672,7 @@ export function runAttachmentTask<T>(args: {
 	// confirmed replacement or new signature behind it indefinitely.
 	for (const controller of queue.maintenance.get(key) ?? []) controller.abort();
 	queue.maintenance.delete(key);
-	const generation = (queue.generations.get(key) ?? 0) + 1;
-	queue.generations.set(key, generation);
+	const generation = nextAttachmentSlotGeneration(args.entryKey, key);
 	const registeredSlot = attachmentSlots
 		.get(args.entryKey)
 		?.get(args.target?.slotKey ?? args.slotKey ?? key);
@@ -851,11 +897,17 @@ function reconcileBarrierDispositions(
 	}
 	const dispositions = new Map<string, AttachmentSlotDisposition>();
 	for (const [slotKey, target] of targets) {
-		const disposition =
+		const classified =
 			options?.classifySlot({
 				slotKey,
 				instancePath: target.instancePath,
 			}) ?? "active";
+		const registered = slots?.get(slotKey);
+		// An invalid authored-path event is not evidence that the stable owner
+		// disappeared. Preserve it and keep Submit blocked even if the engine's
+		// now-current topology can no longer classify the old path.
+		const disposition =
+			registered?.issue?.kind === "invariant" ? "active" : classified;
 		dispositions.set(slotKey, disposition);
 		if (disposition === "removed") {
 			retireAttachmentSlot(entryKey, slotKey);
@@ -891,10 +943,69 @@ function reconcileBarrierDispositions(
 					currentTask?.generation ?? slot.draft.generation ?? 0,
 				);
 			}
+			if (
+				slot?.owned !== undefined &&
+				slot.owned.instancePath !== slot.desiredInstancePath &&
+				slot.issue?.kind !== "invariant" &&
+				slot.retargetState !== "failed"
+			) {
+				slot.retargetState = "suspended";
+				const generation =
+					queue.generations.get(slotKey) ??
+					nextAttachmentSlotGeneration(entryKey, slotKey);
+				if (
+					(slot.issue === undefined || slot.issue.kind === "retarget") &&
+					(slot.issueGeneration ?? 0) <= generation
+				) {
+					setSlotIssue(
+						entryKey,
+						slotKey,
+						slot,
+						retargetIssueFor(slot),
+						generation,
+					);
+				}
+			}
 			// A dormant draft remains registered and not-ready. Only its
 			// signal-aware active work is cancelled so Submit cannot starve
 			// behind a question that no longer participates.
 			cancelAttachmentTask(entryKey, slotKey);
+		} else {
+			const slot = slots?.get(slotKey);
+			if (
+				slot?.owned !== undefined &&
+				slot.owned.instancePath !== slot.desiredInstancePath &&
+				slot.issue?.kind !== "invariant" &&
+				slot.retargetState === "suspended"
+			) {
+				const hasMaintenance = queue.maintenance.has(slotKey);
+				// A dormant barrier may have aborted generation N after its PATCH
+				// committed but before the response arrived. Reactivation owns N+1
+				// so the late continuation cannot clear or replace its blocker.
+				const generation = hasMaintenance
+					? (queue.generations.get(slotKey) ?? 0)
+					: nextAttachmentSlotGeneration(entryKey, slotKey);
+				if (
+					(slot.issue === undefined || slot.issue.kind === "retarget") &&
+					(slot.issueGeneration ?? 0) <= generation
+				) {
+					setSlotIssue(
+						entryKey,
+						slotKey,
+						slot,
+						retargetIssueFor(slot),
+						generation,
+					);
+				}
+				if (!hasMaintenance) {
+					void enqueueAttachmentSlotRetarget({
+						appId: slot.appId,
+						entryKey,
+						slotKey,
+						generation,
+					});
+				}
+			}
 		}
 	}
 	// Synthetic queue keys (for example a destructive Clear) are classified
@@ -980,6 +1091,9 @@ export function registerAttachmentSlotPath(args: {
 					issue: current.issue,
 					issueGeneration: current.issueGeneration,
 				}
+			: {}),
+		...(current?.appId === args.appId && current.retargetState !== undefined
+			? { retargetState: current.retargetState }
 			: {}),
 		...(current?.appId === args.appId && current.draft !== undefined
 			? { draft: current.draft }
@@ -1093,7 +1207,13 @@ function enqueueAttachmentSlotRetarget(args: {
 	appId: string;
 	entryKey: string;
 	slotKey: string;
+	generation?: number;
 }): Promise<AttachmentRetargetFailure | undefined> {
+	const generation =
+		args.generation ??
+		nextAttachmentSlotGeneration(args.entryKey, args.slotKey);
+	const scheduled = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (scheduled?.appId === args.appId) scheduled.retargetState = "queued";
 	return enqueueSlotMaintenance(args.entryKey, args.slotKey, async (signal) => {
 		const live = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
 		if (live?.appId !== args.appId || live.owned === undefined) {
@@ -1107,14 +1227,27 @@ function enqueueAttachmentSlotRetarget(args: {
 				entryKey: args.entryKey,
 				slotKey: args.slotKey,
 				signal,
+				maximumIssueGeneration: generation,
 			});
+			const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+			if (
+				latest?.appId === args.appId &&
+				(entryQueues.get(args.entryKey)?.generations.get(args.slotKey) ??
+					generation) === generation
+			) {
+				latest.retargetState = undefined;
+			}
 			return undefined;
 		} catch (error) {
 			if (isAttachmentTaskAbort(error)) throw error;
 			const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
-			if (latest?.owned?.attachment.attachmentId === attachment.attachmentId) {
-				const generation =
-					entryQueues.get(args.entryKey)?.generations.get(args.slotKey) ?? 0;
+			if (
+				latest?.owned?.attachment.attachmentId === attachment.attachmentId &&
+				(latest.issueGeneration ?? 0) <= generation &&
+				(entryQueues.get(args.entryKey)?.generations.get(args.slotKey) ??
+					generation) === generation
+			) {
+				latest.retargetState = "failed";
 				setSlotIssue(
 					args.entryKey,
 					args.slotKey,
@@ -1253,13 +1386,75 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 }
 
 export interface AttachmentAuthoredPathMigration {
-	readonly moves: ReadonlyArray<{
-		readonly fieldUuid: string;
-		readonly oldPathTemplate: string;
-		readonly newPathTemplate: string;
-		readonly previousCaptureKind?: string;
-		readonly captureKind?: string;
-	}>;
+	readonly moves: ReadonlyArray<
+		| {
+				readonly kind: "retained";
+				readonly fieldUuid: string;
+				readonly previous: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind?: string;
+				};
+				readonly current: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind?: string;
+				};
+		  }
+		| {
+				readonly kind: "deleted";
+				readonly fieldUuid: string;
+				readonly previous: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind: string;
+				};
+		  }
+	>;
+}
+
+type AuthoredCaptureMove = AttachmentAuthoredPathMigration["moves"][number];
+
+interface AuthoredCaptureSlotPlan {
+	readonly slotKey: string;
+	readonly slot: AttachmentSlot;
+	readonly move?: AuthoredCaptureMove;
+	readonly projection: InstancePathProjection;
+}
+
+function projectAuthoredCaptureSlot(
+	slot: AttachmentSlot,
+	move: AuthoredCaptureMove | undefined,
+): InstancePathProjection {
+	if (move === undefined || move.previous.captureKind === undefined) {
+		return {
+			kind: "invalid",
+			reason:
+				"The capture path migration did not name one previous capture identity.",
+		};
+	}
+	const current =
+		move.kind === "deleted"
+			? move.previous
+			: move.kind === "retained" && move.current !== undefined
+				? move.current
+				: undefined;
+	if (current === undefined) {
+		return {
+			kind: "invalid",
+			reason:
+				"The capture path migration did not include a retained destination.",
+		};
+	}
+	return projectInstancePath(
+		slot.desiredInstancePath,
+		move.previous.pathTemplate,
+		current.pathTemplate,
+		{
+			oldSegmentKeys: move.previous.segmentKeys,
+			newSegmentKeys: current.segmentKeys,
+		},
+	);
 }
 
 /**
@@ -1267,10 +1462,18 @@ export interface AttachmentAuthoredPathMigration {
  * group↔repeat conversion.
  *
  * The engine publishes these moves before React can remount a renamed
- * question. Desired paths therefore change synchronously, while the row CAS
- * joins the same entry queue as upload and Submit. A capture-kind conversion
- * is deliberately not retargeted: the old row is cleaned up and the stable
- * field UUID retains an actionable replacement blocker for the new control.
+ * question. Every slot's desired path is projected synchronously before ANY
+ * PATCH or DELETE starts, so swaps and simultaneous path/kind changes observe
+ * one complete topology. Stable segment identities—not positional depth—carry
+ * repeat indices across retained ancestors.
+ *
+ * `removed` is the one destructive projection: a repeat instance above index
+ * zero legitimately has no home after its stable ancestor disappears.
+ * `invalid` means the event/path identities cannot prove that fact; it fences
+ * active work, preserves the exact owner/draft/signature, and installs an
+ * invariant Submit blocker. A capture-kind conversion is not retargeted: once
+ * its mapped destination is installed, the incompatible old row is cleaned up
+ * and the stable field UUID retains an actionable replacement blocker.
  */
 export async function reconcileAttachmentAuthoredPathMigration(args: {
 	appId: string;
@@ -1280,30 +1483,84 @@ export async function reconcileAttachmentAuthoredPathMigration(args: {
 	const slots = attachmentSlots.get(args.entryKey);
 	if (slots === undefined) return [];
 	const jobs: Array<Promise<AttachmentRetargetFailure | undefined>> = [];
-
+	const movesByField = new Map<string, AuthoredCaptureMove | undefined>();
+	for (const move of args.migration.moves) {
+		movesByField.set(
+			move.fieldUuid,
+			movesByField.has(move.fieldUuid) ? undefined : move,
+		);
+	}
+	const plans: AuthoredCaptureSlotPlan[] = [];
 	for (const [slotKey, slot] of [...slots]) {
 		if (slot.appId !== args.appId || slot.fieldUuid === undefined) continue;
-		const move = args.migration.moves.find(
-			(candidate) => candidate.fieldUuid === slot.fieldUuid,
-		);
-		if (move === undefined) continue;
-		const nextPath = remapInstancePath(
-			slot.desiredInstancePath,
-			move.oldPathTemplate,
-			move.newPathTemplate,
-		);
-		if (nextPath === null) {
+		if (!movesByField.has(slot.fieldUuid)) continue;
+		const move = movesByField.get(slot.fieldUuid);
+		plans.push({
+			slotKey,
+			slot,
+			move,
+			projection: projectAuthoredCaptureSlot(slot, move),
+		});
+	}
+
+	// Batch projection is the synchronous ownership boundary. Do not start a
+	// cleanup or a row CAS until every retained destination is installed.
+	for (const plan of plans) {
+		if (plan.projection.kind === "mapped") {
+			plan.slot.desiredInstancePath = plan.projection.path;
+		}
+	}
+
+	for (const { slotKey, slot, move, projection } of plans) {
+		if (projection.kind === "invalid" || move === undefined) {
+			cancelAttachmentSlotWork(args.entryKey, slotKey);
+			if (slot.draft !== undefined && slot.draft.status !== "needs-attention") {
+				slot.draft = { ...slot.draft, status: "needs-attention" };
+			}
+			const generation = nextAttachmentSlotGeneration(args.entryKey, slotKey);
+			setSlotIssue(
+				args.entryKey,
+				slotKey,
+				slot,
+				migrationInvariantIssue(),
+				generation,
+			);
+			continue;
+		}
+		if (projection.kind === "removed") {
 			retireAttachmentSlot(args.entryKey, slotKey);
 			continue;
 		}
-		slot.desiredInstancePath = nextPath;
 
-		if (move.previousCaptureKind !== move.captureKind) {
+		if (move.kind === "deleted") {
+			retireAttachmentSlot(args.entryKey, slotKey);
+			continue;
+		}
+
+		if (move.kind !== "retained" || move.current === undefined) {
+			cancelAttachmentSlotWork(args.entryKey, slotKey);
+			const generation = nextAttachmentSlotGeneration(args.entryKey, slotKey);
+			setSlotIssue(
+				args.entryKey,
+				slotKey,
+				slot,
+				migrationInvariantIssue(),
+				generation,
+			);
+			continue;
+		}
+
+		if (move.current.captureKind === undefined) {
+			retireAttachmentSlot(args.entryKey, slotKey);
+			continue;
+		}
+
+		if (move.previous.captureKind !== move.current.captureKind) {
 			cancelAttachmentSlotWork(args.entryKey, slotKey);
 			const previous = slot.owned?.attachment;
 			slot.owned = undefined;
 			slot.draft = undefined;
-			slot.captureKind = move.captureKind;
+			slot.captureKind = move.current.captureKind;
 			clearSignatureDraft(args.entryKey, slotKey);
 			clearAttachmentNotReady(args.entryKey, slotKey);
 			clearSlotIssue(args.entryKey, slotKey, slot);
@@ -1313,12 +1570,8 @@ export async function reconcileAttachmentAuthoredPathMigration(args: {
 					attachmentId: previous.attachmentId,
 				});
 			}
-			if (move.captureKind === undefined) {
-				retireAttachmentSlot(args.entryKey, slotKey);
-				continue;
-			}
 			const issue: AttachmentSlotIssue =
-				move.captureKind === "signature"
+				move.current.captureKind === "signature"
 					? {
 							kind: "replace",
 							message:
@@ -1335,6 +1588,7 @@ export async function reconcileAttachmentAuthoredPathMigration(args: {
 			continue;
 		}
 
+		slot.captureKind = move.current.captureKind;
 		jobs.push(
 			enqueueAttachmentSlotRetarget({
 				appId: args.appId,
@@ -1369,6 +1623,7 @@ export async function retryAttachmentRetarget(args: {
 					"This attachment is no longer available. Attach a replacement or remove it.",
 				);
 			}
+			slot.retargetState = "queued";
 			const attachmentId = slot.owned.attachment.attachmentId;
 			try {
 				await convergeAttachmentRetarget({
@@ -1379,6 +1634,7 @@ export async function retryAttachmentRetarget(args: {
 					isCurrent: context.isCurrent,
 					maximumIssueGeneration: context.generation,
 				});
+				if (context.isCurrent()) slot.retargetState = undefined;
 			} catch (error) {
 				if (isAttachmentTaskAbort(error) || !context.isCurrent()) throw error;
 				const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
@@ -1386,6 +1642,7 @@ export async function retryAttachmentRetarget(args: {
 					latest?.appId === args.appId &&
 					latest.owned?.attachment.attachmentId === attachmentId
 				) {
+					latest.retargetState = "failed";
 					setSlotIssue(
 						args.entryKey,
 						args.slotKey,

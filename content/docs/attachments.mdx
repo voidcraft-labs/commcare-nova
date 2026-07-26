@@ -157,6 +157,11 @@ signature** clears the answer. If the server saved an earlier repeat move but
 its response was lost, Retry first adopts the row where the server actually
 stored it and then continues to the latest position; the worker does not have to
 attach the file or redraw the signature.
+If a condition hides the question while that move is still waiting, Nova pauses
+the request but keeps the confirmed file and its recovery state. When the
+question becomes active again, the next Submit repairs the retained file's
+location before sending the form; a late response from the paused request cannot
+replace that newer repair.
 
 ## Clearing a required attachment
 
@@ -233,9 +238,15 @@ animated when the worker has requested reduced motion.
 If an author renames an attachment question or one of its containing sections
 while the form is open, Nova moves the staged answer to the question's current
 path before Submit. Converting a section between a group and a repeating section
-does the same for the surviving entry. Changing the question to a different
-attachment type instead removes the incompatible staged file and asks for a new
-file or signature.
+does the same for the surviving entry. Moving a question or a whole nested
+section between different parents keeps the indices of repeats that are
+actually the same authored sections; extra instances of a repeat that no longer
+exists are removed rather than being attached to an unrelated row. If Nova
+cannot verify that identity after a live authoring change, it preserves the
+file or signature and blocks Submit with a reload-or-remove message instead of
+guessing and deleting it. Changing the question to a different attachment type
+instead removes the incompatible staged file and asks for a new file or
+signature.
 
 The preview shows you exactly what a worker sees, which means it shows
 you a filename and a **Remove** action and nothing else — no thumbnail, no
@@ -249,6 +260,9 @@ condition, Nova leaves that file out of the submission. CommCare itself
 sends it anyway, where it counts toward the 50-attachment limit and
 arrives attached to nothing. Nothing you need to do — it just means the
 count you see in the preview is the honest one.
+Even an attachment-free retry remains tied to that form entry's accepted
+submission: clearing or hiding the answer after a response is lost cannot make
+Nova apply the form's case changes twice.
 
 **Clear form** is different from removing one file. It immediately starts a
 new blank form entry with a new submission identity. Cleanup of files from the

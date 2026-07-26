@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	projectInstancePath,
 	rebaseOntoContext,
 	remapInstancePath,
 	stripIndices,
@@ -13,6 +14,80 @@ describe("stripIndices", () => {
 
 	it("leaves index-free paths untouched", () => {
 		expect(stripIndices("/data/group/name")).toBe("/data/group/name");
+	});
+});
+
+describe("projectInstancePath", () => {
+	it("maps index zero but removes higher instances when moving between distinct repeats", () => {
+		const identity = {
+			oldSegmentKeys: ["$data", "left-repeat", "photo"],
+			newSegmentKeys: ["$data", "right-repeat", "photo"],
+		};
+		expect(
+			projectInstancePath(
+				"/data/left[0]/photo",
+				"/data/left[0]/photo",
+				"/data/right[0]/photo",
+				identity,
+			),
+		).toEqual({ kind: "mapped", path: "/data/right[0]/photo" });
+		expect(
+			projectInstancePath(
+				"/data/left[2]/photo",
+				"/data/left[0]/photo",
+				"/data/right[0]/photo",
+				identity,
+			),
+		).toEqual({ kind: "removed" });
+	});
+
+	it("carries retained nested repeat indices through a depth-changing move", () => {
+		expect(
+			projectInstancePath(
+				"/data/households[2]/members[3]/photo",
+				"/data/households[0]/members[0]/photo",
+				"/data/visit/households[0]/members[0]/photo",
+				{
+					oldSegmentKeys: ["$data", "households", "members", "photo"],
+					newSegmentKeys: ["$data", "visit", "households", "members", "photo"],
+				},
+			),
+		).toEqual({
+			kind: "mapped",
+			path: "/data/visit/households[2]/members[3]/photo",
+		});
+	});
+
+	it("fails closed for malformed paths, mismatches, and missing stable identities", () => {
+		expect(
+			projectInstancePath(
+				"/data/orders[1]/photo",
+				"/data/visits[0]/photo",
+				"/data/archive/photo",
+				{
+					oldSegmentKeys: ["$data", "visits", "photo"],
+					newSegmentKeys: ["$data", "archive", "photo"],
+				},
+			),
+		).toMatchObject({ kind: "invalid" });
+		expect(
+			projectInstancePath(
+				"/data/orders[1]//photo",
+				"/data/orders[0]/photo",
+				"/data/archive/photo",
+			),
+		).toMatchObject({ kind: "invalid" });
+		expect(
+			projectInstancePath(
+				"/data/orders[1]/photo",
+				"/data/orders[0]/photo",
+				"/data/archive/photo",
+				{
+					oldSegmentKeys: ["$data", "orders", "photo"],
+					newSegmentKeys: ["$data", "archive"],
+				},
+			),
+		).toMatchObject({ kind: "invalid" });
 	});
 });
 

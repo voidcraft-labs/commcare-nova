@@ -777,6 +777,11 @@ stored result; a different payload under the same entry key is rejected. No GCS
 operation or other post-commit attachment await remains, so an accepted form
 cannot be reported failed by a hung copy and cannot point at bytes still
 subject to the staging TTL.
+The client also emits this intent with `attachments: []` when the committed
+form is capture-capable but the current projection is empty. The prior receipt
+check therefore still runs before case effects after a worker clears an answer,
+a condition hides it, or a repeat removes it: an identical accepted request
+replays and a changed digest rejects instead of applying the form twice.
 
 There is deliberately no destructive hook on value change or repeat removal.
 Clear/replace deletes `pending`/`staged` metadata directly, moves
@@ -823,10 +828,13 @@ durability takes priority over staging cleanup.
 The Cloud Run Job persists in best-effort `scheduler` mode: a held advisory
 lease or pre-lock connection saturation skips that dispatch. Cloud Build
 overrides one blocking pre-traffic execution to `strict`; it waits through
-bounded capacity/lease contention, probes create/read/exact-generation-delete
-against an unguessable staged capture object, and rejects any maintenance
-summary with a row preparation/discard or exact object-deletion failure. Both
-paths audit the exact server/role capacity contract and require the production
+bounded capacity/lease contention, performs the real create-only
+staged→durable copy under unguessable capture-only keys, verifies the durable
+generation, size, CRC32C, content type, and bytes, deletes both exact
+generations, and rejects any probe cleanup or maintenance row/object failure.
+The IAM condition and its domain mirror reject empty or double-slash segments
+in either allowed prefix. Both paths audit the exact server/role capacity
+contract and require the production
 `pgaudit` extension before work. The cleanup database login
 inherits no application role and holds only public-schema `USAGE` plus
 `SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Its custom storage role is
@@ -894,6 +902,12 @@ deadline covering both the fetch and success/error response-body read. A
 visible Cancel aborts a file upload generation while preserving the previous
 confirmed owner and answer; a late completion is generation-fenced and cleaned
 up.
+A confirmed retarget cancelled by dormancy keeps a suspended, generation-tagged
+blocker. If relevance returns, the next barrier mints a newer generation and
+repairs or CAS-converges the owner before Submit; a late cancelled response
+cannot clear that repair. A non-abort retarget failure remains failed and does
+not auto-retry from barrier polling, preserving the worker's explicit
+Retry/replace/remove choice.
 
 Repeat instances keep stable render keys through index compaction. A failed
 retarget is recoverable, not destructive: the confirmed row, answer, filename,
@@ -912,6 +926,19 @@ mismatch returns the locked server row's authoritative path. The client adopts
 that coordinate and converges toward the slot's newest desired path, so a
 successful A→B move whose response was lost can continue as B→C rather than
 remaining permanently stuck on expected A.
+
+Live authoring topology changes travel from `EngineController` to that same
+coordinator as one atomic pre/post batch. Every retained/deleted move includes
+the stable identity of each path segment, so capture and ancestor swaps,
+cross-parent moves, different-depth moves, group↔repeat conversion, and nested
+retained repeats preserve only their real instance indices. Projection is
+tri-state: mapped slots retarget; an explicit field deletion or a proven
+higher repeat instance with no destination may retire; malformed paths,
+missing/duplicate identities, and mismatched events preserve the exact owner,
+picked `File`, signature ink, and an invariant Submit blocker. All mapped
+destinations install synchronously before any PATCH or DELETE, so simultaneous
+swaps never observe a half-migrated topology. Capture-kind changes remain
+incompatible and require a replacement at the mapped destination.
 
 Signature strokes and the last successfully encoded CSS dimensions, device pixel
 ratio, and backing-store dimensions live together in stable draft state. A
@@ -972,8 +999,9 @@ destination picker is an inline radio list over the Projects
 where the member also governs placement, because a second floating surface opened
 from inside the popover renders beneath it. Governance requires `delete` on both
 ends, `deleted_at IS NULL`, owner retention, and an exact empty lookup closure:
-an app whose blueprint references lookup tables cannot move, and stored edges that
-disagree with the blueprint are themselves a refusal until repaired. Same-Project
+an app whose blueprint references lookup tables or has capture rows or
+capture-submission intents cannot move, and stored lookup edges that disagree
+with the blueprint are themselves a refusal until repaired. Same-Project
 case-data recovery is a separate, always-available repair.
 
 Project deletion is globally disabled until Nova has an audited whole-tenant

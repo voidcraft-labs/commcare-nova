@@ -1000,8 +1000,8 @@ export async function buildSubmissionOperationProgram(args: {
 		attachmentNames,
 		attachmentRefs,
 	});
-	if (validated.attachmentRefs.length === 0) return built;
 	if (app.blueprint.forms[validated.formUuid as Uuid] === undefined) {
+		if (validated.attachmentRefs.length === 0) return built;
 		throw new CaptureSubmissionRejectedError(
 			"The submitted form no longer exists in the committed app.",
 		);
@@ -1026,6 +1026,15 @@ export async function buildSubmissionOperationProgram(args: {
 			];
 		},
 	);
+	// An empty projection from a capture-capable form still participates in
+	// the entry-key replay protocol. Otherwise a retry after a committed
+	// nonempty submission could bypass its receipt and repeat case effects.
+	if (
+		validated.attachmentRefs.length === 0 &&
+		allowedAttachments.length === 0
+	) {
+		return built;
+	}
 	const captureIntentWithoutDigest = {
 		entryKey: validated.entryKey,
 		formUuid: validated.formUuid,
