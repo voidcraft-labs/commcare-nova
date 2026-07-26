@@ -75,7 +75,7 @@ const ATTACHMENT_METADATA_MAX_BYTES = 4 * 1024;
 
 async function whileRequestIsActive<T>(
 	signal: AbortSignal,
-	operation: Promise<T>,
+	operation: () => Promise<T>,
 ): Promise<T> {
 	signal.throwIfAborted();
 	const boundaryClosed = Symbol("request activity boundary closed");
@@ -90,7 +90,13 @@ async function whileRequestIsActive<T>(
 	signal.addEventListener("abort", onAbort, { once: true });
 	if (signal.aborted) onAbort();
 	try {
-		const result = await Promise.race([operation, aborted]);
+		// Create the external operation only after the initial abort proof, then
+		// install a losing-rejection observer before yielding. In particular, an
+		// already-aborted request must not create a signer promise at all, and a
+		// signer that rejects after the abort race is still observed.
+		const running = operation();
+		void running.catch(() => undefined);
+		const result = await Promise.race([running, aborted]);
 		if (result === boundaryClosed) {
 			throw new Error(
 				"Request activity boundary closed before signing settled.",
@@ -195,8 +201,7 @@ export async function POST(
 			// The row commits before URL signing. Bind that external gap to
 			// request liveness so a browser disconnect promptly runs the same
 			// exact pending-row compensation as a signing failure.
-			upload = await whileRequestIsActive(
-				req.signal,
+			upload = await whileRequestIsActive(req.signal, () =>
 				createSignedUploadUrl({
 					gcsObjectKey: objectKey,
 					contentType,
@@ -249,7 +254,7 @@ export async function POST(
 		// also have an independent bucket lifecycle guarantee, so a skipped
 		// request sweep costs temporary table rows, never retention.
 		void purgeExpiredFormAttachments()
-			.then(async (objects) => {
+			.then(async ({ objects }) => {
 				await Promise.allSettled(
 					objects.map((object) =>
 						object.objectGeneration === null

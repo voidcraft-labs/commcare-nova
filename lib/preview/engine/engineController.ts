@@ -46,7 +46,13 @@ import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
-import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
+import {
+	type CaseType,
+	type Field,
+	type Form,
+	isCaptureFieldKind,
+	type Uuid,
+} from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
@@ -85,6 +91,17 @@ export interface RepeatCompactionEvent {
 	readonly moves: ReadonlyArray<{
 		readonly fromPrefix: string;
 		readonly toPrefix: string;
+	}>;
+}
+
+export interface AuthoredCapturePathMigrationEvent {
+	readonly entryKey: string;
+	readonly moves: ReadonlyArray<{
+		readonly fieldUuid: string;
+		readonly oldPathTemplate: string;
+		readonly newPathTemplate: string;
+		readonly previousCaptureKind?: string;
+		readonly captureKind?: string;
 	}>;
 }
 
@@ -339,6 +356,9 @@ export class EngineController {
 	private repeatCompactionListeners = new Set<
 		(event: RepeatCompactionEvent) => void
 	>();
+	private authoredCapturePathMigrationListeners = new Set<
+		(event: AuthoredCapturePathMigrationEvent) => void
+	>();
 
 	/** Field UUIDs with active per-field subscriptions. */
 	private trackedUuids = new Set<string>();
@@ -398,6 +418,25 @@ export class EngineController {
 	): () => void {
 		this.repeatCompactionListeners.add(listener);
 		return () => this.repeatCompactionListeners.delete(listener);
+	}
+
+	/** Form-level authored-path ownership subscriber. Stable field UUIDs make
+	 * this independent of which capture controls are currently mounted. */
+	subscribeAuthoredCapturePathMigration(
+		listener: (event: AuthoredCapturePathMigrationEvent) => void,
+	): () => void {
+		this.authoredCapturePathMigrationListeners.add(listener);
+		return () => this.authoredCapturePathMigrationListeners.delete(listener);
+	}
+
+	private publishAuthoredCapturePathMigration(
+		moves: AuthoredCapturePathMigrationEvent["moves"],
+	): void {
+		if (this.currentEntryKey === undefined || moves.length === 0) return;
+		const event = { entryKey: this.currentEntryKey, moves };
+		for (const listener of this.authoredCapturePathMigrationListeners) {
+			listener(event);
+		}
 	}
 
 	/** Connect to the doc store. Called by SyncBridge when the provider mounts. */
@@ -848,7 +887,7 @@ export class EngineController {
 						case "none":
 							return;
 						case "kind_change":
-							this.onKindChanged(uuid);
+							this.onKindChanged(uuid, previous as Field, current as Field);
 							return;
 						case "expression":
 							this.onExpressionChanged(uuid);
@@ -976,7 +1015,11 @@ export class EngineController {
 	 * tree (it was also removed in the same batch), it's cleaned up like a
 	 * removal rather than left in a stale half-state.
 	 */
-	private onKindChanged(uuid: string): void {
+	private onKindChanged(
+		uuid: string,
+		previousField: Field,
+		currentField: Field,
+	): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
@@ -1038,6 +1081,28 @@ export class EngineController {
 				}
 			}
 			this.engine.renamePaths(pairs);
+			this.publishAuthoredCapturePathMigration(
+				pairs.flatMap(({ oldPath, newPath }) => {
+					const fieldUuid = [...oldDescendantPaths].find(
+						([, candidateOldPath]) => candidateOldPath === oldPath,
+					)?.[0];
+					const descendant =
+						fieldUuid === undefined ? undefined : input.fields[fieldUuid];
+					return fieldUuid !== undefined &&
+						descendant !== undefined &&
+						isCaptureFieldKind(descendant.kind)
+						? [
+								{
+									fieldUuid,
+									oldPathTemplate: oldPath,
+									newPathTemplate: newPath,
+									previousCaptureKind: descendant.kind,
+									captureKind: descendant.kind,
+								},
+							]
+						: [];
+				}),
+			);
 			/* A repeat→group conversion retires the container's instance
 			 * count (instances ≥ 1 were dropped by the re-path above) —
 			 * `deleteValue` clears it; containers own no value key. */
@@ -1062,6 +1127,26 @@ export class EngineController {
 			 * intact. For a leaf retype it re-seeds empty with the new kind's
 			 * required flag and default. */
 			this.engine.addFieldState(newPath, field);
+		}
+		if (
+			oldPath !== undefined &&
+			newPath !== undefined &&
+			(isCaptureFieldKind(previousField.kind) ||
+				isCaptureFieldKind(currentField.kind))
+		) {
+			this.publishAuthoredCapturePathMigration([
+				{
+					fieldUuid: uuid,
+					oldPathTemplate: oldPath,
+					newPathTemplate: newPath,
+					...(isCaptureFieldKind(previousField.kind)
+						? { previousCaptureKind: previousField.kind }
+						: {}),
+					...(isCaptureFieldKind(currentField.kind)
+						? { captureKind: currentField.kind }
+						: {}),
+				},
+			]);
 		}
 
 		/* Re-evaluate the converted field + its descendants + downstream
@@ -1158,6 +1243,36 @@ export class EngineController {
 			}
 		}
 		this.engine.renamePaths(pairs);
+		this.publishAuthoredCapturePathMigration(
+			[
+				[uuid, oldPath, newPath] as const,
+				...descendantUuids.map(
+					(descendantUuid) =>
+						[
+							descendantUuid,
+							oldDescendantPaths.get(descendantUuid),
+							this.uuidToPath.get(descendantUuid),
+						] as const,
+				),
+			].flatMap(([fieldUuid, previousPath, currentPath]) => {
+				const capture = input.fields[fieldUuid];
+				return previousPath !== undefined &&
+					currentPath !== undefined &&
+					previousPath !== currentPath &&
+					capture !== undefined &&
+					isCaptureFieldKind(capture.kind)
+					? [
+							{
+								fieldUuid,
+								oldPathTemplate: previousPath,
+								newPathTemplate: currentPath,
+								previousCaptureKind: capture.kind,
+								captureKind: capture.kind,
+							},
+						]
+					: [];
+			}),
+		);
 
 		/* Rebuild DAG (references may point to the new ID now) */
 		this.engine.rebuildDag(input);

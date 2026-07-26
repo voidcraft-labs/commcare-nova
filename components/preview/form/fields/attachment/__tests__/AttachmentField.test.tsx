@@ -30,15 +30,18 @@ const {
 	discardAttachmentMock,
 	retargetAttachmentMock,
 	scheduleAttachmentCleanupMock,
+	accessState,
 } = vi.hoisted(() => ({
 	stageAttachmentMock: vi.fn(),
 	discardAttachmentMock: vi.fn(),
 	retargetAttachmentMock: vi.fn(),
 	scheduleAttachmentCleanupMock: vi.fn(),
+	accessState: { canEdit: true },
 }));
 
 vi.mock("@/lib/session/hooks", () => ({
 	useEditMode: () => "preview" as const,
+	useCanEdit: () => accessState.canEdit,
 }));
 
 vi.mock("../attachmentClient", async (importOriginal) => {
@@ -87,6 +90,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+	accessState.canEdit = true;
 	stageAttachmentMock.mockReset();
 	discardAttachmentMock.mockReset();
 	retargetAttachmentMock.mockReset();
@@ -131,6 +135,213 @@ describe("AttachmentField", () => {
 		expect(screen.getByLabelText(/Signed consent.*Attach file/i)).toBeDefined();
 	});
 
+	it("keeps file capture staging, removal, and recovery read-only for Project viewers", async () => {
+		accessState.canEdit = false;
+		const entryKey = "entry-viewer-file";
+		render(
+			<AttachmentField
+				field={FIELD}
+				state={{ ...EMPTY_STATE, value: "existing.png" }}
+				path="/data/photo"
+				appId="app-1"
+				entryKey={entryKey}
+				onChange={vi.fn()}
+				onBlur={vi.fn()}
+			/>,
+		);
+		const input = screen.getByLabelText(
+			/Photo.*Read-only attachment/i,
+		) as HTMLInputElement;
+		const remove = screen.getByRole("button", {
+			name: /Remove attachment for Photo/i,
+		}) as HTMLButtonElement;
+		expect(input.disabled).toBe(true);
+		expect(remove.disabled).toBe(true);
+		expect(screen.getByText("Project editors can attach files.")).toBeDefined();
+
+		fireEvent.change(input, {
+			target: {
+				files: [new File(["png"], "viewer.png", { type: "image/png" })],
+			},
+		});
+		expect(stageAttachmentMock).not.toHaveBeenCalled();
+
+		act(() => {
+			setAttachmentSlotIssue({
+				appId: "app-1",
+				entryKey,
+				slotKey: "/data/photo",
+				issue: {
+					kind: "retarget",
+					message: "This attachment needs recovery.",
+				},
+			});
+		});
+		const retry = await screen.findByRole("button", {
+			name: /Retry attachment for Photo/i,
+		});
+		expect((retry as HTMLButtonElement).disabled).toBe(true);
+		expect(stageAttachmentMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps signature drawing, clearing, and retry read-only for Project viewers", async () => {
+		accessState.canEdit = false;
+		const entryKey = "entry-viewer-signature";
+		render(
+			<AttachmentField
+				field={SIGNATURE_FIELD}
+				state={{
+					...EMPTY_STATE,
+					path: "/data/consent",
+					value: "signature.png",
+				}}
+				path="/data/consent"
+				appId="app-1"
+				entryKey={entryKey}
+				onChange={vi.fn()}
+				onBlur={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signed consent.*Signature pad/i);
+		const clear = screen.getByRole("button", {
+			name: /Clear signature.*Signed consent/i,
+		}) as HTMLButtonElement;
+		expect(canvas.getAttribute("aria-readonly")).toBe("true");
+		expect(clear.disabled).toBe(true);
+		expect(
+			screen.getByText("Project editors can attach signatures."),
+		).toBeDefined();
+
+		fireEvent.pointerDown(canvas, { pointerId: 1, clientX: 10, clientY: 10 });
+		fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 10, clientY: 10 });
+		expect(stageAttachmentMock).not.toHaveBeenCalled();
+
+		act(() => {
+			setAttachmentSlotIssue({
+				appId: "app-1",
+				entryKey,
+				slotKey: "/data/consent",
+				issue: {
+					kind: "retarget",
+					message: "This signature needs recovery.",
+				},
+			});
+		});
+		const retry = await screen.findByRole("button", {
+			name: /Retry signature for Signed consent/i,
+		});
+		expect((retry as HTMLButtonElement).disabled).toBe(true);
+		expect(stageAttachmentMock).not.toHaveBeenCalled();
+	});
+
+	it("cancels and fences a file upload when edit authority is lost", async () => {
+		const staged = deferred<StagedAttachment>();
+		stageAttachmentMock.mockReturnValue(staged.promise);
+		const onChange = vi.fn();
+		const props = {
+			field: FIELD,
+			state: EMPTY_STATE,
+			path: "/data/photo",
+			appId: "app-1",
+			entryKey: "entry-authority-loss",
+			onChange,
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		const input = screen.getByLabelText(
+			/Photo.*Attach file/i,
+		) as HTMLInputElement;
+		fireEvent.change(input, {
+			target: {
+				files: [new File(["png"], "photo.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledOnce());
+
+		accessState.canEdit = false;
+		view.rerender(<AttachmentField {...props} />);
+		staged.resolve({
+			attachmentId: "attachment-after-revocation",
+			attachmentName: "attachment-after-revocation.png",
+			originalFilename: "photo.png",
+			sizeBytes: 3,
+		});
+		await waitFor(() =>
+			expect(scheduleAttachmentCleanupMock).toHaveBeenCalledWith({
+				appId: "app-1",
+				attachmentId: "attachment-after-revocation",
+			}),
+		);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("cancels a queued Clear without dropping ownership when edit authority is lost", async () => {
+		const entryKey = "entry-clear-authority-loss";
+		const slotKey = "/data/photo";
+		const blockerStarted = deferred<void>();
+		const blockerRelease = deferred<void>();
+		const blocker = runAttachmentTask({
+			entryKey,
+			slotKey: "other-slot",
+			task: async () => {
+				blockerStarted.resolve();
+				await blockerRelease.promise;
+			},
+		});
+		await blockerStarted.promise;
+		const owned = {
+			attachmentId: "attachment-before-revocation",
+			attachmentName: "attachment-before-revocation.png",
+			originalFilename: "photo.png",
+			sizeBytes: 3,
+		};
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid: FIELD.uuid,
+			instancePath: "/data/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			attachment: owned,
+		});
+		const onChange = vi.fn();
+		const props = {
+			field: FIELD,
+			state: { ...EMPTY_STATE, value: owned.attachmentName },
+			path: "/data/photo",
+			appId: "app-1",
+			entryKey,
+			onChange,
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /Remove attachment for Photo/i,
+			}),
+		);
+
+		accessState.canEdit = false;
+		view.rerender(<AttachmentField {...props} />);
+		blockerRelease.resolve();
+		await blocker;
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		expect(onChange).not.toHaveBeenCalled();
+		expect(scheduleAttachmentCleanupMock).not.toHaveBeenCalled();
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		).toEqual(owned);
+	});
+
 	it("names failed recovery actions by their question and keeps one signature removal action", async () => {
 		const entryKey = "entry-distinct-recovery-actions";
 		render(
@@ -168,7 +379,7 @@ describe("AttachmentField", () => {
 				issue: {
 					kind: "retarget",
 					message:
-						"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+						"This attachment could not move to the question's current location. Retry now, attach a replacement, or remove it.",
 				},
 			});
 			setAttachmentSlotIssue({
@@ -178,7 +389,7 @@ describe("AttachmentField", () => {
 				issue: {
 					kind: "retarget",
 					message:
-						"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
+						"This signature could not move to the question's current location. Retry now, draw it again, or use Clear signature.",
 				},
 			});
 		});
@@ -1225,7 +1436,7 @@ describe("AttachmentField", () => {
 		});
 
 		expect((await screen.findByRole("alert")).textContent).toContain(
-			"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+			"This attachment could not move to the question's current location. Retry now, attach a replacement, or remove it.",
 		);
 		expect(
 			screen.getByRole("button", { name: /retry attachment.*Photo/i }),
@@ -1371,7 +1582,7 @@ describe("AttachmentField", () => {
 			});
 		});
 		expect((await screen.findByRole("alert")).textContent).toContain(
-			"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
+			"This signature could not move to the question's current location. Retry now, draw it again, or use Clear signature.",
 		);
 		expect(canvasContext.stroke).toHaveBeenCalled();
 
@@ -1499,7 +1710,7 @@ describe("AttachmentField", () => {
 			issue: {
 				kind: "retarget",
 				message:
-					"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
+					"This signature could not move to the question's current location. Retry now, draw it again, or use Clear signature.",
 			},
 		});
 		const fetchMock = vi.fn(

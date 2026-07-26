@@ -431,6 +431,7 @@ function renderFormScreen(opts: {
 		>
 			<BuilderSessionProvider
 				init={{
+					appId: currentAppId,
 					projectId: "project-form-screen-test",
 					role: "editor",
 					canEdit: true,
@@ -854,6 +855,53 @@ describe("FormScreen — error arms render inline", () => {
 // ── Pending UX ──────────────────────────────────────────────────
 
 describe("FormScreen — pending UX", () => {
+	it("keeps Submit and Clear form read-only after viewer authority replaces the editor session", async () => {
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const entryKey = capturedController?.entryKey;
+		if (capturedSession === undefined || entryKey === undefined) {
+			throw new Error("Expected mounted session and form entry handles.");
+		}
+
+		act(() => {
+			capturedSession?.setState({
+				canEdit: false,
+				role: "viewer",
+				accessPhase: "authorized",
+			});
+		});
+		const submit = screen.getByRole("button", { name: /^submit$/i });
+		const clear = screen.getByRole("button", { name: /clear form/i });
+		expect((submit as HTMLButtonElement).disabled).toBe(true);
+		expect((clear as HTMLButtonElement).disabled).toBe(true);
+
+		fireEvent.click(clear);
+		expect(capturedController?.entryKey).toBe(entryKey);
+	});
+
+	it("rejects stale Submit and Clear handlers after the current app changes", async () => {
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const entryKey = capturedController?.entryKey;
+		if (capturedSession === undefined || entryKey === undefined) {
+			throw new Error("Expected mounted session and form entry handles.");
+		}
+
+		act(() => {
+			capturedSession?.setState({
+				appId: "different-app",
+				canEdit: true,
+				role: "editor",
+				accessPhase: "authorized",
+			});
+		});
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		fireEvent.click(screen.getByRole("button", { name: /clear form/i }));
+
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+		expect(capturedController?.entryKey).toBe(entryKey);
+	});
+
 	it("disables Submit + Clear and swaps the label to Submitting while the action is in flight", async () => {
 		/* Stall the action via a controllable deferred so the screen sits
 		 *  in the `running` arm long enough to assert the pending UX, then
@@ -1183,7 +1231,7 @@ describe("FormScreen — validate-fail short-circuit", () => {
 			controlName: /Section 2.*Visit.*Question 1.*Photo.*Attach file/i,
 			recoveryName: /Retry.*Photo/i,
 			message:
-				"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+				"This attachment could not move to the question's current location. Retry now, attach a replacement, or remove it.",
 		},
 		{
 			kind: "signature",
@@ -1192,7 +1240,7 @@ describe("FormScreen — validate-fail short-circuit", () => {
 				/Section 2.*Visit.*Question 2.*Signed consent.*Signature pad/i,
 			recoveryName: /Retry.*Signed consent/i,
 			message:
-				"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
+				"This signature could not move to the question's current location. Retry now, draw it again, or use Clear signature.",
 		},
 	])(
 		"expands a collapsed $kind recovery target, announces it, and focuses its action",

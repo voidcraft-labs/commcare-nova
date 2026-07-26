@@ -171,6 +171,23 @@ issue. A surviving pending signature keeps its draft and `notReady` blocker
 until its latest PNG confirms, then the newly owned row—not an older PNG—is
 retargeted.
 
+Authored ID changes use the same ownership lane. `EngineController` emits
+capture moves by stable field UUID for a capture rename, an ancestor rename,
+and group↔repeat conversion; the coordinator remaps every concrete instance
+path synchronously and serializes its row CAS behind any in-flight upload and
+ahead of Submit. The stored old path is only the CAS coordinate—the destination
+alone must match the current committed capture template. A capture-kind change
+is incompatible ownership: cancel/fence active work, clean the old row, and
+retain a targeted replacement blocker on the stable field UUID. React remounts
+recover the existing slot by `(field UUID, desired concrete path)` so a
+group↔repeat renderer-key change cannot create a second owner.
+
+Project viewers may inspect capture answers but must never mint or mutate
+capture data. Controls disable picker, drawing, clear/remove, and recovery
+actions; authority loss aborts and generation-fences work already in flight.
+Every event handler re-reads the current session access tuple at its mutation
+boundary, just like Submit and Clear form.
+
 Signature pixels are entry/stable-slot-local across ordinary remounts and reset
 on an entry/persona change. Points are normalized to the canvas bounds, so a
 successful encoding records CSS width/height, device pixel ratio, and backing

@@ -98,6 +98,10 @@ export interface FormAttachmentRecord {
 	objectChecksum: string | null;
 	preparedGeneration: string | null;
 	status: FormAttachmentStatus;
+	/** Monotonic lease token. Every destructive/completing worker write must
+	 *  compare this exact attempt so an expired duplicate cannot act for a
+	 *  newer lease. */
+	preparationAttempts: number;
 }
 
 function recordFromRow(
@@ -123,6 +127,7 @@ function recordFromRow(
 		objectChecksum: row.object_checksum,
 		preparedGeneration: row.prepared_generation,
 		status: row.status as FormAttachmentStatus,
+		preparationAttempts: row.preparation_attempts,
 	};
 }
 
@@ -953,16 +958,14 @@ export async function retargetStagedFormAttachment(args: {
 			!isCaptureFieldKind(field.kind) ||
 			committedPath === undefined ||
 			!captureInstancePathMatchesTemplate(
-				args.expectedInstancePath,
-				committedPath.instancePathTemplate,
-			) ||
-			!captureInstancePathMatchesTemplate(
 				args.instancePath,
 				committedPath.instancePathTemplate,
-			)
+			) ||
+			captureExtensionFor(field.kind, current.originalFilename) !==
+				current.extension
 		) {
 			throw new FormAttachmentWriteRejectedError(
-				"The capture question changed while its repeat row moved. Reload and attach the file again.",
+				"The capture question changed while its attachment moved. Attach the file again.",
 			);
 		}
 		const updated = await tx
@@ -1056,19 +1059,33 @@ export async function claimFormAttachmentPreparations(args?: {
  * `discarding`, but recording the generation gives the same worker and every
  * scheduled retry an exact deletion target.
  */
+export type FormAttachmentPreparationCompletion =
+	| {
+			readonly kind: "prepared" | "discarding";
+			readonly attachment: FormAttachmentRecord;
+	  }
+	| { readonly kind: "superseded" }
+	| { readonly kind: "gone" };
+
 export async function completeFormAttachmentPreparation(
 	attachmentId: string,
+	expectedPreparationAttempt: number,
 	destinationGeneration: string,
-): Promise<FormAttachmentRecord | null> {
+): Promise<FormAttachmentPreparationCompletion> {
 	return withAppTx(async (tx) => {
 		const row = await tx
 			.selectFrom("form_attachments")
 			.selectAll()
 			.where("attachment_id", "=", attachmentId)
-			.where("status", "in", ["preparing", "discarding"])
 			.forUpdate()
 			.executeTakeFirst();
-		if (row === undefined) return null;
+		if (row === undefined) return { kind: "gone" };
+		if (
+			row.preparation_attempts !== expectedPreparationAttempt ||
+			(row.status !== "preparing" && row.status !== "discarding")
+		) {
+			return { kind: "superseded" };
+		}
 		const updated = await tx
 			.updateTable("form_attachments")
 			.set({
@@ -1080,59 +1097,154 @@ export async function completeFormAttachmentPreparation(
 			})
 			.where("attachment_id", "=", attachmentId)
 			.where("status", "=", row.status)
+			.where("preparation_attempts", "=", expectedPreparationAttempt)
 			.returningAll()
 			.executeTakeFirst();
-		return updated === undefined ? null : recordFromRow(updated);
+		if (updated === undefined) return { kind: "superseded" };
+		const attachment = recordFromRow(updated);
+		return {
+			kind: attachment.status === "prepared" ? "prepared" : "discarding",
+			attachment,
+		};
 	});
 }
+
+export type FormAttachmentDiscardLease =
+	| { readonly kind: "leased"; readonly attachment: FormAttachmentRecord }
+	| { readonly kind: "superseded" }
+	| { readonly kind: "gone" };
+
+/**
+ * Re-prove the exact discard attempt immediately before deleting objects.
+ *
+ * A delete is irreversible and therefore cannot rely on the lease snapshot
+ * returned minutes earlier. Extending the same attempt's lease under a row
+ * lock prevents an expired duplicate from deleting for a newer attempt.
+ */
+export async function renewFormAttachmentDiscardLease(
+	attachmentId: string,
+	expectedPreparationAttempt: number,
+): Promise<FormAttachmentDiscardLease> {
+	return withAppTx(async (tx) => {
+		const row = await tx
+			.selectFrom("form_attachments")
+			.selectAll()
+			.where("attachment_id", "=", attachmentId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) return { kind: "gone" };
+		if (
+			row.status !== "discarding" ||
+			row.preparation_attempts !== expectedPreparationAttempt
+		) {
+			return { kind: "superseded" };
+		}
+		const renewed = await tx
+			.updateTable("form_attachments")
+			.set({ next_preparation_at: sql<Date>`now() + interval '5 minutes'` })
+			.where("attachment_id", "=", attachmentId)
+			.where("status", "=", "discarding")
+			.where("preparation_attempts", "=", expectedPreparationAttempt)
+			.returningAll()
+			.executeTakeFirst();
+		return renewed === undefined
+			? { kind: "superseded" }
+			: { kind: "leased", attachment: recordFromRow(renewed) };
+	});
+}
+
+export type FormAttachmentDiscardCompletion =
+	| { readonly kind: "discarded" }
+	| { readonly kind: "superseded" }
+	| { readonly kind: "gone" };
 
 /** Remove a discard row only after all of its exact objects are gone. */
 export async function completeFormAttachmentDiscard(
 	attachmentId: string,
+	expectedPreparationAttempt: number,
 	preparedGeneration: string | null,
-): Promise<boolean> {
-	const db = await getAppDb();
-	let query = db
-		.deleteFrom("form_attachments")
-		.where("attachment_id", "=", attachmentId)
-		.where("status", "=", "discarding");
-	query =
-		preparedGeneration === null
-			? query.where("prepared_generation", "is", null)
-			: query.where("prepared_generation", "=", preparedGeneration);
-	const deleted = await query.returning("attachment_id").executeTakeFirst();
-	return deleted !== undefined;
+): Promise<FormAttachmentDiscardCompletion> {
+	return withAppTx(async (tx) => {
+		const row = await tx
+			.selectFrom("form_attachments")
+			.select(["status", "preparation_attempts", "prepared_generation"])
+			.where("attachment_id", "=", attachmentId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined) return { kind: "gone" };
+		if (
+			row.status !== "discarding" ||
+			row.preparation_attempts !== expectedPreparationAttempt ||
+			row.prepared_generation !== preparedGeneration
+		) {
+			return { kind: "superseded" };
+		}
+		const deleted = await tx
+			.deleteFrom("form_attachments")
+			.where("attachment_id", "=", attachmentId)
+			.where("status", "=", "discarding")
+			.where("preparation_attempts", "=", expectedPreparationAttempt)
+			.where(
+				"prepared_generation",
+				preparedGeneration === null ? "is" : "=",
+				preparedGeneration,
+			)
+			.returning("attachment_id")
+			.executeTakeFirst();
+		return deleted === undefined
+			? { kind: "superseded" }
+			: { kind: "discarded" };
+	});
 }
+
+export type FormAttachmentPreparationFailureResult =
+	| { readonly kind: "recorded"; readonly attempts: number }
+	| { readonly kind: "superseded" }
+	| { readonly kind: "gone" };
 
 /** Preserve the row and schedule another preparation/discard attempt. */
 export async function recordFormAttachmentPreparationFailure(
 	attachmentId: string,
+	expectedPreparationAttempt: number,
 	error: unknown,
-): Promise<number> {
+): Promise<FormAttachmentPreparationFailureResult> {
 	const message =
 		error instanceof Error
 			? error.message.slice(0, 2000)
 			: String(error).slice(0, 2000);
-	const db = await getAppDb();
-	const updated = await db
-		.updateTable("form_attachments")
-		.set({
-			last_preparation_error: message,
-			next_preparation_at: sql<Date>`now() + make_interval(
-				secs => least(
-					21600,
-					60 * power(
-						2,
-						least(greatest(preparation_attempts - 1, 0), 8)
-					)
-				)::integer
-			)`,
-		})
-		.where("attachment_id", "=", attachmentId)
-		.where("status", "in", ["preparing", "discarding"])
-		.returning("preparation_attempts")
-		.executeTakeFirst();
-	return updated?.preparation_attempts ?? 0;
+	return withAppTx(async (tx) => {
+		const updated = await tx
+			.updateTable("form_attachments")
+			.set({
+				last_preparation_error: message,
+				next_preparation_at: sql<Date>`now() + make_interval(
+					secs => least(
+						21600,
+						60 * power(
+							2,
+							least(greatest(preparation_attempts - 1, 0), 8)
+						)
+					)::integer
+				)`,
+			})
+			.where("attachment_id", "=", attachmentId)
+			.where("preparation_attempts", "=", expectedPreparationAttempt)
+			.where("status", "in", ["preparing", "discarding"])
+			.returning("preparation_attempts")
+			.executeTakeFirst();
+		if (updated !== undefined) {
+			return {
+				kind: "recorded",
+				attempts: updated.preparation_attempts,
+			};
+		}
+		const exists = await tx
+			.selectFrom("form_attachments")
+			.select("attachment_id")
+			.where("attachment_id", "=", attachmentId)
+			.executeTakeFirst();
+		return exists === undefined ? { kind: "gone" } : { kind: "superseded" };
+	});
 }
 
 /**
@@ -1172,9 +1284,21 @@ export async function loadFormAttachmentForActor(args: {
  * those rows. A live preparation lease is preserved so expiry cannot race an
  * in-flight copy and lose its cleanup record.
  */
+export interface PurgedExpiredFormAttachments {
+	/** Rows selected and transitioned/deleted in this bounded batch. */
+	readonly processed: number;
+	/** Recoverable durable rows moved to `discarding`. */
+	readonly transitioned: number;
+	/** Directly deleted pending/staged source objects for caller cleanup. */
+	readonly objects: readonly {
+		readonly objectKey: string;
+		readonly objectGeneration: string | null;
+	}[];
+}
+
 export async function purgeExpiredFormAttachments(
 	limit = 200,
-): Promise<readonly { objectKey: string; objectGeneration: string | null }[]> {
+): Promise<PurgedExpiredFormAttachments> {
 	return withAppTx(async (tx) => {
 		const expired = await tx
 			.selectFrom("form_attachments")
@@ -1224,9 +1348,13 @@ export async function purgeExpiredFormAttachments(
 				.where("status", "=", row.status)
 				.execute();
 		}
-		return deleted.map((row) => ({
-			objectKey: row.gcs_object_key,
-			objectGeneration: row.object_generation,
-		}));
+		return {
+			processed: expired.length,
+			transitioned: recoverable.length,
+			objects: deleted.map((row) => ({
+				objectKey: row.gcs_object_key,
+				objectGeneration: row.object_generation,
+			})),
+		};
 	});
 }

@@ -64,6 +64,7 @@ import {
 import { FormRenderer } from "../form/FormRenderer";
 import {
 	AttachmentNotReadyError,
+	reconcileAttachmentAuthoredPathMigration,
 	reconcileAttachmentRepeatCompaction,
 	retireAttachmentEntry,
 	runFormAttachmentBarrier,
@@ -413,6 +414,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[appId, controller],
 	);
 
+	useEffect(
+		() =>
+			controller.subscribeAuthoredCapturePathMigration((event) => {
+				if (appId === undefined) return;
+				void reconcileAttachmentAuthoredPathMigration({
+					appId,
+					entryKey: event.entryKey,
+					migration: event,
+				});
+			}),
+		[appId, controller],
+	);
+
 	const prevModeRef = useRef(mode);
 	useEffect(() => {
 		if (prevModeRef.current === "preview" && mode !== "preview") {
@@ -638,7 +652,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		const start = session.getState();
 		/* Authority is read imperatively at the mutation boundary. A queued click
 		 * can run after the synchronous reset but before React commits fresh props. */
-		if (start.accessPhase !== "authorized" || !start.canEdit) return;
+		if (
+			start.accessPhase !== "authorized" ||
+			!start.canEdit ||
+			start.appId !== appId
+		)
+			return;
 		const submitted = { ...submissionContextRef.current };
 		if (
 			submitted.scopeEpoch !== start.scopeEpoch ||
@@ -814,7 +833,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * cleanup is best effort and cannot later wipe answers entered here. */
 	const handleClear = useCallback(
 		(event: ReactMouseEvent<HTMLButtonElement>): void => {
+			const authority = session.getState();
 			if (
+				authority.accessPhase !== "authorized" ||
+				!authority.canEdit ||
+				authority.appId !== appId ||
 				event.detail > 1 ||
 				clearInFlightRef.current ||
 				submitStatus.kind === "running"
@@ -841,7 +864,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			setClearTargetEntryKey(nextEntryKey);
 		},
-		[appId, controller, entryKey, submitStatus.kind],
+		[appId, controller, entryKey, session, submitStatus.kind],
 	);
 
 	const formFrozen = submitStatus.kind === "running" || clearRunning;
@@ -1005,7 +1028,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							<button
 								type="button"
 								onClick={handleClear}
-								disabled={submitStatus.kind === "running" || clearRunning}
+								disabled={
+									submitStatus.kind === "running" ||
+									clearRunning ||
+									!mayWriteCaseData
+								}
 								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40 disabled:not-disabled:hover:bg-transparent"
 							>
 								<Icon

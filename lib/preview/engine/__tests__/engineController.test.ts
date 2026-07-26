@@ -733,6 +733,28 @@ describe("EngineController", () => {
 			);
 		}
 
+		function captureContainerDoc(
+			containerKind: "group" | "repeat" = "repeat",
+		): PersistableDoc {
+			const doc = repeatDoc();
+			doc.fields[repeatUuid] =
+				containerKind === "repeat"
+					? doc.fields[repeatUuid]
+					: {
+							uuid: repeatUuid,
+							id: "orders",
+							kind: "group",
+							label: "Orders",
+						};
+			doc.fields[nameUuid] = {
+				uuid: nameUuid,
+				id: "photo",
+				kind: "image",
+				label: "Photo",
+			};
+			return doc;
+		}
+
 		it("activation writes path-keyed entries for repeat children", () => {
 			const store = createLoadedStore(repeatDoc());
 			const ctrl = new EngineController();
@@ -815,6 +837,121 @@ describe("EngineController", () => {
 							toPrefix: "/data/orders[1]",
 						},
 					],
+				},
+			]);
+		});
+
+		it("publishes capture field and ancestor renames by stable field UUID", async () => {
+			const store = createLoadedStore(captureContainerDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: nameUuid,
+					targetKind: "image",
+					patch: { id: "evidence" },
+				},
+			]);
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: repeatUuid,
+					targetKind: "repeat",
+					patch: { id: "encounters" },
+				},
+			]);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			expect(events.map((event) => event.moves)).toEqual([
+				[
+					{
+						fieldUuid: nameUuid,
+						oldPathTemplate: "/data/orders[0]/photo",
+						newPathTemplate: "/data/orders[0]/evidence",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+				[
+					{
+						fieldUuid: nameUuid,
+						oldPathTemplate: "/data/orders[0]/evidence",
+						newPathTemplate: "/data/encounters[0]/evidence",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+			]);
+		});
+
+		it("publishes capture descendant moves for group↔repeat conversion", async () => {
+			const store = createLoadedStore(captureContainerDoc("group"));
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const moves: Array<{
+				oldPathTemplate: string;
+				newPathTemplate: string;
+			}> = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: repeatUuid, toKind: "repeat" },
+				]);
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: repeatUuid, toKind: "group" },
+				]);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			expect(moves).toEqual([
+				expect.objectContaining({
+					oldPathTemplate: "/data/orders/photo",
+					newPathTemplate: "/data/orders[0]/photo",
+				}),
+				expect.objectContaining({
+					oldPathTemplate: "/data/orders[0]/photo",
+					newPathTemplate: "/data/orders/photo",
+				}),
+			]);
+		});
+
+		it("publishes incompatible capture-kind conversions at the stable path", async () => {
+			const store = createLoadedStore(captureContainerDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store
+				.getState()
+				.applyMany([{ kind: "convertField", uuid: nameUuid, toKind: "audio" }]);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			expect(moves).toEqual([
+				{
+					fieldUuid: nameUuid,
+					oldPathTemplate: "/data/orders[0]/photo",
+					newPathTemplate: "/data/orders[0]/photo",
+					previousCaptureKind: "image",
+					captureKind: "audio",
 				},
 			]);
 		});

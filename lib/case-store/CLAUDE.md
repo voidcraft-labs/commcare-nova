@@ -569,6 +569,11 @@ maintenance/headroom allocations. Before every production migration and
 capture-cleanup execution, the entrypoint audits all three exact role limits
 and all three server settings. The deploy preflight additionally waits for
 runtime sessions opened before a lowered cap to drain to 16 before migration.
+Cloud SQL flag provisioning is also exact because its patch API replaces the
+whole set: `cloudsql.enable_pgaudit=on`, `cloudsql.iam_authentication=on`,
+`max_connections=25`, and `pgaudit.log=all`. Audit flags are part of the same
+durable contract as authentication/capacity, not unrelated settings a
+convergence patch may drop.
 Unknown or absent production workloads fail before connecting.
 
 Data lives in the persistent `nova-cases-data` Docker volume

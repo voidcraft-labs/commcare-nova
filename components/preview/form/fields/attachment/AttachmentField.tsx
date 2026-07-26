@@ -10,12 +10,14 @@ import {
 	MAX_CAPTURE_BYTES,
 } from "@/lib/domain/captureFormats";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { useEditMode } from "@/lib/session/hooks";
+import { useCanEdit, useEditMode } from "@/lib/session/hooks";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	AttachmentRejected,
 	type AttachmentSlotDraft,
 	type AttachmentSlotIssue,
 	type AttachmentTaskContext,
+	cancelAttachmentSlotWork,
 	cancelAttachmentTask,
 	clearAttachmentSlotDraft,
 	clearAttachmentSlotIssue,
@@ -28,6 +30,7 @@ import {
 	registerAttachmentSlotPath,
 	rememberAttachmentSlotDraft,
 	rememberOwnedStagedAttachment,
+	resolveAttachmentSlotKey,
 	retryAttachmentRetarget,
 	runAttachmentTask,
 	type StagedAttachment,
@@ -176,6 +179,8 @@ function AttachmentControl({
 	onChangeAt,
 	onBlurAt,
 }: AttachmentFieldProps) {
+	const mayEdit = useCanEdit();
+	const session = useOptionalBuilderSessionApi();
 	const inputId = useId();
 	const actionId = useId();
 	const statusId = useId();
@@ -188,7 +193,27 @@ function AttachmentControl({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const accessibleQuestionLabel =
 		questionLabel ?? field.label ?? fieldRegistry[field.kind].label;
-	const slotKey = attachmentSlotKey ?? path ?? field.uuid;
+	const requestedSlotKey = attachmentSlotKey ?? path ?? field.uuid;
+	const slotKey =
+		appId && entryKey && path
+			? resolveAttachmentSlotKey({
+					appId,
+					entryKey,
+					requestedSlotKey,
+					instancePath: path,
+					fieldUuid: field.uuid,
+				})
+			: requestedSlotKey;
+	const mayEditRef = useRef(mayEdit);
+	mayEditRef.current = mayEdit;
+	const hasWriteAuthority = useCallback((): boolean => {
+		const current = session?.getState();
+		return current === undefined
+			? mayEditRef.current
+			: current.accessPhase === "authorized" &&
+					current.canEdit &&
+					current.appId === appId;
+	}, [appId, session]);
 	const initialOwned =
 		appId && entryKey
 			? getOwnedStagedAttachment({
@@ -274,6 +299,16 @@ function AttachmentControl({
 	}, [appId, entryKey, field.kind, field.uuid, path, slotKey]);
 
 	useEffect(() => {
+		if (mayEdit) return;
+		if (entryKey) cancelAttachmentSlotWork(entryKey, slotKey);
+		if (appId && entryKey) {
+			clearAttachmentSlotDraft({ appId, entryKey, slotKey });
+		}
+		if (inputRef.current) inputRef.current.value = "";
+		setIntent("idle");
+	}, [appId, entryKey, mayEdit, setIntent, slotKey]);
+
+	useEffect(() => {
 		if (!appId || !entryKey) {
 			setSlotIssueState(undefined);
 			return;
@@ -342,6 +377,11 @@ function AttachmentControl({
 	const stageWithinTask = useCallback(
 		async (file: File, context: AttachmentTaskContext): Promise<void> => {
 			const uploadPath = currentPath();
+			if (!hasWriteAuthority()) {
+				throw new AttachmentRejected(
+					"Project editors can attach files and signatures.",
+				);
+			}
 			if (!appId || !entryKey || !uploadPath) {
 				const unavailable = new AttachmentRejected(
 					"This form isn't ready to attach files yet. Wait a moment and try again.",
@@ -376,7 +416,7 @@ function AttachmentControl({
 					file,
 					signal: context.signal,
 				});
-				if (!context.isCurrent()) {
+				if (!context.isCurrent() || !hasWriteAuthority()) {
 					scheduleAttachmentCleanup({
 						appId,
 						attachmentId: next.attachmentId,
@@ -452,12 +492,13 @@ function AttachmentControl({
 			changeCurrent,
 			blurCurrent,
 			setIntent,
+			hasWriteAuthority,
 		],
 	);
 
 	const stage = useCallback(
 		async (file: File) => {
-			if (intentRef.current !== "idle") return;
+			if (intentRef.current !== "idle" || !hasWriteAuthority()) return;
 			if (!entryKey || currentPath() === undefined) {
 				setError(
 					"This form isn't ready to attach files yet. Wait a moment and try again.",
@@ -493,10 +534,12 @@ function AttachmentControl({
 			stageWithinTask,
 			blurCurrent,
 			setIntent,
+			hasWriteAuthority,
 		],
 	);
 
 	const clear = useCallback(() => {
+		if (!hasWriteAuthority()) return;
 		const activeIntent = intentRef.current;
 		if (
 			activeIntent !== "idle" &&
@@ -517,17 +560,6 @@ function AttachmentControl({
 			clearAttachmentSlotDraft({ appId, entryKey, slotKey });
 		}
 		setIntent("queued-clear");
-		const owned =
-			appId && entryKey
-				? forgetOwnedStagedAttachment({
-						appId,
-						entryKey,
-						slotKey,
-					})
-				: undefined;
-		const previous = owned ?? stagedRef.current;
-		stagedRef.current = undefined;
-		setStaged(undefined);
 		setError(undefined);
 		if (inputRef.current) inputRef.current.value = "";
 		if (appId && entryKey) {
@@ -545,6 +577,17 @@ function AttachmentControl({
 					fieldUuid: field.uuid,
 				},
 				task: async () => {
+					// Authority can change while Clear waits behind another slot.
+					// Re-read it before mutating either the answer or ownership.
+					if (!hasWriteAuthority()) return;
+					const previous =
+						forgetOwnedStagedAttachment({
+							appId,
+							entryKey,
+							slotKey,
+						}) ?? stagedRef.current;
+					stagedRef.current = undefined;
+					setStaged(undefined);
 					// Answer first, bytes second. The reverse order is the
 					// upstream defect this lane exists beside: on a device,
 					// clearing a REQUIRED capture removes the file and leaves
@@ -570,6 +613,9 @@ function AttachmentControl({
 			return;
 		}
 
+		const previous = stagedRef.current;
+		stagedRef.current = undefined;
+		setStaged(undefined);
 		changeCurrent("");
 		if (previous && appId) {
 			scheduleAttachmentCleanup({
@@ -590,6 +636,7 @@ function AttachmentControl({
 		changeCurrent,
 		blurCurrent,
 		setIntent,
+		hasWriteAuthority,
 	]);
 
 	const cancelUpload = useCallback(() => {
@@ -661,14 +708,21 @@ function AttachmentControl({
 	}, [appId, entryKey, slotKey, state.value, setIntent]);
 
 	const retryIssue = useCallback(() => {
-		if (!slotIssue || !appId || !entryKey || intentRef.current !== "idle") {
+		if (
+			!slotIssue ||
+			!appId ||
+			!entryKey ||
+			intentRef.current !== "idle" ||
+			!hasWriteAuthority()
+		) {
 			return;
 		}
-		if (slotIssue.kind === "save") {
+		if (slotIssue.kind === "save" || slotIssue.kind === "replace") {
 			if (field.kind !== "signature") {
 				inputRef.current?.click();
 				return;
 			}
+			if (slotIssue.kind === "replace") return;
 			setIntent("queued-upload");
 			setSignatureRetryRevision((revision) => revision + 1);
 			return;
@@ -679,13 +733,27 @@ function AttachmentControl({
 				if (!isAttachmentTaskAbort(error)) blurCurrent();
 			})
 			.finally(() => setIntent("idle"));
-	}, [appId, entryKey, field.kind, slotIssue, slotKey, blurCurrent, setIntent]);
+	}, [
+		appId,
+		entryKey,
+		field.kind,
+		slotIssue,
+		slotKey,
+		blurCurrent,
+		setIntent,
+		hasWriteAuthority,
+	]);
 
 	const hasAnswer = state.value !== "";
 	const busy = intent !== "idle";
+	const interactionBlocked = busy || !mayEdit;
 	const uploadActive = intent === "queued-upload" || intent === "uploading";
 	const chooseFileRecovery =
-		slotIssue?.kind === "save" && field.kind !== "signature";
+		(slotIssue?.kind === "save" || slotIssue?.kind === "replace") &&
+		field.kind !== "signature";
+	const showRecoveryAction = !(
+		slotIssue?.kind === "replace" && field.kind === "signature"
+	);
 	const showError = state.touched && !state.valid;
 	const labelledBy = questionLabelledBy ?? questionLabelId;
 	const describedBy = [
@@ -710,7 +778,9 @@ function AttachmentControl({
 					questionLabel={accessibleQuestionLabel}
 					uploading={intent === "uploading"}
 					queued={intent === "queued-upload" || intent === "queued-retarget"}
-					interactionBlocked={intent === "queued-clear"}
+					interactionBlocked={!mayEdit || intent === "queued-clear"}
+					readOnly={!mayEdit}
+					hasWriteAuthority={hasWriteAuthority}
 					hasAnswer={hasAnswer}
 					needsAttention={slotIssue !== undefined}
 					retryRevision={signatureRetryRevision}
@@ -742,9 +812,9 @@ function AttachmentControl({
 					    keyboard focus ring belong to the real input. */}
 					<label
 						htmlFor={inputId}
-						aria-disabled={busy}
+						aria-disabled={interactionBlocked}
 						className={`relative inline-flex min-h-12 min-w-0 max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pv-input-focus ${
-							busy
+							interactionBlocked
 								? "cursor-default opacity-40"
 								: "cursor-pointer hover:border-pv-input-focus"
 						}`}
@@ -755,18 +825,20 @@ function AttachmentControl({
 							type="file"
 							className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
 							accept={captureAcceptAttribute(field.kind)}
-							disabled={busy}
+							disabled={interactionBlocked}
 							required={state.required}
 							aria-invalid={showError}
 							aria-label={
 								labelledBy
 									? undefined
 									: `${accessibleQuestionLabel}. ${
-											busy
-												? "Attaching"
-												: hasAnswer
-													? "Replace file"
-													: "Attach file"
+											!mayEdit
+												? "Read-only attachment"
+												: busy
+													? "Attaching"
+													: hasAnswer
+														? "Replace file"
+														: "Attach file"
 										}`
 							}
 							aria-labelledby={
@@ -815,7 +887,7 @@ function AttachmentControl({
 						<button
 							type="button"
 							onClick={clear}
-							disabled={busy}
+							disabled={interactionBlocked}
 							aria-describedby={describedBy}
 							aria-labelledby={
 								labelledBy ? `${removeActionId} ${labelledBy}` : undefined
@@ -861,6 +933,14 @@ function AttachmentControl({
 				</p>
 			) : null}
 
+			{!mayEdit ? (
+				<p className="text-xs text-nova-text-muted">
+					{field.kind === "signature"
+						? "Project editors can attach signatures."
+						: "Project editors can attach files."}
+				</p>
+			) : null}
+
 			{slotIssue ? (
 				<div
 					id={errorId}
@@ -878,32 +958,34 @@ function AttachmentControl({
 						<span>{slotIssue.message}</span>
 					</p>
 					<div className="flex flex-wrap gap-2">
-						<button
-							type="button"
-							onClick={retryIssue}
-							disabled={busy}
-							data-attachment-recovery
-							aria-label={`${
-								chooseFileRecovery
-									? "Choose file"
-									: `Retry ${
-											field.kind === "signature" ? "signature" : "attachment"
-										}`
-							} for ${accessibleQuestionLabel}`}
-							aria-labelledby={
-								labelledBy ? `${retryActionId} ${labelledBy}` : undefined
-							}
-							className="inline-flex min-h-11 touch-manipulation items-center rounded-md border border-current px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							<span id={retryActionId}>
-								{chooseFileRecovery ? "Choose file" : "Retry"}
-							</span>
-						</button>
+						{showRecoveryAction ? (
+							<button
+								type="button"
+								onClick={retryIssue}
+								disabled={interactionBlocked}
+								data-attachment-recovery
+								aria-label={`${
+									chooseFileRecovery
+										? "Choose file"
+										: `Retry ${
+												field.kind === "signature" ? "signature" : "attachment"
+											}`
+								} for ${accessibleQuestionLabel}`}
+								aria-labelledby={
+									labelledBy ? `${retryActionId} ${labelledBy}` : undefined
+								}
+								className="inline-flex min-h-11 touch-manipulation items-center rounded-md border border-current px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								<span id={retryActionId}>
+									{chooseFileRecovery ? "Choose file" : "Retry"}
+								</span>
+							</button>
+						) : null}
 						{field.kind === "signature" ? null : (
 							<button
 								type="button"
 								onClick={clear}
-								disabled={busy}
+								disabled={interactionBlocked}
 								aria-label={`Remove attachment for ${accessibleQuestionLabel}`}
 								aria-labelledby={
 									labelledBy

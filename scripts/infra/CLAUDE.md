@@ -60,9 +60,14 @@ then the bundled capacity preflight audits `max_connections=25`,
 role limits and waits for old runtime sessions to drain to at most 16 before
 migration. Migration and capture-cleanup entrypoints repeat the settings/role
 audit at the start of every execution, so post-deploy drift fails closed.
-`provision-cloud-sql.sh` converges the two durable database flags even on an
-existing instance. Every non-local process declares `NOVA_DB_WORKLOAD`;
-operator scripts use their own one-connection workload.
+`provision-cloud-sql.sh` converges the exact complete four-flag replacement set
+even on an existing instance:
+`cloudsql.enable_pgaudit=on`, `cloudsql.iam_authentication=on`,
+`max_connections=25`, and `pgaudit.log=all`. Cloud SQL patch semantics replace
+the whole set, so omitting either pgaudit flag would disable production
+auditing; extra flags are drift and must not be preserved implicitly. Every
+non-local process declares `NOVA_DB_WORKLOAD`; operator scripts use their own
+one-connection workload.
 
 The first database split/cap cutover has one mandatory order:
 

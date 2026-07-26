@@ -13,6 +13,7 @@ import {
 	completeFormAttachmentPreparation,
 	type FormAttachmentRecord,
 	recordFormAttachmentPreparationFailure,
+	renewFormAttachmentDiscardLease,
 } from "./formAttachments";
 
 const PREPARATION_CONCURRENCY = 5;
@@ -50,12 +51,20 @@ function metadataMatches(
  */
 async function discardPreparedCandidate(
 	candidate: FormAttachmentRecord,
-): Promise<void> {
-	let destinationGeneration = candidate.preparedGeneration;
+): Promise<"discarded" | "superseded"> {
+	const lease = await renewFormAttachmentDiscardLease(
+		candidate.attachmentId,
+		candidate.preparationAttempts,
+	);
+	if (lease.kind === "superseded") return "superseded";
+	const ownedCandidate = lease.kind === "leased" ? lease.attachment : candidate;
+	let destinationGeneration = ownedCandidate.preparedGeneration;
 	if (destinationGeneration === null) {
-		const destination = await getStoredObjectMetadata(durableKey(candidate));
+		const destination = await getStoredObjectMetadata(
+			durableKey(ownedCandidate),
+		);
 		if (destination !== null) {
-			if (!metadataMatches(candidate, destination)) {
+			if (!metadataMatches(ownedCandidate, destination)) {
 				throw new Error(
 					"A discard destination does not match its immutable staged attachment.",
 				);
@@ -64,34 +73,33 @@ async function discardPreparedCandidate(
 		}
 	}
 	if (destinationGeneration !== null) {
-		await deleteAssetGeneration(durableKey(candidate), destinationGeneration);
-	}
-	if (candidate.objectGeneration !== null) {
 		await deleteAssetGeneration(
-			candidate.gcsObjectKey,
-			candidate.objectGeneration,
+			durableKey(ownedCandidate),
+			destinationGeneration,
+		);
+	}
+	if (ownedCandidate.objectGeneration !== null) {
+		await deleteAssetGeneration(
+			ownedCandidate.gcsObjectKey,
+			ownedCandidate.objectGeneration,
 		);
 	}
 	const completed = await completeFormAttachmentDiscard(
-		candidate.attachmentId,
-		candidate.preparedGeneration,
+		ownedCandidate.attachmentId,
+		ownedCandidate.preparationAttempts,
+		ownedCandidate.preparedGeneration,
 	);
-	if (!completed) {
-		throw new Error(
-			"A discarded attachment changed after its exact objects were removed.",
-		);
-	}
+	return completed.kind === "superseded" ? "superseded" : "discarded";
 }
 
-type CandidateOutcome = "prepared" | "discarded" | "failed";
+type CandidateOutcome = "prepared" | "discarded" | "failed" | "superseded";
 
 async function processCandidate(
 	candidate: FormAttachmentRecord,
 ): Promise<CandidateOutcome> {
 	try {
 		if (candidate.status === "discarding") {
-			await discardPreparedCandidate(candidate);
-			return "discarded";
+			return await discardPreparedCandidate(candidate);
 		}
 		if (
 			candidate.status !== "preparing" ||
@@ -112,41 +120,56 @@ async function processCandidate(
 		});
 		const completed = await completeFormAttachmentPreparation(
 			candidate.attachmentId,
+			candidate.preparationAttempts,
 			copied.destinationGeneration,
 		);
-		if (completed === null) {
-			// Ordinary Clear/expiry never removes a preparing row; this is a
-			// defensive whole-tenant-deletion boundary. Do not leave the exact
-			// generation created by this worker behind.
+		if (completed.kind === "gone") {
+			// A globally absent row is the one state that proves no newer
+			// preparation/submission owner exists. Only that proof may delete
+			// the deterministic generation this worker observed.
 			await deleteAssetGeneration(
 				durableKey(candidate),
 				copied.destinationGeneration,
 			);
 			return "discarded";
 		}
-		if (completed.status === "discarding") {
-			await discardPreparedCandidate(completed);
-			return "discarded";
+		if (completed.kind === "superseded") {
+			// The destination is deterministic and therefore shared with the
+			// newer attempt. A stale worker must never delete the winner's bytes.
+			return "superseded";
+		}
+		if (completed.kind === "discarding") {
+			return await discardPreparedCandidate(completed.attachment);
 		}
 		return "prepared";
 	} catch (err) {
-		const attempts = await recordFormAttachmentPreparationFailure(
+		const failure = await recordFormAttachmentPreparationFailure(
 			candidate.attachmentId,
+			candidate.preparationAttempts,
 			err,
 		).catch((recordError: unknown) => {
 			log.error("[attachments] preparation retry could not be recorded", {
 				err: recordError,
 				attachmentId: candidate.attachmentId,
 			});
-			return 0;
+			return { kind: "recorded" as const, attempts: 0 };
 		});
+		if (failure.kind !== "recorded") {
+			log.warn("[attachments] stale preparation failure was not recorded", {
+				attachmentId: candidate.attachmentId,
+				status: candidate.status,
+				preparationAttempt: candidate.preparationAttempts,
+				outcome: failure.kind,
+			});
+			return "superseded";
+		}
 		const context = {
 			err,
 			attachmentId: candidate.attachmentId,
-			attempts,
+			attempts: failure.attempts,
 			status: candidate.status,
 		};
-		if (attempts >= 10) {
+		if (failure.attempts >= 10) {
 			log.critical(
 				"[attachments] durable preparation repeatedly failed",
 				context,
@@ -176,8 +199,13 @@ export async function preparePendingFormAttachments(args?: {
 	projectId?: string;
 	attachmentIds?: readonly string[];
 	limit?: number;
-}): Promise<{ prepared: number; discarded: number; failed: number }> {
-	const candidates = await claimFormAttachmentPreparations({
+}): Promise<{
+	prepared: number;
+	discarded: number;
+	failed: number;
+	superseded: number;
+}> {
+	const claimScope = {
 		...(args?.appId === undefined ? {} : { appId: args.appId }),
 		...(args?.entryKey === undefined ? {} : { entryKey: args.entryKey }),
 		...(args?.actorUserId === undefined
@@ -189,26 +217,29 @@ export async function preparePendingFormAttachments(args?: {
 		...(args?.attachmentIds === undefined
 			? {}
 			: { attachmentIds: args.attachmentIds }),
-		...(args?.limit === undefined ? {} : { limit: args.limit }),
-	});
+	};
+	const requestedLimit = Math.min(Math.max(args?.limit ?? 100, 1), 500);
 	const outcomes: CandidateOutcome[] = [];
-	let cursor = 0;
-	const workers = Array.from(
-		{ length: Math.min(PREPARATION_CONCURRENCY, candidates.length) },
-		async () => {
-			while (cursor < candidates.length) {
-				const candidate = candidates[cursor];
-				cursor += 1;
-				if (candidate !== undefined) {
-					outcomes.push(await processCandidate(candidate));
-				}
-			}
-		},
-	);
-	await Promise.all(workers);
+	while (outcomes.length < requestedLimit) {
+		const waveLimit = Math.min(
+			PREPARATION_CONCURRENCY,
+			requestedLimit - outcomes.length,
+		);
+		// Lease only work this wave can begin immediately. Holding dozens of
+		// five-minute leases behind five workers is indistinguishable from a
+		// crash to another scheduler execution.
+		const candidates = await claimFormAttachmentPreparations({
+			...claimScope,
+			limit: waveLimit,
+		});
+		if (candidates.length === 0) break;
+		outcomes.push(...(await Promise.all(candidates.map(processCandidate))));
+		if (candidates.length < waveLimit) break;
+	}
 	return {
 		prepared: outcomes.filter((outcome) => outcome === "prepared").length,
 		discarded: outcomes.filter((outcome) => outcome === "discarded").length,
 		failed: outcomes.filter((outcome) => outcome === "failed").length,
+		superseded: outcomes.filter((outcome) => outcome === "superseded").length,
 	};
 }

@@ -120,10 +120,12 @@ attached something. Where getting the right file matters, ask for it in
 a question of its own with a clear label, rather than as one of several
 attachments on a crowded screen.
 
-The filename is also only shown for as long as the page stays open. A
-worker who reloads mid-form sees the attachment is there but not which
-file it was. Keeping attachment questions near the end of a form, so they
-are answered and submitted in one sitting, avoids most of this.
+In CommCare Web Apps, the filename is only shown for as long as the page stays
+open. If that runtime restores a form after a reload, the attachment answer can
+still be there even though the filename is no longer shown. Nova Preview does
+not restore an unfinished form: reloading starts a new blank entry, including
+blank attachment answers. Keeping attachment questions near the end of a form,
+so they are answered and submitted in one sitting, avoids most of this.
 
 Temporary layout changes do not throw the file away. If saving a newly picked
 file fails, its message and **Choose file** recovery action remain with that
@@ -178,6 +180,9 @@ naming its type. Run the preview and it becomes a working control: attach
 a real file, replace it, or use the visible **Remove** action, and it rides
 the submission with the rest of the form.
 
+Project viewers can inspect attachment and signature answers in Preview, but
+only Project editors can attach, draw, retry, remove, clear, or submit them.
+
 When a worker presses Submit, Nova first waits for every attachment change
 still in progress — including the signature pad's short pause and PNG
 encoding after the latest stroke. If that encoding or upload fails, Nova keeps
@@ -211,6 +216,13 @@ Submit: Nova opens the exact question, announces its retained error, and focuses
 that question's exact recovery action — **Choose file** for a picked-file save
 or **Retry** for a repeat move or signature. Scrolling is not animated when the
 worker has requested reduced motion.
+
+If an author renames an attachment question or one of its containing sections
+while the form is open, Nova moves the staged answer to the question's current
+path before Submit. Converting a section between a group and a repeating section
+does the same for the surviving entry. Changing the question to a different
+attachment type instead removes the incompatible staged file and asks for a new
+file or signature.
 
 The preview shows you exactly what a worker sees, which means it shows
 you a filename and a **Remove** action and nothing else — no thumbnail, no

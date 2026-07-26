@@ -6,18 +6,21 @@ const mocks = vi.hoisted(() => ({
 	claim: vi.fn(),
 	completePreparation: vi.fn(),
 	completeDiscard: vi.fn(),
+	renewDiscard: vi.fn(),
 	recordFailure: vi.fn(),
 	copy: vi.fn(),
 	deleteGeneration: vi.fn(),
 	getMetadata: vi.fn(),
 	error: vi.fn(),
 	critical: vi.fn(),
+	warn: vi.fn(),
 }));
 
 vi.mock("../formAttachments", () => ({
 	claimFormAttachmentPreparations: mocks.claim,
 	completeFormAttachmentPreparation: mocks.completePreparation,
 	completeFormAttachmentDiscard: mocks.completeDiscard,
+	renewFormAttachmentDiscardLease: mocks.renewDiscard,
 	recordFormAttachmentPreparationFailure: mocks.recordFailure,
 }));
 
@@ -31,6 +34,7 @@ vi.mock("@/lib/logger", () => ({
 	log: {
 		error: mocks.error,
 		critical: mocks.critical,
+		warn: mocks.warn,
 	},
 }));
 
@@ -53,6 +57,7 @@ const candidate: FormAttachmentRecord = {
 	objectChecksum: "crc32c",
 	preparedGeneration: null,
 	status: "preparing",
+	preparationAttempts: 1,
 };
 
 const durableKey =
@@ -60,18 +65,27 @@ const durableKey =
 
 describe("preparePendingFormAttachments", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
-		mocks.claim.mockResolvedValue([candidate]);
+		vi.resetAllMocks();
+		mocks.claim.mockResolvedValueOnce([candidate]).mockResolvedValueOnce([]);
 		mocks.copy.mockResolvedValue({
 			destinationGeneration: "23",
 			replay: false,
 		});
 		mocks.completePreparation.mockResolvedValue({
-			...candidate,
-			status: "prepared",
-			preparedGeneration: "23",
+			kind: "prepared",
+			attachment: {
+				...candidate,
+				status: "prepared",
+				preparedGeneration: "23",
+			},
 		});
-		mocks.completeDiscard.mockResolvedValue(true);
+		mocks.completeDiscard.mockResolvedValue({ kind: "discarded" });
+		mocks.renewDiscard.mockImplementation(
+			async (_attachmentId: string, _attempt: number) => ({
+				kind: "leased",
+				attachment: candidate,
+			}),
+		);
 		mocks.deleteGeneration.mockResolvedValue(undefined);
 		mocks.getMetadata.mockResolvedValue(null);
 	});
@@ -86,7 +100,12 @@ describe("preparePendingFormAttachments", () => {
 				attachmentIds: [candidate.attachmentId],
 				limit: 7,
 			}),
-		).resolves.toEqual({ prepared: 1, discarded: 0, failed: 0 });
+		).resolves.toEqual({
+			prepared: 1,
+			discarded: 0,
+			failed: 0,
+			superseded: 0,
+		});
 
 		expect(mocks.claim).toHaveBeenCalledWith({
 			appId: candidate.appId,
@@ -94,7 +113,7 @@ describe("preparePendingFormAttachments", () => {
 			actorUserId: candidate.createdBy,
 			expectedProjectId: candidate.projectId,
 			attachmentIds: [candidate.attachmentId],
-			limit: 7,
+			limit: 5,
 		});
 		expect(mocks.copy).toHaveBeenCalledWith({
 			sourceGcsObjectKey: candidate.gcsObjectKey,
@@ -106,6 +125,7 @@ describe("preparePendingFormAttachments", () => {
 		});
 		expect(mocks.completePreparation).toHaveBeenCalledWith(
 			candidate.attachmentId,
+			1,
 			"23",
 		);
 		expect(mocks.deleteGeneration).not.toHaveBeenCalled();
@@ -113,15 +133,27 @@ describe("preparePendingFormAttachments", () => {
 
 	it("finishes exact cleanup when Clear wins while the copy is in flight", async () => {
 		mocks.completePreparation.mockResolvedValue({
-			...candidate,
-			status: "discarding",
-			preparedGeneration: "23",
+			kind: "discarding",
+			attachment: {
+				...candidate,
+				status: "discarding",
+				preparedGeneration: "23",
+			},
+		});
+		mocks.renewDiscard.mockResolvedValue({
+			kind: "leased",
+			attachment: {
+				...candidate,
+				status: "discarding",
+				preparedGeneration: "23",
+			},
 		});
 
 		await expect(preparePendingFormAttachments()).resolves.toEqual({
 			prepared: 0,
 			discarded: 1,
 			failed: 0,
+			superseded: 0,
 		});
 
 		expect(mocks.deleteGeneration).toHaveBeenNthCalledWith(1, durableKey, "23");
@@ -132,14 +164,26 @@ describe("preparePendingFormAttachments", () => {
 		);
 		expect(mocks.completeDiscard).toHaveBeenCalledWith(
 			candidate.attachmentId,
+			1,
 			"23",
 		);
 	});
 
 	it("recovers a crash-before-row-update discard from verified destination metadata", async () => {
-		mocks.claim.mockResolvedValue([
-			{ ...candidate, status: "discarding", preparedGeneration: null },
-		]);
+		mocks.claim
+			.mockReset()
+			.mockResolvedValueOnce([
+				{ ...candidate, status: "discarding", preparedGeneration: null },
+			])
+			.mockResolvedValueOnce([]);
+		mocks.renewDiscard.mockResolvedValue({
+			kind: "leased",
+			attachment: {
+				...candidate,
+				status: "discarding",
+				preparedGeneration: null,
+			},
+		});
 		mocks.getMetadata.mockResolvedValue({
 			size: 5,
 			generation: "23",
@@ -151,6 +195,7 @@ describe("preparePendingFormAttachments", () => {
 			prepared: 0,
 			discarded: 1,
 			failed: 0,
+			superseded: 0,
 		});
 
 		expect(mocks.copy).not.toHaveBeenCalled();
@@ -162,6 +207,7 @@ describe("preparePendingFormAttachments", () => {
 		);
 		expect(mocks.completeDiscard).toHaveBeenCalledWith(
 			candidate.attachmentId,
+			1,
 			null,
 		);
 	});
@@ -169,17 +215,22 @@ describe("preparePendingFormAttachments", () => {
 	it("keeps preparation retryable and escalates repeated failures", async () => {
 		const copyError = new Error("copy unavailable");
 		mocks.copy.mockRejectedValue(copyError);
-		mocks.recordFailure.mockResolvedValue(10);
+		mocks.recordFailure.mockResolvedValue({
+			kind: "recorded",
+			attempts: 10,
+		});
 
 		await expect(preparePendingFormAttachments()).resolves.toEqual({
 			prepared: 0,
 			discarded: 0,
 			failed: 1,
+			superseded: 0,
 		});
 
 		expect(mocks.completePreparation).not.toHaveBeenCalled();
 		expect(mocks.recordFailure).toHaveBeenCalledWith(
 			candidate.attachmentId,
+			1,
 			copyError,
 		);
 		expect(mocks.critical).toHaveBeenCalledWith(
@@ -191,5 +242,116 @@ describe("preparePendingFormAttachments", () => {
 				status: "preparing",
 			}),
 		);
+	});
+
+	it("does not delete a shared durable generation when an expired worker is superseded", async () => {
+		mocks.completePreparation.mockResolvedValue({ kind: "superseded" });
+
+		await expect(preparePendingFormAttachments({ limit: 1 })).resolves.toEqual({
+			prepared: 0,
+			discarded: 0,
+			failed: 0,
+			superseded: 1,
+		});
+
+		expect(mocks.deleteGeneration).not.toHaveBeenCalled();
+		expect(mocks.recordFailure).not.toHaveBeenCalled();
+	});
+
+	it("re-proves a discard lease before deleting either shared generation", async () => {
+		mocks.claim
+			.mockReset()
+			.mockResolvedValueOnce([
+				{
+					...candidate,
+					status: "discarding",
+					preparedGeneration: "23",
+				},
+			])
+			.mockResolvedValueOnce([]);
+		mocks.renewDiscard.mockResolvedValue({ kind: "superseded" });
+
+		await expect(preparePendingFormAttachments({ limit: 1 })).resolves.toEqual({
+			prepared: 0,
+			discarded: 0,
+			failed: 0,
+			superseded: 1,
+		});
+
+		expect(mocks.deleteGeneration).not.toHaveBeenCalled();
+		expect(mocks.completeDiscard).not.toHaveBeenCalled();
+	});
+
+	it("reports a stale failure without backing off the newer attempt", async () => {
+		const copyError = new Error("expired worker failed");
+		mocks.copy.mockRejectedValue(copyError);
+		mocks.recordFailure.mockResolvedValue({ kind: "superseded" });
+
+		await expect(preparePendingFormAttachments({ limit: 1 })).resolves.toEqual({
+			prepared: 0,
+			discarded: 0,
+			failed: 0,
+			superseded: 1,
+		});
+
+		expect(mocks.warn).toHaveBeenCalledWith(
+			"[attachments] stale preparation failure was not recorded",
+			expect.objectContaining({
+				attachmentId: candidate.attachmentId,
+				preparationAttempt: 1,
+				outcome: "superseded",
+			}),
+		);
+		expect(mocks.error).not.toHaveBeenCalledWith(
+			"[attachments] durable preparation failed and will retry",
+			expect.anything(),
+		);
+	});
+
+	it("claims just-in-time waves no larger than concurrency and honors the total limit", async () => {
+		vi.resetAllMocks();
+		let minted = 0;
+		mocks.claim.mockImplementation(async ({ limit }: { limit: number }) =>
+			Array.from({ length: limit }, () => ({
+				...candidate,
+				attachmentId: `11111111-1111-4111-8111-${String(++minted).padStart(
+					12,
+					"0",
+				)}`,
+			})),
+		);
+		mocks.copy.mockResolvedValue({
+			destinationGeneration: "23",
+			replay: false,
+		});
+		mocks.completePreparation.mockImplementation(
+			async (
+				attachmentId: string,
+				_expectedAttempt: number,
+				destinationGeneration: string,
+			) => ({
+				kind: "prepared",
+				attachment: {
+					...candidate,
+					attachmentId,
+					status: "prepared",
+					preparedGeneration: destinationGeneration,
+				},
+			}),
+		);
+
+		await expect(preparePendingFormAttachments({ limit: 12 })).resolves.toEqual(
+			{
+				prepared: 12,
+				discarded: 0,
+				failed: 0,
+				superseded: 0,
+			},
+		);
+
+		expect(mocks.claim.mock.calls.map(([args]) => args.limit)).toEqual([
+			5, 5, 2,
+		]);
+		expect(mocks.copy).toHaveBeenCalledTimes(12);
 	});
 });

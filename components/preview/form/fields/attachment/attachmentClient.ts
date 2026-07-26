@@ -5,6 +5,7 @@
 // through Cloud Run. The answer is set only after confirm returns, because
 // a `pending` row's object may not exist yet and a submission that
 // promoted one would carry a name with nothing behind it.
+import { remapInstancePath } from "@/lib/preview/engine/instancePaths";
 
 /** What a staged attachment gives the form: the answer, plus what to show. */
 export interface StagedAttachment {
@@ -65,7 +66,7 @@ interface AttachmentSlot {
 	readonly fieldUuid?: string;
 	/** Worker-visible capture family. Retarget recovery copy differs for the
 	 * one drawn kind because "attach a replacement" is not its gesture. */
-	readonly captureKind?: string;
+	captureKind?: string;
 	/** Engine path the stable slot currently projects onto. */
 	desiredInstancePath: string;
 	/** Confirmed row plus the path its immutable server row currently holds. */
@@ -88,7 +89,7 @@ interface AttachmentSlot {
 }
 
 export interface AttachmentSlotIssue {
-	readonly kind: "retarget" | "save";
+	readonly kind: "retarget" | "replace" | "save";
 	readonly message: string;
 }
 
@@ -108,6 +109,35 @@ export interface AttachmentSlotDraft {
  * the server row already moved.
  */
 const attachmentSlots = new Map<string, Map<string, AttachmentSlot>>();
+
+/**
+ * Resolve a newly rendered control back to the entry-local slot that already
+ * owns its stable field UUID and concrete path.
+ *
+ * A group↔repeat authoring conversion changes the renderer's repeat-scope key
+ * even though the capture field itself keeps its UUID. The engine publishes
+ * the path move before React remounts the control, so the old slot can be
+ * recovered by `(field UUID, current concrete path)` instead of minting a
+ * second owner for the same answer.
+ */
+export function resolveAttachmentSlotKey(args: {
+	appId: string;
+	entryKey: string;
+	requestedSlotKey: string;
+	instancePath: string;
+	fieldUuid: string;
+}): string {
+	const slots = attachmentSlots.get(args.entryKey);
+	const requested = slots?.get(args.requestedSlotKey);
+	if (requested?.appId === args.appId) return args.requestedSlotKey;
+	const matches = [...(slots ?? [])].filter(
+		([, slot]) =>
+			slot.appId === args.appId &&
+			slot.fieldUuid === args.fieldUuid &&
+			slot.desiredInstancePath === args.instancePath,
+	);
+	return matches.length === 1 ? matches[0][0] : args.requestedSlotKey;
+}
 
 export interface SignaturePoint {
 	/** Fraction of the current canvas width, normally within `[0, 1]`. */
@@ -177,12 +207,12 @@ function retargetIssueFor(slot: AttachmentSlot): AttachmentSlotIssue {
 		? {
 				kind: "retarget",
 				message:
-					"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
+					"This signature could not move to the question's current location. Retry now, draw it again, or use Clear signature.",
 			}
 		: {
 				kind: "retarget",
 				message:
-					"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+					"This attachment could not move to the question's current location. Retry now, attach a replacement, or remove it.",
 			};
 }
 
@@ -469,6 +499,27 @@ export function cancelAttachmentTask(entryKey: string, slotKey: string): void {
 	if (queue !== undefined) releaseQueueIfIdle(entryKey, queue);
 }
 
+/** Abort every direct, synthetic, and maintenance operation whose real target
+ * is one stable slot. Authority loss and slot retirement use this stronger
+ * boundary; ordinary newer intents still cancel only their direct generation. */
+export function cancelAttachmentSlotWork(
+	entryKey: string,
+	slotKey: string,
+): void {
+	const queue = entryQueues.get(entryKey);
+	if (queue === undefined) return;
+	for (const [key, current] of [...queue.paths]) {
+		if (key !== slotKey && current.target.slotKey !== slotKey) continue;
+		current.controller.abort();
+		queue.paths.delete(key);
+	}
+	for (const controller of queue.maintenance.get(slotKey) ?? []) {
+		controller.abort();
+	}
+	queue.maintenance.delete(slotKey);
+	releaseQueueIfIdle(entryKey, queue);
+}
+
 /** Abort every path in an entry before a form-wide reset. */
 export function cancelAttachmentEntry(entryKey: string): void {
 	const queue = entryQueues.get(entryKey);
@@ -559,7 +610,7 @@ function retireAttachmentSlot(entryKey: string, slotKey: string): void {
 	const slot = slots?.get(slotKey);
 	slots?.delete(slotKey);
 	if (slots?.size === 0) attachmentSlots.delete(entryKey);
-	cancelAttachmentTask(entryKey, slotKey);
+	cancelAttachmentSlotWork(entryKey, slotKey);
 	clearAttachmentNotReady(entryKey, slotKey);
 	clearSignatureDraft(entryKey, slotKey);
 	notifyAttachmentSlotState(entryKey);
@@ -849,6 +900,60 @@ function descendantPath(path: string, prefix: string): boolean {
 	return path.startsWith(`${prefix}/`);
 }
 
+function enqueueAttachmentSlotRetarget(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+}): Promise<AttachmentRetargetFailure | undefined> {
+	return enqueueSlotMaintenance(args.entryKey, args.slotKey, async (signal) => {
+		const live = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+		if (live?.appId !== args.appId || live.owned === undefined) {
+			return undefined;
+		}
+		const target = live.desiredInstancePath;
+		const expected = live.owned.instancePath;
+		if (target === expected) return undefined;
+		const attachment = live.owned.attachment;
+		try {
+			await retargetAttachment({
+				appId: args.appId,
+				attachmentId: attachment.attachmentId,
+				expectedInstancePath: expected,
+				instancePath: target,
+				signal,
+			});
+			const latestSlot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+			if (
+				latestSlot?.owned?.attachment.attachmentId === attachment.attachmentId
+			) {
+				latestSlot.owned.instancePath = target;
+				clearSlotIssue(args.entryKey, args.slotKey, latestSlot, {
+					kind: "retarget",
+				});
+			}
+			return undefined;
+		} catch (error) {
+			if (isAttachmentTaskAbort(error)) throw error;
+			const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+			if (latest?.owned?.attachment.attachmentId === attachment.attachmentId) {
+				const generation =
+					entryQueues.get(args.entryKey)?.generations.get(args.slotKey) ?? 0;
+				setSlotIssue(
+					args.entryKey,
+					args.slotKey,
+					latest,
+					retargetIssueFor(latest),
+					generation,
+				);
+			}
+			return { slotKey: args.slotKey, instancePath: target };
+		}
+	}).catch((error: unknown) => {
+		if (isAttachmentTaskAbort(error)) return undefined;
+		throw error;
+	});
+}
+
 /**
  * Reconcile every registered slot after one engine-owned repeat compaction.
  *
@@ -883,58 +988,107 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 			move.fromPrefix.length,
 		)}`;
 		jobs.push(
-			enqueueSlotMaintenance(args.entryKey, slotKey, async (signal) => {
-				const live = attachmentSlots.get(args.entryKey)?.get(slotKey);
-				if (live?.appId !== args.appId || live.owned === undefined) {
-					return undefined;
-				}
-				const target = live.desiredInstancePath;
-				const expected = live.owned.instancePath;
-				if (target === expected) return undefined;
-				const attachment = live.owned.attachment;
-				try {
-					await retargetAttachment({
-						appId: args.appId,
-						attachmentId: attachment.attachmentId,
-						expectedInstancePath: expected,
-						instancePath: target,
-						signal,
-					});
-					const latest = attachmentSlots
-						.get(args.entryKey)
-						?.get(slotKey)?.owned;
-					if (latest?.attachment.attachmentId === attachment.attachmentId) {
-						latest.instancePath = target;
-						const latestSlot = attachmentSlots.get(args.entryKey)?.get(slotKey);
-						if (latestSlot !== undefined) {
-							clearSlotIssue(args.entryKey, slotKey, latestSlot, {
-								kind: "retarget",
-							});
+			enqueueAttachmentSlotRetarget({
+				appId: args.appId,
+				entryKey: args.entryKey,
+				slotKey,
+			}),
+		);
+	}
+	if (slots.size === 0) attachmentSlots.delete(args.entryKey);
+	return (await Promise.all(jobs)).filter(
+		(failure): failure is AttachmentRetargetFailure => failure !== undefined,
+	);
+}
+
+export interface AttachmentAuthoredPathMigration {
+	readonly moves: ReadonlyArray<{
+		readonly fieldUuid: string;
+		readonly oldPathTemplate: string;
+		readonly newPathTemplate: string;
+		readonly previousCaptureKind?: string;
+		readonly captureKind?: string;
+	}>;
+}
+
+/**
+ * Reconcile capture ownership after a live authoring rename or
+ * group↔repeat conversion.
+ *
+ * The engine publishes these moves before React can remount a renamed
+ * question. Desired paths therefore change synchronously, while the row CAS
+ * joins the same entry queue as upload and Submit. A capture-kind conversion
+ * is deliberately not retargeted: the old row is cleaned up and the stable
+ * field UUID retains an actionable replacement blocker for the new control.
+ */
+export async function reconcileAttachmentAuthoredPathMigration(args: {
+	appId: string;
+	entryKey: string;
+	migration: AttachmentAuthoredPathMigration;
+}): Promise<readonly AttachmentRetargetFailure[]> {
+	const slots = attachmentSlots.get(args.entryKey);
+	if (slots === undefined) return [];
+	const jobs: Array<Promise<AttachmentRetargetFailure | undefined>> = [];
+
+	for (const [slotKey, slot] of [...slots]) {
+		if (slot.appId !== args.appId || slot.fieldUuid === undefined) continue;
+		const move = args.migration.moves.find(
+			(candidate) => candidate.fieldUuid === slot.fieldUuid,
+		);
+		if (move === undefined) continue;
+		const nextPath = remapInstancePath(
+			slot.desiredInstancePath,
+			move.oldPathTemplate,
+			move.newPathTemplate,
+		);
+		if (nextPath === null) {
+			retireAttachmentSlot(args.entryKey, slotKey);
+			continue;
+		}
+		slot.desiredInstancePath = nextPath;
+
+		if (move.previousCaptureKind !== move.captureKind) {
+			cancelAttachmentSlotWork(args.entryKey, slotKey);
+			const previous = slot.owned?.attachment;
+			slot.owned = undefined;
+			slot.draft = undefined;
+			slot.captureKind = move.captureKind;
+			clearSignatureDraft(args.entryKey, slotKey);
+			clearAttachmentNotReady(args.entryKey, slotKey);
+			clearSlotIssue(args.entryKey, slotKey, slot);
+			if (previous !== undefined) {
+				scheduleAttachmentCleanup({
+					appId: args.appId,
+					attachmentId: previous.attachmentId,
+				});
+			}
+			if (move.captureKind === undefined) {
+				retireAttachmentSlot(args.entryKey, slotKey);
+				continue;
+			}
+			const issue: AttachmentSlotIssue =
+				move.captureKind === "signature"
+					? {
+							kind: "replace",
+							message:
+								"This question is now a signature. Draw a new signature before submitting.",
 						}
-					}
-					return undefined;
-				} catch (error) {
-					if (isAttachmentTaskAbort(error)) throw error;
-					const latest = attachmentSlots.get(args.entryKey)?.get(slotKey);
-					if (
-						latest?.owned?.attachment.attachmentId === attachment.attachmentId
-					) {
-						const generation =
-							entryQueues.get(args.entryKey)?.generations.get(slotKey) ?? 0;
-						setSlotIssue(
-							args.entryKey,
-							slotKey,
-							latest,
-							retargetIssueFor(latest),
-							generation,
-						);
-					}
-					const failure = { slotKey, instancePath: target };
-					return failure;
-				}
-			}).catch((error: unknown) => {
-				if (isAttachmentTaskAbort(error)) return undefined;
-				throw error;
+					: {
+							kind: "replace",
+							message:
+								"This question's attachment type changed. Attach a new file before submitting.",
+						};
+			const generation =
+				entryQueues.get(args.entryKey)?.generations.get(slotKey) ?? 0;
+			setSlotIssue(args.entryKey, slotKey, slot, issue, generation);
+			continue;
+		}
+
+		jobs.push(
+			enqueueAttachmentSlotRetarget({
+				appId: args.appId,
+				entryKey: args.entryKey,
+				slotKey,
 			}),
 		);
 	}

@@ -75,8 +75,10 @@ describe("durable deployment policy", () => {
 		);
 		expect(cloudSqlProvisioning).toContain("readonly MAX_CONNECTIONS=25");
 		expect(cloudSqlProvisioning).toContain(
-			'expected_database_flags="cloudsql.iam_authentication=on,max_connections=$' +
-				'{MAX_CONNECTIONS}"',
+			`readonly DATABASE_FLAGS="cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=on,max_connections=\${MAX_CONNECTIONS},pgaudit.log=all"`,
+		);
+		expect(cloudSqlProvisioning).toContain(
+			'expected_database_flags="$DATABASE_FLAGS"',
 		);
 		expect(cloudSqlProvisioning).toContain(
 			'CAPTURE_CLEANUP_SA_EMAIL="nova-capture-cleanup@',
@@ -88,6 +90,42 @@ describe("durable deployment policy", () => {
 		expect(cloudSqlProvisioning).toContain("NOVA_DB_WORKLOAD=service");
 		expect(cloudSqlProvisioning).toContain(
 			"yaml(metadata.annotations,spec.template.metadata.annotations",
+		);
+	});
+
+	test("preserves the live four-flag Cloud SQL audit/IAM/capacity shape exactly", () => {
+		// `read_database_flags` sorts the live API response before comparison.
+		// Pin the production-shaped four-flag response here so adding exact
+		// convergence can never regress into replacement of the pgaudit flags.
+		const liveDatabaseFlags = [
+			{ name: "pgaudit.log", value: "all" },
+			{ name: "max_connections", value: "25" },
+			{ name: "cloudsql.iam_authentication", value: "on" },
+			{ name: "cloudsql.enable_pgaudit", value: "on" },
+		];
+		const canonicalLiveFlags = liveDatabaseFlags
+			.map((flag) => `${flag.name}=${flag.value}`)
+			.sort()
+			.join(",");
+		expect(canonicalLiveFlags).toBe(
+			"cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=on,max_connections=25,pgaudit.log=all",
+		);
+		expect(cloudSqlProvisioning).toContain(
+			'--database-flags="$DATABASE_FLAGS"',
+		);
+		expect(
+			cloudSqlProvisioning.match(/--database-flags="\\?\$DATABASE_FLAGS"/g),
+		).toHaveLength(1);
+		expect(cloudSqlProvisioning).toContain(
+			'--database-flags="$expected_database_flags"',
+		);
+		expect(
+			canonicalLiveFlags.replace(
+				"max_connections=25",
+				`max_connections=\${MAX_CONNECTIONS}`,
+			),
+		).toBe(
+			`cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=on,max_connections=\${MAX_CONNECTIONS},pgaudit.log=all`,
 		);
 	});
 

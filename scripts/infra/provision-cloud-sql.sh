@@ -49,6 +49,10 @@ readonly BACKUP_START_TIME="07:00"
 readonly RETAINED_BACKUPS_COUNT=7
 readonly RETAINED_TRANSACTION_LOG_DAYS=4
 readonly MAX_CONNECTIONS=25
+# Cloud SQL replaces the complete database-flag set on every patch. Keep audit
+# enablement/logging in the same exact contract as IAM auth and capacity so a
+# convergence run can never silently disable production auditing.
+readonly DATABASE_FLAGS="cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=on,max_connections=${MAX_CONNECTIONS},pgaudit.log=all"
 
 # Dedicated IAM identities (full form, used for project IAM bindings).
 readonly MIGRATION_SA_EMAIL="nova-migrate@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -177,15 +181,16 @@ else
 		--retained-backups-count="$RETAINED_BACKUPS_COUNT" \
 		--enable-point-in-time-recovery \
 		--retained-transaction-log-days="$RETAINED_TRANSACTION_LOG_DAYS" \
-		--database-flags="cloudsql.iam_authentication=on,max_connections=${MAX_CONNECTIONS}" \
+		--database-flags="$DATABASE_FLAGS" \
 		--quiet
 fi
 
-# P2-3: converge the capacity/IAM-auth flags even on an existing instance.
+# P2-3: converge capacity, IAM-auth, and pgaudit flags even on an existing
+# instance.
 # `--database-flags` is a replacement set, so every durable flag belongs in
 # this exact contract. The database preflight independently audits the
 # effective PostgreSQL settings before migration and maintenance Jobs.
-expected_database_flags="cloudsql.iam_authentication=on,max_connections=${MAX_CONNECTIONS}"
+expected_database_flags="$DATABASE_FLAGS"
 read_database_flags() {
 	gcloud sql instances describe "$INSTANCE_ID" \
 		--format='json(settings.databaseFlags)' \

@@ -10,9 +10,11 @@ import {
 	getOwnedStagedAttachment,
 	isAttachmentTaskAbort,
 	markAttachmentNotReady,
+	reconcileAttachmentAuthoredPathMigration,
 	reconcileAttachmentRepeatCompaction,
 	registerAttachmentSlotPath,
 	rememberOwnedStagedAttachment,
+	resolveAttachmentSlotKey,
 	retargetAttachment,
 	retryAttachmentRetarget,
 	runAttachmentTask,
@@ -618,6 +620,334 @@ describe("form attachment coordinator", () => {
 		).toBeUndefined();
 	});
 
+	it.each([
+		{
+			name: "capture field",
+			oldTemplate: "/data/photo",
+			newTemplate: "/data/evidence",
+			oldPath: "/data/photo",
+			newPath: "/data/evidence",
+		},
+		{
+			name: "capture ancestor",
+			oldTemplate: "/data/visit/photo",
+			newTemplate: "/data/encounter/photo",
+			oldPath: "/data/visit/photo",
+			newPath: "/data/encounter/photo",
+		},
+	])(
+		"retargets a confirmed row when its authored $name is renamed",
+		async ({ name, oldTemplate, newTemplate, oldPath, newPath }) => {
+			const entryKey = `entry-authored-${name}`;
+			const slotKey = `photo:${name}`;
+			const fieldUuid = "22222222-2222-4222-8222-222222222222";
+			registerAttachmentSlotPath({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				fieldUuid,
+				instancePath: oldPath,
+				captureKind: "image",
+			});
+			rememberOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				instancePath: oldPath,
+				attachment: {
+					attachmentId: `attachment-${name}`,
+					attachmentName: `attachment-${name}.png`,
+					originalFilename: "photo.png",
+					sizeBytes: 3,
+				},
+			});
+			const order: string[] = [];
+			const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
+				order.push("retarget");
+				expect(JSON.parse(String(init?.body))).toEqual({
+					expectedInstancePath: oldPath,
+					instancePath: newPath,
+				});
+				return { ok: true, status: 200 };
+			});
+			vi.stubGlobal("fetch", fetchMock);
+
+			const maintenance = reconcileAttachmentAuthoredPathMigration({
+				appId: "app-1",
+				entryKey,
+				migration: {
+					moves: [
+						{
+							fieldUuid,
+							oldPathTemplate: oldTemplate,
+							newPathTemplate: newTemplate,
+							previousCaptureKind: "image",
+							captureKind: "image",
+						},
+					],
+				},
+			});
+			const submit = runFormAttachmentBarrier(entryKey, async () => {
+				order.push("submit");
+			});
+			await Promise.all([maintenance, submit]);
+
+			expect(order).toEqual(["retarget", "submit"]);
+			expect(getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey })).toBe(
+				newPath,
+			);
+		},
+	);
+
+	it("serializes an authored rename behind an in-flight upload and ahead of Submit", async () => {
+		const entryKey = "entry-authored-upload-race";
+		const slotKey = "photo:stable";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/photo",
+			captureKind: "image",
+		});
+		const uploadRelease = deferred<void>();
+		const order: string[] = [];
+		const upload = runAttachmentTask({
+			entryKey,
+			slotKey,
+			task: async () => {
+				await uploadRelease.promise;
+				rememberOwnedStagedAttachment({
+					appId: "app-1",
+					entryKey,
+					slotKey,
+					instancePath: "/data/photo",
+					attachment: {
+						attachmentId: "attachment-uploaded-before-rename",
+						attachmentName: "attachment-uploaded-before-rename.png",
+						originalFilename: "photo.png",
+						sizeBytes: 3,
+					},
+				});
+				order.push("upload");
+			},
+		});
+		const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
+			order.push("retarget");
+			expect(JSON.parse(String(init?.body))).toEqual({
+				expectedInstancePath: "/data/photo",
+				instancePath: "/data/evidence",
+			});
+			return { ok: true, status: 200 };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const maintenance = reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						fieldUuid,
+						oldPathTemplate: "/data/photo",
+						newPathTemplate: "/data/evidence",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+			},
+		});
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			order.push("submit");
+		});
+		await Promise.resolve();
+		expect(order).toEqual([]);
+
+		uploadRelease.resolve();
+		await Promise.all([upload, maintenance, submit]);
+		expect(order).toEqual(["upload", "retarget", "submit"]);
+	});
+
+	it("migrates group↔repeat ownership by stable field UUID and retires extra repeat instances", async () => {
+		const entryKey = "entry-authored-container-conversion";
+		const slotKey = "photo:group-owner";
+		const extraSlotKey = "photo:repeat-extra";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/visit/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visit/photo",
+			attachment: {
+				attachmentId: "attachment-first-instance",
+				attachmentName: "attachment-first-instance.png",
+				originalFilename: "first.png",
+				sizeBytes: 3,
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						fieldUuid,
+						oldPathTemplate: "/data/visit/photo",
+						newPathTemplate: "/data/visit[0]/photo",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+			},
+		});
+		expect(
+			resolveAttachmentSlotKey({
+				appId: "app-1",
+				entryKey,
+				requestedSlotKey: "photo:new-repeat-render-key",
+				instancePath: "/data/visit[0]/photo",
+				fieldUuid,
+			}),
+		).toBe(slotKey);
+
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey: extraSlotKey,
+			fieldUuid,
+			instancePath: "/data/visit[1]/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey: extraSlotKey,
+			instancePath: "/data/visit[1]/photo",
+			attachment: {
+				attachmentId: "attachment-extra-instance",
+				attachmentName: "attachment-extra-instance.png",
+				originalFilename: "extra.png",
+				sizeBytes: 3,
+			},
+		});
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						fieldUuid,
+						oldPathTemplate: "/data/visit[0]/photo",
+						newPathTemplate: "/data/visit/photo",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+			},
+		});
+		await vi.waitFor(() =>
+			expect(
+				fetchMock.mock.calls.some(
+					([url, init]) =>
+						String(url).endsWith("/attachment-extra-instance") &&
+						init?.method === "DELETE",
+				),
+			).toBe(true),
+		);
+
+		expect(getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey })).toBe(
+			"/data/visit/photo",
+		);
+		expect(
+			getAttachmentSlotPath({
+				appId: "app-1",
+				entryKey,
+				slotKey: extraSlotKey,
+			}),
+		).toBeUndefined();
+		expect(
+			fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+		).toHaveLength(2);
+	});
+
+	it("cleans an incompatible capture kind and keeps a targeted replacement blocker", async () => {
+		const entryKey = "entry-incompatible-capture-kind";
+		const slotKey = "capture:stable-field";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/evidence",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/evidence",
+			attachment: {
+				attachmentId: "attachment-wrong-kind",
+				attachmentName: "attachment-wrong-kind.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						fieldUuid,
+						oldPathTemplate: "/data/evidence",
+						newPathTemplate: "/data/evidence",
+						previousCaptureKind: "image",
+						captureKind: "signature",
+					},
+				],
+			},
+		});
+
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
+		).toEqual({
+			kind: "replace",
+			message:
+				"This question is now a signature. Draw a new signature before submitting.",
+		});
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "must not submit"),
+		).rejects.toThrow(/draw a new signature/i);
+		await vi.waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/apps/app-1/attachments/attachment-wrong-kind",
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
+		expect(
+			fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+		).toHaveLength(0);
+	});
+
 	it("retargets a hidden capture before the post-compaction submit barrier", async () => {
 		const entryKey = "entry-hidden-repeat";
 		const slotKey = "photo:stable-row-2";
@@ -918,7 +1248,7 @@ describe("form attachment coordinator", () => {
 		).toEqual({
 			kind: "retarget",
 			message:
-				"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+				"This attachment could not move to the question's current location. Retry now, attach a replacement, or remove it.",
 		});
 		expect(
 			fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),

@@ -8,6 +8,7 @@
 
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { resolveAuthorizedAppSnapshot } from "../appAccess";
 import {
 	beginFormAttachmentPreparation,
@@ -102,6 +103,85 @@ describe("form attachment URL-app authority", () => {
 			instance_path: "/data/photo",
 			status: "staged",
 		});
+	});
+});
+
+describe("form attachment authored-path retarget", () => {
+	it("accepts the row's stored old path when only the destination matches the current capture template", async () => {
+		const fieldUuid = crypto.randomUUID();
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									uuid: fieldUuid,
+									id: "evidence",
+									kind: "image",
+									label: "Evidence",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const appId = await h.seedAppWithBlueprint(doc, {
+			id: "capture-authored-retarget-app",
+			owner: ACTOR,
+			projectId: PROJECT,
+		});
+		const attachmentId = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("form_attachments")
+			.values({
+				attachment_id: attachmentId,
+				attachment_name: `${attachmentId}.png`,
+				app_id: appId,
+				project_id: PROJECT,
+				created_by: ACTOR,
+				entry_key: crypto.randomUUID(),
+				field_uuid: fieldUuid,
+				// The row was staged before the author renamed `photo` to
+				// `evidence`; only this stored CAS coordinate remains old.
+				instance_path: "/data/photo",
+				original_filename: "photo.png",
+				extension: ".png",
+				content_type: "image/png",
+				size_bytes: 3,
+				gcs_object_key: `captures-staged/${PROJECT}/${attachmentId}.png`,
+				object_generation: "17",
+				object_checksum: "checksum",
+				prepared_generation: null,
+				status: "staged",
+				last_preparation_error: null,
+				expires_at: new Date(Date.now() + 60_000),
+			})
+			.execute();
+
+		await expect(
+			retargetStagedFormAttachment({
+				attachmentId,
+				actorUserId: ACTOR,
+				expectedAppId: appId,
+				expectedProjectId: PROJECT,
+				expectedInstancePath: "/data/photo",
+				instancePath: "/data/evidence",
+			}),
+		).resolves.toMatchObject({ instancePath: "/data/evidence" });
+		await expect(
+			h
+				.db()
+				.selectFrom("form_attachments")
+				.select("instance_path")
+				.where("attachment_id", "=", attachmentId)
+				.executeTakeFirstOrThrow(),
+		).resolves.toEqual({ instance_path: "/data/evidence" });
 	});
 });
 
@@ -351,6 +431,12 @@ describe("form attachment preparation concurrency", () => {
 			kind: "prepare",
 			attachmentIds: [attachmentId],
 		});
+		const [claimed] = await claimFormAttachmentPreparations({
+			attachmentIds: [attachmentId],
+		});
+		if (claimed === undefined) {
+			throw new Error("The preparing attachment must be claimable.");
+		}
 		const lease = await h
 			.db()
 			.selectFrom("form_attachments")
@@ -375,10 +461,17 @@ describe("form attachment preparation concurrency", () => {
 		// generation is recorded on the discard row rather than promoted or
 		// orphaned, giving the same worker/scheduler an exact cleanup target.
 		await expect(
-			completeFormAttachmentPreparation(attachmentId, "23"),
+			completeFormAttachmentPreparation(
+				attachmentId,
+				claimed.preparationAttempts,
+				"23",
+			),
 		).resolves.toMatchObject({
-			status: "discarding",
-			preparedGeneration: "23",
+			kind: "discarding",
+			attachment: {
+				status: "discarding",
+				preparedGeneration: "23",
+			},
 		});
 		await expect(
 			h
@@ -444,15 +537,27 @@ describe("form attachment preparation concurrency", () => {
 			.execute();
 
 		await beginFormAttachmentPreparation(intent);
+		const [failedLease] = await claimFormAttachmentPreparations({
+			attachmentIds: [attachmentId],
+		});
+		if (failedLease === undefined) {
+			throw new Error("The first preparation lease must be claimable.");
+		}
 		await expect(
 			claimFormAttachmentPreparations({
 				attachmentIds: [attachmentId],
 			}),
-		).resolves.toHaveLength(1);
-		await recordFormAttachmentPreparationFailure(
-			attachmentId,
-			new Error("first copy failed"),
-		);
+		).resolves.toHaveLength(0);
+		await expect(
+			recordFormAttachmentPreparationFailure(
+				attachmentId,
+				failedLease.preparationAttempts,
+				new Error("first copy failed"),
+			),
+		).resolves.toEqual({
+			kind: "recorded",
+			attempts: failedLease.preparationAttempts,
+		});
 		const backedOff = await h
 			.db()
 			.selectFrom("form_attachments")
@@ -471,6 +576,122 @@ describe("form attachment preparation concurrency", () => {
 				attachmentIds: [attachmentId],
 			}),
 		).resolves.toHaveLength(1);
+	});
+
+	it("fences an expired duplicate after the newer attempt prepares and submits", async () => {
+		const appId = await h.seedApp({
+			id: "capture-expired-duplicate-app",
+			owner: ACTOR,
+			project_id: PROJECT,
+		});
+		const attachmentId = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("form_attachments")
+			.values({
+				attachment_id: attachmentId,
+				attachment_name: `${attachmentId}.png`,
+				app_id: appId,
+				project_id: PROJECT,
+				created_by: ACTOR,
+				entry_key: crypto.randomUUID(),
+				field_uuid: crypto.randomUUID(),
+				instance_path: "/data/photo",
+				original_filename: "photo.png",
+				extension: ".png",
+				content_type: "image/png",
+				size_bytes: 3,
+				gcs_object_key: `captures-staged/${PROJECT}/${attachmentId}.png`,
+				object_generation: "17",
+				object_checksum: "checksum",
+				prepared_generation: null,
+				status: "preparing",
+				last_preparation_error: null,
+				next_preparation_at: new Date(Date.now() - 1_000),
+				expires_at: new Date(Date.now() + 60_000),
+			})
+			.execute();
+
+		const [stale] = await claimFormAttachmentPreparations({
+			attachmentIds: [attachmentId],
+		});
+		if (stale === undefined) throw new Error("The first lease must exist.");
+		await h
+			.db()
+			.updateTable("form_attachments")
+			.set({ next_preparation_at: new Date(Date.now() - 1_000) })
+			.where("attachment_id", "=", attachmentId)
+			.execute();
+		const [winner] = await claimFormAttachmentPreparations({
+			attachmentIds: [attachmentId],
+		});
+		if (winner === undefined)
+			throw new Error("The expired lease must be reclaimed.");
+		expect(winner.preparationAttempts).toBe(stale.preparationAttempts + 1);
+
+		await expect(
+			completeFormAttachmentPreparation(
+				attachmentId,
+				winner.preparationAttempts,
+				"23",
+			),
+		).resolves.toMatchObject({
+			kind: "prepared",
+			attachment: {
+				status: "prepared",
+				preparedGeneration: "23",
+			},
+		});
+		await expect(
+			completeFormAttachmentPreparation(
+				attachmentId,
+				stale.preparationAttempts,
+				"23",
+			),
+		).resolves.toEqual({ kind: "superseded" });
+		await expect(
+			recordFormAttachmentPreparationFailure(
+				attachmentId,
+				stale.preparationAttempts,
+				new Error("late stale failure"),
+			),
+		).resolves.toEqual({ kind: "superseded" });
+
+		await h
+			.db()
+			.updateTable("form_attachments")
+			.set({
+				status: "submitted",
+				prepared_generation: null,
+				submitted_at: new Date(),
+			})
+			.where("attachment_id", "=", attachmentId)
+			.execute();
+		await expect(
+			completeFormAttachmentPreparation(
+				attachmentId,
+				stale.preparationAttempts,
+				"23",
+			),
+		).resolves.toEqual({ kind: "superseded" });
+		await expect(
+			h
+				.db()
+				.selectFrom("form_attachments")
+				.select([
+					"status",
+					"prepared_generation",
+					"preparation_attempts",
+					"last_preparation_error",
+				])
+				.where("attachment_id", "=", attachmentId)
+				.executeTakeFirstOrThrow(),
+		).resolves.toEqual({
+			status: "submitted",
+			prepared_generation: null,
+			preparation_attempts: winner.preparationAttempts,
+			last_preparation_error: null,
+		});
 	});
 });
 
@@ -527,12 +748,16 @@ describe("form attachment expiry", () => {
 			])
 			.execute();
 
-		await expect(purgeExpiredFormAttachments(1)).resolves.toEqual([
-			{
-				objectKey: `captures-staged/${PROJECT}/${stagedId}.png`,
-				objectGeneration: "17",
-			},
-		]);
+		await expect(purgeExpiredFormAttachments(1)).resolves.toEqual({
+			processed: 1,
+			transitioned: 0,
+			objects: [
+				{
+					objectKey: `captures-staged/${PROJECT}/${stagedId}.png`,
+					objectGeneration: "17",
+				},
+			],
+		});
 		await expect(
 			h
 				.db()
@@ -541,5 +766,69 @@ describe("form attachment expiry", () => {
 				.where("attachment_id", "=", discardedId)
 				.executeTakeFirstOrThrow(),
 		).resolves.toEqual({ status: "discarding" });
+	});
+
+	it("continues across more than one recoverable-only expiry batch", async () => {
+		const appId = await h.seedApp({
+			id: "capture-expiry-recoverable-batches-app",
+			owner: ACTOR,
+			project_id: PROJECT,
+		});
+		const now = Date.now();
+		const attachmentIds = Array.from({ length: 3 }, () => crypto.randomUUID());
+		await h
+			.db()
+			.insertInto("form_attachments")
+			.values(
+				attachmentIds.map((attachmentId, index) => ({
+					attachment_id: attachmentId,
+					attachment_name: `${attachmentId}.png`,
+					app_id: appId,
+					project_id: PROJECT,
+					created_by: ACTOR,
+					entry_key: crypto.randomUUID(),
+					field_uuid: crypto.randomUUID(),
+					instance_path: "/data/photo",
+					original_filename: "photo.png",
+					extension: ".png",
+					content_type: "image/png",
+					size_bytes: 3,
+					gcs_object_key: `captures-staged/${PROJECT}/${attachmentId}.png`,
+					object_generation: "17",
+					object_checksum: "checksum",
+					prepared_generation: "23",
+					status: "prepared" as const,
+					last_preparation_error: null,
+					next_preparation_at: null,
+					created_at: new Date(now - 10 * 24 * 60 * 60 * 1_000),
+					expires_at: new Date(now - 3_000 + index),
+				})),
+			)
+			.execute();
+
+		await expect(purgeExpiredFormAttachments(2)).resolves.toEqual({
+			processed: 2,
+			transitioned: 2,
+			objects: [],
+		});
+		await expect(purgeExpiredFormAttachments(2)).resolves.toEqual({
+			processed: 1,
+			transitioned: 1,
+			objects: [],
+		});
+		await expect(purgeExpiredFormAttachments(2)).resolves.toEqual({
+			processed: 0,
+			transitioned: 0,
+			objects: [],
+		});
+		const rows = await h
+			.db()
+			.selectFrom("form_attachments")
+			.select(["attachment_id", "status"])
+			.where("attachment_id", "in", attachmentIds)
+			.orderBy("attachment_id")
+			.execute();
+		expect(rows).toHaveLength(3);
+		expect(rows.every((row) => row.status === "discarding")).toBe(true);
 	});
 });

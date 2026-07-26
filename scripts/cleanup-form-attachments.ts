@@ -33,12 +33,14 @@ const TEARDOWN_TIMEOUT_MS = 10_000;
 
 async function runMaintenance(): Promise<void> {
 	let expiredRows = 0;
+	let transitionedExpiredRows = 0;
 	let objectDeleteFailures = 0;
 	for (let batch = 0; batch < MAX_BATCHES; batch++) {
-		const objects = await purgeExpiredFormAttachments(BATCH_SIZE);
-		expiredRows += objects.length;
+		const purged = await purgeExpiredFormAttachments(BATCH_SIZE);
+		expiredRows += purged.processed;
+		transitionedExpiredRows += purged.transitioned;
 		const deletes = await Promise.allSettled(
-			objects.map((object) =>
+			purged.objects.map((object) =>
 				object.objectGeneration === null
 					? deleteAsset(object.objectKey)
 					: deleteAssetGeneration(object.objectKey, object.objectGeneration),
@@ -47,18 +49,24 @@ async function runMaintenance(): Promise<void> {
 		objectDeleteFailures += deletes.filter(
 			(result) => result.status === "rejected",
 		).length;
-		if (objects.length < BATCH_SIZE) break;
+		if (purged.processed < BATCH_SIZE) break;
 	}
 
 	let prepared = 0;
 	let discarded = 0;
 	let preparationFailures = 0;
+	let supersededPreparations = 0;
 	for (let batch = 0; batch < MAX_BATCHES; batch++) {
 		const result = await preparePendingFormAttachments({ limit: BATCH_SIZE });
 		prepared += result.prepared;
 		discarded += result.discarded;
 		preparationFailures += result.failed;
-		if (result.prepared + result.discarded + result.failed < BATCH_SIZE) break;
+		supersededPreparations += result.superseded;
+		if (
+			result.prepared + result.discarded + result.failed + result.superseded <
+			BATCH_SIZE
+		)
+			break;
 	}
 
 	console.log(
@@ -71,7 +79,9 @@ async function runMaintenance(): Promise<void> {
 			prepared,
 			discarded,
 			preparationFailures,
+			supersededPreparations,
 			expiredRows,
+			transitionedExpiredRows,
 			objectDeleteFailures,
 		}),
 	);

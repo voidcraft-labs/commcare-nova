@@ -104,7 +104,11 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 		mocks.createSignedUploadUrl.mockRejectedValue(signingError);
 		mocks.captureExtensionFor.mockReturnValue(".jpg");
 		mocks.compensatePending.mockResolvedValue(true);
-		mocks.purgeExpired.mockResolvedValue([]);
+		mocks.purgeExpired.mockResolvedValue({
+			processed: 0,
+			transitioned: 0,
+			objects: [],
+		});
 	});
 
 	it("uses the correct article for an image-format rejection", async () => {
@@ -214,5 +218,29 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 			}),
 		);
 		await response.json();
+	});
+
+	it("does not create an unobserved rejecting signer promise for an already-aborted request", async () => {
+		const controller = new AbortController();
+		controller.abort(new DOMException("Worker left the form", "AbortError"));
+		mocks.createSignedUploadUrl.mockImplementation(() =>
+			Promise.reject(new Error("late signer rejection")),
+		);
+
+		const response = await POST(request(controller.signal), params);
+
+		expect(response.status).toBe(499);
+		expect(mocks.createSignedUploadUrl).not.toHaveBeenCalled();
+		expect(mocks.compensatePending).toHaveBeenCalledWith(
+			expect.objectContaining({
+				attachmentId: ATTACHMENT_ID,
+				appId: "app-1",
+				projectId: "project-1",
+			}),
+		);
+		await response.json();
+		// Give Vitest an unhandled-rejection checkpoint. The test runner would
+		// fail this test if the rejecting signer promise had been constructed.
+		await Promise.resolve();
 	});
 });

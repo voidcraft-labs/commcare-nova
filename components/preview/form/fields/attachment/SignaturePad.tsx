@@ -65,6 +65,10 @@ interface SignaturePadProps {
 	/** A queued destructive clear owns this slot until its answer mutation
 	 * commits; new ink must not race behind it. */
 	readonly interactionBlocked?: boolean;
+	/** Project viewers can inspect the answer but cannot create capture data. */
+	readonly readOnly?: boolean;
+	/** Imperative current-session authority proof for stale event handlers. */
+	readonly hasWriteAuthority?: () => boolean;
 	readonly hasAnswer: boolean;
 	readonly needsAttention?: boolean;
 	/** Parent-owned retry intent. Incrementing it re-encodes retained ink. */
@@ -101,6 +105,7 @@ interface SignaturePadProps {
  * upload instead of ten.
  */
 const SIGNATURE_SETTLE_MS = 700;
+const ALLOW_SIGNATURE_WRITE = () => true;
 
 type Point = SignaturePoint;
 
@@ -173,6 +178,8 @@ export function SignaturePad({
 	uploading,
 	queued = false,
 	interactionBlocked = false,
+	readOnly = false,
+	hasWriteAuthority = ALLOW_SIGNATURE_WRITE,
 	hasAnswer,
 	needsAttention = false,
 	retryRevision = 0,
@@ -378,6 +385,15 @@ export function SignaturePad({
 		}
 	}, [hasAnswer]);
 
+	useEffect(() => {
+		if (!interactionBlocked) return;
+		drawingRef.current = false;
+		cancelAttachmentTask(entryKey, coordinationKey);
+		renderGenerationRef.current += 1;
+		pendingGeometryRef.current = undefined;
+		setSaveIntent("idle");
+	}, [coordinationKey, entryKey, interactionBlocked]);
+
 	const pointFrom = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
 		const rect = e.currentTarget.getBoundingClientRect();
 		return {
@@ -509,6 +525,7 @@ export function SignaturePad({
 
 	const clear = useCallback(() => {
 		if (
+			!hasWriteAuthority() ||
 			interactionBlocked ||
 			clearPendingRef.current ||
 			(strokesRef.current.length === 0 && !hasAnswer)
@@ -539,6 +556,7 @@ export function SignaturePad({
 		onClear();
 	}, [
 		interactionBlocked,
+		hasWriteAuthority,
 		hasAnswer,
 		entryKey,
 		coordinationKey,
@@ -547,7 +565,7 @@ export function SignaturePad({
 	]);
 
 	const undo = useCallback(() => {
-		if (interactionBlocked) return;
+		if (interactionBlocked || !hasWriteAuthority()) return;
 		const restored = clearedRef.current;
 		if (restored === undefined) return;
 		clearedRef.current = undefined;
@@ -568,11 +586,19 @@ export function SignaturePad({
 			"The restored signature is still being saved.",
 		);
 		scheduleEmit(0);
-	}, [entryKey, coordinationKey, interactionBlocked, redraw, scheduleEmit]);
+	}, [
+		entryKey,
+		coordinationKey,
+		interactionBlocked,
+		hasWriteAuthority,
+		redraw,
+		scheduleEmit,
+	]);
 
 	const effectiveLabelledBy = questionLabelledBy ?? questionLabelId;
-	const statusText =
-		queued || saveIntent === "queued"
+	const statusText = readOnly
+		? "Signature is read-only."
+		: queued || saveIntent === "queued"
 			? "Waiting to save signature…"
 			: uploading || saveIntent === "saving"
 				? "Saving signature…"
@@ -607,11 +633,16 @@ export function SignaturePad({
 				aria-required={required}
 				aria-invalid={invalid}
 				aria-disabled={interactionBlocked}
-				aria-readonly={interactionBlocked}
+				aria-readonly={readOnly || interactionBlocked}
 				data-instance-path={instancePath}
 				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white"
 				onPointerDown={(e) => {
-					if (interactionBlocked || clearPendingRef.current) return;
+					if (
+						interactionBlocked ||
+						!hasWriteAuthority() ||
+						clearPendingRef.current
+					)
+						return;
 					// No disabled check: the surface stays live even while an
 					// upload is in flight, so a worker can keep signing.
 					cancelAttachmentTask(entryKey, coordinationKey);
@@ -642,7 +673,12 @@ export function SignaturePad({
 					redraw();
 				}}
 				onPointerMove={(e) => {
-					if (!drawingRef.current || clearPendingRef.current) return;
+					if (
+						!drawingRef.current ||
+						!hasWriteAuthority() ||
+						clearPendingRef.current
+					)
+						return;
 					const strokes = strokesRef.current;
 					const current = strokes[strokes.length - 1];
 					if (!current) return;
@@ -651,7 +687,12 @@ export function SignaturePad({
 					redraw();
 				}}
 				onPointerUp={(e) => {
-					if (!drawingRef.current || clearPendingRef.current) return;
+					if (
+						!drawingRef.current ||
+						!hasWriteAuthority() ||
+						clearPendingRef.current
+					)
+						return;
 					drawingRef.current = false;
 					e.currentTarget.releasePointerCapture(e.pointerId);
 					// The debounce itself is inside the form queue, so Submit
@@ -659,12 +700,22 @@ export function SignaturePad({
 					scheduleEmit();
 				}}
 				onPointerCancel={() => {
-					if (!drawingRef.current || clearPendingRef.current) return;
+					if (
+						!drawingRef.current ||
+						!hasWriteAuthority() ||
+						clearPendingRef.current
+					)
+						return;
 					drawingRef.current = false;
 					scheduleEmit();
 				}}
 				onLostPointerCapture={() => {
-					if (!drawingRef.current || clearPendingRef.current) return;
+					if (
+						!drawingRef.current ||
+						!hasWriteAuthority() ||
+						clearPendingRef.current
+					)
+						return;
 					drawingRef.current = false;
 					scheduleEmit();
 				}}
