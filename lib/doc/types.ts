@@ -465,6 +465,34 @@ function reportMisplacedOptionsSource(
 }
 
 /**
+ * Run a raw-input check before `schema` without changing its public I/O types.
+ *
+ * Zod 4's `preprocess` declaration always exposes `unknown` as the wrapper's
+ * input, even when the preprocess callback is an identity over the inner
+ * schema's input. That is appropriate for ordinary coercion, but not for this
+ * validation-only wrapper: callers compose mutation schemas into arrays and
+ * event schemas, where widening the input would erase useful checking.
+ *
+ * The callback below returns its input unchanged and the direct schema remains
+ * the sole parser/output producer, so explicitly restoring that schema's
+ * `z.input` and `z.output` contract matches the runtime behavior. Compile-time
+ * equality assertions in `mutationEnvelopeStrictness.test.ts` lock both
+ * mutation families to their direct discriminated unions.
+ */
+function prevalidateRawMutationInput<Schema extends z.ZodType>(
+	schema: Schema,
+): z.ZodType<z.output<Schema>, z.input<Schema>> {
+	const guarded = z.preprocess<z.input<Schema>, Schema, z.input<Schema>>(
+		(value, ctx) => {
+			reportMisplacedOptionsSource(value, ctx);
+			return value;
+		},
+		schema,
+	);
+	return guarded as z.ZodType<z.output<Schema>, z.input<Schema>>;
+}
+
+/**
  * Per-column tile placement carried on a wholesale module write.
  *
  * A tile cell is a current-only column slot, so it cannot ride inside
@@ -1525,16 +1553,13 @@ function createMutationSchema({
 			audioLabel: assetIdSchema.nullable(),
 		}),
 	]);
-	const rawInputGuardedSchema = z.preprocess((value, ctx) => {
-		// Placement is a rule about the untouched envelope, including subtrees
-		// that an object arm would otherwise strip. Validate that raw value first,
-		// then hand the SAME input to the discriminated union and return only the
-		// union's output. Do not express this as an intersection: Zod 4 merges
-		// intersection outputs and can accept a nested strict-object failure when
-		// the other branch returns the raw or stripped object.
-		reportMisplacedOptionsSource(value, ctx);
-		return value;
-	}, schema);
+	// Placement is a rule about the untouched envelope, including subtrees that
+	// an object arm would otherwise strip. Validate that raw value first, then
+	// hand the SAME input to the discriminated union and return only the union's
+	// output. Do not express this as an intersection: Zod 4 merges intersection
+	// outputs and can accept a nested strict-object failure when the other branch
+	// returns the raw or stripped object.
+	const rawInputGuardedSchema = prevalidateRawMutationInput(schema);
 
 	return Object.assign(rawInputGuardedSchema, {
 		// Preserve the useful arm-level inspection surface for grammar tests.

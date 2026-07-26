@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
 	asUuid,
@@ -120,6 +120,21 @@ const unknownNestedPayloads = [
 ] as const;
 
 describe("mutation envelope strictness", () => {
+	it("preserves each direct union's exact input and output types", () => {
+		expectTypeOf<z.input<typeof mutationSchema>>().toEqualTypeOf<
+			z.input<typeof rollingUnion>
+		>();
+		expectTypeOf<z.output<typeof mutationSchema>>().toEqualTypeOf<
+			z.output<typeof rollingUnion>
+		>();
+		expectTypeOf<z.input<typeof canonicalMutationSchema>>().toEqualTypeOf<
+			z.input<typeof canonicalUnion>
+		>();
+		expectTypeOf<z.output<typeof canonicalMutationSchema>>().toEqualTypeOf<
+			z.output<typeof canonicalUnion>
+		>();
+	});
+
 	it("pins the Zod 4 intersection behavior the envelope must not use", () => {
 		const direct = z.object({
 			nested: z.object({ known: z.string() }).strict(),
