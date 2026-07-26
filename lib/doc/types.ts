@@ -424,48 +424,45 @@ const carrierBlindMutationFamily = {
 	predicate: rollingPredicateSchema,
 } as const satisfies MutationSchemaFamily;
 
-const optionsSourcePlacementSchema = z
-	.unknown()
-	.superRefine((value, ctx) => {
-		const rootKind =
-			typeof value === "object" &&
-			value !== null &&
-			!Array.isArray(value) &&
-			"kind" in value
-				? value.kind
-				: undefined;
-		const rootAllowsOptionsSource =
-			rootKind === "addField" || rootKind === "updateField";
-		const visited = new WeakSet<object>();
+function reportMisplacedOptionsSource(
+	value: unknown,
+	ctx: z.RefinementCtx,
+): void {
+	const rootKind =
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		"kind" in value
+			? value.kind
+			: undefined;
+	const rootAllowsOptionsSource =
+		rootKind === "addField" || rootKind === "updateField";
+	const visited = new WeakSet<object>();
 
-		function visit(node: unknown, path: PropertyKey[]): void {
-			if (typeof node !== "object" || node === null) return;
-			if (visited.has(node)) return;
-			visited.add(node);
+	function visit(node: unknown, path: PropertyKey[]): void {
+		if (typeof node !== "object" || node === null) return;
+		if (visited.has(node)) return;
+		visited.add(node);
 
-			for (const [key, child] of Object.entries(node)) {
-				const childPath = [...path, key];
-				if (
-					key === "optionsSource" &&
-					!(path.length === 0 && rootAllowsOptionsSource)
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: childPath,
-						message:
-							"Lookup optionsSource is reserved for the top level of addField and updateField mutations.",
-					});
-				}
-				visit(child, childPath);
+		for (const [key, child] of Object.entries(node)) {
+			const childPath = [...path, key];
+			if (
+				key === "optionsSource" &&
+				!(path.length === 0 && rootAllowsOptionsSource)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: childPath,
+					message:
+						"Lookup optionsSource is reserved for the top level of addField and updateField mutations.",
+				});
 			}
+			visit(child, childPath);
 		}
+	}
 
-		visit(value, []);
-	})
-	// The intersection below evaluates this branch against the untouched input,
-	// before the normal object schemas strip unknown future extensions. Emit an
-	// empty object so the intersection's merged output remains the parsed union.
-	.transform(() => ({}));
+	visit(value, []);
+}
 
 /**
  * Per-column tile placement carried on a wholesale module write.
@@ -1528,7 +1525,18 @@ function createMutationSchema({
 			audioLabel: assetIdSchema.nullable(),
 		}),
 	]);
-	return Object.assign(schema.and(optionsSourcePlacementSchema), {
+	const rawInputGuardedSchema = z.preprocess((value, ctx) => {
+		// Placement is a rule about the untouched envelope, including subtrees
+		// that an object arm would otherwise strip. Validate that raw value first,
+		// then hand the SAME input to the discriminated union and return only the
+		// union's output. Do not express this as an intersection: Zod 4 merges
+		// intersection outputs and can accept a nested strict-object failure when
+		// the other branch returns the raw or stripped object.
+		reportMisplacedOptionsSource(value, ctx);
+		return value;
+	}, schema);
+
+	return Object.assign(rawInputGuardedSchema, {
 		// Preserve the useful arm-level inspection surface for grammar tests.
 		options: schema.options,
 	});
