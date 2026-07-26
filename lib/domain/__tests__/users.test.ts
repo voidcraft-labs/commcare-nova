@@ -16,6 +16,7 @@ import {
 	USER_DATA_SYSTEM_FIELDS,
 	USER_PROPERTY_SLUG_MAX_LENGTH,
 	type UserCollections,
+	userPropertySchema,
 } from "@/lib/domain";
 
 const NONE: ReadonlySet<string> = new Set();
@@ -169,5 +170,45 @@ describe("personaUserData", () => {
 				doc,
 			),
 		).toEqual({ [REGION]: "south" });
+	});
+
+	it("resolves prototype-named role and property keys only as own data", () => {
+		const roleUuid = asUuid("constructor");
+		const propertyUuid = asUuid("__proto__");
+		const ownDoc: UserCollections = {
+			userTypes: Object.fromEntries([
+				[
+					roleUuid,
+					{
+						uuid: roleUuid,
+						name: "Constructor role",
+						values: Object.fromEntries([[propertyUuid, "north"]]),
+					},
+				],
+			]),
+		};
+		const persona = {
+			uuid: asUuid("persona"),
+			name: "Asha",
+			userTypeUuid: roleUuid,
+		};
+
+		const data = personaUserData(persona, ownDoc);
+		expect(Object.hasOwn(data, propertyUuid)).toBe(true);
+		expect(data[propertyUuid]).toBe("north");
+		expect(personaUserData(persona, {})).toEqual({});
+	});
+});
+
+describe("user property accepted values", () => {
+	it("rejects duplicate values at the domain schema boundary", () => {
+		expect(
+			userPropertySchema.safeParse({
+				uuid: asUuid("property"),
+				slug: "region",
+				label: "Region",
+				choices: ["north", "north"],
+			}).success,
+		).toBe(false);
 	});
 });

@@ -3895,6 +3895,59 @@ describe("loadCasesAction", () => {
 		);
 	});
 
+	it.each(["constructor", "__proto__", ""])(
+		"does not resolve a forged persona selector %j through the record prototype",
+		async (personaUuid) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { withProjectContext } = await import("@/lib/case-store");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			loadAppMock.mockResolvedValueOnce({
+				blueprint: buildDoc({ appName: "No personas", modules: [] }),
+			});
+
+			const { loadCasesAction } = await import("../caseDataBinding");
+			const result = await loadCasesAction({
+				appId: APP_ID,
+				caseType: "patient",
+				personaUuid,
+			});
+
+			expect(result.kind).toBe("persona-unavailable");
+			expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+		},
+	);
+
+	it("resolves a prototype-named selector when it is an own persona key", async () => {
+		const personaUuid = asUuid("constructor");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const doc = buildDoc({ appName: "Own persona", modules: [] });
+		doc.personas = Object.fromEntries([
+			[personaUuid, { uuid: personaUuid, name: "Constructor persona" }],
+		]);
+		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
+		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			personaUuid,
+		});
+
+		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
+			PROJECT_A,
+			OWNER_A,
+			personaUuid,
+		);
+	});
+
 	it("does not read a persona blueprint when the locked authorization snapshot is denied", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
@@ -4371,6 +4424,62 @@ describe("loadCaseCountAction", () => {
 		expect(
 			await loadCaseCountAction({ appId: APP_ID, caseType: "patient" }),
 		).toEqual({ kind: "unauthenticated" });
+		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+	});
+});
+
+describe("countCasesOwnedByAction", () => {
+	it("counts every retained row for the server-resolved persona without a case-type list", async () => {
+		const personaUuid = asUuid("persona-owned-count");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const doc = buildDoc({ appName: "Persona count", modules: [] });
+		doc.personas = {
+			[personaUuid]: { uuid: personaUuid, name: "Asha" },
+		};
+		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
+		const store = actionStore({ count: vi.fn().mockResolvedValueOnce(12) });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+
+		const { countCasesOwnedByAction } = await import("../caseDataBinding");
+		const result = await countCasesOwnedByAction({
+			appId: APP_ID,
+			personaUuid,
+		});
+
+		expect(result).toEqual({ kind: "count", count: 12 });
+		expect(store.count).toHaveBeenCalledWith({
+			appId: APP_ID,
+			ownerId: personaUuid,
+			includeHeld: true,
+		});
+		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
+			PROJECT_A,
+			OWNER_A,
+			personaUuid,
+		);
+	});
+
+	it("blocks removal counting when the persona no longer exists", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		loadAppMock.mockResolvedValueOnce({
+			blueprint: buildDoc({ appName: "No persona", modules: [] }),
+		});
+
+		const { countCasesOwnedByAction } = await import("../caseDataBinding");
+		const result = await countCasesOwnedByAction({
+			appId: APP_ID,
+			personaUuid: "removed-persona",
+		});
+
+		expect(result.kind).toBe("persona-unavailable");
 		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
 	});
 });

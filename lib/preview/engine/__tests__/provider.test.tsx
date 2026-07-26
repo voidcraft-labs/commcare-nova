@@ -24,7 +24,12 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { BuilderSessionProvider } from "@/lib/session/provider";
+import {
+	BuilderSessionContext,
+	BuilderSessionProvider,
+	type BuilderSessionStoreApi,
+} from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
@@ -228,6 +233,28 @@ describe("BuilderFormEngineProvider", () => {
 		// effect runs after the child's effect and may make the second call.
 		expect(callsSeenByChild).toBe(1);
 		setIdentity.mockRestore();
+	});
+
+	it("refuses to activate a form while the selected persona is unavailable", () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(DOC);
+		docStore.temporal.getState().resume();
+		const sessionStore: BuilderSessionStoreApi = createBuilderSessionStore();
+		sessionStore.getState().setPreviewPersonaUuid("removed-persona");
+		const Wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={sessionStore}>
+				<BlueprintDocContext value={docStore}>
+					<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+				</BlueprintDocContext>
+			</BuilderSessionContext>
+		);
+		const { result } = renderHook(() => useBuilderFormEngine(), {
+			wrapper: Wrapper,
+		});
+
+		act(() => result.current.activateForm(FORM_UUID));
+
+		expect(result.current.store.getState()).toEqual({});
 	});
 
 	it("drops runtime form and case values synchronously on a Project-scope reset", () => {

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	addPersonasTool,
+	addUserPropertiesInputSchema,
 	addUserPropertiesTool,
 	addUserTypesTool,
 	getUsersTool,
@@ -368,6 +369,80 @@ describe("user authoring tools", () => {
 			{ kind: "removeUserType", uuid: roleUuid },
 		]);
 	});
+
+	it("emits one shared mutation per changed role value", async () => {
+		const { ctx } = makeCtx();
+		const properties = await addUserPropertiesTool.execute(
+			{
+				properties: [
+					{ slug: "region", label: "Region" },
+					{ slug: "cadre", label: "Cadre" },
+				],
+			},
+			ctx,
+			emptyDoc(),
+		);
+		if (!("uuids" in properties.result)) throw new Error("setup failed");
+		const [regionUuid, cadreUuid] = properties.result.uuids;
+		const role = await addUserTypesTool.execute(
+			{
+				userTypes: [
+					{
+						name: "CHW",
+						values: [
+							{ userPropertyUuid: regionUuid, value: "north" },
+							{ userPropertyUuid: cadreUuid, value: "community" },
+						],
+					},
+				],
+			},
+			ctx,
+			properties.newDoc,
+		);
+		if (!("uuids" in role.result)) throw new Error("setup failed");
+
+		const updated = await updateUserTypeTool.execute(
+			{
+				uuid: role.result.uuids[0],
+				values: [
+					{ userPropertyUuid: regionUuid, value: "south" },
+					{ userPropertyUuid: cadreUuid, value: "supervisor" },
+				],
+			},
+			ctx,
+			role.newDoc,
+		);
+
+		expect(updated.mutations).toHaveLength(2);
+		expect(
+			updated.mutations.map((mutation) =>
+				"valuePatch" in mutation ? mutation.valuePatch : undefined,
+			),
+		).toEqual(
+			[
+				{ userPropertyUuid: cadreUuid, value: "supervisor" },
+				{ userPropertyUuid: regionUuid, value: "south" },
+			].sort((a, b) => a.userPropertyUuid.localeCompare(b.userPropertyUuid)),
+		);
+	});
+
+	it.each([
+		{ kind: "role", execute: updateUserTypeTool.execute },
+		{ kind: "persona", execute: updatePersonaTool.execute },
+	])("does not resolve an inherited $kind target", async ({ execute }) => {
+		const { ctx, recordMutations } = makeCtx();
+
+		const result = await execute(
+			{ uuid: asUuid("constructor"), name: "Forged" },
+			ctx,
+			emptyDoc(),
+		);
+
+		expect(result.result).toMatchObject({
+			error: expect.stringContaining("no longer exists"),
+		});
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
 });
 
 describe("user tool schemas", () => {
@@ -405,6 +480,26 @@ describe("user tool schemas", () => {
 					{ userPropertyUuid: "region", value: "north" },
 					{ userPropertyUuid: "region", value: "south" },
 				],
+			}).success,
+		).toBe(false);
+	});
+
+	it("rejects duplicate accepted values on both create and update", () => {
+		expect(
+			addUserPropertiesInputSchema.safeParse({
+				properties: [
+					{
+						slug: "region",
+						label: "Region",
+						choices: ["north", "north"],
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			updateUserPropertyInputSchema.safeParse({
+				uuid: "property",
+				choices: ["north", "north"],
 			}).success,
 		).toBe(false);
 	});

@@ -20,11 +20,15 @@ function caseDb(): Kysely<CaseDatabase> {
 	return h.db() as unknown as Kysely<CaseDatabase>;
 }
 
-function store(projectId = PROJECT): PostgresCaseStore {
+function store(
+	projectId = PROJECT,
+	actorUserId = USER,
+	ownerId = actorUserId,
+): PostgresCaseStore {
 	return new PostgresCaseStore({
 		projectId,
-		actorUserId: USER,
-		ownerId: USER,
+		actorUserId,
+		ownerId,
 		db: caseDb(),
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeMutation: authorizeCaseMutationInTransaction,
@@ -113,6 +117,28 @@ describe("case mutation authorization", () => {
 			.where("app_id", "=", appId)
 			.executeTakeFirstOrThrow();
 		expect(Number(count.total)).toBe(0);
+	});
+
+	it("authorizes with the member actor when a different persona owns the row", async () => {
+		const appId = await seedAuthorizedApp();
+		const personaOwner = "persona-owner";
+
+		const result = await store(PROJECT, USER, personaOwner).insert({
+			appId,
+			row: {
+				case_type: CASE_TYPE,
+				case_name: "Persona row",
+				status: "open",
+				properties: { name: "Persona row" },
+			},
+		});
+
+		const row = await caseDb()
+			.selectFrom("cases")
+			.select(["owner_id", "project_id"])
+			.where("case_id", "=", result.caseId)
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({ owner_id: personaOwner, project_id: PROJECT });
 	});
 
 	it("replaces a parked value and archives it atomically", async () => {

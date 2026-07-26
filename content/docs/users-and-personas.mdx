@@ -64,6 +64,12 @@ district. Give them a name, pick their role, and change any information that
 differs from the role's defaults. Inherited values are shown alongside the ones
 you changed, so it stays obvious which is which.
 
+For each value, **Use role value** removes the override and returns to
+inheritance. **Remove value** does the same when there is no role value to
+inherit. Clearing the input itself is different: it saves an intentionally
+blank value, which lets a persona override a role's nonblank default with
+nothing.
+
 Personas are for designing and testing. They are not accounts, they have no
 password, and creating one does not create anyone on CommCare — that happens
 when you deploy.
@@ -80,14 +86,19 @@ This is the whole point of describing them. Previewing as Asha means:
 - any case the form creates is owned by *her*.
 
 Preview always says whose session you are looking at, so the two never blur
-together.
+together. Returning to edit mode also returns the next Preview to **Preview as
+me**. If another editor removes the persona you are currently previewing as,
+Nova stops the running app and asks you to switch back to yourself; it never
+quietly continues as your account.
 
 Because a persona really owns the cases it creates, removing a persona leaves
 those cases where they are — owned by someone who no longer exists in your app.
 This is Nova's policy for design and test actors, not a claim that every
 CommCare worker-removal path behaves the same way. It avoids quietly deleting
-or reassigning your real test data. The confirmation tells you how many cases
-are affected before you decide.
+or reassigning your real test data. The confirmation counts every retained case
+the persona owns, including data from case types you have since removed from the
+app, before it enables removal. Those cases remain available in unfiltered case
+data views.
 
 ## What travels to CommCare
 

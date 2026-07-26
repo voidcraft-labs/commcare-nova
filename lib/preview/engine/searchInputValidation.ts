@@ -22,6 +22,25 @@ const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
 	user: {},
 };
 
+interface RuntimeValidationOptions {
+	/**
+	 * Validate only rejection conditions that do not read authenticated
+	 * session data. Server actions use this pass before opening an authorized
+	 * case store, then run the full pass with the resolved worker.
+	 */
+	sessionIndependentOnly?: boolean;
+}
+
+function skipSessionBackedRejection(
+	rejection: RuntimeRejection,
+	options: RuntimeValidationOptions | undefined,
+): boolean {
+	return (
+		options?.sessionIndependentOnly === true &&
+		rejection.condition.includes("instance('commcaresession')")
+	);
+}
+
 /**
  * Return per-prompt errors for the exact runtime state that the exported
  * `_xpath_query` wrapper rejects. The CSQL emitter owns the rejection
@@ -39,6 +58,7 @@ export function searchInputRuntimeQuoteErrors(
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
 	typeContext?: TypeContext,
+	options?: RuntimeValidationOptions,
 ): ReadonlyMap<string, string> {
 	let emission: ComposedXPathQuery | undefined;
 	try {
@@ -57,6 +77,7 @@ export function searchInputRuntimeQuoteErrors(
 	}
 	const errors = new Map<string, string>();
 	for (const rejection of emission.runtimeRejections ?? []) {
+		if (skipSessionBackedRejection(rejection, options)) continue;
 		const rejected = runtimeRejectionApplies(
 			rejection,
 			caseListConfig,
@@ -84,6 +105,7 @@ export function searchInputRuntimeGlobalError(
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
 	typeContext?: TypeContext,
+	options?: RuntimeValidationOptions,
 ): string | undefined {
 	let emission: ComposedXPathQuery | undefined;
 	try {
@@ -92,6 +114,7 @@ export function searchInputRuntimeGlobalError(
 		return undefined;
 	}
 	for (const rejection of emission?.runtimeRejections ?? []) {
+		if (skipSessionBackedRejection(rejection, options)) continue;
 		if ((rejection.inputNames?.length ?? 0) > 0) continue;
 		if (!runtimeRejectionApplies(rejection, caseListConfig, values, session)) {
 			continue;
@@ -169,6 +192,7 @@ export function searchInputSubmissionErrors(
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
 	typeContext?: TypeContext,
+	options?: RuntimeValidationOptions,
 ): ReadonlyMap<string, string> {
 	const errors = new Map(
 		searchInputRuntimeQuoteErrors(
@@ -177,6 +201,7 @@ export function searchInputSubmissionErrors(
 			values,
 			session,
 			typeContext,
+			options,
 		),
 	);
 	// A malformed/incomplete range prevents the query from being represented at

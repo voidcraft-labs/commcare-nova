@@ -161,6 +161,32 @@ describe("useResetSampleCases", () => {
 		);
 	});
 
+	it("drops the preview persona before edit-mode sample-data actions return", async () => {
+		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
+			kind: "ok",
+			inserted: 30,
+		});
+		const store = createBuilderSessionStore({ appId: APP_ID });
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewPersonaUuid("persona-asha");
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+		);
+		const { result } = renderHook(
+			() => useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
+			{ wrapper },
+		);
+
+		act(() => store.getState().setPreviewing(false));
+		await result.current();
+
+		expect(resetSampleCasesAction).toHaveBeenCalledWith(
+			APP_ID,
+			PATIENT,
+			undefined,
+		);
+	});
+
 	it("invalidates every subscriber for the case type after a successful reset", async () => {
 		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
 			kind: "ok",

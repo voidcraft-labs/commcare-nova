@@ -114,6 +114,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// a property's choice list is rejected when the worker is created.
 	USER_PROPERTY_SLUG_INVALID: "soundness",
 	USER_PROPERTY_SLUG_DUPLICATE: "soundness",
+	USER_PROPERTY_CHOICES_DUPLICATE: "soundness",
 	USER_TYPE_NAME_DUPLICATE: "soundness",
 	PERSONA_NAME_DUPLICATE: "soundness",
 	PERSONA_USER_TYPE_UNKNOWN: "soundness",
@@ -517,6 +518,7 @@ export function errorIdentity(err: ValidationError): string {
 			break;
 		case "USER_PROPERTY_SLUG_INVALID":
 		case "USER_PROPERTY_SLUG_DUPLICATE":
+		case "USER_PROPERTY_CHOICES_DUPLICATE":
 			parts.push(part("userProperty", det?.userPropertyUuid));
 			break;
 		case "USER_TYPE_NAME_DUPLICATE":

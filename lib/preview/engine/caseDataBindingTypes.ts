@@ -132,6 +132,10 @@ export type LoadCaseCountResult =
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
+export type LoadPersonaOwnedCaseCountResult =
+	| LoadCaseCountResult
+	| PreviewPersonaUnavailableResult;
+
 /**
  * Result of `conversionImpactAction` — the consent preview for a
  * failable kind conversion. The `impact` arm IS the store's

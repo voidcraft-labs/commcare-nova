@@ -192,6 +192,15 @@ function buildAjv(): Ajv2020 {
 	return ajv;
 }
 
+function assertNullableNonblankIdentity(
+	value: string | null,
+	label: string,
+): void {
+	if (value === null) return;
+	if (typeof value === "string" && value.trim().length > 0) return;
+	throw new Error(`${label} identity must be a nonblank string or null.`);
+}
+
 /**
  * Cached compiled-validator entry. Cache lookups compare against
  * the JSON-stringified schema content so a `case_type_schemas` row
@@ -239,6 +248,9 @@ export class PostgresCaseStore implements CaseStore {
 		| undefined;
 
 	constructor(args: PostgresCaseStoreArgs) {
+		assertNullableNonblankIdentity(args.projectId, "Project");
+		assertNullableNonblankIdentity(args.actorUserId, "actor");
+		assertNullableNonblankIdentity(args.ownerId, "owner");
 		this.projectId = args.projectId;
 		this.actorUserId = args.actorUserId;
 		this.ownerId = args.ownerId;
@@ -616,6 +628,35 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	async count(args: CountArgs): Promise<number> {
+		if ("ownerId" in args) {
+			if (
+				typeof args.ownerId !== "string" ||
+				args.ownerId.trim().length === 0
+			) {
+				throw new Error("Case owner identity must be a nonblank string.");
+			}
+			let ownerQuery = this.db
+				.selectFrom("cases as c")
+				.select((eb) => eb.fn.countAll<string>().as("total"))
+				.where("c.app_id", "=", args.appId)
+				.where("c.owner_id", "=", args.ownerId)
+				.where("c.project_id", "=", this.requireProjectId());
+			if (args.includeHeld !== true) {
+				ownerQuery = ownerQuery.where(({ not, exists, selectFrom }) =>
+					not(
+						exists(
+							selectFrom("parked_case_values as held")
+								.select("held.id")
+								.whereRef("held.case_id", "=", "c.case_id")
+								.where("held.dismissed_at", "is", null),
+						),
+					),
+				);
+			}
+			const row = await ownerQuery.executeTakeFirstOrThrow();
+			return Number(row.total);
+		}
+
 		// Same predicate-context plumbing `query` uses — the WHERE
 		// clause emitted here MUST match a predicate-narrowed `query`
 		// against the same `(appId, caseType, caseTypeSchemas,

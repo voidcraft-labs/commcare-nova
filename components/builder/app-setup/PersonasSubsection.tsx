@@ -27,21 +27,14 @@ import {
 	useUserTypes,
 } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
-import type {
-	Persona,
-	UserDataValues,
-	UserProperty,
-	UserType,
-} from "@/lib/domain";
+import type { Persona, UserProperty, UserType } from "@/lib/domain";
+import { hasOwnRecordKey, ownRecordValue } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { DraftCommitInput } from "./DraftCommitField";
 import { PersonaRemoveConfirm } from "./PersonaRemoveConfirm";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 import { ValueField } from "./ValueField";
-
-/** The chooser entry for a persona with no role. */
-const NO_ROLE = "__nova_no_role";
 
 export function PersonasSubsection() {
 	const personas = usePersonas();
@@ -152,12 +145,18 @@ function PersonaRow({
 		mutations.updatePersona(persona.uuid as Uuid, patch);
 	};
 
-	const setOverride = (propertyUuid: string, value: string) => {
-		const next: UserDataValues = { ...(persona.values ?? {}) };
-		if (value === "") delete next[propertyUuid];
-		else next[propertyUuid] = value;
-		write({ values: Object.keys(next).length > 0 ? next : null });
+	const setOverride = (propertyUuid: string, value: string | undefined) => {
+		if (!sessionApi.getState().canEdit) return;
+		mutations.updatePersonaValue(
+			persona.uuid as Uuid,
+			propertyUuid as Uuid,
+			value,
+		);
 	};
+	const selectedRoleIndex =
+		persona.userTypeUuid === undefined
+			? -1
+			: roles.findIndex((candidate) => candidate.uuid === persona.userTypeUuid);
 
 	return (
 		<EntryRow
@@ -206,21 +205,24 @@ function PersonaRow({
 						Role
 					</span>
 					<Select
-						value={persona.userTypeUuid ?? NO_ROLE}
+						value={selectedRoleIndex + 1}
 						disabled={!canEdit || roles.length === 0}
-						onValueChange={(next) =>
+						onValueChange={(next) => {
+							const index = Number(next);
+							const selectedRole = roles[index - 1];
+							if (index !== 0 && selectedRole === undefined) return;
 							write({
-								userTypeUuid: next === NO_ROLE ? null : (String(next) as Uuid),
-							})
-						}
+								userTypeUuid: index === 0 ? null : selectedRole.uuid,
+							});
+						}}
 					>
 						<SelectTrigger aria-label="Role" className="min-h-11 w-full">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value={NO_ROLE}>No role</SelectItem>
-							{roles.map((r) => (
-								<SelectItem key={r.uuid} value={r.uuid}>
+							<SelectItem value={0}>No role</SelectItem>
+							{roles.map((r, index) => (
+								<SelectItem key={r.uuid} value={index + 1}>
 									{r.name}
 								</SelectItem>
 							))}
@@ -285,21 +287,24 @@ function PersonaValueRow({
 	persona: Persona;
 	role: UserType | undefined;
 	disabled: boolean;
-	onChange: (value: string) => void;
+	onChange: (value: string | undefined) => void;
 }) {
-	const own = persona.values?.[property.uuid] ?? "";
-	const inherited = role?.values?.[property.uuid] ?? "";
-	const effective = own !== "" ? own : inherited;
+	const hasOwnValue = hasOwnRecordKey(persona.values, property.uuid);
+	const own = hasOwnValue
+		? ownRecordValue(persona.values, property.uuid)
+		: undefined;
+	const inherited = ownRecordValue(role?.values, property.uuid);
+	const effective = own === undefined ? (inherited ?? "") : own;
 	const noteId = `${persona.uuid}-${property.uuid}-note`;
 
 	const note =
-		own !== "" && inherited !== "" && own === inherited
+		own !== undefined && inherited !== undefined && own === inherited
 			? `Set here. Matches ${role?.name ?? "the role"}.`
-			: own !== "" && inherited !== ""
+			: own !== undefined && inherited !== undefined
 				? `Set here. ${role?.name ?? "The role"} uses “${inherited}”.`
-				: own === "" && inherited !== ""
+				: own === undefined && inherited !== undefined
 					? `From ${role?.name ?? "the role"}.`
-					: property.required === true && effective === ""
+					: property.required === true && effective.trim() === ""
 						? `Required. A worker created from ${persona.name} would need a ${property.label.toLowerCase()}.`
 						: undefined;
 
@@ -310,7 +315,7 @@ function PersonaValueRow({
 				value={own}
 				disabled={disabled}
 				onChange={onChange}
-				placeholder={inherited === "" ? undefined : inherited}
+				inheritedValue={inherited}
 				describedBy={note === undefined ? undefined : noteId}
 			/>
 			{note !== undefined && (

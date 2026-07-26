@@ -42,12 +42,7 @@ import {
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import {
-	eq,
-	literal,
-	prop,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+import type { ValueExpression } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
 	mapFilterPreviewError,
@@ -78,6 +73,7 @@ import type {
 	LoadCasesResult,
 	LoadFilterPreviewResult,
 	LoadParkedValuesResult,
+	LoadPersonaOwnedCaseCountResult,
 	PopulateSampleCasesResult,
 	ReplaceParkedValueResult,
 	RestoreParkedValuesResult,
@@ -218,13 +214,6 @@ export async function loadCasesAction(args: {
 	personaUuid?: string;
 }): Promise<LoadCasesResult> {
 	try {
-		const context = await resolveAuthorizedPreviewContext({
-			appId: args.appId,
-			personaUuid: args.personaUuid,
-			required: "view",
-		});
-		if (context.kind !== "ready") return context;
-		const { identity, store, scope } = context;
 		const caseTypeSchemas =
 			args.caseTypes && args.caseTypes.length > 0
 				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
@@ -232,6 +221,64 @@ export async function loadCasesAction(args: {
 		const inputValues = args.inputValues
 			? searchInputValuesFromWire(args.inputValues)
 			: undefined;
+		const typeContext =
+			args.caseListConfig === undefined
+				? undefined
+				: {
+						caseTypes: [...(args.caseTypes ?? [])],
+						knownInputs: args.caseListConfig.searchInputs.map((input) => ({
+							name: input.name,
+							data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+						})),
+						currentCaseType: args.caseType,
+					};
+
+		/* Reject caller-owned input/config failures before authorization opens a
+		 * case store. Session-backed conditions are intentionally skipped here
+		 * and evaluated again below with the resolved worker. */
+		if (args.caseListConfig !== undefined) {
+			const preliminaryGlobalError = searchInputRuntimeGlobalError(
+				args.caseListConfig,
+				args.caseType,
+				inputValues ?? new Map(),
+				undefined,
+				typeContext,
+				{ sessionIndependentOnly: true },
+			);
+			if (preliminaryGlobalError !== undefined) {
+				return {
+					kind: "invalid-search",
+					message: preliminaryGlobalError,
+					repair: "settings",
+				};
+			}
+			if (inputValues !== undefined) {
+				const preliminaryErrors = searchInputSubmissionErrors(
+					args.caseListConfig,
+					args.caseType,
+					inputValues,
+					undefined,
+					typeContext,
+					{ sessionIndependentOnly: true },
+				);
+				const firstError = preliminaryErrors.values().next().value;
+				if (firstError !== undefined) {
+					return {
+						kind: "invalid-search",
+						message: firstError,
+						repair: "inputs",
+					};
+				}
+			}
+		}
+
+		const context = await resolveAuthorizedPreviewContext({
+			appId: args.appId,
+			personaUuid: args.personaUuid,
+			required: "view",
+		});
+		if (context.kind !== "ready") return context;
+		const { identity, store, scope } = context;
 		const searchSession = identity.session;
 		if (args.caseListConfig !== undefined) {
 			const globalRuntimeError = searchInputRuntimeGlobalError(
@@ -239,14 +286,7 @@ export async function loadCasesAction(args: {
 				args.caseType,
 				inputValues ?? new Map(),
 				searchSession,
-				{
-					caseTypes: [...(args.caseTypes ?? [])],
-					knownInputs: args.caseListConfig.searchInputs.map((input) => ({
-						name: input.name,
-						data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
-					})),
-					currentCaseType: args.caseType,
-				},
+				typeContext,
 			);
 			if (globalRuntimeError !== undefined) {
 				return {
@@ -262,14 +302,7 @@ export async function loadCasesAction(args: {
 				args.caseType,
 				inputValues,
 				searchSession,
-				{
-					caseTypes: [...(args.caseTypes ?? [])],
-					knownInputs: args.caseListConfig.searchInputs.map((input) => ({
-						name: input.name,
-						data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
-					})),
-					currentCaseType: args.caseType,
-				},
+				typeContext,
 			);
 			const firstError = runtimeErrors.values().next().value;
 			if (firstError !== undefined) {
@@ -418,39 +451,36 @@ export async function loadCaseCountAction(args: {
 }
 
 /**
- * How many stored cases one persona owns, across every case type the app
- * declares.
+ * How many retained cases one persona owns, including rows whose case type is
+ * no longer materialized by the current blueprint.
  *
  * `owner_id` is the CommCare case-owner axis — never a tenant filter — so
  * this reads the caller's own Project through the same membership gate as
  * every other action and simply compares that column. The persona is named
  * by uuid; nothing about it authorizes the read.
  *
- * Counting each case type separately is what the store's shape asks for:
- * a count is scoped to one type. The sum is the whole population the
- * persona owns, which is what a removal confirmation has to state.
+ * The persona selector is resolved from the authorized committed snapshot.
+ * Neither its owner id nor a client-provided case-type list is trusted.
  */
 export async function countCasesOwnedByAction(args: {
 	appId: string;
-	ownerId: string;
-	caseTypes: string[];
-}): Promise<LoadCaseCountResult> {
+	personaUuid: string;
+}): Promise<LoadPersonaOwnedCaseCountResult> {
 	try {
-		const identity = await resolvePreviewIdentity();
-		if (!identity) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(args.appId, identity, "view");
-		let count = 0;
-		for (const caseType of args.caseTypes) {
-			count += await store.count({
-				appId: args.appId,
-				caseType,
-				/* A held case is still owned. The confirmation is about what
-				 * stays behind, and a row waiting in Data to review stays
-				 * behind exactly like every other one. */
-				includeHeld: true,
-				predicate: eq(prop(caseType, "owner_id"), literal(args.ownerId)),
-			});
-		}
+		const context = await resolveAuthorizedPreviewContext({
+			appId: args.appId,
+			personaUuid: args.personaUuid,
+			required: "view",
+		});
+		if (context.kind !== "ready") return context;
+		const count = await context.store.count({
+			appId: args.appId,
+			ownerId: context.identity.ownerId,
+			/* A held case is still owned. The confirmation is about what
+			 * stays behind, and a row waiting in Data to review stays
+			 * behind exactly like every other one. */
+			includeHeld: true,
+		});
 		return { kind: "count", count };
 	} catch (err) {
 		if (err instanceof AppAccessError)

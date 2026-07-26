@@ -247,6 +247,54 @@ describe("the user collections", () => {
 		expect(roundTrip(doc)).toEqual(persistable);
 	});
 
+	it("round-trips prototype-named authored text without changing membership", () => {
+		const propertyUuid = PROPERTY;
+		const typeUuid = TYPE;
+		const personaUuid = PERSONA;
+		const doc = emptyDoc("rt-users-hostile-keys");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		applyMutations(doc, [
+			{
+				kind: "addUserProperty",
+				property: {
+					uuid: propertyUuid,
+					slug: "__proto__",
+					label: "constructor",
+				},
+			},
+			{
+				kind: "addUserType",
+				userType: {
+					uuid: typeUuid,
+					name: "__proto__",
+					values: Object.fromEntries([[propertyUuid, "role"]]),
+				},
+			},
+			{
+				kind: "addPersona",
+				persona: {
+					uuid: personaUuid,
+					name: "constructor",
+					userTypeUuid: typeUuid,
+				},
+			},
+		]);
+
+		const assembled = roundTrip(doc);
+		expect(Object.hasOwn(assembled.userProperties ?? {}, propertyUuid)).toBe(
+			true,
+		);
+		expect(Object.hasOwn(assembled.userTypes ?? {}, typeUuid)).toBe(true);
+		expect(Object.hasOwn(assembled.personas ?? {}, personaUuid)).toBe(true);
+		expect(assembled.userProperties?.[propertyUuid]?.slug).toBe("__proto__");
+		expect(assembled.userProperties?.[propertyUuid]?.label).toBe("constructor");
+		expect(assembled.userTypes?.[typeUuid]?.name).toBe("__proto__");
+		expect(assembled.personas?.[personaUuid]?.name).toBe("constructor");
+		expect(assembled.userTypes?.[typeUuid]?.values?.[propertyUuid]).toBe(
+			"role",
+		);
+	});
+
 	it("omits an empty collection entirely rather than assembling an empty record", () => {
 		const doc = emptyDoc("rt-users-empty");
 		applyMutations(doc, surveyModuleMutations(doc).mutations);

@@ -107,7 +107,19 @@ the worker is a persona UUID, which is authored blueprint content, while
 the signed-in member still authorizes; previewing as the member passes the
 same id in both slots explicitly. `requireActorUserId()` and
 `requireOwnerId()` are separate on purpose — collapsing them would let an
-app choose whose data a request reads.
+app choose whose data a request reads. The constructor is the trust boundary:
+every supplied Project, actor, and owner identifier must be a nonblank string
+before a query builder can exist, so `undefined`, blank, and forged selectors
+cannot fall through into an ownerless or unauthenticated query. Persona selectors
+never cross this boundary directly; the authorized committed-blueprint resolver
+turns one into the explicit actor/owner pair first.
+
+`CaseStore.count` also has an owner-wide arm used by persona removal. It counts
+every retained row for `(project_id, app_id, owner_id)` across current and retired
+case types and includes held rows when requested; it deliberately requires no
+materialized case schema because `owner_id` is a reserved scalar. The builder
+does not enable persona removal until that exact count succeeds, and a retry
+re-runs the same authorized snapshot flow.
 
 **Schema row work is the deliberate app-scoped exception.** `applySchemaChange` / `dropSchema` (the
 `SchemaCaseStore` slice, built by `withSchemaContext()`) migrate

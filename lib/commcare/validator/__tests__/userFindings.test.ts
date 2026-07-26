@@ -14,6 +14,7 @@ const USER_FINDING_CODES = [
 	"PERSONA_USER_TYPE_UNKNOWN",
 	"USER_DATA_UNKNOWN_PROPERTY",
 	"USER_DATA_INVALID_CHOICE",
+	"USER_PROPERTY_CHOICES_DUPLICATE",
 ] as const satisfies readonly ValidationErrorCode[];
 const USER_FINDING_CODE_SET: ReadonlySet<ValidationErrorCode> = new Set(
 	USER_FINDING_CODES,
@@ -33,7 +34,7 @@ function userDoc(): BlueprintDoc {
 				uuid: propertyUuid,
 				slug: "region",
 				label: "Region",
-				choices: ["north"],
+				choices: ["north", "north"],
 			},
 			[asUuid("property-duplicate")]: {
 				uuid: asUuid("property-duplicate"),
@@ -125,5 +126,135 @@ describe("user finding identity and scoping", () => {
 			scope: unrelatedScope,
 		}).filter((finding) => USER_FINDING_CODE_SET.has(finding.code));
 		expect(scoped).toEqual(userFindings);
+	});
+
+	it("reports every member of each duplicate group independent of record order", () => {
+		const properties = [
+			{
+				uuid: asUuid("property-a"),
+				slug: "Region",
+				label: "Region A",
+			},
+			{
+				uuid: asUuid("property-b"),
+				slug: "region",
+				label: "Region B",
+			},
+			{
+				uuid: asUuid("property-c"),
+				slug: "REGION",
+				label: "Region C",
+			},
+		] as const;
+		const roles = [
+			{ uuid: asUuid("role-a"), name: "Nurse" },
+			{ uuid: asUuid("role-b"), name: " nurse " },
+			{ uuid: asUuid("role-c"), name: "NURSE" },
+		] as const;
+		const personas = [
+			{ uuid: asUuid("persona-a"), name: "Amina" },
+			{ uuid: asUuid("persona-b"), name: " amina " },
+			{ uuid: asUuid("persona-c"), name: "AMINA" },
+		] as const;
+		const make = (reverse: boolean): BlueprintDoc => ({
+			...buildDoc(),
+			userProperties: Object.fromEntries(
+				(reverse ? [...properties].reverse() : properties).map((property) => [
+					property.uuid,
+					property,
+				]),
+			),
+			userTypes: Object.fromEntries(
+				(reverse ? [...roles].reverse() : roles).map((role) => [
+					role.uuid,
+					role,
+				]),
+			),
+			personas: Object.fromEntries(
+				(reverse ? [...personas].reverse() : personas).map((persona) => [
+					persona.uuid,
+					persona,
+				]),
+			),
+		});
+		const identities = (doc: BlueprintDoc) =>
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+				.filter((finding) =>
+					[
+						"USER_PROPERTY_SLUG_DUPLICATE",
+						"USER_TYPE_NAME_DUPLICATE",
+						"PERSONA_NAME_DUPLICATE",
+					].includes(finding.code),
+				)
+				.map(errorIdentity)
+				.sort();
+
+		const expected = [
+			...properties.map(
+				({ uuid }) => `USER_PROPERTY_SLUG_DUPLICATE|userProperty=${uuid}`,
+			),
+			...roles.map(({ uuid }) => `USER_TYPE_NAME_DUPLICATE|userType=${uuid}`),
+			...personas.map(({ uuid }) => `PERSONA_NAME_DUPLICATE|persona=${uuid}`),
+		].sort();
+		expect(identities(make(false))).toEqual(expected);
+		expect(identities(make(true))).toEqual(expected);
+	});
+
+	it("requires references to resolve through own record membership", () => {
+		const roleUuid = asUuid("role");
+		const personaUuid = asUuid("persona");
+		const doc: BlueprintDoc = {
+			...buildDoc(),
+			userTypes: {
+				[roleUuid]: {
+					uuid: roleUuid,
+					name: "Role",
+					values: Object.fromEntries([["constructor", "poison"]]),
+				},
+			},
+			personas: {
+				[personaUuid]: {
+					uuid: personaUuid,
+					name: "Asha",
+					userTypeUuid: asUuid("constructor"),
+				},
+			},
+		};
+
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(
+			findings
+				.filter((finding) => finding.code === "PERSONA_USER_TYPE_UNKNOWN")
+				.map(errorIdentity),
+		).toEqual([`PERSONA_USER_TYPE_UNKNOWN|persona=${personaUuid}`]);
+		expect(
+			findings
+				.filter((finding) => finding.code === "USER_DATA_UNKNOWN_PROPERTY")
+				.map(errorIdentity),
+		).toEqual([
+			`USER_DATA_UNKNOWN_PROPERTY|ownerKind=userType|owner=${roleUuid}|userProperty=constructor`,
+		]);
+	});
+
+	it("gives duplicate accepted values a stable property finding", () => {
+		const propertyUuid = asUuid("property-choices");
+		const doc: BlueprintDoc = {
+			...buildDoc(),
+			userProperties: {
+				[propertyUuid]: {
+					uuid: propertyUuid,
+					slug: "region",
+					label: "Region",
+					choices: ["north", "south", "north"],
+				},
+			},
+		};
+
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(finding) => finding.code === "USER_PROPERTY_CHOICES_DUPLICATE",
+		);
+		expect(findings.map(errorIdentity)).toEqual([
+			`USER_PROPERTY_CHOICES_DUPLICATE|userProperty=${propertyUuid}`,
+		]);
 	});
 });

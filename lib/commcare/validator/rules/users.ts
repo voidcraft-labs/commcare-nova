@@ -18,6 +18,7 @@
 
 import {
 	type BlueprintDoc,
+	ownRecordValue,
 	personasOf,
 	personaUserData,
 	userPropertiesOf,
@@ -33,18 +34,34 @@ function nameKey(name: string): string {
 
 function userPropertySlugs(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const claimed = new Set<string>();
-	for (const property of Object.values(userPropertiesOf(doc))) {
-		const verdict = userPropertySlugVerdict(property.slug, claimed);
-		claimed.add(property.slug);
-		if (verdict.ok) continue;
+	const properties = Object.values(userPropertiesOf(doc));
+	const duplicateCounts = new Map<string, number>();
+	for (const property of properties) {
+		const key = property.slug.trim().toLowerCase();
+		duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
+	}
+	for (const property of properties) {
+		const verdict = userPropertySlugVerdict(property.slug, new Set());
+		if (!verdict.ok) {
+			errors.push(
+				validationError(
+					"USER_PROPERTY_SLUG_INVALID",
+					"app",
+					`"${property.label}" saves under the name "${property.slug}", which CommCare won't accept. ${verdict.userMessage}`,
+					{},
+					{ userPropertyUuid: property.uuid, slug: property.slug },
+				),
+			);
+			continue;
+		}
+		if ((duplicateCounts.get(property.slug.trim().toLowerCase()) ?? 0) < 2) {
+			continue;
+		}
 		errors.push(
 			validationError(
-				verdict.code === "duplicate"
-					? "USER_PROPERTY_SLUG_DUPLICATE"
-					: "USER_PROPERTY_SLUG_INVALID",
+				"USER_PROPERTY_SLUG_DUPLICATE",
 				"app",
-				`"${property.label}" saves under the name "${property.slug}", which CommCare won't accept. ${verdict.userMessage}`,
+				`"${property.label}" saves under the name "${property.slug}", which is also used by another piece of worker information. CommCare treats capitalization as the same, so give each one a different name.`,
 				{},
 				{ userPropertyUuid: property.uuid, slug: property.slug },
 			),
@@ -55,42 +72,46 @@ function userPropertySlugs(doc: BlueprintDoc): ValidationError[] {
 
 function duplicateUserTypeNames(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const seen = new Set<string>();
-	for (const type of Object.values(userTypesOf(doc))) {
+	const types = Object.values(userTypesOf(doc));
+	const counts = new Map<string, number>();
+	for (const type of types) {
 		const key = nameKey(type.name);
-		if (seen.has(key)) {
-			errors.push(
-				validationError(
-					"USER_TYPE_NAME_DUPLICATE",
-					"app",
-					`Two roles are both called "${type.name}". Give each role a name of its own — otherwise there's no way to tell them apart when assigning one to a persona.`,
-					{},
-					{ userTypeUuid: type.uuid, name: type.name },
-				),
-			);
-		}
-		seen.add(key);
+		counts.set(key, (counts.get(key) ?? 0) + 1);
+	}
+	for (const type of types) {
+		if ((counts.get(nameKey(type.name)) ?? 0) < 2) continue;
+		errors.push(
+			validationError(
+				"USER_TYPE_NAME_DUPLICATE",
+				"app",
+				`Two roles are both called "${type.name}". Give each role a name of its own — otherwise there's no way to tell them apart when assigning one to a persona.`,
+				{},
+				{ userTypeUuid: type.uuid, name: type.name },
+			),
+		);
 	}
 	return errors;
 }
 
 function duplicatePersonaNames(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const seen = new Set<string>();
-	for (const persona of Object.values(personasOf(doc))) {
+	const personas = Object.values(personasOf(doc));
+	const counts = new Map<string, number>();
+	for (const persona of personas) {
 		const key = nameKey(persona.name);
-		if (seen.has(key)) {
-			errors.push(
-				validationError(
-					"PERSONA_NAME_DUPLICATE",
-					"app",
-					`Two personas are both called "${persona.name}". Give each one a name of its own — otherwise there's no way to tell which you're previewing as.`,
-					{},
-					{ personaUuid: persona.uuid, name: persona.name },
-				),
-			);
-		}
-		seen.add(key);
+		counts.set(key, (counts.get(key) ?? 0) + 1);
+	}
+	for (const persona of personas) {
+		if ((counts.get(nameKey(persona.name)) ?? 0) < 2) continue;
+		errors.push(
+			validationError(
+				"PERSONA_NAME_DUPLICATE",
+				"app",
+				`Two personas are both called "${persona.name}". Give each one a name of its own — otherwise there's no way to tell which you're previewing as.`,
+				{},
+				{ personaUuid: persona.uuid, name: persona.name },
+			),
+		);
 	}
 	return errors;
 }
@@ -100,7 +121,7 @@ function unknownPersonaUserType(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const persona of Object.values(personasOf(doc))) {
 		if (persona.userTypeUuid === undefined) continue;
-		if (types[persona.userTypeUuid] !== undefined) continue;
+		if (ownRecordValue(types, persona.userTypeUuid) !== undefined) continue;
 		errors.push(
 			validationError(
 				"PERSONA_USER_TYPE_UNKNOWN",
@@ -131,7 +152,7 @@ function unknownUserDataProperties(doc: BlueprintDoc): ValidationError[] {
 		values: Record<string, string> | undefined,
 	): void => {
 		for (const propertyUuid of Object.keys(values ?? {})) {
-			if (properties[propertyUuid] !== undefined) continue;
+			if (ownRecordValue(properties, propertyUuid) !== undefined) continue;
 			errors.push(
 				validationError(
 					"USER_DATA_UNKNOWN_PROPERTY",
@@ -211,7 +232,7 @@ function userTypeUserDataValues(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const type of Object.values(userTypesOf(doc))) {
 		for (const [propertyUuid, value] of Object.entries(type.values ?? {})) {
-			const property = properties[propertyUuid];
+			const property = ownRecordValue(properties, propertyUuid);
 			if (property?.choices === undefined) continue;
 			if (value.trim() === "" || property.choices.includes(value)) continue;
 			errors.push(
@@ -232,8 +253,32 @@ function userTypeUserDataValues(doc: BlueprintDoc): ValidationError[] {
 	return errors;
 }
 
+/**
+ * A duplicate choice makes the authoring control ambiguous and HQ's accepted
+ * value list redundant. The schema prevents new instances; this rule keeps
+ * imported or historical documents repairable through the ordinary gate.
+ */
+function duplicateUserPropertyChoices(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const property of Object.values(userPropertiesOf(doc))) {
+		if (property.choices === undefined) continue;
+		if (new Set(property.choices).size === property.choices.length) continue;
+		errors.push(
+			validationError(
+				"USER_PROPERTY_CHOICES_DUPLICATE",
+				"app",
+				`"${property.label}" lists the same accepted value more than once. Keep each accepted value only once.`,
+				{},
+				{ userPropertyUuid: property.uuid, slug: property.slug },
+			),
+		);
+	}
+	return errors;
+}
+
 export const USER_RULES = [
 	userPropertySlugs,
+	duplicateUserPropertyChoices,
 	duplicateUserTypeNames,
 	duplicatePersonaNames,
 	unknownPersonaUserType,

@@ -100,6 +100,10 @@ import {
 	type Mutation,
 	type Uuid,
 } from "@/lib/doc/types";
+import {
+	updatePersonaMutations,
+	updateUserTypeMutations,
+} from "@/lib/doc/userMutations";
 import type {
 	AssetId,
 	CaseListConfig,
@@ -115,6 +119,8 @@ import type {
 import {
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
+	hasOwnRecordKey,
+	ownRecordValue,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 
@@ -1518,7 +1524,7 @@ function diffUserCollections(
 	const prevProps = prev.userProperties ?? {};
 	const nextProps = next.userProperties ?? {};
 	for (const [uuid, property] of Object.entries(nextProps)) {
-		const before = prevProps[uuid];
+		const before = ownRecordValue(prevProps, uuid);
 		if (!before) {
 			out.push({ kind: "addUserProperty", property: cloneEntity(property) });
 		} else if (!deepEqual(before, property)) {
@@ -1530,7 +1536,7 @@ function diffUserCollections(
 		}
 	}
 	for (const uuid of Object.keys(prevProps)) {
-		if (nextProps[uuid] === undefined) {
+		if (!hasOwnRecordKey(nextProps, uuid)) {
 			out.push({ kind: "removeUserProperty", uuid: asUuid(uuid) });
 		}
 	}
@@ -1538,19 +1544,21 @@ function diffUserCollections(
 	const prevTypes = prev.userTypes ?? {};
 	const nextTypes = next.userTypes ?? {};
 	for (const [uuid, userType] of Object.entries(nextTypes)) {
-		const before = prevTypes[uuid];
+		const before = ownRecordValue(prevTypes, uuid);
 		if (!before) {
 			out.push({ kind: "addUserType", userType: cloneEntity(userType) });
 		} else if (!deepEqual(before, userType)) {
-			out.push({
-				kind: "updateUserType",
-				uuid: asUuid(uuid),
-				patch: userPatch(before, userType),
-			});
+			out.push(
+				...updateUserTypeMutations(
+					prev,
+					asUuid(uuid),
+					userPatch(before, userType),
+				),
+			);
 		}
 	}
 	for (const uuid of Object.keys(prevTypes)) {
-		if (nextTypes[uuid] === undefined) {
+		if (!hasOwnRecordKey(nextTypes, uuid)) {
 			out.push({ kind: "removeUserType", uuid: asUuid(uuid) });
 		}
 	}
@@ -1558,19 +1566,21 @@ function diffUserCollections(
 	const prevPersonas = prev.personas ?? {};
 	const nextPersonas = next.personas ?? {};
 	for (const [uuid, persona] of Object.entries(nextPersonas)) {
-		const before = prevPersonas[uuid];
+		const before = ownRecordValue(prevPersonas, uuid);
 		if (!before) {
 			out.push({ kind: "addPersona", persona: cloneEntity(persona) });
 		} else if (!deepEqual(before, persona)) {
-			out.push({
-				kind: "updatePersona",
-				uuid: asUuid(uuid),
-				patch: userPatch(before, persona),
-			});
+			out.push(
+				...updatePersonaMutations(
+					prev,
+					asUuid(uuid),
+					userPatch(before, persona),
+				),
+			);
 		}
 	}
 	for (const uuid of Object.keys(prevPersonas)) {
-		if (nextPersonas[uuid] === undefined) {
+		if (!hasOwnRecordKey(nextPersonas, uuid)) {
 			out.push({ kind: "removePersona", uuid: asUuid(uuid) });
 		}
 	}
@@ -1584,10 +1594,12 @@ function diffUserCollections(
  * and the persisted jsonb. `uuid` never appears: it is the patch's key,
  * not part of it.
  */
-function userPatch(
+function userPatch<T extends Record<string, unknown>>(
 	before: Record<string, unknown>,
-	after: Record<string, unknown>,
-): Record<string, unknown> {
+	after: T,
+): {
+	[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
+} {
 	const patch: Record<string, unknown> = {};
 	for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
 		if (key === "uuid") continue;
@@ -1595,5 +1607,7 @@ function userPatch(
 		if (deepEqual(before[key], value)) continue;
 		patch[key] = value === undefined ? null : cloneEntity(value);
 	}
-	return patch;
+	return patch as {
+		[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
+	};
 }

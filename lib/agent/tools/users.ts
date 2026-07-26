@@ -18,10 +18,13 @@ import {
 	removePersonaMutations,
 	removeUserPropertyMutations,
 	removeUserTypePlan,
+	updatePersonaMutations,
+	updateUserTypeMutations,
 } from "@/lib/doc/userMutations";
 import {
 	asUuid,
 	type BlueprintDoc,
+	ownRecordValue,
 	type Persona,
 	personasOf,
 	USER_PROPERTY_LABEL_MAX_LENGTH,
@@ -91,6 +94,24 @@ function updatedValues(
 	return entries === null ? null : valuesRecord(entries);
 }
 
+const acceptedValuesSchema = z
+	.array(z.string().min(1))
+	.min(1)
+	.superRefine((choices, ctx) => {
+		const seen = new Set<string>();
+		for (const [index, choice] of choices.entries()) {
+			if (!seen.has(choice)) {
+				seen.add(choice);
+				continue;
+			}
+			ctx.addIssue({
+				code: "custom",
+				path: [index],
+				message: "Each accepted value may appear only once.",
+			});
+		}
+	});
+
 const userPropertyCreateSchema = z
 	.object({
 		slug: z
@@ -107,7 +128,7 @@ const userPropertyCreateSchema = z
 			.max(USER_PROPERTY_LABEL_MAX_LENGTH)
 			.describe("Name authors and administrators see."),
 		required: z.boolean().nullable().optional(),
-		choices: z.array(z.string().min(1)).min(1).nullable().optional(),
+		choices: acceptedValuesSchema.nullable().optional(),
 	})
 	.strict();
 
@@ -140,7 +161,7 @@ export const updateUserPropertyInputSchema = z
 		slug: userPropertyCreateSchema.shape.slug.optional(),
 		label: userPropertyCreateSchema.shape.label.optional(),
 		required: z.boolean().nullable().optional(),
-		choices: z.array(z.string().min(1)).min(1).nullable().optional(),
+		choices: acceptedValuesSchema.nullable().optional(),
 	})
 	.strict();
 
@@ -281,7 +302,7 @@ export const updateUserPropertyTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<MutationResult>> {
 		try {
-			const current = userPropertiesOf(doc)[input.uuid];
+			const current = ownRecordValue(userPropertiesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
@@ -323,7 +344,7 @@ export const removeUserPropertyTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<MutationResult>> {
 		try {
-			const current = userPropertiesOf(doc)[input.uuid];
+			const current = ownRecordValue(userPropertiesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
@@ -412,7 +433,7 @@ export const updateUserTypeTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<MutationResult>> {
 		try {
-			const current = userTypesOf(doc)[input.uuid];
+			const current = ownRecordValue(userTypesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
@@ -441,7 +462,7 @@ export const updateUserTypeTool = {
 			return await commit(
 				ctx,
 				doc,
-				[{ kind: "updateUserType", uuid: input.uuid, patch }],
+				updateUserTypeMutations(doc, input.uuid, patch),
 				"users:role:update",
 				`Updated role "${current.name}".`,
 				{ subject: current.name },
@@ -462,7 +483,7 @@ export const removeUserTypeTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<MutationResult>> {
 		try {
-			const current = userTypesOf(doc)[input.uuid];
+			const current = ownRecordValue(userTypesOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
@@ -563,7 +584,7 @@ export const updatePersonaTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<MutationResult>> {
 		try {
-			const current = personasOf(doc)[input.uuid];
+			const current = ownRecordValue(personasOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
@@ -595,7 +616,7 @@ export const updatePersonaTool = {
 			return await commit(
 				ctx,
 				doc,
-				[{ kind: "updatePersona", uuid: input.uuid, patch }],
+				updatePersonaMutations(doc, input.uuid, patch),
 				"users:persona:update",
 				`Updated persona "${current.name}".`,
 				{ subject: current.name },
@@ -616,7 +637,7 @@ export const removePersonaTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<MutationResult>> {
 		try {
-			const current = personasOf(doc)[input.uuid];
+			const current = ownRecordValue(personasOf(doc), input.uuid);
 			if (current === undefined) {
 				return {
 					kind: "mutate",
@@ -653,7 +674,7 @@ function valuesOutput(
 		)
 		.map(([userPropertyUuid, value]) => ({
 			userPropertyUuid,
-			slug: properties[userPropertyUuid]?.slug,
+			slug: ownRecordValue(properties, userPropertyUuid)?.slug,
 			value,
 		}));
 }

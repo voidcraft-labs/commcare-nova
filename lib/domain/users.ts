@@ -50,6 +50,7 @@
 // `BUILT_IN_USER_PROPERTIES` carries only what the session block injects.
 
 import { z } from "zod";
+import { mergeOwnRecords, ownRecordValue } from "./records";
 import { uuidSchema } from "./uuid";
 
 // ── Slug legality ────────────────────────────────────────────────────
@@ -293,6 +294,23 @@ export const BUILT_IN_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set(
  * web users arrive through HQ's `InvitationResource`, which resolves a
  * role by name that a Nova user type cannot supply.
  */
+const userPropertyChoicesSchema = z
+	.array(z.string().min(1))
+	.superRefine((choices, ctx) => {
+		const seen = new Set<string>();
+		for (const [index, choice] of choices.entries()) {
+			if (!seen.has(choice)) {
+				seen.add(choice);
+				continue;
+			}
+			ctx.addIssue({
+				code: "custom",
+				path: [index],
+				message: `Accepted value "${choice}" is listed more than once.`,
+			});
+		}
+	});
+
 export const userPropertySchema = z
 	.object({
 		uuid: uuidSchema,
@@ -310,7 +328,7 @@ export const userPropertySchema = z
 		 * A closed set of accepted values. Absent means free text. HQ stores
 		 * this as `Field.choices` and validates against it on user save.
 		 */
-		choices: z.array(z.string().min(1)).optional(),
+		choices: userPropertyChoicesSchema.optional(),
 	})
 	.strict();
 export type UserProperty = z.infer<typeof userPropertySchema>;
@@ -424,6 +442,6 @@ export function personaUserData(
 	const type =
 		persona.userTypeUuid === undefined
 			? undefined
-			: userTypesOf(doc)[persona.userTypeUuid];
-	return { ...(type?.values ?? {}), ...(persona.values ?? {}) };
+			: ownRecordValue(userTypesOf(doc), persona.userTypeUuid);
+	return mergeOwnRecords(type?.values, persona.values);
 }

@@ -59,7 +59,17 @@ Selection controls remain immediate because every offered choice is valid by
 construction. Add focuses the new entity's name, successful removal returns
 focus to the section's Add action, and the required switch uses the full row as
 its label target. `AppSetupWorkspace` is an `@container`; keep subsection
-responsiveness scoped to the workspace rather than the viewport.
+responsiveness scoped to the workspace rather than the viewport. Persona values
+have three real states and no magic-string sentinel: absent inherits the role's
+value (or means no authored value when there is no role value), `""` is an
+explicit blank override, and a nonempty string is explicit. Select controls use
+private numeric item identities so authored values such as `__none__` remain
+ordinary choices. Each value edit dispatches its own semantic mutation rather
+than replacing the whole role/persona value bag. Persona removal remains
+disabled until the owner-wide retained-case count succeeds; the confirmation
+states that rows of current or retired case types remain stored under that
+persona and may still appear in unfiltered data views, without implying
+deletion or reassignment.
 
 ## Preview mode
 

@@ -301,6 +301,9 @@ export class EngineController {
 	 *  the client auth session and deliberately NOT cleared by
 	 *  `deactivate()`, which is a per-form lifecycle. */
 	private previewIdentity: ResolvedPreviewIdentity | null = null;
+	/** A selected persona disappeared. Never fall through to anonymous form
+	 * execution while the user is deciding which identity to use instead. */
+	private previewIdentityBlocked = false;
 
 	/** The builder session's lookup fixture snapshot. Session-scoped like
 	 *  the identity — engines CAPTURE it at activation (per-form-session
@@ -356,6 +359,13 @@ export class EngineController {
 		}
 	}
 
+	/** Suspend form execution while a selected persona cannot be resolved. */
+	setPreviewIdentityBlocked(blocked: boolean): void {
+		if (this.previewIdentityBlocked === blocked) return;
+		this.previewIdentityBlocked = blocked;
+		if (blocked) this.deactivate();
+	}
+
 	/**
 	 * Install the builder session's lookup fixture snapshot. See the
 	 * field's contract: capture-at-activation, first-arrival rebuild
@@ -394,6 +404,7 @@ export class EngineController {
 	 */
 	activateForm(formUuid: Uuid, caseData?: CaseDataByType): void {
 		this.deactivate();
+		if (this.previewIdentityBlocked) return;
 		if (!this.docStore) return;
 
 		const s = this.docStore.getState();

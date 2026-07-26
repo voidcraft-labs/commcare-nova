@@ -59,6 +59,7 @@ import {
 	type Column,
 	caseListColumnHasRuntimeRole,
 	orderedCaseOperations,
+	ownRecordValue,
 	type PersistableDoc,
 	personasOf,
 	type UserCollections,
@@ -1203,7 +1204,7 @@ export async function resolvePreviewIdentity(
 	// This low-level projection is used only when the caller already owns the
 	// document. App-facing selectors use `resolveAuthorizedPreviewContext`,
 	// whose stale-persona arm refuses rather than changing worker identities.
-	const persona = personasOf(doc)[personaUuid];
+	const persona = ownRecordValue(personasOf(doc), personaUuid);
 	if (persona === undefined) return previewAsMe(session.user, doc);
 	return previewAsPersona(session.user, persona, doc);
 }
@@ -1269,7 +1270,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 		if (args.personaUuid === undefined) {
 			identity = previewAsMe(session?.user, blueprint) ?? memberIdentity;
 		} else {
-			const persona = personasOf(blueprint)[args.personaUuid];
+			const persona = ownRecordValue(personasOf(blueprint), args.personaUuid);
 			if (persona === undefined) {
 				return {
 					kind: "persona-unavailable",

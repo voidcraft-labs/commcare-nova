@@ -34,8 +34,11 @@ import {
 	BUILT_IN_USER_PROPERTIES,
 	COMMCARE_MOBILE_WORKER_USER_TYPE,
 	COMMCARE_STANDARD_USER_TYPE,
+	mergeOwnRecords,
+	ownRecordValue,
 	type Persona,
 	personaUserData,
+	recordFromEntries,
 	type UserCollections,
 	userPropertiesOf,
 } from "@/lib/domain";
@@ -194,11 +197,11 @@ function usercaseBuiltIns(worker: {
  * comparison behave the same in Preview as on a device.
  */
 function declaredPropertySlots(doc: UserCollections): Record<string, string> {
-	const slots: Record<string, string> = {};
-	for (const property of Object.values(userPropertiesOf(doc))) {
-		slots[property.slug] = "";
-	}
-	return slots;
+	return recordFromEntries(
+		Object.values(userPropertiesOf(doc)).map(
+			(property) => [property.slug, ""] as const,
+		),
+	);
 }
 
 /** Authored values keyed by slug rather than by property UUID. */
@@ -207,12 +210,12 @@ function authoredBySlug(
 	doc: UserCollections,
 ): Record<string, string> {
 	const properties = userPropertiesOf(doc);
-	const bySlug: Record<string, string> = {};
+	const entries: Array<readonly [string, string]> = [];
 	for (const [propertyUuid, value] of Object.entries(values)) {
-		const property = properties[propertyUuid];
-		if (property !== undefined) bySlug[property.slug] = value;
+		const property = ownRecordValue(properties, propertyUuid);
+		if (property !== undefined) entries.push([property.slug, value]);
 	}
-	return bySlug;
+	return recordFromEntries(entries);
 }
 
 /**
@@ -244,17 +247,13 @@ function projections(
 				deviceid: "nova-preview",
 				appversion: "preview",
 			},
-			user: {
-				...declared,
-				...values,
-				...frameworkSessionKeys(worker.personName),
-			},
+			user: mergeOwnRecords(
+				declared,
+				values,
+				frameworkSessionKeys(worker.personName),
+			),
 		},
-		usercase: {
-			...declared,
-			...values,
-			...usercaseBuiltIns(worker),
-		},
+		usercase: mergeOwnRecords(declared, values, usercaseBuiltIns(worker)),
 	};
 }
 

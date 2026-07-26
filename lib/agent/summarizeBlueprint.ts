@@ -28,6 +28,7 @@ import type {
 } from "@/lib/domain";
 import {
 	isContainer,
+	ownRecordValue,
 	personasOf,
 	tileCellFor,
 	userPropertiesOf,
@@ -333,7 +334,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 				)
 				.map(
 					([uuid, value]) =>
-						`${propertyByUuid[uuid]?.slug ?? `<missing:${uuid}>`}=${JSON.stringify(value)} [property uuid ${uuid}]`,
+						`${ownRecordValue(propertyByUuid, uuid)?.slug ?? `<missing:${uuid}>`}=${JSON.stringify(value)} [property uuid ${uuid}]`,
 				)
 				.join(", ");
 		lines.push("");
@@ -361,7 +362,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 				const role =
 					persona.userTypeUuid === undefined
 						? undefined
-						: userTypesOf(doc)[persona.userTypeUuid];
+						: ownRecordValue(userTypesOf(doc), persona.userTypeUuid);
 				const personaValues = values(persona.values);
 				lines.push(
 					`    - "${persona.name}" [uuid ${persona.uuid}]${persona.description === undefined ? "" : ` description=${JSON.stringify(persona.description)}`}${role === undefined ? "" : ` role="${role.name}" [uuid ${role.uuid}]`}${personaValues === "" ? "" : ` overrides={${personaValues}}`}`,

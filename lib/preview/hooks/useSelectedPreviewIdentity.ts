@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useUserCollections } from "@/lib/doc/hooks/useUserCollections";
+import { ownRecordValue } from "@/lib/domain";
 import {
 	previewAsMe,
 	previewAsPersona,
@@ -27,9 +28,21 @@ import {
 } from "@/lib/preview/engine/identity";
 import { usePreviewPersonaUuid } from "@/lib/session/hooks";
 
-export function useSelectedPreviewIdentity(
+export type SelectedPreviewIdentityState =
+	| {
+			readonly kind: "ready";
+			readonly identity: ResolvedPreviewIdentity | null;
+	  }
+	| { readonly kind: "persona-unavailable"; readonly personaUuid: string };
+
+/**
+ * Preserve the difference between an identity that has not hydrated yet and
+ * a selected persona that no longer exists. Collapsing both to `null` lets
+ * the latter run as an anonymous worker.
+ */
+export function useSelectedPreviewIdentityState(
 	options: { readonly useCachedSessionImmediately?: boolean } = {},
-): ResolvedPreviewIdentity | null {
+): SelectedPreviewIdentityState {
 	const { user } = useAuth();
 	const personaUuid = usePreviewPersonaUuid();
 	const collections = useUserCollections();
@@ -43,10 +56,19 @@ export function useSelectedPreviewIdentity(
 		const sessionUser =
 			options.useCachedSessionImmediately === true || authMounted ? user : null;
 		const persona =
-			personaUuid === undefined ? undefined : collections.personas[personaUuid];
-		if (personaUuid !== undefined && persona === undefined) return null;
-		if (persona === undefined) return previewAsMe(sessionUser, collections);
-		return previewAsPersona(sessionUser, persona, collections);
+			personaUuid === undefined
+				? undefined
+				: ownRecordValue(collections.personas, personaUuid);
+		if (personaUuid !== undefined && persona === undefined) {
+			return { kind: "persona-unavailable", personaUuid };
+		}
+		return {
+			kind: "ready",
+			identity:
+				persona === undefined
+					? previewAsMe(sessionUser, collections)
+					: previewAsPersona(sessionUser, persona, collections),
+		};
 	}, [
 		authMounted,
 		collections,
@@ -54,4 +76,12 @@ export function useSelectedPreviewIdentity(
 		personaUuid,
 		user,
 	]);
+}
+
+/** Compatibility projection for consumers where unavailable means no identity. */
+export function useSelectedPreviewIdentity(
+	options: { readonly useCachedSessionImmediately?: boolean } = {},
+): ResolvedPreviewIdentity | null {
+	const state = useSelectedPreviewIdentityState(options);
+	return state.kind === "ready" ? state.identity : null;
 }

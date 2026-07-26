@@ -4488,6 +4488,47 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(total).toBe(2);
 		});
 
+		it("owner count includes rows whose case type is no longer materialized", async () => {
+			const store = await options.factory(TENANT_A);
+			const blueprint = buildBlueprint([
+				PATIENT_CASE_TYPE,
+				HOUSEHOLD_CASE_TYPE,
+			]);
+			await seedSchema(store, blueprint, "patient");
+			await seedSchema(store, blueprint, "household");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: "Alice",
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: HOUSEHOLD_ID,
+					case_type: "household",
+					case_name: "Retired household",
+					status: "open",
+					properties: makeProperties({ head_name: "Ada" }),
+				},
+			});
+			// A retired/non-materializable type has no current schema row, but
+			// its retained cases still count toward persona-removal consequences.
+			await store.dropSchema({ appId: APP_ID, caseType: "household" });
+
+			expect(
+				await store.count({
+					appId: APP_ID,
+					ownerId: USER_A,
+					includeHeld: true,
+				}),
+			).toBe(2);
+		});
+
 		it("count narrows to the predicate-matching subset", async () => {
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);

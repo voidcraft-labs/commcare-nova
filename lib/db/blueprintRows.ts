@@ -16,7 +16,7 @@
 // the same cost the old whole-blob serialize paid, and it is correct for any
 // reducer side effect by construction.
 
-import type { PersistableDoc } from "@/lib/domain";
+import { type PersistableDoc, recordWithValue } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 
 export interface EntityRow {
@@ -200,7 +200,13 @@ export function assembleBlueprint(
 		const flatSlot = flatSlotByKind.get(row.kind);
 		if (flatSlot !== undefined) {
 			const collection = flat[flatSlot];
-			if (collection !== undefined) collection[row.uuid] = row.data;
+			if (collection !== undefined) {
+				flat[flatSlot] = recordWithValue(
+					collection as Record<string, Record<string, unknown>>,
+					row.uuid,
+					row.data,
+				);
+			}
 		} else if (row.kind === "module") {
 			modules[row.uuid] = row.data;
 			moduleRows.push(row);

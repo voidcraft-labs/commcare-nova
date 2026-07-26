@@ -24,8 +24,12 @@ import { appendOrderKey } from "@/lib/doc/order/append";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	hasOwnRecordKey,
+	ownRecordValue,
 	type Persona,
 	personasOf,
+	recordWithoutKey,
+	recordWithValue,
 	type UserDataValues,
 	type UserProperty,
 	type UserType,
@@ -33,6 +37,10 @@ import {
 	userPropertiesOf,
 	userTypesOf,
 } from "@/lib/domain";
+
+type UserEntityPatch<T> = {
+	[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
+};
 
 /** Sort-key order for an entity appended to one of the flat collections. */
 function nextOrderKey(collection: Record<string, { order?: string }>): string {
@@ -85,27 +93,135 @@ export function addPersonaMutations(
 	];
 }
 
-/** A value bag with one key dropped, or `undefined` when nothing changes. */
-function withoutKey(
+function fallbackValues(
 	values: UserDataValues | undefined,
-	propertyUuid: Uuid,
-): UserDataValues | undefined {
-	if (values === undefined || values[propertyUuid] === undefined) {
-		return undefined;
+): UserDataValues | null {
+	return values !== undefined && Object.keys(values).length > 0 ? values : null;
+}
+
+function userDataValueMutations(
+	kind: "updateUserType" | "updatePersona",
+	uuid: Uuid,
+	before: UserDataValues | undefined,
+	after: UserDataValues | undefined,
+): Mutation[] {
+	const mutations: Mutation[] = [];
+	let cursor = before;
+	const keys = [
+		...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]),
+	].sort();
+	for (const propertyUuid of keys) {
+		const beforeHas = hasOwnRecordKey(before, propertyUuid);
+		const afterHas = hasOwnRecordKey(after, propertyUuid);
+		const beforeValue = ownRecordValue(before, propertyUuid);
+		const afterValue = ownRecordValue(after, propertyUuid);
+		if (beforeHas === afterHas && beforeValue === afterValue) continue;
+		cursor = afterHas
+			? recordWithValue(cursor, propertyUuid, afterValue as string)
+			: recordWithoutKey(cursor, propertyUuid);
+		mutations.push({
+			kind,
+			uuid,
+			patch: { values: fallbackValues(cursor) },
+			valuePatch: {
+				userPropertyUuid: propertyUuid as Uuid,
+				value: afterHas ? (afterValue as string) : null,
+			},
+		});
 	}
-	const next = { ...values };
-	delete next[propertyUuid];
-	return next;
+	return mutations;
+}
+
+/** Plan a role update, splitting each value-key edit into its own mutation. */
+export function updateUserTypeMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	patch: UserEntityPatch<UserType>,
+): Mutation[] {
+	const current = ownRecordValue(userTypesOf(doc), uuid);
+	if (current === undefined) return [];
+	const { values, ...metadata } = patch;
+	const mutations: Mutation[] =
+		Object.keys(metadata).length === 0
+			? []
+			: [{ kind: "updateUserType", uuid, patch: metadata }];
+	if (values !== undefined) {
+		mutations.push(
+			...userDataValueMutations(
+				"updateUserType",
+				uuid,
+				current.values,
+				values === null ? undefined : values,
+			),
+		);
+	}
+	return mutations;
+}
+
+/** Plan a persona update, splitting each override-key edit into its own event. */
+export function updatePersonaMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	patch: UserEntityPatch<Persona>,
+): Mutation[] {
+	const current = ownRecordValue(personasOf(doc), uuid);
+	if (current === undefined) return [];
+	const { values, ...metadata } = patch;
+	const mutations: Mutation[] =
+		Object.keys(metadata).length === 0
+			? []
+			: [{ kind: "updatePersona", uuid, patch: metadata }];
+	if (values !== undefined) {
+		mutations.push(
+			...userDataValueMutations(
+				"updatePersona",
+				uuid,
+				current.values,
+				values === null ? undefined : values,
+			),
+		);
+	}
+	return mutations;
+}
+
+/** Plan one role default edit without constructing a stale whole value bag. */
+export function updateUserTypeValueMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	propertyUuid: Uuid,
+	value: string | undefined,
+): Mutation[] {
+	const current = ownRecordValue(userTypesOf(doc), uuid);
+	if (current === undefined) return [];
+	const next =
+		value === undefined
+			? recordWithoutKey(current.values, propertyUuid)
+			: recordWithValue(current.values, propertyUuid, value);
+	return userDataValueMutations("updateUserType", uuid, current.values, next);
+}
+
+/** Plan one persona override edit without constructing a stale whole bag. */
+export function updatePersonaValueMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	propertyUuid: Uuid,
+	value: string | undefined,
+): Mutation[] {
+	const current = ownRecordValue(personasOf(doc), uuid);
+	if (current === undefined) return [];
+	const next =
+		value === undefined
+			? recordWithoutKey(current.values, propertyUuid)
+			: recordWithValue(current.values, propertyUuid, value);
+	return userDataValueMutations("updatePersona", uuid, current.values, next);
 }
 
 /**
  * Remove a property and every value recorded against it.
  *
- * The rewritten bags travel as whole `values` objects rather than per-key
- * clears: a concrete object survives JSON intact, so omitting a key from
- * the rebuilt bag IS the clear, with no `null` sentinel needed. An
- * emptied bag is sent as `null`, which the patch reducer treats as a
- * delete — the shape a bag-less role or persona already has.
+ * Each cleanup travels as one semantic value-key clear. The mutation also
+ * carries a cumulative whole-bag fallback so a receiver from before the
+ * fine-grained extension replays the same final document.
  */
 export function removeUserPropertyMutations(
 	doc: BlueprintDoc,
@@ -113,22 +229,16 @@ export function removeUserPropertyMutations(
 ): Mutation[] {
 	const mutations: Mutation[] = [];
 	for (const type of Object.values(userTypesOf(doc))) {
-		const next = withoutKey(type.values, uuid);
-		if (next === undefined) continue;
-		mutations.push({
-			kind: "updateUserType",
-			uuid: type.uuid,
-			patch: { values: Object.keys(next).length > 0 ? next : null },
-		});
+		if (!hasOwnRecordKey(type.values, uuid)) continue;
+		mutations.push(
+			...updateUserTypeValueMutations(doc, type.uuid, uuid, undefined),
+		);
 	}
 	for (const persona of Object.values(personasOf(doc))) {
-		const next = withoutKey(persona.values, uuid);
-		if (next === undefined) continue;
-		mutations.push({
-			kind: "updatePersona",
-			uuid: persona.uuid,
-			patch: { values: Object.keys(next).length > 0 ? next : null },
-		});
+		if (!hasOwnRecordKey(persona.values, uuid)) continue;
+		mutations.push(
+			...updatePersonaValueMutations(doc, persona.uuid, uuid, undefined),
+		);
 	}
 	mutations.push({ kind: "removeUserProperty", uuid });
 	return mutations;

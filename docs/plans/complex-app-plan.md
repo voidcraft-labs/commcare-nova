@@ -345,7 +345,22 @@ refused text. The shared agent tools expose
 `getUsers` plus add/update/remove operations for each collection (snake_case on
 MCP); values cross those JSON tool boundaries as
 `{ userPropertyUuid, value }[]` and bridge to the UUID-keyed document record at
-one boundary. Update omission keeps a slot and explicit `null` clears one.
+one boundary. Update omission keeps a slot and explicit `null` clears one. Each
+changed role/persona value persists as its own semantic mutation, with the
+cumulative record only as an origin-compatible fallback, so concurrent edits
+to different properties merge instead of replacing one another. In the
+builder an absent persona value inherits its role, an explicit `""` overrides
+the role with blank, and a nonempty value overrides it with that value; control
+item identities are separate from authored strings, so no valid choice is
+reserved as a sentinel.
+
+All three collections treat authored identities as own record keys, never
+through prototype lookup or the legacy `__proto__` assignment setter. Thus
+schema-valid keys such as `__proto__` and `constructor` survive persistence and
+projection without inherited properties masquerading as members. Accepted
+choices are unique by exact value at construction, and duplicate property
+slugs, user-type names, and persona names report every member of the duplicate
+group in deterministic `(order, uuid)` order, independent of insertion order.
 
 The wire facts the shape rests on:
 
@@ -475,11 +490,26 @@ typed refusal; it never changes the write to the signed-in member. The selector
 rides Results/Details reads, sample populate/reset, and form submission, while
 Project lookup reads continue to authorize as the member. Thus sample rows and
 submitted cases are owned by the selected worker, but membership and lookup
-access can never be asserted by authored persona identity.
+access can never be asserted by authored persona identity. The case-store
+constructor rejects every blank or undefined supplied Project, actor, or owner
+identifier before a query can exist, so a malformed selector cannot degrade
+into an ownerless write.
+
+The selected-but-missing state is explicit on the client too: the running shell
+replaces every Preview surface with a blocked explanation and **Preview as me**
+recovery, and the engine controller refuses activation behind it. It never
+renders an anonymous or one-frame member fallback. Leaving Preview clears the
+persona selection before edit-only sample/data surfaces become active, so the
+next run starts as the signed-in member unless the author chooses a persona
+again.
 
 Deleting a persona never deletes case data: rows it owns keep naming it, and the
-confirmation states how many rows that is rather than offering to reassign or
-remove them. **This is Nova's own rule, not HQ parity** — HQ has two different
+confirmation must successfully count every retained row for that owner across
+current and retired case types before enabling Remove. Held rows are included;
+the result is the exact population that stays stored and may remain visible in
+unfiltered data views. A failed count offers retry rather than allowing an
+unknown-impact removal, and the dialog offers neither reassignment nor row
+removal. **This is Nova's own rule, not HQ parity** — HQ has two different
 answers and neither is a template for it. Deactivating a worker, or removing
 them from the domain, closes their usercase and leaves their cases alone
 (`sync_usercase.py::_get_sync_usercase_helper` computes
@@ -512,7 +542,9 @@ The running preview executes the blueprint in a client-side engine
 - The AST→Kysely compiler (`lib/case-store/sql`) carries `table-lookup` and
   `table-column` arms, so a lookup-bearing case-list filter compiles to SQL.
 - Preview runs as the signed-in member or as a named persona, and the two modes
-  never blend: the running app always states which identity it is showing.
+  never blend: the running app always states which identity it is showing, and
+  an unavailable selected persona blocks execution until the author explicitly
+  switches back.
 
 ### Case lists, search, and the case workspace
 

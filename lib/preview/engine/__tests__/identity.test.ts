@@ -235,6 +235,56 @@ describe("the session block and the usercase are two projections", () => {
 		expect(identity?.usercase).not.toHaveProperty("commcare_first_name");
 		expect(identity?.usercase.hq_user_id).toBe(ASHA);
 	});
+
+	it("preserves valid prototype-named slugs as own data properties", () => {
+		const propertyProto = asUuid("property-proto");
+		const propertyConstructor = asUuid("property-constructor");
+		const roleUuid = asUuid("constructor");
+		const persona = {
+			uuid: asUuid("persona-hostile-slugs"),
+			name: "Asha",
+			userTypeUuid: roleUuid,
+		};
+		const doc: UserCollections = {
+			userProperties: Object.fromEntries([
+				[
+					propertyProto,
+					{ uuid: propertyProto, slug: "__proto__", label: "Prototype" },
+				],
+				[
+					propertyConstructor,
+					{
+						uuid: propertyConstructor,
+						slug: "constructor",
+						label: "Constructor",
+					},
+				],
+			]),
+			userTypes: Object.fromEntries([
+				[
+					roleUuid,
+					{
+						uuid: roleUuid,
+						name: "Constructor role",
+						values: Object.fromEntries([
+							[propertyProto, "proto value"],
+							[propertyConstructor, "constructor value"],
+						]),
+					},
+				],
+			]),
+		};
+
+		const identity = previewAsPersona(FULL_USER, persona, doc);
+		for (const projection of [identity?.session.user, identity?.usercase]) {
+			expect(Object.hasOwn(projection ?? {}, "__proto__")).toBe(true);
+			expect(
+				Object.getOwnPropertyDescriptor(projection ?? {}, "__proto__")?.value,
+			).toBe("proto value");
+			expect(Object.hasOwn(projection ?? {}, "constructor")).toBe(true);
+			expect(projection?.constructor).toBe("constructor value");
+		}
+	});
 });
 
 describe("previewSessionValues", () => {

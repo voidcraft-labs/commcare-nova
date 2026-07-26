@@ -18,7 +18,7 @@ import {
 	useUserTypes,
 } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
-import type { UserDataValues, UserType } from "@/lib/domain";
+import { ownRecordValue, type UserType } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
@@ -130,11 +130,13 @@ function RoleRow({
 		mutations.updateUserType(role.uuid as Uuid, patch);
 	};
 
-	const setValue = (propertyUuid: string, value: string) => {
-		const next: UserDataValues = { ...(role.values ?? {}) };
-		if (value === "") delete next[propertyUuid];
-		else next[propertyUuid] = value;
-		write({ values: Object.keys(next).length > 0 ? next : null });
+	const setValue = (propertyUuid: string, value: string | undefined) => {
+		if (!sessionApi.getState().canEdit) return;
+		mutations.updateUserTypeValue(
+			role.uuid as Uuid,
+			propertyUuid as Uuid,
+			value,
+		);
 	};
 
 	return (
@@ -221,7 +223,7 @@ function RoleRow({
 							<ValueField
 								key={property.uuid}
 								property={property}
-								value={role.values?.[property.uuid] ?? ""}
+								value={ownRecordValue(role.values, property.uuid)}
 								disabled={!canEdit}
 								onChange={(next) => setValue(property.uuid, next)}
 							/>
