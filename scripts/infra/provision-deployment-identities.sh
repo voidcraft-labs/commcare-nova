@@ -79,21 +79,6 @@ ensure_custom_role() {
 		--quiet
 }
 
-remove_bucket_role_if_present() {
-	local account="$1"
-	local role="$2"
-	if ! gcloud storage buckets get-iam-policy "gs://${MEDIA_BUCKET}" \
-		--flatten=bindings \
-		--filter="bindings.role=${role} AND bindings.members=serviceAccount:${account}" \
-		--format='value(bindings.role)' | grep -qx "$role"; then
-		return
-	fi
-	run gcloud storage buckets remove-iam-policy-binding "gs://${MEDIA_BUCKET}" \
-		--member="serviceAccount:${account}" \
-		--role="$role" \
-		--condition=None
-}
-
 ensure_service_account() {
 	local email="$1"
 	local account_id="$2"
@@ -199,20 +184,61 @@ ensure_custom_role \
 	"Nova capture object maintenance" \
 	"Exact capture object create, read, and delete authority." \
 	"storage.objects.get,storage.objects.create,storage.objects.delete"
-run gcloud storage buckets add-iam-policy-binding "gs://${MEDIA_BUCKET}" \
-	--member="serviceAccount:${MEDIA_POLICY_ACCOUNT}" \
-	--role="projects/${PROJECT}/roles/${MEDIA_POLICY_ROLE_ID}" \
-	--condition=None
-capture_condition="$(node "$(dirname "$0")/capture-storage-policy.mjs" "$MEDIA_BUCKET")"
-run gcloud storage buckets add-iam-policy-binding "gs://${MEDIA_BUCKET}" \
-	--member="serviceAccount:${CAPTURE_CLEANUP_ACCOUNT}" \
-	--role="projects/${PROJECT}/roles/${CAPTURE_STORAGE_ROLE_ID}" \
-	--condition="expression=${capture_condition},title=nova-capture-only-v1,description=Capture staging durable and health objects only"
-# Convergence removes the two historical broad grants after their exact
-# replacements are bound. Re-running updates custom roles to the exact
-# permission lists above, so neither a stale permission nor binding survives.
-remove_bucket_role_if_present "$MEDIA_POLICY_ACCOUNT" roles/storage.admin
-remove_bucket_role_if_present "$CAPTURE_CLEANUP_ACCOUNT" roles/storage.objectUser
+# Replace the whole bucket policy with its etag intact. This removes every
+# stale role/condition variant for both bucket principals in the SAME atomic
+# write that installs each sole intended custom-role binding. A read, parse,
+# set, or verification failure is fatal; "grant absent" is represented by
+# valid JSON with no matching member, never by swallowing a failed gcloud
+# command.
+capture_policy_dir="$(mktemp -d)"
+capture_policy_before="${capture_policy_dir}/before.json"
+capture_policy_after="${capture_policy_dir}/after.json"
+capture_policy_verified="${capture_policy_dir}/verified.json"
+cleanup_capture_policy_dir() {
+	rm -f \
+		"$capture_policy_before" \
+		"$capture_policy_after" \
+		"$capture_policy_verified"
+	rmdir "$capture_policy_dir"
+}
+trap cleanup_capture_policy_dir EXIT
+if ! gcloud storage buckets get-iam-policy "gs://${MEDIA_BUCKET}" \
+	--format=json >"$capture_policy_before"; then
+	printf 'Failed to read the media bucket IAM policy.\n' >&2
+	exit 1
+fi
+capture_policy_role="projects/${PROJECT}/roles/${CAPTURE_STORAGE_ROLE_ID}"
+media_policy_role="projects/${PROJECT}/roles/${MEDIA_POLICY_ROLE_ID}"
+node "$(dirname "$0")/capture-bucket-policy.mjs" \
+	render \
+	"$MEDIA_BUCKET" \
+	"$CAPTURE_CLEANUP_ACCOUNT" \
+	"$MEDIA_POLICY_ACCOUNT" \
+	"$capture_policy_role" \
+	"$media_policy_role" \
+	"$capture_policy_before" \
+	"$capture_policy_after"
+run gcloud storage buckets set-iam-policy \
+	"gs://${MEDIA_BUCKET}" \
+	"$capture_policy_after" \
+	--quiet
+if $APPLY; then
+	if ! gcloud storage buckets get-iam-policy "gs://${MEDIA_BUCKET}" \
+		--format=json >"$capture_policy_verified"; then
+		printf 'Failed to verify the media bucket IAM policy.\n' >&2
+		exit 1
+	fi
+else
+	cp "$capture_policy_after" "$capture_policy_verified"
+fi
+node "$(dirname "$0")/capture-bucket-policy.mjs" \
+	verify \
+	"$MEDIA_BUCKET" \
+	"$CAPTURE_CLEANUP_ACCOUNT" \
+	"$MEDIA_POLICY_ACCOUNT" \
+	"$capture_policy_role" \
+	"$media_policy_role" \
+	"$capture_policy_verified"
 run gcloud iam service-accounts add-iam-policy-binding "$CAPTURE_SCHEDULER_ACCOUNT" \
 	--project="$PROJECT" \
 	--member="serviceAccount:${SCHEDULER_SERVICE_AGENT}" \

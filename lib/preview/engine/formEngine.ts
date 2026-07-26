@@ -1508,33 +1508,108 @@ export class FormEngine {
 	 * its value and unplugs its state.
 	 */
 	renamePaths(
-		pairs: ReadonlyArray<{ oldPath: string; newPath: string }>,
+		pairs: ReadonlyArray<{
+			oldPath: string;
+			newPath: string;
+			oldSegmentKeys?: readonly string[];
+			newSegmentKeys?: readonly string[];
+		}>,
 	): void {
 		const moves: Array<{ from: string; to: string | null }> = [];
-		for (const { oldPath, newPath } of pairs) {
+		for (const { oldPath, newPath, oldSegmentKeys, newSegmentKeys } of pairs) {
+			const identity =
+				oldSegmentKeys !== undefined && newSegmentKeys !== undefined
+					? { oldSegmentKeys, newSegmentKeys }
+					: undefined;
 			for (const from of this.materializePaths(oldPath)) {
-				moves.push({ from, to: remapInstancePath(from, oldPath, newPath) });
+				moves.push({
+					from,
+					to: remapInstancePath(from, oldPath, newPath, identity),
+				});
 			}
 		}
 
 		const updates: EngineStoreState = {};
 		const current = this.store.getState();
-		for (const { from, to } of moves) {
-			if (to === null) {
-				this.instance.delete(from);
-				if (current[from]) updates[from] = DEFAULT_ENGINE_STATE;
-				continue;
-			}
-			this.instance.rename(from, to);
-			const oldState = current[from];
-			if (oldState) {
-				updates[from] = DEFAULT_ENGINE_STATE;
-				updates[to] = { ...oldState, path: to };
+		const stateMoves = moves.map(({ from, to }) => ({
+			from,
+			to,
+			state: current[from],
+			instanceKeys: this.repeatInstanceKeys.get(from),
+		}));
+		this.instance.renameMany(moves);
+		for (const { from } of stateMoves) {
+			if (current[from]) updates[from] = DEFAULT_ENGINE_STATE;
+			this.repeatInstanceKeys.delete(from);
+		}
+		// Destinations land only after every source is retired. Besides making
+		// DataInstance atomic, this keeps the reactive store and repeat-row
+		// identity map correct for swaps and rename chains in the same batch.
+		for (const { to, state, instanceKeys } of stateMoves) {
+			if (to === null) continue;
+			if (state) updates[to] = { ...state, path: to };
+			if (instanceKeys !== undefined) {
+				this.repeatInstanceKeys.set(to, instanceKeys);
 			}
 		}
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+	}
+
+	/**
+	 * Seed only the concrete paths that a topology move newly exposes.
+	 *
+	 * A group moved into an already-expanded repeat has one preserved answer
+	 * for instance 0 and brand-new empty/default slots for the other live
+	 * instances. `renamePaths` deliberately moves only states that existed in
+	 * the old topology; this fills those new holes without resetting moved
+	 * values, touched flags, or validation state.
+	 *
+	 * Call after `rebuildDag`, so materialization follows the new topology.
+	 */
+	ensureFieldStates(path: string, field: Field): void {
+		const current = this.store.getState();
+		const updates: EngineStoreState = {};
+		const createdPaths: string[] = [];
+		const isStructural = field.kind === "group" || field.kind === "repeat";
+		const isRequired =
+			!isStructural &&
+			expressionSource(field, "required", this.printDoc) === "true()";
+
+		for (const concrete of this.materializePaths(path)) {
+			const existing = current[concrete];
+			if (existing !== undefined && existing !== DEFAULT_ENGINE_STATE) continue;
+
+			if (field.kind === "repeat") {
+				this.instance.ensureRepeat(concrete);
+				updates[concrete] = {
+					...this.initialContainerState(concrete, "repeat"),
+					repeatCount: this.instance.getRepeatCount(concrete),
+				};
+			} else if (field.kind === "group") {
+				updates[concrete] = this.initialContainerState(concrete, "group");
+			} else {
+				let value = this.instance.get(concrete);
+				if (value === undefined) {
+					value = this.computeDefault(field, concrete) ?? "";
+					this.instance.set(concrete, value);
+				}
+				updates[concrete] = {
+					path: concrete,
+					value,
+					visible: true,
+					required: isRequired,
+					valid: true,
+					touched: false,
+				};
+			}
+			createdPaths.push(concrete);
+		}
+
+		if (createdPaths.length === 0) return;
+		this.store.setState(updates);
+		this.evaluatePathsInto(createdPaths);
 	}
 
 	/**

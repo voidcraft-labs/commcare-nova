@@ -891,6 +891,242 @@ describe("EngineController", () => {
 			]);
 		});
 
+		it("atomically swaps two capture paths once from the complete pre/post maps", () => {
+			const firstUuid = asUuid("eeeeeeee-0010-0010-0010-000000000001");
+			const secondUuid = asUuid("eeeeeeee-0010-0010-0010-000000000002");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[firstUuid]: {
+							uuid: firstUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+						[secondUuid]: {
+							uuid: secondUuid,
+							id: "document",
+							kind: "file",
+							label: "Document",
+						},
+					},
+					{ [FORM_UUID]: [firstUuid, secondUuid] },
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.setValueAt("/data/photo", "photo.png");
+			ctrl.setValueAt("/data/document", "document.pdf");
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: firstUuid,
+					targetKind: "image",
+					patch: { id: "document" },
+				},
+				{
+					kind: "updateField",
+					uuid: secondUuid,
+					targetKind: "file",
+					patch: { id: "photo" },
+				},
+			]);
+
+			expect(ctrl.getPath(firstUuid)).toBe("/data/document");
+			expect(ctrl.getPath(secondUuid)).toBe("/data/photo");
+			expect(ctrl.store.getState()[firstUuid].value).toBe("photo.png");
+			expect(ctrl.store.getState()[secondUuid].value).toBe("document.pdf");
+			expect(events).toEqual([
+				{
+					entryKey: ctrl.entryKey,
+					moves: [
+						{
+							fieldUuid: firstUuid,
+							oldPathTemplate: "/data/photo",
+							newPathTemplate: "/data/document",
+							previousCaptureKind: "image",
+							captureKind: "image",
+						},
+						{
+							fieldUuid: secondUuid,
+							oldPathTemplate: "/data/document",
+							newPathTemplate: "/data/photo",
+							previousCaptureKind: "file",
+							captureKind: "file",
+						},
+					],
+				},
+			]);
+		});
+
+		it("preserves a capture moved directly between group and repeat parents", () => {
+			const groupUuid = asUuid("eeeeeeee-0011-0011-0011-000000000001");
+			const repeatParentUuid = asUuid("eeeeeeee-0011-0011-0011-000000000002");
+			const captureUuid = asUuid("eeeeeeee-0011-0011-0011-000000000003");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[groupUuid]: {
+							uuid: groupUuid,
+							id: "visit",
+							kind: "group",
+							label: "Visit",
+						},
+						[repeatParentUuid]: {
+							uuid: repeatParentUuid,
+							id: "rounds",
+							kind: "repeat",
+							label: "Rounds",
+							repeat_mode: "user_controlled",
+						},
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+					},
+					{
+						[FORM_UUID]: [groupUuid, repeatParentUuid],
+						[groupUuid]: [captureUuid],
+						[repeatParentUuid]: [],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatParentUuid);
+			ctrl.setValueAt("/data/visit/photo", "photo.png");
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: captureUuid,
+					toParentUuid: repeatParentUuid,
+					toIndex: 0,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: captureUuid,
+					toParentUuid: groupUuid,
+					toIndex: 0,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+			expect(moves).toEqual([
+				expect.objectContaining({
+					fieldUuid: captureUuid,
+					oldPathTemplate: "/data/visit/photo",
+					newPathTemplate: "/data/rounds[0]/photo",
+				}),
+				expect.objectContaining({
+					fieldUuid: captureUuid,
+					oldPathTemplate: "/data/rounds[0]/photo",
+					newPathTemplate: "/data/visit/photo",
+				}),
+			]);
+		});
+
+		it("preserves capture descendants when their ancestor moves into and out of a repeat", () => {
+			const repeatParentUuid = asUuid("eeeeeeee-0012-0012-0012-000000000001");
+			const ancestorUuid = asUuid("eeeeeeee-0012-0012-0012-000000000002");
+			const captureUuid = asUuid("eeeeeeee-0012-0012-0012-000000000003");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[repeatParentUuid]: {
+							uuid: repeatParentUuid,
+							id: "rounds",
+							kind: "repeat",
+							label: "Rounds",
+							repeat_mode: "user_controlled",
+						},
+						[ancestorUuid]: {
+							uuid: ancestorUuid,
+							id: "visit",
+							kind: "group",
+							label: "Visit",
+						},
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+					},
+					{
+						[FORM_UUID]: [repeatParentUuid, ancestorUuid],
+						[repeatParentUuid]: [],
+						[ancestorUuid]: [captureUuid],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatParentUuid);
+			ctrl.setValueAt("/data/visit/photo", "photo.png");
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: ancestorUuid,
+					toParentUuid: repeatParentUuid,
+					toIndex: 0,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/visit/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: ancestorUuid,
+					toParentUuid: FORM_UUID,
+					toIndex: 1,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+			expect(moves).toEqual([
+				expect.objectContaining({
+					fieldUuid: captureUuid,
+					oldPathTemplate: "/data/visit/photo",
+					newPathTemplate: "/data/rounds[0]/visit/photo",
+				}),
+				expect.objectContaining({
+					fieldUuid: captureUuid,
+					oldPathTemplate: "/data/rounds[0]/visit/photo",
+					newPathTemplate: "/data/visit/photo",
+				}),
+			]);
+		});
+
 		it("publishes capture descendant moves for group↔repeat conversion", async () => {
 			const store = createLoadedStore(captureContainerDoc("group"));
 			const ctrl = new EngineController();

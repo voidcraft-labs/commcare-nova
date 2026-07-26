@@ -10,7 +10,7 @@ import {
 	MAX_CAPTURE_BYTES,
 } from "@/lib/domain/captureFormats";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { useCanEdit, useEditMode } from "@/lib/session/hooks";
+import { useAccessPhase, useCanEdit, useEditMode } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	type AttachmentCommitResult,
@@ -181,6 +181,8 @@ function AttachmentControl({
 	onBlurAt,
 }: AttachmentFieldProps) {
 	const mayEdit = useCanEdit();
+	const accessPhase = useAccessPhase();
+	const mayWrite = mayEdit && accessPhase === "authorized";
 	const session = useOptionalBuilderSessionApi();
 	const inputId = useId();
 	const actionId = useId();
@@ -300,14 +302,36 @@ function AttachmentControl({
 	}, [appId, entryKey, field.kind, field.uuid, path, slotKey]);
 
 	useEffect(() => {
-		if (mayEdit) return;
+		if (mayWrite) return;
 		if (entryKey) cancelAttachmentSlotWork(entryKey, slotKey);
 		if (appId && entryKey) {
-			clearAttachmentSlotDraft({ appId, entryKey, slotKey });
+			const draft = getAttachmentSlotDraft({ appId, entryKey, slotKey });
+			if (draft !== undefined && draft.status !== "needs-attention") {
+				rememberAttachmentSlotDraft({
+					appId,
+					entryKey,
+					slotKey,
+					file: draft.file,
+					status: "needs-attention",
+					generation: draft.generation,
+				});
+				setAttachmentSlotIssue({
+					appId,
+					entryKey,
+					slotKey,
+					issue: {
+						kind: "save",
+						message:
+							"This attachment was paused when edit access changed. Retry now, choose a different file, or remove it.",
+					},
+				});
+			}
+			setSlotDraftState(getAttachmentSlotDraft({ appId, entryKey, slotKey }));
+			setSlotIssueState(getAttachmentSlotIssue({ appId, entryKey, slotKey }));
 		}
 		if (inputRef.current) inputRef.current.value = "";
 		setIntent("idle");
-	}, [appId, entryKey, mayEdit, setIntent, slotKey]);
+	}, [appId, entryKey, mayWrite, setIntent, slotKey]);
 
 	useEffect(() => {
 		if (!appId || !entryKey) {
@@ -728,6 +752,15 @@ function AttachmentControl({
 		}
 		if (slotIssue.kind === "save" || slotIssue.kind === "replace") {
 			if (field.kind !== "signature") {
+				const retainedDraft = getAttachmentSlotDraft({
+					appId,
+					entryKey,
+					slotKey,
+				});
+				if (retainedDraft !== undefined) {
+					void stage(retainedDraft.file);
+					return;
+				}
 				inputRef.current?.click();
 				return;
 			}
@@ -749,17 +782,19 @@ function AttachmentControl({
 		slotIssue,
 		slotKey,
 		blurCurrent,
+		stage,
 		setIntent,
 		hasWriteAuthority,
 	]);
 
 	const hasAnswer = state.value !== "";
 	const busy = intent !== "idle";
-	const interactionBlocked = busy || !mayEdit;
+	const interactionBlocked = busy || !mayWrite;
 	const uploadActive = intent === "queued-upload" || intent === "uploading";
 	const chooseFileRecovery =
 		(slotIssue?.kind === "save" || slotIssue?.kind === "replace") &&
-		field.kind !== "signature";
+		field.kind !== "signature" &&
+		slotDraft === undefined;
 	const showRecoveryAction = !(
 		slotIssue?.kind === "replace" && field.kind === "signature"
 	);
@@ -787,8 +822,8 @@ function AttachmentControl({
 					questionLabel={accessibleQuestionLabel}
 					uploading={intent === "uploading"}
 					queued={intent === "queued-upload" || intent === "queued-retarget"}
-					interactionBlocked={!mayEdit || intent === "queued-clear"}
-					readOnly={!mayEdit}
+					interactionBlocked={!mayWrite || intent === "queued-clear"}
+					readOnly={!mayWrite}
 					hasWriteAuthority={hasWriteAuthority}
 					hasAnswer={hasAnswer}
 					needsAttention={slotIssue !== undefined}
@@ -938,7 +973,9 @@ function AttachmentControl({
 							: intent === "queued-clear"
 								? "Waiting to remove file…"
 								: hasAnswer
-									? (staged?.originalFilename ?? "File attached")
+									? (slotDraft?.file.name ??
+										staged?.originalFilename ??
+										"File attached")
 									: (slotDraft?.file.name ?? "No file attached.")}
 				</p>
 			) : null}

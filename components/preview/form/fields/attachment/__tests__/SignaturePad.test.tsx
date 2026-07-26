@@ -1027,6 +1027,102 @@ describe("SignaturePad", () => {
 		expect(submitted).toHaveBeenCalledOnce();
 	});
 
+	it("retains a clean saved signature resize across authority loss and re-encodes on restoration", async () => {
+		const entryKey = "entry-signature-resize-authority";
+		const instancePath = "/data/signature";
+		let width = 200;
+		vi.spyOn(
+			HTMLCanvasElement.prototype,
+			"getBoundingClientRect",
+		).mockImplementation(
+			() =>
+				({
+					width,
+					height: 160,
+					left: 0,
+					top: 0,
+					right: width,
+					bottom: 160,
+					x: 0,
+					y: 0,
+					toJSON: () => ({}),
+				}) as DOMRect,
+		);
+		let authority: AttachmentEntryAuthoritySnapshot = {
+			appId: "app-1",
+			scopeEpoch: 1,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		const installAuthority = () =>
+			setAttachmentEntryAuthority({
+				entryKey,
+				snapshot: authority,
+				readCurrent: () => authority,
+			});
+		installAuthority();
+		const onDrawn = committedCallback();
+		const props = {
+			entryKey,
+			instancePath,
+			uploading: false,
+			hasAnswer: true,
+			onDrawn,
+			onClear: committedCallback(),
+			hasWriteAuthority: () =>
+				authority.accessPhase === "authorized" && authority.canEdit,
+		} as const;
+		const view = render(<SignaturePad {...props} />);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		await drawOneStroke(canvas, 1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["saved"], { type: "image/png" }));
+			await Promise.resolve();
+		});
+		expect(onDrawn).toHaveBeenCalledOnce();
+
+		authority = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "refreshing",
+			canEdit: false,
+		};
+		installAuthority();
+		view.rerender(<SignaturePad {...props} interactionBlocked readOnly />);
+		width = 100;
+		await act(async () => {
+			fireEvent(window, new Event("resize"));
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(blobCallbacks).toHaveLength(1);
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "must not submit"),
+		).rejects.toMatchObject({ name: "AttachmentNotReadyError" });
+
+		authority = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		installAuthority();
+		view.rerender(<SignaturePad {...props} />);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(blobCallbacks).toHaveLength(2);
+		const submitted = vi.fn();
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			submitted();
+		});
+		await act(async () => {
+			blobCallbacks[1]?.(new Blob(["resized"], { type: "image/png" }));
+			await submit;
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(2);
+		expect(submitted).toHaveBeenCalledOnce();
+	});
+
 	it("does not encode blank ink when Clear interrupts an active pointer stroke", async () => {
 		const onDrawn = committedCallback();
 		const onClear = committedCallback();

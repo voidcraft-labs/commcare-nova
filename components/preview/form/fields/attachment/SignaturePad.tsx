@@ -322,6 +322,12 @@ export function SignaturePad({
 			// immediately and enqueue one replacement encoding for this material
 			// box change. The dimension comparison coalesces window +
 			// ResizeObserver notifications for the same resize.
+			rememberSignatureDraft(
+				entryKey,
+				coordinationKey,
+				strokesRef.current,
+				true,
+			);
 			cancelAttachmentTask(entryKey, coordinationKey);
 			renderGenerationRef.current += 1;
 			pendingGeometryRef.current = next;
@@ -331,6 +337,7 @@ export function SignaturePad({
 				"The resized signature is still being saved.",
 			);
 			setSaveIntent("queued");
+			if (!hasWriteAuthority()) return;
 			scheduleEmitRef.current(0);
 		};
 		redrawForResize();
@@ -363,7 +370,7 @@ export function SignaturePad({
 			window.removeEventListener("resize", onResize);
 			resolutionQuery?.removeEventListener("change", onResolutionChange);
 		};
-	}, [coordinationKey, entryKey, redraw]);
+	}, [coordinationKey, entryKey, hasWriteAuthority, redraw]);
 
 	// A material identity change is a different worker/form entry. Local
 	// pixels must never project across it, even when React preserves this

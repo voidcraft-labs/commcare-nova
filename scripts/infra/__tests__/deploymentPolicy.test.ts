@@ -19,6 +19,10 @@ const cleanupEntrypoint = readFileSync(
 	"scripts/cleanup-form-attachments.ts",
 	"utf8",
 );
+const captureBucketPolicy = readFileSync(
+	"scripts/infra/capture-bucket-policy.mjs",
+	"utf8",
+);
 
 function stepOffset(id: string): number {
 	const offset = cloudBuild.indexOf(`- id: ${id}`);
@@ -86,10 +90,28 @@ describe("durable deployment policy", () => {
 		expect(cloudSqlProvisioning).toContain(
 			'assign-roles "$CAPTURE_CLEANUP_SA_DBUSER"',
 		);
+		const cloudRunCap = cloudSqlProvisioning.indexOf(
+			"=== Phase 5: Cap Cloud Run before database bootstrap ===",
+		);
+		const ownerBootstrap = cloudSqlProvisioning.indexOf(
+			"=== Phase 6: SKIPPED (manual — run the checked-in local CLI) ===",
+		);
+		expect(cloudRunCap).toBeGreaterThanOrEqual(0);
+		expect(ownerBootstrap).toBeGreaterThan(cloudRunCap);
+		expect(cloudSqlProvisioning).toContain("gcloud run services list");
+		expect(cloudSqlProvisioning).toContain(
+			"refusing to infer that the service is absent",
+		);
 		expect(cloudSqlProvisioning).toContain('--max="$CLOUD_RUN_MAX_INSTANCES"');
 		expect(cloudSqlProvisioning).toContain("NOVA_DB_WORKLOAD=service");
 		expect(cloudSqlProvisioning).toContain(
 			"yaml(metadata.annotations,spec.template.metadata.annotations",
+		);
+		expect(cloudSqlProvisioning).toContain(
+			"Cloud SQL Studio can optionally inspect",
+		);
+		expect(cloudSqlProvisioning).toContain(
+			"cannot run this repository's Node/TypeScript",
 		);
 	});
 
@@ -190,6 +212,9 @@ describe("durable deployment policy", () => {
 		expect(capacityAudit).toContain("--task-timeout=420");
 		expect(migration).toContain("--task-timeout=1020");
 		expect(cleanup).toContain("--task-timeout=1260");
+		expect(cleanup).toContain("--max-retries=0");
+		expect(cleanup).not.toContain("--max-retries=1");
+		expect(cleanup).not.toContain("--max-retries=2");
 		expect(capacityAudit).toContain(
 			'gcloud run jobs execute "$${capacity_job}" --region=us-central1 --wait',
 		);
@@ -293,13 +318,24 @@ describe("durable deployment policy", () => {
 		);
 		expect(provisioning).toContain("novaMediaBucketPolicy");
 		expect(provisioning).toContain("novaCaptureObjectMaintenance");
+		expect(provisioning).not.toContain("--flatten=bindings");
+		expect(provisioning).not.toContain('--filter="bindings.role=');
+		expect(provisioning).toContain("gcloud storage buckets get-iam-policy");
+		expect(provisioning).toContain("gcloud storage buckets set-iam-policy");
+		expect(provisioning).not.toContain(
+			'gcloud storage buckets add-iam-policy-binding "gs://$' +
+				'{MEDIA_BUCKET}"',
+		);
+		expect(provisioning).toContain("capture-bucket-policy.mjs");
 		expect(provisioning).toContain(
-			'remove_bucket_role_if_present "$MEDIA_POLICY_ACCOUNT" roles/storage.admin',
+			"Failed to read the media bucket IAM policy",
 		);
 		expect(provisioning).toContain(
-			'remove_bucket_role_if_present "$CAPTURE_CLEANUP_ACCOUNT" roles/storage.objectUser',
+			"Failed to verify the media bucket IAM policy",
 		);
-		expect(provisioning).toContain("capture-storage-policy.mjs");
+		expect(captureBucketPolicy).toContain(
+			'from "./capture-storage-policy.mjs"',
+		);
 		expect(cloudBuild).toContain("NOVA_CAPTURE_CLEANUP_MODE=scheduler");
 		expect(cleanupEntrypoint).toContain("probeCaptureStorageAuthority");
 		expect(cleanupEntrypoint).toContain("assertStrictCaptureMaintenance");

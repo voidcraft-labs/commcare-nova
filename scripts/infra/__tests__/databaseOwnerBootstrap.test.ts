@@ -72,7 +72,20 @@ const safeFacts: DatabaseBootstrapFacts = {
 	legacyOwnedRoutineCount: 0,
 	legacyDefaultAclCount: 0,
 	requiredExtensionCount: 4,
-	requiredExtensionsOwnedByMigration: 4,
+	requiredExtensionInventory: [
+		"pg_trgm",
+		"fuzzystrmatch",
+		"postgis",
+		"pgaudit",
+	].map((name) => ({
+		name,
+		version: "1.0",
+		owner: "nova-migrate@commcare-nova.iam",
+		schema: "public",
+		configurationRelations: [],
+		dependencyCount: 1,
+		dependencyCatalogs: ["pg_proc"],
+	})),
 	pgauditPresent: true,
 };
 
@@ -110,6 +123,11 @@ describe("deployment database owner bootstrap", () => {
 			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
 			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
 		]);
+		expect(
+			databaseOwnerBootstrapStatements(safeFacts).some((statement) =>
+				statement.includes('REASSIGN OWNED BY "postgres"'),
+			),
+		).toBe(false);
 	});
 
 	test("requires API-prepared role memberships and a bounded legacy dependency set", () => {
@@ -192,6 +210,28 @@ describe("deployment database owner bootstrap", () => {
 				runtimeCanCreatePublicSchema: true,
 			}),
 		).toThrow("runtime role still has effective CREATE");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				requiredExtensionInventory: safeFacts.requiredExtensionInventory.map(
+					(extension, index) =>
+						index === 0
+							? { ...extension, owner: safeFacts.currentUser }
+							: extension,
+				),
+			}),
+		).toThrow("owned by untrusted role");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				requiredExtensionInventory: safeFacts.requiredExtensionInventory.map(
+					(extension, index) =>
+						index === 0
+							? { ...extension, schema: "provider_extensions" }
+							: extension,
+				),
+			}),
+		).toThrow("expected public");
 	});
 
 	test("admits a fresh instance without a legacy role or dependencies", () => {
@@ -216,9 +256,13 @@ describe("deployment database owner bootstrap", () => {
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
-				requiredExtensionsOwnedByMigration: 3,
+				requiredExtensionCount: 3,
+				requiredExtensionInventory: safeFacts.requiredExtensionInventory.slice(
+					0,
+					3,
+				),
 			}),
-		).toThrow("required database extensions");
+		).toThrow("incomplete");
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
@@ -249,5 +293,26 @@ describe("deployment database owner bootstrap", () => {
 				runtimeCanCreateDatabase: true,
 			}),
 		).toThrow("effective CREATE");
+	});
+
+	test("accepts the permanent Cloud SQL-managed postgres extension-owner shape", () => {
+		const cloudSqlManaged = {
+			...safeFacts,
+			requiredExtensionInventory: safeFacts.requiredExtensionInventory.map(
+				(extension) => ({
+					...extension,
+					owner: "postgres",
+					version: `cloud-sql-${extension.name}`,
+					configurationRelations:
+						extension.name === "postgis" ? ["public.spatial_ref_sys"] : [],
+					dependencyCount: 24,
+					dependencyCatalogs: ["pg_class", "pg_proc", "pg_type"],
+				}),
+			),
+		};
+		expect(() =>
+			assertDatabaseBootstrapPreconditions(cloudSqlManaged),
+		).not.toThrow();
+		expect(() => assertDatabaseBootstrapResult(cloudSqlManaged)).not.toThrow();
 	});
 });

@@ -22,6 +22,9 @@ export function captureCleanupIamCondition(bucket) {
 		throw new Error(`Invalid storage bucket name: ${bucket}`);
 	}
 	const objectRoot = `projects/_/buckets/${bucket}/objects/`;
+	const projectRoot = `${objectRoot}projects/`;
+	const projectBeforeCaptures = `${projectRoot}{project}/captures/`;
+	const firstProjectSegment = `${projectRoot}{project}/`;
 	return [
 		`resource.type == 'storage.googleapis.com/Object'`,
 		"&&",
@@ -29,9 +32,13 @@ export function captureCleanupIamCondition(bucket) {
 		`resource.name.startsWith('${objectRoot}${STAGED_PREFIX}')`,
 		"||",
 		"(",
-		`resource.name.startsWith('${objectRoot}projects/')`,
+		`resource.name.startsWith('${projectRoot}')`,
 		"&&",
-		`resource.name.extract('${objectRoot}projects/{project}/captures/') != ''`,
+		`resource.name.extract('${projectBeforeCaptures}') != ''`,
+		"&&",
+		`resource.name.extract('${projectBeforeCaptures}') == resource.name.extract('${firstProjectSegment}')`,
+		"&&",
+		`resource.name != '${projectRoot}' + resource.name.extract('${firstProjectSegment}') + '/captures/'`,
 		")",
 		")",
 	].join(" ");

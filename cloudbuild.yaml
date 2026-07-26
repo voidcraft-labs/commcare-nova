@@ -257,7 +257,7 @@ steps:
           --command=node \
           --args=capture-cleanup.cjs \
           --tasks=1 --parallelism=1 \
-          --max-retries=2 \
+          --max-retries=0 \
           --task-timeout=1260
         gcloud run jobs add-iam-policy-binding "$${cleanup_job}" \
           --region=us-central1 \

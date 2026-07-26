@@ -714,8 +714,11 @@ The one-time bootstrap happens outside Nova: create runtime, migration, and
 capture-cleanup as non-superuser direct LOGIN roles; make only migration a
 member of runtime (never the reverse); leave cleanup without an application
 parent; apply their exact CONNECTION LIMIT 16/1/3; install all required
-extensions; and make migration the database and extension owner before running
-this entrypoint.
+extensions in `public`; and make migration the database owner before running
+this entrypoint. Required extensions may be owned only by migration or Cloud
+SQL's managed `postgres` role. Existing provider-installed extensions remain
+`postgres`-owned because PostgreSQL exposes no extension-owner transfer and a
+blanket `REASSIGN OWNED BY postgres` would seize unrelated managed objects.
 `public` remains owned by PostgreSQL's `pg_database_owner`, whose current
 member is the database owner, so migration is its effective owner without
 replacing that built-in role. Existing legacy objects must also be maintainable
@@ -776,8 +779,11 @@ The case-store's compiler stack depends on three extensions:
 
 Production also requires `pgaudit`, because the Cloud SQL flags enable full
 audit logging only when the extension is installed in the database. The
-privileged owner bootstrap creates all four, transfers their ownership to
-migration, and audits the exact set. Every production capacity preflight
+privileged owner bootstrap creates any missing extension, transfers only
+temporary/legacy ownership, and inventories each required extension's owner,
+version, `public` schema, configuration relations, and dependency catalogs.
+Its permanent audit accepts only Cloud SQL's managed `postgres` or migration
+as owner. Every production capacity preflight
 rechecks `pgaudit` presence before a migration or cleanup Job can do work.
 
 The testcontainers harness installs the three compiler extensions via its
@@ -788,8 +794,9 @@ production operational extension.
 `CREATE EXTENSION` requires `cloudsqlsuperuser` on production, and the
 IAM-authenticated migration identity is intentionally non-administrative. The
 temporary built-in bootstrap administrator therefore installs the extensions
-in the same transaction that transfers all of its owned objects to migration;
-schema migrations then apply per deploy under the migration identity.
+in the same transaction that transfers all temporary-owned objects to
+migration; pre-existing Cloud SQL-managed extensions stay `postgres`-owned,
+and schema migrations then apply per deploy under the migration identity.
 
 ## Testcontainers harness
 

@@ -17,6 +17,8 @@ export const REQUIRED_DATABASE_EXTENSIONS = Object.freeze([
 	"postgis",
 	"pgaudit",
 ] as const);
+export const CLOUD_SQL_MANAGED_EXTENSION_OWNER = "postgres";
+export const REQUIRED_DATABASE_EXTENSION_SCHEMA = "public";
 
 export interface DatabaseOwnerBootstrapConfig {
 	readonly database: string;
@@ -107,8 +109,18 @@ export interface DatabaseBootstrapFacts {
 	readonly legacyOwnedRoutineCount: number;
 	readonly legacyDefaultAclCount: number;
 	readonly requiredExtensionCount: number;
-	readonly requiredExtensionsOwnedByMigration: number;
+	readonly requiredExtensionInventory: readonly DatabaseExtensionInventory[];
 	readonly pgauditPresent: boolean;
+}
+
+export interface DatabaseExtensionInventory {
+	readonly name: string;
+	readonly version: string;
+	readonly owner: string;
+	readonly schema: string;
+	readonly configurationRelations: readonly string[];
+	readonly dependencyCount: number;
+	readonly dependencyCatalogs: readonly string[];
 }
 
 interface DatabaseBootstrapFactRow extends QueryResultRow {
@@ -175,8 +187,17 @@ interface DatabaseBootstrapFactRow extends QueryResultRow {
 	readonly legacy_owned_routine_count: number;
 	readonly legacy_default_acl_count: number;
 	readonly required_extension_count: number;
-	readonly required_extensions_owned_by_migration: number;
 	readonly pgaudit_present: boolean;
+}
+
+interface DatabaseExtensionInventoryRow extends QueryResultRow {
+	readonly extension_name: string;
+	readonly extension_version: string;
+	readonly extension_owner: string;
+	readonly extension_schema: string;
+	readonly configuration_relations: string[];
+	readonly dependency_count: number;
+	readonly dependency_catalogs: string[];
 }
 
 export interface DatabaseBootstrapSqlClient {
@@ -232,6 +253,51 @@ export function databaseOwnerBootstrapStatements(
 		`DROP OWNED BY ${bootstrap} RESTRICT`,
 	);
 	return Object.freeze(statements);
+}
+
+function assertRequiredExtensionInventory(
+	facts: DatabaseBootstrapFacts,
+	config: DatabaseOwnerBootstrapConfig,
+	options: { allowMissing: boolean },
+): void {
+	const required = new Set(config.requiredExtensions);
+	const seen = new Set<string>();
+	for (const extension of facts.requiredExtensionInventory) {
+		if (!required.has(extension.name)) {
+			throw new Error(
+				`Unexpected extension ${extension.name} appeared in the required-extension inventory.`,
+			);
+		}
+		if (seen.has(extension.name)) {
+			throw new Error(
+				`Required extension ${extension.name} appears more than once in the catalog inventory.`,
+			);
+		}
+		seen.add(extension.name);
+		if (
+			extension.owner !== CLOUD_SQL_MANAGED_EXTENSION_OWNER &&
+			extension.owner !== config.migrationRole
+		) {
+			throw new Error(
+				`Required extension ${extension.name} is owned by untrusted role ${extension.owner}.`,
+			);
+		}
+		if (extension.schema !== REQUIRED_DATABASE_EXTENSION_SCHEMA) {
+			throw new Error(
+				`Required extension ${extension.name} is installed in ${extension.schema}, expected ${REQUIRED_DATABASE_EXTENSION_SCHEMA}.`,
+			);
+		}
+	}
+	if (
+		facts.requiredExtensionCount !== facts.requiredExtensionInventory.length
+	) {
+		throw new Error(
+			"The required-extension count does not match its catalog inventory.",
+		);
+	}
+	if (!options.allowMissing && seen.size !== config.requiredExtensions.length) {
+		throw new Error("The required database extensions are incomplete.");
+	}
 }
 
 function assertNoEffectiveRuntimeCreate(
@@ -365,6 +431,7 @@ export function assertDatabaseBootstrapPreconditions(
 	}
 	assertApplicationRoleMemberships(facts);
 	assertNoEffectiveRuntimeCreate(facts, config);
+	assertRequiredExtensionInventory(facts, config, { allowMissing: true });
 	if (facts.legacyForeignOrSharedDependencyCount > 0) {
 		throw new Error(
 			`The legacy role has dependencies outside ${config.database} that this bootstrap cannot safely transfer.`,
@@ -394,15 +461,9 @@ export function assertDatabaseBootstrapResult(
 	config: DatabaseOwnerBootstrapConfig = DATABASE_OWNER_BOOTSTRAP_CONFIG,
 ): void {
 	assertApplicationLoginRoleShape(facts, config, true);
-	if (
-		facts.requiredExtensionCount !== config.requiredExtensions.length ||
-		facts.requiredExtensionsOwnedByMigration !==
-			config.requiredExtensions.length ||
-		(config.requiredExtensions.includes("pgaudit") && !facts.pgauditPresent)
-	) {
-		throw new Error(
-			`The required database extensions are incomplete or are not all owned by ${config.migrationRole}.`,
-		);
+	assertRequiredExtensionInventory(facts, config, { allowMissing: false });
+	if (config.requiredExtensions.includes("pgaudit") && !facts.pgauditPresent) {
+		throw new Error("The required database extensions are incomplete.");
 	}
 	if (facts.databaseOwner !== config.migrationRole) {
 		throw new Error("Migration identity does not own the Nova database.");
@@ -769,12 +830,6 @@ export async function readDatabaseBootstrapFacts(
 					FROM pg_catalog.pg_extension AS extension
 					WHERE extension.extname = ANY($5::text[])
 				) AS required_extension_count,
-				(
-					SELECT count(*)::integer
-					FROM pg_catalog.pg_extension AS extension
-					WHERE extension.extname = ANY($5::text[])
-						AND extension.extowner = role_oids.migration_oid
-				) AS required_extensions_owned_by_migration,
 				EXISTS (
 					SELECT 1
 					FROM pg_catalog.pg_extension AS extension
@@ -802,6 +857,55 @@ export async function readDatabaseBootstrapFacts(
 	);
 	const row = result.rows[0];
 	if (!row) throw new Error("Database bootstrap fact query returned no row.");
+	const extensionResult = await client.query<DatabaseExtensionInventoryRow>(
+		`SELECT
+				extension.extname AS extension_name,
+				extension.extversion AS extension_version,
+				owner.rolname AS extension_owner,
+				namespace.nspname AS extension_schema,
+				ARRAY(
+					SELECT config_relation::pg_catalog.regclass::text
+					FROM pg_catalog.unnest(
+						COALESCE(extension.extconfig, ARRAY[]::oid[])
+					) WITH ORDINALITY AS configured(config_relation, position)
+					ORDER BY position
+				) AS configuration_relations,
+				count(dependency.objid)::integer AS dependency_count,
+				COALESCE(
+					array_agg(
+						DISTINCT dependency.classid::pg_catalog.regclass::text
+					) FILTER (WHERE dependency.classid IS NOT NULL),
+					ARRAY[]::text[]
+				) AS dependency_catalogs
+			FROM pg_catalog.pg_extension AS extension
+			JOIN pg_catalog.pg_roles AS owner
+				ON owner.oid = extension.extowner
+			JOIN pg_catalog.pg_namespace AS namespace
+				ON namespace.oid = extension.extnamespace
+			LEFT JOIN pg_catalog.pg_depend AS dependency
+				ON dependency.refclassid = 'pg_catalog.pg_extension'::regclass
+				AND dependency.refobjid = extension.oid
+			WHERE extension.extname = ANY($1::text[])
+			GROUP BY
+				extension.extname,
+				extension.extversion,
+				owner.rolname,
+				namespace.nspname,
+				extension.extconfig
+			ORDER BY array_position($1::text[], extension.extname)`,
+		[config.requiredExtensions],
+	);
+	const requiredExtensionInventory = extensionResult.rows.map(
+		(extension): DatabaseExtensionInventory => ({
+			name: extension.extension_name,
+			version: extension.extension_version,
+			owner: extension.extension_owner,
+			schema: extension.extension_schema,
+			configurationRelations: [...extension.configuration_relations],
+			dependencyCount: extension.dependency_count,
+			dependencyCatalogs: [...extension.dependency_catalogs].sort(),
+		}),
+	);
 	return {
 		currentUser: row.current_user,
 		currentDatabase: row.current_database,
@@ -868,8 +972,7 @@ export async function readDatabaseBootstrapFacts(
 		legacyOwnedRoutineCount: row.legacy_owned_routine_count,
 		legacyDefaultAclCount: row.legacy_default_acl_count,
 		requiredExtensionCount: row.required_extension_count,
-		requiredExtensionsOwnedByMigration:
-			row.required_extensions_owned_by_migration,
+		requiredExtensionInventory,
 		pgauditPresent: row.pgaudit_present,
 	};
 }

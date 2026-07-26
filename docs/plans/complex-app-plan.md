@@ -900,7 +900,8 @@ retarget is recoverable, not destructive: the confirmed row, answer, filename,
 signature ink, desired path, and a generation-tagged blocker remain owned by the
 slot. Picked-file save diagnostics live in that same stable slot rather than
 component-local state, so they survive ordinary remounts and still offer
-**Choose file** plus remove. Retarget recovery offers Retry plus
+**Retry** of the exact retained `File`, plus choose-a-different-file/remove.
+Retarget recovery offers Retry plus
 replace/remove for picked files; Signature keeps Retry beside its single
 **Clear signature** action, and every message names that exact action. Every
 recovery action has a question-qualified accessible name. Retry

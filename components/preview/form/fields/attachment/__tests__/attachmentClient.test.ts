@@ -144,6 +144,132 @@ describe("form attachment coordinator", () => {
 		expect(submitted).toHaveBeenCalledOnce();
 	});
 
+	it("restores an authority-canceled retarget before the first restored Submit", async () => {
+		const entryKey = "entry-authority-retarget-restore";
+		const slotKey = "photo:authority-retarget";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		let current: AttachmentEntryAuthoritySnapshot = {
+			appId: "app-1",
+			scopeEpoch: 1,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		const install = () =>
+			setAttachmentEntryAuthority({
+				entryKey,
+				snapshot: current,
+				readCurrent: () => current,
+			});
+		install();
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			attachment: {
+				attachmentId: "attachment-authority-retarget",
+				attachmentName: "attachment-authority-retarget.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const firstPatchStarted = deferred<void>();
+		const order: string[] = [];
+		const patchBodies: unknown[] = [];
+		let patchCount = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: string, init?: RequestInit) => {
+				patchCount += 1;
+				patchBodies.push(JSON.parse(String(init?.body)));
+				if (patchCount === 1) {
+					firstPatchStarted.resolve();
+					return waitForAbort(init?.signal);
+				}
+				order.push(patchCount === 2 ? "restored-retarget" : "next-retarget");
+				return Promise.resolve({ ok: true, status: 200 });
+			}),
+		);
+
+		const interrupted = reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						fieldUuid,
+						oldPathTemplate: "/data/photo",
+						newPathTemplate: "/data/evidence",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+			},
+		});
+		await firstPatchStarted.promise;
+
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "refreshing",
+			canEdit: false,
+		};
+		install();
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		install();
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			order.push("submit");
+		});
+		await Promise.all([interrupted, submit]);
+
+		expect(order).toEqual(["restored-retarget", "submit"]);
+		expect(getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey })).toBe(
+			"/data/evidence",
+		);
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						fieldUuid,
+						oldPathTemplate: "/data/evidence",
+						newPathTemplate: "/data/archive",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+			},
+		});
+		expect(patchBodies).toEqual([
+			{
+				expectedInstancePath: "/data/photo",
+				instancePath: "/data/evidence",
+			},
+			{
+				expectedInstancePath: "/data/photo",
+				instancePath: "/data/evidence",
+			},
+			{
+				expectedInstancePath: "/data/evidence",
+				instancePath: "/data/archive",
+			},
+		]);
+	});
+
 	it("serializes mutations across different paths in one entry", async () => {
 		const firstRelease = deferred<void>();
 		const order: string[] = [];

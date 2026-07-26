@@ -11,20 +11,23 @@
 #   - The application database (Phase 3)
 #   - Project IAM bindings + Cloud SQL database users for the dedicated
 #     migration/runtime/capture-cleanup SAs and the developer principal (Phase 4)
+#   - Existing Cloud Run service/revision caps (Phase 5)
 #   - Cloud Run wiring (Direct VPC Egress + the env vars `connection.ts`
-#     reads) (Phase 6)
+#     reads) (Phase 7)
 #
 # Re-runnability — the script is structured so a future re-run after a partial
-# failure can pick up cleanly. Phases 1-6 each guard their primary mutation
+# failure can pick up cleanly. Phases 1-7 each guard their primary mutation
 # behind an existence check; existing resources are left in place rather than
 # re-created.
 #
-# Phase 5 (the privileged extension/ownership bootstrap) is intentionally NOT
-# in this script. Creating pg_trgm/fuzzystrmatch/postgis/pgaudit requires the
-# `cloudsqlsuperuser` role, which Nova's migration SA does not carry. The Phase
-# 5 stub at the bottom points at the checked-in bounded owner bootstrap run
-# through a temporary built-in administrator; that transaction creates the
-# extensions, transfers ownership, and proves the final role shape.
+# The privileged extension/ownership bootstrap is intentionally NOT in this
+# script. Creating pg_trgm/fuzzystrmatch/postgis/pgaudit requires the
+# `cloudsqlsuperuser` role, which Nova's migration SA does not carry. Before
+# that local CLI is run, this script converges and verifies both Cloud Run
+# maxima at four. The checked-in bounded owner bootstrap then creates any
+# missing extensions, preserves Cloud SQL-managed postgres ownership on
+# pre-existing extensions, transfers only temporary/legacy ownership, and
+# proves the final role shape.
 #
 # Usage: ./scripts/infra/provision-cloud-sql.sh [--dry-run]
 
@@ -341,11 +344,75 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 	--database-roles=pg_read_all_data
 
 # ---------------------------------------------------------------------------
-# Phase 5 — INTENTIONALLY NOT IN THIS SCRIPT.
+# Phase 5 — Cap and verify the serving fleet BEFORE database login caps.
+#
+# The existing service can currently demand four database sessions per
+# instance. Its global and revision maxima must both be four BEFORE the
+# bootstrap lowers runtime's hard login cap to 16; otherwise a five-instance
+# old fleet can demand 20 sessions inside a 16-session role cap. A missing
+# service is the safe first-deploy case (zero serving sessions).
+# ---------------------------------------------------------------------------
+echo "=== Phase 5: Cap Cloud Run before database bootstrap ==="
+if ! existing_cloud_run_services="$(gcloud run services list \
+	--region="$REGION" \
+	--filter="metadata.name=${CLOUD_RUN_SERVICE}" \
+	--format='value(metadata.name)')"; then
+	echo "ERROR: Could not inventory Cloud Run services; refusing to infer that the service is absent." >&2
+	exit 1
+fi
+if [[ "$existing_cloud_run_services" == "$CLOUD_RUN_SERVICE" ]]; then
+	run gcloud run services update "$CLOUD_RUN_SERVICE" \
+		--region="$REGION" \
+		--max="$CLOUD_RUN_MAX_INSTANCES" \
+		--max-instances="$CLOUD_RUN_MAX_INSTANCES" \
+		--quiet
+	if [[ "$DRY_RUN" -eq 0 ]]; then
+		if ! reported_maxima="$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+			--region="$REGION" \
+			--format=json \
+			| python3 -c '
+import json
+import sys
+
+service = json.load(sys.stdin)
+if not isinstance(service, dict):
+    raise TypeError("Cloud Run service response must be an object")
+annotations = service.get("metadata", {}).get("annotations", {})
+template_annotations = (
+    service.get("spec", {})
+    .get("template", {})
+    .get("metadata", {})
+    .get("annotations", {})
+)
+print("{},{}".format(
+    annotations.get("run.googleapis.com/maxScale", ""),
+    template_annotations.get("autoscaling.knative.dev/maxScale", ""),
+))
+')"; then
+			echo "ERROR: Could not read and parse Cloud Run service maxima after convergence." >&2
+			exit 1
+		fi
+		if [[ "$reported_maxima" != "${CLOUD_RUN_MAX_INSTANCES},${CLOUD_RUN_MAX_INSTANCES}" ]]; then
+			echo "ERROR: Cloud Run maxima are '$reported_maxima', expected '${CLOUD_RUN_MAX_INSTANCES},${CLOUD_RUN_MAX_INSTANCES}'." >&2
+			exit 1
+		fi
+	else
+		echo "Dry run: both reported maxima will be verified after apply."
+	fi
+elif [[ -z "$existing_cloud_run_services" ]]; then
+	echo "Cloud Run service is absent; zero serving sessions make the first bootstrap safe."
+else
+	echo "ERROR: Cloud Run inventory returned unexpected service names: '$existing_cloud_run_services'." >&2
+	exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 6 — INTENTIONALLY NOT IN THIS SCRIPT.
 #
 # The extension/ownership bootstrap requires `cloudsqlsuperuser`, which only a
-# built-in administrator has. This work runs through Cloud SQL Studio in the
-# Google Cloud Console:
+# temporary built-in administrator has. Cloud SQL Studio can optionally inspect
+# the read-only catalog, but it cannot run this repository's Node/TypeScript
+# command. Run the checked-in CLI locally through the Cloud SQL connector:
 #
 #   1. Create a strong-password temporary BUILT_IN administrator with NO inline
 #      `--database-roles`; assigning roles at creation suppresses its automatic
@@ -354,12 +421,16 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 #      when present WITHOUT `--revoke-existing-roles`, preserving
 #      cloudsqlsuperuser. Migration keeps runtime as its sole custom role;
 #      runtime and capture cleanup keep none.
-#   3. Sign into Studio as that temporary user against `nova_cases`.
-#   4. Run `bootstrap-database-owner.ts` without `--apply`, then with `--apply`.
+#   3. Export NOVA_DB_BOOTSTRAP_USER and NOVA_DB_BOOTSTRAP_PASSWORD only in the
+#      local operator shell.
+#   4. Run `npx tsx scripts/infra/bootstrap-database-owner.ts` locally without
+#      `--apply`, inspect its owner/version/config/dependency inventory, then
+#      run the same command with `--apply`.
 #      It transactionally creates pg_trgm/fuzzystrmatch/postgis/pgaudit, sets
 #      runtime/migration/cleanup CONNECTION LIMIT 16/1/3, makes `nova-migrate`
-#      the database and extension owner, transfers temporary and legacy
-#      ownership, and audits every result.
+#      the database owner, retains trusted Cloud-SQL-managed `postgres`
+#      extension ownership, transfers temporary and legacy ownership, and
+#      audits every result.
 #   5. Grant any separately authorized operator access only after bootstrap;
 #      bootstrap's `DROP OWNED` deliberately removes grants owned by the
 #      temporary administrator.
@@ -367,18 +438,18 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 #      it is absent.
 #   7. Verify each extension is reachable under IAM auth as the developer
 #      user (a smoke query against `pg_extension`).
-#   8. Converge Cloud Run global/revision maxima to four and run the capacity
-#      preflight; it must observe <=16 runtime sessions before database Jobs.
+#   8. Run the capacity preflight; the already-capped fleet must drain to <=16
+#      runtime sessions before migration or capture-cleanup Jobs run.
 #
 # The split exists because PostGIS specifically requires `cloudsqlsuperuser`
 # per Cloud SQL's documented extension allowlist. Every subsequent schema
 # migration runs as the dedicated migration database owner; runtime receives
 # application DML and the isolated case-index DDL authority only.
 # ---------------------------------------------------------------------------
-echo "=== Phase 5: SKIPPED (manual — runs interactively in Cloud SQL Studio) ==="
+echo "=== Phase 6: SKIPPED (manual — run the checked-in local CLI) ==="
 
 # ---------------------------------------------------------------------------
-# Phase 6 — Wire Cloud Run to Cloud SQL via Direct VPC Egress.
+# Phase 7 — Wire Cloud Run to Cloud SQL via Direct VPC Egress.
 #
 # `private-ranges-only` keeps non-RFC1918 traffic on Cloud Run's default
 # egress; only the database connection routes through the VPC. NOVA_DB_USER is
@@ -395,7 +466,7 @@ echo "=== Phase 5: SKIPPED (manual — runs interactively in Cloud SQL Studio) =
 # cleanup=3 are separate non-inherited login-role caps. NOVA_DB_WORKLOAD=service
 # selects pool 3 and fails closed if a non-local deployment omits its workload.
 # ---------------------------------------------------------------------------
-echo "=== Phase 6: Wire Cloud Run to Cloud SQL ==="
+echo "=== Phase 7: Wire Cloud Run to Cloud SQL ==="
 run gcloud run services update "$CLOUD_RUN_SERVICE" \
 	--region="$REGION" \
 	--network="$NETWORK" \
@@ -406,9 +477,9 @@ run gcloud run services update "$CLOUD_RUN_SERVICE" \
 	--update-env-vars="NOVA_DB_WORKLOAD=service,NOVA_DB_NAME=${DATABASE_NAME},NOVA_DB_USER=${RUNTIME_SA_DBUSER},NOVA_DB_INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${INSTANCE_ID}"
 
 # ---------------------------------------------------------------------------
-# Phase 7 — Final verification.
+# Phase 8 — Final verification.
 # ---------------------------------------------------------------------------
-echo "=== Phase 7: Final verification ==="
+echo "=== Phase 8: Final verification ==="
 echo "--- Cloud SQL instance ---"
 run gcloud sql instances describe "$INSTANCE_ID" \
 	--format='yaml(name,databaseVersion,settings.tier,settings.edition,settings.availabilityType,settings.databaseFlags,settings.backupConfiguration.enabled,settings.backupConfiguration.startTime,settings.backupConfiguration.backupRetentionSettings,settings.backupConfiguration.pointInTimeRecoveryEnabled,settings.backupConfiguration.transactionLogRetentionDays,settings.ipConfiguration.ipv4Enabled,settings.ipConfiguration.privateNetwork,connectionName,ipAddresses)'

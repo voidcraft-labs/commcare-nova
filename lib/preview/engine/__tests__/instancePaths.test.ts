@@ -107,6 +107,42 @@ describe("remapInstancePath", () => {
 		).toBeNull();
 	});
 
+	it("uses stable segment identity across a cross-parent repeat move", () => {
+		const identity = {
+			oldSegmentKeys: ["$data", "visit", "photo"],
+			newSegmentKeys: ["$data", "rounds", "visit", "photo"],
+		};
+		expect(
+			remapInstancePath(
+				"/data/visit/photo",
+				"/data/visit/photo",
+				"/data/rounds[0]/visit/photo",
+				identity,
+			),
+		).toBe("/data/rounds[0]/visit/photo");
+
+		const reverseIdentity = {
+			oldSegmentKeys: identity.newSegmentKeys,
+			newSegmentKeys: identity.oldSegmentKeys,
+		};
+		expect(
+			remapInstancePath(
+				"/data/rounds[0]/visit/photo",
+				"/data/rounds[0]/visit/photo",
+				"/data/visit/photo",
+				reverseIdentity,
+			),
+		).toBe("/data/visit/photo");
+		expect(
+			remapInstancePath(
+				"/data/rounds[1]/visit/photo",
+				"/data/rounds[0]/visit/photo",
+				"/data/visit/photo",
+				reverseIdentity,
+			),
+		).toBeNull();
+	});
+
 	it("returns null on segment-count mismatch", () => {
 		expect(remapInstancePath("/data/a/b", "/data/a", "/data/z")).toBeNull();
 	});

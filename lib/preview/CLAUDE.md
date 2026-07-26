@@ -171,12 +171,16 @@ issue. A surviving pending signature keeps its draft and `notReady` blocker
 until its latest PNG confirms, then the newly owned row—not an older PNG—is
 retargeted.
 
-Authored ID changes use the same ownership lane. `EngineController` emits
-capture moves by stable field UUID for a capture rename, an ancestor rename,
-and group↔repeat conversion; the coordinator remaps every concrete instance
-path synchronously and serializes its row CAS behind any in-flight upload and
-ahead of Submit. The stored old path is only the CAS coordinate—the destination
-alone must match the current committed capture template. A capture-kind change
+Authored path changes use the same ownership lane. One whole-batch
+`EngineController` topology subscription compares the complete pre/post
+UUID-to-path projections and moves every retained engine value in one atomic
+call before per-field listeners run. It emits one capture-move set by stable
+field UUID for simultaneous capture renames, cross-parent leaf/subtree moves,
+ancestor renames, and group↔repeat conversion; the coordinator remaps every
+concrete instance path synchronously and serializes its row CAS behind any
+in-flight upload and ahead of Submit. The stored old path is only the CAS
+coordinate—the destination alone must match the current committed capture
+template. A capture-kind change
 is incompatible ownership: cancel/fence active work, clean the old row, and
 retain a targeted replacement blocker on the stable field UUID. React remounts
 recover the existing slot by `(field UUID, desired concrete path)` so a
@@ -229,7 +233,7 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
   the proof sees them through the ordinary collection, not the swap.
 - **Instance counts are explicit.** `DataInstance` tracks cardinality in its own map, keyed by concrete repeat path — never derived from which value keys happen to exist (a repeat with only structural children still counts 1). `set` auto-extends counts from indexed path segments so restore/rename flows stay consistent. A new instance seeds the AUTHORED template shape — nested repeats restart at one instance, matching what the deployed form's `jr:template` produces — not `[0]`'s live shape.
 - **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
-- **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / renamed / retyped / expression edited during live preview) route through the engine's instance-aware ops — `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves values/states in one batch (materialize-before-move, since renaming a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
+- **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / retyped / expression edited during live preview) route through the engine's instance-aware ops. Authored topology is reconciled once per committed batch from complete pre/post path maps, so two independent renames or a cross-parent subtree move cannot observe a half-updated map. `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves all values/states in one call (materialize-before-move, since renaming or moving a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
 
 In render paths, read repeat instance counts from `state.repeatCount` (via the engine-state hooks), not from `controller.getRepeatCount(uuid)` — the latter is a non-reactive method call. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
 

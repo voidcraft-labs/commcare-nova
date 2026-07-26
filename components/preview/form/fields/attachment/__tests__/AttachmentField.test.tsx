@@ -36,12 +36,16 @@ const {
 	discardAttachmentMock: vi.fn(),
 	retargetAttachmentMock: vi.fn(),
 	scheduleAttachmentCleanupMock: vi.fn(),
-	accessState: { canEdit: true },
+	accessState: {
+		canEdit: true,
+		accessPhase: "authorized" as "authorized" | "refreshing",
+	},
 }));
 
 vi.mock("@/lib/session/hooks", () => ({
 	useEditMode: () => "preview" as const,
 	useCanEdit: () => accessState.canEdit,
+	useAccessPhase: () => accessState.accessPhase,
 }));
 
 vi.mock("../attachmentClient", async (importOriginal) => {
@@ -91,6 +95,7 @@ function deferred<T>() {
 
 beforeEach(() => {
 	accessState.canEdit = true;
+	accessState.accessPhase = "authorized";
 	stageAttachmentMock.mockReset();
 	discardAttachmentMock.mockReset();
 	retargetAttachmentMock.mockReset();
@@ -236,7 +241,17 @@ describe("AttachmentField", () => {
 
 	it("cancels and fences a file upload when edit authority is lost", async () => {
 		const staged = deferred<StagedAttachment>();
-		stageAttachmentMock.mockReturnValue(staged.promise);
+		const pickedFile = new File(["png"], "photo.png", {
+			type: "image/png",
+		});
+		stageAttachmentMock
+			.mockReturnValueOnce(staged.promise)
+			.mockResolvedValueOnce({
+				attachmentId: "attachment-after-restoration",
+				attachmentName: "attachment-after-restoration.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			});
 		const onChange = vi.fn();
 		const props = {
 			field: FIELD,
@@ -253,13 +268,18 @@ describe("AttachmentField", () => {
 		) as HTMLInputElement;
 		fireEvent.change(input, {
 			target: {
-				files: [new File(["png"], "photo.png", { type: "image/png" })],
+				files: [pickedFile],
 			},
 		});
 		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledOnce());
 
 		accessState.canEdit = false;
 		view.rerender(<AttachmentField {...props} />);
+		expect(screen.getByRole("status").textContent).toContain("photo.png");
+		expect(screen.getByRole("alert").textContent).toMatch(/paused/i);
+		expect(
+			screen.getByRole("button", { name: /Retry attachment for Photo/i }),
+		).toBeDefined();
 		staged.resolve({
 			attachmentId: "attachment-after-revocation",
 			attachmentName: "attachment-after-revocation.png",
@@ -273,6 +293,116 @@ describe("AttachmentField", () => {
 			}),
 		);
 		expect(onChange).not.toHaveBeenCalled();
+		await expect(
+			runFormAttachmentBarrier(props.entryKey, async () => "must not submit"),
+		).rejects.toMatchObject({
+			name: "AttachmentNotReadyError",
+		});
+
+		accessState.canEdit = true;
+		view.rerender(<AttachmentField {...props} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Retry attachment for Photo/i }),
+		);
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledTimes(2));
+		expect(stageAttachmentMock.mock.calls[1]?.[0].file).toBe(pickedFile);
+		await waitFor(() =>
+			expect(onChange).toHaveBeenCalledWith("attachment-after-restoration.png"),
+		);
+	});
+
+	it("retains the exact replacement file and previous owner across authority loss", async () => {
+		const entryKey = "entry-replacement-authority-loss";
+		const slotKey = "photo:replacement-authority";
+		const previous = {
+			attachmentId: "attachment-before-refresh",
+			attachmentName: "attachment-before-refresh.png",
+			originalFilename: "old.png",
+			sizeBytes: 3,
+		};
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			fieldUuid: FIELD.uuid,
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			attachment: previous,
+		});
+		const firstAttempt = deferred<StagedAttachment>();
+		const pickedFile = new File(["new"], "replacement.png", {
+			type: "image/png",
+		});
+		stageAttachmentMock
+			.mockReturnValueOnce(firstAttempt.promise)
+			.mockResolvedValueOnce({
+				attachmentId: "attachment-after-refresh",
+				attachmentName: "attachment-after-refresh.png",
+				originalFilename: "replacement.png",
+				sizeBytes: 3,
+			});
+		const onChange = vi.fn();
+		const props = {
+			field: FIELD,
+			state: { ...EMPTY_STATE, value: previous.attachmentName },
+			path: "/data/photo",
+			appId: "app-1",
+			entryKey,
+			attachmentSlotKey: slotKey,
+			onChange,
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		fireEvent.change(screen.getByLabelText(/Photo.*Replace file/i), {
+			target: { files: [pickedFile] },
+		});
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledOnce());
+
+		accessState.accessPhase = "refreshing";
+		view.rerender(<AttachmentField {...props} />);
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toContain(
+				"replacement.png",
+			),
+		);
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		)?.toEqual(previous);
+		firstAttempt.resolve({
+			attachmentId: "attachment-late-replacement",
+			attachmentName: "attachment-late-replacement.png",
+			originalFilename: "replacement.png",
+			sizeBytes: 3,
+		});
+		await waitFor(() =>
+			expect(scheduleAttachmentCleanupMock).toHaveBeenCalledWith({
+				appId: "app-1",
+				attachmentId: "attachment-late-replacement",
+			}),
+		);
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "must not submit"),
+		).rejects.toMatchObject({ name: "AttachmentNotReadyError" });
+
+		accessState.accessPhase = "authorized";
+		view.rerender(<AttachmentField {...props} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: /Retry attachment for Photo/i }),
+		);
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledTimes(2));
+		expect(stageAttachmentMock.mock.calls[1]?.[0].file).toBe(pickedFile);
+		await waitFor(() =>
+			expect(
+				getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+			)?.toMatchObject({ attachmentId: "attachment-after-refresh" }),
+		);
+		expect(onChange).toHaveBeenCalledWith("attachment-after-refresh.png");
 	});
 
 	it("cancels a queued Clear without dropping ownership when edit authority is lost", async () => {
@@ -918,7 +1048,7 @@ describe("AttachmentField", () => {
 		);
 		expect(
 			screen.getByRole("button", {
-				name: /Choose file.*Photo/i,
+				name: /Retry attachment.*Photo/i,
 			}),
 		).toBeDefined();
 		await expect(
@@ -1498,8 +1628,9 @@ describe("AttachmentField", () => {
 			/couldn't be saved/i,
 		);
 		expect(
-			screen.getByRole("button", { name: /choose file.*Photo/i }).textContent,
-		).toMatch(/choose file/i);
+			screen.getByRole("button", { name: /retry attachment.*Photo/i })
+				.textContent,
+		).toMatch(/retry/i);
 	});
 
 	it("retains failed signature ink and offers Retry and Remove after remount", async () => {

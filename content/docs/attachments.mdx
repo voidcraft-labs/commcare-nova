@@ -133,15 +133,18 @@ blank attachment answers. Keeping attachment questions near the end of a form,
 so they are answered and submitted in one sitting, avoids most of this.
 
 Temporary layout changes do not throw the file away. If saving a newly picked
-file fails, its message and **Choose file** recovery action remain with that
-question through an ordinary remount. An attachment still in progress also
-restores its picked filename and **Cancel** action. If a condition hides the
-question and later shows it again, or an author flips to Edit and back while
-that same form entry remains open, Nova restores the confirmed filename and
-answer. The same is true when deleting an earlier repeat row moves a surviving
-answer up one position: Nova moves the attachment with that repeat entry even
-if the question is hidden at the time. Leaving or clearing the form ends that
-entry.
+file fails, Nova retains that exact picked file: its message and **Retry**
+recovery action remain with that question through an ordinary remount, while
+the normal picker remains available to choose a different file. An attachment
+still in progress also restores its picked filename and **Cancel** action.
+If edit access briefly refreshes, Nova pauses the old request, retains the same
+file and a Submit blocker, and lets the worker retry it when access returns.
+If a condition hides the question and later shows it again, or an author flips
+to Edit and back while that same form entry remains open, Nova restores the
+confirmed filename and answer. The same is true when deleting an earlier
+repeat row moves a surviving answer up one position: Nova moves the attachment
+with that repeat entry even if the question is hidden at the time. Leaving or
+clearing the form ends that entry.
 
 If that repeat move cannot be saved — for example, while the browser is
 offline — Nova keeps the attachment and its answer in place and blocks Submit
@@ -223,9 +226,9 @@ Submit likewise focuses the blank signature pad itself.
 
 The same recovery works when a failed attachment save or repeat move blocks
 Submit: Nova opens the exact question, announces its retained error, and focuses
-that question's exact recovery action — **Choose file** for a picked-file save
-or **Retry** for a repeat move or signature. Scrolling is not animated when the
-worker has requested reduced motion.
+that question's exact **Retry** action. A picked-file retry reuses the retained
+file; the normal picker can still choose a different one. Scrolling is not
+animated when the worker has requested reduced motion.
 
 If an author renames an attachment question or one of its containing sections
 while the form is open, Nova moves the staged answer to the question's current

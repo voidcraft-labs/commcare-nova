@@ -290,6 +290,43 @@ export function setAttachmentEntryAuthority(args: {
 	if (existing !== undefined) {
 		abortAttachmentEntryOperations(args.entryKey);
 	}
+	const slots = attachmentSlots.get(args.entryKey);
+	if (!activeAttachmentEntryAuthority(args.snapshot)) {
+		for (const [slotKey, slot] of slots ?? []) {
+			if (slot.draft === undefined || slot.draft.status === "needs-attention") {
+				continue;
+			}
+			slot.draft = {
+				...slot.draft,
+				status: "needs-attention",
+			};
+			slot.issue = {
+				kind: "save",
+				message:
+					"This attachment was paused while edit access refreshed. Retry now, choose a different file, or remove it.",
+			};
+			slot.issueGeneration = slot.draft.generation ?? generation;
+			markAttachmentNotReady(args.entryKey, slotKey, slot.issue.message);
+		}
+	} else if (sameAttachmentEntryAuthority(args.snapshot, args.readCurrent())) {
+		// A retarget's request generation was fenced by the access transition,
+		// but its stable owner and desired path deliberately survived. Restore
+		// every mismatch synchronously so Submit from the same render joins
+		// behind the replacement CAS.
+		for (const [slotKey, slot] of slots ?? []) {
+			if (
+				slot.appId === args.snapshot.appId &&
+				slot.owned !== undefined &&
+				slot.owned.instancePath !== slot.desiredInstancePath
+			) {
+				void enqueueAttachmentSlotRetarget({
+					appId: slot.appId,
+					entryKey: args.entryKey,
+					slotKey,
+				});
+			}
+		}
+	}
 	return generation;
 }
 
@@ -849,7 +886,7 @@ function reconcileBarrierDispositions(
 					{
 						kind: "save",
 						message:
-							"That attachment couldn't be saved. Choose the file again.",
+							"That attachment couldn't be saved. Retry now, choose a different file, or remove it.",
 					},
 					currentTask?.generation ?? slot.draft.generation ?? 0,
 				);

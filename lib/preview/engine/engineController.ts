@@ -26,15 +26,17 @@
  * - **Field kind change (retype)** → drop the stale value, re-init the field
  * - **Expression field** → rebuild DAG, re-evaluate that field + cascade
  * - **Label/hint with hashtag refs** → re-evaluate resolved labels only
- * - **Field ID rename** → update paths, rebuild DAG, re-evaluate dependents
+ * - **Field ID rename** → already handled by the preceding batch-topology pass
  * - **Default value** → re-evaluate default + cascade
  *
- * ## Fully incremental
+ * ## Incremental, with one atomic topology boundary
  *
- * There is no "rebuild everything" path. Every operation — including
- * adding/removing fields and metadata changes — is targeted. Only the
- * affected fields' states change. Existing fields keep their original
- * object references in the runtime store. No diffing needed.
+ * Ordinary field edits remain targeted. A committed batch that changes
+ * authored paths is the exception: one whole-document subscription compares
+ * the complete pre/post UUID→path projections and moves every retained value
+ * in one atomic engine call before the per-field callbacks run. That boundary
+ * is what makes two independent renames and cross-parent subtree moves safe;
+ * processing either field against a half-updated path map loses the other.
  *
  * ## Domain types
  *
@@ -177,23 +179,34 @@ function findModuleForForm(
 function buildPathMaps(
 	tree: FieldTreeNode[],
 	prefix = "/data",
-): { uuidToPath: Map<string, string>; pathToUuid: Map<string, string> } {
+): {
+	uuidToPath: Map<string, string>;
+	pathToUuid: Map<string, string>;
+	uuidToSegmentKeys: Map<string, readonly string[]>;
+} {
 	const uuidToPath = new Map<string, string>();
 	const pathToUuid = new Map<string, string>();
-	function walk(nodes: FieldTreeNode[], pfx: string) {
+	const uuidToSegmentKeys = new Map<string, readonly string[]>();
+	function walk(
+		nodes: FieldTreeNode[],
+		pfx: string,
+		ancestorUuids: readonly string[],
+	) {
 		for (const node of nodes) {
 			const f = node.field;
 			const path = `${pfx}/${f.id}`;
 			uuidToPath.set(f.uuid, path);
 			pathToUuid.set(path, f.uuid);
+			const segmentKeys = ["$data", ...ancestorUuids, f.uuid];
+			uuidToSegmentKeys.set(f.uuid, segmentKeys);
 			if (node.children) {
 				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				walk(node.children, childPrefix);
+				walk(node.children, childPrefix, [...ancestorUuids, f.uuid]);
 			}
 		}
 	}
-	walk(tree, prefix);
-	return { uuidToPath, pathToUuid };
+	walk(tree, prefix, []);
+	return { uuidToPath, pathToUuid, uuidToSegmentKeys };
 }
 
 /** Recursively collect all field UUIDs belonging to a form. */
@@ -608,6 +621,7 @@ export class EngineController {
 			formUuid as string,
 			s.fieldOrder as unknown as Record<string, string[]>,
 		);
+		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
 		this.setupMetadataSubscription();
@@ -856,6 +870,128 @@ export class EngineController {
 	// ── Per-field subscriptions ──────────────────────────────────────
 
 	/**
+	 * Reconcile the complete pre/post path projection once per committed doc
+	 * batch, before any per-field listener observes that commit.
+	 *
+	 * `applyMany` publishes one final Zustand state. Two fields can therefore
+	 * rename together, or a whole subtree can move across group/repeat
+	 * parents, without there being a meaningful per-field intermediate map.
+	 * Materialize every old path first, move them in one engine call, then
+	 * install the new maps and publish one capture migration event.
+	 */
+	private setupAuthoredPathTopologySubscription(formUuid: Uuid): void {
+		if (!this.docStore) return;
+		const store = this.docStore;
+		const unsub = store.subscribe((current, previous) => {
+			if (!this.engine) return;
+			const previousInput = buildEngineInput(previous, formUuid);
+			const currentInput = buildEngineInput(current, formUuid);
+			if (previousInput === undefined || currentInput === undefined) return;
+
+			const previousMaps = buildPathMaps(
+				buildFieldTree(
+					previousInput.formUuid,
+					previousInput.fields,
+					previousInput.fieldOrder,
+				),
+			);
+			const currentMaps = buildPathMaps(
+				buildFieldTree(
+					currentInput.formUuid,
+					currentInput.fields,
+					currentInput.fieldOrder,
+				),
+			);
+			const previousUuids = new Set(previousMaps.uuidToPath.keys());
+			const currentUuids = new Set(currentMaps.uuidToPath.keys());
+			const retainedUuids = [...previousUuids].filter((uuid) =>
+				currentUuids.has(uuid),
+			);
+			const pathPairs: Array<{
+				oldPath: string;
+				newPath: string;
+				oldSegmentKeys: readonly string[];
+				newSegmentKeys: readonly string[];
+			}> = [];
+			const captureMoves: AuthoredCapturePathMigrationEvent["moves"][number][] =
+				[];
+			for (const uuid of retainedUuids) {
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const newPath = currentMaps.uuidToPath.get(uuid);
+				const previousField = previousInput.fields[uuid];
+				const currentField = currentInput.fields[uuid];
+				if (
+					oldPath === undefined ||
+					newPath === undefined ||
+					previousField === undefined ||
+					currentField === undefined
+				) {
+					continue;
+				}
+				if (oldPath !== newPath) {
+					const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
+					const newSegmentKeys = currentMaps.uuidToSegmentKeys.get(uuid);
+					if (oldSegmentKeys !== undefined && newSegmentKeys !== undefined) {
+						pathPairs.push({
+							oldPath,
+							newPath,
+							oldSegmentKeys,
+							newSegmentKeys,
+						});
+					}
+				}
+				const previousCapture = isCaptureFieldKind(previousField.kind);
+				const currentCapture = isCaptureFieldKind(currentField.kind);
+				if (
+					(previousCapture || currentCapture) &&
+					(oldPath !== newPath || previousField.kind !== currentField.kind)
+				) {
+					captureMoves.push({
+						fieldUuid: uuid,
+						oldPathTemplate: oldPath,
+						newPathTemplate: newPath,
+						...(previousCapture
+							? { previousCaptureKind: previousField.kind }
+							: {}),
+						...(currentCapture ? { captureKind: currentField.kind } : {}),
+					});
+				}
+			}
+			if (pathPairs.length === 0 && captureMoves.length === 0) return;
+
+			this.engine.renamePaths(pathPairs);
+			const removedPaths = [...previousUuids]
+				.filter((uuid) => !currentUuids.has(uuid))
+				.map((uuid) => previousMaps.uuidToPath.get(uuid))
+				.filter((path): path is string => path !== undefined);
+			if (removedPaths.length > 0) {
+				this.engine.removeFieldStates(removedPaths);
+			}
+			this.uuidToPath = currentMaps.uuidToPath;
+			this.pathToUuid = currentMaps.pathToUuid;
+			this.publishAuthoredCapturePathMigration(captureMoves);
+			this.engine.rebuildDag(currentInput);
+			for (const uuid of retainedUuids) {
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const newPath = currentMaps.uuidToPath.get(uuid);
+				const field = currentInput.fields[uuid];
+				if (
+					oldPath !== undefined &&
+					newPath !== undefined &&
+					oldPath !== newPath &&
+					field !== undefined
+				) {
+					this.engine.ensureFieldStates(newPath, field);
+				}
+			}
+			const allPaths = this.engine.getAllPaths();
+			if (allPaths.length > 0) this.engine.evaluatePathsInto(allPaths);
+			this.syncAllPathsSelectively();
+		});
+		this.unsubscribers.push(unsub);
+	}
+
+	/**
 	 * One Zustand subscription per field. Immer structural sharing means
 	 * the callback only fires when THAT specific field was mutated.
 	 *
@@ -864,7 +1000,7 @@ export class EngineController {
 	 * - "kind_change" → drop the stale value at the old path, re-init the field
 	 * - "expression" → rebuild DAG, evaluate field + cascade
 	 * - "label_refs" → re-evaluate resolved labels
-	 * - "id_rename" → update paths, rebuild DAG, re-evaluate dependents
+	 * - "id_rename" → no-op here; the batch-topology subscription ran first
 	 * - "default_value" → re-evaluate default + cascade
 	 */
 	private setupPerFieldSubscriptions(uuids: string[]): void {
@@ -887,7 +1023,7 @@ export class EngineController {
 						case "none":
 							return;
 						case "kind_change":
-							this.onKindChanged(uuid, previous as Field, current as Field);
+							this.onKindChanged(uuid);
 							return;
 						case "expression":
 							this.onExpressionChanged(uuid);
@@ -896,7 +1032,8 @@ export class EngineController {
 							this.onLabelRefsChanged(uuid);
 							return;
 						case "id_rename":
-							this.onIdRenamed(uuid, previous.id, current.id);
+							// The whole-batch topology listener already moved every
+							// retained path, rebuilt the DAG, and re-evaluated once.
 							return;
 						case "default_value":
 							this.onDefaultValueChanged(uuid, current as Field);
@@ -1015,11 +1152,7 @@ export class EngineController {
 	 * tree (it was also removed in the same batch), it's cleaned up like a
 	 * removal rather than left in a stale half-state.
 	 */
-	private onKindChanged(
-		uuid: string,
-		previousField: Field,
-		currentField: Field,
-	): void {
+	private onKindChanged(uuid: string): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
@@ -1081,28 +1214,6 @@ export class EngineController {
 				}
 			}
 			this.engine.renamePaths(pairs);
-			this.publishAuthoredCapturePathMigration(
-				pairs.flatMap(({ oldPath, newPath }) => {
-					const fieldUuid = [...oldDescendantPaths].find(
-						([, candidateOldPath]) => candidateOldPath === oldPath,
-					)?.[0];
-					const descendant =
-						fieldUuid === undefined ? undefined : input.fields[fieldUuid];
-					return fieldUuid !== undefined &&
-						descendant !== undefined &&
-						isCaptureFieldKind(descendant.kind)
-						? [
-								{
-									fieldUuid,
-									oldPathTemplate: oldPath,
-									newPathTemplate: newPath,
-									previousCaptureKind: descendant.kind,
-									captureKind: descendant.kind,
-								},
-							]
-						: [];
-				}),
-			);
 			/* A repeat→group conversion retires the container's instance
 			 * count (instances ≥ 1 were dropped by the re-path above) —
 			 * `deleteValue` clears it; containers own no value key. */
@@ -1127,26 +1238,6 @@ export class EngineController {
 			 * intact. For a leaf retype it re-seeds empty with the new kind's
 			 * required flag and default. */
 			this.engine.addFieldState(newPath, field);
-		}
-		if (
-			oldPath !== undefined &&
-			newPath !== undefined &&
-			(isCaptureFieldKind(previousField.kind) ||
-				isCaptureFieldKind(currentField.kind))
-		) {
-			this.publishAuthoredCapturePathMigration([
-				{
-					fieldUuid: uuid,
-					oldPathTemplate: oldPath,
-					newPathTemplate: newPath,
-					...(isCaptureFieldKind(previousField.kind)
-						? { previousCaptureKind: previousField.kind }
-						: {}),
-					...(isCaptureFieldKind(currentField.kind)
-						? { captureKind: currentField.kind }
-						: {}),
-				},
-			]);
 		}
 
 		/* Re-evaluate the converted field + its descendants + downstream
@@ -1195,110 +1286,6 @@ export class EngineController {
 		const targets = this.engine.materializePaths(path);
 		this.engine.evaluatePathsInto(targets);
 		this.syncPathsToStore(targets);
-	}
-
-	/** A field's ID was renamed. Update path mappings, move DataInstance
-	 *  values — every live instance, descendants included when a container
-	 *  was renamed — rebuild DAG, and re-evaluate dependents. */
-	private onIdRenamed(uuid: string, _oldId: string, _newId: string): void {
-		if (!this.engine) return;
-		const input = this.currentEngineInput();
-		if (!input) return;
-
-		/* Snapshot old paths (the field + every descendant — renaming a
-		 * container moves the whole subtree) against the PRE-rebuild maps. */
-		const oldPath = this.uuidToPath.get(uuid);
-		const descendantUuids = collectFormUuids(
-			uuid,
-			input.fieldOrder as unknown as Record<string, string[]>,
-		);
-		const oldDescendantPaths = new Map(
-			descendantUuids.map((d) => [d, this.uuidToPath.get(d)] as const),
-		);
-
-		const newTree = buildFieldTree(
-			input.formUuid,
-			input.fields,
-			input.fieldOrder,
-		);
-		const maps = buildPathMaps(newTree);
-		this.uuidToPath = maps.uuidToPath;
-		this.pathToUuid = maps.pathToUuid;
-		const newPath = this.uuidToPath.get(uuid);
-
-		/* Move values + states — one batch, BEFORE the DAG rebuild so the
-		 * old paths materialize against the pre-rename topology. */
-		const pairs: Array<{ oldPath: string; newPath: string }> = [];
-		if (oldPath && newPath && oldPath !== newPath) {
-			pairs.push({ oldPath, newPath });
-		}
-		for (const [descendantUuid, oldDescendantPath] of oldDescendantPaths) {
-			const newDescendantPath = this.uuidToPath.get(descendantUuid);
-			if (
-				oldDescendantPath &&
-				newDescendantPath &&
-				oldDescendantPath !== newDescendantPath
-			) {
-				pairs.push({ oldPath: oldDescendantPath, newPath: newDescendantPath });
-			}
-		}
-		this.engine.renamePaths(pairs);
-		this.publishAuthoredCapturePathMigration(
-			[
-				[uuid, oldPath, newPath] as const,
-				...descendantUuids.map(
-					(descendantUuid) =>
-						[
-							descendantUuid,
-							oldDescendantPaths.get(descendantUuid),
-							this.uuidToPath.get(descendantUuid),
-						] as const,
-				),
-			].flatMap(([fieldUuid, previousPath, currentPath]) => {
-				const capture = input.fields[fieldUuid];
-				return previousPath !== undefined &&
-					currentPath !== undefined &&
-					previousPath !== currentPath &&
-					capture !== undefined &&
-					isCaptureFieldKind(capture.kind)
-					? [
-							{
-								fieldUuid,
-								oldPathTemplate: previousPath,
-								newPathTemplate: currentPath,
-								previousCaptureKind: capture.kind,
-								captureKind: capture.kind,
-							},
-						]
-					: [];
-			}),
-		);
-
-		/* Rebuild DAG (references may point to the new ID now) */
-		this.engine.rebuildDag(input);
-
-		/* Re-evaluate the renamed field + descendants + dependents at every
-		 * live instance. The selective sweep also propagates the unplugged
-		 * old-path entries. */
-		if (newPath) {
-			const affectedPaths = new Set<string>();
-			const renamedRoots = [
-				newPath,
-				...descendantUuids
-					.map((d) => this.uuidToPath.get(d))
-					.filter((p): p is string => !!p),
-			];
-			for (const p of renamedRoots) {
-				for (const concrete of this.engine.materializePaths(p)) {
-					affectedPaths.add(concrete);
-				}
-				for (const dep of this.engine.getAffectedPaths(p)) {
-					affectedPaths.add(dep);
-				}
-			}
-			this.engine.evaluatePathsInto([...affectedPaths]);
-			this.syncAllPathsSelectively();
-		}
 	}
 
 	/** A field's default_value expression changed. Re-evaluate the

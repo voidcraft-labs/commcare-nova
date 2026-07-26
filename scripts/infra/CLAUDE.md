@@ -85,22 +85,29 @@ one-connection workload.
 The first database split/cap cutover has one mandatory order:
 
 1. Provision the capture-cleanup IAM database user.
-2. Create a temporary `BUILT_IN` database user with a strong password and no
+2. Converge and verify both the existing Cloud Run service-global and
+   revision-local maxima at four. This precedes the runtime role's hard cap:
+   the old five-instance fleet can demand 20 sessions, which must never be
+   placed behind a 16-session login limit.
+3. Create a temporary `BUILT_IN` database user with a strong password and no
    inline `--database-roles`; inline roles suppress the built-in user's
    `cloudsqlsuperuser` membership.
-3. After creation, assign runtime, migration, cleanup, and the retired role
+4. After creation, assign runtime, migration, cleanup, and the retired role
    when present to that temporary user without `--revoke-existing-roles`, so
    its `cloudsqlsuperuser` membership is preserved. Independently converge
    migration -> runtime as the only application membership; cleanup remains
    isolated.
-4. Connect with the temporary password and run
-   `bootstrap-database-owner.ts` dry-run, then `--apply`. Its one transaction
-   creates all four required extensions, sets all three login-role caps,
-   transfers ownership to migration, and audits the result.
-5. Delete the temporary user through the Cloud SQL API and verify it is absent.
-6. Set the Cloud Run global/revision maxima to four and wait until
-   `pg_stat_activity` reports no more than 16 runtime sessions.
-7. Only then enable/run migration and capture-cleanup Jobs.
+5. From the local repository, connect through the Cloud SQL connector with the
+   temporary credentials and run `bootstrap-database-owner.ts` dry-run, then
+   `--apply`. Cloud SQL Studio is optional for read-only catalog inspection; it
+   cannot run the Node/TypeScript CLI. The dry-run reports each required
+   extension's owner, version, schema, configuration relations, and dependency
+   catalogs/count. The transaction creates missing extensions, sets all three
+   login-role caps, transfers temporary/legacy ownership, and audits the result.
+6. Delete the temporary user through the Cloud SQL API and verify it is absent.
+7. Wait until `pg_stat_activity` reports no more than 16 runtime sessions and
+   run the capacity audit.
+8. Only then enable/run migration and capture-cleanup Jobs.
 
 The special built-in `cloudsqlsuperuser` path is required for the transactional
 `ALTER ROLE ... CONNECTION LIMIT` statements. The application roles do not
@@ -113,13 +120,18 @@ limits 16/1/3, creates `pg_trgm`, `fuzzystrmatch`, `postgis`, and `pgaudit`,
 changes the `nova_cases` owner, and uses `REASSIGN OWNED` followed by
 `DROP OWNED ... RESTRICT` for both the temporary administrator and, when
 present, the retired role. The temporary-administrator transfer is required
-because that principal initially owns the extension catalog objects. The
-catalog audit rejects foreign/shared dependencies, proves every required
-extension is present and migration-owned, and proves both retired principals
-have no remaining ownership, ACL, or default-ACL dependency. Delete the retired
-database user and temporary administrator through Cloud SQL only after this
-audit succeeds. The migration then converges fixed-object ownership, exact
-cleanup grants, and moves runtime-owned `cases` to its isolated schema.
+because that principal owns any extension it creates during bootstrap.
+Pre-existing Cloud SQL extensions remain owned by the managed `postgres` role:
+PostgreSQL has no `ALTER EXTENSION ... OWNER TO`, and blanket
+`REASSIGN OWNED BY postgres` would seize unrelated provider-managed objects.
+The permanent trusted-owner contract is therefore exactly `postgres` or
+migration for each required extension. The catalog inventory and audit reject
+runtime, cleanup, temporary, legacy, or any unknown owner; prove every required
+extension is present; and prove both retired principals have no remaining
+ownership, ACL, or default-ACL dependency. Delete the retired database user and
+temporary administrator through Cloud SQL only after this audit succeeds. The
+migration then converges fixed-object ownership, exact cleanup grants, and moves
+runtime-owned `cases` to its isolated schema.
 
 The login limits persist independently of application images. Rolling back to
 the prior image therefore keeps the database protected, although an older
