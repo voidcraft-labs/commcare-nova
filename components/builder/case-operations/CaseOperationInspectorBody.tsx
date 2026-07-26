@@ -33,7 +33,10 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { FieldError } from "@/components/shadcn/field";
-import { useModuleSelectsCaseFirst } from "@/lib/doc/hooks/useCaseOperationFacts";
+import {
+	useModuleCaseType,
+	useModuleSelectsCaseFirst,
+} from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import {
@@ -75,6 +78,10 @@ const ACTION_DETAIL: Record<CaseOperationAction, string> = {
 	close: "Finishes a case; it can still save final values",
 };
 
+type ActionChoice =
+	| { readonly next: CaseOperation }
+	| { readonly reason: string };
+
 export function CaseOperationInspectorBody({
 	moduleUuid,
 	formUuid,
@@ -91,6 +98,7 @@ export function CaseOperationInspectorBody({
 
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
+	const moduleCaseType = useModuleCaseType(moduleUuid);
 
 	const operations = view.operations;
 	const index = operations.findIndex(
@@ -102,17 +110,40 @@ export function CaseOperationInspectorBody({
 		? undefined
 		: "This module does not choose a case before opening its forms, so there is no case in hand";
 
-	const priorCreates = useMemo(
-		() =>
-			operations
-				.slice(0, index < 0 ? 0 : index)
-				.filter((candidate) => candidate.action === "create")
-				.map((candidate) => ({
-					uuid: candidate.uuid,
-					label: candidate.id,
-				})),
-		[operations, index],
-	);
+	const priorCreates = useMemo(() => {
+		const ordered = operations.slice(0, index < 0 ? 0 : index);
+		const rollingTypes = new Map<Uuid, string>();
+		for (const candidate of ordered) {
+			if (candidate.action === "create") {
+				rollingTypes.set(candidate.uuid, candidate.caseType);
+				continue;
+			}
+			if (candidate.target.kind === "op" && candidate.retype !== undefined) {
+				rollingTypes.set(candidate.target.opUuid, candidate.retype);
+			}
+		}
+		return ordered
+			.filter((candidate) => candidate.action === "create")
+			.map((candidate) => ({
+				uuid: candidate.uuid,
+				label: candidate.id,
+				caseType: rollingTypes.get(candidate.uuid) ?? candidate.caseType,
+			}));
+	}, [operations, index]);
+
+	const rollingSessionCaseType = useMemo(() => {
+		if (!caseFirst || moduleCaseType === undefined) return undefined;
+		let current = moduleCaseType;
+		for (const candidate of operations.slice(0, index < 0 ? 0 : index)) {
+			if (
+				candidate.target.kind === "session" &&
+				candidate.retype !== undefined
+			) {
+				current = candidate.retype;
+			}
+		}
+		return current;
+	}, [caseFirst, index, moduleCaseType, operations]);
 
 	const repeats = useMemo(() => repeatFieldDecls(fieldEntries), [fieldEntries]);
 
@@ -128,15 +159,78 @@ export function CaseOperationInspectorBody({
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 	};
 
-	const fallbackTarget: CaseTarget =
-		sessionUnavailableReason === undefined
-			? { kind: "session" }
-			: priorCreates.length > 0 && priorCreates[0] !== undefined
-				? { kind: "op", opUuid: priorCreates[0].uuid }
-				: {
-						kind: "expression",
-						expr: { kind: "term", term: { kind: "literal", value: "" } },
-					};
+	const existingTargetFallbacks: {
+		readonly target: CaseTarget;
+		readonly caseType: string;
+	}[] = [];
+	if (rollingSessionCaseType !== undefined) {
+		existingTargetFallbacks.push({
+			target: { kind: "session" },
+			caseType: rollingSessionCaseType,
+		});
+	}
+	for (const create of priorCreates) {
+		existingTargetFallbacks.push({
+			target: { kind: "op", opUuid: create.uuid },
+			caseType: create.caseType,
+		});
+	}
+
+	const actionChoices = Object.fromEntries(
+		(["create", "update", "close"] as const).map((action) => {
+			if (action === operation.action) {
+				return [action, { next: operation } satisfies ActionChoice];
+			}
+			if (action === "create") {
+				const next = reshapeForAction(
+					operation,
+					action,
+					{ kind: "new" },
+					operation.caseType,
+				);
+				const verdict = view.editVerdict(next);
+				return [
+					action,
+					verdict.ok ? { next } : { reason: verdict.reason },
+				] as const;
+			}
+			if (operation.target.kind !== "new") {
+				const next = reshapeForAction(
+					operation,
+					action,
+					operation.target,
+					operation.caseType,
+				);
+				const verdict = view.editVerdict(next);
+				return [
+					action,
+					verdict.ok ? { next } : { reason: verdict.reason },
+				] as const;
+			}
+			let firstReason: string | undefined;
+			for (const fallback of existingTargetFallbacks) {
+				const next = reshapeForAction(
+					operation,
+					action,
+					fallback.target,
+					fallback.caseType,
+				);
+				const verdict = view.editVerdict(next);
+				if (verdict.ok) {
+					return [action, { next } satisfies ActionChoice] as const;
+				}
+				firstReason ??= verdict.reason;
+			}
+			return [
+				action,
+				{
+					reason:
+						firstReason ??
+						`${sessionUnavailableReason ?? "There is no compatible case in hand"}. Add an earlier case change first.`,
+				} satisfies ActionChoice,
+			] as const;
+		}),
+	) as Record<CaseOperationAction, ActionChoice>;
 
 	return (
 		<div className="space-y-5" data-case-operation-inspector={operation.uuid}>
@@ -172,10 +266,8 @@ export function CaseOperationInspectorBody({
 					<ActionMenu
 						operation={operation}
 						canEdit={canEdit}
-						sessionUnavailableReason={sessionUnavailableReason}
-						onChange={(action) =>
-							commit(reshapeForAction(operation, action, fallbackTarget))
-						}
+						choices={actionChoices}
+						onChange={commit}
 					/>
 				</Row>
 
@@ -185,8 +277,12 @@ export function CaseOperationInspectorBody({
 				>
 					<CaseTypePicker
 						value={operation.caseType}
+						disabled={!canEdit}
 						exclude={RESERVED_CASE_OPERATION_TYPES}
 						ariaLabel="Kind of case"
+						choiceVerdict={(caseType) =>
+							view.editVerdict({ ...operation, caseType })
+						}
 						onChange={(caseType) => commit({ ...operation, caseType })}
 					/>
 				</Row>
@@ -198,6 +294,7 @@ export function CaseOperationInspectorBody({
 					<CaseTargetPicker
 						value={operation.target}
 						ariaLabel="Which case"
+						disabled={!canEdit}
 						context={{
 							priorCreates,
 							sessionUnavailableReason,
@@ -207,6 +304,14 @@ export function CaseOperationInspectorBody({
 							newOnly: operation.action === "create",
 							allowsNone: false,
 						}}
+						choiceVerdict={(target) =>
+							target === null
+								? {
+										ok: false,
+										reason: "A case change must act on a case.",
+									}
+								: view.editVerdict({ ...operation, target })
+						}
 						onChange={(target) => {
 							if (target === null) return;
 							commit({ ...operation, target });
@@ -267,9 +372,18 @@ export function CaseOperationInspectorBody({
 					>
 						<CaseTypePicker
 							value={operation.retype}
+							disabled={!canEdit}
 							exclude={RESERVED_CASE_OPERATION_TYPES}
 							placeholder="Leave the type alone"
 							ariaLabel="Change the case's type"
+							choiceVerdict={(retype) =>
+								view.editVerdict({ ...operation, retype })
+							}
+							clearLabel="Keep the current type"
+							clearVerdict={view.editVerdict({
+								...operation,
+								retype: undefined,
+							})}
 							onChange={(retype) => commit({ ...operation, retype })}
 							onClear={() => commit({ ...operation, retype: undefined })}
 						/>
@@ -367,13 +481,13 @@ function OperationIdInput({
 function ActionMenu({
 	operation,
 	canEdit,
-	sessionUnavailableReason,
+	choices,
 	onChange,
 }: {
 	readonly operation: CaseOperation;
 	readonly canEdit: boolean;
-	readonly sessionUnavailableReason: string | undefined;
-	readonly onChange: (action: CaseOperationAction) => void;
+	readonly choices: Readonly<Record<CaseOperationAction, ActionChoice>>;
+	readonly onChange: (operation: CaseOperation) => void;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const [pending, setPending] = useState<CaseOperationAction | null>(null);
@@ -408,7 +522,8 @@ function ActionMenu({
 						variant="warning"
 						size="xl"
 						onClick={() => {
-							onChange(pending);
+							const choice = choices[pending];
+							if ("next" in choice) onChange(choice.next);
 							setPending(null);
 						}}
 					>
@@ -458,28 +573,20 @@ function ActionMenu({
 					<DropdownMenuPopup className="min-w-0">
 						{(["create", "update", "close"] as const).map((action) => {
 							const active = action === operation.action;
-							/* An update or a close needs a case that already exists. In a
-							 * module that never selects one, that has to come from an
-							 * earlier create or a calculation — so the choice stays open
-							 * only when this change already has such a target. */
-							const needsExisting = action !== "create";
-							const reason =
-								needsExisting &&
-								sessionUnavailableReason !== undefined &&
-								operation.target.kind === "new"
-									? `${sessionUnavailableReason}. Point this change at an earlier change's case first.`
-									: undefined;
+							const choice = choices[action];
+							const reason = "reason" in choice ? choice.reason : undefined;
 							return (
 								<DropdownMenuItem
 									key={action}
 									disabled={reason !== undefined && !active}
 									onClick={() => {
 										if (active) return;
+										if (!("next" in choice)) return;
 										if (actionChangeLosses(operation, action).length > 0) {
 											setPending(action);
 											return;
 										}
-										onChange(action);
+										onChange(choice.next);
 									}}
 									className={
 										active ? "bg-nova-violet/10 text-nova-violet-bright" : ""

@@ -90,6 +90,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Moving case operation",
 		done: "Moved case operation",
 	},
+	getCaseOperations: {
+		doing: "Inspecting case operations",
+		done: "Inspected case operations",
+	},
 	attachFieldMedia: { doing: "Setting field media", done: "Set field media" },
 	attachOptionMedia: {
 		doing: "Setting option media",

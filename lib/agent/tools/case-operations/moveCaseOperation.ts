@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { moveCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, orderedCaseOperations } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -62,11 +62,18 @@ export const moveCaseOperationTool = {
 					},
 				};
 			}
+			const actualIndex = Math.max(
+				0,
+				Math.min(
+					input.index,
+					orderedCaseOperations(doc.forms[address.formUuid] ?? {}).length - 1,
+				),
+			);
 			const plan = moveCaseOperationMutation(
 				doc,
 				address.formUuid,
 				operation.uuid,
-				input.index,
+				actualIndex,
 			);
 			if (!plan.ok) {
 				const involved = dependentOperationNames(
@@ -106,8 +113,8 @@ export const moveCaseOperationTool = {
 				mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Moved case operation "${input.operationId}" to index ${input.index}.`,
-					index: input.index,
+					message: `Moved case operation "${input.operationId}" to index ${actualIndex}.`,
+					index: actualIndex,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formId,
 						subject: input.operationId,

@@ -442,6 +442,7 @@ export function CaseOperationDetailCanvas({
 								// target is withheld with that reason.
 								excludes: operation.target,
 							}}
+							editVerdict={(links) => view.editVerdict({ ...operation, links })}
 							onChange={(links) => commit({ ...operation, links })}
 						/>
 					</Section>

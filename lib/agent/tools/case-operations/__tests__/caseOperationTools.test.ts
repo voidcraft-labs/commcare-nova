@@ -1,6 +1,12 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
+import {
+	BlueprintCommitRejectedError,
+	batchTargetsMissing,
+} from "@/lib/db/commitGuard";
+import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { makeStubToolContext } from "../../../__tests__/fixtures";
 import { getFormTool } from "../../getForm";
@@ -271,7 +277,7 @@ describe("shared case-operation tools", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					kind: "updateForm",
-					caseOperationChange: expect.objectContaining({
+					caseOperationPatch: expect.objectContaining({
 						operation: "update",
 						patch: expect.objectContaining({
 							id: "create_encounter",
@@ -288,7 +294,7 @@ describe("shared case-operation tools", () => {
 					mutation.caseOperationChange?.operation === "update" &&
 					"value" in mutation.caseOperationChange,
 			),
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("refuses removing or moving a producer past its dependent", async () => {
@@ -332,5 +338,159 @@ describe("shared case-operation tools", () => {
 			expect.objectContaining({ error: expect.stringContaining("tag_visit") }),
 		);
 		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("reports the actual clamped move destination", async () => {
+		const { doc } = fixture();
+		const { ctx } = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operations: [createVisit],
+			},
+			ctx,
+			doc,
+		);
+		const moved = await moveCaseOperationTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operationId: "create_visit",
+				index: 999,
+			},
+			ctx,
+			added.newDoc,
+		);
+		expect(moved.result).toMatchObject({
+			index: 0,
+			message: 'Moved case operation "create_visit" to index 0.',
+		});
+	});
+
+	it("surfaces authoritative operation/write/link races instead of reporting success", async () => {
+		const { doc, formUuid } = fixture();
+		const linkedVisit = {
+			...createVisit,
+			links: [
+				{
+					identifier: "parent",
+					targetType: "patient",
+					target: null,
+					relationship: "child" as const,
+				},
+			],
+		};
+		const setup = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operations: [linkedVisit],
+			},
+			setup.ctx,
+			doc,
+		);
+		const stale = added.newDoc;
+
+		const expectConflict = async (
+			fresh: BlueprintDoc,
+			operation: Parameters<
+				typeof updateCaseOperationTool.execute
+			>[0]["operation"],
+		) => {
+			const { ctx, recordMutations } = makeStubToolContext();
+			recordMutations.mockImplementation(
+				async (mutations: Mutation[], candidate: BlueprintDoc) => {
+					if (batchTargetsMissing(fresh, mutations)) {
+						throw new BlueprintCommitRejectedError(
+							"A peer changed this case operation first.",
+						);
+					}
+					return { events: [], committedDoc: candidate };
+				},
+			);
+			await expect(
+				updateCaseOperationTool.execute(
+					{
+						moduleId: "patients",
+						formId: "edit",
+						operationId: "create_visit",
+						operation,
+					},
+					ctx,
+					stale,
+				),
+			).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+			expect(recordMutations).toHaveBeenCalledTimes(1);
+		};
+
+		await expectConflict(
+			produce(stale, (draft) => {
+				delete draft.forms[formUuid].caseOperations;
+			}),
+			{ ...linkedVisit, id: "create_encounter" },
+		);
+
+		await expectConflict(
+			produce(stale, (draft) => {
+				delete draft.forms[formUuid].caseOperations?.[0]?.writes;
+			}),
+			{
+				...linkedVisit,
+				writes: [
+					{
+						property: "source_id",
+						value: {
+							kind: "term",
+							term: { kind: "literal", value: "changed" },
+						},
+					},
+				],
+			},
+		);
+
+		await expectConflict(
+			produce(stale, (draft) => {
+				delete draft.forms[formUuid].caseOperations?.[0]?.links;
+			}),
+			{
+				...linkedVisit,
+				links: [{ ...linkedVisit.links[0], relationship: "extension" }],
+			},
+		);
+
+		const peerWrite = {
+			property: "note",
+			value: {
+				kind: "term" as const,
+				term: { kind: "literal" as const, value: "peer" },
+			},
+		};
+		await expectConflict(
+			produce(stale, (draft) => {
+				draft.forms[formUuid].caseOperations?.[0]?.writes?.push(peerWrite);
+			}),
+			{
+				...linkedVisit,
+				writes: [...linkedVisit.writes, peerWrite],
+			},
+		);
+
+		const peerLink = {
+			identifier: "household",
+			targetType: "patient",
+			target: null,
+			relationship: "child" as const,
+		};
+		await expectConflict(
+			produce(stale, (draft) => {
+				draft.forms[formUuid].caseOperations?.[0]?.links?.push(peerLink);
+			}),
+			{
+				...linkedVisit,
+				links: [...linkedVisit.links, peerLink],
+			},
+		);
 	});
 });

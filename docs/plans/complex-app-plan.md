@@ -256,9 +256,15 @@ key, multiplicity, retype, removal — and the centre canvas owns every recursiv
 AST, the same split the case-list workspace keeps. Adding is chooser-first and
 lands a complete operation the commit gate already accepts
 (`components/builder/case-operations/seeds.ts`, proved against
-`mutationCommitVerdict`). Removal asks `removalPlan` first and, when something
-depends on the operation, names each consumer and the exact slot holding the
-reference instead of offering a delete that would bounce.
+`mutationCommitVerdict`). Existing-operation choices ask
+`caseOperationEditVerdict` — the real mutation planner plus that same commit
+gate — before they are offered. Changing a create into an update/close retargets
+both the case identity and its proven rolling type; case-type, retype, and link
+type pickers disable an impossible choice with the gate's reason, and omit the
+three platform-owned types everywhere. Removal asks `removalPlan` first and,
+when something depends on the operation, names each consumer and the exact slot
+holding the reference instead of offering a delete that would bounce. Viewer
+mode renders these controls as explicit disabled triggers.
 
 Which form answers an operation may read is ONE rule with two callers:
 `lib/domain/caseOperationScope.ts` holds `operationCanReadFormField` and
@@ -276,8 +282,17 @@ remove use those same author identities and cross to immutable UUID leaves
 before checking. Batch add resolves earlier creates within its working overlay
 and commits the complete sequence atomically. Full-shape updates emit only
 identity-keyed scalar, write-property, link-identifier, and order mutations, so
-unrelated concurrent edits compose. Action-illegal facet combinations,
-platform-owned case types, and reserved write properties are unconstructible at
+unrelated concurrent edits compose. Each granular event carries the deployed
+full-operation `caseOperationChange.update.value` as the immediate-parent
+fallback and its current intent in top-level `caseOperationPatch`; current
+reducers apply only the intent, immediate-parent reducers apply the equivalent
+fallback, and immediate-parent events still replay as full replacements.
+Schema integrity binds both views to one UUID and value. The authoritative
+commit guard tracks operation UUIDs plus write-property and link-identifier
+sets through the batch, rejecting peer-deleted targets and same-key peer adds
+instead of allowing a total reducer no-op to report success. Action-illegal
+facet combinations, platform-owned case types, and reserved write properties
+are unconstructible at
 the shared tool boundary, with the validator as the replay/import backstop.
 `content/docs/case-changes.mdx` is the user-facing guide.
 

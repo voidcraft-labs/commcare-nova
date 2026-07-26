@@ -79,6 +79,12 @@ works out when the form is submitted:
 The panel beside it holds the choices: what the change does, the kind of case,
 which case, how often it happens, and removing it.
 
+Those choices stay in sync. If you turn “create a referral” into “update the
+case this form opened,” Nova also switches to that existing case's real type.
+A case type that would conflict with the chosen case, a later type change, or a
+connection is disabled with the reason beside it; platform-owned case types
+never appear. You can choose an available option knowing it will save.
+
 Values can come from a **form answer**, from information already on a case, from
 fixed values, from information about the person using the app, or from a
 calculation you build.

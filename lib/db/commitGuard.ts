@@ -148,6 +148,49 @@ export function batchTargetsMissing(
 	const userProperties = new Set(Object.keys(doc.userProperties ?? {}));
 	const userTypes = new Set(Object.keys(doc.userTypes ?? {}));
 	const personas = new Set(Object.keys(doc.personas ?? {}));
+	// Case operations are form-owned; their writes and links have logical
+	// identity inside one operation. Track all three levels so the authoritative
+	// writer rejects the reducer's otherwise-silent no-op both for concurrent
+	// deletes and for colliding same-key adds.
+	const caseOperationsByForm = new Map<string, Set<string>>();
+	const caseOperationWrites = new Map<string, Set<string>>();
+	const caseOperationLinks = new Map<string, Set<string>>();
+	const caseOperationKey = (formUuid: string, operationUuid: string) =>
+		`${formUuid}\0${operationUuid}`;
+	const seedCaseOperation = (
+		formUuid: string,
+		operation: NonNullable<
+			BlueprintDoc["forms"][string]["caseOperations"]
+		>[number],
+	): void => {
+		const operationUuids = caseOperationsByForm.get(formUuid) ?? new Set();
+		operationUuids.add(operation.uuid);
+		caseOperationsByForm.set(formUuid, operationUuids);
+		const key = caseOperationKey(formUuid, operation.uuid);
+		caseOperationWrites.set(
+			key,
+			new Set((operation.writes ?? []).map((write) => write.property)),
+		);
+		caseOperationLinks.set(
+			key,
+			new Set((operation.links ?? []).map((link) => link.identifier)),
+		);
+	};
+	const removeSeededCaseOperation = (
+		formUuid: string,
+		operationUuid: string,
+	): void => {
+		caseOperationsByForm.get(formUuid)?.delete(operationUuid);
+		const key = caseOperationKey(formUuid, operationUuid);
+		caseOperationWrites.delete(key);
+		caseOperationLinks.delete(key);
+	};
+	for (const form of Object.values(doc.forms)) {
+		caseOperationsByForm.set(form.uuid, new Set());
+		for (const operation of form.caseOperations ?? []) {
+			seedCaseOperation(form.uuid, operation);
+		}
+	}
 	// A field's parent is a form or a group/repeat field — either may hold it.
 	const container = (uuid: string) => forms.has(uuid) || fields.has(uuid);
 	for (const m of mutations) {
@@ -184,19 +227,95 @@ export function batchTargetsMissing(
 			case "addForm":
 				if (!modules.has(m.moduleUuid)) return true;
 				forms.add(m.form.uuid);
+				caseOperationsByForm.set(m.form.uuid, new Set());
+				for (const operation of m.form.caseOperations ?? []) {
+					seedCaseOperation(m.form.uuid, operation);
+				}
 				break;
 			case "removeForm":
 				if (!forms.has(m.uuid)) return true;
 				forms.delete(m.uuid);
+				for (const operationUuid of caseOperationsByForm.get(m.uuid) ?? []) {
+					removeSeededCaseOperation(m.uuid, operationUuid);
+				}
+				caseOperationsByForm.delete(m.uuid);
 				break;
 			case "moveForm":
 				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
 				break;
 			case "renameForm":
-			case "updateForm":
 			case "setFormMedia":
 				if (!forms.has(m.uuid)) return true;
 				break;
+			case "updateForm": {
+				if (!forms.has(m.uuid)) return true;
+				const operationUuids =
+					caseOperationsByForm.get(m.uuid) ?? new Set<string>();
+				caseOperationsByForm.set(m.uuid, operationUuids);
+				const semantic = m.caseOperationPatch;
+				if (semantic !== undefined) {
+					if (!operationUuids.has(semantic.uuid)) return true;
+					const key = caseOperationKey(m.uuid, semantic.uuid);
+					const writes = caseOperationWrites.get(key) ?? new Set<string>();
+					const links = caseOperationLinks.get(key) ?? new Set<string>();
+					caseOperationWrites.set(key, writes);
+					caseOperationLinks.set(key, links);
+					switch (semantic.operation) {
+						case "update":
+							break;
+						case "add-write":
+							if (writes.has(semantic.value.property)) return true;
+							writes.add(semantic.value.property);
+							break;
+						case "update-write":
+							if (!writes.has(semantic.property)) return true;
+							break;
+						case "remove-write":
+							if (!writes.has(semantic.property)) return true;
+							writes.delete(semantic.property);
+							break;
+						case "add-link":
+							if (links.has(semantic.value.identifier)) return true;
+							links.add(semantic.value.identifier);
+							break;
+						case "update-link":
+							if (!links.has(semantic.identifier)) return true;
+							break;
+						case "remove-link":
+							if (!links.has(semantic.identifier)) return true;
+							links.delete(semantic.identifier);
+							break;
+						case "move":
+							break;
+					}
+					break;
+				}
+
+				// An event authored by the immediate-parent grammar has no granular
+				// extension. Simulate its exact full-operation reducer semantics so a
+				// later mutation in the same batch sees births, removals, and replaced
+				// write/link collections.
+				const change = m.caseOperationChange;
+				if (change === undefined) break;
+				switch (change.operation) {
+					case "add":
+						if (operationUuids.has(change.value.uuid)) return true;
+						seedCaseOperation(m.uuid, change.value);
+						break;
+					case "update":
+						if (!operationUuids.has(change.uuid)) return true;
+						seedCaseOperation(m.uuid, change.value);
+						break;
+					case "remove":
+						if (!operationUuids.has(change.uuid)) return true;
+						removeSeededCaseOperation(m.uuid, change.uuid);
+						break;
+					case "move":
+						if (!operationUuids.has(change.uuid)) return true;
+						break;
+				}
+				break;
+			}
 			case "addField":
 				if (!container(m.parentUuid)) return true;
 				fields.add(m.field.uuid);

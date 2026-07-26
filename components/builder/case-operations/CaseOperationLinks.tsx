@@ -35,7 +35,11 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { FieldError } from "@/components/shadcn/field";
 import { caseOperationLinkIdentifierVerdict } from "@/lib/doc/identifierVerdicts";
-import type { CaseOperation, CaseOperationLink } from "@/lib/domain";
+import {
+	type CaseOperation,
+	type CaseOperationLink,
+	RESERVED_CASE_OPERATION_TYPES,
+} from "@/lib/domain";
 import { CaseTargetPicker, type TargetChoiceContext } from "./CaseTargetPicker";
 
 /** What a LINK's target picker needs: everything but the two axes the link
@@ -60,6 +64,7 @@ export function CaseOperationLinks({
 	targetContext,
 	defaultTargetType,
 	canEdit,
+	editVerdict,
 	onChange,
 }: {
 	readonly operation: CaseOperation;
@@ -69,6 +74,9 @@ export function CaseOperationLinks({
 	 *  next click a mismatch the author never asked for. */
 	readonly defaultTargetType: string;
 	readonly canEdit: boolean;
+	readonly editVerdict: (
+		links: CaseOperationLink[] | undefined,
+	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
 	/** The stored slot is a mutable array, so the callback hands one back
 	 *  rather than a readonly view the document could not hold. */
 	readonly onChange: (links: CaseOperationLink[] | undefined) => void;
@@ -81,6 +89,13 @@ export function CaseOperationLinks({
 
 	const replace = (index: number, next: CaseOperationLink) =>
 		onChange(links.map((link, i) => (i === index ? next : link)));
+	const addedLink = seedCaseOperationLink(
+		nextLinkIdentifier(identifiers),
+		defaultTargetType,
+	);
+	const addVerdict = canEdit
+		? editVerdict([...links, addedLink])
+		: ({ ok: true } as const);
 
 	return (
 		<div className="space-y-3">
@@ -91,6 +106,20 @@ export function CaseOperationLinks({
 					siblings={identifiers}
 					targetContext={targetContext}
 					canEdit={canEdit}
+					targetTypeVerdict={(targetType) =>
+						editVerdict(
+							links.map((candidate, i) =>
+								i === index ? { ...candidate, targetType } : candidate,
+							),
+						)
+					}
+					targetVerdict={(target) =>
+						editVerdict(
+							links.map((candidate, i) =>
+								i === index ? { ...candidate, target } : candidate,
+							),
+						)
+					}
 					onChange={(next) => replace(index, next)}
 					onRemove={() => {
 						const remaining = links.filter((_, i) => i !== index);
@@ -104,19 +133,19 @@ export function CaseOperationLinks({
 					variant="outline"
 					size="xl"
 					data-case-operation-add-link
-					onClick={() =>
-						onChange([
-							...links,
-							seedCaseOperationLink(
-								nextLinkIdentifier(identifiers),
-								defaultTargetType,
-							),
-						])
-					}
+					disabled={!addVerdict.ok}
+					onClick={() => onChange([...links, addedLink])}
 					className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
-					<span className="flex-1 text-left">Connect to another case</span>
+					<span className="flex-1 text-left">
+						<span className="block">Connect to another case</span>
+						{!addVerdict.ok && (
+							<span className="mt-0.5 block text-xs font-normal text-nova-text-muted">
+								{addVerdict.reason}
+							</span>
+						)}
+					</span>
 				</Button>
 			)}
 		</div>
@@ -128,6 +157,8 @@ function LinkRow({
 	siblings,
 	targetContext,
 	canEdit,
+	targetTypeVerdict,
+	targetVerdict,
 	onChange,
 	onRemove,
 }: {
@@ -135,6 +166,12 @@ function LinkRow({
 	readonly siblings: ReadonlySet<string>;
 	readonly targetContext: LinkTargetContext;
 	readonly canEdit: boolean;
+	readonly targetTypeVerdict: (
+		targetType: string,
+	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
+	readonly targetVerdict: (
+		target: CaseOperationLink["target"],
+	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
 	readonly onChange: (next: CaseOperationLink) => void;
 	readonly onRemove: () => void;
 }) {
@@ -196,7 +233,9 @@ function LinkRow({
 				<CaseTargetPicker
 					value={link.target}
 					ariaLabel="Connect to"
+					disabled={!canEdit}
 					context={{ ...targetContext, newOnly: false, allowsNone: true }}
+					choiceVerdict={targetVerdict}
 					onChange={(target) => onChange({ ...link, target })}
 				/>
 				{link.target === null && (
@@ -213,7 +252,10 @@ function LinkRow({
 				</p>
 				<CaseTypePicker
 					value={link.targetType}
+					disabled={!canEdit}
+					exclude={RESERVED_CASE_OPERATION_TYPES}
 					ariaLabel="Kind of case at the other end"
+					choiceVerdict={targetTypeVerdict}
 					onChange={(targetType) => onChange({ ...link, targetType })}
 				/>
 			</div>

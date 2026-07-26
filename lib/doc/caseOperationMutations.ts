@@ -10,24 +10,28 @@ import {
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolations,
 } from "./caseOperationOrder";
+import {
+	describeIntroducedErrors,
+	mutationCommitVerdict,
+} from "./commitVerdicts";
+import { deepEqual } from "./deepEqual";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
 import { plannedMoveSlotKey } from "./order/keys";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
 
 type UpdateFormMutation = Extract<Mutation, { kind: "updateForm" }>;
-type CaseOperationChange = NonNullable<
-	UpdateFormMutation["caseOperationChange"]
->;
+type CaseOperationPatch = NonNullable<UpdateFormMutation["caseOperationPatch"]>;
 type OperationPatch = Extract<
-	CaseOperationChange,
+	CaseOperationPatch,
 	{ operation: "update" }
 >["patch"];
 type WritePatch = Extract<
-	CaseOperationChange,
+	CaseOperationPatch,
 	{ operation: "update-write" }
 >["patch"];
 type LinkPatch = Extract<
-	CaseOperationChange,
+	CaseOperationPatch,
 	{ operation: "update-link" }
 >["patch"];
 
@@ -44,23 +48,25 @@ const OPERATION_PATCH_KEYS = [
 	"retype",
 ] as const satisfies readonly (keyof OperationPatch)[];
 
-function equal(left: unknown, right: unknown): boolean {
-	return JSON.stringify(left) === JSON.stringify(right);
-}
-
 function clearable<T>(value: T | undefined): T | null {
 	return value === undefined ? null : structuredClone(value);
 }
 
 function operationMutation(
 	formUuid: Uuid,
-	change: CaseOperationChange,
+	patch: CaseOperationPatch,
+	fallbackValue: CaseOperation,
 ): UpdateFormMutation {
 	return {
 		kind: "updateForm",
 		uuid: formUuid,
 		patch: {},
-		caseOperationChange: change,
+		caseOperationChange: {
+			operation: "update",
+			uuid: fallbackValue.uuid,
+			value: structuredClone(fallbackValue),
+		},
+		caseOperationPatch: patch,
 	};
 }
 
@@ -82,16 +88,20 @@ export function caseOperationChangesForUpdate(
 
 	const patch: OperationPatch = {};
 	for (const key of OPERATION_PATCH_KEYS) {
-		if (equal(before[key], after[key])) continue;
+		if (deepEqual(before[key], after[key])) continue;
 		patch[key] = clearable(after[key]) as never;
 	}
 	if (Object.keys(patch).length > 0) {
 		mutations.push(
-			operationMutation(formUuid, {
-				operation: "update",
-				uuid: before.uuid,
-				patch,
-			}),
+			operationMutation(
+				formUuid,
+				{
+					operation: "update",
+					uuid: before.uuid,
+					patch,
+				},
+				after,
+			),
 		);
 	}
 
@@ -104,41 +114,53 @@ export function caseOperationChangesForUpdate(
 	for (const [property] of beforeWrites) {
 		if (afterWrites.has(property)) continue;
 		mutations.push(
-			operationMutation(formUuid, {
-				operation: "remove-write",
-				uuid: before.uuid,
-				property,
-			}),
+			operationMutation(
+				formUuid,
+				{
+					operation: "remove-write",
+					uuid: before.uuid,
+					property,
+				},
+				after,
+			),
 		);
 	}
 	for (const [index, write] of (after.writes ?? []).entries()) {
 		const prior = beforeWrites.get(write.property);
 		if (prior === undefined) {
 			mutations.push(
-				operationMutation(formUuid, {
-					operation: "add-write",
-					uuid: before.uuid,
-					value: structuredClone(write),
-					index,
-				}),
+				operationMutation(
+					formUuid,
+					{
+						operation: "add-write",
+						uuid: before.uuid,
+						value: structuredClone(write),
+						index,
+					},
+					after,
+				),
 			);
 			continue;
 		}
 		const writePatch: WritePatch = {};
-		if (!equal(prior.value, write.value)) {
+		if (!deepEqual(prior.value, write.value)) {
 			writePatch.value = structuredClone(write.value);
 		}
-		if (!equal(prior.condition, write.condition)) {
+		if (!deepEqual(prior.condition, write.condition)) {
 			writePatch.condition = clearable(write.condition);
 		}
 		if (Object.keys(writePatch).length > 0) {
 			mutations.push(
-				operationMutation(formUuid, {
-					operation: "update-write",
-					uuid: before.uuid,
-					property: write.property,
-					patch: writePatch,
-				}),
+				operationMutation(
+					formUuid,
+					{
+						operation: "update-write",
+						uuid: before.uuid,
+						property: write.property,
+						patch: writePatch,
+					},
+					after,
+				),
 			);
 		}
 	}
@@ -152,23 +174,31 @@ export function caseOperationChangesForUpdate(
 	for (const [identifier] of beforeLinks) {
 		if (afterLinks.has(identifier)) continue;
 		mutations.push(
-			operationMutation(formUuid, {
-				operation: "remove-link",
-				uuid: before.uuid,
-				identifier,
-			}),
+			operationMutation(
+				formUuid,
+				{
+					operation: "remove-link",
+					uuid: before.uuid,
+					identifier,
+				},
+				after,
+			),
 		);
 	}
 	for (const [index, link] of (after.links ?? []).entries()) {
 		const prior = beforeLinks.get(link.identifier);
 		if (prior === undefined) {
 			mutations.push(
-				operationMutation(formUuid, {
-					operation: "add-link",
-					uuid: before.uuid,
-					value: structuredClone(link),
-					index,
-				}),
+				operationMutation(
+					formUuid,
+					{
+						operation: "add-link",
+						uuid: before.uuid,
+						value: structuredClone(link),
+						index,
+					},
+					after,
+				),
 			);
 			continue;
 		}
@@ -178,28 +208,36 @@ export function caseOperationChangesForUpdate(
 			"target",
 			"relationship",
 		] as const satisfies readonly (keyof LinkPatch)[]) {
-			if (equal(prior[key], link[key])) continue;
+			if (deepEqual(prior[key], link[key])) continue;
 			linkPatch[key] = structuredClone(link[key]) as never;
 		}
 		if (Object.keys(linkPatch).length > 0) {
 			mutations.push(
-				operationMutation(formUuid, {
-					operation: "update-link",
-					uuid: before.uuid,
-					identifier: link.identifier,
-					patch: linkPatch,
-				}),
+				operationMutation(
+					formUuid,
+					{
+						operation: "update-link",
+						uuid: before.uuid,
+						identifier: link.identifier,
+						patch: linkPatch,
+					},
+					after,
+				),
 			);
 		}
 	}
 
-	if (!equal(before.order, after.order)) {
+	if (!deepEqual(before.order, after.order)) {
 		mutations.push(
-			operationMutation(formUuid, {
-				operation: "move",
-				uuid: before.uuid,
-				order: after.order ?? null,
-			}),
+			operationMutation(
+				formUuid,
+				{
+					operation: "move",
+					uuid: before.uuid,
+					order: after.order ?? null,
+				},
+				after,
+			),
 		);
 	}
 
@@ -216,6 +254,48 @@ export type CaseOperationMutationPlan =
 				| "execution-order";
 			readonly dependentUuids: readonly Uuid[];
 	  };
+
+export type CaseOperationEditVerdict =
+	| { readonly ok: true }
+	| { readonly ok: false; readonly reason: string };
+
+/**
+ * The shared builder-choice oracle for one complete operation candidate.
+ *
+ * Pickers ask this before offering a case type/action/link choice; the actual
+ * commit still runs through the same gate. Keeping the planner + commit verdict
+ * here means React never re-derives target-type, execution-order, reserved-name,
+ * or facet rules.
+ */
+export function caseOperationEditVerdict(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operation: CaseOperation,
+): CaseOperationEditVerdict {
+	const exists =
+		doc.forms[formUuid]?.caseOperations?.some(
+			(candidate) => candidate.uuid === operation.uuid,
+		) === true;
+	if (!exists) {
+		return {
+			ok: false,
+			reason: "This case change is no longer part of the form.",
+		};
+	}
+	const mutations = updateCaseOperationMutations(doc, formUuid, operation);
+	if (mutations.length === 0) return { ok: true };
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	return verdict.ok
+		? { ok: true }
+		: {
+				ok: false,
+				reason: describeIntroducedErrors(verdict.introduced),
+			};
+}
 
 export function addCaseOperationMutations(
 	doc: BlueprintDoc,

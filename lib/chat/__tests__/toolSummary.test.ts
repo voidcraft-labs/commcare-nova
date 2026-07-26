@@ -35,12 +35,18 @@ describe("action tense follows the call's status", () => {
 			"Updating available cases",
 		);
 		expect(toolAction(pendingPart("updateApp"))).toBe("Updating app settings");
+		expect(toolAction(pendingPart("getCaseOperations"))).toBe(
+			"Inspecting case operations",
+		);
 	});
 
 	it("reads as done once the call succeeds", () => {
 		expect(toolAction(donePart("createModule", { subject: "Clients" }))).toBe(
 			'Created module "Clients"',
 		);
+		expect(
+			toolAction(donePart("getCaseOperations", { location: "Edit" })),
+		).toBe("Inspected case operations");
 	});
 
 	it("keeps the in-progress form for a failure — the change never landed", () => {

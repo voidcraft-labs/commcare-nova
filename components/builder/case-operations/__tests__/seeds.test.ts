@@ -247,7 +247,12 @@ describe("changing what a change does", () => {
 	);
 
 	it("drops exactly the facets the destination action forbids", () => {
-		const asClose = reshapeForAction(create, "close", { kind: "session" });
+		const asClose = reshapeForAction(
+			create,
+			"close",
+			{ kind: "session" },
+			"patient",
+		);
 		// Close forbids a new target, a name, an owner, a rename, a retype,
 		// and links — and keeps its writes, so "record and close" is one change.
 		expect(asClose.action).toBe("close");
@@ -259,9 +264,35 @@ describe("changing what a change does", () => {
 	it("still passes the gate after the change of action", () => {
 		const { doc, formUuid } = caseFirstDoc();
 		for (const action of ["update", "close"] as const) {
-			const reshaped = reshapeForAction(create, action, { kind: "session" });
+			const reshaped = reshapeForAction(
+				create,
+				action,
+				{ kind: "session" },
+				"patient",
+			);
 			expect(commits(doc, formUuid, reshaped).ok).toBe(true);
 		}
+	});
+
+	it("retargets both identity and type when a referral create becomes a patient update", () => {
+		const referral = seedCaseOperation(
+			{ kind: "create", caseType: "referral" },
+			new Set(),
+		);
+		const reshaped = reshapeForAction(
+			referral,
+			"update",
+			{ kind: "session" },
+			"patient",
+		);
+		expect(reshaped).toMatchObject({
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+		});
+		expect(reshaped).not.toHaveProperty("name");
+		const { doc, formUuid } = caseFirstDoc();
+		expect(commits(doc, formUuid, reshaped).ok).toBe(true);
 	});
 
 	it("names what the author would lose, so the confirmation can say it", () => {

@@ -25,7 +25,9 @@ import { useCallback, useMemo } from "react";
 import { type CaseOperation, orderedCaseOperations } from "@/lib/domain";
 import {
 	addCaseOperationMutations,
+	type CaseOperationEditVerdict,
 	type CaseOperationMutationPlan,
+	caseOperationEditVerdict,
 	moveCaseOperationMutation,
 	removeCaseOperationMutation,
 	updateCaseOperationMutations,
@@ -62,6 +64,8 @@ export interface CaseOperationsView {
 	) => ReadonlyMap<number, CaseOperationMoveVerdict>;
 	/** Whether removal is allowed, and what blocks it. */
 	readonly removalPlan: (uuid: Uuid) => CaseOperationMutationPlan;
+	/** Whether one complete edited shape can pass the shared commit gate. */
+	readonly editVerdict: (operation: CaseOperation) => CaseOperationEditVerdict;
 	readonly add: (operation: CaseOperation, index?: number) => CommitOutcome;
 	readonly update: (operation: CaseOperation) => CommitOutcome;
 	readonly remove: (uuid: Uuid) => CommitOutcome | undefined;
@@ -132,6 +136,11 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		(uuid: Uuid) => removeCaseOperationMutation(doc, formUuid, uuid),
 		[doc, formUuid],
 	);
+	const editVerdict = useCallback(
+		(operation: CaseOperation) =>
+			caseOperationEditVerdict(doc, formUuid, operation),
+		[doc, formUuid],
+	);
 
 	/* Inline, not toasting: a refusal belongs beside the list it is about,
 	 * and these surfaces all have somewhere to put it. */
@@ -181,6 +190,7 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		dependenciesOf,
 		moveVerdicts,
 		removalPlan,
+		editVerdict,
 		add,
 		update,
 		remove,

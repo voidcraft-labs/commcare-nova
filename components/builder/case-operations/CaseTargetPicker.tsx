@@ -79,6 +79,20 @@ function selfReason(
 		: undefined;
 }
 
+type TargetChoiceVerdict =
+	| { readonly ok: true }
+	| { readonly ok: false; readonly reason: string };
+
+function rejectedReason(
+	target: CaseTarget | null,
+	choiceVerdict:
+		| ((candidate: CaseTarget | null) => TargetChoiceVerdict)
+		| undefined,
+): string | undefined {
+	const verdict = choiceVerdict?.(target);
+	return verdict !== undefined && !verdict.ok ? verdict.reason : undefined;
+}
+
 function label(
 	target: CaseTarget | null,
 	context: TargetChoiceContext,
@@ -106,20 +120,50 @@ export function CaseTargetPicker({
 	value,
 	context,
 	ariaLabel,
+	choiceVerdict,
+	disabled = false,
 	onChange,
 }: {
 	readonly value: CaseTarget | null;
 	readonly context: TargetChoiceContext;
 	readonly ariaLabel: string;
+	/** The shared commit verdict for an otherwise available target. */
+	readonly choiceVerdict?: (
+		candidate: CaseTarget | null,
+	) => TargetChoiceVerdict;
+	/** Explicit read-only/viewer state for the trigger. */
+	readonly disabled?: boolean;
 	readonly onChange: (next: CaseTarget | null) => void;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const current = label(value, context);
+	const effectiveVerdict = disabled ? undefined : choiceVerdict;
+	const noneReason = context.allowsNone
+		? rejectedReason(null, effectiveVerdict)
+		: undefined;
+	const newTarget = { kind: "new" } as const;
+	const newReason = context.newOnly
+		? rejectedReason(newTarget, effectiveVerdict)
+		: undefined;
+	const sessionTarget = { kind: "session" } as const;
+	const sessionReason = context.newOnly
+		? undefined
+		: (selfReason(sessionTarget, context) ??
+			context.sessionUnavailableReason ??
+			rejectedReason(sessionTarget, effectiveVerdict));
+	const expressionTarget = {
+		kind: "expression",
+		expr: term(literal("")),
+	} as const;
+	const expressionReason = context.newOnly
+		? undefined
+		: rejectedReason(expressionTarget, effectiveVerdict);
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				ref={triggerRef}
+				disabled={disabled}
 				aria-label={`${ariaLabel}: ${current}`}
 				render={
 					<Button
@@ -153,7 +197,11 @@ export function CaseTargetPicker({
 							<Choice
 								active={value === null}
 								title="Remove this connection"
-								detail="Break the link instead of pointing it somewhere"
+								detail={
+									noneReason ??
+									"Break the link instead of pointing it somewhere"
+								}
+								disabled={noneReason !== undefined}
 								onClick={() => onChange(null)}
 							/>
 						)}
@@ -161,8 +209,11 @@ export function CaseTargetPicker({
 							<Choice
 								active={value?.kind === "new"}
 								title="A new case"
-								detail="This change brings the case into existence"
-								onClick={() => onChange({ kind: "new" })}
+								detail={
+									newReason ?? "This change brings the case into existence"
+								}
+								disabled={newReason !== undefined}
+								onClick={() => onChange(newTarget)}
 							/>
 						) : (
 							<>
@@ -170,19 +221,17 @@ export function CaseTargetPicker({
 									active={value?.kind === "session"}
 									title="The case this form opened"
 									detail={
-										selfReason({ kind: "session" }, context) ??
-										context.sessionUnavailableReason ??
+										sessionReason ??
 										"The case someone picked before opening this form"
 									}
-									disabled={
-										selfReason({ kind: "session" }, context) !== undefined ||
-										context.sessionUnavailableReason !== undefined
-									}
-									onClick={() => onChange({ kind: "session" })}
+									disabled={sessionReason !== undefined}
+									onClick={() => onChange(sessionTarget)}
 								/>
 								{context.priorCreates.map((create) => {
 									const target = { kind: "op", opUuid: create.uuid } as const;
-									const self = selfReason(target, context);
+									const reason =
+										selfReason(target, context) ??
+										rejectedReason(target, effectiveVerdict);
 									return (
 										<Choice
 											key={create.uuid}
@@ -191,9 +240,10 @@ export function CaseTargetPicker({
 											}
 											title={`The case from \u201c${create.label}\u201d`}
 											detail={
-												self ?? "A case an earlier change in this form creates"
+												reason ??
+												"A case an earlier change in this form creates"
 											}
-											disabled={self !== undefined}
+											disabled={reason !== undefined}
 											onClick={() => onChange(target)}
 										/>
 									);
@@ -201,13 +251,12 @@ export function CaseTargetPicker({
 								<Choice
 									active={value?.kind === "expression"}
 									title="A case found by a calculation"
-									detail="Work the case id out from the answers \u2014 edit it on this screen"
-									onClick={() =>
-										onChange({
-											kind: "expression",
-											expr: term(literal("")),
-										})
+									detail={
+										expressionReason ??
+										"Work the case id out from the answers \u2014 edit it on this screen"
 									}
+									disabled={expressionReason !== undefined}
+									onClick={() => onChange(expressionTarget)}
 								/>
 							</>
 						)}

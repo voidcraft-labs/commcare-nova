@@ -233,6 +233,7 @@ export function reshapeForAction(
 	operation: CaseOperation,
 	action: CaseOperation["action"],
 	fallbackTarget: CaseTarget,
+	fallbackCaseType: string,
 ): CaseOperation {
 	const base = {
 		...operation,
@@ -253,10 +254,13 @@ export function reshapeForAction(
 	}
 	const target: CaseTarget =
 		operation.target.kind === "new" ? fallbackTarget : operation.target;
+	const caseType =
+		operation.target.kind === "new" ? fallbackCaseType : operation.caseType;
 	if (action === "update") {
 		return stripUndefined({
 			...base,
 			target,
+			caseType,
 			owner: operation.owner,
 			rename: operation.rename,
 			retype: operation.retype,
@@ -264,7 +268,7 @@ export function reshapeForAction(
 	}
 	// Close forbids owner, rename, retype, and links — but keeps its writes,
 	// so "record the outcome and close" stays one operation.
-	return stripUndefined({ ...base, target, links: undefined });
+	return stripUndefined({ ...base, target, caseType, links: undefined });
 }
 
 /** What changing to `action` would discard, in the author's words. */

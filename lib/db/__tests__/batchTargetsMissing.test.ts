@@ -17,7 +17,17 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { asUuid, type BlueprintDoc, type CaseOperation } from "@/lib/domain";
+
+const OPERATION = asUuid("11111111-1111-4111-8111-111111111111");
+const OTHER_OPERATION = asUuid("22222222-2222-4222-8222-222222222222");
+
+function value(value: string) {
+	return {
+		kind: "term" as const,
+		term: { kind: "literal" as const, value },
+	};
+}
 
 /**
  * A doc with one case-list module (a column + a search input), a survey form
@@ -33,6 +43,7 @@ function fixture(): {
 	columnUuid: string;
 	searchInputUuid: string;
 	optionUuid: string;
+	operationUuid: string;
 } {
 	const doc = buildDoc({
 		modules: [
@@ -97,6 +108,26 @@ function fixture(): {
 		} as unknown as (typeof mod.caseListConfig.searchInputs)[number],
 	];
 	const columnUuid = mod.caseListConfig.columns[0].uuid;
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: OPERATION,
+			id: "create_patient",
+			order: "a",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: value("Patient"),
+			writes: [{ property: "status", value: value("open") }],
+			links: [
+				{
+					identifier: "parent",
+					targetType: "household",
+					target: null,
+					relationship: "child",
+				},
+			],
+		},
+	];
 
 	const select = doc.fields[selectField.uuid] as {
 		options: { value: string; uuid?: string }[];
@@ -114,6 +145,7 @@ function fixture(): {
 		columnUuid,
 		searchInputUuid,
 		optionUuid,
+		operationUuid: OPERATION,
 	};
 }
 
@@ -543,6 +575,276 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 			} as Mutation,
 		];
 		expect(batchTargetsMissing(doc, batch)).toBe(false);
+	});
+});
+
+describe("batchTargetsMissing — case-operation logical identities", () => {
+	function operationIn(doc: BlueprintDoc, formUuid: string): CaseOperation {
+		const operation = doc.forms[formUuid]?.caseOperations?.[0];
+		if (operation === undefined) throw new Error("fixture operation missing");
+		return operation;
+	}
+
+	function granular(
+		formUuid: string,
+		fallback: CaseOperation,
+		caseOperationPatch: NonNullable<
+			Extract<Mutation, { kind: "updateForm" }>["caseOperationPatch"]
+		>,
+	): Mutation {
+		return {
+			kind: "updateForm",
+			uuid: asUuid(formUuid),
+			patch: {},
+			caseOperationChange: {
+				operation: "update",
+				uuid: fallback.uuid,
+				value: fallback,
+			},
+			caseOperationPatch,
+		};
+	}
+
+	it("rejects a scalar/move/write/link edit after a peer removed its target", () => {
+		const { doc, formUuid } = fixture();
+		const operation = operationIn(doc, formUuid);
+		const withoutOperation = structuredClone(doc);
+		delete withoutOperation.forms[formUuid].caseOperations;
+		const operationEdits: Mutation[] = [
+			granular(
+				formUuid,
+				{ ...operation, id: "renamed" },
+				{
+					operation: "update",
+					uuid: OPERATION,
+					patch: { id: "renamed" },
+				},
+			),
+			granular(
+				formUuid,
+				{ ...operation, order: "z" },
+				{ operation: "move", uuid: OPERATION, order: "z" },
+			),
+		];
+		for (const mutation of operationEdits) {
+			expect(batchTargetsMissing(withoutOperation, [mutation])).toBe(true);
+		}
+
+		const withoutWrite = structuredClone(doc);
+		delete withoutWrite.forms[formUuid].caseOperations?.[0]?.writes;
+		expect(
+			batchTargetsMissing(withoutWrite, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						writes: [{ property: "status", value: value("closed") }],
+					},
+					{
+						operation: "update-write",
+						uuid: OPERATION,
+						property: "status",
+						patch: { value: value("closed") },
+					},
+				),
+			]),
+		).toBe(true);
+
+		const withoutLink = structuredClone(doc);
+		delete withoutLink.forms[formUuid].caseOperations?.[0]?.links;
+		expect(
+			batchTargetsMissing(withoutLink, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						links: [
+							{
+								identifier: "parent",
+								targetType: "household",
+								target: null,
+								relationship: "extension",
+							},
+						],
+					},
+					{
+						operation: "update-link",
+						uuid: OPERATION,
+						identifier: "parent",
+						patch: { relationship: "extension" },
+					},
+				),
+			]),
+		).toBe(true);
+	});
+
+	it("rejects operation/write/link adds whose logical key a peer already added", () => {
+		const { doc, formUuid } = fixture();
+		const operation = operationIn(doc, formUuid);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: {
+						operation: "add",
+						value: { ...operation, uuid: OPERATION },
+					},
+				},
+			]),
+		).toBe(true);
+
+		const peerWrite = { property: "note", value: value("peer") };
+		const withPeerWrite = structuredClone(doc);
+		withPeerWrite.forms[formUuid].caseOperations?.[0]?.writes?.push(peerWrite);
+		expect(
+			batchTargetsMissing(withPeerWrite, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						writes: [...(operation.writes ?? []), peerWrite],
+					},
+					{
+						operation: "add-write",
+						uuid: OPERATION,
+						value: peerWrite,
+						index: 1,
+					},
+				),
+			]),
+		).toBe(true);
+
+		const peerLink = {
+			identifier: "household",
+			targetType: "household",
+			target: null,
+			relationship: "child" as const,
+		};
+		const withPeerLink = structuredClone(doc);
+		withPeerLink.forms[formUuid].caseOperations?.[0]?.links?.push(peerLink);
+		expect(
+			batchTargetsMissing(withPeerLink, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						links: [...(operation.links ?? []), peerLink],
+					},
+					{
+						operation: "add-link",
+						uuid: OPERATION,
+						value: peerLink,
+						index: 1,
+					},
+				),
+			]),
+		).toBe(true);
+	});
+
+	it("advances births, removals, and full replacements across one batch", () => {
+		const { doc, formUuid } = fixture();
+		const operation = operationIn(doc, formUuid);
+		const born: CaseOperation = {
+			...operation,
+			uuid: OTHER_OPERATION,
+			id: "born",
+			writes: [{ property: "note", value: value("born") }],
+			links: undefined,
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: { operation: "add", value: born },
+				},
+				granular(
+					formUuid,
+					{ ...born, id: "born_renamed" },
+					{
+						operation: "update",
+						uuid: OTHER_OPERATION,
+						patch: { id: "born_renamed" },
+					},
+				),
+			]),
+		).toBe(false);
+
+		const replaced = {
+			...operation,
+			writes: [{ property: "note", value: value("replacement") }],
+			links: undefined,
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: {
+						operation: "update",
+						uuid: OPERATION,
+						value: replaced,
+					},
+				},
+				granular(
+					formUuid,
+					{
+						...replaced,
+						writes: [{ property: "note", value: value("next") }],
+					},
+					{
+						operation: "update-write",
+						uuid: OPERATION,
+						property: "note",
+						patch: { value: value("next") },
+					},
+				),
+			]),
+		).toBe(false);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: {
+						operation: "update",
+						uuid: OPERATION,
+						value: replaced,
+					},
+				},
+				granular(formUuid, replaced, {
+					operation: "update-write",
+					uuid: OPERATION,
+					property: "status",
+					patch: { value: value("lost") },
+				}),
+			]),
+		).toBe(true);
+
+		expect(
+			batchTargetsMissing(doc, [
+				granular(
+					formUuid,
+					{ ...operation, writes: undefined },
+					{
+						operation: "remove-write",
+						uuid: OPERATION,
+						property: "status",
+					},
+				),
+				granular(formUuid, operation, {
+					operation: "update-write",
+					uuid: OPERATION,
+					property: "status",
+					patch: { value: value("too-late") },
+				}),
+			]),
+		).toBe(true);
 	});
 });
 

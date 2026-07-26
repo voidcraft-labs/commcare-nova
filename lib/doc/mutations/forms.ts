@@ -121,14 +121,9 @@ export function applyFormMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
-			const change = mut.caseOperationChange;
-			if (change === undefined) return;
 			const operations = form.caseOperations ?? [];
 			const operation = (
-				uuid: Extract<
-					NonNullable<typeof mut.caseOperationChange>,
-					{ uuid: unknown }
-				>["uuid"],
+				uuid: NonNullable<typeof mut.caseOperationPatch>["uuid"],
 			) => operations.find((candidate) => candidate.uuid === uuid);
 			const applyPatch = (
 				target: Record<string, unknown>,
@@ -139,6 +134,124 @@ export function applyFormMutation(
 					else target[key] = value;
 				}
 			};
+
+			/* The established fallback and current granular extension deliberately
+			 * have different consumers. A current reducer applies ONLY the granular
+			 * intent when present so peer edits to other slots compose. An event from
+			 * an immediate-parent tab has no extension, so it takes the exact
+			 * full-operation fallback path that tab authored. */
+			const semantic = mut.caseOperationPatch;
+			if (semantic !== undefined) {
+				switch (semantic.operation) {
+					case "update": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						applyPatch(
+							current as unknown as Record<string, unknown>,
+							semantic.patch as Record<string, unknown>,
+						);
+						form.caseOperations = operations;
+						return;
+					}
+					case "add-write": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const writes = current.writes ?? [];
+						if (
+							writes.some((write) => write.property === semantic.value.property)
+						) {
+							return;
+						}
+						const index = Math.max(
+							0,
+							Math.min(semantic.index ?? writes.length, writes.length),
+						);
+						writes.splice(index, 0, semantic.value);
+						current.writes = writes;
+						form.caseOperations = operations;
+						return;
+					}
+					case "update-write": {
+						const current = operation(semantic.uuid);
+						const write = current?.writes?.find(
+							(candidate) => candidate.property === semantic.property,
+						);
+						if (write === undefined) return;
+						applyPatch(
+							write as unknown as Record<string, unknown>,
+							semantic.patch as Record<string, unknown>,
+						);
+						form.caseOperations = operations;
+						return;
+					}
+					case "remove-write": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const writes = (current.writes ?? []).filter(
+							(write) => write.property !== semantic.property,
+						);
+						if (writes.length === 0) delete current.writes;
+						else current.writes = writes;
+						form.caseOperations = operations;
+						return;
+					}
+					case "add-link": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const links = current.links ?? [];
+						if (
+							links.some(
+								(link) => link.identifier === semantic.value.identifier,
+							)
+						) {
+							return;
+						}
+						const index = Math.max(
+							0,
+							Math.min(semantic.index ?? links.length, links.length),
+						);
+						links.splice(index, 0, semantic.value);
+						current.links = links;
+						form.caseOperations = operations;
+						return;
+					}
+					case "update-link": {
+						const current = operation(semantic.uuid);
+						const link = current?.links?.find(
+							(candidate) => candidate.identifier === semantic.identifier,
+						);
+						if (link === undefined) return;
+						applyPatch(
+							link as unknown as Record<string, unknown>,
+							semantic.patch as Record<string, unknown>,
+						);
+						form.caseOperations = operations;
+						return;
+					}
+					case "remove-link": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const links = (current.links ?? []).filter(
+							(link) => link.identifier !== semantic.identifier,
+						);
+						if (links.length === 0) delete current.links;
+						else current.links = links;
+						form.caseOperations = operations;
+						return;
+					}
+					case "move": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						if (semantic.order === null) delete current.order;
+						else current.order = semantic.order;
+						form.caseOperations = operations;
+						return;
+					}
+				}
+			}
+
+			const change = mut.caseOperationChange;
+			if (change === undefined) return;
 			switch (change.operation) {
 				case "add":
 					if (
@@ -151,96 +264,11 @@ export function applyFormMutation(
 					}
 					return;
 				case "update": {
-					const current = operation(change.uuid);
-					if (current === undefined) return;
-					applyPatch(
-						current as unknown as Record<string, unknown>,
-						change.patch as Record<string, unknown>,
+					const index = operations.findIndex(
+						(operation) => operation.uuid === change.uuid,
 					);
-					form.caseOperations = operations;
-					return;
-				}
-				case "add-write": {
-					const current = operation(change.uuid);
-					if (current === undefined) return;
-					const writes = current.writes ?? [];
-					if (
-						writes.some((write) => write.property === change.value.property)
-					) {
-						return;
-					}
-					const index = Math.max(
-						0,
-						Math.min(change.index ?? writes.length, writes.length),
-					);
-					writes.splice(index, 0, change.value);
-					current.writes = writes;
-					form.caseOperations = operations;
-					return;
-				}
-				case "update-write": {
-					const current = operation(change.uuid);
-					const write = current?.writes?.find(
-						(candidate) => candidate.property === change.property,
-					);
-					if (write === undefined) return;
-					applyPatch(
-						write as unknown as Record<string, unknown>,
-						change.patch as Record<string, unknown>,
-					);
-					form.caseOperations = operations;
-					return;
-				}
-				case "remove-write": {
-					const current = operation(change.uuid);
-					if (current === undefined) return;
-					const writes = (current.writes ?? []).filter(
-						(write) => write.property !== change.property,
-					);
-					if (writes.length === 0) delete current.writes;
-					else current.writes = writes;
-					form.caseOperations = operations;
-					return;
-				}
-				case "add-link": {
-					const current = operation(change.uuid);
-					if (current === undefined) return;
-					const links = current.links ?? [];
-					if (
-						links.some((link) => link.identifier === change.value.identifier)
-					) {
-						return;
-					}
-					const index = Math.max(
-						0,
-						Math.min(change.index ?? links.length, links.length),
-					);
-					links.splice(index, 0, change.value);
-					current.links = links;
-					form.caseOperations = operations;
-					return;
-				}
-				case "update-link": {
-					const current = operation(change.uuid);
-					const link = current?.links?.find(
-						(candidate) => candidate.identifier === change.identifier,
-					);
-					if (link === undefined) return;
-					applyPatch(
-						link as unknown as Record<string, unknown>,
-						change.patch as Record<string, unknown>,
-					);
-					form.caseOperations = operations;
-					return;
-				}
-				case "remove-link": {
-					const current = operation(change.uuid);
-					if (current === undefined) return;
-					const links = (current.links ?? []).filter(
-						(link) => link.identifier !== change.identifier,
-					);
-					if (links.length === 0) delete current.links;
-					else current.links = links;
+					if (index === -1) return;
+					operations[index] = change.value;
 					form.caseOperations = operations;
 					return;
 				}
@@ -254,10 +282,11 @@ export function applyFormMutation(
 					return;
 				}
 				case "move": {
-					const current = operation(change.uuid);
+					const current = operations.find(
+						(candidate) => candidate.uuid === change.uuid,
+					);
 					if (current === undefined) return;
-					if (change.order === null) delete current.order;
-					else current.order = change.order;
+					current.order = change.order;
 					form.caseOperations = operations;
 					return;
 				}

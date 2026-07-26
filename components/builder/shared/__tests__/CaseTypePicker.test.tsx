@@ -141,6 +141,109 @@ describe("CaseTypePicker", () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
+	it("explains context-incompatible choices and never dispatches them", () => {
+		const onChange = vi.fn();
+		render(
+			<CaseTypePickerContent
+				onChange={onChange}
+				choiceVerdict={(name) =>
+					name === "client_record"
+						? {
+								ok: false,
+								reason: "The case in hand is a household.",
+							}
+						: { ok: true }
+				}
+			/>,
+		);
+
+		const client = screen.getByRole("button", { name: "Client record" });
+		expect((client as HTMLButtonElement).disabled).toBe(true);
+		expect(screen.getByText("The case in hand is a household.")).toBeDefined();
+		fireEvent.click(client);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("gives a useful empty explanation when no existing type can commit", () => {
+		render(
+			<CaseTypePickerContent
+				onChange={vi.fn()}
+				choiceVerdict={() => ({
+					ok: false,
+					reason: "A later case change still expects the current type.",
+				})}
+			/>,
+		);
+		expect(
+			screen.getByText(
+				"No compatible existing case types. Each choice below explains what must change first.",
+			),
+		).toBeDefined();
+		expect(
+			screen.getAllByText(
+				"A later case change still expects the current type.",
+			),
+		).toHaveLength(2);
+	});
+
+	it("adjudicates a new type and a clear through the same context verdict", () => {
+		const onChange = vi.fn();
+		const onClear = vi.fn();
+		render(
+			<CaseTypePickerContent
+				value="client_record"
+				onChange={onChange}
+				onClear={onClear}
+				clearLabel="Keep the current type"
+				clearVerdict={{
+					ok: false,
+					reason: "A later change depends on this type change.",
+				}}
+				choiceVerdict={(name) =>
+					name === "new_type"
+						? {
+								ok: false,
+								reason: "The selected case cannot have that type here.",
+							}
+						: { ok: true }
+				}
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText("Create case type"), {
+			target: { value: "New type" },
+		});
+		expect(
+			screen.getByText("The selected case cannot have that type here."),
+		).toBeDefined();
+		expect(
+			(screen.getByRole("button", { name: "Create" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
+		const clear = screen.getByRole("button", {
+			name: /Keep the current type/,
+		});
+		expect((clear as HTMLButtonElement).disabled).toBe(true);
+		expect(
+			screen.getByText("A later change depends on this type change."),
+		).toBeDefined();
+		fireEvent.click(clear);
+		expect(onChange).not.toHaveBeenCalled();
+		expect(onClear).not.toHaveBeenCalled();
+	});
+
+	it("renders an explicitly disabled trigger in viewer mode", () => {
+		render(
+			<CaseTypePicker value="client_record" onChange={vi.fn()} disabled />,
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Case type: Client record",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(true);
+	});
+
 	it("reveals stored values only when friendly labels collide", async () => {
 		state.caseTypes = [{ name: "home_visit" }, { name: "home-visit" }];
 		vi.stubGlobal("ResizeObserver", ResizeObserverStub);
